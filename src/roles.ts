@@ -7,11 +7,12 @@ import { supabase } from './sync'
  * fonctionner hors ligne.
  */
 
+// La valeur technique « preparateur » est conservée côté serveur ; seul le libellé affiché change.
 export type Role = 'admin' | 'preparateur' | 'observateur'
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: 'Administrateur',
-  preparateur: 'Préparateur',
+  preparateur: 'Encadrant',
   observateur: 'Observateur',
 }
 

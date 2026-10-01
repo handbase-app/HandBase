@@ -1,8 +1,8 @@
--- HandBase : rôles du staff (administrateur, préparateur, observateur).
+-- HandBase : rôles du staff (administrateur, encadrant, observateur).
 -- À exécuter une fois dans Supabase > SQL Editor, APRÈS schema.sql.
 --
 --  admin        : tout, y compris les critères, les suppressions de joueurs et les rôles.
---  preparateur  : joueurs (sans les supprimer), mesures, événements, ses propres avis.
+--  preparateur  : (affiché « Encadrant » dans l'appli) joueurs (sans les supprimer), mesures, événements, ses propres avis.
 --  observateur  : lecture de tout, ses propres avis, création d'événements.
 --
 -- Les droits sont vérifiés ici, côté serveur : l'appli ne fait que masquer les boutons.

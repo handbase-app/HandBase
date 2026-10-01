@@ -40,7 +40,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Rôle | Droits |
 |---|---|
 | Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
-| Préparateur | Fiches joueurs (sans suppression), tests physiques, événements, ses avis |
+| Encadrant | Fiches joueurs (sans suppression), tests physiques, événements, ses avis |
 | Observateur | Consulte tout, donne ses propres avis, crée des événements |
 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
