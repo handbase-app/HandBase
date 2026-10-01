@@ -6,6 +6,7 @@ import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ask, inform } from '../components/Confirm'
+import { can, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -19,6 +20,7 @@ export default function Settings() {
   const [me, setMe] = useMe()
   const [draft, setDraft] = useState(me)
   const [msg, setMsg] = useState('')
+  const role = useRole()
 
   return (
     <div className="flex flex-col gap-4">
@@ -45,7 +47,18 @@ export default function Settings() {
 
       <Account />
 
-      <CriteriaEditor />
+      {supabase && <PasswordChange />}
+
+      {supabase && can.manageRoles(role) && <Members />}
+
+      {can.editCriteria(role) ? (
+        <CriteriaEditor />
+      ) : (
+        <section className="card p-4">
+          <div className="section-title">Critères</div>
+          <p className="text-[11px] text-muted">Seuls les administrateurs peuvent modifier la liste des critères.</p>
+        </section>
+      )}
 
       <section className="card flex flex-col gap-2 p-4">
         <div className="section-title">Sauvegarde</div>
@@ -53,6 +66,7 @@ export default function Settings() {
           <button className="btn-ghost flex-1 text-xs" onClick={() => void exportBackup()}>
             Exporter (JSON)
           </button>
+          {can.editCriteria(role) && (
           <label className="btn-ghost flex-1 cursor-pointer text-xs">
             Importer
             <input
@@ -70,10 +84,12 @@ export default function Settings() {
               }}
             />
           </label>
+          )}
         </div>
         {msg && <p className="text-[11px] text-emerald-300">{msg}</p>}
       </section>
 
+      {can.loadDemo(role) && (
       <section className="card flex flex-col gap-2 p-4">
         <div className="section-title">Données de démonstration</div>
         <p className="text-[11px] text-muted">
@@ -102,6 +118,7 @@ export default function Settings() {
           </button>
         </div>
       </section>
+      )}
     </div>
   )
 }
@@ -109,6 +126,7 @@ export default function Settings() {
 function Account() {
   const { state, lastError } = useSyncState()
   const [email, setEmail] = useState('')
+  const role = useRole()
 
   useEffect(() => {
     void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
@@ -132,6 +150,9 @@ function Account() {
       <p className="text-xs">
         Connecté : <b>{email}</b>
       </p>
+      <p className="text-xs">
+        Rôle : <b className="text-accent">{ROLE_LABEL[role]}</b> <span className="text-[11px] text-muted">— {ROLE_HELP[role]}</span>
+      </p>
       <p className="text-[11px] text-muted">
         Synchronisation : {label}
         {lastError && ` — ${lastError}`}
@@ -147,6 +168,148 @@ function Account() {
           Se déconnecter
         </button>
       </div>
+    </section>
+  )
+}
+
+function PasswordChange() {
+  const [open, setOpen] = useState(false)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function submit() {
+    setMsg(null)
+    if (next.length < 8) return setMsg({ ok: false, text: 'Le nouveau mot de passe doit faire au moins 8 caractères.' })
+    if (next !== confirm) return setMsg({ ok: false, text: 'Les deux nouveaux mots de passe ne sont pas identiques.' })
+    if (next === current) return setMsg({ ok: false, text: 'Le nouveau mot de passe doit être différent de l’actuel.' })
+    if (!navigator.onLine) return setMsg({ ok: false, text: 'Il faut être connecté à internet pour changer de mot de passe.' })
+    setBusy(true)
+    try {
+      const { data } = await supabase!.auth.getSession()
+      const email = data.session?.user.email
+      if (!email) return setMsg({ ok: false, text: 'Session introuvable : reconnecte-toi.' })
+      // On vérifie d'abord le mot de passe actuel.
+      const check = await supabase!.auth.signInWithPassword({ email, password: current })
+      if (check.error) return setMsg({ ok: false, text: 'Mot de passe actuel incorrect.' })
+      const { error } = await supabase!.auth.updateUser({ password: next })
+      if (error) return setMsg({ ok: false, text: `Changement refusé : ${error.message}` })
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+      setMsg({ ok: true, text: 'Mot de passe changé.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card flex flex-col gap-2 p-4">
+      <div className="flex items-center justify-between">
+        <div className="section-title mb-0">Mot de passe</div>
+        <button className="btn-ghost px-3 py-1 text-xs" onClick={() => (setOpen((o) => !o), setMsg(null))}>
+          {open ? 'Fermer' : 'Changer mon mot de passe'}
+        </button>
+      </div>
+      {open && (
+        <form
+          className="mt-1 flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void submit()
+          }}
+        >
+          <input className="field" type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          <input className="field" type="password" autoComplete="new-password" placeholder="Nouveau mot de passe (8 caractères min.)" value={next} onChange={(e) => setNext(e.target.value)} required />
+          <input className="field" type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+          <button className="btn-primary" disabled={busy}>
+            {busy ? 'Enregistrement…' : 'Enregistrer le nouveau mot de passe'}
+          </button>
+        </form>
+      )}
+      {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
+    </section>
+  )
+}
+
+interface Profile {
+  user_id: string
+  email: string | null
+  full_name: string | null
+  role: Role
+}
+
+/** Liste du staff et attribution des rôles (administrateurs). */
+function Members() {
+  const [list, setList] = useState<Profile[] | null>(null)
+  const [me, setMe] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+
+  async function load() {
+    setErr('')
+    const [{ data: s }, { data, error }] = await Promise.all([
+      supabase!.auth.getSession(),
+      supabase!.from('hb_profiles').select('user_id, email, full_name, role').order('created_at'),
+    ])
+    setMe(s.session?.user.id ?? null)
+    if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'Liste disponible uniquement en ligne.')
+    else setList(data as Profile[])
+  }
+  useEffect(() => {
+    void load()
+  }, [])
+
+  async function change(p: Profile, role: Role) {
+    if (p.user_id === me && role !== 'admin' && !(await ask('Retirer tes propres droits d’administrateur ?', { ok: 'Confirmer' }))) return
+    const { error } = await supabase!.rpc('hb_set_role', { p_user: p.user_id, p_role: role })
+    if (error) return inform(error.message)
+    await load()
+    if (p.user_id === me) await refreshRole()
+  }
+
+  const ref = new URL(import.meta.env.VITE_SUPABASE_URL as string).hostname.split('.')[0]
+
+  return (
+    <section className="card flex flex-col gap-2 p-4">
+      <div className="section-title">Membres du staff</div>
+      {err && <p className="text-[11px] text-red-300">{err}</p>}
+      {list && (
+        <div className="divide-y divide-line rounded-lg border border-line">
+          {list.map((p) => (
+            <div key={p.user_id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-bold">
+                  {p.full_name || '(nom pas encore choisi)'} {p.user_id === me && <span className="text-muted">— toi</span>}
+                </div>
+                <div className="truncate text-[10px] text-muted">{p.email}</div>
+              </div>
+              <select className="field w-40 py-1 text-xs" value={p.role} onChange={(e) => void change(p, e.target.value as Role)}>
+                {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABEL[r]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+      <ul className="text-[11px] text-muted">
+        {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
+          <li key={r}>
+            <b className="text-white">{ROLE_LABEL[r]}</b> : {ROLE_HELP[r]}
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-muted">
+        Ajouter quelqu’un : crée son compte dans{' '}
+        <a className="font-bold text-accent" href={`https://supabase.com/dashboard/project/${ref}/auth/users`} target="_blank" rel="noreferrer">
+          Supabase → Users
+        </a>{' '}
+        (cocher « Auto Confirm User »). Il arrive comme observateur ; change son rôle ici.
+      </p>
     </section>
   )
 }

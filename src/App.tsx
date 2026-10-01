@@ -22,13 +22,14 @@ function SyncBadge() {
     synced: { dot: 'bg-emerald-400', text: 'Synchronisé' },
     error: { dot: 'bg-red-500', text: 'Erreur synchro' },
   }[state]
+  const warn = state === 'synced' && !!lastError
   return (
     <button
       onClick={() => void syncNow()}
       title={lastError || (state === 'local' ? 'Données enregistrées sur cet appareil uniquement' : '')}
       className="flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
     >
-      <span className={`h-2 w-2 rounded-full ${map.dot}`} />
+      <span className={`h-2 w-2 rounded-full ${warn ? 'bg-amber-400' : map.dot}`} />
       {map.text}
       {state !== 'local' && pending > 0 && <span className="text-amber-300">· {pending} en attente</span>}
     </button>

@@ -5,6 +5,7 @@ import { CourtPicker } from '../components/CourtPicker'
 import { CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, newId, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
+import { can, useRole } from '../roles'
 
 type Values = Record<string, number | string | undefined>
 
@@ -12,6 +13,7 @@ export default function PlayerForm() {
   const { id } = useParams()
   const editing = !!id
   const nav = useNavigate()
+  const role = useRole()
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'factual')))
   const [p, setP] = useState<Partial<Player>>({})
   const [values, setValues] = useState<Values>({})
@@ -60,6 +62,8 @@ export default function PlayerForm() {
     nav(`/joueurs/${player.id}`, { replace: true })
   }
 
+  if (!can.editPlayers(role))
+    return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier les fiches.</div>
   if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   const shown = criteria.filter((c) => criterionApplies(c, p.position))

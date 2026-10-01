@@ -8,10 +8,12 @@ import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../c
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
+import { can, useRole } from '../roles'
 
 export default function PlayerDetail() {
   const { id } = useParams()
   const nav = useNavigate()
+  const role = useRole()
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
     if (!player) return null
@@ -65,11 +67,13 @@ export default function PlayerDetail() {
         <button onClick={() => nav('/joueurs')} className="text-xs font-bold text-muted">
           ← JOUEURS
         </button>
+        {can.deletePlayers(role) && (
         <button onClick={() => void del()} className="text-muted hover:text-red-400" title="Supprimer">
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" />
           </svg>
         </button>
+        )}
       </div>
 
       <div className="flex items-center gap-4">
@@ -113,7 +117,7 @@ export default function PlayerDetail() {
 
       <MaturityCard player={p} measurements={measurements} />
 
-      <Tracking playerId={p.id} criteria={factual} measurements={measurements} />
+      <Tracking playerId={p.id} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
 
       {/* Avis subjectifs */}
       <div className="card p-4">
@@ -136,15 +140,27 @@ export default function PlayerDetail() {
         </div>
       )}
 
-      <Link to={`/joueurs/${p.id}/modifier`} className="btn-primary">
-        Modifier la fiche
-      </Link>
+      {can.editPlayers(role) && (
+        <Link to={`/joueurs/${p.id}/modifier`} className="btn-primary">
+          Modifier la fiche
+        </Link>
+      )}
     </div>
   )
 }
 
 /** « Suivi des mesures » : courbe d'évolution d'un critère factuel + ajout d'une mesure. */
-function Tracking({ playerId, criteria, measurements }: { playerId: string; criteria: Criterion[]; measurements: Measurement[] }) {
+function Tracking({
+  playerId,
+  criteria,
+  measurements,
+  editable,
+}: {
+  playerId: string
+  criteria: Criterion[]
+  measurements: Measurement[]
+  editable: boolean
+}) {
   const withData = criteria.filter((c) => c.scale !== 'text' && measurements.some((m) => m.criterionId === c.id))
   const [cid, setCid] = useState<string>('')
   const current = withData.find((c) => c.id === cid) ?? withData[0]
@@ -177,12 +193,14 @@ function Tracking({ playerId, criteria, measurements }: { playerId: string; crit
         <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
           <span className="text-accent">↗</span> Suivi des mesures
         </div>
-        <button className="btn-primary px-2.5 py-1 text-xs" onClick={() => setAdding((x) => !x)}>
-          {adding ? 'Fermer' : '+ Mesure'}
-        </button>
+        {editable && (
+          <button className="btn-primary px-2.5 py-1 text-xs" onClick={() => setAdding((x) => !x)}>
+            {adding ? 'Fermer' : '+ Mesure'}
+          </button>
+        )}
       </div>
 
-      {adding && addC && (
+      {editable && adding && addC && (
         <div className="mb-4 flex flex-col gap-3 rounded-lg border border-accent/40 bg-accent-soft p-3">
           <select className="field" value={addC.id} onChange={(e) => (setNewC(e.target.value), setNewV(undefined))}>
             {groupBy(criteria, (c) => c.category).map(([cat, cs]) => (
@@ -242,13 +260,15 @@ function Tracking({ playerId, criteria, measurements }: { playerId: string; crit
                 <span className="flex items-center gap-3">
                   <span>{fmtValue(current, m.value)}</span>
                   {m.author && <span className="text-[10px] text-muted">{m.author}</span>}
-                  <button
-                    className="text-muted hover:text-red-400"
-                    title="Supprimer cette mesure"
-                    onClick={async () => (await ask('Supprimer cette mesure ?', { ok: 'Supprimer' })) && void remove('measurements', m.id)}
-                  >
-                    ✕
-                  </button>
+                  {editable && (
+                    <button
+                      className="text-muted hover:text-red-400"
+                      title="Supprimer cette mesure"
+                      onClick={async () => (await ask('Supprimer cette mesure ?', { ok: 'Supprimer' })) && void remove('measurements', m.id)}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </span>
               </div>
             ))}

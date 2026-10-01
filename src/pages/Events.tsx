@@ -5,6 +5,7 @@ import { Avatar, Empty, PosBadge } from '../components/ui'
 import { alive, db, fmtDate, remove } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask } from '../components/Confirm'
+import { can, useRole } from '../roles'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -63,6 +64,7 @@ export default function Events() {
 
 export function EventDetail() {
   const { id } = useParams()
+  const role = useRole()
   const nav = useNavigate()
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
@@ -83,6 +85,7 @@ export function EventDetail() {
         <button onClick={() => nav('/evenements')} className="text-xs font-bold text-muted">
           ← MATCHS & TOURNOIS
         </button>
+        {can.manageEvents(role) && (
         <button
           className="text-xs text-muted hover:text-red-400"
           onClick={async () => {
@@ -93,6 +96,7 @@ export function EventDetail() {
         >
           Supprimer
         </button>
+        )}
       </div>
       <div>
         <h1 className="text-lg font-extrabold">{ev.name}</h1>

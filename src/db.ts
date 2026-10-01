@@ -93,6 +93,8 @@ export interface Evaluation extends Syncable {
   playerId: string
   eventId?: string
   observer: string
+  /** Compte qui a écrit l'avis (seul lui, ou un admin, peut le modifier). */
+  observerId?: string
   date: string
   scores: Record<string, number>
   overall?: number

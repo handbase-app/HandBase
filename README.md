@@ -28,12 +28,23 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 ## Brancher le serveur (synchronisation entre appareils)
 
 1. Créer un projet gratuit sur https://supabase.com.
-2. *SQL Editor* → coller et exécuter `supabase/schema.sql`.
+2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis `supabase/002_roles.sql` (rôles du staff).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
    (*Project Settings → API*).
-5. Relancer `npm run dev`, puis *Réglages → Se connecter*.
+5. Relancer `npm run dev` et se connecter.
+
+### Rôles
+
+| Rôle | Droits |
+|---|---|
+| Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
+| Préparateur | Fiches joueurs (sans suppression), tests physiques, événements, ses avis |
+| Observateur | Consulte tout, donne ses propres avis, crée des événements |
+
+Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
+comme observateur et un administrateur change son rôle dans *Réglages → Membres du staff*.
 
 ## Déployer (GitHub Pages)
 

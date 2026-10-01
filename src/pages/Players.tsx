@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { age, alive, db, POSITIONS, type Measurement, type Position } from '../db'
 import { Avatar, Empty, fmtValue, PosBadge } from '../components/ui'
 import { exportCsv } from '../export'
+import { can, useRole } from '../roles'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -18,6 +19,7 @@ export function latestByPlayer(ms: Measurement[]) {
 }
 
 export default function Players() {
+  const role = useRole()
   const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
   const [filter, setFilter] = useState<Position | 'all'>('all')
@@ -42,9 +44,11 @@ export default function Players() {
           <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv()} disabled={!players.length}>
             Exporter
           </button>
-          <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
-            + Joueur
-          </Link>
+          {can.editPlayers(role) && (
+            <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
+              + Joueur
+            </Link>
+          )}
         </div>
       </div>
 

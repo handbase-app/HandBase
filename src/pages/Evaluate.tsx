@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
+import { can, currentUserId, useRole } from '../roles'
 import { alive, criterionApplies, db, fmtDate, newId, save, today, type Evaluation, type EventType, type HBEvent } from '../db'
 
 export const EVENT_TYPES: { value: EventType; label: string }[] = [
@@ -16,6 +17,7 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
  */
 export default function Evaluate() {
   const [params, setParams] = useSearchParams()
+  const role = useRole()
   const [me, setMe] = useMe()
   const [meDraft, setMeDraft] = useState(me)
   const playerId = params.get('joueur') ?? ''
@@ -88,6 +90,7 @@ export default function Evaluate() {
       playerId: player.id,
       eventId: eventId || undefined,
       observer: me,
+      observerId: currentUserId() ?? draft.observerId,
       date: draft.date ?? today(),
       scores,
     } as Evaluation)
@@ -146,7 +149,7 @@ export default function Evaluate() {
             </option>
           ))}
         </select>
-        {players.length === 0 && (
+        {players.length === 0 && can.editPlayers(role) && (
           <Link to="/joueurs/nouveau" className="text-xs font-bold text-accent">
             Aucun joueur : inscrire un joueur →
           </Link>

@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
+import { clearRole, refreshRole } from '../roles'
 import { supabase } from '../sync'
 import { useMe } from './ui'
 
@@ -21,6 +22,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => data.subscription.unsubscribe()
   }, [])
+
+  // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion.
+  const uid = session?.user.id
+  useEffect(() => {
+    if (session === null) clearRole()
+    else if (uid) void refreshRole()
+  }, [uid, session])
 
   // Le nom d'observateur suit le compte connecté.
   const name = accountName(session ?? null)

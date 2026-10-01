@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { db } from '../db'
+import { can, useRole } from '../roles'
 
 const TILES = [
   { to: '/joueurs/nouveau', title: 'Inscrire un nouveau joueur', sub: 'Créer une fiche et saisir les tests physiques', icon: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6', main: true },
@@ -10,6 +11,7 @@ const TILES = [
 ]
 
 export default function Home() {
+  const role = useRole()
   const counts = useLiveQuery(async () => ({
     players: await db.players.filter((p) => !p.deleted).count(),
     evals: await db.evaluations.filter((e) => !e.deleted).count(),
@@ -25,7 +27,7 @@ export default function Home() {
         </p>
       )}
       <div className="mt-8 flex w-full max-w-md flex-col gap-3">
-        {TILES.map((t) => (
+        {TILES.filter((t) => !t.main || can.editPlayers(role)).map((t) => (
           <Link
             key={t.to}
             to={t.to}
