@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { MaturityCard } from '../components/MaturityCard'
 import { Opinions } from '../components/Opinions'
 import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement } from '../db'
@@ -33,6 +34,7 @@ export default function PlayerDetail() {
   const a = age(p.birthDate)
 
   const info: [string, string | undefined][] = [
+    ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : undefined],
     ['Club', p.club],
     ['Équipe', p.team],
     ['Catégorie / niveau', p.category],
@@ -42,6 +44,8 @@ export default function PlayerDetail() {
     ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
     ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],
     ['Latéralité', p.laterality && p.laterality[0].toUpperCase() + p.laterality.slice(1)],
+    ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm (${p.motherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
+    ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm (${p.fatherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
   ]
 
   const testGroups = groupBy(
@@ -106,6 +110,8 @@ export default function PlayerDetail() {
           </div>
         </div>
       ))}
+
+      <MaturityCard player={p} measurements={measurements} />
 
       <Tracking playerId={p.id} criteria={factual} measurements={measurements} />
 

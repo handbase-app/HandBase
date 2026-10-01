@@ -1,4 +1,5 @@
 import { age, alive, db, fmtDate, positionLabel } from './db'
+import { snapshots } from './components/MaturityCard'
 import { latestByPlayer } from './pages/Players'
 
 const esc = (v: unknown) => {
@@ -28,9 +29,10 @@ export async function exportCsv() {
   const latest = latestByPlayer(measurements)
 
   const head = [
-    'Prénom', 'Nom', 'Naissance', 'Âge', 'Poste', 'Équipe', 'Licence', 'Catégorie', 'Club', 'Internat', 'Latéralité',
+    'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Poste', 'Équipe', 'Licence', 'Catégorie', 'Club', 'Internat', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (moy. avis)`),
+    'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
     'Nb avis', 'Lacunes', 'Notes',
   ]
   const rows = players.map((p) => {
@@ -41,11 +43,15 @@ export async function exportCsv() {
       return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1).replace('.', ',') : ''
     }
     const num = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : v)
+    const r1 = (v: number | null | undefined) => (typeof v === 'number' ? num(Math.round(v * 10) / 10) : '')
+    const snap = snapshots(p, measurements.filter((m) => m.playerId === p.id && !m.deleted)).at(-1)
     return [
-      p.firstName, p.lastName, fmtDate(p.birthDate), age(p.birthDate) ?? '', positionLabel(p.position), p.team, p.license,
+      p.firstName, p.lastName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
+      num(p.motherHeight), num(p.fatherHeight), positionLabel(p.position), p.team, p.license,
       p.category, p.club, p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c.id)),
+      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
       evs.length, p.gaps, p.notes,
     ]
   })

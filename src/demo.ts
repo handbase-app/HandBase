@@ -87,6 +87,7 @@ export async function loadDemo() {
       firstName: FIRST[i],
       lastName: LAST[(i * 7) % LAST.length],
       birthDate: `${year}-${String(1 + Math.floor(rand() * 12)).padStart(2, '0')}-${String(1 + Math.floor(rand() * 28)).padStart(2, '0')}`,
+      sex: 'M',
       position: pos,
       team: 'U18 Nationale',
       license: String(5800000 + Math.floor(rand() * 99999)),
@@ -102,6 +103,14 @@ export async function loadDemo() {
     // ----- Mesures factuelles : juin (fin de saison) puis septembre (rentrée) -----
     const [hMin, hMax] = HEIGHT[pos]
     const h = between(hMin, hMax)
+    // Parents biologiques cohérents avec le gabarit du joueur ; la moitié des tailles sont déclarées.
+    const father = Math.round(clamp(h - 2 + between(-6, 6), 165, 200))
+    Object.assign(players[players.length - 1], {
+      fatherHeight: father,
+      fatherHeightSource: rand() < 0.5 ? 'mesuree' : 'declaree',
+      motherHeight: Math.round(clamp(father - 13 + between(-7, 7), 150, 185)),
+      motherHeightSource: rand() < 0.5 ? 'mesuree' : 'declaree',
+    })
     const athletic = between(-1, 1) // qualité athlétique globale
     const t1 = {
       taille: round(h - between(0.5, 1.5), 1),

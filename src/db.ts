@@ -26,10 +26,18 @@ interface Syncable {
   deleted?: boolean
 }
 
+export type HeightSource = 'mesuree' | 'declaree'
+
 export interface Player extends Syncable {
   firstName: string
   lastName: string
   birthDate?: string
+  sex?: 'M' | 'F'
+  /** Tailles des parents biologiques (cm), pour la taille adulte prédite. */
+  motherHeight?: number
+  motherHeightSource?: HeightSource
+  fatherHeight?: number
+  fatherHeightSource?: HeightSource
   position?: Position
   team?: string
   license?: string

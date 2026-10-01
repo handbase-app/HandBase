@@ -6,6 +6,9 @@ Webapp (PWA installable) de suivi des joueurs de handball :
 - **Données factuelles** (préparateur physique) : tests et mesures avec **historique** et courbe d'évolution.
 - **Avis subjectifs** (plusieurs observateurs) : rattachés à un match / tournoi, comparés (moyenne, tableau
   par observateur, radar) avec **signalement des avis divergents**, et cumulés dans le temps.
+- **Maturité & croissance** (calculées, jamais saisies) : décalage par rapport au pic de croissance
+  (Mirwald 2002 et Moore 2015), taille adulte prédite et % atteint (Khamis-Roche 1994, coefficients corrigés
+  par l'erratum de 1995), avec correction des tailles parentales déclarées — voir `src/maturity.ts`.
 - **Critères paramétrables** dans *Réglages* : ajouter, renommer, masquer, passer de factuel à subjectif, mode rapide.
 - **Hors ligne d'abord** : tout est enregistré sur l'appareil, puis synchronisé avec le serveur au retour du réseau.
 - Export **CSV** (Excel) et sauvegarde / restauration **JSON**.

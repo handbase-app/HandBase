@@ -2,8 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
-import { CriterionInput, getMe, groupBy, resizeImage, Segmented } from '../components/ui'
-import { alive, criterionApplies, db, newId, save, today, type Measurement, type Player } from '../db'
+import { CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
+import { alive, criterionApplies, db, newId, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
 
 type Values = Record<string, number | string | undefined>
@@ -46,6 +46,8 @@ export default function PlayerForm() {
     }
     const player = await save<Player>('players', {
       ...p,
+      motherHeightSource: p.motherHeight !== undefined ? (p.motherHeightSource ?? 'declaree') : undefined,
+      fatherHeightSource: p.fatherHeight !== undefined ? (p.fatherHeightSource ?? 'declaree') : undefined,
       id: p.id ?? newId(),
       firstName: p.firstName.trim(),
       lastName: p.lastName.trim(),
@@ -109,6 +111,48 @@ export default function PlayerForm() {
       <div>
         <span className="label">Date de naissance</span>
         <input type="date" className="field" value={p.birthDate ?? ''} onChange={(e) => set('birthDate', e.target.value || undefined)} />
+      </div>
+
+      <div>
+        <span className="label">Sexe</span>
+        <Segmented
+          value={p.sex}
+          onChange={(v) => set('sex', v)}
+          options={[
+            { value: 'M', label: 'Garçon' },
+            { value: 'F', label: 'Fille' },
+          ]}
+        />
+      </div>
+
+      <div className="card flex flex-col gap-3 p-3">
+        <div>
+          <div className="text-xs font-extrabold">Taille des parents biologiques</div>
+          <div className="text-[11px] text-muted">Sert à estimer la taille adulte. Une taille déclarée est corrigée (souvent surestimée).</div>
+        </div>
+        {(
+          [
+            ['motherHeight', 'motherHeightSource', 'Mère'],
+            ['fatherHeight', 'fatherHeightSource', 'Père'],
+          ] as const
+        ).map(([hk, sk, label]) => (
+          <div key={hk} className="grid grid-cols-[1fr_auto] items-end gap-2">
+            <div>
+              <span className="label">{label}</span>
+              <NumberField value={p[hk]} unit="cm" onChange={(v) => set(hk, v)} />
+            </div>
+            <div className="w-44">
+              <Segmented<HeightSource>
+                value={p[sk] ?? (p[hk] !== undefined ? 'declaree' : undefined)}
+                onChange={(v) => set(sk, v)}
+                options={[
+                  { value: 'mesuree', label: 'Mesurée' },
+                  { value: 'declaree', label: 'Déclarée' },
+                ]}
+              />
+            </div>
+          </div>
+        ))}
       </div>
 
       <div>
