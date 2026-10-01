@@ -14,7 +14,7 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         // Identifiant propre : distingue HandBase des autres applis installées depuis kgeogeo.github.io.
-        id: 'handbase',
+        id: '/HandBase/',
         name: 'HandBase — Collecte & suivi',
         short_name: 'HandBase',
         description: 'Données physiques et évaluations des joueurs de handball',
