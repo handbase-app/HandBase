@@ -13,7 +13,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        // Identifiant propre : distingue HandBase des autres applis installées depuis kgeogeo.github.io.
+        // Identifiant d’app stable (même forme que l’adresse de démarrage).
         id: '/HandBase/',
         name: 'HandBase — Collecte & suivi',
         short_name: 'HandBase',
