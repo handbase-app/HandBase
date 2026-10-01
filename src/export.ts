@@ -1,0 +1,89 @@
+import { age, alive, db, fmtDate, positionLabel } from './db'
+import { latestByPlayer } from './pages/Players'
+
+const esc = (v: unknown) => {
+  const s = v === undefined || v === null ? '' : String(v)
+  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function download(name: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+/** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis. */
+export async function exportCsv() {
+  const [players, criteria, measurements, evaluations] = await Promise.all([
+    db.players.toArray().then(alive),
+    db.criteria.orderBy('order').toArray().then(alive),
+    db.measurements.toArray(),
+    db.evaluations.toArray().then(alive),
+  ])
+  const factual = criteria.filter((c) => c.kind === 'factual')
+  const subjective = criteria.filter((c) => c.kind === 'subjective')
+  const latest = latestByPlayer(measurements)
+
+  const head = [
+    'Prénom', 'Nom', 'Naissance', 'Âge', 'Poste', 'Équipe', 'Licence', 'Catégorie', 'Club', 'Internat', 'Latéralité',
+    ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
+    ...subjective.map((c) => `${c.label} (moy. avis)`),
+    'Nb avis', 'Lacunes', 'Notes',
+  ]
+  const rows = players.map((p) => {
+    const l = latest.get(p.id)
+    const evs = evaluations.filter((e) => e.playerId === p.id)
+    const avg = (id: string) => {
+      const v = evs.map((e) => e.scores[id]).filter((x) => typeof x === 'number')
+      return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1).replace('.', ',') : ''
+    }
+    const num = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : v)
+    return [
+      p.firstName, p.lastName, fmtDate(p.birthDate), age(p.birthDate) ?? '', positionLabel(p.position), p.team, p.license,
+      p.category, p.club, p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
+      ...factual.map((c) => num(l?.get(c.id)?.value)),
+      ...subjective.map((c) => avg(c.id)),
+      evs.length, p.gaps, p.notes,
+    ]
+  })
+  const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
+  download(`handbase-joueurs-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8')
+}
+
+/** Sauvegarde complète (JSON) de la base locale. */
+export async function exportBackup() {
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    players: await db.players.toArray(),
+    criteria: await db.criteria.toArray(),
+    measurements: await db.measurements.toArray(),
+    events: await db.events.toArray(),
+    evaluations: await db.evaluations.toArray(),
+  }
+  download(`handbase-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json')
+}
+
+/** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
+export async function importBackup(file: File) {
+  const data = JSON.parse(await file.text())
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations'] as const
+  let n = 0
+  for (const t of tables) {
+    const rows: { id: string; updatedAt: number }[] = data[t] ?? []
+    await db.transaction('rw', db.table(t), db.outbox, async () => {
+      for (const r of rows) {
+        const cur = await db.table(t).get(r.id)
+        if (!cur || r.updatedAt > cur.updatedAt) {
+          await db.table(t).put(r)
+          await db.outbox.add({ table: t, rowId: r.id })
+          n++
+        }
+      }
+    })
+  }
+  return n
+}

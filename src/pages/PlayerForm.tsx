@@ -1,0 +1,211 @@
+import { useLiveQuery } from 'dexie-react-hooks'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { CourtPicker } from '../components/CourtPicker'
+import { CriterionInput, getMe, groupBy, resizeImage, Segmented } from '../components/ui'
+import { alive, criterionApplies, db, newId, save, today, type Measurement, type Player } from '../db'
+import { latestByPlayer } from './Players'
+
+type Values = Record<string, number | string | undefined>
+
+export default function PlayerForm() {
+  const { id } = useParams()
+  const editing = !!id
+  const nav = useNavigate()
+  const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'factual')))
+  const [p, setP] = useState<Partial<Player>>({})
+  const [values, setValues] = useState<Values>({})
+  const [initial, setInitial] = useState<Values>({})
+  const [testDate, setTestDate] = useState(today())
+  const [error, setError] = useState('')
+  const [loaded, setLoaded] = useState(!editing)
+
+  useEffect(() => {
+    if (!id) return
+    void (async () => {
+      const player = await db.players.get(id)
+      if (!player) return nav('/joueurs')
+      const ms = await db.measurements.where('playerId').equals(id).toArray()
+      const latest = latestByPlayer(ms).get(id)
+      const v: Values = {}
+      latest?.forEach((m, cid) => (v[cid] = m.value))
+      setP(player)
+      setValues(v)
+      setInitial(v)
+      setLoaded(true)
+    })()
+  }, [id, nav])
+
+  const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
+
+  async function submit() {
+    if (!p.firstName?.trim() || !p.lastName?.trim()) {
+      setError('Le prénom et le nom sont obligatoires.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    const player = await save<Player>('players', {
+      ...p,
+      id: p.id ?? newId(),
+      firstName: p.firstName.trim(),
+      lastName: p.lastName.trim(),
+    } as Player)
+    const author = getMe() || undefined
+    for (const [cid, v] of Object.entries(values)) {
+      if (v === undefined || v === '' || v === initial[cid]) continue
+      await save<Measurement>('measurements', { id: newId(), playerId: player.id, criterionId: cid, value: v, date: testDate, author })
+    }
+    nav(`/joueurs/${player.id}`, { replace: true })
+  }
+
+  if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+
+  const shown = criteria.filter((c) => criterionApplies(c, p.position))
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between">
+        <button onClick={() => nav(-1)} className="text-xs font-bold text-muted">
+          ← {editing ? 'MODIFIER LA FICHE' : 'NOUVEAU JOUEUR'}
+        </button>
+      </div>
+
+      {error && <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
+
+      {/* Photo */}
+      <label className="mx-auto flex h-24 w-24 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-accent">
+        {p.photo ? (
+          <img src={p.photo} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <>
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+            <span className="mt-1 text-[10px]">Photo joueur</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0]
+            if (f) set('photo', await resizeImage(f))
+          }}
+        />
+      </label>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <span className="label">Prénom *</span>
+          <input className="field" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Nom *</span>
+          <input className="field" value={p.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <span className="label">Date de naissance</span>
+        <input type="date" className="field" value={p.birthDate ?? ''} onChange={(e) => set('birthDate', e.target.value || undefined)} />
+      </div>
+
+      <div>
+        <span className="label">Poste</span>
+        <CourtPicker value={p.position} onChange={(v) => set('position', v)} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <span className="label">Équipe</span>
+          <input className="field" placeholder="Senior A" value={p.team ?? ''} onChange={(e) => set('team', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Licence</span>
+          <input className="field" value={p.license ?? ''} onChange={(e) => set('license', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Catégorie / niveau</span>
+          <input className="field" placeholder="-18 nat" value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Club</span>
+          <input className="field" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
+        </div>
+      </div>
+
+      <div>
+        <span className="label">Latéralité</span>
+        <Segmented
+          value={p.laterality}
+          onChange={(v) => set('laterality', v)}
+          options={[
+            { value: 'droitier', label: 'Droitier' },
+            { value: 'gaucher', label: 'Gaucher' },
+            { value: 'ambidextre', label: 'Ambidextre' },
+          ]}
+        />
+      </div>
+      <div>
+        <span className="label">Internat</span>
+        <Segmented
+          value={p.boarding === true ? 'oui' : p.boarding === false ? 'non' : undefined}
+          onChange={(v) => set('boarding', v === 'oui')}
+          options={[
+            { value: 'oui', label: 'Oui' },
+            { value: 'non', label: 'Non' },
+          ]}
+        />
+      </div>
+
+      {/* Tests factuels */}
+      <div className="card flex flex-col gap-4 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-extrabold">Tests physiques</div>
+            <div className="text-[11px] text-muted">Saisis par le préparateur physique. Laisser vide si non mesuré.</div>
+          </div>
+          <div className="w-36 shrink-0">
+            <span className="label">Date des tests</span>
+            <input type="date" className="field" value={testDate} onChange={(e) => setTestDate(e.target.value)} />
+          </div>
+        </div>
+        {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
+          <div key={cat} className="rounded-lg border border-line p-3">
+            <div className="section-title">{cat}</div>
+            <div className={`grid gap-3 ${cs.every((c) => c.scale === 'number') ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {cs.map((c) => (
+                <div key={c.id} className={c.scale === 'number' ? '' : 'flex items-center justify-between gap-3'}>
+                  <span className={c.scale === 'number' ? 'label' : 'text-xs font-bold'} title={c.description}>
+                    {c.label}
+                  </span>
+                  <CriterionInput c={c} value={values[c.id]} onChange={(v) => setValues((x) => ({ ...x, [c.id]: v }))} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {editing && <div className="text-[11px] text-muted">Seules les valeurs modifiées sont ajoutées à l'historique, à la date des tests.</div>}
+      </div>
+
+      <div>
+        <span className="label">Lacunes mobilité / souplesse</span>
+        <textarea className="field min-h-16" placeholder="Chaîne P. G ++ / RE…" value={p.gaps ?? ''} onChange={(e) => set('gaps', e.target.value)} />
+      </div>
+      <div>
+        <span className="label">Notes</span>
+        <textarea className="field min-h-20" placeholder="Observations…" value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button className="btn-primary flex-1" onClick={() => void submit()}>
+          Enregistrer
+        </button>
+        <button className="btn text-muted" onClick={() => nav(-1)}>
+          Annuler
+        </button>
+      </div>
+    </div>
+  )
+}
