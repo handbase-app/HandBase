@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type EntityTable, type Transaction } from 'dexie'
 import { DEFAULT_CRITERIA } from './criteria'
 
 // ---------- Types ----------
@@ -135,6 +135,23 @@ db.version(1).stores({
 db.on('populate', (tx) => {
   tx.table('criteria').bulkAdd(DEFAULT_CRITERIA.map((c, i) => ({ ...c, order: i, active: true, updatedAt: 0 })))
 })
+
+/**
+ * Applique les critères par défaut aux appareils déjà installés : ajoute les nouveaux et met à jour
+ * ceux que personne n'a modifiés (updatedAt = 0). Un critère modifié par un administrateur n'est pas touché.
+ * À rappeler dans une nouvelle version de la base à chaque changement de DEFAULT_CRITERIA.
+ */
+async function applyDefaultCriteria(tx: Transaction) {
+  const table = tx.table('criteria')
+  for (const [i, c] of DEFAULT_CRITERIA.entries()) {
+    const cur = await table.get(c.id)
+    if (!cur) await table.add({ ...c, order: i, active: true, updatedAt: 0 })
+    else if (!cur.updatedAt) await table.put({ ...cur, ...c, positions: c.positions, quick: c.quick, order: i })
+  }
+}
+
+// v2 : critères de champ réservés aux joueurs de champ, nouveaux critères gardien.
+db.version(2).upgrade(applyDefaultCriteria)
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

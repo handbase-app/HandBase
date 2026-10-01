@@ -64,7 +64,7 @@ const GB_STRENGTHS = ['Réflexes impressionnants', 'Très bon placement sur les 
 const GB_IMPROVE = ['Relance trop lente', 'Sorties sur les ailiers', 'Lecture des tirs en appui', 'Communication avec la défense']
 
 const SUBJ_FIELD = ['vision', 'decision', 'lecture', 'sans_ballon', 'efficacite_tir', 'duel', 'passe', 'collectif', 'agressivite', 'placement_def', 'comm_def', 'interceptions', 'engagement', 'pression', 'leadership', 'attitude', 'concentration']
-const SUBJ_GB = ['gb_placement', 'gb_reflexes', 'gb_lecture', 'gb_relance', 'gb_presence', 'engagement', 'pression', 'leadership', 'attitude', 'concentration']
+const SUBJ_GB = ['gb_placement', 'gb_reflexes', 'gb_lecture', 'gb_relance', 'gb_presence', 'gb_sorties', 'gb_appuis', 'gb_rebond', 'gb_9m', 'gb_ailes', 'gb_pivot', 'gb_7m', 'gb_ca', 'vision', 'decision', 'engagement', 'pression', 'leadership', 'attitude', 'concentration']
 const QUICK = new Set(['vision', 'decision', 'efficacite_tir', 'agressivite', 'engagement', 'pression', 'gb_placement', 'gb_reflexes'])
 
 export async function loadDemo() {

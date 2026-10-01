@@ -12,6 +12,9 @@ const f = (id: string, category: string, label: string, scale: Criterion['scale'
   kind: 'factual',
 })
 
+/** Postes de champ : les critères qui n'ont pas de sens pour un gardien leur sont réservés. */
+const FIELD: Criterion['positions'] = ['AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV']
+
 const s = (id: string, category: string, label: string, description: string, extra: Partial<Seed> = {}): Seed => ({
   id,
   category,
@@ -69,18 +72,18 @@ export const DEFAULT_CRITERIA: Seed[] = [
   // ----- Subjectif : plusieurs observateurs -----
   s('vision', 'Intelligence de jeu', 'Vision du jeu', 'Voit les partenaires démarqués, anticipe les espaces', { quick: true }),
   s('decision', 'Intelligence de jeu', 'Prise de décision', 'Bon choix (tir / passe / fixation) au bon moment', { quick: true }),
-  s('lecture', 'Intelligence de jeu', 'Lecture du jeu adverse', 'Anticipe les intentions de l’adversaire'),
-  s('sans_ballon', 'Intelligence de jeu', 'Jeu sans ballon', 'Courses, appels, démarquage, création d’espaces'),
+  s('lecture', 'Intelligence de jeu', 'Lecture du jeu adverse', 'Anticipe les intentions de l’adversaire', { positions: FIELD }),
+  s('sans_ballon', 'Intelligence de jeu', 'Jeu sans ballon', 'Courses, appels, démarquage, création d’espaces', { positions: FIELD }),
 
-  s('efficacite_tir', 'Attaque', 'Efficacité au tir', 'Choix et qualité du tir, sang-froid face au gardien', { quick: true }),
-  s('duel', 'Attaque', 'Duel / 1 contre 1', 'Capacité à déborder et à fixer son défenseur'),
-  s('passe', 'Attaque', 'Qualité de passe', 'Précision, timing, variété'),
-  s('collectif', 'Attaque', 'Jeu collectif', 'Respect du système, combinaisons, jeu à deux avec le pivot'),
+  s('efficacite_tir', 'Attaque', 'Efficacité au tir', 'Choix et qualité du tir, sang-froid face au gardien', { positions: FIELD, quick: true }),
+  s('duel', 'Attaque', 'Duel / 1 contre 1', 'Capacité à déborder et à fixer son défenseur', { positions: FIELD }),
+  s('passe', 'Attaque', 'Qualité de passe', 'Précision, timing, variété', { positions: FIELD }),
+  s('collectif', 'Attaque', 'Jeu collectif', 'Respect du système, combinaisons, jeu à deux avec le pivot', { positions: FIELD }),
 
-  s('agressivite', 'Défense', 'Agressivité défensive', 'Engagement physique, sortie sur le porteur, contact', { quick: true }),
-  s('placement_def', 'Défense', 'Placement / replacement', 'Position dans le système, retour défensif'),
-  s('comm_def', 'Défense', 'Communication défensive', 'Annonces, prises en charge, aide aux partenaires'),
-  s('interceptions', 'Défense', 'Interceptions / contres', 'Récupère ou gêne le ballon'),
+  s('agressivite', 'Défense', 'Agressivité défensive', 'Engagement physique, sortie sur le porteur, contact', { positions: FIELD, quick: true }),
+  s('placement_def', 'Défense', 'Placement / replacement', 'Position dans le système, retour défensif', { positions: FIELD }),
+  s('comm_def', 'Défense', 'Communication défensive', 'Annonces, prises en charge, aide aux partenaires', { positions: FIELD }),
+  s('interceptions', 'Défense', 'Interceptions / contres', 'Récupère ou gêne le ballon', { positions: FIELD }),
 
   s('engagement', 'Mental & attitude', 'Engagement', 'Intensité et investissement du début à la fin', { quick: true }),
   s('pression', 'Mental & attitude', 'Gestion de la pression', 'Réaction dans les moments décisifs et après une erreur', { quick: true }),
@@ -91,6 +94,15 @@ export const DEFAULT_CRITERIA: Seed[] = [
   s('gb_placement', 'Spécifique gardien', 'Placement dans le but', 'Angles, position face au tireur', { positions: ['GB'], quick: true }),
   s('gb_reflexes', 'Spécifique gardien', 'Réflexes / réactivité', 'Vitesse de réaction sur les tirs', { positions: ['GB'], quick: true }),
   s('gb_lecture', 'Spécifique gardien', 'Lecture du tireur', 'Anticipation du tir', { positions: ['GB'] }),
-  s('gb_relance', 'Spécifique gardien', 'Relance', 'Qualité et rapidité de la remise en jeu', { positions: ['GB'] }),
+  s('gb_relance', 'Spécifique gardien', 'Relance', 'Remise en jeu rapide et précise, relance longue de contre-attaque', { positions: ['GB'] }),
   s('gb_presence', 'Spécifique gardien', 'Présence / communication', 'Organisation de la défense, voix', { positions: ['GB'] }),
+  s('gb_sorties', 'Spécifique gardien', 'Sorties', 'Sorties sur les ailiers, interceptions des passes longues', { positions: ['GB'] }),
+  s('gb_appuis', 'Spécifique gardien', 'Déplacements & appuis', 'Équilibre, déplacements latéraux, retour rapide en position', { positions: ['GB'] }),
+  s('gb_rebond', 'Spécifique gardien', 'Réaction après un but', 'Se remobilise vite après un but encaissé ou une erreur', { positions: ['GB'] }),
+
+  s('gb_9m', 'Gardien — arrêts par zone', 'Tirs de loin (9 m)', 'Efficacité sur les tirs extérieurs', { positions: ['GB'] }),
+  s('gb_ailes', 'Gardien — arrêts par zone', 'Tirs des ailes', 'Fermeture de l’angle, timing face aux ailiers', { positions: ['GB'] }),
+  s('gb_pivot', 'Gardien — arrêts par zone', 'Tirs du pivot / à 6 m', 'Face-à-face à courte distance', { positions: ['GB'] }),
+  s('gb_7m', 'Gardien — arrêts par zone', 'Jets de 7 m', 'Duel psychologique et arrêts sur penalty', { positions: ['GB'] }),
+  s('gb_ca', 'Gardien — arrêts par zone', 'Contre-attaques / 1 contre 1', 'Duels face au tireur lancé seul', { positions: ['GB'] }),
 ]
