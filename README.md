@@ -37,7 +37,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 ## Déployer (GitHub Pages)
 
-Chaque `git push` sur `main` publie automatiquement l'app sur **https://kgeogeo.github.io/HandBase/**
+Chaque `git push` sur `main` publie automatiquement l'app sur **https://handbase-app.github.io/HandBase/**
 (workflow `.github/workflows/deploy.yml`, à suivre dans l'onglet *Actions* du dépôt).
 
 La configuration Supabase du site en ligne est dans *Settings → Secrets and variables → Actions → Variables* :
