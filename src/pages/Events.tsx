@@ -24,7 +24,7 @@ export default function Events() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-extrabold">Matchs & tournois</h1>
+        <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
           <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
             + Événement
@@ -100,7 +100,7 @@ export function EventDetail() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <button onClick={() => nav('/evenements')} className="text-xs font-bold text-muted">
-          ← MATCHS & TOURNOIS
+          ← ÉVÉNEMENTS
         </button>
         {manage && (
           <button
