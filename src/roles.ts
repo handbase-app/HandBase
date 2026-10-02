@@ -18,8 +18,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
-  preparateur: 'Fiches joueurs, tests physiques, événements et ses propres avis.',
-  observateur: 'Consulte tout, donne ses propres avis, crée des événements.',
+  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis.',
+  observateur: 'Consulte tout et donne ses propres avis.',
 }
 
 const ROLE_KEY = 'handbase.role'

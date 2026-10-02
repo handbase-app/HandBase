@@ -138,9 +138,11 @@ export default function Evaluate() {
                 </option>
               ))}
             </select>
-            <button className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setCreatingEvent(true)}>
-              + Nouveau
-            </button>
+            {can.manageEvents(role) && (
+              <button className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setCreatingEvent(true)}>
+                + Nouveau
+              </button>
+            )}
           </div>
         )}
       </div>

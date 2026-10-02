@@ -12,6 +12,7 @@ import { DIVERGENCE } from '../components/Opinions'
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
 export default function Events() {
+  const role = useRole()
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
   const evals = useLiveQuery(() => db.evaluations.toArray().then(alive), [], [])
   const [creating, setCreating] = useState(false)
@@ -23,7 +24,7 @@ export default function Events() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-extrabold">Matchs & tournois</h1>
-        {!creating && (
+        {!creating && can.manageEvents(role) && (
           <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
             + Événement
           </button>
@@ -35,7 +36,7 @@ export default function Events() {
         </div>
       )}
       {events.length === 0 ? (
-        <Empty>Crée un match ou un tournoi pour que plusieurs observateurs puissent y rattacher leurs avis.</Empty>
+        <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs évaluateurs puissent y noter les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
         events.map((ev) => {
           const es = evals.filter((e) => e.eventId === ev.id)
