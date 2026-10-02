@@ -17,6 +17,25 @@ function countBy<T>(items: T[], key: (t: T) => string | undefined): [string, num
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'))
 }
 
+const DEPARTMENTS: Record<string, string> = {
+  '04': 'Alpes-de-Haute-Provence',
+  '05': 'Hautes-Alpes',
+  '06': 'Alpes-Maritimes',
+  '13': 'Bouches-du-Rhône',
+  '83': 'Var',
+  '84': 'Vaucluse',
+}
+
+/**
+ * Département du club, lu dans le numéro FFHB : 63 = ligue, 83 = département…
+ * (N° club 6383015, licence 6383015xxxxxx). Le n° de club est prioritaire : il est toujours renseigné.
+ */
+export function department(p: Pick<Player, 'clubCode' | 'license'>): string | undefined {
+  const code = /^\d{7}$/.test(p.clubCode ?? '') ? p.clubCode : /^\d{13}$/.test(p.license ?? '') ? p.license : undefined
+  return code?.slice(2, 4)
+}
+export const departmentLabel = (d: string) => (DEPARTMENTS[d] ? `${d} · ${DEPARTMENTS[d]}` : `Département ${d}`)
+
 export type SexFilter = 'all' | 'M' | 'F'
 
 const SEX_KEY = 'handbase.sexFilter'
@@ -53,7 +72,7 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 }
 
 /**
- * Filtres communs (sexe, club, année de naissance, poste, recherche) pour parcourir des milliers
+ * Filtres communs (sexe, département, club, année de naissance, poste, recherche) pour parcourir des milliers
  * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
  * pendant la session, séparément pour chaque écran (`scope`).
  */
@@ -61,6 +80,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const k = (name: string) => `handbase.filter.${scope}.${name}`
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
+  const [dept, setDept] = useSessionState(k('dept'), '')
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
@@ -80,8 +100,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand)),
     [all, sex, hand],
   )
-  const clubs = useMemo(() => countBy(bySex, (p) => p.club), [bySex])
-  const bySexClub = useMemo(() => (club ? bySex.filter((p) => p.club === club) : bySex), [bySex, club])
+  const depts = useMemo(() => countBy(bySex, department), [bySex])
+  const byDept = useMemo(() => (dept ? bySex.filter((p) => department(p) === dept) : bySex), [bySex, dept])
+  const clubs = useMemo(() => countBy(byDept, (p) => p.club), [byDept])
+  const bySexClub = useMemo(() => (club ? byDept.filter((p) => p.club === club) : byDept), [byDept, club])
   const years = useMemo(() => countBy(bySexClub, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [bySexClub])
   const scoped = useMemo(() => (year ? bySexClub.filter((p) => p.birthDate?.startsWith(year)) : bySexClub), [bySexClub, year])
   const positionCounts = useMemo(() => {
@@ -100,11 +122,12 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     })
   }, [scoped, q, position])
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!club || !!year || position !== 'all'
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!dept || !!club || !!year || position !== 'all'
   const reset = () => {
     setQ('')
     setSex('all')
     setHand('all')
+    setDept('')
     setClub('')
     setYear('')
     setPosition('all')
@@ -140,8 +163,18 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           </button>
         ))}
       </div>
+      {depts.length > 1 || dept ? (
+        <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''), setYear(''))}>
+          <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
+          {depts.map(([d, n]) => (
+            <option key={d} value={d}>
+              {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
+            </option>
+          ))}
+        </select>
+      ) : null}
       <div className="grid grid-cols-[1fr_auto] gap-2">
-        <ClubPicker clubs={clubs} total={bySex.length} value={club} onChange={(c) => (setClub(c), setYear(''))} />
+        <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={(c) => (setClub(c), setYear(''))} />
         <select className="field w-32 py-1.5 text-xs" value={year} onChange={(e) => setYear(e.target.value)}>
           <option value="">Toutes années</option>
           {years.map(([y, n]) => (
@@ -177,7 +210,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, club, year, position])
+  const signature = JSON.stringify([q, sex, hand, dept, club, year, position])
   return { filtered, ui, active, reset, signature }
 }
 

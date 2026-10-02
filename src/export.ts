@@ -1,5 +1,6 @@
 import { age, alive, db, fmtDate, positionLabel } from './db'
 import { snapshots } from './components/MaturityCard'
+import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
 
 const esc = (v: unknown) => {
@@ -32,7 +33,7 @@ export async function exportCsv(only?: { id: string }[]) {
   const latest = latestByPlayer(measurements)
 
   const head = [
-    'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Internat', 'Latéralité',
+    'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (moy. avis)`),
     'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
@@ -51,7 +52,7 @@ export async function exportCsv(only?: { id: string }[]) {
     return [
       p.firstName, p.lastName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), p.team, p.license,
-      p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
+      p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c.id)),
       r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
