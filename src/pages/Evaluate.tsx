@@ -11,6 +11,7 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'match', label: 'Match' },
   { value: 'tournoi', label: 'Tournoi' },
   { value: 'entrainement', label: 'Entraînement' },
+  { value: 'observation', label: 'Observation' },
 ]
 
 /**
@@ -105,7 +106,7 @@ export default function Evaluate() {
     )
 
   async function submit() {
-    if (!player) return
+    if (!player || !event) return
     const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => typeof v === 'number')) as Record<string, number>
     await save<Evaluation>('evaluations', {
       ...draft,
@@ -117,6 +118,10 @@ export default function Evaluate() {
       date: draft.date ?? today(),
       scores,
     } as Evaluation)
+    // Le joueur noté rejoint la liste de l'événement (si le rôle permet de la modifier).
+    if (can.manageEvents(role) && !(event.playerIds ?? []).includes(player.id)) {
+      await save<HBEvent>('events', { ...event, playerIds: [...(event.playerIds ?? []), player.id] })
+    }
     setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -175,7 +180,7 @@ export default function Evaluate() {
         ) : (
           <div className="flex gap-2">
             <select className="field flex-1" value={eventId} onChange={(e) => void go('evenement', e.target.value)}>
-              <option value="">Hors événement</option>
+              <option value="">— Choisir l’événement —</option>
               {events.map((ev) => (
                 <option key={ev.id} value={ev.id}>
                   {ev.name} · {fmtDate(ev.date)}
@@ -191,7 +196,18 @@ export default function Evaluate() {
         )}
       </div>
 
+      {!event && (
+        <div className="rounded-md border border-line bg-panel p-3 text-xs text-muted">
+          Chaque avis est rattaché à un événement (match, tournoi, entraînement, observation…) : choisis-le d’abord.
+          {!events.length &&
+            (can.manageEvents(role)
+              ? ' Aucun événement pour l’instant : crée-le avec « + Nouveau ».'
+              : ' Aucun événement pour l’instant : demande à un encadrant ou un administrateur d’en créer un.')}
+        </div>
+      )}
+
       {/* Joueur */}
+      {event && (
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
         <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => void go('joueur', id)} />
@@ -215,6 +231,7 @@ export default function Evaluate() {
           </Link>
         )}
       </div>
+      )}
 
       {saved && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
@@ -241,7 +258,7 @@ export default function Evaluate() {
         </div>
       )}
 
-      {player && (
+      {player && event && (
         <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
@@ -335,7 +352,7 @@ export function NewEventForm({ onDone }: { onDone: (ev?: HBEvent) => void }) {
   return (
     <div className="flex flex-col gap-2">
       <input className="field" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
-      <Segmented value={type} onChange={setType} options={EVENT_TYPES} />
+      <Segmented value={type} onChange={setType} options={EVENT_TYPES} columns={2} />
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />

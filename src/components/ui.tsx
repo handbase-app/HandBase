@@ -63,13 +63,16 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  columns,
 }: {
   value: T | undefined
   options: { value: T; label: string }[]
   onChange: (v: T) => void
+  /** Nombre de colonnes (sinon tout sur une ligne). */
+  columns?: number
 }) {
   return (
-    <div className="flex gap-2">
+    <div className={columns ? 'grid gap-2' : 'flex gap-2'} style={columns ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}>
       {options.map((o) => (
         <button
           key={o.value}

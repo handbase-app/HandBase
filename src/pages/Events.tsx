@@ -86,6 +86,9 @@ export function EventDetail() {
 
   const byId = new Map(players.map((p) => [p.id, p]))
   const roster = (ev.playerIds ?? []).map((pid) => byId.get(pid)).filter((p): p is Player => !!p)
+  // Joueurs notés sur l'événement sans être dans la liste (ex. avis d'un observateur).
+  const inRoster = new Set(ev.playerIds ?? [])
+  const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
   const observers = [...new Set(evals.map((e) => e.observer))].sort()
   const manage = can.manageEvents(role)
 
@@ -168,8 +171,33 @@ export function EventDetail() {
                 + Ajouter des joueurs (par groupe ou un par un)
               </button>
             )}
+            {offList.length > 0 && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
+                  {manage && (
+                    <button className="btn-primary px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...offList.map((p) => p.id)])}>
+                      Les ajouter à la liste
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  {offList.map((p) => (
+                    <Link key={p.id} to={`/joueurs/${p.id}`} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">
+                        <b>
+                          {p.firstName} {p.lastName}
+                        </b>
+                        <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
+                      </span>
+                      <span className="shrink-0 text-[10px] text-emerald-300">{evals.filter((e) => e.playerId === p.id).length} avis</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
             {roster.length === 0 ? (
-              <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
+              offList.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
             ) : (
               <>
                 {manage && roster.length > 1 && (

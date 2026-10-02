@@ -92,7 +92,7 @@ export interface Measurement extends Syncable {
   author?: string
 }
 
-export type EventType = 'match' | 'tournoi' | 'entrainement'
+export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
 
 export interface HBEvent extends Syncable {
   name: string
