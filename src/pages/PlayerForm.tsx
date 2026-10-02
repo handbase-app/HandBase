@@ -181,6 +181,10 @@ export default function PlayerForm() {
           <span className="label">Club</span>
           <input className="field" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
         </div>
+        <div>
+          <span className="label">Nationalité</span>
+          <input className="field" placeholder="France" value={p.nationality ?? ''} onChange={(e) => set('nationality', e.target.value || undefined)} />
+        </div>
       </div>
 
       <div>

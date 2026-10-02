@@ -69,26 +69,32 @@ async function push() {
   for (const table of SYNC_TABLES) {
     const batch = items.filter((i) => i.table === table)
     if (!batch.length) continue
-    const ids = [...new Set(batch.map((i) => i.rowId))]
-    const rows = (await db.table(table).bulkGet(ids)).filter(Boolean)
-    const payload = rows.map((r) => ({
-      id: r.id,
-      data: r,
-      updated_at_client: r.updatedAt,
-      deleted: !!r.deleted,
-    }))
-    // Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
-    // la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
-    const { data, error } = await supabase!.rpc('hb_upsert', { p_table: table, p_rows: payload })
-    if (error) throw error
-    await db.outbox.bulkDelete(batch.map((i) => i.seq!))
-    const rejected: string[] = Array.isArray(data) ? data : []
-    if (rejected.length) {
-      rejectedCount += rejected.length
-      await restoreFromServer(table, rejected)
+    // Envoi par paquets (un import de licences peut représenter des milliers de lignes).
+    for (let i = 0; i < batch.length; i += PUSH_CHUNK) {
+      const part = batch.slice(i, i + PUSH_CHUNK)
+      const ids = [...new Set(part.map((it) => it.rowId))]
+      const rows = (await db.table(table).bulkGet(ids)).filter(Boolean)
+      const payload = rows.map((r) => ({
+        id: r.id,
+        data: r,
+        updated_at_client: r.updatedAt,
+        deleted: !!r.deleted,
+      }))
+      // Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
+      // la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
+      const { data, error } = await supabase!.rpc('hb_upsert', { p_table: table, p_rows: payload })
+      if (error) throw error
+      await db.outbox.bulkDelete(part.map((it) => it.seq!))
+      const rejected: string[] = Array.isArray(data) ? data : []
+      if (rejected.length) {
+        rejectedCount += rejected.length
+        await restoreFromServer(table, rejected)
+      }
     }
   }
 }
+
+const PUSH_CHUNK = 400
 
 let rejectedCount = 0
 

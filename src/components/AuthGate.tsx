@@ -26,6 +26,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion.
   const uid = session?.user.id
   useEffect(() => {
+    if (!supabase) return // mode local : l'unique utilisateur garde tous les droits
     if (session === null) clearRole()
     else if (uid) void refreshRole()
   }, [uid, session])

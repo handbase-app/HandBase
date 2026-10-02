@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
-import { alive, criterionApplies, db, fmtDate, newId, save, today, type Evaluation, type EventType, type HBEvent } from '../db'
+import { fold } from './Players'
+import { alive, criterionApplies, db, fmtDate, newId, save, today, type Evaluation, type EventType, type HBEvent, type Player } from '../db'
 
 export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'match', label: 'Match' },
@@ -140,15 +141,7 @@ export default function Evaluate() {
       {/* Joueur */}
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
-        <select className="field" value={playerId} onChange={(e) => setParam('joueur', e.target.value)}>
-          <option value="">— Choisir —</option>
-          {players.map((p) => (
-            <option key={p.id} value={p.id}>
-              {evaluatedHere.has(p.id) ? '✓ ' : ''}
-              {p.lastName.toUpperCase()} {p.firstName}
-            </option>
-          ))}
-        </select>
+        <PlayerPicker players={players} value={playerId} done={evaluatedHere} onChange={(id) => setParam('joueur', id)} />
         {players.length === 0 && can.editPlayers(role) && (
           <Link to="/joueurs/nouveau" className="text-xs font-bold text-accent">
             Aucun joueur : inscrire un joueur →
@@ -284,6 +277,68 @@ export function NewEventForm({ onDone }: { onDone: (ev?: HBEvent) => void }) {
           Annuler
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Choix d'un joueur par recherche (la base peut contenir des milliers de joueurs). */
+function PlayerPicker({
+  players,
+  value,
+  done,
+  onChange,
+}: {
+  players: Player[]
+  value: string
+  done: Set<string>
+  onChange: (id: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const selected = players.find((p) => p.id === value)
+  if (selected && !q)
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-panel-2 px-3 py-2 text-sm">
+        <span className="min-w-0 truncate">
+          <b>
+            {selected.firstName} {selected.lastName}
+          </b>
+          {selected.club && <span className="text-[11px] text-muted"> · {selected.club}</span>}
+        </span>
+        <button className="shrink-0 text-xs font-bold text-accent" onClick={() => onChange('')}>
+          Changer
+        </button>
+      </div>
+    )
+  const words = fold(q).split(/\s+/).filter(Boolean)
+  // Sans recherche : les joueurs déjà évalués ici d'abord, puis l'ordre alphabétique.
+  const matches = (
+    words.length
+      ? players.filter((p) => {
+          const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.license ?? ''}`)
+          return words.every((w) => hay.includes(w))
+        })
+      : players.filter((p) => done.has(p.id))
+  ).slice(0, 20)
+  return (
+    <div className="flex flex-col gap-1">
+      <input className="field" placeholder="Nom, prénom, club ou licence…" value={q} autoFocus={!value} onChange={(e) => setQ(e.target.value)} />
+      {matches.map((p) => (
+        <button
+          key={p.id}
+          className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5 text-left text-xs hover:border-accent"
+          onClick={() => (onChange(p.id), setQ(''))}
+        >
+          <span className="min-w-0 truncate">
+            {done.has(p.id) && <span className="text-emerald-300">✓ </span>}
+            <b>
+              {p.lastName.toUpperCase()} {p.firstName}
+            </b>
+            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>}
+          </span>
+          <span className="shrink-0 truncate text-[10px] text-muted">{p.club}</span>
+        </button>
+      ))}
+      {words.length > 0 && matches.length === 0 && <p className="text-[11px] text-muted">Aucun joueur trouvé.</p>}
     </div>
   )
 }

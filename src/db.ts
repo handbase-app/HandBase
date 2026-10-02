@@ -41,6 +41,14 @@ export interface Player extends Syncable {
   position?: Position
   team?: string
   license?: string
+  /** Anciennes licences (une licence change en cas de mutation), pour reconnaître le joueur à l'import. */
+  previousLicenses?: string[]
+  /** État de la licence (QUALIFIE, EN_COURS…) et type de demande (RENOUVELLEMENT, CREATION, MUTATION). */
+  licenseStatus?: string
+  licenseRequestType?: string
+  /** Numéro du club (Gest'Hand). */
+  clubCode?: string
+  nationality?: string
   category?: string
   club?: string
   boarding?: boolean | null

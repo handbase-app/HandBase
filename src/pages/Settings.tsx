@@ -1,9 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { groupBy, Segmented, useMe } from '../components/ui'
-import { alive, db, newId, POSITIONS, remove, save, type Criterion, type CriterionScale } from '../db'
+import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
+import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ask, inform } from '../components/Confirm'
 import { can, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
@@ -50,6 +51,8 @@ export default function Settings() {
       {supabase && <PasswordChange />}
 
       {supabase && can.manageRoles(role) && <Members />}
+
+      {can.manageRoles(role) && <LicenceImport />}
 
       {can.editCriteria(role) ? (
         <CriteriaEditor />
@@ -168,6 +171,111 @@ function Account() {
           Se déconnecter
         </button>
       </div>
+    </section>
+  )
+}
+
+/** Import d'un export de licences Gest'Hand (administrateurs). */
+function LicenceImport() {
+  const [plan, setPlan] = useState<ImportPlan | null>(null)
+  const [sourceDate, setSourceDate] = useState(today())
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<[number, number] | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function pick(file: File) {
+    setMsg(null)
+    setPlan(null)
+    setBusy(true)
+    try {
+      // La date de l'export est souvent dans le nom du fichier (2026-10-02_Export_GH-licence.csv).
+      const d = file.name.match(/(\d{4}-\d{2}-\d{2})/)
+      setSourceDate(d ? d[1] : today())
+      const rows = await parseLicenceFile(file)
+      setPlan(await planImport(rows))
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Fichier illisible.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function run() {
+    if (!plan) return
+    const n = plan.create.length + plan.update.length
+    if (!(await ask(`Importer ${n.toLocaleString('fr-FR')} joueur(s) ? Ils seront visibles par tout le staff.`, { ok: 'Importer', danger: false }))) return
+    setBusy(true)
+    try {
+      const r = await applyImport(plan, sourceDate, (done, total) => setProgress([done, total]))
+      setPlan(null)
+      setMsg({
+        ok: true,
+        text: `${r.created.toLocaleString('fr-FR')} joueurs créés, ${r.updated.toLocaleString('fr-FR')} complétés, ${r.measurements.toLocaleString('fr-FR')} tailles ajoutées. La synchronisation envoie le tout au serveur (garde l’appli ouverte et en ligne).`,
+      })
+    } catch (e) {
+      setMsg({ ok: false, text: `Import interrompu : ${e instanceof Error ? e.message : e}` })
+    } finally {
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+
+  const fmt = (n: number) => n.toLocaleString('fr-FR')
+  return (
+    <section className="card flex flex-col gap-2 p-4">
+      <div className="section-title">Importer des licences (export Gest’Hand)</div>
+      <p className="text-[11px] text-muted">
+        Fichier CSV de la ligue ou du club. Il est lu sur cet appareil. Crée les joueurs absents et complète les fiches existantes
+        (reconnues par licence, ou par nom + date de naissance) sans écraser ce que le staff a saisi ; les données administratives (club,
+        licence, nationalité) suivent le fichier. La taille est enregistrée comme « déclarée à la licence ».
+      </p>
+      <label className={`btn-ghost cursor-pointer text-xs ${busy ? 'pointer-events-none opacity-40' : ''}`}>
+        {busy && !progress ? 'Lecture…' : 'Choisir le fichier CSV'}
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (f) void pick(f)
+          }}
+        />
+      </label>
+
+      {plan && (
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-3 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <b className="text-base">{fmt(plan.create.length)}</b> à créer
+            </div>
+            <div>
+              <b className="text-base">{fmt(plan.update.length)}</b> à compléter
+            </div>
+            <div className="text-muted">{fmt(plan.unchanged)} déjà à jour</div>
+            <div className="text-muted">{fmt(plan.duplicates)} doublons fusionnés</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted">Date de l’export :</span>
+            <input type="date" className="field w-40 py-1 text-xs" value={sourceDate} onChange={(e) => setSourceDate(e.target.value)} />
+          </div>
+          <button className="btn-primary" disabled={busy || plan.create.length + plan.update.length === 0} onClick={() => void run()}>
+            Importer
+          </button>
+        </div>
+      )}
+
+      {progress && (
+        <div>
+          <div className="h-2 overflow-hidden rounded-full bg-panel-2">
+            <div className="h-full bg-accent transition-all" style={{ width: `${(progress[0] / progress[1]) * 100}%` }} />
+          </div>
+          <p className="mt-1 text-[11px] text-muted">
+            {fmt(progress[0])} / {fmt(progress[1])}
+          </p>
+        </div>
+      )}
+      {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
     </section>
   )
 }
