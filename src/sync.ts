@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
 import { db, SYNC_TABLES, type SyncTable } from './db'
 
@@ -7,7 +7,9 @@ import { db, SYNC_TABLES, type SyncTable } from './db'
  *  - toutes les écritures vont dans IndexedDB + une file d'attente (outbox) ;
  *  - quand le réseau est là, on pousse la file vers Supabase puis on tire les
  *    changements des autres appareils ;
- *  - en cas de conflit, la version la plus récente (updatedAt) l'emporte.
+ *  - en cas de conflit, la version la plus récente (updatedAt) l'emporte ;
+ *  - en direct : le serveur prévient (Supabase Realtime) dès qu'une donnée change, et l'appli
+ *    va chercher les nouveautés aussitôt (sinon, au plus tard toutes les minutes).
  * Sans configuration Supabase, l'application fonctionne en local uniquement.
  */
 
@@ -21,6 +23,8 @@ export type SyncState = 'local' | 'login' | 'offline' | 'syncing' | 'synced' | '
 
 let state: SyncState = syncEnabled ? (navigator.onLine ? 'synced' : 'offline') : 'local'
 let lastError = ''
+/** Connexion « en direct » active (notifications du serveur reçues). */
+let live = false
 const listeners = new Set<() => void>()
 const setState = (s: SyncState, err = '') => {
   state = s
@@ -138,16 +142,56 @@ async function pull() {
   }
 }
 
+// Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation.
+let soon: number | undefined
+function syncSoon(delay = 400) {
+  window.clearTimeout(soon)
+  soon = window.setTimeout(() => void syncNow(), delay)
+}
+
+let channel: RealtimeChannel | null = null
+
+/** Écoute les changements du serveur sur toutes les tables (seulement une fois connecté). */
+function startRealtime() {
+  if (!supabase || channel) return
+  channel = supabase.channel('handbase-sync')
+  for (const t of SYNC_TABLES) {
+    channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
+  }
+  channel.subscribe((status) => {
+    const was = live
+    live = status === 'SUBSCRIBED'
+    // En (re)connexion, on rattrape ce qui a pu changer pendant la coupure.
+    if (live && !was) syncSoon(0)
+    listeners.forEach((l) => l())
+  })
+}
+
+function stopRealtime() {
+  if (!supabase || !channel) return
+  void supabase.removeChannel(channel)
+  channel = null
+  live = false
+  listeners.forEach((l) => l())
+}
+
 /** À appeler une fois au démarrage. */
 export function startSync() {
   if (!supabase) return
   window.addEventListener('online', () => void syncNow())
   window.addEventListener('offline', () => setState('offline'))
-  db.outbox.hook('creating', () => {
-    setTimeout(() => void syncNow(), 500)
-  })
+  // Retour sur l'appli (téléphone déverrouillé, onglet réaffiché) : on se met à jour.
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && syncSoon(0))
+  db.outbox.hook('creating', () => syncSoon(500))
   // Ne pas appeler Supabase directement dans ce callback (risque de blocage) : on diffère.
-  supabase.auth.onAuthStateChange(() => setTimeout(() => void syncNow(), 0))
+  supabase.auth.onAuthStateChange((_e, session) =>
+    setTimeout(() => {
+      if (session) startRealtime()
+      else stopRealtime()
+      void syncNow()
+    }, 0),
+  )
+  // Filet de sécurité si une notification est perdue.
   setInterval(() => void syncNow(), 60_000)
   void syncNow()
 }
@@ -161,5 +205,5 @@ export function useSyncState() {
       listeners.delete(l)
     }
   }, [])
-  return { state, lastError }
+  return { state, lastError, live }
 }

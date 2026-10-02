@@ -12,14 +12,14 @@ import Settings from './pages/Settings'
 import { syncNow, useSyncState } from './sync'
 
 function SyncBadge() {
-  const { state, lastError } = useSyncState()
+  const { state, lastError, live } = useSyncState()
   const pending = useLiveQuery(() => db.outbox.count(), [], 0)
   const map = {
     local: { dot: 'bg-muted', text: 'Local' },
     login: { dot: 'bg-amber-400', text: 'Non connecté' },
     offline: { dot: 'bg-amber-400', text: 'Hors ligne' },
     syncing: { dot: 'bg-sky-400 animate-pulse', text: 'Synchro…' },
-    synced: { dot: 'bg-emerald-400', text: 'Synchronisé' },
+    synced: { dot: 'bg-emerald-400', text: live ? 'En direct' : 'Synchronisé' },
     error: { dot: 'bg-red-500', text: 'Erreur synchro' },
   }[state]
   const warn = state === 'synced' && !!lastError
