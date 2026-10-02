@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { POSITIONS, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
@@ -97,14 +97,7 @@ export function usePlayerFilter(players: Player[] | undefined) {
         ))}
       </div>
       <div className="grid grid-cols-[1fr_auto] gap-2">
-        <select className="field py-1.5 text-xs" value={club} onChange={(e) => (setClub(e.target.value), setYear(''))}>
-          <option value="">Tous les clubs ({bySex.length.toLocaleString('fr-FR')})</option>
-          {clubs.map(([c, n]) => (
-            <option key={c} value={c}>
-              {c} ({n})
-            </option>
-          ))}
-        </select>
+        <ClubPicker clubs={clubs} total={bySex.length} value={club} onChange={(c) => (setClub(c), setYear(''))} />
         <select className="field w-32 py-1.5 text-xs" value={year} onChange={(e) => setYear(e.target.value)}>
           <option value="">Toutes années</option>
           {years.map(([y, n]) => (
@@ -140,4 +133,77 @@ export function usePlayerFilter(players: Player[] | undefined) {
   )
 
   return { filtered, ui, active, reset }
+}
+
+/** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
+function ClubPicker({
+  clubs,
+  total,
+  value,
+  onChange,
+}: {
+  clubs: [string, number][]
+  total: number
+  value: string
+  onChange: (club: string) => void
+}) {
+  const [text, setText] = useState('')
+  const [open, setOpen] = useState(false)
+  const blurTimer = useRef<number | undefined>(undefined)
+  const words = fold(text).split(/\s+/).filter(Boolean)
+  const matches = clubs.filter(([c]) => words.every((w) => fold(c).includes(w)))
+
+  const pick = (c: string) => {
+    onChange(c)
+    setText('')
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative">
+      <input
+        className={`field py-1.5 pr-7 text-xs ${value && !open ? 'font-bold' : ''}`}
+        placeholder={`Tous les clubs (${total.toLocaleString('fr-FR')}) — taper un nom…`}
+        value={open ? text : value}
+        onFocus={() => {
+          window.clearTimeout(blurTimer.current)
+          setText('')
+          setOpen(true)
+        }}
+        // Laisse le temps au clic sur une proposition d'être pris en compte.
+        onBlur={() => (blurTimer.current = window.setTimeout(() => setOpen(false), 150))}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && matches[0]) {
+            pick(matches[0][0])
+            ;(e.target as HTMLInputElement).blur()
+          } else if (e.key === 'Escape') (e.target as HTMLInputElement).blur()
+        }}
+      />
+      {value && !open && (
+        <button className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted hover:text-white" title="Tous les clubs" onClick={() => pick('')}>
+          ✕
+        </button>
+      )}
+      {open && (
+        <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
+          <button className="block w-full px-3 py-2 text-left text-xs text-muted hover:bg-panel-2" onMouseDown={(e) => e.preventDefault()} onClick={() => pick('')}>
+            Tous les clubs ({total.toLocaleString('fr-FR')})
+          </button>
+          {matches.map(([c, n]) => (
+            <button
+              key={c}
+              className={`flex w-full justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-panel-2 ${c === value ? 'text-accent' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(c)}
+            >
+              <span className="truncate">{c}</span>
+              <span className="shrink-0 text-muted">{n}</span>
+            </button>
+          ))}
+          {!matches.length && <div className="px-3 py-2 text-xs text-muted">Aucun club ne correspond.</div>}
+        </div>
+      )}
+    </div>
+  )
 }
