@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
+import { choose, setLeaveGuard } from '../components/Confirm'
 import { fold } from './Players'
 import { alive, criterionApplies, db, fmtDate, newId, save, today, type Evaluation, type EventType, type HBEvent, type Player } from '../db'
 
@@ -45,17 +46,38 @@ export default function Evaluate() {
   const existing = mine.find((e) => e.playerId === playerId && (e.eventId ?? '') === eventId)
 
   const [draft, setDraft] = useState<Partial<Evaluation>>({ scores: {} })
+  // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
+  const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
   useEffect(() => {
-    setDraft(existing ? { ...existing } : { scores: {}, date: event?.date ?? today() })
+    const init = existing ? { ...existing } : { scores: {}, date: event?.date ?? today() }
+    setDraft(init)
+    setBaseline(fingerprint(init))
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerId, eventId])
   // …et on charge mon avis existant dès qu'il arrive de la base (chargement asynchrone).
   useEffect(() => {
-    if (existing && !saved) setDraft({ ...existing })
+    if (existing && !saved) {
+      setDraft({ ...existing })
+      setBaseline(fingerprint(existing))
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing?.id])
+
+  const dirty = !!player && fingerprint(draft) !== baseline
+  // Avant de quitter l'écran (menu du bas) ou l'onglet : proposer d'enregistrer.
+  const leaveRef = useRef<() => Promise<boolean>>(async () => true)
+  useEffect(() => {
+    setLeaveGuard(() => leaveRef.current())
+    return () => setLeaveGuard(null)
+  }, [])
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const shown = useMemo(
     () => criteria.filter((c) => criterionApplies(c, player?.position) && (mode === 'complet' || c.quick || draft.scores?.[c.id] !== undefined)),
@@ -95,8 +117,30 @@ export default function Evaluate() {
       date: draft.date ?? today(),
       scores,
     } as Evaluation)
+    setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Si l'avis en cours a été modifié : enregistrer, abandonner ou rester. Renvoie true si on peut partir. */
+  async function confirmLeave() {
+    if (!dirty || !player) return true
+    const c = await choose(`Ton avis sur ${player.firstName} ${player.lastName} a été modifié mais pas enregistré.`, [
+      { value: 'stay', label: 'Rester', style: 'ghost' },
+      { value: 'discard', label: 'Ne pas enregistrer', style: 'ghost' },
+      { value: 'save', label: 'Enregistrer', style: 'primary' },
+    ])
+    if (c === 'save') {
+      await submit()
+      return true
+    }
+    return c === 'discard'
+  }
+  leaveRef.current = confirmLeave
+
+  /** Changer de joueur ou d'événement, après vérification de la saisie en cours. */
+  const go = async (k: 'joueur' | 'evenement', v: string) => {
+    if (await confirmLeave()) setParam(k, v)
   }
 
   const evaluatedHere = new Set(mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
@@ -125,12 +169,12 @@ export default function Evaluate() {
           <NewEventForm
             onDone={(ev) => {
               setCreatingEvent(false)
-              if (ev) setParam('evenement', ev.id)
+              if (ev) void go('evenement', ev.id)
             }}
           />
         ) : (
           <div className="flex gap-2">
-            <select className="field flex-1" value={eventId} onChange={(e) => setParam('evenement', e.target.value)}>
+            <select className="field flex-1" value={eventId} onChange={(e) => void go('evenement', e.target.value)}>
               <option value="">Hors événement</option>
               {events.map((ev) => (
                 <option key={ev.id} value={ev.id}>
@@ -150,17 +194,17 @@ export default function Evaluate() {
       {/* Joueur */}
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
-        <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => setParam('joueur', id)} />
+        <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => void go('joueur', id)} />
         {roster.length > 0 && (
           <div className="flex items-center justify-between gap-2">
-            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && setParam('joueur', prev.id)}>
+            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && void go('joueur', prev.id)}>
               ←
             </button>
             <span className="text-center text-[11px] whitespace-nowrap text-muted">
               <b className="text-white">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
               {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
             </span>
-            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => setParam('joueur', (next ?? roster[0]).id)}>
+            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => void go('joueur', (next ?? roster[0]).id)}>
               →
             </button>
           </div>
@@ -176,13 +220,13 @@ export default function Evaluate() {
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           ✓ Avis enregistré{event ? ` pour « ${event.name} »` : ''}.{' '}
           {nextTodo ? (
-            <button className="font-bold underline" onClick={() => setParam('joueur', nextTodo.id)}>
+            <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
               Joueur suivant à noter : {nextTodo.firstName} {nextTodo.lastName} →
             </button>
           ) : roster.length ? (
             <b>Tous les joueurs de la liste sont notés.</b>
           ) : (
-            <button className="font-bold underline" onClick={() => setParam('joueur', '')}>
+            <button className="font-bold underline" onClick={() => void go('joueur', '')}>
               Évaluer un autre joueur
             </button>
           )}
@@ -376,4 +420,13 @@ function PlayerPicker({
       {words.length > 0 && matches.length === 0 && <p className="text-[11px] text-muted">Aucun joueur trouvé.</p>}
     </div>
   )
+}
+
+/** Empreinte des champs saisis d'un avis, pour savoir s'il a changé. */
+function fingerprint(d: Partial<Evaluation>) {
+  const scores = Object.entries(d.scores ?? {})
+    .filter(([, v]) => typeof v === 'number')
+    .sort(([a], [b]) => a.localeCompare(b))
+  const txt = (v?: string) => v?.trim() || ''
+  return JSON.stringify([scores, d.overall ?? null, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? ''])
 }

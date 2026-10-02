@@ -6,28 +6,46 @@ import { useEffect, useState } from 'react'
  * les bloquent (ils répondent « Annuler » sans rien afficher).
  */
 
-type Request = { message: string; ok: string; danger: boolean; cancel: boolean; resolve: (v: boolean) => void }
+type Style = 'primary' | 'danger' | 'ghost'
+export interface Choice<T extends string> {
+  value: T
+  label: string
+  style?: Style
+}
+
+type Request = { message: string; choices: Choice<string>[]; resolve: (v: string | null) => void }
 
 let current: Request | null = null
 const listeners = new Set<() => void>()
 const emit = () => listeners.forEach((l) => l())
 
-/** Demande une confirmation ; renvoie true si l'utilisateur valide. */
-export function ask(message: string, opts: { ok?: string; danger?: boolean } = {}): Promise<boolean> {
+/** Propose plusieurs choix ; renvoie la valeur choisie, ou null si la fenêtre est fermée. */
+export function choose<T extends string>(message: string, choices: Choice<T>[]): Promise<T | null> {
   return new Promise((resolve) => {
-    current?.resolve(false)
-    current = { message, ok: opts.ok ?? 'Confirmer', danger: opts.danger ?? true, cancel: true, resolve }
+    current?.resolve(null)
+    current = { message, choices, resolve: (v) => resolve(v as T | null) }
     emit()
   })
 }
 
+/** Demande une confirmation ; renvoie true si l'utilisateur valide. */
+export async function ask(message: string, opts: { ok?: string; danger?: boolean } = {}): Promise<boolean> {
+  const r = await choose(message, [
+    { value: 'cancel', label: 'Annuler', style: 'ghost' },
+    { value: 'ok', label: opts.ok ?? 'Confirmer', style: opts.danger ?? true ? 'danger' : 'primary' },
+  ])
+  return r === 'ok'
+}
+
 /** Simple message d'information (remplace alert). */
-export function inform(message: string): Promise<void> {
-  return new Promise((resolve) => {
-    current?.resolve(false)
-    current = { message, ok: 'OK', danger: false, cancel: false, resolve: () => resolve() }
-    emit()
-  })
+export async function inform(message: string): Promise<void> {
+  await choose(message, [{ value: 'ok', label: 'OK', style: 'primary' }])
+}
+
+const STYLE: Record<Style, string> = {
+  primary: 'btn-primary',
+  danger: 'btn bg-red-600 text-white hover:bg-red-500',
+  ghost: 'btn-ghost',
 }
 
 export function ConfirmHost() {
@@ -41,34 +59,46 @@ export function ConfirmHost() {
   }, [])
   useEffect(() => {
     if (!current) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(null)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
 
   if (!current) return null
   const req = current
-  function close(v: boolean) {
+  function close(v: string | null) {
     current = null
     emit()
     req.resolve(v)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => close(false)}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => close(null)}>
       <div role="dialog" aria-modal="true" className="card w-full max-w-sm p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm leading-relaxed">{req.message}</p>
-        <div className="mt-5 flex justify-end gap-2">
-          {req.cancel && (
-            <button className="btn-ghost" onClick={() => close(false)}>
-              Annuler
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {req.choices.map((c, i) => (
+            <button key={c.value} autoFocus={i === req.choices.length - 1} className={STYLE[c.style ?? 'primary']} onClick={() => close(c.value)}>
+              {c.label}
             </button>
-          )}
-          <button autoFocus className={req.danger ? 'btn bg-red-600 text-white hover:bg-red-500' : 'btn-primary'} onClick={() => close(true)}>
-            {req.ok}
-          </button>
+          ))}
         </div>
       </div>
     </div>
   )
+}
+
+// ---------- Garde « modifications non enregistrées » ----------
+
+type Guard = () => Promise<boolean>
+let guard: Guard | null = null
+
+/** Un écran avec une saisie en cours s'enregistre ici ; les liens de navigation le consultent avant de partir. */
+export function setLeaveGuard(g: Guard | null) {
+  guard = g
+}
+
+/** true si on peut quitter l'écran courant (rien en cours, ou l'utilisateur a choisi). */
+export async function canLeave(): Promise<boolean> {
+  return guard ? guard() : true
 }

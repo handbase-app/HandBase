@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { NavLink, Route, Routes } from 'react-router-dom'
-import { ConfirmHost } from './components/Confirm'
+import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
+import { canLeave, ConfirmHost } from './components/Confirm'
 import { db } from './db'
 import Events, { EventDetail } from './pages/Events'
 import Evaluate from './pages/Evaluate'
@@ -44,13 +44,27 @@ const NAV = [
   { to: '/parametres', label: 'Réglages', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V4h-4v3l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v3h4v-3l2-1 2 1 2-4z' },
 ]
 
+/** Lien du menu qui vérifie d'abord qu'aucune saisie en cours ne sera perdue. */
+function GuardedLink(props: NavLinkProps & { to: string }) {
+  const navigate = useNavigate()
+  return (
+    <NavLink
+      {...props}
+      onClick={async (e) => {
+        e.preventDefault()
+        if (await canLeave()) navigate(props.to)
+      }}
+    />
+  )
+}
+
 export default function App() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur">
-        <NavLink to="/" className="text-sm font-extrabold tracking-widest">
+        <GuardedLink to="/" className="text-sm font-extrabold tracking-widest">
           HAND<span className="text-accent">BASE</span>
-        </NavLink>
+        </GuardedLink>
         <SyncBadge />
       </header>
 
@@ -71,7 +85,7 @@ export default function App() {
       <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto flex max-w-2xl">
           {NAV.map((n) => (
-            <NavLink
+            <GuardedLink
               key={n.to}
               to={n.to}
               end={n.to === '/'}
@@ -83,7 +97,7 @@ export default function App() {
                 <path d={n.icon} />
               </svg>
               {n.label}
-            </NavLink>
+            </GuardedLink>
           ))}
         </div>
       </nav>
