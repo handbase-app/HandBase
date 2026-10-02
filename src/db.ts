@@ -94,6 +94,8 @@ export interface HBEvent extends Syncable {
   type: EventType
   date: string
   place?: string
+  /** Joueurs convoqués / à évaluer sur l'événement (ordre de passage). */
+  playerIds?: string[]
 }
 
 /** Avis subjectif d'un observateur sur un joueur, dans un contexte. */

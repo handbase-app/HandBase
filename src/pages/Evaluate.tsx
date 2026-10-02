@@ -100,6 +100,13 @@ export default function Evaluate() {
   }
 
   const evaluatedHere = new Set(mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
+  // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
+  const byId = new Map(players.map((p) => [p.id, p]))
+  const roster = (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p)
+  const idx = roster.findIndex((p) => p.id === playerId)
+  const prev = idx > 0 ? roster[idx - 1] : undefined
+  const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
+  const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
   const filled = Object.values(draft.scores ?? {}).filter((v) => typeof v === 'number').length
 
   return (
@@ -141,7 +148,21 @@ export default function Evaluate() {
       {/* Joueur */}
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
-        <PlayerPicker players={players} value={playerId} done={evaluatedHere} onChange={(id) => setParam('joueur', id)} />
+        <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => setParam('joueur', id)} />
+        {roster.length > 0 && (
+          <div className="flex items-center justify-between gap-2">
+            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && setParam('joueur', prev.id)}>
+              ←
+            </button>
+            <span className="text-center text-[11px] whitespace-nowrap text-muted">
+              <b className="text-white">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
+              {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
+            </span>
+            <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => setParam('joueur', (next ?? roster[0]).id)}>
+              →
+            </button>
+          </div>
+        )}
         {players.length === 0 && can.editPlayers(role) && (
           <Link to="/joueurs/nouveau" className="text-xs font-bold text-accent">
             Aucun joueur : inscrire un joueur →
@@ -152,9 +173,17 @@ export default function Evaluate() {
       {saved && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           ✓ Avis enregistré{event ? ` pour « ${event.name} »` : ''}.{' '}
-          <button className="font-bold underline" onClick={() => setParam('joueur', '')}>
-            Évaluer un autre joueur
-          </button>
+          {nextTodo ? (
+            <button className="font-bold underline" onClick={() => setParam('joueur', nextTodo.id)}>
+              Joueur suivant à noter : {nextTodo.firstName} {nextTodo.lastName} →
+            </button>
+          ) : roster.length ? (
+            <b>Tous les joueurs de la liste sont notés.</b>
+          ) : (
+            <button className="font-bold underline" onClick={() => setParam('joueur', '')}>
+              Évaluer un autre joueur
+            </button>
+          )}
           {player && (
             <>
               {' · '}
@@ -284,11 +313,13 @@ export function NewEventForm({ onDone }: { onDone: (ev?: HBEvent) => void }) {
 /** Choix d'un joueur par recherche (la base peut contenir des milliers de joueurs). */
 function PlayerPicker({
   players,
+  roster,
   value,
   done,
   onChange,
 }: {
   players: Player[]
+  roster: Player[]
   value: string
   done: Set<string>
   onChange: (id: string) => void
@@ -317,8 +348,10 @@ function PlayerPicker({
           const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.license ?? ''}`)
           return words.every((w) => hay.includes(w))
         })
-      : players.filter((p) => done.has(p.id))
-  ).slice(0, 20)
+      : roster.length
+        ? roster
+        : players.filter((p) => done.has(p.id))
+  ).slice(0, words.length ? 20 : Math.max(20, roster.length))
   return (
     <div className="flex flex-col gap-1">
       <input className="field" placeholder="Nom, prénom, club ou licence…" value={q} autoFocus={!value} onChange={(e) => setQ(e.target.value)} />
