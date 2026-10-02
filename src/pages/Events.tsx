@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Avatar, Empty, PosBadge } from '../components/ui'
 import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
-import { ask, choose, type Choice } from '../components/Confirm'
+import { ask, inform } from '../components/Confirm'
 import { can, useRole } from '../roles'
 import { arrowNav, usePlayerFilter } from '../components/PlayerFilter'
 import { DIVERGENCE } from '../components/Opinions'
@@ -107,25 +107,15 @@ export function EventDetail() {
             className="text-xs text-muted hover:text-red-400"
             onClick={async () => {
               const n = evals.length
-              if (!n) {
-                if (!(await ask(`Supprimer « ${ev.name} » ?`, { ok: 'Supprimer' }))) return
-              } else {
-                const choices: Choice<'cancel' | 'keep' | 'all'>[] = [
-                  { value: 'cancel', label: 'Annuler', style: 'ghost' },
-                  { value: 'keep', label: `Garder les ${n} avis`, style: 'primary' },
-                ]
-                // Les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur.
-                if (role === 'admin') choices.push({ value: 'all', label: `Supprimer aussi les ${n} avis`, style: 'danger' })
-                const c = await choose(
-                  `Supprimer « ${ev.name} » ? ${n} avis y ont été donnés.` +
-                    (role === 'admin'
-                      ? ' Tu peux les garder sur les fiches des joueurs, ou les supprimer avec l’événement.'
-                      : ' Ils resteront sur les fiches des joueurs (seul un administrateur peut les supprimer).'),
-                  choices,
-                )
-                if (c !== 'keep' && c !== 'all') return
-                if (c === 'all') for (const e of evals) await remove('evaluations', e.id)
+              // Chaque avis appartient à un événement : supprimer l'événement supprime ses avis.
+              // Les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur.
+              if (n && role !== 'admin') {
+                await inform(`« ${ev.name} » contient ${n} avis : seul un administrateur peut le supprimer.`)
+                return
               }
+              const msg = n ? `Supprimer « ${ev.name} » et ses ${n} avis ?` : `Supprimer « ${ev.name} » ?`
+              if (!(await ask(msg, { ok: 'Supprimer' }))) return
+              for (const e of evals) await remove('evaluations', e.id)
               await remove('events', ev.id)
               nav('/evenements', { replace: true })
             }}
