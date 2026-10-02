@@ -1,7 +1,9 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Legend, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from 'recharts'
-import { fmtDate, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
+import { fmtDate, remove, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
+import { currentUserId, useRole } from '../roles'
+import { ask } from './Confirm'
 import { Empty } from './ui'
 
 const COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -32,6 +34,14 @@ export function Opinions({
 
   const evs = eventId === 'all' ? evaluations : evaluations.filter((e) => (e.eventId ?? 'none') === eventId)
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
+  const eventLabel = (id?: string) => {
+    if (!id) return 'Hors événement'
+    const ev = events.find((x) => x.id === id)
+    if (!ev) return 'Événement inconnu'
+    return ev.deleted ? `Événement supprimé : ${ev.name}` : ev.name
+  }
+  const role = useRole()
+  const mayDelete = (e: Evaluation) => role === 'admin' || (!!e.observerId && e.observerId === currentUserId())
   const observers = [...new Set(evs.map((e) => e.observer))].sort()
 
   const rows = useMemo(() => {
@@ -77,7 +87,7 @@ export function Opinions({
           <option value="all">Tous les avis (cumul)</option>
           {usedEvents.map((ev) => (
             <option key={ev.id} value={ev.id}>
-              {ev.name} · {fmtDate(ev.date)}
+              {ev.deleted ? `(supprimé) ${ev.name}` : ev.name} · {fmtDate(ev.date)}
             </option>
           ))}
           {evaluations.some((e) => !e.eventId) && <option value="none">Hors événement</option>}
@@ -166,18 +176,35 @@ export function Opinions({
         </div>
       )}
 
-      {/* Commentaires */}
-      {evs.some((e) => e.strengths || e.improvements) && (
-        <div className="flex flex-col gap-2">
-          <div className="section-title mt-2">Commentaires</div>
-          {evs
-            .filter((e) => e.strengths || e.improvements)
-            .sort((a, b) => b.date.localeCompare(a.date))
-            .map((e) => (
+      {/* Détail des avis (avec commentaires) */}
+      <div className="flex flex-col gap-2">
+        <div className="section-title mt-2">Détail des avis ({evs.length})</div>
+        {[...evs]
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .map((e) => {
+            const notes = Object.values(e.scores).filter((v) => typeof v === 'number')
+            return (
               <div key={e.id} className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
-                <div className="mb-1 text-[10px] text-muted">
-                  <b className="text-white">{e.observer}</b> · {events.find((x) => x.id === e.eventId)?.name ?? 'Hors événement'} · {fmtDate(e.date)}
-                  {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-[10px] text-muted">
+                    <b className="text-white">{e.observer}</b> · {eventLabel(e.eventId)} · {fmtDate(e.date)}
+                    {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
+                    <br />
+                    {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
+                    {typeof e.overall === 'number' && <> · note globale <b className="text-white">{e.overall}/5</b></>}
+                  </div>
+                  {mayDelete(e) && (
+                    <button
+                      className="shrink-0 px-1 text-muted hover:text-red-400"
+                      title="Supprimer cet avis"
+                      onClick={async () =>
+                        (await ask(`Supprimer l’avis de ${e.observer} (${eventLabel(e.eventId)}, ${fmtDate(e.date)}) ?`, { ok: 'Supprimer' })) &&
+                        void remove('evaluations', e.id)
+                      }
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 {e.strengths && (
                   <div>
@@ -192,9 +219,9 @@ export function Opinions({
                   </div>
                 )}
               </div>
-            ))}
-        </div>
-      )}
+            )
+          })}
+      </div>
 
       <Link to={evaluateLink} className="btn-ghost mt-1">
         + Donner mon avis

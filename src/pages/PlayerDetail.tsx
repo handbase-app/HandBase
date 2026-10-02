@@ -21,7 +21,7 @@ export default function PlayerDetail() {
       db.criteria.orderBy('order').toArray().then(alive),
       db.measurements.where('playerId').equals(id!).toArray().then(alive),
       db.evaluations.where('playerId').equals(id!).toArray().then(alive),
-      db.events.toArray().then(alive),
+      db.events.toArray(), // y compris supprimés : leurs avis gardent le nom de l'événement
     ])
     return { player, criteria, measurements, evaluations, events }
   }, [id])
