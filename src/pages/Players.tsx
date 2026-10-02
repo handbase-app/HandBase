@@ -56,8 +56,8 @@ export default function Players() {
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Joueurs</h1>
         <div className="flex gap-2">
-          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv()} disabled={!players.length}>
-            Exporter
+          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv(filtered)} disabled={!filtered.length}>
+            Exporter{filtered.length < players.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
           </button>
           {can.editPlayers(role) && (
             <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
