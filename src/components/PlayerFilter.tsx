@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { POSITIONS, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
@@ -30,15 +30,40 @@ const readSex = (): SexFilter => {
 }
 
 /**
- * Filtres communs (sexe, club, année de naissance, poste, recherche) pour parcourir des milliers
- * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil.
+ * Valeur gardée pendant la session (sessionStorage) : on retrouve ses filtres en revenant
+ * sur un écran, tant que l'appli reste ouverte.
  */
-export function usePlayerFilter(players: Player[] | undefined) {
-  const [q, setQ] = useState('')
+export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = sessionStorage.getItem(key)
+      return raw === null ? initial : (JSON.parse(raw) as T)
+    } catch {
+      return initial
+    }
+  })
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      /* stockage indisponible */
+    }
+  }, [key, value])
+  return [value, setValue]
+}
+
+/**
+ * Filtres communs (sexe, club, année de naissance, poste, recherche) pour parcourir des milliers
+ * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
+ * pendant la session, séparément pour chaque écran (`scope`).
+ */
+export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs') {
+  const k = (name: string) => `handbase.filter.${scope}.${name}`
+  const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
-  const [club, setClub] = useState('')
-  const [year, setYear] = useState('')
-  const [position, setPosition] = useState<Position | 'all' | 'none'>('all')
+  const [club, setClub] = useSessionState(k('club'), '')
+  const [year, setYear] = useSessionState(k('year'), '')
+  const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
 
   const setSex = (v: SexFilter) => {
     setSexState(v)
@@ -132,7 +157,9 @@ export function usePlayerFilter(players: Player[] | undefined) {
     </div>
   )
 
-  return { filtered, ui, active, reset }
+  /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
+  const signature = JSON.stringify([q, sex, club, year, position])
+  return { filtered, ui, active, reset, signature }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
@@ -149,9 +176,15 @@ function ClubPicker({
 }) {
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
   const blurTimer = useRef<number | undefined>(undefined)
+  const listRef = useRef<HTMLDivElement>(null)
   const words = fold(text).split(/\s+/).filter(Boolean)
   const matches = clubs.filter(([c]) => words.every((w) => fold(c).includes(w)))
+  useEffect(() => setActive(0), [text])
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
 
   const pick = (c: string) => {
     onChange(c)
@@ -174,8 +207,15 @@ function ClubPicker({
         onBlur={() => (blurTimer.current = window.setTimeout(() => setOpen(false), 150))}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && matches[0]) {
-            pick(matches[0][0])
+          // ↑ ↓ pour se déplacer dans les propositions, Entrée pour choisir, Échap pour fermer.
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setActive((i) => Math.min(i + 1, matches.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setActive((i) => Math.max(i - 1, 0))
+          } else if (e.key === 'Enter' && matches[active]) {
+            pick(matches[active][0])
             ;(e.target as HTMLInputElement).blur()
           } else if (e.key === 'Escape') (e.target as HTMLInputElement).blur()
         }}
@@ -186,14 +226,16 @@ function ClubPicker({
         </button>
       )}
       {open && (
-        <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
+        <div ref={listRef} className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
           <button className="block w-full px-3 py-2 text-left text-xs text-muted hover:bg-panel-2" onMouseDown={(e) => e.preventDefault()} onClick={() => pick('')}>
             Tous les clubs ({total.toLocaleString('fr-FR')})
           </button>
-          {matches.map(([c, n]) => (
+          {matches.map(([c, n], i) => (
             <button
               key={c}
-              className={`flex w-full justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-panel-2 ${c === value ? 'text-accent' : ''}`}
+              data-i={i}
+              onMouseEnter={() => setActive(i)}
+              className={`flex w-full justify-between gap-2 px-3 py-2 text-left text-xs ${i === active ? 'bg-panel-2' : ''} ${c === value ? 'text-accent' : ''}`}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(c)}
             >
@@ -206,4 +248,31 @@ function ClubPicker({
       )}
     </div>
   )
+}
+
+/**
+ * Navigation au clavier dans une liste : depuis un champ de saisie, ↓ va au premier élément ;
+ * sur un élément, ↑ ↓ passent au précédent / suivant (↑ sur le premier revient au champ).
+ * Entrée / Espace activent l'élément (comportement natif des liens et boutons).
+ */
+export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: string) {
+  // Les listes de propositions (choix du club…) gèrent déjà leurs flèches.
+  if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.defaultPrevented) return
+  const root = e.currentTarget
+  const items = [...root.querySelectorAll<HTMLElement>(itemSelector)].filter((el) => !(el as HTMLButtonElement).disabled)
+  if (!items.length) return
+  const target = e.target as HTMLElement
+  const i = items.indexOf(target)
+  if (i < 0) {
+    // Depuis le champ de recherche (ou ailleurs dans la zone) : ↓ va au premier joueur.
+    if (e.key === 'ArrowDown' && target.matches('input[placeholder^="Rechercher"]')) {
+      e.preventDefault()
+      items[0].focus()
+    }
+    return
+  }
+  e.preventDefault()
+  if (e.key === 'ArrowDown') items[Math.min(i + 1, items.length - 1)].focus()
+  else if (i > 0) items[i - 1].focus()
+  else root.querySelector<HTMLInputElement>('input[placeholder^="Rechercher"]')?.focus()
 }

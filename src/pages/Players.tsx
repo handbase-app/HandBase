@@ -1,9 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadge } from '../components/ui'
-import { fold, usePlayerFilter } from '../components/PlayerFilter'
+import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
 import { can, useRole } from '../roles'
 
@@ -23,9 +23,28 @@ export default function Players() {
   const role = useRole()
   const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
-  const { filtered, ui } = usePlayerFilter(players)
-  const [limit, setLimit] = useState(PAGE)
-  useEffect(() => setLimit(PAGE), [filtered])
+  const { filtered, ui, signature } = usePlayerFilter(players)
+  // Nombre de joueurs affichés et position dans la liste : retrouvés au retour d'une fiche.
+  const [limit, setLimit] = useSessionState('handbase.joueurs.limit', PAGE)
+  const [limitFor, setLimitFor] = useSessionState('handbase.joueurs.limitFor', signature)
+  useEffect(() => {
+    if (signature !== limitFor) {
+      setLimit(PAGE)
+      setLimitFor(signature)
+    }
+  }, [signature, limitFor, setLimit, setLimitFor])
+  const restored = useRef(false)
+  useEffect(() => {
+    if (!players || restored.current) return
+    restored.current = true
+    const y = Number(sessionStorage.getItem(SCROLL_KEY) ?? 0)
+    if (y) requestAnimationFrame(() => window.scrollTo(0, y))
+  }, [players])
+  useEffect(() => {
+    const keep = () => sessionStorage.setItem(SCROLL_KEY, String(window.scrollY))
+    window.addEventListener('scroll', keep, { passive: true })
+    return () => window.removeEventListener('scroll', keep)
+  }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
 
@@ -33,7 +52,7 @@ export default function Players() {
   const shown = filtered.slice(0, limit)
 
   return (
-    <div>
+    <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Joueurs</h1>
         <div className="flex gap-2">
@@ -59,7 +78,12 @@ export default function Players() {
             const l = latest.get(p.id)
             const a = age(p.birthDate)
             return (
-              <Link key={p.id} to={`/joueurs/${p.id}`} className="card flex items-center gap-3 p-3 transition hover:border-accent">
+              <Link
+                key={p.id}
+                data-player
+                to={`/joueurs/${p.id}`}
+                className="card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2"
+              >
                 <Avatar p={p} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-bold">
@@ -97,5 +121,6 @@ export default function Players() {
 
 /** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
 const PAGE = 60
+const SCROLL_KEY = 'handbase.joueurs.scroll'
 
 export { fold }

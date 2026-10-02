@@ -371,6 +371,12 @@ function PlayerPicker({
   onChange: (id: string) => void
 }) {
   const [q, setQ] = useState('')
+  const [active, setActive] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => setActive(0), [q])
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
   const selected = players.find((p) => p.id === value)
   if (selected && !q)
     return (
@@ -400,11 +406,34 @@ function PlayerPicker({
   ).slice(0, words.length ? 20 : Math.max(20, roster.length))
   return (
     <div className="flex flex-col gap-1">
-      <input className="field" placeholder="Nom, prénom, club ou licence…" value={q} autoFocus={!value} onChange={(e) => setQ(e.target.value)} />
-      {matches.map((p) => (
+      <input
+        className="field"
+        placeholder="Nom, prénom, club ou licence…"
+        value={q}
+        autoFocus={!value}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          // ↑ ↓ pour se déplacer dans la liste, Entrée pour choisir le joueur.
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setActive((i) => Math.min(i + 1, matches.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setActive((i) => Math.max(i - 1, 0))
+          } else if (e.key === 'Enter' && matches[active]) {
+            e.preventDefault()
+            onChange(matches[active].id)
+            setQ('')
+          }
+        }}
+      />
+      <div ref={listRef} className="flex flex-col gap-1">
+      {matches.map((p, i) => (
         <button
           key={p.id}
-          className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5 text-left text-xs hover:border-accent"
+          data-i={i}
+          onMouseEnter={() => setActive(i)}
+          className={`flex items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-left text-xs ${i === active ? 'border-accent bg-panel-2' : 'border-line'}`}
           onClick={() => (onChange(p.id), setQ(''))}
         >
           <span className="min-w-0 truncate">
@@ -417,6 +446,7 @@ function PlayerPicker({
           <span className="shrink-0 truncate text-[10px] text-muted">{p.club}</span>
         </button>
       ))}
+      </div>
       {words.length > 0 && matches.length === 0 && <p className="text-[11px] text-muted">Aucun joueur trouvé.</p>}
     </div>
   )

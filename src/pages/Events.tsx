@@ -6,7 +6,7 @@ import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEv
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask } from '../components/Confirm'
 import { can, useRole } from '../roles'
-import { usePlayerFilter } from '../components/PlayerFilter'
+import { arrowNav, usePlayerFilter } from '../components/PlayerFilter'
 import { DIVERGENCE } from '../components/Opinions'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
@@ -202,7 +202,7 @@ export function EventDetail() {
 /** Ajout de joueurs : filtres (sexe, club, année, poste, nom), « tout sélectionner » ou un par un. */
 function AddPlayers({ current, onAdd, onCancel }: { current: string[]; onAdd: (ids: string[]) => void; onCancel: () => void }) {
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
-  const { filtered, ui } = usePlayerFilter(all)
+  const { filtered, ui } = usePlayerFilter(all, 'ajout-evenement')
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [limit, setLimit] = useState(60)
   const inList = new Set(current)
@@ -228,7 +228,7 @@ function AddPlayers({ current, onAdd, onCancel }: { current: string[]; onAdd: (i
 
   if (!all) return <div className="py-10 text-center text-sm text-muted">Chargement…</div>
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" onKeyDown={(e) => arrowNav(e, 'button[data-player]')}>
       <div className="card flex flex-col gap-2 p-3">
         <div className="text-xs font-extrabold">Ajouter des joueurs</div>
         {ui}
@@ -255,9 +255,10 @@ function AddPlayers({ current, onAdd, onCancel }: { current: string[]; onAdd: (i
           return (
             <button
               key={p.id}
+              data-player
               disabled={already}
               onClick={() => toggle(p.id)}
-              className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-xs ${on ? 'border-accent bg-accent-soft' : 'border-line bg-panel'} ${already ? 'opacity-50' : ''}`}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-xs outline-none focus:ring-2 focus:ring-accent ${on ? 'border-accent bg-accent-soft' : 'border-line bg-panel'} ${already ? 'opacity-50' : ''}`}
             >
               <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[11px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line'}`}>
                 {on ? '✓' : ''}
