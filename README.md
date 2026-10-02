@@ -46,6 +46,12 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
 comme observateur et un administrateur change son rôle dans *Réglages → Membres du staff*.
 
+### Journal d'activité
+
+`supabase/004_audit.sql` trace toute écriture côté serveur (déclencheurs de la base, y compris les scripts
+lancés dans le SQL Editor) : qui, rôle, quand, quoi, ancienne → nouvelle valeur. Lisible par les
+administrateurs dans *Réglages → Journal d'activité* ; les événements et fiches affichent « créé par / modifié par ».
+
 ## Déployer (GitHub Pages)
 
 Chaque `git push` sur `main` publie automatiquement l'app sur **https://handbase-app.github.io/HandBase/**

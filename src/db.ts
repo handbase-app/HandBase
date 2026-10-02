@@ -24,6 +24,11 @@ interface Syncable {
   id: string
   updatedAt: number
   deleted?: boolean
+  /** Signature posée par le serveur (supabase/004_audit.sql) : qui a créé / modifié, et quand. */
+  createdByName?: string
+  createdAtServer?: string
+  updatedByName?: string
+  updatedAtServer?: string
 }
 
 export type HeightSource = 'mesuree' | 'declaree'

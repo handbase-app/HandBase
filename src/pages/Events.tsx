@@ -8,6 +8,7 @@ import { ask, choose, type Choice } from '../components/Confirm'
 import { can, useRole } from '../roles'
 import { arrowNav, usePlayerFilter } from '../components/PlayerFilter'
 import { DIVERGENCE } from '../components/Opinions'
+import { StampLine } from '../components/ActivityLog'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -137,6 +138,7 @@ export function EventDetail() {
           {ev.place ? ` · ${ev.place}` : ''}
         </div>
         {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
+        <StampLine row={ev} />
       </div>
 
       <Link to={`/evaluer?evenement=${ev.id}${roster[0] ? `&joueur=${roster[0].id}` : ''}`} className="btn-primary">

@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { Opinions } from '../components/Opinions'
 import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../components/ui'
@@ -89,6 +90,7 @@ export default function PlayerDetail() {
             <PosBadge pos={p.position} />
             {a !== null && <span>{a} ans</span>}
           </div>
+          <StampLine row={p} />
         </div>
       </div>
 

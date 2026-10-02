@@ -6,6 +6,7 @@ import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState } from '../sync'
+import { ActivityLog } from '../components/ActivityLog'
 import { ask, inform } from '../components/Confirm'
 import { can, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
 
@@ -53,6 +54,8 @@ export default function Settings() {
       {supabase && can.manageRoles(role) && <Members />}
 
       {can.manageRoles(role) && <LicenceImport />}
+
+      {supabase && can.manageRoles(role) && <ActivityLog />}
 
       {can.editCriteria(role) ? (
         <CriteriaEditor />
