@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { POSITIONS, type Player, type Position } from '../db'
+import { POSITIONS, type Laterality, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -64,6 +64,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
+  const [hand, setHand] = useSessionState<'all' | Laterality>(k('hand'), 'all')
 
   const setSex = (v: SexFilter) => {
     setSexState(v)
@@ -75,7 +76,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   }
 
   const all = players ?? []
-  const bySex = useMemo(() => (sex === 'all' ? all : all.filter((p) => p.sex === sex)), [all, sex])
+  const bySex = useMemo(
+    () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand)),
+    [all, sex, hand],
+  )
   const clubs = useMemo(() => countBy(bySex, (p) => p.club), [bySex])
   const bySexClub = useMemo(() => (club ? bySex.filter((p) => p.club === club) : bySex), [bySex, club])
   const years = useMemo(() => countBy(bySexClub, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [bySexClub])
@@ -96,10 +100,11 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     })
   }, [scoped, q, position])
 
-  const active = !!q || sex !== 'all' || !!club || !!year || position !== 'all'
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!club || !!year || position !== 'all'
   const reset = () => {
     setQ('')
     setSex('all')
+    setHand('all')
     setClub('')
     setYear('')
     setPosition('all')
@@ -117,6 +122,20 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           ] as const
         ).map(([v, label]) => (
           <button key={v} onClick={() => setSex(v)} className={`flex-1 py-1.5 ${sex === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+        {(
+          [
+            ['all', 'Toutes'],
+            ['droitier', 'Droitiers'],
+            ['gaucher', 'Gauchers'],
+            ['ambidextre', 'Ambi.'],
+          ] as const
+        ).map(([v, label]) => (
+          <button key={v} onClick={() => setHand(v)} className={`flex-1 py-1.5 ${hand === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
             {label}
           </button>
         ))}
@@ -158,7 +177,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, club, year, position])
+  const signature = JSON.stringify([q, sex, hand, club, year, position])
   return { filtered, ui, active, reset, signature }
 }
 
