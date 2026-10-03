@@ -1,4 +1,4 @@
-import { age, alive, db, fmtDate, positionLabel } from './db'
+import { age, alive, counts, db, fmtDate, positionLabel } from './db'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
@@ -17,14 +17,14 @@ function download(name: string, content: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
-/** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis.
+/** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis validés.
  *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres). */
 export async function exportCsv(only?: { id: string }[]) {
   const [all, criteria, measurements, evaluations] = await Promise.all([
     db.players.toArray().then(alive),
     db.criteria.orderBy('order').toArray().then(alive),
     db.measurements.toArray(),
-    db.evaluations.toArray().then(alive),
+    db.evaluations.toArray().then((es) => alive(es).filter(counts)),
   ])
   const keep = only && new Set(only.map((p) => p.id))
   const players = keep ? all.filter((p) => keep.has(p.id)) : all

@@ -2,16 +2,19 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { db } from '../db'
 import { can, useRole } from '../roles'
+import { usePendingCount } from './Review'
 
 const TILES = [
   { to: '/joueurs/nouveau', title: 'Inscrire un nouveau joueur', sub: 'Créer une fiche et saisir les tests physiques', icon: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6', main: true },
   { to: '/joueurs', title: 'Base de données des joueurs', sub: 'Consulter, modifier et exporter les fiches', icon: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6' },
   { to: '/evaluer', title: 'Évaluer un joueur', sub: 'Donner son avis sur un match ou un tournoi', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
+  { to: '/avis-spontanes', title: 'Avis spontanés', sub: 'Joueur vu ailleurs (UNSS, club…) : avis et validation', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
   { to: '/evenements', title: 'Événements', sub: 'Matchs, tournois, sélections : préparer, noter et classer', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
 ]
 
 export default function Home() {
   const role = useRole()
+  const toReview = usePendingCount()
   const counts = useLiveQuery(async () => ({
     players: await db.players.filter((p) => !p.deleted).count(),
     evals: await db.evaluations.filter((e) => !e.deleted).count(),
@@ -39,7 +42,12 @@ export default function Home() {
               </svg>
             </div>
             <div>
-              <div className="text-sm font-bold">{t.title}</div>
+              <div className="text-sm font-bold">
+                {t.title}
+                {t.to === '/avis-spontanes' && toReview > 0 && (
+                  <span className="ml-2 rounded-full bg-amber-400 px-1.5 text-[10px] text-black">{toReview} à valider</span>
+                )}
+              </div>
               <div className="text-[11px] text-muted">{t.sub}</div>
             </div>
           </Link>

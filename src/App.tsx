@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import PlayerDetail from './pages/PlayerDetail'
 import PlayerForm from './pages/PlayerForm'
 import Players from './pages/Players'
+import ReviewPage, { usePendingCount } from './pages/Review'
 import Settings from './pages/Settings'
 import { syncNow, useSyncState } from './sync'
 
@@ -59,6 +60,8 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 }
 
 export default function App() {
+  // Avis spontanés à valider : pastille sur « Évaluer ».
+  const toReview = usePendingCount()
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur">
@@ -76,6 +79,7 @@ export default function App() {
           <Route path="/joueurs/:id" element={<PlayerDetail />} />
           <Route path="/joueurs/:id/modifier" element={<PlayerForm />} />
           <Route path="/evaluer" element={<Evaluate />} />
+          <Route path="/avis-spontanes" element={<ReviewPage />} />
           <Route path="/evenements" element={<Events />} />
           <Route path="/evenements/:id" element={<EventDetail />} />
           <Route path="/parametres" element={<Settings />} />
@@ -93,9 +97,14 @@ export default function App() {
                 `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold ${isActive ? 'text-accent' : 'text-muted'}`
               }
             >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
-                <path d={n.icon} />
-              </svg>
+              <span className="relative">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+                  <path d={n.icon} />
+                </svg>
+                {n.to === '/evaluer' && toReview > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 rounded-full bg-amber-400 px-1 text-[9px] leading-tight text-black">{toReview}</span>
+                )}
+              </span>
               {n.label}
             </GuardedLink>
           ))}

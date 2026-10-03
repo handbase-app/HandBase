@@ -1,9 +1,10 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Legend, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from 'recharts'
-import { fmtDate, remove, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
-import { currentUserId, useRole } from '../roles'
+import { contextLabel, counts, fmtDate, remove, reviewOf, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
+import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
+import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty } from './ui'
 
 const COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -17,6 +18,8 @@ const f1 = (n: number | null) => (n === null ? '—' : n.toLocaleString('fr-FR',
  * Compare et cumule les avis subjectifs sur un joueur.
  * Si un observateur a donné plusieurs avis dans la période, on prend sa moyenne
  * pour qu'il ne pèse pas plus que les autres.
+ * Seuls les avis validés comptent ; les avis spontanés en attente peuvent être inclus à la demande,
+ * les avis hors cadre jamais (ils restent consultables à part).
  */
 export function Opinions({
   player,
@@ -31,17 +34,22 @@ export function Opinions({
 }) {
   const [eventId, setEventId] = useState<string>('all')
   const [view, setView] = useState<'table' | 'radar'>('table')
+  const [withPending, setWithPending] = useState(false)
 
-  const evs = eventId === 'all' ? evaluations : evaluations.filter((e) => (e.eventId ?? 'none') === eventId)
+  const inPeriod = (e: Evaluation) => eventId === 'all' || (e.eventId ?? 'none') === eventId
+  const pending = evaluations.filter((e) => reviewOf(e) === 'pending')
+  const refused = evaluations.filter((e) => reviewOf(e) === 'refused')
+  // Avis pris en compte dans les chiffres, et avis listés dans le détail (validés + en attente).
+  const evs = evaluations.filter((e) => inPeriod(e) && (counts(e) || (withPending && reviewOf(e) === 'pending')))
+  const listed = evaluations.filter((e) => inPeriod(e) && reviewOf(e) !== 'refused')
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
-  const eventLabel = (id?: string) => {
-    if (!id) return 'Hors événement'
-    const ev = events.find((x) => x.id === id)
+  const eventLabel = (e: Evaluation) => {
+    if (!e.eventId) return contextLabel(e)
+    const ev = events.find((x) => x.id === e.eventId)
     if (!ev) return 'Événement inconnu'
     return ev.deleted ? `Événement supprimé : ${ev.name}` : ev.name
   }
   const role = useRole()
-  const mayDelete = (e: Evaluation) => role === 'admin' || (!!e.observerId && e.observerId === currentUserId())
   const observers = [...new Set(evs.map((e) => e.observer))].sort()
 
   const rows = useMemo(() => {
@@ -90,7 +98,7 @@ export function Opinions({
               {ev.deleted ? `(supprimé) ${ev.name}` : ev.name} · {fmtDate(ev.date)}
             </option>
           ))}
-          {evaluations.some((e) => !e.eventId) && <option value="none">Hors événement</option>}
+          {evaluations.some((e) => !e.eventId) && <option value="none">Avis spontanés / hors événement</option>}
         </select>
         <div className="flex shrink-0 overflow-hidden rounded-md border border-line">
           {(['table', 'radar'] as const).map((v) => (
@@ -106,6 +114,16 @@ export function Opinions({
         <Stat label="Observateurs" value={String(observers.length)} />
         <Stat label="Note globale" value={overall === null ? '—' : `${f1(overall)}/5`} />
       </div>
+
+      {pending.length > 0 && (
+        <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+          <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
+          <span>
+            {pending.length} avis spontané{pending.length > 1 ? 's' : ''} en attente de validation
+            {withPending ? ' : inclus dans les chiffres ci-dessous.' : ' : ne compte' + (pending.length > 1 ? 'nt' : '') + ' pas dans les chiffres. Cocher pour les inclure.'}
+          </span>
+        </label>
+      )}
 
       {divergent.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
@@ -178,54 +196,94 @@ export function Opinions({
 
       {/* Détail des avis (avec commentaires) */}
       <div className="flex flex-col gap-2">
-        <div className="section-title mt-2">Détail des avis ({evs.length})</div>
-        {[...evs]
+        <div className="section-title mt-2">Détail des avis ({listed.length})</div>
+        {[...listed]
           .sort((a, b) => b.date.localeCompare(a.date))
-          .map((e) => {
-            const notes = Object.values(e.scores).filter((v) => typeof v === 'number')
-            return (
-              <div key={e.id} className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-[10px] text-muted">
-                    <b className="text-white">{e.observer}</b> · {eventLabel(e.eventId)} · {fmtDate(e.date)}
-                    {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
-                    <br />
-                    {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
-                    {typeof e.overall === 'number' && <> · note globale <b className="text-white">{e.overall}/5</b></>}
-                  </div>
-                  {mayDelete(e) && (
-                    <button
-                      className="shrink-0 px-1 text-muted hover:text-red-400"
-                      title="Supprimer cet avis"
-                      onClick={async () =>
-                        (await ask(`Supprimer l’avis de ${e.observer} (${eventLabel(e.eventId)}, ${fmtDate(e.date)}) ?`, { ok: 'Supprimer' })) &&
-                        void remove('evaluations', e.id)
-                      }
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                {e.strengths && (
-                  <div>
-                    <span className="text-emerald-300">+ </span>
-                    {e.strengths}
-                  </div>
-                )}
-                {e.improvements && (
-                  <div>
-                    <span className="text-amber-300">→ </span>
-                    {e.improvements}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          .map((e) => (
+            <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} />
+          ))}
       </div>
+
+      {refused.length > 0 && (
+        <details className="rounded-lg border border-line p-2.5">
+          <summary className="cursor-pointer text-xs font-bold text-muted">
+            Avis hors cadre ({refused.length}) : gardés pour mémoire, jamais comptés
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            {[...refused]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((e) => (
+                <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} />
+              ))}
+          </div>
+        </details>
+      )}
 
       <Link to={evaluateLink} className="btn-ghost mt-1">
         + Donner mon avis
       </Link>
+    </div>
+  )
+}
+
+/** Un avis, avec son état de validation et, selon les droits, les actions possibles. */
+export function AvisCard({ e, where, role, player }: { e: Evaluation; where: string; role: Role; player?: Player }) {
+  const mine = !!e.observerId && e.observerId === currentUserId()
+  const mayDelete = role === 'admin' || mine
+  const notes = Object.values(e.scores).filter((v) => typeof v === 'number')
+  return (
+    <div className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[10px] text-muted">
+          {player && (
+            <>
+              <Link to={`/joueurs/${player.id}`} className="text-sm font-bold text-white">
+                {player.firstName} {player.lastName}
+              </Link>
+              <br />
+            </>
+          )}
+          <b className="text-white">{e.observer}</b> · {where} · {fmtDate(e.date)}
+          {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
+          <br />
+          {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
+          {typeof e.overall === 'number' && <> · note globale <b className="text-white">{e.overall}/5</b></>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <ReviewBadge e={e} />
+          {mine && e.contextType && (
+            <Link to={`/evaluer?contexte=libre&joueur=${e.playerId}&avis=${e.id}`} className="px-1 text-muted hover:text-white" title="Modifier cet avis">
+              ✎
+            </Link>
+          )}
+          {mayDelete && (
+            <button
+              className="px-1 text-muted hover:text-red-400"
+              title="Supprimer cet avis"
+              onClick={async () =>
+                (await ask(`Supprimer l’avis de ${e.observer} (${where}, ${fmtDate(e.date)}) ?`, { ok: 'Supprimer' })) && void remove('evaluations', e.id)
+              }
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+      {e.strengths && (
+        <div>
+          <span className="text-emerald-300">+ </span>
+          {e.strengths}
+        </div>
+      )}
+      {e.improvements && (
+        <div>
+          <span className="text-amber-300">→ </span>
+          {e.improvements}
+        </div>
+      )}
+      <ReviewNote e={e} />
+      {/* Les avis spontanés d'un validateur sont validés d'office : on ne se valide pas soi-même. */}
+      {e.review && !mine && can.review(role) && <ReviewActions e={e} compact={!player} />}
     </div>
   )
 }

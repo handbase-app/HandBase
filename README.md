@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `007_evenements_proprietaire.sql`).
+   (`002_roles.sql` … `008_avis_spontanes.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -41,11 +41,19 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Rôle | Droits |
 |---|---|
 | Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
-| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis |
-| Observateur | Consulte tout, donne ses propres avis |
+| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés |
+| Observateur | Consulte tout, donne ses propres avis (ses avis spontanés sont soumis à validation) |
 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
 comme observateur et un administrateur change son rôle dans *Réglages → Membres du staff*.
+
+### Avis spontanés
+
+Un joueur vu hors des événements prévus (UNSS, entraînement de club…) peut être noté en « avis spontané » :
+contexte libre au lieu d'un événement. Celui d'un observateur arrive **en attente** et ne compte dans les
+moyennes qu'une fois **validé** par un encadrant ou un administrateur ; refusé, il passe **hors cadre** (gardé
+sur la fiche du joueur, jamais compté). S'il est modifié, il repasse en attente. Les avis spontanés des
+encadrants et administrateurs sont validés d'office. Règles tenues par le serveur (`supabase/008_avis_spontanes.sql`).
 
 ### Journal d'activité
 

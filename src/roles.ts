@@ -18,8 +18,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
-  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis.',
-  observateur: 'Consulte tout et donne ses propres avis.',
+  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, validation des avis spontanés.',
+  observateur: 'Consulte tout et donne ses propres avis (ses avis spontanés sont soumis à validation).',
 }
 
 const ROLE_KEY = 'handbase.role'
@@ -91,6 +91,8 @@ export const can = {
   manageEvents: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un événement : l'admin tous, l'encadrant les siens (ou ceux sans créateur connu, antérieurs au journal). */
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
+  /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
+  review: (r: Role) => r !== 'observateur',
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
