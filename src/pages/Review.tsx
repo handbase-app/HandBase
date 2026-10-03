@@ -5,7 +5,7 @@ import { department, departmentLabel } from '../components/PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { Empty } from '../components/ui'
 import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player } from '../db'
-import { can, currentUserId, useRole } from '../roles'
+import { can, currentUserId, myDepartments, useRole } from '../roles'
 
 /**
  * Propositions des observateurs : avis spontanés et fiches joueur proposées.
@@ -25,13 +25,25 @@ export default function ReviewPage() {
 
   const me = currentUserId()
   const isMine = (e: { observerId?: string; createdBy?: string }) => !!me && (e.observerId ?? e.createdBy) === me
-  const todo = data.spontaneous.filter((e) => reviewOf(e) === 'pending' && !isMine(e)).sort((a, b) => a.date.localeCompare(b.date))
+  // Secteur : je décide pour les joueurs de mes départements (supabase/010_secteurs.sql).
+  const deptOf = (e: Evaluation) => {
+    const p = data.players.get(e.playerId)
+    return p && department(p)
+  }
+  const pendingAvis = data.spontaneous.filter((e) => reviewOf(e) === 'pending' && !isMine(e)).sort((a, b) => a.date.localeCompare(b.date))
+  const todo = pendingAvis.filter((e) => can.reviewDept(role, deptOf(e)))
+  const avisElsewhere = pendingAvis.filter((e) => !can.reviewDept(role, deptOf(e)))
   const decided = data.spontaneous
     .filter((e) => reviewOf(e) !== 'pending' && !isMine(e) && e.reviewedAt)
     .sort((a, b) => (b.reviewedAt ?? '').localeCompare(a.reviewedAt ?? ''))
     .slice(0, 20)
   const mine = data.spontaneous.filter(isMine).sort((a, b) => b.date.localeCompare(a.date))
-  const playersTodo = data.proposed.filter((p) => p.review === 'pending' && !isMine(p)).sort((a, b) => (a.createdAtServer ?? '').localeCompare(b.createdAtServer ?? ''))
+  const pendingPlayers = data.proposed
+    .filter((p) => p.review === 'pending' && !isMine(p))
+    .sort((a, b) => (a.createdAtServer ?? '').localeCompare(b.createdAtServer ?? ''))
+  const playersTodo = pendingPlayers.filter((p) => can.reviewDept(role, department(p)))
+  const playersElsewhere = pendingPlayers.filter((p) => !can.reviewDept(role, department(p)))
+  const depts = myDepartments()
   const myPlayers = data.proposed.filter(isMine).sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr'))
 
   const card = (e: Evaluation) => {
@@ -42,7 +54,7 @@ export default function ReviewPage() {
       .join(' · ')
     return (
       <div key={e.id} className="flex flex-col">
-        <AvisCard e={e} where={contextLabel(e)} role={role} player={p} />
+        <AvisCard e={e} where={contextLabel(e)} role={role} player={p} dept={p && department(p)} />
         {scores && <div className="-mt-1 rounded-b-lg border border-t-0 border-line bg-panel px-2.5 py-1.5 text-[10px] text-muted">{scores}</div>}
       </div>
     )
@@ -62,6 +74,7 @@ export default function ReviewPage() {
                 .filter(Boolean)
                 .join(' · ')}
             </div>
+            {!d && <div className="text-[10px] text-amber-200">Département inconnu : à valider par un administrateur.</div>}
             {p.createdByName && (
               <div className="text-[10px] text-muted">
                 Proposée par <b className="text-white">{p.createdByName}</b>
@@ -97,6 +110,15 @@ export default function ReviewPage() {
       </p>
 
       {can.review(role) && (
+        <p className="text-[11px] text-muted">
+          Mon secteur :{' '}
+          <b className="text-white">
+            {role === 'admin' ? 'tous les départements (administrateur)' : depts.length ? depts.map(departmentLabel).join(', ') : 'tous les départements (aucun secteur attribué)'}
+          </b>
+        </p>
+      )}
+
+      {can.review(role) && (
         <>
           <section className="flex flex-col gap-2">
             <div className="section-title">Fiches à valider ({playersTodo.length})</div>
@@ -106,6 +128,17 @@ export default function ReviewPage() {
             <div className="section-title">Avis à valider ({todo.length})</div>
             {todo.length ? todo.map(card) : <Empty>Aucun avis en attente.</Empty>}
           </section>
+          {playersElsewhere.length + avisElsewhere.length > 0 && (
+            <details className="rounded-lg border border-line p-2.5">
+              <summary className="cursor-pointer text-xs font-bold text-muted">
+                En attente hors de mon secteur ({playersElsewhere.length + avisElsewhere.length}) : pour information
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                {playersElsewhere.map((p) => playerCard(p, false))}
+                {avisElsewhere.map(card)}
+              </div>
+            </details>
+          )}
         </>
       )}
 
@@ -138,11 +171,15 @@ export function usePendingCount() {
     async () => {
       if (!can.review(role)) return 0
       const me = currentUserId()
-      const avis = await db.evaluations.filter((e) => e.review === 'pending' && !e.deleted && !(me && e.observerId === me)).count()
-      const fiches = await db.players.filter((p) => p.review === 'pending' && !p.deleted && !(me && p.createdBy === me)).count()
-      return avis + fiches
+      const avis = await db.evaluations.filter((e) => e.review === 'pending' && !e.deleted && !(me && e.observerId === me)).toArray()
+      const players = await db.players.bulkGet([...new Set(avis.map((e) => e.playerId))])
+      const dept = new Map(players.filter((p) => !!p).map((p) => [p!.id, department(p!)]))
+      const fiches = await db.players.filter((p) => p.review === 'pending' && !p.deleted && !(me && p.createdBy === me)).toArray()
+      return (
+        avis.filter((e) => can.reviewDept(role, dept.get(e.playerId))).length + fiches.filter((p) => can.reviewDept(role, department(p))).length
+      )
     },
-    [role],
+    [role, myDepartments().join()],
     0,
   )
 }

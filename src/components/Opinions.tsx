@@ -4,6 +4,7 @@ import { Legend, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, 
 import { contextLabel, counts, fmtDate, remove, reviewOf, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
 import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
+import { department } from './PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty } from './ui'
 
@@ -200,7 +201,7 @@ export function Opinions({
         {[...listed]
           .sort((a, b) => b.date.localeCompare(a.date))
           .map((e) => (
-            <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} />
+            <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} />
           ))}
       </div>
 
@@ -213,7 +214,7 @@ export function Opinions({
             {[...refused]
               .sort((a, b) => b.date.localeCompare(a.date))
               .map((e) => (
-                <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} />
+                <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} />
               ))}
           </div>
         </details>
@@ -227,7 +228,7 @@ export function Opinions({
 }
 
 /** Un avis, avec son état de validation et, selon les droits, les actions possibles. */
-export function AvisCard({ e, where, role, player }: { e: Evaluation; where: string; role: Role; player?: Player }) {
+export function AvisCard({ e, where, role, player, dept }: { e: Evaluation; where: string; role: Role; player?: Player; dept?: string }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
   const notes = Object.values(e.scores).filter((v) => typeof v === 'number')
@@ -283,7 +284,8 @@ export function AvisCard({ e, where, role, player }: { e: Evaluation; where: str
       )}
       <ReviewNote e={e} />
       {/* Les avis spontanés d'un validateur sont validés d'office : on ne se valide pas soi-même. */}
-      {e.review && !mine && can.review(role) && <ReviewActions e={e} compact={!player} />}
+      {/* Décision : dans son secteur seulement (département du joueur). */}
+      {e.review && !mine && can.reviewDept(role, dept) && <ReviewActions e={e} compact={!player} />}
     </div>
   )
 }

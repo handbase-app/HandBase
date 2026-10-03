@@ -8,7 +8,8 @@ import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../i
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
 import { ask, inform } from '../components/Confirm'
-import { can, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
+import { can, myDepartments, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
+import { DEPARTMENT_CHOICES, departmentLabel } from '../components/PlayerFilter'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -159,6 +160,12 @@ function Account() {
       <p className="text-xs">
         Rôle : <b className="text-accent">{ROLE_LABEL[role]}</b> <span className="text-[11px] text-muted">— {ROLE_HELP[role]}</span>
       </p>
+      {role !== 'admin' && (
+        <p className="text-xs">
+          Secteur :{' '}
+          <b>{myDepartments().length ? myDepartments().map(departmentLabel).join(', ') : role === 'preparateur' ? 'tous les départements' : 'non attribué'}</b>
+        </p>
+      )}
       <p className="text-[11px] text-muted">
         Synchronisation : {label}
         {lastError && ` — ${lastError}`}
@@ -350,6 +357,7 @@ interface Profile {
   email: string | null
   full_name: string | null
   role: Role
+  departments: string[] | null
 }
 
 /** Liste du staff et attribution des rôles (administrateurs). */
@@ -362,7 +370,7 @@ function Members() {
     setErr('')
     const [{ data: s }, { data, error }] = await Promise.all([
       supabase!.auth.getSession(),
-      supabase!.from('hb_profiles').select('user_id, email, full_name, role').order('created_at'),
+      supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments').order('created_at'),
     ])
     setMe(s.session?.user.id ?? null)
     if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'Liste disponible uniquement en ligne.')
@@ -375,6 +383,16 @@ function Members() {
   async function change(p: Profile, role: Role) {
     if (p.user_id === me && role !== 'admin' && !(await ask('Retirer tes propres droits d’administrateur ?', { ok: 'Confirmer' }))) return
     const { error } = await supabase!.rpc('hb_set_role', { p_user: p.user_id, p_role: role })
+    if (error) return inform(error.message)
+    await load()
+    if (p.user_id === me) await refreshRole()
+  }
+
+  /** Ajoute ou retire un département du secteur d'un membre (supabase/010_secteurs.sql). */
+  async function toggleDept(p: Profile, d: string) {
+    const cur = p.departments ?? []
+    const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]
+    const { error } = await supabase!.rpc('hb_set_departments', { p_user: p.user_id, p_departments: next })
     if (error) return inform(error.message)
     await load()
     if (p.user_id === me) await refreshRole()
@@ -403,6 +421,27 @@ function Members() {
                   </option>
                 ))}
               </select>
+              {p.role !== 'admin' && (
+                <div className="flex w-full flex-wrap items-center gap-1">
+                  <span className="text-[10px] text-muted">Secteur :</span>
+                  {[...new Set([...DEPARTMENT_CHOICES.map((d) => d.value), ...(p.departments ?? [])])].map((d) => {
+                    const on = (p.departments ?? []).includes(d)
+                    return (
+                      <button
+                        key={d}
+                        title={departmentLabel(d)}
+                        onClick={() => void toggleDept(p, d)}
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
+                      >
+                        {d}
+                      </button>
+                    )
+                  })}
+                  <span className="text-[10px] text-muted">
+                    {(p.departments ?? []).length ? '' : p.role === 'preparateur' ? '— aucun : valide tous les départements' : '— aucun'}
+                  </span>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -420,6 +459,10 @@ function Members() {
           Supabase → Users
         </a>{' '}
         (cocher « Auto Confirm User »). Il arrive comme observateur ; change son rôle ici.
+      </p>
+      <p className="text-[11px] text-muted">
+        Secteur : départements dont l’encadrant valide les avis spontanés et fiches proposées (selon le département du joueur). Sans
+        département, il valide tout ; un joueur au département inconnu revient à l’administrateur. Pour un observateur, c’est indicatif.
       </p>
     </section>
   )

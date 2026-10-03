@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { newId, POSITIONS, save, type Player, type Position } from '../db'
-import { can, useRole } from '../roles'
+import { can, myDepartments, useRole } from '../roles'
 import { DEPARTMENT_CHOICES } from './PlayerFilter'
 import { ReferentFields, referentReady, saveReferent, type ReferentDraft } from './Referents'
 import { Segmented } from './ui'
@@ -19,7 +19,10 @@ export function ProposePlayer({
   onDone: (p?: Player) => void
 }) {
   const role = useRole()
-  const [p, setP] = useState<Partial<Player>>(initial ?? {})
+  // Nouvelle fiche : département de mon secteur par défaut, s'il n'y en a qu'un.
+  const [p, setP] = useState<Partial<Player>>(() =>
+    initial?.id ? initial : { department: myDepartments().length === 1 ? myDepartments()[0] : undefined, ...initial },
+  )
   const [ref, setRef] = useState<ReferentDraft | null>(null)
   const [otherDept, setOtherDept] = useState(!!p.department && !DEPARTMENT_CHOICES.some((d) => d.value === p.department))
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))

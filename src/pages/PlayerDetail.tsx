@@ -110,7 +110,11 @@ export default function PlayerDetail() {
               : 'Fiche mise hors cadre : gardée pour mémoire, pour voir plus tard ce que le joueur est devenu.'}
           </p>
           <ReviewNote e={p} />
-          {can.review(role) && <ReviewActions e={p} kind="players" compact={p.review === 'refused'} />}
+          {can.reviewDept(role, department(p)) ? (
+            <ReviewActions e={p} kind="players" compact={p.review === 'refused'} />
+          ) : (
+            can.review(role) && <p className="mt-1 text-[10px] text-muted">Hors de ton secteur : c’est au responsable du département de décider.</p>
+          )}
         </div>
       )}
       {p.review === 'validated' && <ReviewNote e={p} />}
