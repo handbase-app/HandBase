@@ -78,6 +78,7 @@ const FIELDS: Record<string, string> = {
   reviewedAt: 'Date de validation',
   deleted: 'Supprimé',
   role: 'Rôle',
+  departments: 'Secteur',
   label: 'Nom',
   active: 'Actif',
 }
@@ -89,6 +90,7 @@ const ACTION_STYLE: Record<string, string> = {
   'suppression définitive': 'text-red-400',
   restauration: 'text-amber-300',
   rôle: 'text-violet-300',
+  secteur: 'text-violet-300',
 }
 
 function show(field: string, v: unknown): string {

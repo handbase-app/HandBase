@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `009_joueurs_proposes.sql`).
+   (`002_roles.sql` … `010_secteurs.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -41,7 +41,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Rôle | Droits |
 |---|---|
 | Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
-| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés |
+| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés et fiches proposées de son secteur |
 | Observateur | Consulte tout, donne ses propres avis (ses avis spontanés sont soumis à validation) |
 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
@@ -62,6 +62,14 @@ département (obligatoire), établissement ou club… Un encadrant la **valide**
 *Joueurs → Hors cadre*, gardée pour voir plus tard ce que le joueur est devenu). Chaque fiche peut avoir des
 **adultes référents** (parent, professeur d'EPS…) : table `hb_referents`, lisible seulement par les encadrants et
 administrateurs, et par celui qui les a saisis (`supabase/009_joueurs_proposes.sql`).
+
+### Secteurs
+
+L'administrateur attribue à chaque membre ses départements (*Réglages → Membres du staff*). Un encadrant valide les
+avis spontanés et fiches proposées des joueurs de son secteur (département lu dans le n° de club ou de licence,
+sinon saisi à la main) ; sans département attribué, il valide tout. Un joueur au département inconnu revient à
+l'administrateur. Pour un observateur, le secteur est indicatif et pré-remplit le département des fiches qu'il
+propose (`supabase/010_secteurs.sql`).
 
 ### Journal d'activité
 

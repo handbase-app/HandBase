@@ -18,12 +18,13 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
-  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, validation des avis spontanés et des fiches proposées, adultes référents.',
+  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, adultes référents ; valide les avis spontanés et fiches proposées de son secteur.',
   observateur: 'Consulte tout et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
 }
 
 const ROLE_KEY = 'handbase.role'
 const UID_KEY = 'handbase.uid'
+const DEPTS_KEY = 'handbase.departments'
 
 const read = (k: string) => {
   try {
@@ -44,19 +45,30 @@ const write = (k: string, v: string | null) => {
 // Sans serveur (mode local), l'unique utilisateur a tous les droits.
 let role: Role = supabase ? ((read(ROLE_KEY) as Role | null) ?? 'observateur') : 'admin'
 let userId: string | null = read(UID_KEY)
+/** Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. */
+let departments: string[] = (() => {
+  try {
+    return JSON.parse(read(DEPTS_KEY) ?? '[]') as string[]
+  } catch {
+    return []
+  }
+})()
 const listeners = new Set<() => void>()
 
-function set(r: Role, uid: string | null) {
+function set(r: Role, uid: string | null, depts: string[] = []) {
   // Autre compte ou autre rôle : les référents visibles changent (supabase/009_joueurs_proposes.sql).
   if (r !== role || uid !== userId) void resetReferents()
   role = r
   userId = uid
+  departments = depts
   write(ROLE_KEY, r)
   write(UID_KEY, uid)
+  write(DEPTS_KEY, JSON.stringify(depts))
   listeners.forEach((l) => l())
 }
 
 export const currentUserId = () => userId
+export const myDepartments = () => departments
 
 /** Recharge le rôle depuis le serveur (si connecté et en ligne). */
 export async function refreshRole() {
@@ -65,8 +77,8 @@ export async function refreshRole() {
   const uid = s.session?.user.id ?? null
   if (!uid) return
   if (uid !== userId) set('observateur', uid) // autre compte : on repart du rôle minimal
-  const { data, error } = await supabase.from('hb_profiles').select('role').eq('user_id', uid).maybeSingle()
-  if (!error && data?.role) set(data.role as Role, uid)
+  const { data, error } = await supabase.from('hb_profiles').select('role, departments').eq('user_id', uid).maybeSingle()
+  if (!error && data?.role) set(data.role as Role, uid, (data.departments as string[] | null) ?? [])
 }
 
 export function clearRole() {
@@ -98,6 +110,12 @@ export const can = {
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
+  /**
+   * Valider ce qui concerne un joueur de ce département : l'admin partout ; l'encadrant dans son secteur,
+   * ou partout s'il n'a pas de département attribué. Joueur sans département : admin ou encadrant sans secteur.
+   */
+  reviewDept: (r: Role, dept?: string) =>
+    r === 'admin' || (r === 'preparateur' && (departments.length === 0 || (!!dept && departments.includes(dept)))),
   /** Voir les adultes référents saisis par les autres (sinon, seulement les siens). */
   allReferents: (r: Role) => r !== 'observateur',
   editCriteria: (r: Role) => r === 'admin',
