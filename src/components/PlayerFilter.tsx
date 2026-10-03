@@ -29,11 +29,15 @@ const DEPARTMENTS: Record<string, string> = {
 /**
  * Département du club, lu dans le numéro FFHB : 63 = ligue, 83 = département…
  * (N° club 6383015, licence 6383015xxxxxx). Le n° de club est prioritaire : il est toujours renseigné.
+ * Joueur sans licence (fiche proposée) : département saisi à la main.
  */
-export function department(p: Pick<Player, 'clubCode' | 'license'>): string | undefined {
+export function department(p: Pick<Player, 'clubCode' | 'license' | 'department'>): string | undefined {
   const code = /^\d{7}$/.test(p.clubCode ?? '') ? p.clubCode : /^\d{13}$/.test(p.license ?? '') ? p.license : undefined
-  return code?.slice(2, 4)
+  return code?.slice(2, 4) ?? (p.department || undefined)
 }
+
+/** Départements proposés à la saisie (ceux de la ligue). */
+export const DEPARTMENT_CHOICES = Object.entries(DEPARTMENTS).map(([value, name]) => ({ value, label: `${value} · ${name}` }))
 export const departmentLabel = (d: string) => (DEPARTMENTS[d] ? `${d} · ${DEPARTMENTS[d]}` : `Département ${d}`)
 
 export type SexFilter = 'all' | 'M' | 'F'

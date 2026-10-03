@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase } from './sync'
+import { resetReferents, supabase } from './sync'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -18,8 +18,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
-  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, validation des avis spontanés.',
-  observateur: 'Consulte tout et donne ses propres avis (ses avis spontanés sont soumis à validation).',
+  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, validation des avis spontanés et des fiches proposées, adultes référents.',
+  observateur: 'Consulte tout et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
 }
 
 const ROLE_KEY = 'handbase.role'
@@ -47,6 +47,8 @@ let userId: string | null = read(UID_KEY)
 const listeners = new Set<() => void>()
 
 function set(r: Role, uid: string | null) {
+  // Autre compte ou autre rôle : les référents visibles changent (supabase/009_joueurs_proposes.sql).
+  if (r !== role || uid !== userId) void resetReferents()
   role = r
   userId = uid
   write(ROLE_KEY, r)
@@ -86,6 +88,9 @@ export function useRole(): Role {
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
 export const can = {
   editPlayers: (r: Role) => r !== 'observateur',
+  /** Modifier cette fiche : l'encadrant toutes, l'observateur la fiche qu'il a proposée, tant qu'elle n'est pas traitée. */
+  editPlayer: (r: Role, p: { review?: string; createdBy?: string }) =>
+    r !== 'observateur' || (p.review === 'pending' && (!p.createdBy || p.createdBy === userId)),
   deletePlayers: (r: Role) => r === 'admin',
   editMeasurements: (r: Role) => r !== 'observateur',
   manageEvents: (r: Role) => r !== 'observateur',
@@ -93,6 +98,8 @@ export const can = {
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
+  /** Voir les adultes référents saisis par les autres (sinon, seulement les siens). */
+  allReferents: (r: Role) => r !== 'observateur',
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

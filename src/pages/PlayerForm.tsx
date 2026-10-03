@@ -2,6 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
+import { DEPARTMENT_CHOICES, department } from '../components/PlayerFilter'
+import { ProposePlayer } from '../components/ProposePlayer'
 import { CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, newId, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
@@ -62,9 +64,20 @@ export default function PlayerForm() {
     nav(`/joueurs/${player.id}`, { replace: true })
   }
 
-  if (!can.editPlayers(role))
-    return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier les fiches.</div>
   if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  // Observateur : il propose une fiche minimale, et ne modifie que la sienne tant qu'elle n'est pas traitée.
+  if (!can.editPlayers(role)) {
+    if (editing && !can.editPlayer(role, p))
+      return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier cette fiche.</div>
+    return (
+      <div className="flex flex-col gap-4">
+        <button onClick={() => nav(-1)} className="self-start text-xs font-bold text-muted">
+          ← {editing ? 'MODIFIER MA PROPOSITION' : 'PROPOSER UN JOUEUR'}
+        </button>
+        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : nav(-1))} />
+      </div>
+    )
+  }
 
   const shown = criteria.filter((c) => criterionApplies(c, p.position))
 
@@ -180,6 +193,24 @@ export default function PlayerForm() {
         <div>
           <span className="label">Club</span>
           <input className="field" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Département</span>
+          {/* Lu dans le n° de club ou de licence s'il y en a un ; sinon à choisir. */}
+          <select
+            className="field"
+            value={p.department ?? ''}
+            disabled={!!department({ clubCode: p.clubCode, license: p.license })}
+            onChange={(e) => set('department', e.target.value || undefined)}
+          >
+            <option value="">{department({ clubCode: p.clubCode, license: p.license }) ?? '—'}</option>
+            {DEPARTMENT_CHOICES.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+            {p.department && !DEPARTMENT_CHOICES.some((d) => d.value === p.department) && <option value={p.department}>{p.department}</option>}
+          </select>
         </div>
         <div>
           <span className="label">Nationalité</span>

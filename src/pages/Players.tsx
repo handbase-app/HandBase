@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadge } from '../components/ui'
+import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
 import { can, useRole } from '../roles'
@@ -21,9 +22,18 @@ export function latestByPlayer(ms: Measurement[]) {
 
 export default function Players() {
   const role = useRole()
-  const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
+  const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
-  const { filtered, ui, signature } = usePlayerFilter(players)
+  // Fiches : la base (fiches proposées comprises) ; les proposées seules ; les fiches hors cadre, gardées pour mémoire.
+  const [view, setView] = useSessionState<'base' | 'pending' | 'refused'>('handbase.joueurs.view', 'base')
+  const nPending = all?.filter((p) => p.review === 'pending').length ?? 0
+  const nRefused = all?.filter((p) => p.review === 'refused').length ?? 0
+  const players = useMemo(
+    () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
+    [all, view],
+  )
+  const { filtered, ui, signature: filterSig } = usePlayerFilter(players)
+  const signature = `${view}|${filterSig}`
   // Nombre de joueurs affichés et position dans la liste : retrouvés au retour d'une fiche.
   const [limit, setLimit] = useSessionState('handbase.joueurs.limit', PAGE)
   const [limitFor, setLimitFor] = useSessionState('handbase.joueurs.limitFor', signature)
@@ -48,7 +58,7 @@ export default function Players() {
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
 
-  if (!players) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
 
   return (
@@ -57,21 +67,42 @@ export default function Players() {
         <h1 className="text-lg font-extrabold">Joueurs</h1>
         <div className="flex gap-2">
           <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv(filtered)} disabled={!filtered.length}>
-            Exporter{filtered.length < players.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
+            Exporter{filtered.length < all.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
           </button>
-          {can.editPlayers(role) && (
-            <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
-              + Joueur
-            </Link>
-          )}
+          <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
+            {can.editPlayers(role) ? '+ Joueur' : '+ Proposer'}
+          </Link>
         </div>
       </div>
+
+      {(nPending > 0 || nRefused > 0 || view !== 'base') && (
+        <div className="mb-3 flex gap-2">
+          {(
+            [
+              ['base', 'Base'],
+              ['pending', `Proposées (${nPending})`],
+              ['refused', `Hors cadre (${nRefused})`],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-bold ${view === v ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {view === 'refused' && (
+        <p className="mb-2 text-[11px] text-muted">Fiches proposées puis mises hors cadre : gardées pour mémoire, pour voir plus tard ce qu’ils sont devenus.</p>
+      )}
 
       <div className="mb-3">{ui}</div>
       <p className="mb-2 text-[11px] text-muted">{filtered.length.toLocaleString('fr-FR')} joueur(s)</p>
 
       {shown.length === 0 ? (
-        <Empty>{players.length ? 'Aucun joueur ne correspond.' : 'Aucun joueur pour l’instant. Inscris le premier !'}</Empty>
+        <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>
       ) : (
         <div className="flex flex-col gap-2">
           {shown.map((p) => {
@@ -86,8 +117,11 @@ export default function Players() {
               >
                 <Avatar p={p} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold">
-                    {p.firstName} {p.lastName}
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-bold">
+                      {p.firstName} {p.lastName}
+                    </span>
+                    {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
                     <PosBadge pos={p.position} />

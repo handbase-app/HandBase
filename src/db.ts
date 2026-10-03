@@ -62,6 +62,49 @@ export interface Player extends Syncable {
   photo?: string
   gaps?: string
   notes?: string
+  /** Département saisi à la main (joueur sans licence) ; sinon il est lu dans le n° de club ou de licence. */
+  department?: string
+  /**
+   * Fiche proposée par un observateur (supabase/009_joueurs_proposes.sql) : pending = à valider,
+   * validated = validée, refused = hors cadre (gardée pour mémoire). Sans état : fiche normale.
+   */
+  review?: ReviewState
+  reviewNote?: string
+  reviewedBy?: string
+  reviewedByName?: string
+  reviewedAt?: string
+}
+
+/** Qualité d'un adulte référent. */
+export type ReferentRole = 'parent' | 'eps' | 'entraineur' | 'etablissement' | 'autre'
+
+export const REFERENT_ROLES: { value: ReferentRole; label: string }[] = [
+  { value: 'parent', label: 'Parent / tuteur' },
+  { value: 'eps', label: 'Professeur d’EPS' },
+  { value: 'entraineur', label: 'Entraîneur' },
+  { value: 'etablissement', label: 'Établissement' },
+  { value: 'autre', label: 'Autre' },
+]
+
+/**
+ * Adulte à contacter au sujet d'un joueur (jamais les coordonnées de l'enfant lui-même).
+ * Lisible seulement par les encadrants et administrateurs, et par celui qui l'a saisi.
+ */
+export interface Referent extends Syncable {
+  playerId: string
+  firstName?: string
+  lastName: string
+  role: ReferentRole
+  /** Collège, club… */
+  structure?: string
+  phone?: string
+  email?: string
+  address?: string
+  /** Contact à privilégier. */
+  preferred?: boolean
+  /** D'où vient l'information (« donné par le prof d'EPS le 12/10 »). */
+  source?: string
+  notes?: string
 }
 
 /** factual = une seule source (préparateur) ; subjective = plusieurs observateurs. */
@@ -152,7 +195,7 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -163,6 +206,7 @@ export const db = new Dexie('handbase') as Dexie & {
   measurements: EntityTable<Measurement, 'id'>
   events: EntityTable<HBEvent, 'id'>
   evaluations: EntityTable<Evaluation, 'id'>
+  referents: EntityTable<Referent, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -195,6 +239,9 @@ async function applyDefaultCriteria(tx: Transaction) {
 
 // v2 : critères de champ réservés aux joueurs de champ, nouveaux critères gardien.
 db.version(2).upgrade(applyDefaultCriteria)
+
+// v3 : adultes référents des joueurs.
+db.version(3).stores({ referents: 'id, playerId, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

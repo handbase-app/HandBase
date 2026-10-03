@@ -25,6 +25,7 @@ const TABLES: Record<string, string> = {
   measurements: 'Mesure',
   evaluations: 'Avis',
   criteria: 'Critère',
+  referents: 'Référent',
   profiles: 'Membre du staff',
 }
 
@@ -66,6 +67,13 @@ const FIELDS: Record<string, string> = {
   contextPlace: 'Lieu',
   review: 'Validation',
   reviewNote: 'Commentaire de validation',
+  department: 'Département',
+  phone: 'Téléphone',
+  email: 'E-mail',
+  address: 'Adresse',
+  structure: 'Structure',
+  preferred: 'Contact à privilégier',
+  source: 'Origine de l’info',
   reviewedByName: 'Validé par',
   reviewedAt: 'Date de validation',
   deleted: 'Supprimé',
