@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `010_secteurs.sql`).
+   (`002_roles.sql` … `011_fusion_fiches.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -70,6 +70,15 @@ avis spontanés et fiches proposées des joueurs de son secteur (département lu
 sinon saisi à la main) ; sans département attribué, il valide tout. Un joueur au département inconnu revient à
 l'administrateur. Pour un observateur, le secteur est indicatif et pré-remplit le département des fiches qu'il
 propose (`supabase/010_secteurs.sql`).
+
+### Fusion de fiches et « Ratés »
+
+Deux fiches du même joueur (doublon, fiche proposée qui obtient une licence) se fusionnent depuis la fiche joueur
+(encadrants, administrateurs, en ligne) : avis, mesures, référents et listes d'événements passent sur la fiche
+gardée, complétée sans rien écraser ; l'autre est supprimée (`supabase/011_fusion_fiches.sql`, d'un bloc, côté
+serveur). Les doublons possibles (même nom, naissance compatible) sont signalés sur la fiche et dans *Propositions* ;
+l'import des licences retrouve aussi les fiches proposées saisies sans date de naissance. La vue **Ratés** liste les
+joueurs mis hors cadre et ce qu'ils sont devenus depuis (licence, convocations, avis validés).
 
 ### Journal d'activité
 

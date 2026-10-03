@@ -6,7 +6,8 @@ import { db, newId, type Laterality, type Measurement, type Player } from './db'
  * Le fichier est lu sur l'appareil ; toutes les colonnes sont reprises.
  *
  * Rapprochement avec les joueurs existants : numéro de licence, sinon nom + prénom + date de
- * naissance (une licence change en cas de mutation). Un joueur existant n'est que complété :
+ * naissance (une licence change en cas de mutation), sinon — pour une fiche proposée ou hors cadre,
+ * souvent saisie sans date de naissance — nom + prénom s'il n'y a qu'une telle fiche. Un joueur existant n'est que complété :
  * les informations saisies par le staff ne sont jamais écrasées, sauf les données administratives
  * (club, licence, état, nationalité), qui suivent la ligue (l'ancienne licence est gardée).
  */
@@ -131,6 +132,8 @@ export interface ImportPlan {
   update: { row: LicenceRow; player: Player; changes: Partial<Player> }[]
   unchanged: number
   duplicates: number
+  /** Fiches proposées ou hors cadre retrouvées dans les licences (le joueur a pris une licence). */
+  proposals: { row: LicenceRow; player: Player }[]
 }
 
 /** Prépare l'import (sans rien écrire) pour afficher un aperçu. */
@@ -143,8 +146,19 @@ export async function planImport(rows: LicenceRow[]): Promise<ImportPlan> {
     for (const l of [p.license, ...(p.previousLicenses ?? [])]) if (l) byLicence.set(l, p)
     byIdentity.set(identityKey(p.lastName, p.firstName, p.birthDate), p)
   }
+  // Fiches proposées ou hors cadre sans licence, par nom seul (souvent saisies sans date de naissance).
+  const proposedByName = new Map<string, Player[]>()
+  for (const p of players) {
+    if (!p.review || p.license) continue
+    const k = identityKey(p.lastName, p.firstName)
+    proposedByName.set(k, [...(proposedByName.get(k) ?? []), p])
+  }
+  const byNameOnly = (r: LicenceRow) => {
+    const c = (proposedByName.get(identityKey(r.lastName, r.firstName)) ?? []).filter((p) => !p.birthDate || p.birthDate === r.birthDate)
+    return c.length === 1 ? c[0] : undefined
+  }
 
-  const plan: ImportPlan = { create: [], update: [], unchanged: 0, duplicates: 0 }
+  const plan: ImportPlan = { create: [], update: [], unchanged: 0, duplicates: 0, proposals: [] }
 
   // Une même personne peut figurer deux fois (deux demandes de licence) : on fusionne les lignes,
   // en privilégiant la licence qualifiée et en complétant les informations manquantes.
@@ -170,11 +184,12 @@ export async function planImport(rows: LicenceRow[]): Promise<ImportPlan> {
   }
 
   for (const [key, r] of merged) {
-    const p = (r.license && byLicence.get(r.license)) || byIdentity.get(key)
+    const p = (r.license && byLicence.get(r.license)) || byIdentity.get(key) || byNameOnly(r)
     if (!p) {
       plan.create.push(r)
       continue
     }
+    if (p.review && !p.license) plan.proposals.push({ row: r, player: p })
     const changes: Partial<Player> = {}
     if (!p.sex && r.sex) changes.sex = r.sex
     if (!p.birthDate && r.birthDate) changes.birthDate = r.birthDate

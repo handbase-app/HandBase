@@ -79,6 +79,8 @@ const FIELDS: Record<string, string> = {
   deleted: 'Supprimé',
   role: 'Rôle',
   departments: 'Secteur',
+  mergedFrom: 'Fiches fondues',
+  mergedInto: 'Fondue dans',
   label: 'Nom',
   active: 'Actif',
 }
