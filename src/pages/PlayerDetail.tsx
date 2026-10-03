@@ -6,7 +6,7 @@ import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { Opinions } from '../components/Opinions'
 import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { can, useRole } from '../roles'
@@ -122,7 +122,7 @@ export default function PlayerDetail() {
 
       <MaturityCard player={p} measurements={measurements} />
 
-      <Tracking playerId={p.id} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+      <Tracking playerId={p.id} position={p.position} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
 
       {/* Avis subjectifs */}
       <div className="card p-4">
@@ -154,14 +154,16 @@ export default function PlayerDetail() {
   )
 }
 
-/** « Suivi des mesures » : courbe d'évolution d'un critère factuel + ajout d'une mesure. */
+/** « Suivi des mesures » : courbe d'évolution d'un critère factuel + saisie d'une séance de tests. */
 function Tracking({
   playerId,
+  position,
   criteria,
   measurements,
   editable,
 }: {
   playerId: string
+  position?: Position
   criteria: Criterion[]
   measurements: Measurement[]
   editable: boolean
@@ -170,9 +172,10 @@ function Tracking({
   const [cid, setCid] = useState<string>('')
   const current = withData.find((c) => c.id === cid) ?? withData[0]
   const [adding, setAdding] = useState(false)
-  const [newC, setNewC] = useState('')
-  const [newV, setNewV] = useState<number | string | undefined>()
+  // Séance de tests : toutes les valeurs saisies sont enregistrées ensemble, à la même date.
+  const [values, setValues] = useState<Record<string, number | string | undefined>>({})
   const [newD, setNewD] = useState(today())
+  const filled = Object.entries(values).filter(([, v]) => v !== undefined && v !== '')
 
   const series = useMemo(
     () =>
@@ -182,14 +185,13 @@ function Tracking({
     [measurements, current],
   )
 
-  const addC = criteria.find((c) => c.id === (newC || current?.id)) ?? criteria[0]
-
   async function add() {
-    if (newV === undefined || !addC) return
-    await save<Measurement>('measurements', { id: newId(), playerId, criterionId: addC.id, value: newV, date: newD, author: getMe() || undefined })
+    if (!filled.length) return
+    const author = getMe() || undefined
+    for (const [criterionId, value] of filled) await save<Measurement>('measurements', { id: newId(), playerId, criterionId, value: value!, date: newD, author })
     setAdding(false)
-    setNewV(undefined)
-    setCid(addC.id)
+    setValues({})
+    setCid(filled[0][0])
   }
 
   return (
@@ -200,33 +202,40 @@ function Tracking({
         </div>
         {editable && (
           <button className="btn-primary px-2.5 py-1 text-xs" onClick={() => setAdding((x) => !x)}>
-            {adding ? 'Fermer' : '+ Mesure'}
+            {adding ? 'Fermer' : '+ Mesures'}
           </button>
         )}
       </div>
 
-      {editable && adding && addC && (
+      {editable && adding && (
         <div className="mb-4 flex flex-col gap-3 rounded-lg border border-accent/40 bg-accent-soft p-3">
-          <select className="field" value={addC.id} onChange={(e) => (setNewC(e.target.value), setNewV(undefined))}>
-            {groupBy(criteria, (c) => c.category).map(([cat, cs]) => (
-              <optgroup key={cat} label={cat}>
-                {cs.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                    {c.unit ? ` (${c.unit})` : ''}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-32 flex-1">
-              <CriterionInput key={addC.id} c={addC} value={newV} onChange={setNewV} />
+          <div className="flex items-end justify-between gap-3">
+            <div className="text-[11px] text-muted">Remplis seulement ce qui a été mesuré, tout est enregistré à la même date.</div>
+            <div className="w-40 shrink-0">
+              <span className="label">Date des tests</span>
+              <input type="date" className="field" value={newD} onChange={(e) => setNewD(e.target.value)} />
             </div>
-            <input type="date" className="field w-40" value={newD} onChange={(e) => setNewD(e.target.value)} />
           </div>
-          <button className="btn-primary" disabled={newV === undefined} onClick={() => void add()}>
-            Ajouter la mesure
+          {groupBy(
+            criteria.filter((c) => criterionApplies(c, position)),
+            (c) => c.category,
+          ).map(([cat, cs]) => (
+            <div key={cat} className="rounded-lg border border-line bg-panel p-3">
+              <div className="section-title">{cat}</div>
+              <div className={`grid gap-3 ${cs.every((c) => c.scale === 'number') ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                {cs.map((c) => (
+                  <div key={c.id} className={c.scale === 'number' ? '' : 'flex items-center justify-between gap-3'}>
+                    <span className={c.scale === 'number' ? 'label' : 'text-xs font-bold'} title={c.description}>
+                      {c.label}
+                    </span>
+                    <CriterionInput c={c} value={values[c.id]} onChange={(v) => setValues((x) => ({ ...x, [c.id]: v }))} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button className="btn-primary" disabled={!filled.length} onClick={() => void add()}>
+            {filled.length > 1 ? `Enregistrer les ${filled.length} mesures` : 'Enregistrer la mesure'}
           </button>
         </div>
       )}
