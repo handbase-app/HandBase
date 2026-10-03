@@ -95,7 +95,12 @@ export default function Players() {
         </div>
       )}
       {view === 'refused' && (
-        <p className="mb-2 text-[11px] text-muted">Fiches proposées puis mises hors cadre : gardées pour mémoire, pour voir plus tard ce qu’ils sont devenus.</p>
+        <p className="mb-2 text-[11px] text-muted">
+          Fiches proposées puis mises hors cadre : gardées pour mémoire.{' '}
+          <Link to="/rates" className="font-bold text-accent">
+            Ce qu’ils sont devenus (ratés) →
+          </Link>
+        </p>
       )}
 
       <div className="mb-3">{ui}</div>

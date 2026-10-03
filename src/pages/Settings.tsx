@@ -264,6 +264,16 @@ function LicenceImport() {
             </div>
             <div className="text-muted">{fmt(plan.unchanged)} déjà à jour</div>
             <div className="text-muted">{fmt(plan.duplicates)} doublons fusionnés</div>
+            {plan.proposals.length > 0 && (
+              <div className="col-span-2 mt-1 rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-[11px]">
+                <b>{fmt(plan.proposals.length)}</b> fiche(s) proposée(s) ou hors cadre retrouvée(s) dans les licences, qui seront complétées :{' '}
+                {plan.proposals
+                  .slice(0, 8)
+                  .map(({ player: p }) => `${p.firstName} ${p.lastName}${p.review === 'refused' ? ' (hors cadre)' : ''}`)
+                  .join(', ')}
+                {plan.proposals.length > 8 ? '…' : ''}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted">Date de l’export :</span>

@@ -73,6 +73,26 @@ export interface Player extends Syncable {
   reviewedBy?: string
   reviewedByName?: string
   reviewedAt?: string
+  /** Fiches fondues dans celle-ci (supabase/011_fusion_fiches.sql), avec leur histoire. */
+  mergedFrom?: MergeTrace[]
+  /** Fiche supprimée par fusion : celle qui l'a remplacée. */
+  mergedInto?: string
+}
+
+/** Trace d'une fiche fondue dans une autre : qui l'avait proposée, si elle avait été mise hors cadre… */
+export interface MergeTrace {
+  id: string
+  name: string
+  license?: string
+  club?: string
+  review?: ReviewState
+  reviewNote?: string
+  reviewedByName?: string
+  reviewedAt?: string
+  createdByName?: string
+  createdAtServer?: string
+  mergedAt: string
+  mergedByName?: string
 }
 
 /** Qualité d'un adulte référent. */

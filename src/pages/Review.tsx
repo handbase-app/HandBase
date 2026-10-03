@@ -6,6 +6,7 @@ import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { Empty } from '../components/ui'
 import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player } from '../db'
 import { can, currentUserId, myDepartments, useRole } from '../roles'
+import { possibleDuplicates } from '../merge'
 
 /**
  * Propositions des observateurs : avis spontanés et fiches joueur proposées.
@@ -19,7 +20,11 @@ export default function ReviewPage() {
     const ids = [...new Set(spontaneous.map((e) => e.playerId))]
     const players = (await db.players.bulkGet(ids)).filter((p): p is Player => !!p)
     const criteria = alive(await db.criteria.toArray())
-    return { spontaneous, proposed, players: new Map(players.map((p) => [p.id, p])), criteria }
+    // Doublons : seulement ceux où une fiche proposée ou hors cadre est en jeu (les autres sont à l'import).
+    const duplicates = proposed.length
+      ? possibleDuplicates(alive(await db.players.toArray())).filter(([a, b]) => !!a.review || !!b.review)
+      : []
+    return { spontaneous, proposed, players: new Map(players.map((p) => [p.id, p])), criteria, duplicates }
   }, [])
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
@@ -106,7 +111,11 @@ export default function ReviewPage() {
       </div>
       <p className="text-[11px] text-muted">
         Joueur vu hors des événements prévus (UNSS, entraînement de club…) : avis spontané, et fiche proposée s’il n’est pas dans la base.
-        Ceux des observateurs sont validés par un encadrant ; hors cadre, ils restent consultables pour mémoire.
+        Ceux des observateurs sont validés par un encadrant ; hors cadre, ils restent consultables pour mémoire (
+        <Link to="/rates" className="font-bold text-accent">
+          ratés
+        </Link>
+        ).
       </p>
 
       {can.review(role) && (
@@ -140,6 +149,30 @@ export default function ReviewPage() {
             </details>
           )}
         </>
+      )}
+
+      {can.editPlayers(role) && data.duplicates.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <div className="section-title">Doublons possibles ({data.duplicates.length})</div>
+          <p className="text-[11px] text-muted">Même nom, naissance compatible : sans doute le même joueur (fiche proposée puis licence, deux propositions…).</p>
+          {data.duplicates.map(([keep, other]) => (
+            <div key={keep.id + other.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
+              <div className="min-w-0">
+                <b>
+                  {keep.firstName} {keep.lastName}
+                </b>
+                <div className="text-[10px] text-muted">
+                  {[keep, other]
+                    .map((p) => (p.license ? 'licencié' : p.review === 'refused' ? 'hors cadre' : p.review === 'pending' ? 'proposée' : 'sans licence'))
+                    .join(' + ')}
+                </div>
+              </div>
+              <Link to={`/joueurs/${keep.id}?fusion=${other.id}`} className="shrink-0 font-bold text-accent">
+                Comparer et fusionner →
+              </Link>
+            </div>
+          ))}
+        </section>
       )}
 
       {myPlayers.length > 0 && (

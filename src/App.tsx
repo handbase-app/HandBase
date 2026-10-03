@@ -7,6 +7,7 @@ import Evaluate from './pages/Evaluate'
 import Home from './pages/Home'
 import PlayerDetail from './pages/PlayerDetail'
 import PlayerForm from './pages/PlayerForm'
+import Missed from './pages/Missed'
 import Players from './pages/Players'
 import ReviewPage, { usePendingCount } from './pages/Review'
 import Settings from './pages/Settings'
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/joueurs/:id/modifier" element={<PlayerForm />} />
           <Route path="/evaluer" element={<Evaluate />} />
           <Route path="/avis-spontanes" element={<ReviewPage />} />
+          <Route path="/rates" element={<Missed />} />
           <Route path="/evenements" element={<Events />} />
           <Route path="/evenements/:id" element={<EventDetail />} />
           <Route path="/parametres" element={<Settings />} />
