@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
+import { ProposePlayer } from '../components/ProposePlayer'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import {
@@ -49,6 +50,8 @@ export default function Evaluate() {
   const [avisId, setAvisId] = useState(avisParam)
   const [mode, setMode] = useState<'rapide' | 'complet'>('rapide')
   const [creatingEvent, setCreatingEvent] = useState(false)
+  // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
+  const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
 
   const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive), [], [])
@@ -260,7 +263,28 @@ export default function Evaluate() {
       {(event || spontaneous) && (
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
-        <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => void go('joueur', id)} />
+        {proposing ? (
+          <ProposePlayer
+            initial={proposing}
+            onDone={(pl) => {
+              setProposing(null)
+              if (pl) void go('joueur', pl.id)
+            }}
+          />
+        ) : (
+          <PlayerPicker
+            players={players}
+            roster={roster}
+            value={playerId}
+            done={evaluatedHere}
+            onChange={(id) => void go('joueur', id)}
+            onPropose={(q) => {
+              // « Jean Dupont » → prénom Jean, nom Dupont.
+              const [firstName, ...rest] = q.trim().split(/\s+/)
+              setProposing({ firstName, lastName: rest.join(' ') || undefined })
+            }}
+          />
+        )}
         {roster.length > 0 && (
           <div className="flex items-center justify-between gap-2">
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && void go('joueur', prev.id)}>
@@ -499,13 +523,17 @@ function PlayerPicker({
   value,
   done,
   onChange,
+  onPropose,
 }: {
   players: Player[]
   roster: Player[]
   value: string
   done: Set<string>
   onChange: (id: string) => void
+  /** Joueur introuvable : proposer une fiche (reçoit le texte cherché). */
+  onPropose: (q: string) => void
 }) {
+  const role = useRole()
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -578,12 +606,19 @@ function PlayerPicker({
               {p.lastName.toUpperCase()} {p.firstName}
             </b>
             {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>}
+            {p.review === 'pending' && <span className="text-amber-300"> · proposée</span>}
+            {p.review === 'refused' && <span className="text-muted"> · hors cadre</span>}
           </span>
           <span className="shrink-0 truncate text-[10px] text-muted">{p.club}</span>
         </button>
       ))}
       </div>
       {words.length > 0 && matches.length === 0 && <p className="text-[11px] text-muted">Aucun joueur trouvé.</p>}
+      {words.length > 0 && (
+        <button className="self-start text-xs font-bold text-accent" onClick={() => onPropose(q)}>
+          + Joueur absent de la base : {can.editPlayers(role) ? 'créer' : 'proposer'} une fiche
+        </button>
+      )}
     </div>
   )
 }

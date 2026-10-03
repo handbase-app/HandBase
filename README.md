@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `008_avis_spontanes.sql`).
+   (`002_roles.sql` … `009_joueurs_proposes.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -54,6 +54,14 @@ contexte libre au lieu d'un événement. Celui d'un observateur arrive **en atte
 moyennes qu'une fois **validé** par un encadrant ou un administrateur ; refusé, il passe **hors cadre** (gardé
 sur la fiche du joueur, jamais compté). S'il est modifié, il repasse en attente. Les avis spontanés des
 encadrants et administrateurs sont validés d'office. Règles tenues par le serveur (`supabase/008_avis_spontanes.sql`).
+
+### Fiches proposées et adultes référents
+
+Un observateur peut **proposer** la fiche d'un joueur absent de la base (UNSS, sans licence) : nom, prénom,
+département (obligatoire), établissement ou club… Un encadrant la **valide** ou la met **hors cadre** (onglet
+*Joueurs → Hors cadre*, gardée pour voir plus tard ce que le joueur est devenu). Chaque fiche peut avoir des
+**adultes référents** (parent, professeur d'EPS…) : table `hb_referents`, lisible seulement par les encadrants et
+administrateurs, et par celui qui les a saisis (`supabase/009_joueurs_proposes.sql`).
 
 ### Journal d'activité
 

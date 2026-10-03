@@ -37,7 +37,7 @@ export async function exportCsv(only?: { id: string }[]) {
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (moy. avis)`),
     'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
-    'Nb avis', 'Lacunes', 'Notes',
+    'Nb avis', 'Fiche', 'Lacunes', 'Notes',
   ]
   const rows = players.map((p) => {
     const l = latest.get(p.id)
@@ -56,7 +56,7 @@ export async function exportCsv(only?: { id: string }[]) {
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c.id)),
       r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
-      evs.length, p.gaps, p.notes,
+      evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
@@ -73,6 +73,7 @@ export async function exportBackup() {
     measurements: await db.measurements.toArray(),
     events: await db.events.toArray(),
     evaluations: await db.evaluations.toArray(),
+    referents: await db.referents.toArray(),
   }
   download(`handbase-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json')
 }
@@ -80,7 +81,7 @@ export async function exportBackup() {
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []

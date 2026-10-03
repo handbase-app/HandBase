@@ -5,6 +5,9 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { Opinions } from '../components/Opinions'
+import { department, departmentLabel } from '../components/PlayerFilter'
+import { Referents } from '../components/Referents'
+import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
 import { latestByPlayer } from './Players'
@@ -39,6 +42,7 @@ export default function PlayerDetail() {
   const info: [string, string | undefined][] = [
     ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : undefined],
     ['Club', p.club],
+    ['Département', department(p) && departmentLabel(department(p)!)],
     ['Équipe', p.team],
     ['Catégorie / niveau', p.category],
     ['Nationalité', p.nationality],
@@ -94,6 +98,23 @@ export default function PlayerDetail() {
         </div>
       </div>
 
+      {p.review && p.review !== 'validated' && (
+        <div className={`rounded-lg border p-3 text-xs ${p.review === 'pending' ? 'border-amber-500/40 bg-amber-500/10' : 'border-line bg-panel'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <ReviewBadge e={p} kind="players" />
+            {p.createdByName && <span className="text-[10px] text-muted">Proposée par {p.createdByName}</span>}
+          </div>
+          <p className="mt-1 text-[11px] text-muted">
+            {p.review === 'pending'
+              ? 'Fiche proposée par un observateur : à valider par un encadrant.'
+              : 'Fiche mise hors cadre : gardée pour mémoire, pour voir plus tard ce que le joueur est devenu.'}
+          </p>
+          <ReviewNote e={p} />
+          {can.review(role) && <ReviewActions e={p} kind="players" compact={p.review === 'refused'} />}
+        </div>
+      )}
+      {p.review === 'validated' && <ReviewNote e={p} />}
+
       <div className="card divide-y divide-line">
         {info
           .filter(([, v]) => v)
@@ -145,9 +166,11 @@ export default function PlayerDetail() {
         </div>
       )}
 
-      {can.editPlayers(role) && (
+      <Referents playerId={p.id} />
+
+      {can.editPlayer(role, p) && (
         <Link to={`/joueurs/${p.id}/modifier`} className="btn-primary">
-          Modifier la fiche
+          {can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition'}
         </Link>
       )}
     </div>

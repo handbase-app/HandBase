@@ -142,6 +142,25 @@ async function pull() {
   }
 }
 
+/**
+ * Les référents lisibles dépendent du compte et du rôle : on efface ceux de l'appareil (sauf les
+ * saisies pas encore envoyées) et on les recharge entièrement depuis le serveur.
+ */
+export async function resetReferents() {
+  if (!supabase) return
+  await db.transaction('rw', db.referents, db.outbox, async () => {
+    const unsent = new Set((await db.outbox.where('table').equals('referents').toArray()).map((o) => o.rowId))
+    const ids = (await db.referents.toCollection().primaryKeys()).filter((id) => !unsent.has(id))
+    await db.referents.bulkDelete(ids)
+  })
+  try {
+    localStorage.removeItem(PULL_KEY('referents'))
+  } catch {
+    /* stockage indisponible */
+  }
+  syncSoon(0)
+}
+
 // Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation.
 let soon: number | undefined
 function syncSoon(delay = 400) {
