@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
 
@@ -107,7 +107,9 @@ function show(field: string, v: unknown): string {
   return String(v)
 }
 
-const PAGE = 50
+/** 10 dernières actions à l'ouverture, puis 20 de plus à chaque fois qu'on arrive en bas de la liste. */
+const FIRST = 10
+const PAGE = 20
 
 export function ActivityLog() {
   const [rows, setRows] = useState<AuditRow[]>([])
@@ -119,23 +121,31 @@ export function ActivityLog() {
   const [open, setOpen] = useState<number | null>(null)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
+  // Évite de lancer deux fois le même chargement pendant le défilement.
+  const busy = useRef(false)
+  const listRef = useRef<HTMLDivElement>(null)
 
   async function load(offset = 0) {
-    if (!supabase) return
+    if (!supabase || (offset && busy.current)) return
+    busy.current = true
     setLoading(true)
     setErr('')
-    let query = supabase.from('hb_audit').select('*').order('id', { ascending: false }).range(offset, offset + PAGE - 1)
+    const size = offset ? PAGE : FIRST
+    let query = supabase.from('hb_audit').select('*').order('id', { ascending: false }).range(offset, offset + size - 1)
     if (who) query = query.eq('user_name', who)
     if (table) query = query.eq('table_name', table)
     if (q.trim()) query = query.ilike('summary', `%${q.trim()}%`)
     const { data, error } = await query
+    busy.current = false
     setLoading(false)
     if (error) {
       setErr(navigator.onLine ? `Journal indisponible : ${error.message}` : 'Le journal se consulte en ligne.')
       return
     }
     setRows((r) => (offset ? [...r, ...(data as AuditRow[])] : (data as AuditRow[])))
-    setMore((data ?? []).length === PAGE)
+    // Nouvelle recherche ou actualisation : on repart du haut de la liste.
+    if (!offset) listRef.current?.scrollTo({ top: 0 })
+    setMore((data ?? []).length === size)
   }
 
   useEffect(() => {
@@ -182,7 +192,15 @@ export function ActivityLog() {
       <input className="field py-1.5 text-xs" placeholder="Rechercher (joueur, événement…)" value={q} onChange={(e) => setQ(e.target.value)} />
       {err && <p className="text-[11px] text-red-300">{err}</p>}
 
-      <div className="divide-y divide-line rounded-lg border border-line">
+      {/* Liste qui défile : les actions plus anciennes arrivent quand on approche du bas. */}
+      <div
+        ref={listRef}
+        className="max-h-[26rem] divide-y divide-line overflow-y-auto overscroll-contain rounded-lg border border-line"
+        onScroll={(e) => {
+          const el = e.currentTarget
+          if (more && !loading && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) void load(rows.length)
+        }}
+      >
         {rows.map((r) => {
           const link = r.action.startsWith('suppression') ? null : r.table_name === 'players' ? `/joueurs/${r.row_id}` : r.table_name === 'events' ? `/evenements/${r.row_id}` : null
           const changes = r.changes ? Object.entries(r.changes) : []
@@ -219,12 +237,15 @@ export function ActivityLog() {
           )
         })}
         {!rows.length && !loading && !err && <div className="p-3 text-center text-xs text-muted">Aucune activité.</div>}
+        {loading && <div className="p-2 text-center text-[11px] text-muted">Chargement…</div>}
+        {/* Si la liste est trop courte pour défiler, ou pour qui préfère cliquer. */}
+        {more && !loading && (
+          <button className="w-full p-2 text-center text-[11px] font-bold text-accent" onClick={() => void load(rows.length)}>
+            Plus ancien
+          </button>
+        )}
+        {!more && rows.length > FIRST && <div className="p-2 text-center text-[10px] text-muted">Début du journal.</div>}
       </div>
-      {more && (
-        <button className="btn-ghost text-xs" disabled={loading} onClick={() => void load(rows.length)}>
-          {loading ? 'Chargement…' : 'Plus ancien'}
-        </button>
-      )}
     </section>
   )
 }
