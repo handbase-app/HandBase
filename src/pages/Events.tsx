@@ -72,6 +72,7 @@ export function EventDetail() {
   const role = useRole()
   const [tab, setTab] = useState<'joueurs' | 'classement'>('joueurs')
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState(false)
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -103,36 +104,49 @@ export function EventDetail() {
           ← ÉVÉNEMENTS
         </button>
         {manage && (
-          <button
-            className="text-xs text-muted hover:text-red-400"
-            onClick={async () => {
-              const n = evals.length
-              // Chaque avis appartient à un événement : supprimer l'événement supprime ses avis.
-              // Les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur.
-              if (n && role !== 'admin') {
-                await inform(`« ${ev.name} » contient ${n} avis : seul un administrateur peut le supprimer.`)
-                return
-              }
-              const msg = n ? `Supprimer « ${ev.name} » et ses ${n} avis ?` : `Supprimer « ${ev.name} » ?`
-              if (!(await ask(msg, { ok: 'Supprimer' }))) return
-              for (const e of evals) await remove('evaluations', e.id)
-              await remove('events', ev.id)
-              nav('/evenements', { replace: true })
-            }}
-          >
-            Supprimer
-          </button>
+          <div className="flex gap-4">
+            {!editing && (
+              <button className="text-xs text-muted hover:text-white" onClick={() => setEditing(true)}>
+                Modifier
+              </button>
+            )}
+            <button
+              className="text-xs text-muted hover:text-red-400"
+              onClick={async () => {
+                const n = evals.length
+                // Chaque avis appartient à un événement : supprimer l'événement supprime ses avis.
+                // Les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur.
+                if (n && role !== 'admin') {
+                  await inform(`« ${ev.name} » contient ${n} avis : seul un administrateur peut le supprimer.`)
+                  return
+                }
+                const msg = n ? `Supprimer « ${ev.name} » et ses ${n} avis ?` : `Supprimer « ${ev.name} » ?`
+                if (!(await ask(msg, { ok: 'Supprimer' }))) return
+                for (const e of evals) await remove('evaluations', e.id)
+                await remove('events', ev.id)
+                nav('/evenements', { replace: true })
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
         )}
       </div>
-      <div>
-        <h1 className="text-lg font-extrabold">{ev.name}</h1>
-        <div className="text-xs text-muted">
-          {typeLabel(ev.type)} · {fmtDate(ev.date)}
-          {ev.place ? ` · ${ev.place}` : ''}
+      {editing ? (
+        <div className="card p-3">
+          <NewEventForm event={ev} onDone={() => setEditing(false)} />
         </div>
-        {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
-        <StampLine row={ev} />
-      </div>
+      ) : (
+        <div>
+          <h1 className="text-lg font-extrabold">{ev.name}</h1>
+          <div className="text-xs text-muted">
+            {typeLabel(ev.type)} · {fmtDate(ev.date)}
+            {ev.place ? ` · ${ev.place}` : ''}
+          </div>
+          {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
+          <StampLine row={ev} />
+        </div>
+      )}
 
       <Link to={`/evaluer?evenement=${ev.id}${roster[0] ? `&joueur=${roster[0].id}` : ''}`} className="btn-primary">
         Évaluer {roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}

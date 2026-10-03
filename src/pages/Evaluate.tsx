@@ -344,11 +344,12 @@ export default function Evaluate() {
   )
 }
 
-export function NewEventForm({ onDone }: { onDone: (ev?: HBEvent) => void }) {
-  const [name, setName] = useState('')
-  const [type, setType] = useState<EventType>('match')
-  const [date, setDate] = useState(today())
-  const [place, setPlace] = useState('')
+/** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
+export function NewEventForm({ event, onDone }: { event?: HBEvent; onDone: (ev?: HBEvent) => void }) {
+  const [name, setName] = useState(event?.name ?? '')
+  const [type, setType] = useState<EventType>(event?.type ?? 'match')
+  const [date, setDate] = useState(event?.date ?? today())
+  const [place, setPlace] = useState(event?.place ?? '')
   return (
     <div className="flex flex-col gap-2">
       <input className="field" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
@@ -361,9 +362,14 @@ export function NewEventForm({ onDone }: { onDone: (ev?: HBEvent) => void }) {
         <button
           className="btn-primary flex-1"
           disabled={!name.trim()}
-          onClick={async () => onDone(await save<HBEvent>('events', { id: newId(), name: name.trim(), type, date, place: place || undefined }))}
+          onClick={async () => {
+            const fields = { name: name.trim(), type, date, place: place || undefined }
+            // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.
+            const current = event && (await db.events.get(event.id))
+            onDone(await save<HBEvent>('events', current ? { ...current, ...fields } : { id: newId(), ...fields }))
+          }}
         >
-          Créer
+          {event ? 'Enregistrer' : 'Créer'}
         </button>
         <button className="btn text-muted" onClick={() => onDone()}>
           Annuler
