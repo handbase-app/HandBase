@@ -1,11 +1,26 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
+import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
-import { alive, criterionApplies, db, fmtDate, newId, save, today, type Evaluation, type EventType, type HBEvent, type Player } from '../db'
+import {
+  alive,
+  CONTEXT_TYPES,
+  criterionApplies,
+  db,
+  fmtDate,
+  newId,
+  save,
+  today,
+  type ContextType,
+  type Evaluation,
+  type EventType,
+  type HBEvent,
+  type Player,
+} from '../db'
 
 export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'match', label: 'Match' },
@@ -17,6 +32,9 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
 /**
  * Saisie d'un avis subjectif. Les avis des autres observateurs ne sont pas
  * affichés ici, pour ne pas influencer la notation.
+ * L'avis porte sur un événement, ou c'est un avis spontané (?contexte=libre) : joueur vu ailleurs
+ * (UNSS, entraînement de club…). L'avis spontané d'un observateur attend la validation d'un encadrant ;
+ * ?avis=<id> rouvre un avis spontané pour le modifier.
  */
 export default function Evaluate() {
   const [params, setParams] = useSearchParams()
@@ -25,6 +43,10 @@ export default function Evaluate() {
   const [meDraft, setMeDraft] = useState(me)
   const playerId = params.get('joueur') ?? ''
   const eventId = params.get('evenement') ?? ''
+  const spontaneous = params.get('contexte') === 'libre'
+  const avisParam = params.get('avis') ?? ''
+  // Avis spontané en cours de modification (celui de l'URL, ou celui qu'on vient d'enregistrer).
+  const [avisId, setAvisId] = useState(avisParam)
   const [mode, setMode] = useState<'rapide' | 'complet'>('rapide')
   const [creatingEvent, setCreatingEvent] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -44,19 +66,25 @@ export default function Evaluate() {
 
   const player = players.find((p) => p.id === playerId)
   const event = events.find((e) => e.id === eventId)
-  const existing = mine.find((e) => e.playerId === playerId && (e.eventId ?? '') === eventId)
+  const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
+  const existing = spontaneous
+    ? own && !own.deleted && own.playerId === playerId ? own : undefined
+    : mine.find((e) => e.playerId === playerId && (e.eventId ?? '') === eventId && !e.contextType)
 
   const [draft, setDraft] = useState<Partial<Evaluation>>({ scores: {} })
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
+  // (Avis spontané : on garde le contexte du joueur précédent, souvent le même pour plusieurs joueurs.)
   useEffect(() => {
-    const init = existing ? { ...existing } : { scores: {}, date: event?.date ?? today() }
+    setAvisId(avisParam)
+    const ctx = spontaneous ? { contextType: draft.contextType, contextPlace: draft.contextPlace, date: draft.date ?? today() } : {}
+    const init = existing && (!spontaneous || existing.id === avisParam) ? { ...existing } : { scores: {}, date: event?.date ?? today(), ...ctx }
     setDraft(init)
     setBaseline(fingerprint(init))
     setSaved(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerId, eventId])
+  }, [playerId, eventId, spontaneous, avisParam])
   // …et on charge mon avis existant dès qu'il arrive de la base (chargement asynchrone).
   useEffect(() => {
     if (existing && !saved) {
@@ -85,13 +113,6 @@ export default function Evaluate() {
     [criteria, player, mode, draft.scores],
   )
 
-  const setParam = (k: string, v: string) => {
-    const n = new URLSearchParams(params)
-    if (v) n.set(k, v)
-    else n.delete(k)
-    setParams(n, { replace: true })
-  }
-
   // ----- Étape 0 : qui évalue ? -----
   if (!me)
     return (
@@ -106,20 +127,32 @@ export default function Evaluate() {
     )
 
   async function submit() {
-    if (!player || !event) return
+    if (!player || !(event || (spontaneous && draft.contextType))) return
     const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => typeof v === 'number')) as Record<string, number>
+    const id = existing?.id ?? newId()
+    // Avis spontané : validé d'office pour un encadrant ou un administrateur, sinon en attente
+    // (le serveur applique la même règle, quoi qu'envoie l'appareil).
+    const review = spontaneous
+      ? can.review(role)
+        ? { review: 'validated' as const, reviewedBy: currentUserId() ?? undefined, reviewedByName: me, reviewedAt: new Date().toISOString(), reviewNote: undefined }
+        : { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
+      : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
     await save<Evaluation>('evaluations', {
       ...draft,
-      id: existing?.id ?? newId(),
+      ...review,
+      id,
       playerId: player.id,
-      eventId: eventId || undefined,
+      eventId: spontaneous ? undefined : eventId || undefined,
+      contextType: spontaneous ? draft.contextType : undefined,
+      contextPlace: spontaneous ? draft.contextPlace?.trim() || undefined : undefined,
       observer: me,
       observerId: currentUserId() ?? draft.observerId,
       date: draft.date ?? today(),
       scores,
     } as Evaluation)
+    if (spontaneous) setAvisId(id)
     // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
-    if (can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)) {
+    if (event && !spontaneous && can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)) {
       await save<HBEvent>('events', { ...event, playerIds: [...(event.playerIds ?? []), player.id] })
     }
     setBaseline(fingerprint({ ...draft, scores }))
@@ -143,12 +176,18 @@ export default function Evaluate() {
   }
   leaveRef.current = confirmLeave
 
-  /** Changer de joueur ou d'événement, après vérification de la saisie en cours. */
-  const go = async (k: 'joueur' | 'evenement', v: string) => {
-    if (await confirmLeave()) setParam(k, v)
+  /** Changer de joueur, d'événement ou de contexte, après vérification de la saisie en cours. */
+  const go = async (k: 'joueur' | 'evenement' | 'contexte', v: string) => {
+    if (!(await confirmLeave())) return
+    const n = new URLSearchParams(params)
+    if (v) n.set(k, v)
+    else n.delete(k)
+    n.delete('avis') // un autre joueur ou contexte : nouvel avis
+    if (k === 'contexte') n.delete('evenement')
+    setParams(n, { replace: true })
   }
 
-  const evaluatedHere = new Set(mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
+  const evaluatedHere = new Set(spontaneous ? [] : mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
   // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
   const byId = new Map(players.map((p) => [p.id, p]))
   const roster = (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p)
@@ -170,7 +209,17 @@ export default function Evaluate() {
       {/* Contexte */}
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Contexte</span>
-        {creatingEvent ? (
+        <Segmented
+          value={spontaneous ? 'libre' : 'evenement'}
+          onChange={(v) => void go('contexte', v === 'libre' ? 'libre' : '')}
+          options={[
+            { value: 'evenement', label: 'Sur un événement' },
+            { value: 'libre', label: 'Avis spontané' },
+          ]}
+        />
+        {spontaneous ? (
+          <SpontaneousContext draft={draft} setDraft={setDraft} validated={can.review(role)} />
+        ) : creatingEvent ? (
           <NewEventForm
             onDone={(ev) => {
               setCreatingEvent(false)
@@ -196,9 +245,10 @@ export default function Evaluate() {
         )}
       </div>
 
-      {!event && (
+      {!event && !spontaneous && (
         <div className="rounded-md border border-line bg-panel p-3 text-xs text-muted">
           Chaque avis est rattaché à un événement (match, tournoi, entraînement, observation…) : choisis-le d’abord.
+          Joueur vu ailleurs (UNSS, entraînement de club…) ? Choisis « Avis spontané ».
           {!events.length &&
             (can.manageEvents(role)
               ? ' Aucun événement pour l’instant : crée-le avec « + Nouveau ».'
@@ -207,7 +257,7 @@ export default function Evaluate() {
       )}
 
       {/* Joueur */}
-      {event && (
+      {(event || spontaneous) && (
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">Joueur</span>
         <PlayerPicker players={players} roster={roster} value={playerId} done={evaluatedHere} onChange={(id) => void go('joueur', id)} />
@@ -235,7 +285,8 @@ export default function Evaluate() {
 
       {saved && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-          ✓ Avis enregistré{event ? ` pour « ${event.name} »` : ''}.{' '}
+          ✓ Avis enregistré{event && !spontaneous ? ` pour « ${event.name} »` : ''}
+          {spontaneous && !can.review(role) ? ', en attente de validation par un encadrant' : ''}.{' '}
           {nextTodo ? (
             <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
               Joueur suivant à noter : {nextTodo.firstName} {nextTodo.lastName} →
@@ -258,7 +309,7 @@ export default function Evaluate() {
         </div>
       )}
 
-      {player && event && (
+      {player && (event || spontaneous) && (
         <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
@@ -275,7 +326,21 @@ export default function Evaluate() {
               />
             </div>
           </div>
-          {existing && !saved && <div className="text-[11px] text-muted">Tu as déjà évalué ce joueur ici : tu modifies ton avis.</div>}
+          {existing && !saved && (
+            <div className="text-[11px] text-muted">
+              {spontaneous ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  Tu modifies ton avis spontané du {fmtDate(existing.date)}. <ReviewBadge e={existing} />
+                </span>
+              ) : (
+                'Tu as déjà évalué ce joueur ici : tu modifies ton avis.'
+              )}
+              {spontaneous && <ReviewNote e={existing} />}
+              {spontaneous && existing.review && existing.review !== 'pending' && !can.review(role) && (
+                <div className="mt-1 text-amber-200">Si tu le modifies, il repassera en attente de validation.</div>
+              )}
+            </div>
+          )}
           <div className="text-[11px] text-muted">1 = très insuffisant · 3 = niveau attendu · 5 = remarquable. Laisse vide ce que tu n'as pas vu.</div>
 
           {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
@@ -320,10 +385,12 @@ export default function Evaluate() {
                 <span className="label">Temps observé</span>
                 <NumberField value={draft.minutesObserved} unit="min" onChange={(v) => setDraft((d) => ({ ...d, minutesObserved: v }))} />
               </div>
-              <div>
-                <span className="label">Date</span>
-                <input type="date" className="field" value={draft.date ?? today()} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
-              </div>
+              {!spontaneous && (
+                <div>
+                  <span className="label">Date</span>
+                  <input type="date" className="field" value={draft.date ?? today()} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+                </div>
+              )}
             </div>
             <div>
               <span className="label">Points forts</span>
@@ -335,11 +402,57 @@ export default function Evaluate() {
             </div>
           </div>
 
-          <button className="btn-primary" disabled={filled === 0 && draft.overall === undefined} onClick={() => void submit()}>
+          {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
+          <button
+            className="btn-primary"
+            disabled={(filled === 0 && draft.overall === undefined) || (spontaneous && !draft.contextType)}
+            onClick={() => void submit()}
+          >
             {existing ? 'Mettre à jour mon avis' : 'Enregistrer mon avis'} ({filled} critère{filled > 1 ? 's' : ''})
           </button>
         </>
       )}
+    </div>
+  )
+}
+
+/** Contexte d'un avis spontané : type, lieu, date. */
+function SpontaneousContext({
+  draft,
+  setDraft,
+  validated,
+}: {
+  draft: Partial<Evaluation>
+  setDraft: Dispatch<SetStateAction<Partial<Evaluation>>>
+  validated: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[11px] text-muted">
+        Pour un joueur vu hors des événements prévus : UNSS, entraînement de club, match local…{' '}
+        {validated ? (
+          <>Ton avis est validé d’office.</>
+        ) : (
+          <>
+            Ton avis sera <b className="text-white">soumis à validation</b> par un encadrant avant de compter dans les moyennes.
+          </>
+        )}
+      </p>
+      <Segmented<ContextType>
+        value={draft.contextType}
+        onChange={(v) => setDraft((d) => ({ ...d, contextType: v }))}
+        options={CONTEXT_TYPES}
+        columns={2}
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          className="field"
+          placeholder="Lieu, établissement, club…"
+          value={draft.contextPlace ?? ''}
+          onChange={(e) => setDraft((d) => ({ ...d, contextPlace: e.target.value }))}
+        />
+        <input type="date" className="field" value={draft.date ?? today()} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+      </div>
     </div>
   )
 }
@@ -481,5 +594,5 @@ function fingerprint(d: Partial<Evaluation>) {
     .filter(([, v]) => typeof v === 'number')
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
-  return JSON.stringify([scores, d.overall ?? null, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? ''])
+  return JSON.stringify([scores, d.overall ?? null, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
 }

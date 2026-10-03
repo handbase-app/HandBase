@@ -104,10 +104,37 @@ export interface HBEvent extends Syncable {
   playerIds?: string[]
 }
 
+/** Contexte d'un avis spontané (joueur vu hors des événements prévus). */
+export type ContextType = 'unss' | 'club' | 'match' | 'selection' | 'autre'
+
+export const CONTEXT_TYPES: { value: ContextType; label: string }[] = [
+  { value: 'unss', label: 'UNSS / scolaire' },
+  { value: 'club', label: 'Entraînement club' },
+  { value: 'match', label: 'Match' },
+  { value: 'selection', label: 'Sélection' },
+  { value: 'autre', label: 'Autre' },
+]
+
+/**
+ * Validation d'un avis spontané (supabase/008_avis_spontanes.sql) :
+ * pending = en attente, validated = compte dans les moyennes, refused = hors cadre (gardé, ne compte jamais).
+ * Les avis sur un événement n'ont pas d'état : ils sont validés d'office.
+ */
+export type ReviewState = 'pending' | 'validated' | 'refused'
+
 /** Avis subjectif d'un observateur sur un joueur, dans un contexte. */
 export interface Evaluation extends Syncable {
   playerId: string
+  /** Événement de l'avis ; sinon c'est un avis spontané, décrit par contextType / contextPlace. */
   eventId?: string
+  contextType?: ContextType
+  contextPlace?: string
+  review?: ReviewState
+  /** Commentaire de celui qui a validé ou refusé l'avis. */
+  reviewNote?: string
+  reviewedBy?: string
+  reviewedByName?: string
+  reviewedAt?: string
   observer: string
   /** Compte qui a écrit l'avis (seul lui, ou un admin, peut le modifier). */
   observerId?: string
@@ -201,6 +228,15 @@ export async function remove(table: SyncTable, id: string) {
 }
 
 export const alive = <T extends { deleted?: boolean }>(rows: T[]) => rows.filter((r) => !r.deleted)
+
+/** État de validation d'un avis (les avis sans état sont validés d'office). */
+export const reviewOf = (e: Evaluation): ReviewState => e.review ?? 'validated'
+/** L'avis compte-t-il dans les moyennes, radars et exports ? */
+export const counts = (e: Evaluation) => reviewOf(e) === 'validated'
+
+/** Contexte d'un avis spontané, en clair : « UNSS / scolaire · collège Jean Moulin ». */
+export const contextLabel = (e: Evaluation) =>
+  [CONTEXT_TYPES.find((c) => c.value === e.contextType)?.label ?? 'Hors événement', e.contextPlace].filter(Boolean).join(' · ')
 
 // ---------- Utilitaires ----------
 
