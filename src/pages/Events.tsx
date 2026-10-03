@@ -91,7 +91,7 @@ export function EventDetail() {
   const inRoster = new Set(ev.playerIds ?? [])
   const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
   const observers = [...new Set(evals.map((e) => e.observer))].sort()
-  const manage = can.manageEvents(role)
+  const manage = can.editEvent(role, ev)
 
   async function setRoster(ids: string[]) {
     await save<HBEvent>('events', { ...ev!, playerIds: ids })

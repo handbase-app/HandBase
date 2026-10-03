@@ -118,8 +118,8 @@ export default function Evaluate() {
       date: draft.date ?? today(),
       scores,
     } as Evaluation)
-    // Le joueur noté rejoint la liste de l'événement (si le rôle permet de la modifier).
-    if (can.manageEvents(role) && !(event.playerIds ?? []).includes(player.id)) {
+    // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
+    if (can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)) {
       await save<HBEvent>('events', { ...event, playerIds: [...(event.playerIds ?? []), player.id] })
     }
     setBaseline(fingerprint({ ...draft, scores }))

@@ -28,7 +28,8 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 ## Brancher le serveur (synchronisation entre appareils)
 
 1. Créer un projet gratuit sur https://supabase.com.
-2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis `supabase/002_roles.sql` (rôles du staff).
+2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
+   (`002_roles.sql` … `007_evenements_proprietaire.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -40,8 +41,8 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Rôle | Droits |
 |---|---|
 | Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
-| Encadrant | Fiches joueurs (sans suppression), tests physiques, événements, ses avis |
-| Observateur | Consulte tout, donne ses propres avis, crée des événements |
+| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis |
+| Observateur | Consulte tout, donne ses propres avis |
 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
 comme observateur et un administrateur change son rôle dans *Réglages → Membres du staff*.

@@ -89,6 +89,8 @@ export const can = {
   deletePlayers: (r: Role) => r === 'admin',
   editMeasurements: (r: Role) => r !== 'observateur',
   manageEvents: (r: Role) => r !== 'observateur',
+  /** Modifier / supprimer un événement : l'admin tous, l'encadrant les siens (ou ceux sans créateur connu, antérieurs au journal). */
+  editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
