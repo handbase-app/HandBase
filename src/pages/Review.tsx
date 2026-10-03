@@ -111,7 +111,8 @@ export default function ReviewPage() {
       </div>
       <p className="text-[11px] text-muted">
         Joueur vu hors des événements prévus (UNSS, entraînement de club…) : avis spontané, et fiche proposée s’il n’est pas dans la base.
-        Ceux des observateurs sont validés par un encadrant ; hors cadre, ils restent consultables pour mémoire (
+        Ceux des observateurs sont validés par un encadrant ; une fiche proposée sans décision au bout de 12 mois est effacée (RGPD).
+        Hors cadre, ils restent consultables pour mémoire (
         <Link to="/rates" className="font-bold text-accent">
           ratés
         </Link>

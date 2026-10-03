@@ -10,6 +10,7 @@ import PlayerForm from './pages/PlayerForm'
 import Missed from './pages/Missed'
 import Players from './pages/Players'
 import ReviewPage, { usePendingCount } from './pages/Review'
+import { useDailyPurge } from './purge'
 import Settings from './pages/Settings'
 import { syncNow, useSyncState } from './sync'
 
@@ -63,6 +64,8 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 export default function App() {
   // Avis spontanés à valider : pastille sur « Évaluer ».
   const toReview = usePendingCount()
+  // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
+  useDailyPurge()
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur">
