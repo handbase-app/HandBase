@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `014_gestion_membres.sql`).
+   (`002_roles.sql` … `015_telephone_mdp_provisoire.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -48,6 +48,10 @@ Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`
 et supprime les observateurs et encadrants depuis l'appli (*Réglages → Membres du staff*, `supabase/014_gestion_membres.sql`).
 Par sécurité, l'appli ne peut ni créer ni nommer un administrateur : uniquement dans le SQL Editor
 (`update public.hb_profiles set role = 'admin' where email = '…';`).
+Un compte créé (ou un mot de passe donné) par un administrateur est provisoire : l'appli demande d'en choisir un à la
+connexion (`supabase/015_telephone_mdp_provisoire.sql`). L'accès s'envoie depuis le téléphone de l'administrateur
+(e-mail, SMS, WhatsApp). « Mot de passe oublié ? » envoie un lien par e-mail : il faut un SMTP personnalisé
+(*Authentication → Emails → SMTP Settings*) et l'adresse de l'appli dans *Authentication → URL Configuration*.
 
 ### Avis spontanés
 

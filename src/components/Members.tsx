@@ -17,6 +17,16 @@ interface Profile {
   full_name: string | null
   role: Role
   departments: string[] | null
+  phone: string | null
+}
+
+/** Accès à transmettre à un membre (après création, ou nouveau mot de passe). */
+interface Access {
+  name: string
+  email: string
+  phone: string
+  password: string
+  isNew: boolean
 }
 
 type StaffRole = 'observateur' | 'preparateur'
@@ -29,18 +39,102 @@ function generatePassword() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`
 }
 
+/** Numéro au format international sans « + » pour WhatsApp : 06 12 34 56 78 → 33612345678. */
+function waNumber(phone: string) {
+  const d = phone.replace(/[^\d+]/g, '')
+  if (d.startsWith('+')) return d.slice(1)
+  if (d.startsWith('00')) return d.slice(2)
+  if (d.length === 10 && d.startsWith('0')) return '33' + d.slice(1)
+  return d
+}
+
+function accessMessage(a: Access) {
+  const url = location.origin + import.meta.env.BASE_URL
+  const first = a.name.split(/\s+/)[0]
+  return [
+    `Bonjour ${first},`,
+    '',
+    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff :' : 'Voici ton nouveau mot de passe pour HandBase :',
+    `1. Ouvre ${url}`,
+    `2. Identifiant : ${a.email}`,
+    `3. Mot de passe provisoire : ${a.password}`,
+    'À la première connexion, tu choisiras ton propre mot de passe.',
+    '',
+    'Pour installer l’appli sur ton téléphone :',
+    '- Android (Chrome) : menu ⋮ → « Installer l’application »',
+    '- iPhone (Safari) : Partager → « Sur l’écran d’accueil »',
+  ].join('\n')
+}
+
+/** Envoyer l'accès : e-mail, SMS, WhatsApp ou partage du téléphone (le message part de l'appareil de l'administrateur). */
+function AccessShare({ access, onClose }: { access: Access; onClose: () => void }) {
+  const text = accessMessage(access)
+  const subject = 'Ton accès à HandBase'
+  const phone = access.phone.replace(/[^\d+]/g, '')
+  const canShare = typeof navigator.share === 'function'
+  const btn = 'btn-ghost flex-1 px-2 py-1.5 text-center text-xs'
+  return (
+    <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
+      <div className="font-bold text-emerald-300">{access.isNew ? `Compte créé pour ${access.name}` : `Nouveau mot de passe pour ${access.name}`}</div>
+      <div className="mt-1">
+        Identifiant : <b>{access.email}</b>
+        <br />
+        Mot de passe provisoire : <b className="font-mono text-sm">{access.password}</b>
+      </div>
+      <div className="mt-1 text-[11px] text-muted">Envoie-lui maintenant : ce mot de passe ne sera plus affiché. Il choisira le sien à la connexion.</div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <a className={btn} href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}>
+          ✉ E-mail
+        </a>
+        {phone ? (
+          <a className={btn} href={`sms:${phone}?&body=${encodeURIComponent(text)}`}>
+            💬 SMS
+          </a>
+        ) : (
+          <span className={`${btn} opacity-40`} title="Pas de numéro de téléphone">
+            💬 SMS
+          </span>
+        )}
+        {phone ? (
+          <a className={btn} href={`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer">
+            WhatsApp
+          </a>
+        ) : (
+          <span className={`${btn} opacity-40`} title="Pas de numéro de téléphone">
+            WhatsApp
+          </span>
+        )}
+        {canShare ? (
+          <button className={btn} onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
+            Partager…
+          </button>
+        ) : (
+          <button className={btn} onClick={() => void navigator.clipboard?.writeText(text)}>
+            Copier
+          </button>
+        )}
+      </div>
+      <div className="mt-2 flex justify-end">
+        <button className="btn px-3 py-1 text-xs text-muted" onClick={onClose}>
+          Terminé
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function Members() {
   const [list, setList] = useState<Profile[] | null>(null)
   const [me, setMe] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<string | null>(null) // id du membre ouvert, ou 'nouveau'
-  const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null)
+  const [access, setAccess] = useState<Access | null>(null)
 
   async function load() {
     setErr('')
     const [{ data: s }, { data, error }] = await Promise.all([
       supabase!.auth.getSession(),
-      supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments').order('full_name'),
+      supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments, phone').order('full_name'),
     ])
     setMe(s.session?.user.id ?? null)
     if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'La gestion des membres se fait en ligne.')
@@ -66,8 +160,8 @@ export function Members() {
               ))}
             </ul>
             <p>
-              Ajouter quelqu’un : « + Membre », puis donne-lui son e-mail et le mot de passe provisoire. Il le change ensuite dans Réglages →
-              Mot de passe.
+              Ajouter quelqu’un : « + Membre », puis envoie-lui son accès par e-mail, SMS ou WhatsApp. À sa première connexion, il choisit son
+              propre mot de passe. Mot de passe oublié : il le récupère seul depuis l’écran de connexion.
             </p>
             <p>
               Par sécurité, l’appli ne peut ni créer ni nommer un administrateur : ça se fait uniquement depuis Supabase (SQL Editor). Un compte
@@ -84,40 +178,19 @@ export function Members() {
       </SectionTitle>
       {err && <p className="text-[11px] text-red-300">{err}</p>}
 
-      {created && (
-        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
-          <div className="font-bold text-emerald-300">Compte créé pour {created.name}</div>
-          <div className="mt-1">
-            Identifiant : <b>{created.email}</b>
-            <br />
-            Mot de passe provisoire : <b className="font-mono text-sm">{created.password}</b>
-          </div>
-          <div className="mt-1 text-[11px] text-muted">À lui donner maintenant : il ne sera plus affiché. Il le changera dans Réglages → Mot de passe.</div>
-          <div className="mt-2 flex gap-2">
-            <button
-              className="btn-ghost px-3 py-1 text-xs"
-              onClick={() => void navigator.clipboard?.writeText(`HandBase — identifiant : ${created.email} — mot de passe : ${created.password}`)}
-            >
-              Copier
-            </button>
-            <button className="btn px-3 py-1 text-xs text-muted" onClick={() => setCreated(null)}>
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+      {access && <AccessShare access={access} onClose={() => setAccess(null)} />}
 
       {open === 'nouveau' ? (
         <MemberForm
           onDone={async (res) => {
             setOpen(null)
-            if (res) setCreated(res)
+            if (res) setAccess(res)
             await load()
           }}
         />
       ) : (
         list && (
-          <button className="btn-primary text-xs" onClick={() => (setOpen('nouveau'), setCreated(null))}>
+          <button className="btn-primary text-xs" onClick={() => (setOpen('nouveau'), setAccess(null))}>
             + Membre (observateur ou encadrant)
           </button>
         )
@@ -130,8 +203,9 @@ export function Members() {
               <div key={p.user_id} className="p-2">
                 <MemberForm
                   member={p}
-                  onDone={async () => {
+                  onDone={async (res) => {
                     setOpen(null)
+                    if (res) setAccess(res)
                     await load()
                     if (p.user_id === me) await refreshRole()
                   }}
@@ -141,12 +215,13 @@ export function Members() {
               <button
                 key={p.user_id}
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-panel-2"
-                onClick={() => (setOpen(p.user_id), setCreated(null))}
+                onClick={() => (setOpen(p.user_id), setAccess(null))}
               >
                 <div className="min-w-0">
                   <div className="truncate text-xs font-bold">{p.full_name || '(nom pas encore choisi)'}</div>
                   <div className="truncate text-[10px] text-muted">
                     {p.email}
+                    {p.phone && ` · ${p.phone}`}
                     {(p.departments ?? []).length > 0 && ` · secteur ${(p.departments ?? []).join(', ')}`}
                   </div>
                 </div>
@@ -177,9 +252,10 @@ export function Members() {
 }
 
 /** Création (sans `member`) ou modification d'un membre. */
-function MemberForm({ member, onDone }: { member?: Profile; onDone: (created?: { name: string; email: string; password: string }) => void }) {
+function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Access) => void }) {
   const [name, setName] = useState(member?.full_name ?? '')
   const [email, setEmail] = useState(member?.email ?? '')
+  const [phone, setPhone] = useState(member?.phone ?? '')
   const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : 'observateur')
   const [depts, setDepts] = useState<string[]>(member?.departments ?? [])
   const [password, setPassword] = useState(member ? '' : generatePassword())
@@ -199,11 +275,20 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (created?: {
           p_role: role,
           p_departments: depts,
           p_password: password || null,
+          p_phone: phone.trim(),
         })
-      : await supabase!.rpc('hb_create_member', { p_email: email.trim(), p_password: password, p_full_name: name.trim(), p_role: role, p_departments: depts })
+      : await supabase!.rpc('hb_create_member', {
+          p_email: email.trim(),
+          p_password: password,
+          p_full_name: name.trim(),
+          p_role: role,
+          p_departments: depts,
+          p_phone: phone.trim() || null,
+        })
     setBusy(false)
     if (error) return setErr(navigator.onLine ? error.message : 'Il faut être en ligne.')
-    onDone(member ? undefined : { name: name.trim(), email: email.trim().toLowerCase(), password })
+    // Nouveau compte, ou nouveau mot de passe : proposer de lui envoyer son accès.
+    onDone(password ? { name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim(), password, isNew: !member } : undefined)
   }
 
   async function del() {
@@ -227,6 +312,10 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (created?: {
       <div>
         <span className="label">E-mail (identifiant)</span>
         <input className="field" type="email" inputMode="email" autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      <div>
+        <span className="label">Téléphone (pour lui envoyer son accès par SMS / WhatsApp)</span>
+        <input className="field" type="tel" inputMode="tel" placeholder="06 12 34 56 78" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
       <div>
         <span className="label">Rôle</span>
@@ -265,7 +354,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (created?: {
           </button>
         </div>
         {password && password.length < 8 && <p className="mt-1 text-[11px] text-amber-300">8 caractères minimum.</p>}
-        {member && password && <p className="mt-1 text-[11px] text-muted">Pense à lui donner ce nouveau mot de passe.</p>}
+        {member && password && <p className="mt-1 text-[11px] text-muted">Après l’enregistrement, tu pourras lui envoyer ce nouveau mot de passe.</p>}
       </div>
       {err && <p className="text-[11px] text-red-300">{err}</p>}
       <div className="flex flex-wrap gap-2">
