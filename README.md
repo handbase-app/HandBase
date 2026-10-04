@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `013_groupes.sql`).
+   (`002_roles.sql` … `014_gestion_membres.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -44,8 +44,10 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés et fiches proposées de son secteur, crée des groupes et gère les siens |
 | Observateur | Consulte tout, donne ses propres avis (ses avis spontanés sont soumis à validation) |
 
-Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
-comme observateur et un administrateur change son rôle dans *Réglages → Membres du staff*.
+Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`). Un administrateur crée, modifie
+et supprime les observateurs et encadrants depuis l'appli (*Réglages → Membres du staff*, `supabase/014_gestion_membres.sql`).
+Par sécurité, l'appli ne peut ni créer ni nommer un administrateur : uniquement dans le SQL Editor
+(`update public.hb_profiles set role = 'admin' where email = '…';`).
 
 ### Avis spontanés
 

@@ -7,9 +7,10 @@ import { exportBackup, importBackup } from '../export'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
+import { Members } from '../components/Members'
 import { ask, inform } from '../components/Confirm'
-import { can, myDepartments, refreshRole, ROLE_HELP, ROLE_LABEL, useRole, type Role } from '../roles'
-import { DEPARTMENT_CHOICES, departmentLabel } from '../components/PlayerFilter'
+import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { departmentLabel } from '../components/PlayerFilter'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -372,128 +373,6 @@ function PasswordChange() {
   )
 }
 
-interface Profile {
-  user_id: string
-  email: string | null
-  full_name: string | null
-  role: Role
-  departments: string[] | null
-}
-
-/** Liste du staff et attribution des rôles (administrateurs). */
-function Members() {
-  const [list, setList] = useState<Profile[] | null>(null)
-  const [me, setMe] = useState<string | null>(null)
-  const [err, setErr] = useState('')
-
-  async function load() {
-    setErr('')
-    const [{ data: s }, { data, error }] = await Promise.all([
-      supabase!.auth.getSession(),
-      supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments').order('created_at'),
-    ])
-    setMe(s.session?.user.id ?? null)
-    if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'Liste disponible uniquement en ligne.')
-    else setList(data as Profile[])
-  }
-  useEffect(() => {
-    void load()
-  }, [])
-
-  async function change(p: Profile, role: Role) {
-    if (p.user_id === me && role !== 'admin' && !(await ask('Retirer tes propres droits d’administrateur ?', { ok: 'Confirmer' }))) return
-    const { error } = await supabase!.rpc('hb_set_role', { p_user: p.user_id, p_role: role })
-    if (error) return inform(error.message)
-    await load()
-    if (p.user_id === me) await refreshRole()
-  }
-
-  /** Ajoute ou retire un département du secteur d'un membre (supabase/010_secteurs.sql). */
-  async function toggleDept(p: Profile, d: string) {
-    const cur = p.departments ?? []
-    const next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]
-    const { error } = await supabase!.rpc('hb_set_departments', { p_user: p.user_id, p_departments: next })
-    if (error) return inform(error.message)
-    await load()
-    if (p.user_id === me) await refreshRole()
-  }
-
-  const ref = new URL(import.meta.env.VITE_SUPABASE_URL as string).hostname.split('.')[0]
-
-  return (
-    <section className="card flex flex-col gap-2 p-4">
-      <SectionTitle
-        info={
-          <>
-            <ul className="flex flex-col gap-1">
-              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                <li key={r}>
-                  <b>{ROLE_LABEL[r]}</b> : {ROLE_HELP[r]}
-                </li>
-              ))}
-            </ul>
-            <p>
-              Ajouter quelqu’un : crée son compte dans{' '}
-              <a className="font-bold text-accent" href={`https://supabase.com/dashboard/project/${ref}/auth/users`} target="_blank" rel="noreferrer">
-                Supabase → Users
-              </a>{' '}
-              (cocher « Auto Confirm User »). Il arrive comme observateur ; change son rôle ici.
-            </p>
-            <p>
-              Secteur : départements dont l’encadrant valide les avis spontanés et fiches proposées (selon le département du joueur). Sans
-              département, il valide tout ; un joueur au département inconnu revient à l’administrateur. Pour un observateur, c’est indicatif.
-            </p>
-          </>
-        }
-      >
-        Membres du staff
-      </SectionTitle>
-      {err && <p className="text-[11px] text-red-300">{err}</p>}
-      {list && (
-        <div className="divide-y divide-line rounded-lg border border-line">
-          {list.map((p) => (
-            <div key={p.user_id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-              <div className="min-w-0">
-                <div className="truncate text-xs font-bold">
-                  {p.full_name || '(nom pas encore choisi)'} {p.user_id === me && <span className="text-muted">— toi</span>}
-                </div>
-                <div className="truncate text-[10px] text-muted">{p.email}</div>
-              </div>
-              <select className="field w-40 py-1 text-xs" value={p.role} onChange={(e) => void change(p, e.target.value as Role)}>
-                {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABEL[r]}
-                  </option>
-                ))}
-              </select>
-              {p.role !== 'admin' && (
-                <div className="flex w-full flex-wrap items-center gap-1">
-                  <span className="text-[10px] text-muted">Secteur :</span>
-                  {[...new Set([...DEPARTMENT_CHOICES.map((d) => d.value), ...(p.departments ?? [])])].map((d) => {
-                    const on = (p.departments ?? []).includes(d)
-                    return (
-                      <button
-                        key={d}
-                        title={departmentLabel(d)}
-                        onClick={() => void toggleDept(p, d)}
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
-                      >
-                        {d}
-                      </button>
-                    )
-                  })}
-                  <span className="text-[10px] text-muted">
-                    {(p.departments ?? []).length ? '' : p.role === 'preparateur' ? '— aucun : valide tous les départements' : '— aucun'}
-                  </span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
 
 function CriteriaEditor() {
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then(alive), [], [])
