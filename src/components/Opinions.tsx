@@ -14,6 +14,19 @@ export const DIVERGENCE = 2
 
 const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)
 const f1 = (n: number | null) => (n === null ? '—' : n.toLocaleString('fr-FR', { maximumFractionDigits: 1 }))
+const f1n = (n: number | null) => (n === null ? null : f1(n))
+
+/** Une ligne du tableau : valeur par observateur (déjà formatée) et synthèse (moyenne ou répartition). */
+interface Row {
+  c: Criterion
+  perObs: (string | null)[]
+  summary: string
+  /** Moyenne et notes par observateur (absentes pour un choix ou un texte). */
+  avg?: number | null
+  nums?: (number | null)[]
+  n: number
+  divergent: boolean
+}
 
 /**
  * Compare et cumule les avis subjectifs sur un joueur.
@@ -55,14 +68,29 @@ export function Opinions({
 
   const rows = useMemo(() => {
     return criteria
-      .map((c) => {
-        const perObs = observers.map((o) => mean(evs.filter((e) => e.observer === o).map((e) => e.scores[c.id]).filter((x): x is number => typeof x === 'number')))
+      .map((c): Row => {
+        const byObs = observers.map((o) => evs.filter((e) => e.observer === o).map((e) => e.scores[c.id]))
+        if (c.scale === 'choice' || c.scale === 'text') {
+          // Choix / texte : la réponse de chaque observateur, et la répartition à la place de la moyenne.
+          const perObs = byObs.map((vs) => {
+            const t = [...new Set(vs.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))]
+            return t.length ? t.join(' / ') : null
+          })
+          const counts = new Map<string, number>()
+          for (const v of perObs) if (v) counts.set(v, (counts.get(v) ?? 0) + 1)
+          const n = perObs.filter(Boolean).length
+          const summary = c.scale === 'choice' ? [...counts].sort((a, b) => b[1] - a[1]).map(([v, k]) => (counts.size > 1 ? `${v} ${k}` : v)).join(' · ') : '—'
+          return { c, perObs, summary, n, divergent: c.scale === 'choice' && counts.size > 1 }
+        }
+        const perObs = byObs.map((vs) => mean(vs.filter((x): x is number => typeof x === 'number')))
         const vals = perObs.filter((x): x is number => x !== null)
+        const avg = mean(vals)
         const spread = vals.length > 1 ? Math.max(...vals) - Math.min(...vals) : 0
-        return { c, perObs, avg: mean(vals), n: vals.length, spread }
+        return { c, perObs: perObs.map(f1n), nums: perObs, summary: f1(avg), avg, n: vals.length, divergent: spread >= DIVERGENCE }
       })
       .filter((r) => r.n > 0)
   }, [criteria, evs, observers])
+  const numericRows = rows.filter((r) => r.nums)
 
   const overall = mean(
     observers.map((o) => mean(evs.filter((e) => e.observer === o && typeof e.overall === 'number').map((e) => e.overall!))).filter((x): x is number => x !== null),
@@ -81,13 +109,13 @@ export function Opinions({
       </Empty>
     )
 
-  const radarData = rows.map((r) => ({
+  const radarData = numericRows.map((r) => ({
     label: r.c.label,
     Moyenne: r.avg,
-    ...Object.fromEntries(observers.map((o, i) => [o, r.perObs[i]])),
+    ...Object.fromEntries(observers.map((o, i) => [o, r.nums![i]])),
   }))
 
-  const divergent = rows.filter((r) => r.spread >= DIVERGENCE)
+  const divergent = rows.filter((r) => r.divergent)
 
   return (
     <div className="flex flex-col gap-3">
@@ -158,15 +186,15 @@ export function Opinions({
                         </td>
                       </tr>
                     )}
-                    <tr className={r.spread >= DIVERGENCE ? 'bg-amber-500/10' : ''}>
+                    <tr className={r.divergent ? 'bg-amber-500/10' : ''}>
                       <td className="sticky left-0 border-t border-line bg-panel px-1 py-1.5" title={r.c.description}>
                         {r.c.label}
-                        {r.spread >= DIVERGENCE && <span className="ml-1 text-amber-300">⚠</span>}
+                        {r.divergent && <span className="ml-1 text-amber-300">⚠</span>}
                       </td>
-                      <td className="border-t border-line px-1.5 text-center font-extrabold text-accent">{f1(r.avg)}</td>
+                      <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
                       {r.perObs.map((v, i) => (
-                        <td key={i} className="border-t border-line px-1.5 text-center">
-                          {f1(v)}
+                        <td key={i} className={`border-t border-line px-1.5 text-center ${r.c.scale === 'text' ? 'min-w-32 text-left text-[11px]' : ''}`}>
+                          {v ?? '—'}
                         </td>
                       ))}
                     </tr>
@@ -176,7 +204,7 @@ export function Opinions({
             </tbody>
           </table>
         </div>
-      ) : rows.length < 3 ? (
+      ) : numericRows.length < 3 ? (
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
         <div className="h-80">
@@ -231,7 +259,7 @@ export function Opinions({
 export function AvisCard({ e, where, role, player, dept }: { e: Evaluation; where: string; role: Role; player?: Player; dept?: string }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
-  const notes = Object.values(e.scores).filter((v) => typeof v === 'number')
+  const notes = Object.values(e.scores).filter((v) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
   return (
     <div className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
       <div className="flex items-start justify-between gap-2">

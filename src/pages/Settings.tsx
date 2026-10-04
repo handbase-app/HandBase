@@ -16,6 +16,7 @@ const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score3', label: 'Note 0 à 3' },
   { value: 'score2', label: 'Note 0 à 2' },
   { value: 'number', label: 'Valeur (unité)' },
+  { value: 'choice', label: 'Choix (options)' },
   { value: 'text', label: 'Texte' },
 ]
 
@@ -549,6 +550,8 @@ function CriteriaEditor() {
 
 function CriterionEdit({ c }: { c: Criterion }) {
   const [d, setD] = useState(c)
+  // Texte brut des options (une par ligne), pour pouvoir taper librement.
+  const [optText, setOptText] = useState((c.options ?? []).join('\n'))
   const dirty = JSON.stringify({ ...d, updatedAt: 0 }) !== JSON.stringify({ ...c, updatedAt: 0 })
   const set = <K extends keyof Criterion>(k: K, v: Criterion[K]) => setD((x) => ({ ...x, [k]: v }))
   const togglePos = (p: (typeof POSITIONS)[number]['id']) =>
@@ -588,6 +591,22 @@ function CriterionEdit({ c }: { c: Criterion }) {
           </div>
         )}
       </div>
+      {d.scale === 'choice' && (
+        <div>
+          <span className="label">Options (une par ligne)</span>
+          <textarea
+            className="field min-h-20"
+            placeholder={'Gauche\nDroit'}
+            value={optText}
+            onChange={(e) => {
+              setOptText(e.target.value)
+              const opts = [...new Set(e.target.value.split('\n').map((x) => x.trim()).filter(Boolean))]
+              set('options', opts.length ? opts : undefined)
+            }}
+          />
+          {(d.options?.length ?? 0) < 2 && <p className="text-[11px] text-muted">Indique au moins 2 options.</p>}
+        </div>
+      )}
       {d.scale !== c.scale && (
         <p className="text-[11px] text-amber-300">⚠ Changer d'échelle rend les anciennes valeurs difficiles à comparer avec les nouvelles.</p>
       )}
@@ -623,7 +642,7 @@ function CriterionEdit({ c }: { c: Criterion }) {
         </label>
       </div>
       <div className="flex gap-2">
-        <button className="btn-primary flex-1 text-xs" disabled={!dirty || !d.label.trim()} onClick={async () => setD(await save<Criterion>('criteria', d))}>
+        <button className="btn-primary flex-1 text-xs" disabled={!dirty || !d.label.trim() || (d.scale === 'choice' && (d.options?.length ?? 0) < 2)} onClick={async () => setD(await save<Criterion>('criteria', d))}>
           Enregistrer
         </button>
         <button

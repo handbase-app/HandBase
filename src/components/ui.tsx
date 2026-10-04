@@ -120,6 +120,25 @@ export function CriterionInput({
       </div>
     )
   }
+  if (c.scale === 'choice') {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {(c.options ?? []).map((o) => (
+          <button
+            key={o}
+            type="button"
+            onClick={() => onChange(value === o ? undefined : o)}
+            className={`rounded-md border px-2.5 py-1.5 text-xs font-bold transition ${
+              value === o ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+        {!c.options?.length && <span className="text-[11px] text-muted">Aucune option définie (Réglages → critères).</span>}
+      </div>
+    )
+  }
   if (c.scale === 'text') {
     return <input className="field" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value || undefined)} />
   }

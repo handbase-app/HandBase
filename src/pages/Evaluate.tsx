@@ -131,7 +131,7 @@ export default function Evaluate() {
 
   async function submit() {
     if (!player || !(event || (spontaneous && draft.contextType))) return
-    const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => typeof v === 'number')) as Record<string, number>
+    const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => isFilled(v)))
     const id = existing?.id ?? newId()
     // Avis spontané : validé d'office pour un encadrant ou un administrateur, sinon en attente
     // (le serveur applique la même règle, quoi qu'envoie l'appareil).
@@ -198,7 +198,7 @@ export default function Evaluate() {
   const prev = idx > 0 ? roster[idx - 1] : undefined
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
   const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
-  const filled = Object.values(draft.scores ?? {}).filter((v) => typeof v === 'number').length
+  const filled = Object.values(draft.scores ?? {}).filter(isFilled).length
 
   return (
     <div className="flex flex-col gap-4">
@@ -383,7 +383,7 @@ export default function Evaluate() {
                       onChange={(v) =>
                         setDraft((d) => {
                           const scores = { ...(d.scores ?? {}) }
-                          if (typeof v === 'number') scores[c.id] = v
+                          if (isFilled(v)) scores[c.id] = v!
                           else delete scores[c.id]
                           return { ...d, scores }
                         })
@@ -480,6 +480,9 @@ function SpontaneousContext({
     </div>
   )
 }
+
+/** Une valeur d'avis renseignée : note, option choisie ou texte non vide. */
+const isFilled = (v: unknown): v is number | string => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')
 
 /** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
 export function NewEventForm({ event, onDone }: { event?: HBEvent; onDone: (ev?: HBEvent) => void }) {
@@ -626,7 +629,7 @@ function PlayerPicker({
 /** Empreinte des champs saisis d'un avis, pour savoir s'il a changé. */
 function fingerprint(d: Partial<Evaluation>) {
   const scores = Object.entries(d.scores ?? {})
-    .filter(([, v]) => typeof v === 'number')
+    .filter(([, v]) => isFilled(v))
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
   return JSON.stringify([scores, d.overall ?? null, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])

@@ -54,7 +54,7 @@ export default function ReviewPage() {
   const card = (e: Evaluation) => {
     const p = data.players.get(e.playerId)
     const scores = data.criteria
-      .filter((c) => typeof e.scores[c.id] === 'number')
+      .filter((c) => typeof e.scores[c.id] === 'number' || (typeof e.scores[c.id] === 'string' && (e.scores[c.id] as string).trim() !== ''))
       .map((c) => `${c.label} ${e.scores[c.id]}`)
       .join(' · ')
     return (

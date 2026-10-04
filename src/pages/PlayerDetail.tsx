@@ -282,7 +282,7 @@ function Tracking({
   measurements: Measurement[]
   editable: boolean
 }) {
-  const withData = criteria.filter((c) => c.scale !== 'text' && measurements.some((m) => m.criterionId === c.id))
+  const withData = criteria.filter((c) => c.scale !== 'text' && c.scale !== 'choice' && measurements.some((m) => m.criterionId === c.id))
   const [cid, setCid] = useState<string>('')
   const current = withData.find((c) => c.id === cid) ?? withData[0]
   const [adding, setAdding] = useState(false)

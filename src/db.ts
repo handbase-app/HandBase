@@ -129,8 +129,9 @@ export interface Referent extends Syncable {
 
 /** factual = une seule source (préparateur) ; subjective = plusieurs observateurs. */
 export type CriterionKind = 'factual' | 'subjective'
-/** score5 = 1..5, score3 = 0..3, score2 = 0..2, number = valeur libre avec unité, text = note libre */
-export type CriterionScale = 'score5' | 'score3' | 'score2' | 'number' | 'text'
+/** score5 = 1..5, score3 = 0..3, score2 = 0..2, number = valeur libre avec unité, text = note libre,
+ *  choice = une option parmi `options` (ex. Gauche / Droit). */
+export type CriterionScale = 'score5' | 'score3' | 'score2' | 'number' | 'text' | 'choice'
 
 export interface Criterion extends Syncable {
   label: string
@@ -139,6 +140,8 @@ export interface Criterion extends Syncable {
   kind: CriterionKind
   scale: CriterionScale
   unit?: string
+  /** Options proposées pour l'échelle « choice ». */
+  options?: string[]
   /** Postes concernés ; vide = tous. */
   positions?: Position[]
   /** Fait partie du mode d'évaluation rapide. */
@@ -202,7 +205,8 @@ export interface Evaluation extends Syncable {
   /** Compte qui a écrit l'avis (seul lui, ou un admin, peut le modifier). */
   observerId?: string
   date: string
-  scores: Record<string, number>
+  /** Note (nombre), option choisie ou texte libre, selon l'échelle du critère. */
+  scores: Record<string, number | string>
   overall?: number
   minutesObserved?: number
   strengths?: string

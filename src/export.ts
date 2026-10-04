@@ -35,15 +35,23 @@ export async function exportCsv(only?: { id: string }[]) {
   const head = [
     'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
-    ...subjective.map((c) => `${c.label} (moy. avis)`),
+    ...subjective.map((c) => `${c.label} (${c.scale === 'choice' ? 'avis le plus fréquent' : c.scale === 'text' ? 'avis' : 'moy. avis'})`),
     'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
     'Nb avis', 'Fiche', 'Lacunes', 'Notes',
   ]
   const rows = players.map((p) => {
     const l = latest.get(p.id)
     const evs = evaluations.filter((e) => e.playerId === p.id)
-    const avg = (id: string) => {
-      const v = evs.map((e) => e.scores[id]).filter((x) => typeof x === 'number')
+    const avg = (c: (typeof subjective)[number]) => {
+      if (c.scale === 'choice' || c.scale === 'text') {
+        // Choix : le plus fréquent ; texte : toutes les réponses.
+        const t = evs.map((e) => e.scores[c.id]).filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+        if (c.scale === 'text') return [...new Set(t)].join(' | ')
+        const n = new Map<string, number>()
+        for (const x of t) n.set(x, (n.get(x) ?? 0) + 1)
+        return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
+      }
+      const v = evs.map((e) => e.scores[c.id]).filter((x): x is number => typeof x === 'number')
       return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1).replace('.', ',') : ''
     }
     const num = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : v)
@@ -54,7 +62,7 @@ export async function exportCsv(only?: { id: string }[]) {
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), p.team, p.license,
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
       ...factual.map((c) => num(l?.get(c.id)?.value)),
-      ...subjective.map((c) => avg(c.id)),
+      ...subjective.map((c) => avg(c)),
       r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
       evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
     ]
