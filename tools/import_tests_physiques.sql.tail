@@ -1,0 +1,88 @@
+
+-- ---------- Rapprochement avec les fiches : nom + prénom + date de naissance ----------
+
+update _xl_joueurs x set player_id = m.id, statut = 'trouvé'
+  from (select x2.k, min(p.id) as id, count(*) as n
+          from _xl_joueurs x2 join public.hb_players p
+            on not p.deleted
+           and pg_temp.hb_key(p.data ->> 'lastName') || '|' || pg_temp.hb_key(p.data ->> 'firstName') = x2.k
+           and (x2.naissance is null or p.data ->> 'birthDate' = x2.naissance::text)
+         group by x2.k) m
+ where m.k = x.k and m.n = 1;
+update _xl_joueurs x set statut = 'plusieurs fiches possibles'
+ where statut is null and exists (
+   select 1 from public.hb_players p
+    where not p.deleted
+      and pg_temp.hb_key(p.data ->> 'lastName') || '|' || pg_temp.hb_key(p.data ->> 'firstName') = x.k
+      and (x.naissance is null or p.data ->> 'birthDate' = x.naissance::text));
+-- Même nom mais autre date de naissance : rien n'est importé, à vérifier (fichier ou fiche).
+update _xl_joueurs x set statut = 'date de naissance différente'
+ where statut is null and exists (
+   select 1 from public.hb_players p
+    where not p.deleted
+      and pg_temp.hb_key(p.data ->> 'lastName') || '|' || pg_temp.hb_key(p.data ->> 'firstName') = x.k);
+update _xl_joueurs set statut = 'introuvable' where statut is null;
+
+do $$
+declare
+  v_now bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
+  v_aerien text := (select id from public.hb_criteria where not deleted and data ->> 'label' ilike 'a_rien%' order by id limit 1);
+  v_oeil text := (select id from public.hb_criteria where not deleted and data ->> 'label' ilike '_eil directeur%' order by id limit 1);
+begin
+  -- Préférence motrice : mesurée par le préparateur → critères factuels (une seule source).
+  update public.hb_criteria
+     set data = data || jsonb_build_object('kind', 'factual', 'updatedAt', v_now), updated_at_client = v_now
+   where id in (v_aerien, v_oeil) and data ->> 'kind' is distinct from 'factual';
+
+  -- Mesures.
+  insert into public.hb_measurements (id, data, updated_at_client)
+  select m.id,
+         jsonb_strip_nulls(jsonb_build_object(
+           'id', m.id, 'playerId', x.player_id, 'criterionId', c.cid, 'date', m.date::text,
+           'author', 'Tests physiques (Excel)', 'note', m.note, 'updatedAt', v_now,
+           -- Choix (Aérien / Terrien, Gauche / Droit) : l'option du critère qui commence par la même lettre.
+           'value', coalesce(
+             (select to_jsonb(o) from public.hb_criteria cr, jsonb_array_elements_text(cr.data -> 'options') o
+               where cr.id = c.cid and jsonb_typeof(m.valeur) = 'string'
+                 and left(pg_temp.hb_key(o), 1) = left(pg_temp.hb_key(m.valeur #>> '{}'), 1) limit 1),
+             m.valeur))),
+         v_now
+    from _xl_mesures m
+    join _xl_joueurs x on x.k = m.k and x.player_id is not null
+    cross join lateral (select case m.critere when '@aerien' then v_aerien when '@oeil' then v_oeil else m.critere end as cid) c
+   where c.cid is not null
+  on conflict (id) do nothing;
+
+  -- Fiches : poste (le premier cité), latéralité, catégorie, internat, lacunes — sans écraser ce qui est déjà saisi.
+  update public.hb_players p
+     set data = p.data || jsonb_strip_nulls(jsonb_build_object(
+           'position', case when p.data ? 'position' then null else x.poste end,
+           'laterality', case when p.data ? 'laterality' then null else x.lateralite end,
+           'category', case when p.data ? 'category' then null else x.categorie end,
+           'boarding', case when p.data ? 'boarding' then null else x.internat end,
+           'gaps', case when p.data ? 'gaps' then null else x.lacunes end))
+           || jsonb_build_object('updatedAt', v_now),
+         updated_at_client = v_now
+    from _xl_joueurs x
+   where x.player_id = p.id;
+end $$;
+
+alter table public.hb_measurements enable trigger hb_log;
+alter table public.hb_players enable trigger hb_log;
+alter table public.hb_criteria enable trigger hb_log;
+
+insert into public.hb_audit (user_id, user_name, user_role, table_name, row_id, action, summary, changes)
+select null, 'Administration Supabase (SQL)', null, 'measurements', 'import-tests-physiques', 'création',
+       'Import des tests physiques (Excel)',
+       jsonb_build_object('joueurs', jsonb_build_array(null, (select count(*) from _xl_joueurs where player_id is not null)),
+                          'mesures', jsonb_build_array(null, (select count(*) from _xl_mesures m join _xl_joueurs x on x.k = m.k and x.player_id is not null)));
+
+commit;
+
+-- ---------- Compte rendu ----------
+-- Par statut : nombre de joueurs et de mesures ; pour les joueurs non rattachés, leurs noms
+-- (à vérifier : orthographe, date de naissance, fiche absente de la base).
+select x.statut, count(*) as joueurs,
+       (select count(*) from _xl_mesures m join _xl_joueurs x2 on x2.k = m.k where x2.statut = x.statut) as mesures,
+       string_agg(case when x.player_id is null then x.nom || ' ' || x.prenom || coalesce(' (' || to_char(x.naissance, 'DD/MM/YYYY') || ')', '') end, ', ') as a_verifier
+  from _xl_joueurs x group by x.statut order by x.statut desc;

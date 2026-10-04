@@ -125,6 +125,8 @@ export interface Measurement extends Syncable {
   value: number | string
   date: string
   author?: string
+  /** Commentaire du préparateur (« blessé », « D>G »…). */
+  note?: string
 }
 
 export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
@@ -276,6 +278,9 @@ db.version(5)
 
 // v6 : listes modifiables (régions).
 db.version(6).stores({ lists: 'id, kind, updatedAt' })
+
+// v7 : nouveaux tests physiques (plateforme de force, 6 RM, RSA, Shirado-Sorensen, épaule en degrés).
+db.version(7).upgrade(applyDefaultCriteria)
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

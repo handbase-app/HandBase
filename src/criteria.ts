@@ -65,9 +65,34 @@ export const DEFAULT_CRITERIA: Seed[] = [
   f('hanche_re', 'Mobilité', 'Hanche RE', 'score2'),
   f('ohs', 'Mobilité', 'Squat bras au-dessus de la tête', 'score3'),
 
+  f('epaule_ri_d', 'Mobilité', 'Épaule RI D (degrés)', 'number', '°'),
+  f('epaule_ri_g', 'Mobilité', 'Épaule RI G (degrés)', 'number', '°'),
+  f('epaule_re_d', 'Mobilité', 'Épaule RE D (degrés)', 'number', '°'),
+  f('epaule_re_g', 'Mobilité', 'Épaule RE G (degrés)', 'number', '°'),
+
   f('trunk_pu', 'Stabilité & adducteurs', 'Trunk Push-up', 'score3'),
   f('stab_rot', 'Stabilité & adducteurs', 'Stabilité rotative', 'score3'),
   f('adducteur', 'Stabilité & adducteurs', 'Adducteur au mur', 'score3'),
+  f('shirado', 'Stabilité & adducteurs', 'Shirado (gainage abdos)', 'number', 's'),
+  f('sorensen', 'Stabilité & adducteurs', 'Sorensen (gainage lombaires)', 'number', 's'),
+
+  // Plateforme de force.
+  f('sj_hauteur', 'Sauts (plateforme)', 'SJ – hauteur', 'number', 'cm', 'Squat jump, sans contre-mouvement'),
+  f('sj_puissance', 'Sauts (plateforme)', 'SJ – puissance relative', 'number', 'W/kg'),
+  f('cmj_hauteur', 'Sauts (plateforme)', 'CMJ – hauteur', 'number', 'cm', 'Saut avec contre-mouvement'),
+  f('cmj_puissance', 'Sauts (plateforme)', 'CMJ – puissance relative', 'number', 'W/kg'),
+  f('cmj_rsi', 'Sauts (plateforme)', 'CMJ – RSI modifié', 'number', undefined, 'Hauteur ÷ temps de contact'),
+  f('eur', 'Sauts (plateforme)', 'EUR (CMJ / SJ)', 'number', undefined, 'Utilisation de l’excentrique : 1,05–1,15 bon'),
+
+  f('rm6_squat', 'Force (6 RM)', 'Squat', 'number', 'kg'),
+  f('rm6_bench', 'Force (6 RM)', 'Développé couché', 'number', 'kg'),
+  f('rm6_dl', 'Force (6 RM)', 'Soulevé de terre trap bar', 'number', 'kg'),
+  f('rm1_clean', 'Force (6 RM)', 'Épaulé (1 RM)', 'number', 'kg'),
+  f('rm6_traction', 'Force (6 RM)', 'Traction lestée', 'number', 'kg'),
+  f('rm6_hipthrust', 'Force (6 RM)', 'Hip thrust', 'number', 'kg'),
+
+  f('rsa_moyen', 'Vitesse & endurance', 'RSA (RAST 6×35 m) – temps moyen', 'number', 's'),
+  f('rsa_fatigue', 'Vitesse & endurance', 'RSA – indice de fatigue', 'number', '%'),
 
   // ----- Subjectif : plusieurs observateurs -----
   s('vision', 'Intelligence de jeu', 'Vision du jeu', 'Voit les partenaires démarqués, anticipe les espaces', { quick: true }),

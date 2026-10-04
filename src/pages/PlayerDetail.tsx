@@ -199,6 +199,7 @@ export default function PlayerDetail() {
                 <div className="text-sm font-extrabold">{fmtValue(c, latest.get(c.id)!.value)}</div>
               </div>
             ))}
+            {cs.some((c) => c.id === 'sorensen') && <ShiradoRatio latest={latest} />}
           </div>
         </div>
       ))}
@@ -385,8 +386,11 @@ function Tracking({
           <div className="mt-2 divide-y divide-line">
             {[...series].reverse().map((m) => (
               <div key={m.id} className="flex items-center justify-between py-1.5 text-xs">
-                <span className="font-bold">{fmtDate(m.date)}</span>
-                <span className="flex items-center gap-3">
+                <span className="min-w-0">
+                  <span className="font-bold">{fmtDate(m.date)}</span>
+                  {m.note && <span className="ml-2 text-[11px] text-amber-200">« {m.note} »</span>}
+                </span>
+                <span className="flex shrink-0 items-center gap-3">
                   <span>{fmtValue(current, m.value)}</span>
                   {m.author && <span className="text-[10px] text-muted">{m.author}</span>}
                   {editable && (
@@ -404,6 +408,20 @@ function Tracking({
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** Ratio Shirado / Sorensen, calculé à partir des dernières valeurs (norme 0,7–0,8 ; > 1 = déséquilibre). */
+function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
+  const a = latest.get('shirado')?.value
+  const b = latest.get('sorensen')?.value
+  if (typeof a !== 'number' || typeof b !== 'number' || !b) return null
+  const r = a / b
+  return (
+    <div title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
+      <div className="text-[10px] text-muted">Ratio Shirado / Sorensen</div>
+      <div className={`text-sm font-extrabold ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</div>
     </div>
   )
 }

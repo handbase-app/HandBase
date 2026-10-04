@@ -1,0 +1,23 @@
+-- HandBase : import des tests physiques (fichiers Excel du préparateur physique).
+-- Généré par tools/import_tests_physiques.py — contient des noms : ne pas enregistrer dans le dépôt.
+-- À coller dans Supabase > SQL Editor, APRÈS le nettoyage de la base, puis « Run ».
+-- Tout est fait d'un bloc ; relancer le script ne crée pas de doublons.
+
+begin;
+
+-- Pas une ligne de journal par mesure : une ligne de synthèse à la fin.
+alter table public.hb_measurements disable trigger hb_log;
+alter table public.hb_players disable trigger hb_log;
+alter table public.hb_criteria disable trigger hb_log;
+
+-- Même clé que le générateur : minuscules, sans accents, lettres seulement.
+create or replace function pg_temp.hb_key(t text) returns text language sql immutable as $$
+  select regexp_replace(translate(lower(coalesce(t, '')),
+    'àáâãäåçèéêëìíîïñòóôõöùúûüýÿœæ', 'aaaaaaceeeeiiiinooooouuuuyyoa'), '[^a-z]', '', 'g')
+$$;
+
+drop table if exists _xl_joueurs;
+drop table if exists _xl_mesures;
+create temp table _xl_joueurs (k text primary key, nom text, prenom text, naissance date, poste text, lateralite text,
+                               categorie text, internat boolean, lacunes text, player_id text, statut text);
+create temp table _xl_mesures (id text primary key, k text, critere text, date date, valeur jsonb, note text);
