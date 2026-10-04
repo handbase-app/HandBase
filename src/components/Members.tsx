@@ -56,8 +56,10 @@ function accessMessage(a: Access) {
   return [
     `Bonjour ${first},`,
     '',
-    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff.' : 'Voici ton nouvel accès à HandBase.',
-    'Clique sur ce lien pour te connecter (valable 24 h), puis choisis ton mot de passe :',
+    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff.' : 'Voici un lien pour changer ton mot de passe HandBase.',
+    a.isNew
+      ? 'Clique sur ce lien pour te connecter (valable 24 h), puis choisis ton mot de passe :'
+      : 'Clique dessus (valable 24 h), puis choisis ton nouveau mot de passe :',
     link,
     '',
     `Si le lien ne marche pas : ouvre ${url}`,
@@ -79,7 +81,7 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
   const btn = 'btn-ghost flex-1 px-2 py-1.5 text-center text-xs'
   return (
     <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
-      <div className="font-bold text-emerald-300">{access.isNew ? `Compte créé pour ${access.name}` : `Nouveau mot de passe pour ${access.name}`}</div>
+      <div className="font-bold text-emerald-300">{access.isNew ? `Compte créé pour ${access.name}` : `Lien de changement de mot de passe pour ${access.name}`}</div>
       <div className="mt-1">
         Identifiant : <b>{access.email}</b>
         <br />
@@ -89,6 +91,12 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
         Envoie-lui maintenant : ce mot de passe ne sera plus affiché. Le message contient un lien qui le connecte en un clic, valable 24 h ; il
         choisira ensuite son mot de passe.
       </div>
+      {canShare && (
+        // Écran de partage du téléphone : Telegram, Signal, Gmail, WhatsApp… au choix.
+        <button className="btn-primary mt-2 w-full text-xs" onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
+          Partager… (toutes les applis)
+        </button>
+      )}
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <a className={btn} href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}>
           ✉ E-mail
@@ -111,15 +119,9 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
             WhatsApp
           </span>
         )}
-        {canShare ? (
-          <button className={btn} onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
-            Partager…
-          </button>
-        ) : (
-          <button className={btn} onClick={() => void navigator.clipboard?.writeText(text)}>
-            Copier
-          </button>
-        )}
+        <button className={btn} onClick={() => void navigator.clipboard?.writeText(text)}>
+          Copier
+        </button>
       </div>
       <div className="mt-2 flex justify-end">
         <button className="btn px-3 py-1 text-xs text-muted" onClick={onClose}>
@@ -298,6 +300,25 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
     onDone(password ? { name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim(), password, isNew: !member } : undefined)
   }
 
+  /** Mot de passe perdu : nouveau mot de passe provisoire (24 h) et lien à lui renvoyer, en un clic. */
+  async function resetLink() {
+    if (!member) return
+    if (
+      !(await ask(
+        `Envoyer à ${member.full_name || member.email} un lien pour changer son mot de passe ? Son mot de passe actuel ne marchera plus.`,
+        { ok: 'Créer le lien', danger: false },
+      ))
+    )
+      return
+    const pw = generatePassword()
+    setBusy(true)
+    setErr('')
+    const { error } = await supabase!.rpc('hb_update_member', { p_user: member.user_id, p_password: pw })
+    setBusy(false)
+    if (error) return setErr(navigator.onLine ? error.message : 'Il faut être en ligne.')
+    onDone({ name: member.full_name || member.email || '', email: (member.email ?? '').toLowerCase(), phone: member.phone ?? '', password: pw, isNew: false })
+  }
+
   async function del() {
     if (!member) return
     if (!(await ask(`Supprimer le compte de ${member.full_name || member.email} ? Il ne pourra plus se connecter. Ses avis et mesures restent.`, { ok: 'Supprimer' })))
@@ -312,6 +333,11 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-panel-2 p-3">
       <div className="text-xs font-extrabold">{member ? `Modifier ${member.full_name || member.email}` : 'Nouveau membre'}</div>
+      {member && (
+        <button type="button" className="btn-ghost text-xs" disabled={busy} onClick={() => void resetLink()}>
+          🔑 Lui envoyer un lien pour changer son mot de passe
+        </button>
+      )}
       <div>
         <span className="label">Prénom Nom</span>
         <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Stéphane Bascher" />
