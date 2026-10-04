@@ -6,10 +6,11 @@
 --     fichier (nom, prénom, sexe, naissance, latéralité, licence(s), état et type de licence, club, n° de club,
 --     nationalité) + le POSTE ;
 --   - leur taille « déclarée à la licence » (mesure créée par l'import) ;
+--   - les GROUPES (publics et privés), débarrassés des joueurs supprimés ;
 --   - la configuration : critères, régions, départements, membres du staff et leurs rôles.
 -- SUPPRIME :
 --   - tous les avis, toutes les autres mesures (poids, tests physiques, tailles saisies…) ;
---   - tous les événements et tous les groupes (publics et privés) ;
+--   - tous les événements ;
 --   - les fiches créées à la main ou proposées (sans n° de club) et les joueurs de démonstration ;
 --   - sur les fiches gardées : photo, notes, lacunes, taille des parents, équipe, catégorie, internat, validation…
 -- Les suppressions passent sur tous les appareils à la synchronisation suivante.
@@ -64,16 +65,23 @@ begin
      and not (data ->> 'criterionId' = 'taille' and data ->> 'author' = 'Licence FFHB (déclarée)'
               and data ->> 'playerId' in (select id from _gardes));
 
-  -- Avis, événements, groupes : tous supprimés.
+  -- Avis et événements : tous supprimés.
   update public.hb_evaluations
      set data = data || jsonb_build_object('deleted', true, 'updatedAt', v_now), deleted = true, updated_at_client = v_now
    where not deleted;
   update public.hb_events
      set data = data || jsonb_build_object('deleted', true, 'updatedAt', v_now), deleted = true, updated_at_client = v_now
    where not deleted;
-  update public.hb_groups
-     set data = data || jsonb_build_object('deleted', true, 'updatedAt', v_now), deleted = true, updated_at_client = v_now
-   where not deleted;
+
+  -- Groupes : gardés, sans les joueurs supprimés (fiches manuelles, proposées, démonstration).
+  update public.hb_groups g
+     set data = g.data || jsonb_build_object('updatedAt', v_now, 'playerIds', (
+           select coalesce(jsonb_agg(x order by o), '[]'::jsonb)
+             from jsonb_array_elements_text(g.data -> 'playerIds') with ordinality a(x, o)
+            where x in (select id from _gardes))),
+         updated_at_client = v_now
+   where not g.deleted
+     and exists (select 1 from jsonb_array_elements_text(g.data -> 'playerIds') x where x not in (select id from _gardes));
 end $$;
 
 alter table public.hb_players enable trigger hb_log;
@@ -85,11 +93,11 @@ alter table public.hb_groups enable trigger hb_log;
 -- Une ligne dans le journal d'activité.
 insert into public.hb_audit (user_id, user_name, user_role, table_name, row_id, action, summary, changes)
 select null, 'Administration Supabase (SQL)', null, 'players', 'nettoyage', 'suppression',
-       'Remise à zéro des données de test (import Gest''Hand et postes gardés)',
+       'Remise à zéro des données de test (import Gest''Hand, postes et groupes gardés)',
        jsonb_build_object(
          'joueurs', jsonb_build_array(a.joueurs, (select count(*) from public.hb_players where not deleted)),
          'mesures', jsonb_build_array(a.mesures, (select count(*) from public.hb_measurements where not deleted)),
-         'avis', jsonb_build_array(a.avis, 0), 'evenements', jsonb_build_array(a.evenements, 0), 'groupes', jsonb_build_array(a.groupes, 0))
+         'avis', jsonb_build_array(a.avis, 0), 'evenements', jsonb_build_array(a.evenements, 0))
   from _avant a;
 
 commit;
