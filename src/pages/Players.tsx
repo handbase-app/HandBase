@@ -6,7 +6,7 @@ import { Avatar, Empty, fmtValue, PosBadge } from '../components/ui'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
-import { AddToGroup } from '../components/Groups'
+import { AddToGroupDialog, GroupNotice } from '../components/Groups'
 import { can, useRole } from '../roles'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
@@ -35,7 +35,7 @@ export default function Players() {
   )
   const { filtered, ui, signature: filterSig, group } = usePlayerFilter(players)
   const [grouping, setGrouping] = useState(false)
-  const [groupMsg, setGroupMsg] = useState('')
+  const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
   // Nombre de joueurs affichés et position dans la liste : retrouvés au retour d'une fiche.
   const [limit, setLimit] = useSessionState('handbase.joueurs.limit', PAGE)
@@ -121,17 +121,17 @@ export default function Players() {
           )}
         </span>
         {can.manageGroups(role) && filtered.length > 0 && !grouping && (
-          <button className="font-bold text-accent" onClick={() => (setGrouping(true), setGroupMsg(''))}>
+          <button className="font-bold text-accent" onClick={() => (setGrouping(true), setGroupMsg({ text: '' }))}>
             Mettre ces {filtered.length.toLocaleString('fr-FR')} dans un groupe…
           </button>
         )}
       </div>
       {grouping && (
-        <div className="mb-3">
-          <AddToGroup playerIds={filtered.map((p) => p.id)} onDone={(m) => (setGrouping(false), setGroupMsg(m ?? ''))} />
-        </div>
+        <AddToGroupDialog playerIds={filtered.map((p) => p.id)} onClose={(text, groupId) => (setGrouping(false), setGroupMsg({ text: text ?? '', groupId }))} />
       )}
-      {groupMsg && <p className="mb-2 text-[11px] text-emerald-300">{groupMsg}</p>}
+      <div className="mb-2">
+        <GroupNotice msg={groupMsg.text} groupId={groupMsg.groupId} />
+      </div>
 
       {shown.length === 0 ? (
         <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>

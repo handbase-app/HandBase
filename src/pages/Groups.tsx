@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
@@ -15,9 +15,7 @@ import { AddPlayers } from './Events'
 export default function Groups() {
   const role = useRole()
   const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then(alive))
-  const [creating, setCreating] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
-  const nav = useNavigate()
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const active = groups.filter((g) => !g.archived)
   const archived = groups.filter((g) => g.archived)
@@ -26,22 +24,17 @@ export default function Groups() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-extrabold">Groupes</h1>
-        {!creating && can.manageGroups(role) && (
-          <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
+        {can.manageGroups(role) && (
+          <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
             + Groupe
-          </button>
+          </Link>
         )}
       </div>
       <p className="text-[11px] text-muted">
         Des listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : un clic pour les filtrer, les exporter ou remplir un
-        événement. Astuce : dans <b>Joueurs</b>, filtre puis « Mettre dans un groupe ».
+        événement.
       </p>
-      {creating && (
-        <div className="card p-3">
-          <GroupForm onDone={(g) => (setCreating(false), g && nav(`/groupes/${g.id}`))} />
-        </div>
-      )}
-      {!active.length && !creating && (
+      {!active.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
       )}
       {active.map((g) => (
@@ -76,12 +69,14 @@ function GroupRow({ g }: { g: PlayerGroup }) {
 }
 
 /** Création ou modification d'un groupe (nom, description). */
-function GroupForm({ group, onDone }: { group?: PlayerGroup; onDone: (g?: PlayerGroup) => void }) {
+function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; playerIds?: string[]; onDone: (g?: PlayerGroup) => void }) {
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
   return (
     <div className="flex flex-col gap-2">
-      <input className="field" placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs garçons…" value={name} onChange={(e) => setName(e.target.value)} />
+      <span className="label">Nom du groupe</span>
+      <input className="field" autoFocus={!group} placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs garçons…" value={name} onChange={(e) => setName(e.target.value)} />
+      <span className="label">Description</span>
       <input className="field" placeholder="Description (saison, encadrant…) — facultatif" value={description} onChange={(e) => setDescription(e.target.value)} />
       <div className="flex gap-2">
         <button
@@ -91,7 +86,7 @@ function GroupForm({ group, onDone }: { group?: PlayerGroup; onDone: (g?: Player
             const fields = { name: name.trim(), description: description.trim() || undefined }
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
-            onDone(await save<PlayerGroup>('groups', current ? { ...current, ...fields } : { id: newId(), playerIds: [], ...fields }))
+            onDone(await save<PlayerGroup>('groups', current ? { ...current, ...fields } : { id: newId(), playerIds: [...new Set(playerIds)], ...fields }))
           }}
         >
           {group ? 'Enregistrer' : 'Créer'}
@@ -104,12 +99,41 @@ function GroupForm({ group, onDone }: { group?: PlayerGroup; onDone: (g?: Player
   )
 }
 
+/** Création d'un groupe (page à part, comme un événement), éventuellement avec des joueurs déjà choisis. */
+export function NewGroup() {
+  const nav = useNavigate()
+  const role = useRole()
+  const location = useLocation()
+  const playerIds: string[] = (location.state as { playerIds?: string[] } | null)?.playerIds ?? []
+  if (!can.manageGroups(role)) return <div className="py-20 text-center text-sm text-muted">Ton rôle ne permet pas de créer des groupes.</div>
+  return (
+    <div className="flex flex-col gap-4">
+      <button onClick={() => nav(-1)} className="self-start text-xs font-bold text-muted">
+        ← NOUVEAU GROUPE
+      </button>
+      <div className="card flex flex-col gap-3 p-4">
+        <p className="text-[11px] text-muted">
+          {playerIds.length
+            ? `Les ${playerIds.length.toLocaleString('fr-FR')} joueurs choisis seront dans le groupe ; tu pourras en ajouter ou en retirer ensuite.`
+            : 'Donne un nom au groupe, puis ajoute ses joueurs (par filtres ou un par un).'}
+        </p>
+        <GroupForm
+          playerIds={playerIds}
+          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : nav(-1))}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function GroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
   const [editing, setEditing] = useState(false)
-  const [adding, setAdding] = useState(false)
+  // Groupe tout juste créé sans joueurs : on ouvre directement l'ajout.
+  const [params, setParams] = useSearchParams()
+  const [adding, setAdding] = useState(params.has('ajout'))
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id!)
     const players = alive((await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p))
@@ -127,10 +151,11 @@ export function GroupDetail() {
       <AddPlayers
         scope="ajout-groupe"
         current={g.playerIds}
-        onCancel={() => setAdding(false)}
+        onCancel={() => (setAdding(false), setParams({}, { replace: true }))}
         onAdd={async (ids) => {
           await addToGroup(g, ids)
           setAdding(false)
+          setParams({}, { replace: true })
         }}
       />
     )
