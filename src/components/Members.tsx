@@ -364,17 +364,19 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           <span className="text-[10px] text-muted">{depts.length ? '' : role === 'preparateur' ? 'aucun : valide tous les départements' : 'aucun'}</span>
         </div>
       </div>
-      <div>
-        <span className="label">{member ? 'Nouveau mot de passe (laisser vide pour ne pas changer)' : 'Mot de passe provisoire'}</span>
-        <div className="flex gap-2">
-          <input className="field font-mono" autoComplete="new-password" autoCapitalize="none" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button type="button" className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setPassword(generatePassword())}>
-            Générer
-          </button>
+      {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « 🔑 lien » s'en occupe. */}
+      {!member && (
+        <div>
+          <span className="label">Mot de passe provisoire</span>
+          <div className="flex gap-2">
+            <input className="field font-mono" autoComplete="new-password" autoCapitalize="none" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <button type="button" className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setPassword(generatePassword())}>
+              Générer
+            </button>
+          </div>
+          {password && password.length < 8 && <p className="mt-1 text-[11px] text-amber-300">8 caractères minimum.</p>}
         </div>
-        {password && password.length < 8 && <p className="mt-1 text-[11px] text-amber-300">8 caractères minimum.</p>}
-        {member && password && <p className="mt-1 text-[11px] text-muted">Après l’enregistrement, tu pourras lui envoyer ce nouveau mot de passe.</p>}
-      </div>
+      )}
       {err && <p className="text-[11px] text-red-300">{err}</p>}
       <div className="flex flex-wrap gap-2">
         <button className="btn-primary flex-1 text-xs" disabled={!valid || busy} onClick={() => void submit()}>
