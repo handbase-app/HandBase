@@ -166,15 +166,10 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const [sex, setSex] = useState(group?.sex)
   const [department, setDepartment] = useState(group?.department ?? '')
   const [region, setRegion] = useState(group?.region ?? '')
-  // Années : une année, ou une plage « de … à … ».
+  // Année d'âge (les anciens groupes à plusieurs années gardent la première).
   const sortedYears = [...(group?.years ?? [])].sort()
-  const [yearFrom, setYearFrom] = useState(sortedYears[0] ?? '')
-  const [yearTo, setYearTo] = useState(sortedYears.length > 1 ? sortedYears[sortedYears.length - 1] : '')
-  const years = (() => {
-    if (!yearFrom) return []
-    const [a, b] = [Number(yearFrom), Number(yearTo || yearFrom)].sort((x, y) => x - y)
-    return Array.from({ length: b - a + 1 }, (_, i) => String(a + i))
-  })()
+  const [year, setYear] = useState(sortedYears[0] ?? '')
+  const years = year ? [year] : []
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
 
@@ -221,26 +216,13 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
       <div className="grid grid-cols-2 gap-2">
         <div>
           <span className="label">Année d’âge (naissance)</span>
-          <select className="field" value={yearFrom} onChange={(e) => (setYearFrom(e.target.value), !e.target.value && setYearTo(''))}>
+          <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
             <option value="">—</option>
             {yearChoices(sortedYears).map((y) => (
               <option key={y} value={y}>
                 {y}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <span className="label">Jusqu’à (facultatif)</span>
-          <select className="field" value={yearTo} disabled={!yearFrom} onChange={(e) => setYearTo(e.target.value)}>
-            <option value="">—</option>
-            {yearChoices(sortedYears)
-              .filter((y) => y !== yearFrom)
-              .map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
           </select>
         </div>
       </div>
