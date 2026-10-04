@@ -142,36 +142,6 @@ export default function PlayerForm() {
         />
       </div>
 
-      <div className="card flex flex-col gap-3 p-3">
-        <div>
-          <div className="text-xs font-extrabold">Taille des parents biologiques</div>
-          <div className="text-[11px] text-muted">Sert à estimer la taille adulte. Une taille déclarée est corrigée (souvent surestimée).</div>
-        </div>
-        {(
-          [
-            ['motherHeight', 'motherHeightSource', 'Mère'],
-            ['fatherHeight', 'fatherHeightSource', 'Père'],
-          ] as const
-        ).map(([hk, sk, label]) => (
-          <div key={hk} className="grid grid-cols-[1fr_auto] items-end gap-2">
-            <div>
-              <span className="label">{label}</span>
-              <NumberField value={p[hk]} unit="cm" onChange={(v) => set(hk, v)} />
-            </div>
-            <div className="w-44">
-              <Segmented<HeightSource>
-                value={p[sk] ?? (p[hk] !== undefined ? 'declaree' : undefined)}
-                onChange={(v) => set(sk, v)}
-                options={[
-                  { value: 'mesuree', label: 'Mesurée' },
-                  { value: 'declaree', label: 'Déclarée' },
-                ]}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div>
         <span className="label">Poste</span>
         <CourtPicker value={p.position} onChange={(v) => set('position', v)} />
@@ -279,6 +249,36 @@ export default function PlayerForm() {
       <div>
         <span className="label">Notes</span>
         <textarea className="field min-h-20" placeholder="Observations…" value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+      </div>
+
+      <div className="card flex flex-col gap-3 p-3">
+        <div>
+          <div className="text-xs font-extrabold">Taille des parents biologiques (facultatif)</div>
+          <div className="text-[11px] text-muted">Sert à estimer la taille adulte. Une taille déclarée est corrigée (souvent surestimée).</div>
+        </div>
+        {(
+          [
+            ['motherHeight', 'motherHeightSource', 'Mère'],
+            ['fatherHeight', 'fatherHeightSource', 'Père'],
+          ] as const
+        ).map(([hk, sk, label]) => (
+          <div key={hk} className="grid grid-cols-[1fr_auto] items-end gap-2">
+            <div>
+              <span className="label">{label}</span>
+              <NumberField value={p[hk]} unit="cm" onChange={(v) => set(hk, v)} />
+            </div>
+            <div className="w-44">
+              <Segmented<HeightSource>
+                value={p[sk] ?? (p[hk] !== undefined ? 'declaree' : undefined)}
+                onChange={(v) => set(sk, v)}
+                options={[
+                  { value: 'mesuree', label: 'Mesurée' },
+                  { value: 'declaree', label: 'Déclarée' },
+                ]}
+              />
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="flex items-center gap-3">

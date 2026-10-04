@@ -6,9 +6,9 @@ const SPOTS: Record<Position, { x: number; y: number; tag: string }> = {
   GB: { x: 150, y: 24, tag: 'G' },
   AG: { x: 20, y: 34, tag: 'AG' },
   AD: { x: 280, y: 34, tag: 'AD' },
-  ARG: { x: 62, y: 152, tag: 'ARG' },
+  ARG: { x: 42, y: 140, tag: 'ARG' },
   DC: { x: 150, y: 172, tag: 'DC' },
-  ARD: { x: 238, y: 152, tag: 'ARD' },
+  ARD: { x: 258, y: 140, tag: 'ARD' },
   // Pivot : sur la ligne des 6 m, au niveau du point de jet de 7 m.
   PIV: { x: 150, y: 117, tag: 'P' },
 }
