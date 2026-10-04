@@ -87,13 +87,18 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
           Partager…
         </button>
       ) : (
-        // Navigateur d'ordinateur sans partage : copier le message pour le coller où l'on veut.
-        <button
-          className="btn-primary mt-2 w-full text-xs"
-          onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}
-        >
-          {copied ? 'Message copié ✓' : 'Copier le message'}
-        </button>
+        // Navigateur d'ordinateur sans partage : e-mail tout prêt, ou copier le message pour le coller où l'on veut.
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <a
+            className="btn-primary text-center text-xs"
+            href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}
+          >
+            ✉ E-mail
+          </a>
+          <button className="btn-ghost text-xs" onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}>
+            {copied ? 'Message copié ✓' : 'Copier le message'}
+          </button>
+        </div>
       )}
       <div className="mt-2 flex justify-end">
         <button className="btn px-3 py-1 text-xs text-muted" onClick={onClose}>
