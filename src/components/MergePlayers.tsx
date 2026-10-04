@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { alive, db, fmtDate, type Player } from '../db'
 import { keepFirst, mergePlayers, mergePreview } from '../merge'
 import { ask } from './Confirm'
-import { department, departmentLabel, fold } from './PlayerFilter'
+import { department, fold } from './PlayerFilter'
+import { departmentLabel } from '../lists'
 import { ReviewBadge } from './Review'
 
 /**

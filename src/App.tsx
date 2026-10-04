@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { db } from './db'
+import { useDepartments } from './lists'
 import Events, { EventDetail } from './pages/Events'
 import Evaluate from './pages/Evaluate'
 import Groups, { GroupDetail, NewGroup } from './pages/Groups'
@@ -66,6 +67,8 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 export default function App() {
   // Avis spontanés à valider : pastille sur « Évaluer ».
   const toReview = usePendingCount()
+  // Noms des départements (liste modifiable) : toute l'appli se redessine quand ils changent.
+  useDepartments()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
   return (

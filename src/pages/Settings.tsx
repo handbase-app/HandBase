@@ -8,10 +8,10 @@ import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../i
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
 import { Members } from '../components/Members'
-import { RegionsEditor } from '../components/RegionsEditor'
+import { ListEditor } from '../components/ListEditor'
 import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
-import { departmentLabel } from '../components/PlayerFilter'
+import { departmentLabel } from '../lists'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -62,7 +62,8 @@ export default function Settings() {
 
       {supabase && can.manageRoles(role) && <ActivityLog />}
 
-      {can.editCriteria(role) && <RegionsEditor />}
+      {can.editCriteria(role) && <ListEditor kind="department" />}
+      {can.editCriteria(role) && <ListEditor kind="region" />}
 
       {can.editCriteria(role) ? (
         <CriteriaEditor />

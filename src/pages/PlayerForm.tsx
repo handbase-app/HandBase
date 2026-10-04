@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
-import { DEPARTMENT_CHOICES, department } from '../components/PlayerFilter'
+import { department } from '../components/PlayerFilter'
+import { departmentChoices } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, newId, save, today, type HeightSource, type Measurement, type Player } from '../db'
@@ -174,12 +175,12 @@ export default function PlayerForm() {
             onChange={(e) => set('department', e.target.value || undefined)}
           >
             <option value="">{department({ clubCode: p.clubCode, license: p.license }) ?? '—'}</option>
-            {DEPARTMENT_CHOICES.map((d) => (
+            {departmentChoices().map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
               </option>
             ))}
-            {p.department && !DEPARTMENT_CHOICES.some((d) => d.value === p.department) && <option value={p.department}>{p.department}</option>}
+            {p.department && !departmentChoices().some((d) => d.value === p.department) && <option value={p.department}>{p.department}</option>}
           </select>
         </div>
         <div>

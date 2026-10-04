@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { newId, POSITIONS, save, type Player, type Position } from '../db'
 import { can, myDepartments, useRole } from '../roles'
-import { DEPARTMENT_CHOICES } from './PlayerFilter'
+import { departmentChoices } from '../lists'
 import { Segmented } from './ui'
 
 /**
@@ -22,7 +22,9 @@ export function ProposePlayer({
   const [p, setP] = useState<Partial<Player>>(() =>
     initial?.id ? initial : { department: myDepartments().length === 1 ? myDepartments()[0] : undefined, ...initial },
   )
-  const [otherDept, setOtherDept] = useState(!!p.department && !DEPARTMENT_CHOICES.some((d) => d.value === p.department))
+  const [otherDeptChosen, setOtherDept] = useState(false)
+  // Département hors de la liste (déjà saisi, ou « Autre… » choisi) : champ libre.
+  const otherDept = otherDeptChosen || (!!p.department && !departmentChoices().some((d) => d.value === p.department))
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
   const editing = !!p.id
   const ok = !!p.firstName?.trim() && !!p.lastName?.trim() && !!p.department?.trim()
@@ -94,7 +96,7 @@ export function ProposePlayer({
             }}
           >
             <option value="">—</option>
-            {DEPARTMENT_CHOICES.map((d) => (
+            {departmentChoices().map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
               </option>

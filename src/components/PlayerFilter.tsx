@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { departmentLabel, useDepartments } from '../lists'
 import { can } from '../roles'
 import { birthQuarter } from './ui'
 import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
@@ -20,14 +21,6 @@ function countBy<T>(items: T[], key: (t: T) => string | undefined): [string, num
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'))
 }
 
-const DEPARTMENTS: Record<string, string> = {
-  '04': 'Alpes-de-Haute-Provence',
-  '05': 'Hautes-Alpes',
-  '06': 'Alpes-Maritimes',
-  '13': 'Bouches-du-Rhône',
-  '83': 'Var',
-  '84': 'Vaucluse',
-}
 
 /**
  * Département du club, lu dans le numéro FFHB : 63 = ligue, 83 = département…
@@ -38,10 +31,6 @@ export function department(p: Pick<Player, 'clubCode' | 'license' | 'department'
   const code = /^\d{7}$/.test(p.clubCode ?? '') ? p.clubCode : /^\d{13}$/.test(p.license ?? '') ? p.license : undefined
   return code?.slice(2, 4) ?? (p.department || undefined)
 }
-
-/** Départements proposés à la saisie (ceux de la ligue). */
-export const DEPARTMENT_CHOICES = Object.entries(DEPARTMENTS).map(([value, name]) => ({ value, label: `${value} · ${name}` }))
-export const departmentLabel = (d: string) => (DEPARTMENTS[d] ? `${d} · ${DEPARTMENTS[d]}` : `Département ${d}`)
 
 // Trimestre choisi : même code couleur que la pastille Q1…Q4 (vert → rouge).
 const QUARTER_ACTIVE = ['border-emerald-500 text-emerald-300', 'border-yellow-500 text-yellow-300', 'border-orange-500 text-orange-300', 'border-red-500 text-red-300']
@@ -91,6 +80,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const k = (name: string) => `handbase.filter.${scope}.${name}`
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
+  useDepartments() // noms des départements à jour dans le menu
   const [group, setGroup] = useSessionState(k('group'), '')
   const [dept, setDept] = useSessionState(k('dept'), '')
   const [club, setClub] = useSessionState(k('club'), '')

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
-import { DEPARTMENT_CHOICES, departmentLabel } from './PlayerFilter'
+import { departmentChoices, departmentLabel } from '../lists'
 import { SectionTitle, Segmented } from './ui'
 
 /*
@@ -350,7 +350,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
       <div>
         <span className="label">Secteur (départements)</span>
         <div className="flex flex-wrap items-center gap-1">
-          {[...new Set([...DEPARTMENT_CHOICES.map((d) => d.value), ...depts])].map((d) => (
+          {[...new Set([...departmentChoices().map((d) => d.value), ...depts])].map((d) => (
             <button
               key={d}
               type="button"

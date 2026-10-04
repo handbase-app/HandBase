@@ -201,11 +201,13 @@ export interface PlayerGroup extends Syncable {
 
 /**
  * Élément d'une liste modifiable par les administrateurs (supabase/019_listes_regions.sql).
- * Pour l'instant : les régions ; les groupes gardent son identifiant, pas son nom.
+ * Régions (les groupes gardent leur identifiant) et départements (repérés par leur numéro).
  */
 export interface ListItem extends Syncable {
-  kind: 'region'
+  kind: 'region' | 'department'
   name: string
+  /** Département : son numéro (83, 2A…), qui sert d'identifiant (licences, secteurs, groupes). */
+  code?: string
   order: number
 }
 

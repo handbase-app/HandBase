@@ -4,7 +4,8 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
-import { arrowNav, DEPARTMENT_CHOICES, departmentLabel, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
+import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
+import { departmentChoices, departmentLabel } from '../lists'
 import { Avatar, Empty, PosBadge, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
 import { useRegionName, useRegions } from '../lists'
@@ -242,7 +243,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           <span className="label">Département</span>
           <select className="field" value={department} onChange={(e) => setDepartment(e.target.value)}>
             <option value="">—</option>
-            {[...DEPARTMENT_CHOICES, ...(department && !DEPARTMENT_CHOICES.some((d) => d.value === department) ? [{ value: department, label: departmentLabel(department) }] : [])].map((d) => (
+            {[...departmentChoices(), ...(department && !departmentChoices().some((d) => d.value === department) ? [{ value: department, label: departmentLabel(department) }] : [])].map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
               </option>
