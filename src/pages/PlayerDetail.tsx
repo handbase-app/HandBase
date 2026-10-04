@@ -12,7 +12,7 @@ import { Referents } from '../components/Referents'
 import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
-import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge } from '../components/ui'
+import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadge, QuarterBadge } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
@@ -116,6 +116,7 @@ export default function PlayerDetail() {
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             <PosBadge pos={p.position} />
             {a !== null && <span>{a} ans</span>}
+            <QuarterBadge birthDate={p.birthDate} />
           </div>
           <StampLine row={p} />
         </div>

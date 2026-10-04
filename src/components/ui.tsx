@@ -89,6 +89,32 @@ export function Segmented<T extends string>({
   )
 }
 
+/** Trimestre de naissance (1 = janvier–mars … 4 = octobre–décembre), si la date est complète. */
+export function birthQuarter(birthDate?: string): 1 | 2 | 3 | 4 | null {
+  const m = birthDate && /^\d{4}-\d{2}/.test(birthDate) ? Number(birthDate.slice(5, 7)) : 0
+  return m >= 1 && m <= 12 ? (Math.ceil(m / 3) as 1 | 2 | 3 | 4) : null
+}
+
+// Du vert (né en début d'année, plus âgé de sa génération) au rouge (né en fin d'année).
+const QUARTER_STYLE = [
+  'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
+  'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  'bg-red-500/20 text-red-300 border-red-500/40',
+]
+const QUARTER_MONTHS = ['janvier–mars', 'avril–juin', 'juillet–septembre', 'octobre–décembre']
+
+/** Pastille Q1…Q4 : trimestre de naissance (effet de l'âge relatif). */
+export function QuarterBadge({ birthDate }: { birthDate?: string }) {
+  const q = birthQuarter(birthDate)
+  if (!q) return null
+  return (
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${QUARTER_STYLE[q - 1]}`} title={`Né(e) au ${q === 1 ? '1er' : `${q}e`} trimestre (${QUARTER_MONTHS[q - 1]})`}>
+      Q{q}
+    </span>
+  )
+}
+
 /** Saisie d'une valeur selon l'échelle du critère. */
 export function CriterionInput({
   c,
