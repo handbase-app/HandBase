@@ -487,7 +487,7 @@ const isFilled = (v: unknown): v is number | string => typeof v === 'number' || 
 /** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
 export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void }) {
   // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived)), [], [])
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
   const picked = groups.find((g) => g.id === group)
   const [name, setName] = useState(event?.name ?? '')
@@ -507,7 +507,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
-              Joueurs : groupe {g.name} ({g.playerIds.length})
+              Joueurs : {g.private ? '🔒 ' : ''}groupe {g.name} ({g.playerIds.length})
             </option>
           ))}
         </select>

@@ -108,9 +108,14 @@ export const can = {
   manageEvents: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un événement : l'admin tous, l'encadrant les siens (ou ceux sans créateur connu, antérieurs au journal). */
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
-  manageGroups: (r: Role) => r !== 'observateur',
-  /** Modifier / supprimer un groupe : l'admin tous, l'encadrant ceux qu'il a créés. */
-  editGroup: (r: Role, g: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
+  /** Créer des groupes : tout le monde (l'observateur seulement des groupes privés). */
+  manageGroups: (_r: Role) => true,
+  publicGroups: (r: Role) => r !== 'observateur',
+  /** Voir un groupe : public, ou privé à soi (supabase/017_groupes_prives.sql). */
+  seeGroup: (g: { createdBy?: string; private?: boolean }) => !g.private || !g.createdBy || g.createdBy === userId,
+  /** Modifier / supprimer un groupe : privé, son créateur seul ; public, l'admin tous et l'encadrant les siens. */
+  editGroup: (r: Role, g: { createdBy?: string; private?: boolean }) =>
+    g.private ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
   /**

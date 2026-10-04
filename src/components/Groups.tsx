@@ -64,7 +64,10 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                 >
                   <span className={`h-3.5 w-3.5 shrink-0 rounded-full border ${picked === g.id ? 'border-accent bg-accent' : 'border-line'}`} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-bold">{g.name}</span>
+                    <span className="block truncate font-bold">
+                      {g.private ? '🔒 ' : ''}
+                      {g.name}
+                    </span>
                     <span className="block truncate text-[10px] text-muted">
                       {all
                         ? 'déjà tous dedans'
@@ -122,7 +125,7 @@ export function GroupNotice({ msg, groupId }: { msg: string; groupId?: string })
 export function PlayerGroups({ playerId }: { playerId: string }) {
   const role = useRole()
   const groups = useLiveQuery(
-    () => db.groups.toArray().then((gs) => alive(gs).filter((g) => !g.archived && g.playerIds.includes(playerId))),
+    () => db.groups.toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g) && g.playerIds.includes(playerId))),
     [playerId],
     [],
   )
@@ -135,6 +138,7 @@ export function PlayerGroups({ playerId }: { playerId: string }) {
         <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Groupes</span>
         {groups.map((g) => (
           <Link key={g.id} to={`/groupes/${g.id}`} className="rounded-full border border-accent/50 bg-accent-soft px-2.5 py-0.5 text-[11px] font-bold hover:border-accent">
+            {g.private ? '🔒 ' : ''}
             {g.name}
           </Link>
         ))}

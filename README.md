@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `016_mdp_provisoire_24h.sql`).
+   (`002_roles.sql` … `017_groupes_prives.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -97,8 +97,10 @@ tâche de nuit si l'extension *pg_cron* est disponible, sinon lancée une fois p
 ### Groupes
 
 Listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : filtre « Groupe » dans les listes de joueurs,
-export, et création d'un événement avec les joueurs d'un groupe (copie, modifiable ensuite). Visibles par tout le
-staff ; un encadrant ne modifie que les siens, un administrateur tous. Une fusion de fiches remplace aussi la fiche
+export, création d'un événement avec les joueurs d'un groupe, duplication (ex. le pôle de la saison suivante).
+Un groupe est privé (son créateur seul, administrateurs compris, `supabase/017_groupes_prives.sql`) ou public
+(tout le staff ; un encadrant ne modifie que les siens, un administrateur tous). Les observateurs créent des
+groupes privés uniquement. Une fusion de fiches remplace aussi la fiche
 fondue dans les groupes (`supabase/013_groupes.sql`).
 
 ### Journal d'activité

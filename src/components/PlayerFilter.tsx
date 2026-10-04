@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { can } from '../roles'
 import { birthQuarter } from './ui'
 import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
 
@@ -109,7 +110,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   }
 
   // Groupes (Intercomités, Pôle…) : le groupe choisi limite la liste avant tous les autres filtres.
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived || g.id === group)), [group], [])
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => can.seeGroup(g) && (!g.archived || g.id === group))), [group], [])
   const current = groups.find((g) => g.id === group)
   const all = useMemo(() => {
     const list = players ?? []
@@ -228,7 +229,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           <option value="">Tous les joueurs (sans groupe choisi)</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
-              Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
+              {g.private ? '🔒 ' : ''}Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
             </option>
           ))}
         </select>

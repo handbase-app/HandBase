@@ -218,6 +218,8 @@ export interface PlayerGroup extends Syncable {
   name: string
   description?: string
   playerIds: string[]
+  /** Groupe privé : visible et modifiable par son créateur seul. */
+  private?: boolean
   /** Informations facultatives, pour filtrer et retrouver les groupes. */
   sex?: 'M' | 'F' | 'mixte'
   department?: string

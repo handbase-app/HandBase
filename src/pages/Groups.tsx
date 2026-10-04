@@ -1,11 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, DEPARTMENT_CHOICES, departmentLabel, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
-import { Avatar, Empty, PosBadge, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, PosBadge, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, REGIONS, remove, save, type Player, type PlayerGroup } from '../db'
 import { exportCsv } from '../export'
 import { can, useRole } from '../roles'
@@ -14,7 +14,7 @@ import { AddPlayers } from './Events'
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
   const role = useRole()
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then(alive))
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup)))
   const [showArchived, setShowArchived] = useState(false)
   // Filtres de la liste (gardés pendant la session).
   const [q, setQ] = useSessionState('handbase.groupes.q', '')
@@ -107,9 +107,26 @@ export default function Groups() {
       {!groups.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
       )}
-      {active.map((g) => (
-        <GroupRow key={g.id} g={g} />
-      ))}
+      {active.some((g) => g.private) && (
+        <>
+          <div className="section-title mt-1 mb-0">🔒 Mes groupes privés</div>
+          {active
+            .filter((g) => g.private)
+            .map((g) => (
+              <GroupRow key={g.id} g={g} />
+            ))}
+        </>
+      )}
+      {active.some((g) => !g.private) && (
+        <>
+          <div className="section-title mt-1 mb-0">👥 Groupes du staff</div>
+          {active
+            .filter((g) => !g.private)
+            .map((g) => (
+              <GroupRow key={g.id} g={g} />
+            ))}
+        </>
+      )}
       {archived.length > 0 && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={() => setShowArchived((x) => !x)}>
           {showArchived ? 'Masquer' : 'Voir'} les groupes archivés ({archived.length})
@@ -130,7 +147,7 @@ function GroupRow({ g }: { g: PlayerGroup }) {
         </div>
         {groupInfo(g) && <div className="truncate text-[11px] font-bold text-accent">{groupInfo(g)}</div>}
         {g.description && <div className="truncate text-[11px] text-muted">{g.description}</div>}
-        {g.createdByName && <div className="text-[10px] text-muted">par {g.createdByName}</div>}
+        {g.createdByName && !g.private && <div className="text-[10px] text-muted">par {g.createdByName}</div>}
       </div>
       <span className="shrink-0 text-xs font-bold text-muted">
         {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''} ›
@@ -159,10 +176,19 @@ export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'region' |
   return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, g.region].filter(Boolean).join(' · ')
 }
 
+/** Copie d'un groupe sans la signature serveur de l'original (la copie a son propre créateur). */
+function stripStamps(g: PlayerGroup): PlayerGroup {
+  const { createdBy: _a, createdByName: _b, createdAtServer: _c, updatedByName: _d, updatedAtServer: _e, ...rest } = g
+  return rest as PlayerGroup
+}
+
 /** Création ou modification d'un groupe : nom, description et informations facultatives. */
 function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; playerIds?: string[]; onDone: (g?: PlayerGroup) => void }) {
+  const role = useRole()
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
+  // Nouveau groupe : privé par défaut ; l'observateur ne crée que des groupes privés.
+  const [priv, setPriv] = useState(group ? !!group.private : true)
   const [sex, setSex] = useState(group?.sex)
   const [department, setDepartment] = useState(group?.department ?? '')
   const [region, setRegion] = useState(group?.region ?? '')
@@ -179,6 +205,23 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
       <input className="field" autoFocus={!group} placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs garçons…" value={name} onChange={(e) => setName(e.target.value)} />
       <span className="label">Description</span>
       <input className="field" placeholder="Saison, encadrant… — facultatif" value={description} onChange={(e) => setDescription(e.target.value)} />
+
+      <span className="label">Visible par</span>
+      {can.publicGroups(role) || (group && !group.private) ? (
+        <Segmented<'prive' | 'public'>
+          value={priv ? 'prive' : 'public'}
+          onChange={(v) => setPriv(v === 'prive')}
+          options={[
+            { value: 'prive', label: '🔒 Moi seul' },
+            { value: 'public', label: '👥 Tout le staff' },
+          ]}
+        />
+      ) : (
+        <p className="text-xs">🔒 Moi seul (groupe privé)</p>
+      )}
+      <p className="text-[11px] text-muted">
+        {priv ? 'Groupe privé : personne d’autre ne le voit, même pas les administrateurs.' : 'Groupe public : visible par tout le staff.'}
+      </p>
 
       <div className="mt-2 text-[11px] text-muted">Informations facultatives, pour retrouver et filtrer les groupes :</div>
       <span className="label">Garçons / filles</span>
@@ -242,7 +285,19 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
             }
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
-            onDone(await save<PlayerGroup>('groups', current ? { ...current, ...fields } : { id: newId(), playerIds: [...new Set(playerIds)], ...fields }))
+            if (current && priv && !current.private) {
+              // Public → privé : nouveau groupe privé, et l'ancien est supprimé chez tout le monde
+              // (sinon les autres appareils garderaient leur copie publique).
+              const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, id: newId(), private: true })
+              await remove('groups', current.id)
+              return onDone(copy)
+            }
+            onDone(
+              await save<PlayerGroup>(
+                'groups',
+                current ? { ...current, ...fields, private: priv } : { id: newId(), playerIds: [...new Set(playerIds)], ...fields, private: priv },
+              ),
+            )
           }}
         >
           {group ? 'Enregistrer' : 'Créer'}
@@ -286,9 +341,15 @@ export function GroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
-  const [editing, setEditing] = useState(false)
-  // Groupe tout juste créé sans joueurs : on ouvre directement l'ajout.
+  // Groupe tout juste créé sans joueurs : on ouvre directement l'ajout ; tout juste copié : sa fiche.
   const [params, setParams] = useSearchParams()
+  const [editing, setEditing] = useState(params.has('modifier'))
+  // Même écran réutilisé d'un groupe à l'autre (ex. après « Dupliquer ») : on repart de l'adresse.
+  useEffect(() => {
+    setEditing(params.has('modifier'))
+    setAdding(params.has('ajout'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
   const [adding, setAdding] = useState(params.has('ajout'))
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id!)
@@ -296,9 +357,10 @@ export function GroupDetail() {
     return { g, players }
   }, [id])
 
-  if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
+  if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { g, players } = data
-  if (!g || g.deleted) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
+  if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   const manage = can.editGroup(role, g)
   const sorted = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr') || a.firstName.localeCompare(b.firstName, 'fr'))
 
@@ -318,39 +380,70 @@ export function GroupDetail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <button onClick={() => nav('/groupes')} className="text-xs font-bold text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button onClick={() => nav('/groupes')} className="text-xs font-bold whitespace-nowrap text-muted">
           ← GROUPES
         </button>
-        {manage && !editing && (
-          <div className="flex gap-4">
-            <button className="text-xs text-muted hover:text-white" onClick={() => setEditing(true)}>
-              Modifier
-            </button>
-            <button className="text-xs text-muted hover:text-white" onClick={() => void save<PlayerGroup>('groups', { ...g, archived: !g.archived })}>
-              {g.archived ? 'Désarchiver' : 'Archiver'}
-            </button>
+        {!editing && (
+          <div className="flex flex-wrap gap-3">
+            {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
             <button
-              className="text-xs text-muted hover:text-red-400"
+              className="text-xs text-muted hover:text-white"
               onClick={async () => {
-                if (!(await ask(`Supprimer le groupe « ${g.name} » ? Les joueurs, leurs avis et les événements ne sont pas touchés.`, { ok: 'Supprimer' }))) return
-                await remove('groups', g.id)
-                nav('/groupes', { replace: true })
+                const copy = await save<PlayerGroup>('groups', {
+                  ...stripStamps(g),
+                  id: newId(),
+                  name: `${g.name} (copie)`,
+                  archived: undefined,
+                  // L'observateur ne crée que des groupes privés.
+                  private: can.publicGroups(role) ? g.private : true,
+                })
+                nav(`/groupes/${copy.id}?modifier=1`)
               }}
             >
-              Supprimer
+              Dupliquer
             </button>
+            {manage && (
+              <>
+                <button className="text-xs text-muted hover:text-white" onClick={() => setEditing(true)}>
+                  Modifier
+                </button>
+                <button className="text-xs text-muted hover:text-white" onClick={() => void save<PlayerGroup>('groups', { ...g, archived: !g.archived })}>
+                  {g.archived ? 'Désarchiver' : 'Archiver'}
+                </button>
+                <button
+                  className="text-xs text-muted hover:text-red-400"
+                  onClick={async () => {
+                    if (!(await ask(`Supprimer le groupe « ${g.name} » ? Les joueurs, leurs avis et les événements ne sont pas touchés.`, { ok: 'Supprimer' }))) return
+                    await remove('groups', g.id)
+                    nav('/groupes', { replace: true })
+                  }}
+                >
+                  Supprimer
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
 
       {editing ? (
         <div className="card p-3">
-          <GroupForm group={g} onDone={() => setEditing(false)} />
+          <GroupForm
+            key={g.id}
+            group={g}
+            onDone={(saved) => {
+              setEditing(false)
+              if (params.has('modifier')) setParams({}, { replace: true })
+              // Passé en privé : c'est un nouveau groupe (voir GroupForm).
+              if (saved && saved.id !== g.id) nav(`/groupes/${saved.id}`, { replace: true })
+            }}
+          />
         </div>
       ) : (
         <div>
           <h1 className="text-lg font-extrabold">
+            {g.private && <span title="Groupe privé : visible par toi seul">🔒 </span>}
             {g.name}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
           </h1>
