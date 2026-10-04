@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, NumberField, PosBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, NumberField, PosBadge, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
@@ -337,7 +337,7 @@ export default function Evaluate() {
         <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
-              {player.firstName} {player.lastName} <PosBadge pos={player.position} />
+              {player.firstName} {player.lastName} <PosBadge pos={player.position} /> <QuarterBadge birthDate={player.birthDate} />
             </div>
             <div className="w-44">
               <Segmented
@@ -624,7 +624,7 @@ function PlayerPicker({
             <b>
               {p.lastName.toUpperCase()} {p.firstName}
             </b>
-            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>}
+            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>} <QuarterBadge birthDate={p.birthDate} />
             {p.review === 'pending' && <span className="text-amber-300"> · proposée</span>}
             {p.review === 'refused' && <span className="text-muted"> · hors cadre</span>}
           </span>

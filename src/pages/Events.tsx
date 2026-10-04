@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Avatar, Empty, PosBadge } from '../components/ui'
+import { Avatar, Empty, PosBadge, QuarterBadge } from '../components/ui'
 import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
@@ -202,7 +202,7 @@ export function EventDetail() {
                         <b>
                           {p.firstName} {p.lastName}
                         </b>
-                        <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
+                        <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={p.birthDate} />
                       </span>
                       <span className="shrink-0 text-[10px] text-emerald-300">{evals.filter((e) => e.playerId === p.id).length} avis</span>
                     </Link>
@@ -231,7 +231,7 @@ export function EventDetail() {
                         <Avatar p={p} size={32} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 truncate text-sm font-bold">
-                            {p.firstName} {p.lastName} <PosBadge pos={p.position} />
+                            {p.firstName} {p.lastName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
                           </div>
                           <div className="truncate text-[10px] text-muted">
                             {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
@@ -341,7 +341,7 @@ export function AddPlayers({
                 <b>
                   {p.lastName.toUpperCase()} {p.firstName}
                 </b>
-                <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
+                <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={p.birthDate} />
               </span>
               {already && <span className="shrink-0 text-[10px] text-muted">déjà dans la liste</span>}
             </button>
@@ -430,7 +430,7 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
                   <b>
                     {r.p.firstName} {r.p.lastName}
                   </b>
-                  <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span>
+                  <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
                 </span>
                 {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
                 <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>

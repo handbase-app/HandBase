@@ -5,7 +5,7 @@ import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, DEPARTMENT_CHOICES, departmentLabel, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
-import { Avatar, Empty, PosBadge } from '../components/ui'
+import { Avatar, Empty, PosBadge, QuarterBadge } from '../components/ui'
 import { alive, db, newId, REGIONS, remove, save, type Player, type PlayerGroup } from '../db'
 import { exportCsv } from '../export'
 import { can, useRole } from '../roles'
@@ -395,7 +395,7 @@ export function GroupDetail() {
               <Avatar p={p} size={32} />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 truncate text-sm font-bold">
-                  {p.firstName} {p.lastName} <PosBadge pos={p.position} />
+                  {p.firstName} {p.lastName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
                 </div>
                 <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
               </div>

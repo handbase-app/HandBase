@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { AvisCard } from '../components/Opinions'
 import { department, departmentLabel } from '../components/PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
-import { Empty } from '../components/ui'
+import { Empty, QuarterBadge } from '../components/ui'
 import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player } from '../db'
 import { can, currentUserId, myDepartments, useRole } from '../roles'
 import { possibleDuplicates } from '../merge'
@@ -73,7 +73,8 @@ export default function ReviewPage() {
           <div>
             <Link to={`/joueurs/${p.id}`} className="text-sm font-bold">
               {p.firstName} {p.lastName}
-            </Link>
+            </Link>{' '}
+            <QuarterBadge birthDate={p.birthDate} />
             <div className="text-[10px] text-muted">
               {[p.birthDate && p.birthDate.slice(0, 4), p.sex === 'M' ? 'garçon' : p.sex === 'F' ? 'fille' : '', p.club, d && departmentLabel(d)]
                 .filter(Boolean)
