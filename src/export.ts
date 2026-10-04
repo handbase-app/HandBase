@@ -33,7 +33,7 @@ export async function exportCsv(only?: { id: string }[]) {
   const latest = latestByPlayer(measurements)
 
   const head = [
-    'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Latéralité',
+    'Prénom', 'Nom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Postes secondaires', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (${c.scale === 'choice' ? 'avis le plus fréquent' : c.scale === 'text' ? 'avis' : 'moy. avis'})`),
     'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
@@ -59,7 +59,7 @@ export async function exportCsv(only?: { id: string }[]) {
     const snap = snapshots(p, measurements.filter((m) => m.playerId === p.id && !m.deleted)).at(-1)
     return [
       p.firstName, p.lastName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
-      num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), p.team, p.license,
+      num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', '), p.team, p.license,
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c)),

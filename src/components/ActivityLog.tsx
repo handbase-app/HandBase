@@ -39,6 +39,7 @@ const FIELDS: Record<string, string> = {
   birthDate: 'Naissance',
   sex: 'Sexe',
   position: 'Poste',
+  secondaryPositions: 'Postes secondaires',
   club: 'Club',
   clubCode: 'N° club',
   team: 'Équipe',

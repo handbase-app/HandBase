@@ -6,7 +6,7 @@ import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
-import { Avatar, Empty, PosBadge, QuarterBadge, Segmented } from '../components/ui'
+import { Avatar, Empty, PosBadges, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
 import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -503,7 +503,7 @@ export function GroupDetail() {
               <Avatar p={p} size={32} />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 truncate text-sm font-bold">
-                  {p.lastName.toUpperCase()} {p.firstName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
+                  {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
                 </div>
                 <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
               </div>

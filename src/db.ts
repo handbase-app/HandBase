@@ -45,6 +45,8 @@ export interface Player extends Syncable {
   fatherHeight?: number
   fatherHeightSource?: HeightSource
   position?: Position
+  /** Postes où il peut aussi jouer (dépanner), en plus du poste principal. */
+  secondaryPositions?: Position[]
   team?: string
   license?: string
   /** Anciennes licences (une licence change en cas de mutation), pour reconnaître le joueur à l'import. */

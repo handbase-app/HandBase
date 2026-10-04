@@ -60,6 +60,21 @@ export function PosBadge({ pos }: { pos?: Position }) {
   )
 }
 
+/** Poste principal (pastille) et postes secondaires, plus discrets : « Ailier G. + DC ». */
+export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> }) {
+  const sec = (p.secondaryPositions ?? []).filter((x) => x !== p.position)
+  return (
+    <>
+      <PosBadge pos={p.position} />
+      {sec.length > 0 && (
+        <span className="text-[10px] font-bold text-muted" title="Postes secondaires">
+          + {sec.map((x) => POSITIONS.find((q) => q.id === x)?.short ?? x).join(', ')}
+        </span>
+      )}
+    </>
+  )
+}
+
 export function Segmented<T extends string>({
   value,
   options,

@@ -1,8 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Avatar, Empty, PosBadge, QuarterBadge } from '../components/ui'
-import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player } from '../db'
+import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
+import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, useRole } from '../roles'
@@ -231,7 +231,7 @@ export function EventDetail() {
                         <Avatar p={p} size={32} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 truncate text-sm font-bold">
-                            {p.lastName.toUpperCase()} {p.firstName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
+                            {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
                           </div>
                           <div className="truncate text-[10px] text-muted">
                             {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
@@ -379,12 +379,17 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
     .map((p) => ({ p, s: playerScore(evals.filter((e) => e.playerId === p.id)) }))
     .sort((a, b) => (b.s?.avg ?? -1) - (a.s?.avg ?? -1))
   const groups = [...POSITIONS.map((x) => ({ id: x.id as string, label: x.label })), { id: 'none', label: 'Poste non renseigné' }]
-    .map((g) => ({ ...g, rows: rows.filter((r) => (r.p.position ?? 'none') === g.id) }))
-    .filter((g) => g.rows.length)
+    .map((g) => ({
+      ...g,
+      rows: rows.filter((r) => (r.p.position ?? 'none') === g.id),
+      // Joueurs qui ont ce poste en secondaire : affichés en grisé, hors classement.
+      extra: rows.filter((r) => r.p.position !== g.id && r.p.secondaryPositions?.includes(g.id as Position)),
+    }))
+    .filter((g) => g.rows.length || g.extra.length)
   const f1 = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
   function exportRanking() {
-    const lines = [['Poste', 'Rang', 'Nom', 'Prénom', 'Année', 'Club', 'Licence', 'Note moyenne', 'Évaluateurs', 'Écart entre évaluateurs', 'Dans la liste']]
+    const lines = [['Poste', 'Rang', 'Nom', 'Prénom', 'Année', 'Club', 'Licence', 'Note moyenne', 'Évaluateurs', 'Écart entre évaluateurs', 'Dans la liste', 'Postes secondaires']]
     for (const g of groups)
       g.rows.forEach((r, i) =>
         lines.push([
@@ -399,6 +404,7 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
           r.s ? String(r.s.observers) : '0',
           r.s && r.s.observers > 1 ? f1(r.s.spread) : '',
           rosterIds.has(r.p.id) ? 'oui' : 'non',
+          (r.p.secondaryPositions ?? []).map((x) => POSITIONS.find((q) => q.id === x)?.short ?? x).join(', '),
         ]),
       )
     const csv = '﻿' + lines.map((l) => l.map((v) => (/[;"\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)).join(';')).join('\n')
@@ -420,26 +426,48 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
       {groups.map((g) => (
         <div key={g.id} className="card p-3">
           <div className="section-title">
-            {g.label} ({g.rows.length})
+            {g.label} ({g.rows.length}
+            {g.extra.length ? ` + ${g.extra.length} en secondaire` : ''})
           </div>
           <div className="divide-y divide-line">
             {g.rows.map((r, i) => (
-              <Link key={r.p.id} to={`/joueurs/${r.p.id}`} className="flex items-center gap-3 py-1.5 text-xs">
-                <span className="w-5 text-center font-extrabold text-muted">{r.s ? i + 1 : '–'}</span>
-                <span className="min-w-0 flex-1 truncate">
-                  <b>
-                    {r.p.lastName.toUpperCase()} {r.p.firstName}
-                  </b>
-                  <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
-                </span>
-                {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
-                <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
-                <span className="w-9 shrink-0 text-right text-sm font-extrabold text-accent">{r.s ? f1(r.s.avg) : ''}</span>
-              </Link>
+              <RankRow key={r.p.id} r={r} rank={r.s ? String(i + 1) : '–'} f1={f1} />
+            ))}
+            {g.extra.map((r) => (
+              <RankRow key={r.p.id} r={r} rank="" f1={f1} secondary />
             ))}
           </div>
         </div>
       ))}
     </div>
+  )
+}
+
+/** Ligne du classement ; en grisé pour un joueur affiché à son poste secondaire (hors classement). */
+function RankRow({
+  r,
+  rank,
+  f1,
+  secondary,
+}: {
+  r: { p: Player; s: ReturnType<typeof playerScore> }
+  rank: string
+  f1: (n: number) => string
+  secondary?: boolean
+}) {
+  return (
+    <Link to={`/joueurs/${r.p.id}`} className={`flex items-center gap-3 py-1.5 text-xs ${secondary ? 'opacity-45' : ''}`} title={secondary ? 'Poste secondaire' : undefined}>
+      <span className="w-5 text-center font-extrabold text-muted">{secondary ? '○' : rank}</span>
+      <span className="min-w-0 flex-1 truncate">
+        <b>
+          {r.p.lastName.toUpperCase()} {r.p.firstName}
+        </b>
+        <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
+        {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
+      </span>
+      {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
+      <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
+      <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
+    </Link>
   )
 }

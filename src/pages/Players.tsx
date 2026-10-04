@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, type Measurement } from '../db'
-import { Avatar, Empty, fmtValue, PosBadge, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
@@ -161,7 +161,7 @@ export default function Players() {
                     {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                    <PosBadge pos={p.position} />
+                    <PosBadges p={p} />
                     {a !== null && <span>{a} ans</span>}
                     <QuarterBadge birthDate={p.birthDate} />
                   </div>

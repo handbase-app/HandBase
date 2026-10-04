@@ -145,7 +145,11 @@ export default function PlayerForm() {
 
       <div>
         <span className="label">Poste</span>
-        <CourtPicker value={p.position} onChange={(v) => set('position', v)} />
+        <CourtPicker
+          value={p.position}
+          secondary={p.secondaryPositions}
+          onChange={(pos, sec) => setP((x) => ({ ...x, position: pos, secondaryPositions: sec.length ? sec : undefined }))}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3">

@@ -53,10 +53,15 @@ begin
    where c.cid is not null
   on conflict (id) do nothing;
 
-  -- Fiches : poste (le premier cité), latéralité, catégorie, internat, lacunes — sans écraser ce qui est déjà saisi.
+  -- Fiches : poste (le premier cité), postes secondaires (les suivants), latéralité, catégorie, internat, lacunes
+  -- — sans écraser ce qui est déjà saisi.
   update public.hb_players p
      set data = p.data || jsonb_strip_nulls(jsonb_build_object(
            'position', case when p.data ? 'position' then null else x.poste end,
+           'secondaryPositions', case when p.data ? 'secondaryPositions' or x.secondaires is null then null
+             -- sans le poste principal de la fiche (qui a pu être saisi à la main)
+             else nullif((select jsonb_agg(s) from jsonb_array_elements_text(x.secondaires) s
+                           where s is distinct from coalesce(p.data ->> 'position', x.poste)), 'null'::jsonb) end,
            'laterality', case when p.data ? 'laterality' then null else x.lateralite end,
            'category', case when p.data ? 'category' then null else x.categorie end,
            'boarding', case when p.data ? 'boarding' then null else x.internat end,

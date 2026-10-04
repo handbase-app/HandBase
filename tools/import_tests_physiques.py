@@ -283,15 +283,27 @@ def sql_str(v):
 POSTES = [('ald', 'AD'), ('arrd', 'ARD'), ('ard', 'ARD'), ('alg', 'AG'), ('arg', 'ARG'), ('dc', 'DC'), ('piv', 'PIV'), ('p', 'PIV'), ('g', 'GB')]
 
 
-def first_position(v):
-    if not v:
-        return None
-    first = re.split(r'/', str(v))[0]
-    f = re.sub(r'[^a-z]', '', fold(first))
+def one_position(txt):
+    f = re.sub(r'[^a-z]', '', fold(txt))
     for pre, pos in POSTES:
         if f == pre or (len(pre) > 1 and f.startswith(pre)):
             return pos
     return None
+
+
+def positions(v):
+    """« ArG / DC / P » → ['ARG', 'DC', 'PIV'] (le premier est le poste principal)."""
+    out = []
+    for part in re.split(r'/', str(v or '')):
+        pos = one_position(part)
+        if pos and pos not in out:
+            out.append(pos)
+    return out
+
+
+def first_position(v):
+    ps = positions(v)
+    return ps[0] if ps else None
 
 
 def main():
@@ -317,13 +329,13 @@ def main():
 
     w = sys.stdout.write
     w(open(__file__.replace('import_tests_physiques.py', 'import_tests_physiques.sql.head'), encoding='utf-8').read())
-    w('\ninsert into _xl_joueurs (k, nom, prenom, naissance, poste, lateralite, categorie, internat, lacunes) values\n')
+    w('\ninsert into _xl_joueurs (k, nom, prenom, naissance, poste, secondaires, lateralite, categorie, internat, lacunes) values\n')
     vals = []
     for k, v in sorted(infos.items()):
         lat = {'d': 'droitier', 'g': 'gaucher'}.get(fold(v.get('main') or '')[:1])
         internat = {'oui': 'true', 'non': 'false'}.get(fold(v.get('internat') or '').strip(), 'null')
         vals.append(f"({sql_str(k)}, {sql_str(v.get('nom'))}, {sql_str(v.get('prenom'))}, {sql_str(v.get('naissance'))}, "
-                    f"{sql_str(first_position(v.get('poste')))}, {sql_str(lat)}, {sql_str((str(v.get('categorie')).strip() if v.get('categorie') else None))}, "
+                    f"{sql_str(first_position(v.get('poste')))}, {sql_str(json.dumps(positions(v.get('poste'))[1:]) if len(positions(v.get('poste'))) > 1 else None)}::jsonb, {sql_str(lat)}, {sql_str((str(v.get('categorie')).strip() if v.get('categorie') else None))}, "
                     f"{internat}, {sql_str((str(v.get('lacunes')).strip() if v.get('lacunes') else None))})")
     w(',\n'.join(vals) + ';\n')
     w('\ninsert into _xl_mesures (id, k, critere, date, valeur, note) values\n')

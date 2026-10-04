@@ -86,6 +86,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
+  // Compter aussi les joueurs qui ont ce poste en secondaire (« qui peut dépanner demi-centre ? »).
+  const [withSecondary, setWithSecondary] = useSessionState(k('withSecondary'), false)
   const [hand, setHand] = useSessionState<'all' | Laterality>(k('hand'), 'all')
   // Trimestre de naissance (Q1 = janvier–mars … Q4 = octobre–décembre).
   const [quarter, setQuarter] = useSessionState(k('quarter'), 0)
@@ -120,19 +122,24 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const scoped = useMemo(() => (year ? bySexClub.filter((p) => p.birthDate?.startsWith(year)) : bySexClub), [bySexClub, year])
   const positionCounts = useMemo(() => {
     const c: Record<string, number> = { none: 0 }
-    for (const p of scoped) c[p.position ?? 'none'] = (c[p.position ?? 'none'] ?? 0) + 1
+    for (const p of scoped) {
+      c[p.position ?? 'none'] = (c[p.position ?? 'none'] ?? 0) + 1
+      if (withSecondary) for (const x of p.secondaryPositions ?? []) if (x !== p.position) c[x] = (c[x] ?? 0) + 1
+    }
     return c
-  }, [scoped])
+  }, [scoped, withSecondary])
 
   const filtered = useMemo(() => {
     const words = fold(q).split(/\s+/).filter(Boolean)
     return scoped.filter((p) => {
-      if (position === 'none' ? p.position : position !== 'all' && p.position !== position) return false
+      if (position === 'none' && p.position) return false
+      if (position !== 'all' && position !== 'none' && p.position !== position && !(withSecondary && p.secondaryPositions?.includes(position)))
+        return false
       if (!words.length) return true
       const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.team ?? ''} ${p.license ?? ''}`)
       return words.every((w) => hay.includes(w))
     })
-  }, [scoped, q, position])
+  }, [scoped, q, position, withSecondary])
 
   const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all'
   const reset = () => {
@@ -241,6 +248,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           )
         })}
       </div>
+      <label className="-mt-1 flex items-center gap-1.5 self-start text-[11px] text-muted">
+        <input type="checkbox" checked={withSecondary} onChange={(e) => setWithSecondary(e.target.checked)} />
+        Inclure les postes secondaires
+      </label>
       {active && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={reset}>
           Effacer les filtres
@@ -250,7 +261,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, quarter, group, dept, club, year, position])
+  const signature = JSON.stringify([q, sex, hand, quarter, group, dept, club, year, position, withSecondary])
   return { filtered, ui, active, reset, signature, group: current }
 }
 

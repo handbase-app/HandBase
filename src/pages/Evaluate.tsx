@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, NumberField, PosBadge, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, NumberField, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
@@ -337,7 +337,7 @@ export default function Evaluate() {
         <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
-              {player.firstName} {player.lastName} <PosBadge pos={player.position} /> <QuarterBadge birthDate={player.birthDate} />
+              {player.firstName} {player.lastName} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
             </div>
             <div className="w-44">
               <Segmented

@@ -18,6 +18,6 @@ $$;
 
 drop table if exists _xl_joueurs;
 drop table if exists _xl_mesures;
-create temp table _xl_joueurs (k text primary key, nom text, prenom text, naissance date, poste text, lateralite text,
+create temp table _xl_joueurs (k text primary key, nom text, prenom text, naissance date, poste text, secondaires jsonb, lateralite text,
                                categorie text, internat boolean, lacunes text, player_id text, statut text);
 create temp table _xl_mesures (id text primary key, k text, critere text, date date, valeur jsonb, note text);
