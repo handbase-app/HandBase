@@ -50,15 +50,19 @@ function waNumber(phone: string) {
 
 function accessMessage(a: Access) {
   const url = location.origin + import.meta.env.BASE_URL
+  // Lien qui connecte en un clic (voir AuthGate) ; la partie après « # » ne quitte pas le téléphone.
+  const link = `${url}#acces=${encodeURIComponent(a.email)}:${encodeURIComponent(a.password)}`
   const first = a.name.split(/\s+/)[0]
   return [
     `Bonjour ${first},`,
     '',
-    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff :' : 'Voici ton nouveau mot de passe pour HandBase :',
-    `1. Ouvre ${url}`,
-    `2. Identifiant : ${a.email}`,
-    `3. Mot de passe provisoire : ${a.password}`,
-    'À la première connexion, tu choisiras ton propre mot de passe.',
+    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff.' : 'Voici ton nouvel accès à HandBase.',
+    'Clique sur ce lien pour te connecter (valable 24 h), puis choisis ton mot de passe :',
+    link,
+    '',
+    `Si le lien ne marche pas : ouvre ${url}`,
+    `Identifiant : ${a.email}`,
+    `Mot de passe provisoire : ${a.password}`,
     '',
     'Pour installer l’appli sur ton téléphone :',
     '- Android (Chrome) : menu ⋮ → « Installer l’application »',
@@ -81,7 +85,10 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
         <br />
         Mot de passe provisoire : <b className="font-mono text-sm">{access.password}</b>
       </div>
-      <div className="mt-1 text-[11px] text-muted">Envoie-lui maintenant : ce mot de passe ne sera plus affiché. Il choisira le sien à la connexion.</div>
+      <div className="mt-1 text-[11px] text-muted">
+        Envoie-lui maintenant : ce mot de passe ne sera plus affiché. Le message contient un lien qui le connecte en un clic, valable 24 h ; il
+        choisira ensuite son mot de passe.
+      </div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <a className={btn} href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}>
           ✉ E-mail
@@ -160,8 +167,8 @@ export function Members() {
               ))}
             </ul>
             <p>
-              Ajouter quelqu’un : « + Membre », puis envoie-lui son accès par e-mail, SMS ou WhatsApp. À sa première connexion, il choisit son
-              propre mot de passe. Mot de passe oublié : il le récupère seul depuis l’écran de connexion.
+              Ajouter quelqu’un : « + Membre », puis envoie-lui son accès par e-mail, SMS ou WhatsApp : un lien qui le connecte en un clic,
+              valable 24 h. Il choisit ensuite son propre mot de passe. Mot de passe oublié : il le récupère seul depuis l’écran de connexion.
             </p>
             <p>
               Par sécurité, l’appli ne peut ni créer ni nommer un administrateur : ça se fait uniquement depuis Supabase (SQL Editor). Un compte

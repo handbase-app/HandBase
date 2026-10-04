@@ -4,6 +4,28 @@ import { clearRole, refreshRole } from '../roles'
 import { supabase } from '../sync'
 import { useMe } from './ui'
 
+/**
+ * Lien d'accès envoyé par un administrateur : …/HandBase/#acces=<e-mail>:<mot de passe provisoire>.
+ * Après le « # », rien n'est envoyé à un serveur (ni GitHub, ni les aperçus de liens WhatsApp / SMS).
+ * On le lit une fois au démarrage, puis on l'efface de la barre d'adresse.
+ */
+const invite = (() => {
+  const m = location.hash.match(/^#acces=([^:]+):(.+)$/)
+  if (!m) return null
+  history.replaceState(null, '', location.pathname + location.search)
+  try {
+    return { email: decodeURIComponent(m[1]), password: decodeURIComponent(m[2]) }
+  } catch {
+    return null
+  }
+})()
+
+/** Message clair pour une connexion refusée. */
+const loginError = (message: string) =>
+  /temp_password_expired/.test(message)
+    ? 'Ce mot de passe provisoire a expiré (24 h) : demande un nouvel accès à un administrateur.'
+    : 'E-mail ou mot de passe incorrect.'
+
 /** Nom affiché d'un compte : stocké dans les métadonnées Supabase (full_name). */
 export const accountName = (s: Session | null) => (s?.user.user_metadata?.full_name as string | undefined)?.trim() || ''
 
@@ -17,10 +39,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [me, setMe] = useMe()
   // Arrivée par le lien « mot de passe oublié » reçu par e-mail : choisir un nouveau mot de passe.
   const [recovery, setRecovery] = useState(false)
+  const [inviteErr, setInviteErr] = useState('')
 
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    void supabase.auth.getSession().then(async ({ data }) => {
+      // Lien d'accès : connexion directe (l'appli demandera ensuite de choisir son mot de passe).
+      if (invite && data.session?.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
+        if (data.session) await supabase!.auth.signOut()
+        const { data: r, error } = await supabase!.auth.signInWithPassword(invite)
+        if (error) setInviteErr(navigator.onLine ? loginError(error.message) : 'Pas de connexion internet : réessaie le lien une fois en ligne.')
+        return setSession(r.session)
+      }
+      setSession(data.session)
+    })
     const { data } = supabase.auth.onAuthStateChange((e, s) => {
       if (e === 'PASSWORD_RECOVERY') setRecovery(true)
       setSession(s)
@@ -44,7 +76,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (!supabase) return <>{children}</>
   if (session === undefined) return null
-  if (!session) return <Login />
+  if (!session) return <Login initialEmail={invite?.email} initialError={inviteErr} />
   // Mot de passe provisoire (compte créé par un administrateur) ou lien « mot de passe oublié ».
   if (recovery || session.user.user_metadata?.must_change_password) return <NewPassword recovery={recovery} onDone={() => setRecovery(false)} />
   if (!name) return <AskName />
@@ -63,10 +95,10 @@ function Shell({ children }: { children: ReactNode }) {
   )
 }
 
-function Login() {
-  const [email, setEmail] = useState('')
+function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string; initialError?: string }) {
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState(initialError)
   const [busy, setBusy] = useState(false)
   const [forgot, setForgot] = useState(false)
   const [sent, setSent] = useState(false)
@@ -122,7 +154,7 @@ function Login() {
           setBusy(true)
           const { error } = await supabase!.auth.signInWithPassword({ email: email.trim(), password })
           setBusy(false)
-          if (error) setErr('E-mail ou mot de passe incorrect.')
+          if (error) setErr(loginError(error.message))
         }}
       >
         <div className="text-sm font-extrabold">Connexion staff</div>
