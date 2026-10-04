@@ -101,7 +101,7 @@ export function MergePlayers({ player, otherId, onClose }: { player: Player; oth
               >
                 <span className="text-[10px] font-bold text-muted">{keep === p.id ? '✓ À GARDER' : 'À FONDRE'}</span>
                 <b>
-                  {p.firstName} {p.lastName}
+                  {p.lastName.toUpperCase()} {p.firstName}
                 </b>
                 <ReviewBadge e={p} kind="players" />
                 <span className="text-[10px] text-muted">{summary(p)}</span>

@@ -72,7 +72,7 @@ export default function ReviewPage() {
         <div className="flex items-start justify-between gap-2">
           <div>
             <Link to={`/joueurs/${p.id}`} className="text-sm font-bold">
-              {p.firstName} {p.lastName}
+              {p.lastName.toUpperCase()} {p.firstName}
             </Link>{' '}
             <QuarterBadge birthDate={p.birthDate} />
             <div className="text-[10px] text-muted">

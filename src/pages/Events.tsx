@@ -200,7 +200,7 @@ export function EventDetail() {
                     <Link key={p.id} to={`/joueurs/${p.id}`} className="flex items-center justify-between gap-2 text-xs">
                       <span className="truncate">
                         <b>
-                          {p.firstName} {p.lastName}
+                          {p.lastName.toUpperCase()} {p.firstName}
                         </b>
                         <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={p.birthDate} />
                       </span>
@@ -231,7 +231,7 @@ export function EventDetail() {
                         <Avatar p={p} size={32} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 truncate text-sm font-bold">
-                            {p.firstName} {p.lastName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
+                            {p.lastName.toUpperCase()} {p.firstName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
                           </div>
                           <div className="truncate text-[10px] text-muted">
                             {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
@@ -428,7 +428,7 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
                 <span className="w-5 text-center font-extrabold text-muted">{r.s ? i + 1 : '–'}</span>
                 <span className="min-w-0 flex-1 truncate">
                   <b>
-                    {r.p.firstName} {r.p.lastName}
+                    {r.p.lastName.toUpperCase()} {r.p.firstName}
                   </b>
                   <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
                 </span>

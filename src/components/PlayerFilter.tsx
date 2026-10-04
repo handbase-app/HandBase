@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { birthQuarter } from './ui'
 import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
@@ -40,6 +41,9 @@ export function department(p: Pick<Player, 'clubCode' | 'license' | 'department'
 /** Départements proposés à la saisie (ceux de la ligue). */
 export const DEPARTMENT_CHOICES = Object.entries(DEPARTMENTS).map(([value, name]) => ({ value, label: `${value} · ${name}` }))
 export const departmentLabel = (d: string) => (DEPARTMENTS[d] ? `${d} · ${DEPARTMENTS[d]}` : `Département ${d}`)
+
+// Trimestre choisi : même code couleur que la pastille Q1…Q4 (vert → rouge).
+const QUARTER_ACTIVE = ['bg-emerald-600 text-white', 'bg-yellow-500 text-black', 'bg-orange-500 text-white', 'bg-red-600 text-white']
 
 export type SexFilter = 'all' | 'M' | 'F'
 
@@ -91,6 +95,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
   const [hand, setHand] = useSessionState<'all' | Laterality>(k('hand'), 'all')
+  // Trimestre de naissance (Q1 = janvier–mars … Q4 = octobre–décembre).
+  const [quarter, setQuarter] = useSessionState(k('quarter'), 0)
 
   const setSex = (v: SexFilter) => {
     setSexState(v)
@@ -111,8 +117,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     return list.filter((p) => ids.has(p.id))
   }, [players, group, current])
   const bySex = useMemo(
-    () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand)),
-    [all, sex, hand],
+    () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand) && (!quarter || birthQuarter(p.birthDate) === quarter)),
+    [all, sex, hand, quarter],
   )
   const depts = useMemo(() => countBy(bySex, department), [bySex])
   const byDept = useMemo(() => (dept ? bySex.filter((p) => department(p) === dept) : bySex), [bySex, dept])
@@ -136,11 +142,12 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     })
   }, [scoped, q, position])
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!group || !!dept || !!club || !!year || position !== 'all'
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all'
   const reset = () => {
     setQ('')
     setSex('all')
     setHand('all')
+    setQuarter(0)
     setGroup('')
     setDept('')
     setClub('')
@@ -175,6 +182,18 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
         ).map(([v, label]) => (
           <button key={v} onClick={() => setHand(v)} className={`flex-1 py-1.5 ${hand === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
             {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+        {[0, 1, 2, 3, 4].map((v) => (
+          <button
+            key={v}
+            onClick={() => setQuarter(v)}
+            title={v ? `Nés au ${v === 1 ? '1er' : `${v}e`} trimestre` : 'Tous les trimestres de naissance'}
+            className={`flex-1 py-1.5 ${quarter === v ? (v ? QUARTER_ACTIVE[v - 1] : 'bg-accent text-white') : 'bg-panel-2 text-muted'}`}
+          >
+            {v ? `Q${v}` : 'Tous trim.'}
           </button>
         ))}
       </div>
@@ -239,7 +258,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, group, dept, club, year, position])
+  const signature = JSON.stringify([q, sex, hand, quarter, group, dept, club, year, position])
   return { filtered, ui, active, reset, signature, group: current }
 }
 
@@ -365,6 +384,7 @@ export function showGroupInPlayers(groupId: string) {
     for (const f of ['dept', 'club', 'year', 'q']) sessionStorage.setItem(`handbase.filter.joueurs.${f}`, JSON.stringify(''))
     sessionStorage.setItem('handbase.filter.joueurs.position', JSON.stringify('all'))
     sessionStorage.setItem('handbase.filter.joueurs.hand', JSON.stringify('all'))
+    sessionStorage.setItem('handbase.filter.joueurs.quarter', JSON.stringify(0))
   } catch {
     /* stockage indisponible */
   }

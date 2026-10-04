@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
-import { groupBy, Segmented, useMe } from '../components/ui'
+import { groupBy, SectionTitle, Segmented, useMe } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
@@ -31,10 +31,12 @@ export default function Settings() {
       <h1 className="text-lg font-extrabold">Réglages</h1>
 
       <section className="card flex flex-col gap-2 p-4">
-        <div className="section-title">Mon nom (observateur)</div>
+        <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
+          Mon nom (observateur)
+        </SectionTitle>
         {supabase ? (
           <p className="text-xs">
-            <b>{me}</b> <span className="text-muted">— lié à ton compte, il signe tes avis et tes mesures.</span>
+            <b>{me}</b>
           </p>
         ) : (
           <>
@@ -44,7 +46,6 @@ export default function Settings() {
                 OK
               </button>
             </div>
-            <p className="text-[11px] text-muted">Utilisé pour signer tes avis et tes mesures sur cet appareil.</p>
           </>
         )}
       </section>
@@ -99,11 +100,9 @@ export default function Settings() {
 
       {can.loadDemo(role) && (
       <section className="card flex flex-col gap-2 p-4">
-        <div className="section-title">Données de démonstration</div>
-        <p className="text-[11px] text-muted">
-          24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et
-          s'effacent sans toucher à tes vraies données.
-        </p>
+        <SectionTitle info="24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données.">
+          Données de démonstration
+        </SectionTitle>
         <div className="flex gap-2">
           <button
             className="btn-ghost flex-1 text-xs"
@@ -154,12 +153,23 @@ function Account() {
   const label = { local: 'local', login: 'non connecté', offline: 'hors ligne', syncing: 'synchronisation…', synced: 'à jour', error: 'erreur' }[state]
   return (
     <section className="card flex flex-col gap-2 p-4">
-      <div className="section-title">Compte & synchronisation</div>
+      <SectionTitle
+        info={
+          <>
+            <p>
+              <b>{ROLE_LABEL[role]}</b> : {ROLE_HELP[role]}
+            </p>
+            <p>Les données sont gardées sur l’appareil et envoyées au serveur dès que possible : on peut travailler hors ligne.</p>
+          </>
+        }
+      >
+        Compte & synchronisation
+      </SectionTitle>
       <p className="text-xs">
         Connecté : <b>{email}</b>
       </p>
       <p className="text-xs">
-        Rôle : <b className="text-accent">{ROLE_LABEL[role]}</b> <span className="text-[11px] text-muted">— {ROLE_HELP[role]}</span>
+        Rôle : <b className="text-accent">{ROLE_LABEL[role]}</b>
       </p>
       {role !== 'admin' && (
         <p className="text-xs">
@@ -234,12 +244,11 @@ function LicenceImport() {
   const fmt = (n: number) => n.toLocaleString('fr-FR')
   return (
     <section className="card flex flex-col gap-2 p-4">
-      <div className="section-title">Importer des licences (export Gest’Hand)</div>
-      <p className="text-[11px] text-muted">
-        Fichier CSV de la ligue ou du club. Il est lu sur cet appareil. Crée les joueurs absents et complète les fiches existantes
-        (reconnues par licence, ou par nom + date de naissance) sans écraser ce que le staff a saisi ; les données administratives (club,
-        licence, nationalité) suivent le fichier. La taille est enregistrée comme « déclarée à la licence ».
-      </p>
+      <SectionTitle
+        info="Fichier CSV de la ligue ou du club, lu sur cet appareil. Crée les joueurs absents et complète les fiches existantes (reconnues par licence, ou par nom + date de naissance) sans écraser ce que le staff a saisi ; les données administratives (club, licence, nationalité) suivent le fichier. La taille est enregistrée comme « déclarée à la licence »."
+      >
+        Importer des licences (Gest’Hand)
+      </SectionTitle>
       <label className={`btn-ghost cursor-pointer text-xs ${busy ? 'pointer-events-none opacity-40' : ''}`}>
         {busy && !progress ? 'Lecture…' : 'Choisir le fichier CSV'}
         <input
@@ -413,7 +422,32 @@ function Members() {
 
   return (
     <section className="card flex flex-col gap-2 p-4">
-      <div className="section-title">Membres du staff</div>
+      <SectionTitle
+        info={
+          <>
+            <ul className="flex flex-col gap-1">
+              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
+                <li key={r}>
+                  <b>{ROLE_LABEL[r]}</b> : {ROLE_HELP[r]}
+                </li>
+              ))}
+            </ul>
+            <p>
+              Ajouter quelqu’un : crée son compte dans{' '}
+              <a className="font-bold text-accent" href={`https://supabase.com/dashboard/project/${ref}/auth/users`} target="_blank" rel="noreferrer">
+                Supabase → Users
+              </a>{' '}
+              (cocher « Auto Confirm User »). Il arrive comme observateur ; change son rôle ici.
+            </p>
+            <p>
+              Secteur : départements dont l’encadrant valide les avis spontanés et fiches proposées (selon le département du joueur). Sans
+              département, il valide tout ; un joueur au département inconnu revient à l’administrateur. Pour un observateur, c’est indicatif.
+            </p>
+          </>
+        }
+      >
+        Membres du staff
+      </SectionTitle>
       {err && <p className="text-[11px] text-red-300">{err}</p>}
       {list && (
         <div className="divide-y divide-line rounded-lg border border-line">
@@ -457,24 +491,6 @@ function Members() {
           ))}
         </div>
       )}
-      <ul className="text-[11px] text-muted">
-        {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-          <li key={r}>
-            <b className="text-white">{ROLE_LABEL[r]}</b> : {ROLE_HELP[r]}
-          </li>
-        ))}
-      </ul>
-      <p className="text-[11px] text-muted">
-        Ajouter quelqu’un : crée son compte dans{' '}
-        <a className="font-bold text-accent" href={`https://supabase.com/dashboard/project/${ref}/auth/users`} target="_blank" rel="noreferrer">
-          Supabase → Users
-        </a>{' '}
-        (cocher « Auto Confirm User »). Il arrive comme observateur ; change son rôle ici.
-      </p>
-      <p className="text-[11px] text-muted">
-        Secteur : départements dont l’encadrant valide les avis spontanés et fiches proposées (selon le département du joueur). Sans
-        département, il valide tout ; un joueur au département inconnu revient à l’administrateur. Pour un observateur, c’est indicatif.
-      </p>
     </section>
   )
 }
@@ -500,7 +516,21 @@ function CriteriaEditor() {
 
   return (
     <section className="card flex flex-col gap-3 p-4">
-      <div className="section-title">Critères</div>
+      <SectionTitle
+        info={
+          <>
+            <p>
+              <b>Subjectifs</b> : notés par chaque observateur ; « Mode rapide » = inclus dans l’évaluation rapide.
+            </p>
+            <p>
+              <b>Factuels</b> : une seule valeur par date, saisie par le préparateur physique, avec historique.
+            </p>
+            <p>Masquer un critère (décocher « Actif ») conserve son historique.</p>
+          </>
+        }
+      >
+        Critères
+      </SectionTitle>
       <Segmented
         value={kind}
         onChange={setKind}
@@ -509,12 +539,6 @@ function CriteriaEditor() {
           { value: 'factual', label: 'Factuels (préparateur)' },
         ]}
       />
-      <p className="text-[11px] text-muted">
-        {kind === 'subjective'
-          ? 'Notés par chaque observateur ; « Rapide » = inclus dans le mode d’évaluation rapide.'
-          : 'Une seule valeur par date, saisie par le préparateur physique, avec historique.'}{' '}
-        Masquer un critère conserve son historique.
-      </p>
 
       {groupBy(list, (c) => c.category).map(([cat, cs]) => (
         <div key={cat}>

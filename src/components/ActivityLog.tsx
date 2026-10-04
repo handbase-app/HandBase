@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
+import { SectionTitle } from './ui'
 
 /*
  * Journal d'activité (administrateurs) : lu directement sur le serveur, en ligne uniquement.
@@ -170,12 +171,13 @@ export function ActivityLog() {
   return (
     <section className="card flex flex-col gap-2 p-4">
       <div className="flex items-center justify-between">
-        <div className="section-title mb-0">Journal d’activité</div>
+        <SectionTitle className="mb-0" info="Tout ce qui est créé, modifié ou supprimé sur le serveur : qui, quand et quoi. Visible par les administrateurs uniquement.">
+          Journal d’activité
+        </SectionTitle>
         <button className="text-[11px] font-bold text-muted underline" onClick={() => void load(0)}>
           Actualiser
         </button>
       </div>
-      <p className="text-[11px] text-muted">Tout ce qui est créé, modifié ou supprimé sur le serveur : qui, quand et quoi. Visible par les administrateurs uniquement.</p>
       <div className="grid grid-cols-2 gap-2">
         <select className="field py-1.5 text-xs" value={who} onChange={(e) => setWho(e.target.value)}>
           <option value="">Tout le monde</option>

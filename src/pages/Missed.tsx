@@ -57,7 +57,7 @@ export default function Missed() {
             <Link key={p.id} to={`/joueurs/${p.id}`} className="card flex flex-col gap-1 p-3 text-xs transition hover:border-accent">
               <div className="flex items-center justify-between gap-2">
                 <b className="text-sm">
-                  {p.firstName} {p.lastName} <QuarterBadge birthDate={p.birthDate} />
+                  {p.lastName.toUpperCase()} {p.firstName} <QuarterBadge birthDate={p.birthDate} />
                 </b>
                 <span className="text-[10px] text-muted">{p.review === 'refused' ? 'toujours hors cadre' : 'fiche reprise'}</span>
               </div>

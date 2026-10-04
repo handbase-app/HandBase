@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
 
 // ---------- Identité de l'utilisateur sur cet appareil ----------
@@ -213,6 +214,56 @@ export function fmtValue(c: Criterion | undefined, v: number | string | undefine
     return c?.unit ? `${s} ${c.unit}` : s
   }
   return v
+}
+
+/** Petite icône ⓘ : l'explication s'ouvre dans une fenêtre au clic, au lieu d'encombrer la page. */
+export function InfoButton({ title, children }: { title?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [open])
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Explications"
+        title="Explications"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-muted/60 align-middle text-[10px] font-bold normal-case tracking-normal text-muted hover:border-accent hover:text-accent"
+      >
+        i
+      </button>
+      {open &&
+        // Affichée à la racine de la page : elle n'hérite pas du style du titre où se trouve le ⓘ.
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => setOpen(false)}>
+            <div role="dialog" aria-modal="true" className="card w-full max-w-sm p-5 text-sm leading-relaxed shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              {title && <div className="mb-2 font-extrabold">{title}</div>}
+              <div className="flex flex-col gap-2 text-[13px] text-white/90">{children}</div>
+              <div className="mt-5 flex justify-end">
+                <button autoFocus className="btn-primary px-5" onClick={() => setOpen(false)}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}
+
+/** Titre de section avec, au besoin, son ⓘ d'explications. */
+export function SectionTitle({ children, info, className = '' }: { children: ReactNode; info?: ReactNode; className?: string }) {
+  return (
+    <div className={`section-title flex items-center gap-2 ${className}`}>
+      {children}
+      {info && <InfoButton title={typeof children === 'string' ? children : undefined}>{info}</InfoButton>}
+    </div>
+  )
 }
 
 export function Empty({ children }: { children: ReactNode }) {

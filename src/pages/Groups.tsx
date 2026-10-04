@@ -166,8 +166,15 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const [sex, setSex] = useState(group?.sex)
   const [department, setDepartment] = useState(group?.department ?? '')
   const [region, setRegion] = useState(group?.region ?? '')
-  const [years, setYears] = useState<string[]>(group?.years ?? [])
-  const toggleYear = (y: string) => setYears((ys) => (ys.includes(y) ? ys.filter((x) => x !== y) : [...ys, y]))
+  // Années : une année, ou une plage « de … à … ».
+  const sortedYears = [...(group?.years ?? [])].sort()
+  const [yearFrom, setYearFrom] = useState(sortedYears[0] ?? '')
+  const [yearTo, setYearTo] = useState(sortedYears.length > 1 ? sortedYears[sortedYears.length - 1] : '')
+  const years = (() => {
+    if (!yearFrom) return []
+    const [a, b] = [Number(yearFrom), Number(yearTo || yearFrom)].sort((x, y) => x - y)
+    return Array.from({ length: b - a + 1 }, (_, i) => String(a + i))
+  })()
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
 
@@ -211,13 +218,31 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           </select>
         </div>
       </div>
-      <span className="label">Années d’âge (naissance)</span>
-      <div className="flex flex-wrap gap-1">
-        {yearChoices(years).map((y) => (
-          <button key={y} type="button" className={chip(years.includes(y))} onClick={() => toggleYear(y)}>
-            {y}
-          </button>
-        ))}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className="label">Année d’âge (naissance)</span>
+          <select className="field" value={yearFrom} onChange={(e) => (setYearFrom(e.target.value), !e.target.value && setYearTo(''))}>
+            <option value="">—</option>
+            {yearChoices(sortedYears).map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <span className="label">Jusqu’à (facultatif)</span>
+          <select className="field" value={yearTo} disabled={!yearFrom} onChange={(e) => setYearTo(e.target.value)}>
+            <option value="">—</option>
+            {yearChoices(sortedYears)
+              .filter((y) => y !== yearFrom)
+              .map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+          </select>
+        </div>
       </div>
 
       <div className="mt-2 flex gap-2">
@@ -395,7 +420,7 @@ export function GroupDetail() {
               <Avatar p={p} size={32} />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 truncate text-sm font-bold">
-                  {p.firstName} {p.lastName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
+                  {p.lastName.toUpperCase()} {p.firstName} <PosBadge pos={p.position} /> <QuarterBadge birthDate={p.birthDate} />
                 </div>
                 <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
               </div>

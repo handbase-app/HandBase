@@ -151,7 +151,7 @@ export default function Players() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-bold">
-                      {p.firstName} {p.lastName}
+                      {p.lastName.toUpperCase()} {p.firstName}
                     </span>
                     {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                   </div>
