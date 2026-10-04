@@ -12,6 +12,7 @@ import { MergePlayers } from '../components/MergePlayers'
 import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
+import { CourtView } from '../components/CourtPicker'
 import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadges, QuarterBadge } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
 import { latestByPlayer } from './Players'
@@ -187,6 +188,13 @@ export default function PlayerDetail() {
             </div>
           ))}
       </div>
+
+      {(p.position || (p.secondaryPositions ?? []).length > 0) && (
+        <div className="card p-4">
+          <div className="section-title">Postes</div>
+          <CourtView value={p.position} secondary={p.secondaryPositions} />
+        </div>
+      )}
 
       {/* Données factuelles */}
       {testGroups.map(([cat, cs]) => (
