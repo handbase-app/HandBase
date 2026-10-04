@@ -1,5 +1,6 @@
+import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { POSITIONS, type Laterality, type Player, type Position } from '../db'
+import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -76,7 +77,7 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 }
 
 /**
- * Filtres communs (sexe, département, club, année de naissance, poste, recherche) pour parcourir des milliers
+ * Filtres communs (groupe, sexe, département, club, année de naissance, poste, recherche) pour parcourir des milliers
  * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
  * pendant la session, séparément pour chaque écran (`scope`).
  */
@@ -84,6 +85,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const k = (name: string) => `handbase.filter.${scope}.${name}`
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
+  const [group, setGroup] = useSessionState(k('group'), '')
   const [dept, setDept] = useSessionState(k('dept'), '')
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
@@ -99,7 +101,15 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     }
   }
 
-  const all = players ?? []
+  // Groupes (Intercomités, Pôle…) : le groupe choisi limite la liste avant tous les autres filtres.
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived || g.id === group)), [group], [])
+  const current = groups.find((g) => g.id === group)
+  const all = useMemo(() => {
+    const list = players ?? []
+    if (!group) return list
+    const ids = new Set(current?.playerIds ?? [])
+    return list.filter((p) => ids.has(p.id))
+  }, [players, group, current])
   const bySex = useMemo(
     () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand)),
     [all, sex, hand],
@@ -126,11 +136,12 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     })
   }, [scoped, q, position])
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!dept || !!club || !!year || position !== 'all'
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!group || !!dept || !!club || !!year || position !== 'all'
   const reset = () => {
     setQ('')
     setSex('all')
     setHand('all')
+    setGroup('')
     setDept('')
     setClub('')
     setYear('')
@@ -167,6 +178,20 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           </button>
         ))}
       </div>
+      {groups.length > 0 && (
+        <select
+          className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
+          value={group}
+          onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''), setYear(''))}
+        >
+          <option value="">Tous les joueurs (sans groupe choisi)</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
+            </option>
+          ))}
+        </select>
+      )}
       {depts.length > 1 || dept ? (
         <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''), setYear(''))}>
           <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
@@ -214,8 +239,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, dept, club, year, position])
-  return { filtered, ui, active, reset, signature }
+  const signature = JSON.stringify([q, sex, hand, group, dept, club, year, position])
+  return { filtered, ui, active, reset, signature, group: current }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
@@ -331,4 +356,16 @@ export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: stri
   if (e.key === 'ArrowDown') items[Math.min(i + 1, items.length - 1)].focus()
   else if (i > 0) items[i - 1].focus()
   else root.querySelector<HTMLInputElement>('input[placeholder^="Rechercher"]')?.focus()
+}
+
+/** Ouvre la liste Joueurs filtrée sur un groupe (le filtre est gardé pendant la session). */
+export function showGroupInPlayers(groupId: string) {
+  try {
+    sessionStorage.setItem('handbase.filter.joueurs.group', JSON.stringify(groupId))
+    for (const f of ['dept', 'club', 'year', 'q']) sessionStorage.setItem(`handbase.filter.joueurs.${f}`, JSON.stringify(''))
+    sessionStorage.setItem('handbase.filter.joueurs.position', JSON.stringify('all'))
+    sessionStorage.setItem('handbase.filter.joueurs.hand', JSON.stringify('all'))
+  } catch {
+    /* stockage indisponible */
+  }
 }

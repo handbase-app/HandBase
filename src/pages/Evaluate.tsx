@@ -485,7 +485,11 @@ function SpontaneousContext({
 const isFilled = (v: unknown): v is number | string => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')
 
 /** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
-export function NewEventForm({ event, onDone }: { event?: HBEvent; onDone: (ev?: HBEvent) => void }) {
+export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void }) {
+  // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived)), [], [])
+  const [group, setGroup] = useState(groupId ?? '')
+  const picked = groups.find((g) => g.id === group)
   const [name, setName] = useState(event?.name ?? '')
   const [type, setType] = useState<EventType>(event?.type ?? 'match')
   const [date, setDate] = useState(event?.date ?? today())
@@ -498,6 +502,16 @@ export function NewEventForm({ event, onDone }: { event?: HBEvent; onDone: (ev?:
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />
       </div>
+      {!event && groups.length > 0 && (
+        <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
+          <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              Joueurs : groupe {g.name} ({g.playerIds.length})
+            </option>
+          ))}
+        </select>
+      )}
       <div className="flex gap-2">
         <button
           className="btn-primary flex-1"
@@ -506,7 +520,9 @@ export function NewEventForm({ event, onDone }: { event?: HBEvent; onDone: (ev?:
             const fields = { name: name.trim(), type, date, place: place || undefined }
             // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.
             const current = event && (await db.events.get(event.id))
-            onDone(await save<HBEvent>('events', current ? { ...current, ...fields } : { id: newId(), ...fields }))
+            onDone(
+              await save<HBEvent>('events', current ? { ...current, ...fields } : { id: newId(), ...fields, playerIds: picked ? [...picked.playerIds] : undefined }),
+            )
           }}
         >
           {event ? 'Enregistrer' : 'Créer'}

@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Avatar, Empty, PosBadge } from '../components/ui'
 import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -16,7 +16,10 @@ export default function Events() {
   const role = useRole()
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
   const evals = useLiveQuery(() => db.evaluations.toArray().then(alive), [], [])
-  const [creating, setCreating] = useState(false)
+  // Depuis un groupe : « Créer un événement » ouvre le formulaire avec ses joueurs.
+  const [params, setParams] = useSearchParams()
+  const fromGroup = params.get('groupe') ?? undefined
+  const [creating, setCreating] = useState(!!fromGroup)
   const nav = useNavigate()
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -33,7 +36,14 @@ export default function Events() {
       </div>
       {creating && (
         <div className="card p-3">
-          <NewEventForm onDone={(ev) => (setCreating(false), ev && nav(`/evenements/${ev.id}`))} />
+          <NewEventForm
+            groupId={fromGroup}
+            onDone={(ev) => {
+              setCreating(false)
+              if (fromGroup) setParams({}, { replace: true })
+              if (ev) nav(`/evenements/${ev.id}`)
+            }}
+          />
         </div>
       )}
       {events.length === 0 ? (
@@ -253,9 +263,20 @@ export function EventDetail() {
 }
 
 /** Ajout de joueurs : filtres (sexe, club, année, poste, nom), « tout sélectionner » ou un par un. */
-function AddPlayers({ current, onAdd, onCancel }: { current: string[]; onAdd: (ids: string[]) => void; onCancel: () => void }) {
+/** Ajout de joueurs à une liste (événement, groupe) : par groupe de filtres ou un par un. */
+export function AddPlayers({
+  current,
+  onAdd,
+  onCancel,
+  scope = 'ajout-evenement',
+}: {
+  current: string[]
+  onAdd: (ids: string[]) => void
+  onCancel: () => void
+  scope?: string
+}) {
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
-  const { filtered, ui } = usePlayerFilter(all, 'ajout-evenement')
+  const { filtered, ui } = usePlayerFilter(all, scope)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [limit, setLimit] = useState(60)
   const inList = new Set(current)

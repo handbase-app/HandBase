@@ -1,11 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadge } from '../components/ui'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
+import { AddToGroup } from '../components/Groups'
 import { can, useRole } from '../roles'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
@@ -32,7 +33,9 @@ export default function Players() {
     () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
     [all, view],
   )
-  const { filtered, ui, signature: filterSig } = usePlayerFilter(players)
+  const { filtered, ui, signature: filterSig, group } = usePlayerFilter(players)
+  const [grouping, setGrouping] = useState(false)
+  const [groupMsg, setGroupMsg] = useState('')
   const signature = `${view}|${filterSig}`
   // Nombre de joueurs affichés et position dans la liste : retrouvés au retour d'une fiche.
   const [limit, setLimit] = useSessionState('handbase.joueurs.limit', PAGE)
@@ -104,7 +107,31 @@ export default function Players() {
       )}
 
       <div className="mb-3">{ui}</div>
-      <p className="mb-2 text-[11px] text-muted">{filtered.length.toLocaleString('fr-FR')} joueur(s)</p>
+      <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
+        <span>
+          {filtered.length.toLocaleString('fr-FR')} joueur(s)
+          {group && (
+            <>
+              {' '}
+              ·{' '}
+              <Link to={`/groupes/${group.id}`} className="font-bold text-accent">
+                ouvrir le groupe
+              </Link>
+            </>
+          )}
+        </span>
+        {can.manageGroups(role) && filtered.length > 0 && !grouping && (
+          <button className="font-bold text-accent" onClick={() => (setGrouping(true), setGroupMsg(''))}>
+            Mettre ces {filtered.length.toLocaleString('fr-FR')} dans un groupe…
+          </button>
+        )}
+      </div>
+      {grouping && (
+        <div className="mb-3">
+          <AddToGroup playerIds={filtered.map((p) => p.id)} onDone={(m) => (setGrouping(false), setGroupMsg(m ?? ''))} />
+        </div>
+      )}
+      {groupMsg && <p className="mb-2 text-[11px] text-emerald-300">{groupMsg}</p>}
 
       {shown.length === 0 ? (
         <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>

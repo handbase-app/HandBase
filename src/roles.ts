@@ -108,6 +108,9 @@ export const can = {
   manageEvents: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un événement : l'admin tous, l'encadrant les siens (ou ceux sans créateur connu, antérieurs au journal). */
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
+  manageGroups: (r: Role) => r !== 'observateur',
+  /** Modifier / supprimer un groupe : l'admin tous, l'encadrant ceux qu'il a créés. */
+  editGroup: (r: Role, g: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
   /**

@@ -213,13 +213,22 @@ export interface Evaluation extends Syncable {
   improvements?: string
 }
 
+/** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */
+export interface PlayerGroup extends Syncable {
+  name: string
+  description?: string
+  playerIds: string[]
+  /** Groupe d'une saison passée : caché des listes, gardé pour l'historique. */
+  archived?: boolean
+}
+
 export interface OutboxItem {
   seq?: number
   table: SyncTable
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents', 'groups'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -231,6 +240,7 @@ export const db = new Dexie('handbase') as Dexie & {
   events: EntityTable<HBEvent, 'id'>
   evaluations: EntityTable<Evaluation, 'id'>
   referents: EntityTable<Referent, 'id'>
+  groups: EntityTable<PlayerGroup, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -266,6 +276,9 @@ db.version(2).upgrade(applyDefaultCriteria)
 
 // v3 : adultes référents des joueurs.
 db.version(3).stores({ referents: 'id, playerId, updatedAt' })
+
+// v4 : groupes de joueurs.
+db.version(4).stores({ groups: 'id, name, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

@@ -4,6 +4,7 @@ import { canLeave, ConfirmHost } from './components/Confirm'
 import { db } from './db'
 import Events, { EventDetail } from './pages/Events'
 import Evaluate from './pages/Evaluate'
+import Groups, { GroupDetail } from './pages/Groups'
 import Home from './pages/Home'
 import PlayerDetail from './pages/PlayerDetail'
 import PlayerForm from './pages/PlayerForm'
@@ -87,6 +88,8 @@ export default function App() {
           <Route path="/rates" element={<Missed />} />
           <Route path="/evenements" element={<Events />} />
           <Route path="/evenements/:id" element={<EventDetail />} />
+          <Route path="/groupes" element={<Groups />} />
+          <Route path="/groupes/:id" element={<GroupDetail />} />
           <Route path="/parametres" element={<Settings />} />
         </Routes>
       </main>

@@ -26,6 +26,7 @@ const TABLES: Record<string, string> = {
   evaluations: 'Avis',
   criteria: 'Critère',
   referents: 'Référent',
+  groups: 'Groupe',
   profiles: 'Membre du staff',
 }
 
@@ -77,6 +78,8 @@ const FIELDS: Record<string, string> = {
   reviewedByName: 'Validé par',
   reviewedAt: 'Date de validation',
   deleted: 'Supprimé',
+  description: 'Description',
+  archived: 'Archivé',
   role: 'Rôle',
   departments: 'Secteur',
   mergedFrom: 'Fiches fondues',
@@ -202,7 +205,7 @@ export function ActivityLog() {
         }}
       >
         {rows.map((r) => {
-          const link = r.action.startsWith('suppression') ? null : r.table_name === 'players' ? `/joueurs/${r.row_id}` : r.table_name === 'events' ? `/evenements/${r.row_id}` : null
+          const link = r.action.startsWith('suppression') ? null : r.table_name === 'players' ? `/joueurs/${r.row_id}` : r.table_name === 'events' ? `/evenements/${r.row_id}` : r.table_name === 'groups' ? `/groupes/${r.row_id}` : null
           const changes = r.changes ? Object.entries(r.changes) : []
           return (
             <div key={r.id} className="px-3 py-2 text-xs">

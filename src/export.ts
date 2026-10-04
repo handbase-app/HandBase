@@ -82,6 +82,7 @@ export async function exportBackup() {
     events: await db.events.toArray(),
     evaluations: await db.evaluations.toArray(),
     referents: await db.referents.toArray(),
+    groups: await db.groups.toArray(),
   }
   download(`handbase-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json')
 }
@@ -89,7 +90,7 @@ export async function exportBackup() {
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents', 'groups'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []

@@ -9,6 +9,7 @@ const TILES = [
   { to: '/joueurs', title: 'Base de données des joueurs', sub: 'Consulter, modifier et exporter les fiches', icon: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6' },
   { to: '/evaluer', title: 'Évaluer un joueur', sub: 'Donner son avis sur un match ou un tournoi', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
   { to: '/avis-spontanes', title: 'Propositions', sub: 'Joueur vu ailleurs (UNSS, club…) : avis spontanés, fiches proposées', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
+  { to: '/groupes', title: 'Groupes', sub: 'Intercomités, Pôle, Sport-études : vos listes de joueurs en un clic', icon: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM17 11a3 3 0 1 0 0-6M3 20c0-3 3-5 6-5s6 2 6 5M17 15c2.5 0 4 1.7 4 5' },
   { to: '/evenements', title: 'Événements', sub: 'Matchs, tournois, sélections : préparer, noter et classer', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
 ]
 

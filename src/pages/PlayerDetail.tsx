@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
+import { PlayerGroups } from '../components/Groups'
 import { Opinions } from '../components/Opinions'
 import { department, departmentLabel } from '../components/PlayerFilter'
 import { MergePlayers } from '../components/MergePlayers'
@@ -173,6 +174,8 @@ export default function PlayerDetail() {
           }}
         />
       )}
+
+      <PlayerGroups playerId={p.id} />
 
       <div className="card divide-y divide-line">
         {info

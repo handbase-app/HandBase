@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `012_expiration_rgpd.sql`).
+   (`002_roles.sql` … `013_groupes.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -41,7 +41,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 | Rôle | Droits |
 |---|---|
 | Administrateur | Tout : critères, suppression de joueurs, rôles du staff |
-| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés et fiches proposées de son secteur |
+| Encadrant | Fiches joueurs (sans suppression), tests physiques, crée des événements et gère les siens, ses avis, valide les avis spontanés et fiches proposées de son secteur, crée des groupes et gère les siens |
 | Observateur | Consulte tout, donne ses propres avis (ses avis spontanés sont soumis à validation) |
 
 Les droits sont vérifiés par le serveur (`hb_upsert`, `supabase/002_roles.sql`) ; un nouveau compte arrive
@@ -86,6 +86,13 @@ Une fiche proposée jamais traitée est effacée 12 mois après sa création, av
 ses mesures ; les référents d'une fiche hors cadre sont effacés 12 mois après la décision (la fiche reste pour la vue
 « Ratés »). Les données personnelles disparaissent aussi du journal d'activité. `supabase/012_expiration_rgpd.sql` :
 tâche de nuit si l'extension *pg_cron* est disponible, sinon lancée une fois par jour par l'appli d'un administrateur.
+
+### Groupes
+
+Listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : filtre « Groupe » dans les listes de joueurs,
+export, et création d'un événement avec les joueurs d'un groupe (copie, modifiable ensuite). Visibles par tout le
+staff ; un encadrant ne modifie que les siens, un administrateur tous. Une fusion de fiches remplace aussi la fiche
+fondue dans les groupes (`supabase/013_groupes.sql`).
 
 ### Journal d'activité
 
