@@ -66,9 +66,19 @@ export default function Players() {
 
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Joueurs</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 whitespace-nowrap">
+          {can.manageGroups(role) && (
+            <button
+              className="btn-ghost px-3 py-1.5 text-xs"
+              title="Ajouter les joueurs affichés à un groupe (existant ou nouveau)"
+              disabled={!filtered.length}
+              onClick={() => (setGrouping(true), setGroupMsg({ text: '' }))}
+            >
+              → Groupe{filtered.length < all.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
+            </button>
+          )}
           <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv(filtered)} disabled={!filtered.length}>
             Exporter{filtered.length < all.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
           </button>
@@ -120,11 +130,6 @@ export default function Players() {
             </>
           )}
         </span>
-        {can.manageGroups(role) && filtered.length > 0 && !grouping && (
-          <button className="font-bold text-accent" onClick={() => (setGrouping(true), setGroupMsg({ text: '' }))}>
-            Mettre ces {filtered.length.toLocaleString('fr-FR')} dans un groupe…
-          </button>
-        )}
       </div>
       {grouping && (
         <AddToGroupDialog playerIds={filtered.map((p) => p.id)} onClose={(text, groupId) => (setGrouping(false), setGroupMsg({ text: text ?? '', groupId }))} />
