@@ -43,7 +43,8 @@ export const DEPARTMENT_CHOICES = Object.entries(DEPARTMENTS).map(([value, name]
 export const departmentLabel = (d: string) => (DEPARTMENTS[d] ? `${d} · ${DEPARTMENTS[d]}` : `Département ${d}`)
 
 // Trimestre choisi : même code couleur que la pastille Q1…Q4 (vert → rouge).
-const QUARTER_ACTIVE = ['bg-emerald-600 text-white', 'bg-yellow-500 text-black', 'bg-orange-500 text-white', 'bg-red-600 text-white']
+const QUARTER_ACTIVE = ['border-emerald-500 text-emerald-300', 'border-yellow-500 text-yellow-300', 'border-orange-500 text-orange-300', 'border-red-500 text-red-300']
+const QUARTER_LABELS = ['Q1 · janvier–mars', 'Q2 · avril–juin', 'Q3 · juillet–septembre', 'Q4 · octobre–décembre']
 
 export type SexFilter = 'all' | 'M' | 'F'
 
@@ -171,6 +172,28 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           </button>
         ))}
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
+          <option value="">Toutes les années</option>
+          {[...years, ...(year && !years.some(([y]) => y === year) ? [[year, 0] as [string, number]] : [])].map(([y, n]) => (
+            <option key={y} value={y}>
+              {y} ({n})
+            </option>
+          ))}
+        </select>
+        <select
+          className={`field py-1.5 text-xs ${quarter ? `font-bold ${QUARTER_ACTIVE[quarter - 1]}` : ''}`}
+          value={quarter}
+          onChange={(e) => setQuarter(Number(e.target.value))}
+        >
+          <option value={0}>Tous les trimestres</option>
+          {QUARTER_LABELS.map((l, i) => (
+            <option key={i} value={i + 1}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
         {(
           [
@@ -185,23 +208,22 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           </button>
         ))}
       </div>
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {[0, 1, 2, 3, 4].map((v) => (
-          <button
-            key={v}
-            onClick={() => setQuarter(v)}
-            title={v ? `Nés au ${v === 1 ? '1er' : `${v}e`} trimestre` : 'Tous les trimestres de naissance'}
-            className={`flex-1 py-1.5 ${quarter === v ? (v ? QUARTER_ACTIVE[v - 1] : 'bg-accent text-white') : 'bg-panel-2 text-muted'}`}
-          >
-            {v ? `Q${v}` : 'Tous trim.'}
-          </button>
-        ))}
-      </div>
+      {depts.length > 1 || dept ? (
+        <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
+          <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
+          {depts.map(([d, n]) => (
+            <option key={d} value={d}>
+              {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={setClub} />
       {groups.length > 0 && (
         <select
           className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
           value={group}
-          onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''), setYear(''))}
+          onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''))}
         >
           <option value="">Tous les joueurs (sans groupe choisi)</option>
           {groups.map((g) => (
@@ -211,27 +233,6 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           ))}
         </select>
       )}
-      {depts.length > 1 || dept ? (
-        <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''), setYear(''))}>
-          <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
-          {depts.map(([d, n]) => (
-            <option key={d} value={d}>
-              {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
-            </option>
-          ))}
-        </select>
-      ) : null}
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={(c) => (setClub(c), setYear(''))} />
-        <select className="field w-32 py-1.5 text-xs" value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="">Toutes années</option>
-          {years.map(([y, n]) => (
-            <option key={y} value={y}>
-              {y} ({n})
-            </option>
-          ))}
-        </select>
-      </div>
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {[{ id: 'all' as const, short: 'Tous postes' }, ...POSITIONS, { id: 'none' as const, short: 'Sans poste' }].map((p) => {
           const n = p.id === 'all' ? scoped.length : (positionCounts[p.id] ?? 0)
