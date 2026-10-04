@@ -39,15 +39,6 @@ function generatePassword() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`
 }
 
-/** Numéro au format international sans « + » pour WhatsApp : 06 12 34 56 78 → 33612345678. */
-function waNumber(phone: string) {
-  const d = phone.replace(/[^\d+]/g, '')
-  if (d.startsWith('+')) return d.slice(1)
-  if (d.startsWith('00')) return d.slice(2)
-  if (d.length === 10 && d.startsWith('0')) return '33' + d.slice(1)
-  return d
-}
-
 function accessMessage(a: Access) {
   const url = location.origin + import.meta.env.BASE_URL
   // Lien qui connecte en un clic (voir AuthGate) ; la partie après « # » ne quitte pas le téléphone.
@@ -72,13 +63,12 @@ function accessMessage(a: Access) {
   ].join('\n')
 }
 
-/** Envoyer l'accès : e-mail, SMS, WhatsApp ou partage du téléphone (le message part de l'appareil de l'administrateur). */
+/** Envoyer l'accès avec l'écran de partage du téléphone (le message part de l'appareil de l'administrateur). */
 function AccessShare({ access, onClose }: { access: Access; onClose: () => void }) {
   const text = accessMessage(access)
   const subject = 'Ton accès à HandBase'
-  const phone = access.phone.replace(/[^\d+]/g, '')
   const canShare = typeof navigator.share === 'function'
-  const btn = 'btn-ghost flex-1 px-2 py-1.5 text-center text-xs'
+  const [copied, setCopied] = useState(false)
   return (
     <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
       <div className="font-bold text-emerald-300">{access.isNew ? `Compte créé pour ${access.name}` : `Lien de changement de mot de passe pour ${access.name}`}</div>
@@ -91,38 +81,20 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
         Envoie-lui maintenant : ce mot de passe ne sera plus affiché. Le message contient un lien qui le connecte en un clic, valable 24 h ; il
         choisira ensuite son mot de passe.
       </div>
-      {canShare && (
-        // Écran de partage du téléphone : Telegram, Signal, Gmail, WhatsApp… au choix.
+      {canShare ? (
+        // Écran de partage du téléphone : SMS, WhatsApp, Telegram, e-mail… et « Copier ».
         <button className="btn-primary mt-2 w-full text-xs" onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
-          Partager… (toutes les applis)
+          Partager…
+        </button>
+      ) : (
+        // Navigateur d'ordinateur sans partage : copier le message pour le coller où l'on veut.
+        <button
+          className="btn-primary mt-2 w-full text-xs"
+          onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}
+        >
+          {copied ? 'Message copié ✓' : 'Copier le message'}
         </button>
       )}
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <a className={btn} href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}>
-          ✉ E-mail
-        </a>
-        {phone ? (
-          <a className={btn} href={`sms:${phone}?&body=${encodeURIComponent(text)}`}>
-            💬 SMS
-          </a>
-        ) : (
-          <span className={`${btn} opacity-40`} title="Pas de numéro de téléphone">
-            💬 SMS
-          </span>
-        )}
-        {phone ? (
-          <a className={btn} href={`https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer">
-            WhatsApp
-          </a>
-        ) : (
-          <span className={`${btn} opacity-40`} title="Pas de numéro de téléphone">
-            WhatsApp
-          </span>
-        )}
-        <button className={btn} onClick={() => void navigator.clipboard?.writeText(text)}>
-          Copier
-        </button>
-      </div>
       <div className="mt-2 flex justify-end">
         <button className="btn px-3 py-1 text-xs text-muted" onClick={onClose}>
           Terminé
@@ -169,7 +141,7 @@ export function Members() {
               ))}
             </ul>
             <p>
-              Ajouter quelqu’un : « + Membre », puis envoie-lui son accès par e-mail, SMS ou WhatsApp : un lien qui le connecte en un clic,
+              Ajouter quelqu’un : « + Membre », puis « Partager… » pour lui envoyer son accès (SMS, WhatsApp, e-mail…) : un lien qui le connecte en un clic,
               valable 24 h. Il choisit ensuite son propre mot de passe. Mot de passe oublié : il le récupère seul depuis l’écran de connexion.
             </p>
             <p>
@@ -347,7 +319,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         <input className="field" type="email" inputMode="email" autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div>
-        <span className="label">Téléphone (pour lui envoyer son accès par SMS / WhatsApp)</span>
+        <span className="label">Téléphone</span>
         <input className="field" type="tel" inputMode="tel" placeholder="06 12 34 56 78" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
       <div>
