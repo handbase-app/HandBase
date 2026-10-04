@@ -218,9 +218,32 @@ export interface PlayerGroup extends Syncable {
   name: string
   description?: string
   playerIds: string[]
+  /** Informations facultatives, pour filtrer et retrouver les groupes. */
+  sex?: 'M' | 'F' | 'mixte'
+  department?: string
+  region?: string
+  /** Années de naissance concernées (ex. ['2010', '2011']). */
+  years?: string[]
   /** Groupe d'une saison passée : caché des listes, gardé pour l'historique. */
   archived?: boolean
 }
+
+export const REGIONS = [
+  'Auvergne-Rhône-Alpes',
+  'Bourgogne-Franche-Comté',
+  'Bretagne',
+  'Centre-Val de Loire',
+  'Corse',
+  'Grand Est',
+  'Hauts-de-France',
+  'Île-de-France',
+  'Normandie',
+  'Nouvelle-Aquitaine',
+  'Occitanie',
+  'Pays de la Loire',
+  'Provence-Alpes-Côte d’Azur',
+  'Outre-mer',
+]
 
 export interface OutboxItem {
   seq?: number

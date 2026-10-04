@@ -80,6 +80,8 @@ const FIELDS: Record<string, string> = {
   deleted: 'Supprimé',
   description: 'Description',
   archived: 'Archivé',
+  region: 'Région',
+  years: 'Années',
   role: 'Rôle',
   departments: 'Secteur',
   mergedFrom: 'Fiches fondues',
