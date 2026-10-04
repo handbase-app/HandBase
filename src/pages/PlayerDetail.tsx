@@ -8,7 +8,6 @@ import { PlayerGroups } from '../components/Groups'
 import { Opinions } from '../components/Opinions'
 import { department, departmentLabel } from '../components/PlayerFilter'
 import { MergePlayers } from '../components/MergePlayers'
-import { Referents } from '../components/Referents'
 import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
@@ -134,9 +133,8 @@ export default function PlayerDetail() {
               : 'Fiche mise hors cadre : gardée pour mémoire, pour voir plus tard ce que le joueur est devenu.'}{' '}
             {/* RGPD (supabase/012_expiration_rgpd.sql). */}
             {p.review === 'pending' && expiryDate(p.createdAtServer) && (
-              <>Sans décision, elle sera effacée (avec ses avis et référents) le {fmtDate(expiryDate(p.createdAtServer))}.</>
+              <>Sans décision, elle sera effacée (avec ses avis) le {fmtDate(expiryDate(p.createdAtServer))}.</>
             )}
-            {p.review === 'refused' && expiryDate(p.reviewedAt) && <>Ses adultes référents seront effacés le {fmtDate(expiryDate(p.reviewedAt))}.</>}
           </p>
           <ReviewNote e={p} />
           {can.reviewDept(role, department(p)) ? (
@@ -228,8 +226,6 @@ export default function PlayerDetail() {
           <div className="text-sm whitespace-pre-wrap">{p.notes}</div>
         </div>
       )}
-
-      <Referents playerId={p.id} />
 
       {p.mergedFrom && p.mergedFrom.length > 0 && (
         <div className="card p-4">

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { newId, POSITIONS, save, type Player, type Position } from '../db'
 import { can, myDepartments, useRole } from '../roles'
 import { DEPARTMENT_CHOICES } from './PlayerFilter'
-import { ReferentFields, referentReady, saveReferent, type ReferentDraft } from './Referents'
 import { Segmented } from './ui'
 
 /**
@@ -23,11 +22,10 @@ export function ProposePlayer({
   const [p, setP] = useState<Partial<Player>>(() =>
     initial?.id ? initial : { department: myDepartments().length === 1 ? myDepartments()[0] : undefined, ...initial },
   )
-  const [ref, setRef] = useState<ReferentDraft | null>(null)
   const [otherDept, setOtherDept] = useState(!!p.department && !DEPARTMENT_CHOICES.some((d) => d.value === p.department))
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
   const editing = !!p.id
-  const ok = !!p.firstName?.trim() && !!p.lastName?.trim() && !!p.department?.trim() && (!ref || referentReady(ref))
+  const ok = !!p.firstName?.trim() && !!p.lastName?.trim() && !!p.department?.trim()
 
   async function submit() {
     if (!ok) return
@@ -41,7 +39,6 @@ export function ProposePlayer({
       // Le serveur applique la même règle, quoi qu'envoie l'appareil.
       ...(editing ? {} : can.review(role) ? {} : { review: 'pending' as const }),
     } as Player)
-    if (ref) await saveReferent(player.id, ref)
     onDone(player)
   }
 
@@ -118,23 +115,6 @@ export function ProposePlayer({
       <input className="field" placeholder="Établissement ou club (ex. collège Jean Moulin)" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
       <textarea className="field min-h-12" placeholder="Notes" value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value || undefined)} />
 
-      {!editing &&
-        (ref ? (
-          <div className="rounded-lg border border-line p-2.5">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-bold">Adulte référent</span>
-              <button className="text-[11px] text-muted" onClick={() => setRef(null)}>
-                Retirer
-              </button>
-            </div>
-            <ReferentFields value={ref} onChange={setRef} />
-          </div>
-        ) : (
-          <button className="self-start text-xs font-bold text-accent" onClick={() => setRef({ role: 'eps' })}>
-            + Adulte référent à contacter (parent, prof d’EPS…)
-          </button>
-        ))}
-
       <div className="flex gap-2">
         <button className="btn-primary flex-1" disabled={!ok} onClick={() => void submit()}>
           {editing ? 'Enregistrer' : can.review(role) ? 'Créer la fiche' : 'Proposer la fiche'}
@@ -143,7 +123,7 @@ export function ProposePlayer({
           Annuler
         </button>
       </div>
-      {!ok && <p className="text-[10px] text-muted">Prénom, nom et département obligatoires{ref ? ' ; référent : nom, qualité et un moyen de contact' : ''}.</p>}
+      {!ok && <p className="text-[10px] text-muted">Prénom, nom et département obligatoires.</p>}
     </div>
   )
 }

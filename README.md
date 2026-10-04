@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `017_groupes_prives.sql`).
+   (`002_roles.sql` … `019_region_sud.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -62,13 +62,12 @@ moyennes qu'une fois **validé** par un encadrant ou un administrateur ; refusé
 sur la fiche du joueur, jamais compté). S'il est modifié, il repasse en attente. Les avis spontanés des
 encadrants et administrateurs sont validés d'office. Règles tenues par le serveur (`supabase/008_avis_spontanes.sql`).
 
-### Fiches proposées et adultes référents
+### Fiches proposées
 
 Un observateur peut **proposer** la fiche d'un joueur absent de la base (UNSS, sans licence) : nom, prénom,
 département (obligatoire), établissement ou club… Un encadrant la **valide** ou la met **hors cadre** (onglet
-*Joueurs → Hors cadre*, gardée pour voir plus tard ce que le joueur est devenu). Chaque fiche peut avoir des
-**adultes référents** (parent, professeur d'EPS…) : table `hb_referents`, lisible seulement par les encadrants et
-administrateurs, et par celui qui les a saisis (`supabase/009_joueurs_proposes.sql`).
+*Joueurs → Hors cadre*, gardée pour voir plus tard ce que le joueur est devenu). Les adultes référents (coordonnées
+de parents, professeurs d'EPS…) ont été retirés : plus aucune coordonnée n'est conservée (`supabase/018_suppression_referents.sql`).
 
 ### Secteurs
 
@@ -81,7 +80,7 @@ propose (`supabase/010_secteurs.sql`).
 ### Fusion de fiches et « Ratés »
 
 Deux fiches du même joueur (doublon, fiche proposée qui obtient une licence) se fusionnent depuis la fiche joueur
-(encadrants, administrateurs, en ligne) : avis, mesures, référents et listes d'événements passent sur la fiche
+(encadrants, administrateurs, en ligne) : avis, mesures et listes d'événements passent sur la fiche
 gardée, complétée sans rien écraser ; l'autre est supprimée (`supabase/011_fusion_fiches.sql`, d'un bloc, côté
 serveur). Les doublons possibles (même nom, naissance compatible) sont signalés sur la fiche et dans *Propositions* ;
 l'import des licences retrouve aussi les fiches proposées saisies sans date de naissance. La vue **Ratés** liste les
@@ -89,9 +88,8 @@ joueurs mis hors cadre et ce qu'ils sont devenus depuis (licence, convocations, 
 
 ### Expiration des données (RGPD)
 
-Une fiche proposée jamais traitée est effacée 12 mois après sa création, avec ses adultes référents, ses avis et
-ses mesures ; les référents d'une fiche hors cadre sont effacés 12 mois après la décision (la fiche reste pour la vue
-« Ratés »). Les données personnelles disparaissent aussi du journal d'activité. `supabase/012_expiration_rgpd.sql` :
+Une fiche proposée jamais traitée est effacée 12 mois après sa création, avec ses avis et ses mesures (une fiche
+hors cadre reste pour la vue « Ratés »). Les données personnelles disparaissent aussi du journal d'activité. `supabase/012_expiration_rgpd.sql` :
 tâche de nuit si l'extension *pg_cron* est disponible, sinon lancée une fois par jour par l'appli d'un administrateur.
 
 ### Groupes

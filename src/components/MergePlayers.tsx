@@ -9,7 +9,7 @@ import { ReviewBadge } from './Review'
 
 /**
  * Fusion de la fiche affichée avec une autre (doublon, fiche proposée qui a obtenu une licence…).
- * On choisit la fiche à garder ; l'autre y est fondue (avis, mesures, référents, événements).
+ * On choisit la fiche à garder ; l'autre y est fondue (avis, mesures, événements).
  */
 export function MergePlayers({ player, otherId, onClose }: { player: Player; otherId?: string; onClose: () => void }) {
   const nav = useNavigate()
@@ -111,7 +111,7 @@ export function MergePlayers({ player, otherId, onClose }: { player: Player; oth
           {preview && source && target && (
             <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px]">
               Passeront sur la fiche gardée : <b>{preview.evaluations}</b> avis, <b>{preview.measurements}</b> mesure(s),{' '}
-              <b>{preview.referents}</b> référent(s) ; <b>{preview.events}</b> événement(s) mis à jour. Les informations manquantes de la
+              <b>{preview.events}</b> événement(s) mis à jour. Les informations manquantes de la
               fiche gardée sont complétées par l’autre, sans rien écraser
               {source.review === 'refused' ? ' ; la mise hors cadre de la fiche fondue reste dans son historique (vue « Ratés »)' : ''}.
             </div>

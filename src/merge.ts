@@ -49,13 +49,12 @@ export function keepFirst(a: Player, b: Player): [Player, Player] {
 
 /** Ce que la fusion va déplacer, pour l'aperçu. */
 export async function mergePreview(sourceId: string) {
-  const [evaluations, measurements, referents, events] = await Promise.all([
+  const [evaluations, measurements, events] = await Promise.all([
     db.evaluations.where('playerId').equals(sourceId).filter((e: Evaluation) => !e.deleted).count(),
     db.measurements.where('playerId').equals(sourceId).filter((m) => !m.deleted).count(),
-    db.referents.where('playerId').equals(sourceId).filter((r) => !r.deleted).count(),
     db.events.filter((e: HBEvent) => !e.deleted && (e.playerIds ?? []).includes(sourceId)).count(),
   ])
-  return { evaluations, measurements, referents, events }
+  return { evaluations, measurements, events }
 }
 
 /** Fond `sourceId` dans `targetId` (en ligne). Renvoie un message d'erreur, ou null si c'est fait. */

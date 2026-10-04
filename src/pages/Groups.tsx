@@ -169,7 +169,7 @@ function yearChoices(selected: string[] = []) {
   return [...new Set([...ys, ...selected])].sort((a, b) => b.localeCompare(a))
 }
 
-/** « Garçons · 83 · 2010-2011 · Provence-Alpes-Côte d’Azur » : les informations du groupe, en clair. */
+/** « Garçons · 83 · 2010-2011 · Région Sud » : les informations du groupe, en clair. */
 export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'region' | 'years'>) {
   const ys = [...(g.years ?? [])].sort()
   const years = !ys.length ? '' : ys.length > 1 && Number(ys[ys.length - 1]) - Number(ys[0]) === ys.length - 1 ? `${ys[0]}-${ys[ys.length - 1]}` : ys.join(', ')

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { resetReferents, supabase } from './sync'
+import { supabase } from './sync'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -18,7 +18,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
-  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis, adultes référents ; valide les avis spontanés et fiches proposées de son secteur.',
+  preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis ; valide les avis spontanés et fiches proposées de son secteur.',
   observateur: 'Consulte tout et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
 }
 
@@ -56,8 +56,6 @@ let departments: string[] = (() => {
 const listeners = new Set<() => void>()
 
 function set(r: Role, uid: string | null, depts: string[] = []) {
-  // Autre compte ou autre rôle : les référents visibles changent (supabase/009_joueurs_proposes.sql).
-  if (r !== role || uid !== userId) void resetReferents()
   role = r
   userId = uid
   departments = depts
@@ -124,8 +122,6 @@ export const can = {
    */
   reviewDept: (r: Role, dept?: string) =>
     r === 'admin' || (r === 'preparateur' && (departments.length === 0 || (!!dept && departments.includes(dept)))),
-  /** Voir les adultes référents saisis par les autres (sinon, seulement les siens). */
-  allReferents: (r: Role) => r !== 'observateur',
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

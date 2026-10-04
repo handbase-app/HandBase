@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { fmtDate, type Measurement, type Player } from '../db'
+import { InfoButton } from './ui'
 import {
   correctedParentHeight,
   decimalAge,
@@ -87,10 +88,22 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
 
   return (
     <div className="card p-4">
-      <div className="mb-1 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
+      <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
         <span className="text-accent">⇡</span> Maturité & croissance
+        <InfoButton title="Maturité & croissance">
+          <p>Estimations calculées à partir des mesures : pas des certitudes.</p>
+          <p>
+            <b>Pic de croissance</b> (Mirwald 2002, Moore 2015) : écart en années avec le moment où le joueur grandit le plus vite. Négatif =
+            pic à venir, positif = pic passé.{p.sex ? ` Âge moyen au pic : ${f1(MEAN_APHV[p.sex])} ans.` : ''} Marge d’environ ±1 an ; ces
+            équations sous-estiment l’écart des joueurs très précoces ou très tardifs (le décalage est ramené vers la moyenne).
+          </p>
+          <p>
+            <b>Taille adulte prédite</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
+            marge à 90 %. Le pourcentage de taille adulte atteinte situe le joueur dans sa croissance.
+          </p>
+          <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter un joueur.</p>
+        </InfoButton>
       </div>
-      <div className="mb-3 text-[10px] text-muted">Estimations calculées à partir des mesures — pas des certitudes.</div>
 
       {missing.length > 0 || !last ? (
         <div className="text-xs text-muted">
@@ -104,11 +117,6 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
           <OffsetBlock snap={last} sex={p.sex!} noSitting={noSitting} noWeight={noWeight} />
           <AdultHeightBlock snap={last} noParents={noParents} noWeight={noWeight} playerId={p.id} />
           {snaps.length > 1 && <History snaps={snaps} />}
-          <p className="text-[10px] leading-relaxed text-muted">
-            Mirwald (2002) et Moore (2015) : marge d'environ ±1 an, ils sous-estiment l'écart des joueurs très précoces ou très tardifs
-            (le décalage est ramené vers la moyenne). Khamis-Roche (1994) : marge à 90 % indiquée. À utiliser pour adapter
-            l'entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter un joueur.
-          </p>
         </div>
       )}
     </div>
@@ -147,9 +155,6 @@ function OffsetBlock({ snap, sex, noSitting, noWeight }: { snap: Snapshot; sex: 
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="rounded border border-accent/50 bg-accent-soft px-1.5 py-0.5 font-bold text-accent">{PHASE_LABEL[ph]}</span>
-        <span className="text-muted">
-          Négatif = pic à venir, positif = pic passé. Âge moyen au pic : {f1(MEAN_APHV[sex])} ans.
-        </span>
       </div>
       {!reliable && (
         <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">

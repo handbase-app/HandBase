@@ -95,38 +95,6 @@ export interface MergeTrace {
   mergedByName?: string
 }
 
-/** Qualité d'un adulte référent. */
-export type ReferentRole = 'parent' | 'eps' | 'entraineur' | 'etablissement' | 'autre'
-
-export const REFERENT_ROLES: { value: ReferentRole; label: string }[] = [
-  { value: 'parent', label: 'Parent / tuteur' },
-  { value: 'eps', label: 'Professeur d’EPS' },
-  { value: 'entraineur', label: 'Entraîneur' },
-  { value: 'etablissement', label: 'Établissement' },
-  { value: 'autre', label: 'Autre' },
-]
-
-/**
- * Adulte à contacter au sujet d'un joueur (jamais les coordonnées de l'enfant lui-même).
- * Lisible seulement par les encadrants et administrateurs, et par celui qui l'a saisi.
- */
-export interface Referent extends Syncable {
-  playerId: string
-  firstName?: string
-  lastName: string
-  role: ReferentRole
-  /** Collège, club… */
-  structure?: string
-  phone?: string
-  email?: string
-  address?: string
-  /** Contact à privilégier. */
-  preferred?: boolean
-  /** D'où vient l'information (« donné par le prof d'EPS le 12/10 »). */
-  source?: string
-  notes?: string
-}
-
 /** factual = une seule source (préparateur) ; subjective = plusieurs observateurs. */
 export type CriterionKind = 'factual' | 'subjective'
 /** score5 = 1..5, score3 = 0..3, score2 = 0..2, number = valeur libre avec unité, text = note libre,
@@ -243,7 +211,7 @@ export const REGIONS = [
   'Nouvelle-Aquitaine',
   'Occitanie',
   'Pays de la Loire',
-  'Provence-Alpes-Côte d’Azur',
+  'Région Sud',
   'Outre-mer',
 ]
 
@@ -253,7 +221,7 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'referents', 'groups'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -264,7 +232,6 @@ export const db = new Dexie('handbase') as Dexie & {
   measurements: EntityTable<Measurement, 'id'>
   events: EntityTable<HBEvent, 'id'>
   evaluations: EntityTable<Evaluation, 'id'>
-  referents: EntityTable<Referent, 'id'>
   groups: EntityTable<PlayerGroup, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
@@ -304,6 +271,11 @@ db.version(3).stores({ referents: 'id, playerId, updatedAt' })
 
 // v4 : groupes de joueurs.
 db.version(4).stores({ groups: 'id, name, updatedAt' })
+
+// v5 : adultes référents retirés de l'appli ; leurs copies sont effacées des appareils.
+db.version(5)
+  .stores({ referents: null })
+  .upgrade((tx) => tx.table('outbox').where('table').equals('referents').delete())
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

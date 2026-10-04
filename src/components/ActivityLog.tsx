@@ -26,7 +26,6 @@ const TABLES: Record<string, string> = {
   measurements: 'Mesure',
   evaluations: 'Avis',
   criteria: 'Critère',
-  referents: 'Référent',
   groups: 'Groupe',
   profiles: 'Membre du staff',
 }
