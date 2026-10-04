@@ -6,7 +6,8 @@ import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, DEPARTMENT_CHOICES, departmentLabel, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { Avatar, Empty, PosBadge, QuarterBadge, Segmented } from '../components/ui'
-import { alive, db, newId, REGIONS, remove, save, type Player, type PlayerGroup } from '../db'
+import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
+import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, useRole } from '../roles'
 import { AddPlayers } from './Events'
@@ -16,6 +17,7 @@ export default function Groups() {
   const role = useRole()
   const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup)))
   const [showArchived, setShowArchived] = useState(false)
+  const regionName = useRegionName()
   // Filtres de la liste (gardés pendant la session).
   const [q, setQ] = useSessionState('handbase.groupes.q', '')
   const [sex, setSex] = useSessionState('handbase.groupes.sex', '')
@@ -28,7 +30,7 @@ export default function Groups() {
     (g) =>
       (!sex || g.sex === sex) &&
       (!dept || g.department === dept) &&
-      (!region || g.region === region) &&
+      (!region || g.regionId === region) &&
       (!year || g.years?.includes(year)) &&
       words.every((w) => fold(`${g.name} ${g.description ?? ''} ${g.createdByName ?? ''}`).includes(w)),
   )
@@ -36,7 +38,7 @@ export default function Groups() {
   const archived = shown.filter((g) => g.archived)
   const uniq = (vs: (string | undefined)[]) => [...new Set(vs.filter((v): v is string => !!v))].sort()
   const depts = uniq(groups.map((g) => g.department))
-  const regions = uniq(groups.map((g) => g.region))
+  const regions = uniq(groups.map((g) => g.regionId)).filter((r) => regionName(r))
   const years = uniq(groups.flatMap((g) => g.years ?? [])).reverse()
   const filtering = !!(q || sex || dept || region || year)
 
@@ -79,7 +81,7 @@ export default function Groups() {
                 <option value="">Toutes régions</option>
                 {regions.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {regionName(r)}
                   </option>
                 ))}
               </select>
@@ -138,6 +140,8 @@ export default function Groups() {
 }
 
 function GroupRow({ g }: { g: PlayerGroup }) {
+  const regionName = useRegionName()
+  const info = groupInfo(g, regionName(g.regionId))
   return (
     <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
@@ -145,7 +149,7 @@ function GroupRow({ g }: { g: PlayerGroup }) {
           {g.name}
           {g.archived && <span className="ml-2 text-[10px] text-muted">archivé</span>}
         </div>
-        {groupInfo(g) && <div className="truncate text-[11px] font-bold text-accent">{groupInfo(g)}</div>}
+        {info && <div className="truncate text-[11px] font-bold text-accent">{info}</div>}
         {g.description && <div className="truncate text-[11px] text-muted">{g.description}</div>}
         {g.createdByName && !g.private && <div className="text-[10px] text-muted">par {g.createdByName}</div>}
       </div>
@@ -170,10 +174,10 @@ function yearChoices(selected: string[] = []) {
 }
 
 /** « Garçons · 83 · 2010-2011 · Région Sud » : les informations du groupe, en clair. */
-export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'region' | 'years'>) {
+export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years'>, region?: string) {
   const ys = [...(g.years ?? [])].sort()
   const years = !ys.length ? '' : ys.length > 1 && Number(ys[ys.length - 1]) - Number(ys[0]) === ys.length - 1 ? `${ys[0]}-${ys[ys.length - 1]}` : ys.join(', ')
-  return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, g.region].filter(Boolean).join(' · ')
+  return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, region].filter(Boolean).join(' · ')
 }
 
 /** Copie d'un groupe sans la signature serveur de l'original (la copie a son propre créateur). */
@@ -191,7 +195,8 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const [priv, setPriv] = useState(group ? !!group.private : true)
   const [sex, setSex] = useState(group?.sex)
   const [department, setDepartment] = useState(group?.department ?? '')
-  const [region, setRegion] = useState(group?.region ?? '')
+  const regions = useRegions()
+  const [region, setRegion] = useState(group?.regionId ?? '')
   // Année d'âge (les anciens groupes à plusieurs années gardent la première).
   const sortedYears = [...(group?.years ?? [])].sort()
   const [year, setYear] = useState(sortedYears[0] ?? '')
@@ -248,9 +253,9 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           <span className="label">Région</span>
           <select className="field" value={region} onChange={(e) => setRegion(e.target.value)}>
             <option value="">—</option>
-            {REGIONS.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
               </option>
             ))}
           </select>
@@ -280,7 +285,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               description: description.trim() || undefined,
               sex,
               department: department || undefined,
-              region: region || undefined,
+              regionId: region || undefined,
               years: years.length ? [...years].sort() : undefined,
             }
             // Relit le groupe : sa liste a pu changer entre-temps.
@@ -341,6 +346,7 @@ export function GroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
+  const regionName = useRegionName()
   // Groupe tout juste créé sans joueurs : on ouvre directement l'ajout ; tout juste copié : sa fiche.
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState(params.has('modifier'))
@@ -362,6 +368,7 @@ export function GroupDetail() {
   const { g, players } = data
   if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   const manage = can.editGroup(role, g)
+  const info = groupInfo(g, regionName(g.regionId))
   const sorted = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr') || a.firstName.localeCompare(b.firstName, 'fr'))
 
   if (adding)
@@ -447,7 +454,7 @@ export function GroupDetail() {
             {g.name}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
           </h1>
-          {groupInfo(g) && <div className="text-xs font-bold text-accent">{groupInfo(g)}</div>}
+          {info && <div className="text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
           <div className="mt-1">
             <StampLine row={g} />

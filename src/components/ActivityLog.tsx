@@ -27,6 +27,7 @@ const TABLES: Record<string, string> = {
   evaluations: 'Avis',
   criteria: 'Critère',
   groups: 'Groupe',
+  lists: 'Région',
   profiles: 'Membre du staff',
 }
 
@@ -80,7 +81,7 @@ const FIELDS: Record<string, string> = {
   deleted: 'Supprimé',
   description: 'Description',
   archived: 'Archivé',
-  region: 'Région',
+  regionId: 'Région',
   years: 'Années',
   role: 'Rôle',
   departments: 'Secteur',

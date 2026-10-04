@@ -8,6 +8,7 @@ import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../i
 import { supabase, syncNow, useSyncState } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
 import { Members } from '../components/Members'
+import { RegionsEditor } from '../components/RegionsEditor'
 import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../components/PlayerFilter'
@@ -60,6 +61,8 @@ export default function Settings() {
       {can.manageRoles(role) && <LicenceImport />}
 
       {supabase && can.manageRoles(role) && <ActivityLog />}
+
+      {can.editCriteria(role) && <RegionsEditor />}
 
       {can.editCriteria(role) ? (
         <CriteriaEditor />

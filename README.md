@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `019_region_sud.sql`).
+   (`002_roles.sql` … `019_listes_regions.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -99,7 +99,9 @@ export, création d'un événement avec les joueurs d'un groupe, duplication (ex
 Un groupe est privé (son créateur seul, administrateurs compris, `supabase/017_groupes_prives.sql`) ou public
 (tout le staff ; un encadrant ne modifie que les siens, un administrateur tous). Les observateurs créent des
 groupes privés uniquement. Une fusion de fiches remplace aussi la fiche
-fondue dans les groupes (`supabase/013_groupes.sql`).
+fondue dans les groupes (`supabase/013_groupes.sql`). La liste des régions n'est pas écrite dans l'appli : elle est
+dans la table `hb_lists`, modifiable par un administrateur (*Réglages → Régions*) ; un groupe garde l'identifiant de sa
+région, donc renommer une région renomme celle de tous les groupes (`supabase/019_listes_regions.sql`).
 
 ### Journal d'activité
 

@@ -191,29 +191,23 @@ export interface PlayerGroup extends Syncable {
   /** Informations facultatives, pour filtrer et retrouver les groupes. */
   sex?: 'M' | 'F' | 'mixte'
   department?: string
-  region?: string
+  /** Identifiant de la région (liste « region » de hb_lists). */
+  regionId?: string
   /** Années de naissance concernées (ex. ['2010', '2011']). */
   years?: string[]
   /** Groupe d'une saison passée : caché des listes, gardé pour l'historique. */
   archived?: boolean
 }
 
-export const REGIONS = [
-  'Auvergne-Rhône-Alpes',
-  'Bourgogne-Franche-Comté',
-  'Bretagne',
-  'Centre-Val de Loire',
-  'Corse',
-  'Grand Est',
-  'Hauts-de-France',
-  'Île-de-France',
-  'Normandie',
-  'Nouvelle-Aquitaine',
-  'Occitanie',
-  'Pays de la Loire',
-  'Région Sud',
-  'Outre-mer',
-]
+/**
+ * Élément d'une liste modifiable par les administrateurs (supabase/019_listes_regions.sql).
+ * Pour l'instant : les régions ; les groupes gardent son identifiant, pas son nom.
+ */
+export interface ListItem extends Syncable {
+  kind: 'region'
+  name: string
+  order: number
+}
 
 export interface OutboxItem {
   seq?: number
@@ -221,7 +215,7 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -233,6 +227,7 @@ export const db = new Dexie('handbase') as Dexie & {
   events: EntityTable<HBEvent, 'id'>
   evaluations: EntityTable<Evaluation, 'id'>
   groups: EntityTable<PlayerGroup, 'id'>
+  lists: EntityTable<ListItem, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -276,6 +271,9 @@ db.version(4).stores({ groups: 'id, name, updatedAt' })
 db.version(5)
   .stores({ referents: null })
   .upgrade((tx) => tx.table('outbox').where('table').equals('referents').delete())
+
+// v6 : listes modifiables (régions).
+db.version(6).stores({ lists: 'id, kind, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
