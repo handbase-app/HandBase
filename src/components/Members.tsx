@@ -68,6 +68,7 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
   const text = accessMessage(access)
   const subject = 'Ton accès à HandBase'
   const canShare = typeof navigator.share === 'function'
+  const phone = access.phone.replace(/[^\d+]/g, '')
   const [copied, setCopied] = useState(false)
   return (
     <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
@@ -82,10 +83,18 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
         choisira ensuite son mot de passe.
       </div>
       {canShare ? (
-        // Écran de partage du téléphone : SMS, WhatsApp, Telegram, e-mail… et « Copier ».
-        <button className="btn-primary mt-2 w-full text-xs" onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
-          Partager…
-        </button>
+        <div className="mt-2 flex gap-2">
+          {/* Écran de partage du téléphone : WhatsApp, Telegram, e-mail… et « Copier ». */}
+          <button className="btn-primary flex-1 text-xs" onClick={() => void navigator.share({ title: subject, text }).catch(() => {})}>
+            Partager…
+          </button>
+          {/* SMS : ouvre directement la conversation avec son numéro, message déjà écrit. */}
+          {phone && (
+            <a className="btn-ghost flex-1 text-center text-xs" href={`sms:${phone}?&body=${encodeURIComponent(text)}`}>
+              💬 SMS
+            </a>
+          )}
+        </div>
       ) : (
         // Navigateur d'ordinateur sans partage : e-mail tout prêt, ou copier le message pour le coller où l'on veut.
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -324,7 +333,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         <input className="field" type="email" inputMode="email" autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       <div>
-        <span className="label">Téléphone</span>
+        <span className="label">Téléphone (pour lui envoyer son accès par SMS)</span>
         <input className="field" type="tel" inputMode="tel" placeholder="06 12 34 56 78" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
       <div>
