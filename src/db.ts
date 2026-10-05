@@ -226,7 +226,10 @@ export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
 
-export const db = new Dexie('handbase') as Dexie & {
+/** Version d'essai (/HandBase/essai/) : sa propre base locale, pour ne jamais gêner la version normale. */
+export const TRIAL = !!import.meta.env.VITE_TRIAL
+
+export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   players: EntityTable<Player, 'id'>
   criteria: EntityTable<Criterion, 'id'>
   measurements: EntityTable<Measurement, 'id'>

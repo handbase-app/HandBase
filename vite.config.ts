@@ -3,7 +3,10 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// Sur GitHub Pages l'app est servie sous /HandBase/ (défini par le workflow de déploiement).
+// Sur GitHub Pages l'app est servie sous /HandBase/ (défini par le workflow de déploiement),
+// la version d'essai sous /HandBase/essai/ (VITE_TRIAL).
+const trial = !!process.env.VITE_TRIAL
+
 export default defineConfig({
   base: process.env.BASE_PATH || '/',
   plugins: [
@@ -14,9 +17,9 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         // Identifiant d’app stable (même forme que l’adresse de démarrage).
-        id: '/HandBase/',
-        name: 'HandBase — Collecte & suivi',
-        short_name: 'HandBase',
+        id: trial ? '/HandBase/essai/' : '/HandBase/',
+        name: trial ? 'HandBase — ESSAI' : 'HandBase — Collecte & suivi',
+        short_name: trial ? 'HB essai' : 'HandBase',
         description: 'Données physiques et évaluations des joueurs de handball',
         lang: 'fr',
         theme_color: '#1e1e2e',
@@ -34,6 +37,8 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
+        // La version normale laisse la version d'essai (sous-dossier) à son propre service worker.
+        navigateFallbackDenylist: trial ? [] : [/\/essai\//],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         runtimeCaching: [
           {

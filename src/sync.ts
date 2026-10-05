@@ -1,6 +1,6 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
-import { db, SYNC_TABLES, type SyncTable } from './db'
+import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -32,7 +32,7 @@ const setState = (s: SyncState, err = '') => {
   listeners.forEach((l) => l())
 }
 
-const PULL_KEY = (t: SyncTable) => `handbase.lastPull.${t}`
+const PULL_KEY = (t: SyncTable) => `handbase${TRIAL ? '-essai' : ''}.lastPull.${t}`
 
 let running = false
 let again = false

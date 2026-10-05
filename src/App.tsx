@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
-import { db } from './db'
+import { db, TRIAL } from './db'
 import { useDepartments } from './lists'
 import Events, { EventDetail } from './pages/Events'
 import Evaluate from './pages/Evaluate'
@@ -75,9 +75,13 @@ export default function App() {
   useDailyPurge()
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur">
+      <header
+        className={`sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur ${TRIAL ? 'border-t-4 border-t-amber-500' : ''}`}
+      >
         <GuardedLink to="/" className="text-sm font-extrabold tracking-widest">
           HAND<span className="text-accent">BASE</span>
+          {/* Version d'essai (/HandBase/essai/) : même serveur, donc les saisies y sont réelles. */}
+          {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">VERSION D’ESSAI</span>}
         </GuardedLink>
         <SyncBadge />
       </header>

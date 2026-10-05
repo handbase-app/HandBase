@@ -1,0 +1,18 @@
+# Un push sur la branche « essai » relance la publication depuis main (seule autorisée à publier),
+# qui construit aussi la version d'essai (deploy.yml).
+name: Version d'essai
+
+on:
+  push:
+    branches: [essai]
+
+permissions:
+  actions: write
+
+jobs:
+  relancer:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run deploy.yml --ref main -R ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
