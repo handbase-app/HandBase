@@ -25,23 +25,40 @@ export default function Groups() {
   const [dept, setDept] = useSessionState('handbase.groupes.dept', '')
   const [region, setRegion] = useSessionState('handbase.groupes.region', '')
   const [year, setYear] = useSessionState('handbase.groupes.year', '')
+  const [open, setOpen] = useSessionState('handbase.groupes.open', false)
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const words = fold(q).split(/\s+/).filter(Boolean)
-  const shown = groups.filter(
-    (g) =>
-      (!sex || g.sex === sex) &&
-      (!dept || g.department === dept) &&
-      (!region || g.regionId === region) &&
-      (!year || g.years?.includes(year)) &&
-      words.every((w) => fold(`${g.name} ${g.description ?? ''} ${g.createdByName ?? ''}`).includes(w)),
-  )
+  // Comme pour les joueurs : chaque menu compte les groupes qui passent tous les AUTRES filtres.
+  const ok = {
+    q: (g: PlayerGroup) => words.every((w) => fold(`${g.name} ${g.description ?? ''} ${g.createdByName ?? ''}`).includes(w)),
+    sex: (g: PlayerGroup) => !sex || g.sex === sex,
+    dept: (g: PlayerGroup) => !dept || g.department === dept,
+    region: (g: PlayerGroup) => !region || g.regionId === region,
+    year: (g: PlayerGroup) => !year || !!g.years?.includes(year),
+  }
+  const except = (k: keyof typeof ok) => groups.filter((g) => (Object.keys(ok) as (keyof typeof ok)[]).every((x) => x === k || ok[x](g)))
+  const shown = except('q').filter(ok.q)
   const active = shown.filter((g) => !g.archived)
   const archived = shown.filter((g) => g.archived)
-  const uniq = (vs: (string | undefined)[]) => [...new Set(vs.filter((v): v is string => !!v))].sort()
-  const depts = uniq(groups.map((g) => g.department))
-  const regions = uniq(groups.map((g) => g.regionId)).filter((r) => regionName(r))
-  const years = uniq(groups.flatMap((g) => g.years ?? [])).reverse()
+  const countBy = (gs: PlayerGroup[], key: (g: PlayerGroup) => (string | undefined)[]) => {
+    const m = new Map<string, number>()
+    for (const g of gs) for (const v of key(g)) if (v) m.set(v, (m.get(v) ?? 0) + 1)
+    return m
+  }
+  const deptCounts = countBy(except('dept'), (g) => [g.department])
+  const regionCounts = countBy(except('region'), (g) => [g.regionId])
+  const yearCounts = countBy(except('year'), (g) => g.years ?? [])
+  const depts = [...deptCounts.keys()].sort()
+  const regions = [...regionCounts.keys()].filter((r) => regionName(r)).sort()
+  const years = [...yearCounts.keys()].sort().reverse()
   const filtering = !!(q || sex || dept || region || year)
+  const chips = [
+    sex && { label: SEXES.find((x) => x.value === sex)?.label ?? sex, clear: () => setSex('') },
+    dept && { label: departmentLabel(dept), clear: () => setDept('') },
+    region && { label: regionName(region) ?? region, clear: () => setRegion('') },
+    year && { label: year, clear: () => setYear('') },
+  ].filter((c): c is { label: string; clear: () => void } => !!c)
+  const hasInfo = depts.length > 0 || regions.length > 0 || years.length > 0 || groups.some((g) => g.sex) || chips.length > 0
 
   return (
     <div className="flex flex-col gap-3">
@@ -59,44 +76,65 @@ export default function Groups() {
       </p>
       {groups.length > 0 && (
         <div className="flex flex-col gap-2">
-          <input className="field" placeholder="Rechercher un groupe (nom, description, créateur)…" value={q} onChange={(e) => setQ(e.target.value)} />
-          {(depts.length > 0 || regions.length > 0 || years.length > 0 || groups.some((g) => g.sex)) && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <select className="field py-1.5 text-xs" value={sex} onChange={(e) => setSex(e.target.value)}>
-                <option value="">Garçons et filles</option>
-                {SEXES.map((x) => (
-                  <option key={x.value} value={x.value}>
+          <div className="flex gap-2">
+            <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, description ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />
+            {hasInfo && (
+              <button
+                onClick={() => setOpen(!open)}
+                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+              >
+                Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+              </button>
+            )}
+          </div>
+          {open && hasInfo && (
+            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+              <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                {[{ value: '', label: 'Tous' }, ...SEXES].map((x) => (
+                  <button key={x.value} onClick={() => setSex(x.value)} className={`flex-1 py-1.5 ${sex === x.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
                     {x.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-              <select className="field py-1.5 text-xs" value={dept} onChange={(e) => setDept(e.target.value)}>
-                <option value="">Tous départements</option>
-                {depts.map((d) => (
-                  <option key={d} value={d}>
-                    {departmentLabel(d)}
-                  </option>
-                ))}
-              </select>
-              <select className="field py-1.5 text-xs" value={region} onChange={(e) => setRegion(e.target.value)}>
-                <option value="">Toutes régions</option>
-                {regions.map((r) => (
-                  <option key={r} value={r}>
-                    {regionName(r)}
-                  </option>
-                ))}
-              </select>
-              <select className="field py-1.5 text-xs" value={year} onChange={(e) => setYear(e.target.value)}>
-                <option value="">Toutes années</option>
+              </div>
+              <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
+                <option value="">Toutes les années ({except('year').length})</option>
                 {years.map((y) => (
                   <option key={y} value={y}>
-                    {y}
+                    {y} ({yearCounts.get(y)})
+                  </option>
+                ))}
+              </select>
+              <select className={`field py-1.5 text-xs ${dept ? 'border-accent font-bold' : ''}`} value={dept} onChange={(e) => setDept(e.target.value)}>
+                <option value="">Tous les départements ({except('dept').length})</option>
+                {depts.map((d) => (
+                  <option key={d} value={d}>
+                    {departmentLabel(d)} ({deptCounts.get(d)})
+                  </option>
+                ))}
+              </select>
+              <select className={`field py-1.5 text-xs ${region ? 'border-accent font-bold' : ''}`} value={region} onChange={(e) => setRegion(e.target.value)}>
+                <option value="">Toutes les régions ({except('region').length})</option>
+                {regions.map((r) => (
+                  <option key={r} value={r}>
+                    {regionName(r)} ({regionCounts.get(r)})
                   </option>
                 ))}
               </select>
             </div>
           )}
-          {filtering && (
+          {!open && (chips.length > 0 || filtering) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {chips.map((c) => (
+                <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
+                  {c.label} <span className="text-muted">✕</span>
+                </button>
+              ))}
+              <button className="text-[11px] font-bold text-muted underline" onClick={() => (setQ(''), setSex(''), setDept(''), setRegion(''), setYear(''))}>
+                Tout effacer
+              </button>
+            </div>
+          )}
+          {open && filtering && (
             <button
               className="self-start text-[11px] font-bold text-muted underline"
               onClick={() => (setQ(''), setSex(''), setDept(''), setRegion(''), setYear(''))}
