@@ -205,6 +205,37 @@ export interface PlayerGroup extends Syncable {
   archived?: boolean
 }
 
+/** Conditions d'une alerte ; une condition absente ne filtre pas. */
+export interface AlertRules {
+  sex?: 'M' | 'F'
+  years?: string[]
+  /** Trimestres de naissance (1 à 4). */
+  quarters?: number[]
+  laterality?: Laterality
+  positions?: Position[]
+  /** Compter aussi les postes secondaires. */
+  withSecondary?: boolean
+  departments?: string[]
+  /** Dernière taille mesurée ou déclarée (cm). */
+  minHeight?: number
+  /** Taille adulte prédite (Khamis-Roche, cm) : il faut les tailles des parents. */
+  minPredicted?: number
+  /** Dernière valeur d'un test : au moins (min) ou au plus (max). */
+  tests?: { criterionId: string; op: 'min' | 'max'; value: number }[]
+  /** Moyenne des avis validés sur un critère, au moins. */
+  avis?: { criterionId: string; min: number }[]
+}
+
+/**
+ * Alerte (supabase/022_alertes.sql) : un filtre enregistré ; l'appli signale les joueurs qui viennent d'y
+ * entrer. Privée (son créateur seul) ou partagée au staff, comme les groupes.
+ */
+export interface PlayerAlert extends Syncable {
+  name: string
+  private?: boolean
+  rules: AlertRules
+}
+
 /**
  * Élément d'une liste modifiable par les administrateurs (supabase/019_listes_regions.sql).
  * Régions (les groupes gardent leur identifiant) et départements (repérés par leur numéro).
@@ -223,7 +254,7 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -239,6 +270,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   evaluations: EntityTable<Evaluation, 'id'>
   groups: EntityTable<PlayerGroup, 'id'>
   lists: EntityTable<ListItem, 'id'>
+  alerts: EntityTable<PlayerAlert, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -288,6 +320,9 @@ db.version(6).stores({ lists: 'id, kind, updatedAt' })
 
 // v7 : nouveaux tests physiques (plateforme de force, 6 RM, RSA, Shirado-Sorensen, épaule en degrés).
 db.version(7).upgrade(applyDefaultCriteria)
+
+// v8 : alertes.
+db.version(8).stores({ alerts: 'id, name, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

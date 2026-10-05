@@ -17,7 +17,23 @@ import Settings from './pages/Settings'
 import Privacy from './pages/Privacy'
 import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
+import Alerts, { AlertDetail, NewAlert } from './pages/Alerts'
+import { useAlertCount } from './alerts'
+import { Icon } from './components/ui'
 import { syncNow, useSyncState } from './sync'
+
+/** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
+function AlertBell() {
+  const n = useAlertCount()
+  return (
+    <GuardedLink to="/alertes" className="relative text-muted hover:text-white" aria-label="Alertes">
+      <Icon name="bell" className="h-5 w-5" />
+      {n > 0 && (
+        <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
+      )}
+    </GuardedLink>
+  )
+}
 
 function SyncBadge() {
   const { state, lastError, live } = useSyncState()
@@ -84,7 +100,10 @@ export default function App() {
           {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
           {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">VERSION D’ESSAI</span>}
         </GuardedLink>
-        <SyncBadge />
+        <div className="flex items-center gap-3">
+          <AlertBell />
+          <SyncBadge />
+        </div>
       </header>
 
       <main className="flex-1 px-4 pt-4 pb-28">
@@ -106,6 +125,9 @@ export default function App() {
           <Route path="/parametres" element={<Settings />} />
           <Route path="/confidentialite" element={<Privacy />} />
           <Route path="/actualite" element={<Feed />} />
+          <Route path="/alertes" element={<Alerts />} />
+          <Route path="/alertes/nouvelle" element={<NewAlert />} />
+          <Route path="/alertes/:id" element={<AlertDetail />} />
         </Routes>
       </main>
 

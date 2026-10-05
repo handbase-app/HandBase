@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { buildFeed, FEED_KINDS, feedSeen, localDay, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
+import { useSeenVersion } from '../alerts'
 import { EVENT_TYPES } from './Evaluate'
 import { Icon } from '../components/ui'
 
@@ -88,7 +89,8 @@ function Upcoming({ n }: { n: number }) {
 /** Encadré de l'accueil : prochains événements et dernières nouveautés. */
 export function HomeFeed() {
   const [seen] = useState(feedSeen)
-  const items = useLiveQuery(() => buildFeed({ days: 14 }), [], [])
+  const v = useSeenVersion()
+  const items = useLiveQuery(() => buildFeed({ days: 14 }), [v], [])
   const fresh = items.filter((i) => i.time > seen && !i.mine).length
   return (
     <div className="card flex w-full flex-col gap-3 p-4">
@@ -130,7 +132,8 @@ export default function Feed() {
     }
   }, [prefs])
   const hasSector = myDepartments().length > 0
-  const items = useLiveQuery(() => buildFeed({ days, sector: hasSector && prefs.sector }), [days, prefs.sector, hasSector])
+  const v = useSeenVersion()
+  const items = useLiveQuery(() => buildFeed({ days, sector: hasSector && prefs.sector }), [days, prefs.sector, hasSector, v])
   const shown = (items ?? []).filter((i) => (!prefs.kinds.length || prefs.kinds.includes(i.kind)) && !(prefs.hideMine && i.mine))
   const byDay = new Map<string, FeedItem[]>()
   for (const it of shown) byDay.set(it.day, [...(byDay.get(it.day) ?? []), it])

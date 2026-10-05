@@ -328,6 +328,7 @@ export const ICONS = {
   calendar: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4',
   check: 'M9 12l2 2 4-4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   message: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4',
+  bell: 'M6 9a6 6 0 1 1 12 0c0 6 3 8 3 8H3s3-2 3-8M10 21a2 2 0 0 0 4 0',
 } as const
 export type IconName = keyof typeof ICONS
 

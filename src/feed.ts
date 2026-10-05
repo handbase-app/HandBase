@@ -2,6 +2,7 @@ import { alive, contextLabel, db, fmtDate, type HBEvent, type Player } from './d
 import { department } from './components/PlayerFilter'
 import { currentUserId, myDepartments } from './roles'
 import type { IconName } from './components/ui'
+import { computeAlerts } from './alerts'
 
 /*
  * Fil « Quoi de neuf » : les ajouts récents de tout le staff, jour par jour, construit avec les
@@ -9,9 +10,10 @@ import type { IconName } from './components/ui'
  * Seulement les ajouts et les validations, pas les modifications. Regroupé par auteur, jour et sujet.
  */
 
-export type FeedKind = 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
+export type FeedKind = 'alerts' | 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
 
 export const FEED_KINDS: { value: FeedKind; label: string; icon: IconName }[] = [
+  { value: 'alerts', label: 'Alertes', icon: 'bell' },
   { value: 'measurements', label: 'Mesures', icon: 'ruler' },
   { value: 'evaluations', label: 'Avis', icon: 'star' },
   { value: 'players', label: 'Joueurs', icon: 'userPlus' },
@@ -195,6 +197,21 @@ export async function buildFeed({ days, sector = false }: { days: number; sector
       text: parts.join(', '),
       detail: listNames([...new Set(rs.map((x) => x.pid))].map((id) => byId.get(id))),
       to: '/avis-spontanes',
+    })
+  }
+
+  // Alertes : joueurs qui viennent d'entrer dans une de mes alertes (pas encore vus), datés de leur dernière activité.
+  const { alerts, ctx } = await computeAlerts()
+  for (const { alert, fresh } of alerts) {
+    if (!fresh.length) continue
+    const time = fresh.reduce((t, p) => Math.max(t, ctx.lastActivity.get(p.id) ?? 0), 0) || Date.now()
+    push({
+      key: `a|${alert.id}`,
+      kind: 'alerts',
+      time,
+      text: `Alerte « ${alert.name} » : ${listNames(fresh)}`,
+      detail: `${plural(fresh.length, 'nouveau joueur', 'nouveaux joueurs')} correspond${fresh.length > 1 ? 'ent' : ''}`,
+      to: `/alertes/${alert.id}`,
     })
   }
 

@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `020_departements.sql`).
+   (`002_roles.sql` … `022_alertes.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -103,6 +103,16 @@ fondue dans les groupes (`supabase/013_groupes.sql`). La liste des régions n'es
 dans la table `hb_lists`, modifiable par un administrateur (*Réglages → Régions*) ; un groupe garde l'identifiant de sa
 région, donc renommer une région renomme celle de tous les groupes (`supabase/019_listes_regions.sql`). Même chose pour
 les noms des départements (*Réglages → Départements*, `supabase/020_departements.sql`) : le numéro reste l'identifiant.
+
+### Alertes
+
+Une **alerte** est un filtre enregistré (sexe, années, trimestres, latéralité, postes, départements, taille, taille
+adulte prédite, seuils de tests, moyenne des avis) : l'appli signale chaque joueur qui vient d'y entrer (cloche de
+l'en-tête, fil « Quoi de neuf », page *Alertes*). Le calcul se fait sur l'appareil ; les joueurs déjà vus sont gardés
+sur l'appareil, et à la première ouverture les joueurs du moment forment la liste de départ. Privées ou partagées au
+staff, avec les mêmes droits que les groupes (`supabase/022_alertes.sql`). Sur un événement, un avis sur un joueur
+hors liste est en attente ; validé par l'organisateur, un administrateur ou l'encadrant du secteur, il compte et le
+joueur rejoint la liste (`supabase/021_avis_hors_liste.sql`).
 
 ### Journal d'activité
 
