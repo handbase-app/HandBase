@@ -289,6 +289,11 @@ export default function PlayerDetail() {
 
       {tab === 'tests' && (
         <>
+          {can.editMeasurements(role) && (
+            <Link to={`/joueurs/${p.id}/mesures`} className="btn-primary">
+              + Nouvelle séance de tests
+            </Link>
+          )}
         {/* Données factuelles */}
         {testGroups.map(([cat, cs]) => (
           <div key={cat} className="card p-4">
@@ -304,7 +309,7 @@ export default function PlayerDetail() {
             </div>
           </div>
         ))}
-        <Tracking playerId={p.id} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
         </>
       )}
 
@@ -334,14 +339,12 @@ export default function PlayerDetail() {
   )
 }
 
-/** « Suivi des mesures » : courbe d'évolution d'un critère factuel + saisie d'une séance de tests. */
+/** « Suivi des mesures » : courbe d'évolution d'un critère factuel et historique (saisie : page Séance de tests). */
 function Tracking({
-  playerId,
   criteria,
   measurements,
   editable,
 }: {
-  playerId: string
   criteria: Criterion[]
   measurements: Measurement[]
   editable: boolean
@@ -363,11 +366,6 @@ function Tracking({
         <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
           <span className="text-accent">↗</span> Suivi des mesures
         </div>
-        {editable && (
-          <Link to={`/joueurs/${playerId}/mesures`} className="btn-primary px-2.5 py-1 text-xs">
-            + Mesures
-          </Link>
-        )}
       </div>
 
       {!current ? (
