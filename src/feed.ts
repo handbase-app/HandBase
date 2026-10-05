@@ -1,6 +1,7 @@
 import { alive, contextLabel, db, fmtDate, type HBEvent, type Player } from './db'
 import { department } from './components/PlayerFilter'
 import { currentUserId, myDepartments } from './roles'
+import type { IconName } from './components/ui'
 
 /*
  * Fil « Quoi de neuf » : les ajouts récents de tout le staff, jour par jour, construit avec les
@@ -10,13 +11,13 @@ import { currentUserId, myDepartments } from './roles'
 
 export type FeedKind = 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
 
-export const FEED_KINDS: { value: FeedKind; label: string; icon: string }[] = [
-  { value: 'measurements', label: 'Mesures', icon: '📏' },
-  { value: 'evaluations', label: 'Avis', icon: '📝' },
-  { value: 'players', label: 'Joueurs', icon: '👤' },
-  { value: 'events', label: 'Événements', icon: '📅' },
-  { value: 'groups', label: 'Groupes', icon: '👥' },
-  { value: 'reviews', label: 'Validations', icon: '✅' },
+export const FEED_KINDS: { value: FeedKind; label: string; icon: IconName }[] = [
+  { value: 'measurements', label: 'Mesures', icon: 'ruler' },
+  { value: 'evaluations', label: 'Avis', icon: 'star' },
+  { value: 'players', label: 'Joueurs', icon: 'userPlus' },
+  { value: 'events', label: 'Événements', icon: 'calendar' },
+  { value: 'groups', label: 'Groupes', icon: 'users' },
+  { value: 'reviews', label: 'Validations', icon: 'check' },
 ]
 
 export interface FeedItem {

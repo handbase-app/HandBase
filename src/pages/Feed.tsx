@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { buildFeed, FEED_KINDS, feedSeen, localDay, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
 import { EVENT_TYPES } from './Evaluate'
+import { Icon } from '../components/ui'
 
 const PREFS_KEY = 'handbase.feedPrefs'
 type Prefs = { kinds: FeedKind[]; hideMine: boolean; sector: boolean }
@@ -15,7 +16,7 @@ const readPrefs = (): Prefs => {
   }
 }
 
-const icon = (k: FeedKind) => FEED_KINDS.find((x) => x.value === k)?.icon
+const icon = (k: FeedKind) => FEED_KINDS.find((x) => x.value === k)!.icon
 const time = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 function dayLabel(day: string) {
@@ -32,7 +33,9 @@ function Row({ it, seen, withDay = false }: { it: FeedItem; seen: number; withDa
   const today = it.day === localDay(Date.now())
   const body = (
     <div className="flex gap-2.5 py-2">
-      <span className="text-base leading-5">{icon(it.kind)}</span>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-panel-2 text-muted">
+        <Icon name={icon(it.kind)} />
+      </span>
       <div className="min-w-0 flex-1 text-xs">
         <div>
           {it.author && <b>{it.author} · </b>}
@@ -149,7 +152,8 @@ export default function Feed() {
         </button>
         {FEED_KINDS.map((k) => (
           <button key={k.value} className={chip(prefs.kinds.includes(k.value))} onClick={() => toggle(k.value)}>
-            {k.icon} {k.label}
+            <Icon name={k.icon} className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+            {k.label}
           </button>
         ))}
       </div>

@@ -313,3 +313,28 @@ export function resizeImage(file: File, size = 320): Promise<string> {
     img.src = URL.createObjectURL(file)
   })
 }
+
+/** Tracés des icônes de l'appli (même style que la barre du bas : trait fin, coins arrondis). */
+export const ICONS = {
+  user: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6',
+  userPlus: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6',
+  users: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM17 11a3 3 0 1 0 0-6M3 20c0-3 3-5 6-5s6 2 6 5M17 15c2.5 0 4 1.7 4 5',
+  lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4M12 15v2',
+  list: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',
+  download: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
+  star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
+  calendar: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4',
+  check: 'M9 12l2 2 4-4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  message: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4',
+} as const
+export type IconName = keyof typeof ICONS
+
+export function Icon({ name, className = 'h-4 w-4' }: { name: IconName; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={ICONS[name]} />
+    </svg>
+  )
+}

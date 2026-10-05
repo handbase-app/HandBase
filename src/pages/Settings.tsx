@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { groupBy, SectionTitle, Segmented, useMe } from '../components/ui'
+import { groupBy, Icon, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
@@ -36,7 +36,7 @@ export default function Settings() {
       <h1 className="text-lg font-extrabold">Réglages</h1>
 
       <div className="mt-1 text-[10px] font-extrabold tracking-wider text-muted uppercase">Mon espace</div>
-      <Fold id="compte" icon="👤" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
+      <Fold id="compte" icon="user" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
         <section className="card flex flex-col gap-2 p-4">
           <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
             Mon nom (observateur)
@@ -59,7 +59,7 @@ export default function Settings() {
         <Account />
         {supabase && <PasswordChange />}
       </Fold>
-      <Fold id="confidentialite" icon="🔒" title="Confidentialité" summary="Droits des familles, charte du staff">
+      <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Droits des familles, charte du staff">
   <div className="flex gap-2">
           <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
             Données et droits
@@ -74,16 +74,16 @@ export default function Settings() {
         <>
           <div className="mt-3 text-[10px] font-extrabold tracking-wider text-muted uppercase">Administration</div>
           {supabase && (
-            <Fold id="membres" icon="👥" title="Équipe" summary="Comptes, rôles, secteurs">
+            <Fold id="membres" icon="users" title="Équipe" summary="Comptes, rôles, secteurs">
               <Members />
             </Fold>
           )}
-          <Fold id="referentiel" icon="📋" title="Critères et listes" summary="Critères, départements, régions">
+          <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
             <CriteriaEditor />
             <ListEditor kind="department" />
             <ListEditor kind="region" />
           </Fold>
-          <Fold id="imports" icon="📥" title="Imports et sauvegarde" summary="Gest’Hand, sauvegarde, démo">
+          <Fold id="imports" icon="download" title="Imports et sauvegarde" summary="Gest’Hand, sauvegarde, démo">
             <LicenceImport />
               {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
               {can.exportAll(role) && (
@@ -146,7 +146,7 @@ export default function Settings() {
               )}
           </Fold>
           {supabase && (
-            <Fold id="journal" icon="🕘" title="Historique" summary="Qui a créé, modifié ou supprimé quoi">
+            <Fold id="journal" icon="clock" title="Historique" summary="Qui a créé, modifié ou supprimé quoi">
               <ActivityLog />
             </Fold>
           )}
@@ -160,12 +160,14 @@ export default function Settings() {
  * Rubrique repliable des réglages : une ligne (icône, titre, résumé) qui s'ouvre sur ses réglages.
  * Les cartes des réglages s'y fondent (séparées par un trait) ; l'état ouvert est gardé pendant la session.
  */
-function Fold({ id, icon, title, summary, children }: { id: string; icon: string; title: string; summary?: string; children: ReactNode }) {
+function Fold({ id, icon, title, summary, children }: { id: string; icon: IconName; title: string; summary?: string; children: ReactNode }) {
   const [open, setOpen] = useSessionState(`handbase.settings.${id}`, false)
   return (
     <div className={`card overflow-hidden ${open ? 'border-accent/50' : ''}`}>
       <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)}>
-        <span className="text-lg">{icon}</span>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${open ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+          <Icon name={icon} className="h-5 w-5" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-bold">{title}</span>
           {summary && <span className="block truncate text-[11px] text-muted">{summary}</span>}

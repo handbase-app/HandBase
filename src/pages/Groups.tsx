@@ -6,7 +6,7 @@ import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
-import { Avatar, Empty, PosBadges, QuarterBadge, Segmented } from '../components/ui'
+import { Avatar, Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
 import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -112,7 +112,9 @@ export default function Groups() {
       )}
       {active.some((g) => g.private) && (
         <>
-          <div className="section-title mt-1 mb-0">🔒 Mes groupes privés</div>
+          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
+            <Icon name="lock" className="h-3.5 w-3.5" /> Mes groupes privés
+          </div>
           {active
             .filter((g) => g.private)
             .map((g) => (
@@ -122,7 +124,9 @@ export default function Groups() {
       )}
       {active.some((g) => !g.private) && (
         <>
-          <div className="section-title mt-1 mb-0">👥 Groupes du staff</div>
+          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
+            <Icon name="users" className="h-3.5 w-3.5" /> Groupes du staff
+          </div>
           {active
             .filter((g) => !g.private)
             .map((g) => (
@@ -451,7 +455,11 @@ export function GroupDetail() {
       ) : (
         <div>
           <h1 className="text-lg font-extrabold">
-            {g.private && <span title="Groupe privé : visible par toi seul">🔒 </span>}
+            {g.private && (
+              <span title="Groupe privé : visible par toi seul">
+                <Icon name="lock" className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
+              </span>
+            )}
             {g.name}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
           </h1>
