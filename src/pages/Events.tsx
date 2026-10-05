@@ -5,8 +5,8 @@ import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
 import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
-import { can, useRole } from '../roles'
-import { arrowNav, usePlayerFilter } from '../components/PlayerFilter'
+import { can, currentUserId, useRole } from '../roles'
+import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { DIVERGENCE } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 
@@ -23,6 +23,12 @@ export default function Events() {
   const nav = useNavigate()
   const [showAll, setShowAll] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  // Recherche et filtres (gardés pendant la session), sur le modèle des joueurs et des groupes.
+  const [q, setQ] = useSessionState('handbase.evenements.q', '')
+  const [type, setType] = useSessionState('handbase.evenements.type', '')
+  const [year, setYear] = useSessionState('handbase.evenements.year', '')
+  const [mine, setMine] = useSessionState('handbase.evenements.mine', false)
+  const [open, setOpen] = useSessionState('handbase.evenements.open', false)
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
@@ -31,6 +37,27 @@ export default function Events() {
   const upcoming = events.filter((e) => !e.archived && e.date >= todayIso).reverse()
   const past = events.filter((e) => !e.archived && e.date < todayIso)
   const archived = events.filter((e) => e.archived)
+
+  // Recherche : nom, lieu, créateur. Dès qu'on cherche ou filtre, une seule liste, archivés compris.
+  const words = fold(q).split(/\s+/).filter(Boolean)
+  const ok = {
+    q: (e: HBEvent) => words.every((w) => fold(`${e.name} ${e.place ?? ''} ${e.createdByName ?? ''}`).includes(w)),
+    type: (e: HBEvent) => !type || e.type === type,
+    year: (e: HBEvent) => !year || e.date.startsWith(year),
+    mine: (e: HBEvent) => !mine || (!!e.createdBy && e.createdBy === currentUserId()),
+  }
+  const except = (k: keyof typeof ok) => events.filter((e) => (Object.keys(ok) as (keyof typeof ok)[]).every((x) => x === k || ok[x](e)))
+  const searching = !!(q || type || year || mine)
+  const results = searching ? except('q').filter(ok.q) : []
+  const years = [...new Set(events.map((e) => e.date.slice(0, 4)))].sort().reverse()
+  const yearCount = (y: string) => except('year').filter((e) => e.date.startsWith(y)).length
+  const typeCount = (t: string) => except('type').filter((e) => e.type === t).length
+  const chips = [
+    type && { label: typeLabel(type), clear: () => setType('') },
+    year && { label: year, clear: () => setYear('') },
+    mine && { label: 'Mes événements', clear: () => setMine(false) },
+  ].filter((c): c is { label: string; clear: () => void } => !!c)
+  const resetSearch = () => (setQ(''), setType(''), setYear(''), setMine(false))
 
   return (
     <div className="flex flex-col gap-3">
@@ -54,7 +81,67 @@ export default function Events() {
           />
         </div>
       )}
-      {events.length === 0 ? (
+      {events.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, lieu ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />
+            <button
+              onClick={() => setOpen(!open)}
+              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+            >
+              Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+            </button>
+          </div>
+          {open && (
+            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+              <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                {[{ value: '', label: 'Tous' }, ...EVENT_TYPES].map((t) => (
+                  <button key={t.value} onClick={() => setType(t.value)} className={`flex-1 py-1.5 ${type === t.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+                    {t.value === 'entrainement' ? 'Entraîn.' : t.value === 'observation' ? 'Observ.' : t.label}
+                    {t.value && <span className="ml-1 text-[10px] opacity-70">{typeCount(t.value)}</span>}
+                  </button>
+                ))}
+              </div>
+              <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
+                <option value="">Toutes les années ({except('year').length})</option>
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y} ({yearCount(y)})
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-1.5 text-xs">
+                <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+                Seulement les événements que j’ai créés
+              </label>
+            </div>
+          )}
+          {searching && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {!open &&
+                chips.map((c) => (
+                  <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
+                    {c.label} <span className="text-muted">✕</span>
+                  </button>
+                ))}
+              <button className="text-[11px] font-bold text-muted underline" onClick={resetSearch}>
+                Tout effacer
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {searching ? (
+        <>
+          <div className="section-title mt-1 mb-0">
+            {results.length} résultat{results.length > 1 ? 's' : ''} <span className="text-muted normal-case">(archivés compris)</span>
+          </div>
+          {results.map((ev) => (
+            <EventRow key={ev.id} ev={ev} evals={evals} upcoming={!ev.archived && ev.date >= todayIso} />
+          ))}
+          {!results.length && <Empty>Aucun événement ne correspond.</Empty>}
+        </>
+      ) : events.length === 0 ? (
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs évaluateurs puissent y noter les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
         <>
@@ -109,7 +196,10 @@ function EventRow({ ev, evals, upcoming = false }: { ev: HBEvent; evals: Evaluat
         <div className="text-[9px] text-muted">{d.toLocaleDateString('fr-FR', { month: 'short', ...(d.getFullYear() !== new Date().getFullYear() && { year: '2-digit' }) })}</div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="line-clamp-2 text-sm font-bold">{ev.name}</div>
+        <div className="line-clamp-2 text-sm font-bold">
+          {ev.name}
+          {ev.archived && <span className="ml-1.5 rounded bg-panel-2 px-1 py-px align-middle text-[9px] text-muted">ARCHIVÉ</span>}
+        </div>
         <div className="truncate text-[11px] text-muted">
           {typeLabel(ev.type)}
           {ev.place ? ` · ${ev.place}` : ''}
