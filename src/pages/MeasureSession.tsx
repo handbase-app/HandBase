@@ -115,8 +115,10 @@ export default function MeasureSession() {
                         <span className={c.scale === 'number' ? 'label mb-0' : 'text-xs font-bold'} title={c.description}>
                           {c.label}
                         </span>
-                        {/* Dernière valeur : repère pour éviter une faute de frappe. */}
-                        <div className="mb-1 text-[10px] text-muted">{last ? `dernière : ${fmtValue(c, last.value)} · ${fmtDate(last.date).slice(0, 6)}${last.date.slice(2, 4)}` : ' '}</div>
+                        {/* Dernière valeur : repère pour éviter une faute de frappe (ligne de hauteur fixe : les champs restent alignés). */}
+                        <div className="mb-1 h-4 truncate text-[10px] leading-4 text-muted">
+                          {last ? `dernière : ${fmtValue(c, last.value)} · ${fmtDate(last.date).slice(0, 6)}${last.date.slice(2, 4)}` : 'aucune mesure'}
+                        </div>
                       </div>
                       <CriterionInput c={c} value={values[c.id]} onChange={(v) => setValues((x) => ({ ...x, [c.id]: v }))} />
                     </div>
