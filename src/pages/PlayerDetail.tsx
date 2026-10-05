@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StampLine } from '../components/ActivityLog'
@@ -20,6 +20,37 @@ import { ask } from '../components/Confirm'
 import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 
+const TABS = [
+  { id: 'profil', label: 'Profil' },
+  { id: 'tests', label: 'Tests' },
+  { id: 'avis', label: 'Avis' },
+  { id: 'croissance', label: 'Croissance' },
+] as const
+type TabId = (typeof TABS)[number]['id']
+
+/** Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. */
+function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; avis: number }) {
+  // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…).
+  const [top, setTop] = useState(50)
+  useLayoutEffect(() => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50), [])
+  return (
+    <div className="sticky z-10 -mx-4 border-b border-line bg-bg/95 px-4 backdrop-blur" style={{ top }}>
+      <div className="flex">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex-1 border-b-2 py-2.5 text-xs font-bold ${tab === t.id ? 'border-accent text-white' : 'border-transparent text-muted'}`}
+          >
+            {t.label}
+            {t.id === 'avis' && avis > 0 && <span className="ml-1 text-[10px] text-muted">{avis}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function PlayerDetail() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -27,6 +58,9 @@ export default function PlayerDetail() {
   // ?fusion=<id> : ouvre la fusion avec cette autre fiche (lien « Comparer et fusionner »).
   const [params, setParams] = useSearchParams()
   const mergeWith = params.get('fusion')
+  // Onglet dans l'adresse (?onglet=avis) : on le retrouve en revenant sur la fiche.
+  const tab = (TABS.find((t) => t.id === params.get('onglet'))?.id ?? 'profil') as TabId
+  const setTab = (t: TabId) => setParams(t === 'profil' ? {} : { onglet: t }, { replace: true })
   const [merging, setMerging] = useState(false)
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
@@ -188,100 +222,110 @@ export default function PlayerDetail() {
         />
       )}
 
-      <PlayerGroups playerId={p.id} />
+      <Tabs tab={tab} setTab={setTab} avis={evaluations.length} />
 
-      <div className="card divide-y divide-line">
-        {info
-          .filter(([, v]) => v)
-          .map(([k, v]) => (
-            <div key={k} className="flex justify-between px-4 py-2 text-xs">
-              <span className="text-muted">{k}</span>
-              <span className="font-bold">{v}</span>
-            </div>
-          ))}
-      </div>
+      {tab === 'profil' && (
+        <>
+        <PlayerGroups playerId={p.id} />
 
-      {(p.position || (p.secondaryPositions ?? []).length > 0) && (
-        <div className="card p-4">
-          <div className="section-title">Postes</div>
-          <CourtView value={p.position} secondary={p.secondaryPositions} />
-        </div>
-      )}
-
-      {/* Données factuelles */}
-      {testGroups.map(([cat, cs]) => (
-        <div key={cat} className="card p-4">
-          <div className="section-title">{cat}</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            {cs.map((c) => (
-              <div key={c.id}>
-                <div className="text-[10px] text-muted">{c.label}</div>
-                <div className="text-sm font-extrabold">{fmtValue(c, latest.get(c.id)!.value)}</div>
+        <div className="card divide-y divide-line">
+          {info
+            .filter(([, v]) => v)
+            .map(([k, v]) => (
+              <div key={k} className="flex justify-between px-4 py-2 text-xs">
+                <span className="text-muted">{k}</span>
+                <span className="font-bold">{v}</span>
               </div>
             ))}
-            {cs.some((c) => c.id === 'sorensen') && <ShiradoRatio latest={latest} />}
-          </div>
         </div>
-      ))}
 
-      <MaturityCard player={p} measurements={measurements} />
+        {(p.position || (p.secondaryPositions ?? []).length > 0) && (
+          <div className="card p-4">
+            <div className="section-title">Postes</div>
+            <CourtView value={p.position} secondary={p.secondaryPositions} />
+          </div>
+        )}
+        {p.gaps && (
+          <div className="card p-4">
+            <div className="section-title text-amber-300">Lacunes mobilité / souplesse</div>
+            <div className="text-sm">{p.gaps}</div>
+          </div>
+        )}
+        {p.notes && (
+          <div className="card p-4">
+            <div className="section-title">Notes</div>
+            <div className="text-sm whitespace-pre-wrap">{p.notes}</div>
+          </div>
+        )}
 
-      <Tracking playerId={p.id} position={p.position} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+        {p.mergedFrom && p.mergedFrom.length > 0 && (
+          <div className="card p-4">
+            <div className="section-title">Fiches fondues dans celle-ci</div>
+            <div className="flex flex-col gap-2 text-[11px]">
+              {p.mergedFrom.map((m) => (
+                <div key={m.id} className="rounded-md border border-line bg-panel-2 p-2">
+                  <b>{m.name}</b>
+                  {m.club && <span className="text-muted"> · {m.club}</span>}
+                  {m.license && <span className="text-muted"> · licence {m.license}</span>}
+                  <div className="text-[10px] text-muted">
+                    {m.createdByName && <>Proposée par {m.createdByName}. </>}
+                    {m.review === 'refused' && (
+                      <span className="text-amber-200">
+                        Mise hors cadre{m.reviewedByName && <> par {m.reviewedByName}</>}
+                        {m.reviewedAt && <> le {fmtDate(m.reviewedAt.slice(0, 10))}</>}
+                        {m.reviewNote && <> : « {m.reviewNote} »</>}.{' '}
+                      </span>
+                    )}
+                    Fusionnée le {fmtDate(m.mergedAt.slice(0, 10))}
+                    {m.mergedByName && <> par {m.mergedByName}</>}.
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        </>
+      )}
+
+      {tab === 'tests' && (
+        <>
+        {/* Données factuelles */}
+        {testGroups.map(([cat, cs]) => (
+          <div key={cat} className="card p-4">
+            <div className="section-title">{cat}</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {cs.map((c) => (
+                <div key={c.id}>
+                  <div className="text-[10px] text-muted">{c.label}</div>
+                  <div className="text-sm font-extrabold">{fmtValue(c, latest.get(c.id)!.value)}</div>
+                </div>
+              ))}
+              {cs.some((c) => c.id === 'sorensen') && <ShiradoRatio latest={latest} />}
+            </div>
+          </div>
+        ))}
+        <Tracking playerId={p.id} position={p.position} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+        </>
+      )}
 
       {/* Avis subjectifs */}
-      <div className="card p-4">
-        <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
-          <span className="text-accent">★</span> Avis des observateurs
-        </div>
-        <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} />
-      </div>
-
-      {p.gaps && (
+      {tab === 'avis' && (
         <div className="card p-4">
-          <div className="section-title text-amber-300">Lacunes mobilité / souplesse</div>
-          <div className="text-sm">{p.gaps}</div>
-        </div>
-      )}
-      {p.notes && (
-        <div className="card p-4">
-          <div className="section-title">Notes</div>
-          <div className="text-sm whitespace-pre-wrap">{p.notes}</div>
-        </div>
-      )}
-
-      {p.mergedFrom && p.mergedFrom.length > 0 && (
-        <div className="card p-4">
-          <div className="section-title">Fiches fondues dans celle-ci</div>
-          <div className="flex flex-col gap-2 text-[11px]">
-            {p.mergedFrom.map((m) => (
-              <div key={m.id} className="rounded-md border border-line bg-panel-2 p-2">
-                <b>{m.name}</b>
-                {m.club && <span className="text-muted"> · {m.club}</span>}
-                {m.license && <span className="text-muted"> · licence {m.license}</span>}
-                <div className="text-[10px] text-muted">
-                  {m.createdByName && <>Proposée par {m.createdByName}. </>}
-                  {m.review === 'refused' && (
-                    <span className="text-amber-200">
-                      Mise hors cadre{m.reviewedByName && <> par {m.reviewedByName}</>}
-                      {m.reviewedAt && <> le {fmtDate(m.reviewedAt.slice(0, 10))}</>}
-                      {m.reviewNote && <> : « {m.reviewNote} »</>}.{' '}
-                    </span>
-                  )}
-                  Fusionnée le {fmtDate(m.mergedAt.slice(0, 10))}
-                  {m.mergedByName && <> par {m.mergedByName}</>}.
-                </div>
-              </div>
-            ))}
+          <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
+            <span className="text-accent">★</span> Avis des observateurs
           </div>
+          <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} />
         </div>
       )}
 
-      {can.editPlayer(role, p) && (
+      {tab === 'croissance' && <MaturityCard player={p} measurements={measurements} />}
+
+      {tab === 'profil' && can.editPlayer(role, p) && (
         <Link to={`/joueurs/${p.id}/modifier`} className="btn-primary">
           {can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition'}
         </Link>
       )}
-      {can.editPlayers(role) && !merging && !mergeWith && (
+      {tab === 'profil' && can.editPlayers(role) && !merging && !mergeWith && (
         <button className="btn-ghost text-xs" onClick={() => (setMerging(true), window.scrollTo({ top: 0, behavior: 'smooth' }))}>
           Fusionner avec une autre fiche (doublon)…
         </button>

@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { groupBy, SectionTitle, Segmented, useMe } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
@@ -13,6 +13,7 @@ import { ListEditor } from '../components/ListEditor'
 import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../lists'
+import { useSessionState } from '../components/PlayerFilter'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -29,55 +30,37 @@ export default function Settings() {
   const [msg, setMsg] = useState('')
   const role = useRole()
 
+  const admin = can.manageRoles(role)
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <h1 className="text-lg font-extrabold">Réglages</h1>
 
-      <section className="card flex flex-col gap-2 p-4">
-        <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
-          Mon nom (observateur)
-        </SectionTitle>
-        {supabase ? (
-          <p className="text-xs">
-            <b>{me}</b>
-          </p>
-        ) : (
-          <>
-            <div className="flex gap-2">
-              <input className="field" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Prénom Nom" />
-              <button className="btn-primary shrink-0" disabled={draft.trim() === me} onClick={() => setMe(draft.trim())}>
-                OK
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-
-      <Account />
-
-      {supabase && <PasswordChange />}
-
-      {supabase && can.manageRoles(role) && <Members />}
-
-      {can.manageRoles(role) && <LicenceImport />}
-
-      {supabase && can.manageRoles(role) && <ActivityLog />}
-
-      {can.editCriteria(role) && <ListEditor kind="department" />}
-      {can.editCriteria(role) && <ListEditor kind="region" />}
-
-      {can.editCriteria(role) ? (
-        <CriteriaEditor />
-      ) : (
-        <section className="card p-4">
-          <div className="section-title">Critères</div>
-          <p className="text-[11px] text-muted">Seuls les administrateurs peuvent modifier la liste des critères.</p>
+      <div className="mt-1 text-[10px] font-extrabold tracking-wider text-muted uppercase">Mon espace</div>
+      <Fold id="compte" icon="👤" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
+        <section className="card flex flex-col gap-2 p-4">
+          <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
+            Mon nom (observateur)
+          </SectionTitle>
+          {supabase ? (
+            <p className="text-xs">
+              <b>{me}</b>
+            </p>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <input className="field" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Prénom Nom" />
+                <button className="btn-primary shrink-0" disabled={draft.trim() === me} onClick={() => setMe(draft.trim())}>
+                  OK
+                </button>
+              </div>
+            </>
+          )}
         </section>
-      )}
-
-      <section className="card flex flex-col gap-2 p-4">
-        <div className="section-title">Confidentialité</div>
-        <div className="flex gap-2">
+        <Account />
+        {supabase && <PasswordChange />}
+      </Fold>
+      <Fold id="confidentialite" icon="🔒" title="Confidentialité" summary="Droits des familles, charte du staff">
+  <div className="flex gap-2">
           <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
             Données et droits
           </Link>
@@ -85,67 +68,114 @@ export default function Settings() {
             Charte du staff
           </Link>
         </div>
-      </section>
+      </Fold>
 
-      {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
-      {can.exportAll(role) && (
-      <section className="card flex flex-col gap-2 p-4">
-        <div className="section-title">Sauvegarde</div>
-        <div className="flex gap-2">
-          <button className="btn-ghost flex-1 text-xs" onClick={() => void exportBackup()}>
-            Exporter (JSON)
-          </button>
-          {can.editCriteria(role) && (
-          <label className="btn-ghost flex-1 cursor-pointer text-xs">
-            Importer
-            <input
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0]
-                if (!f) return
-                try {
-                  setMsg(`${await importBackup(f)} élément(s) importé(s).`)
-                } catch {
-                  setMsg('Fichier de sauvegarde invalide.')
-                }
-              }}
-            />
-          </label>
+      {admin && (
+        <>
+          <div className="mt-3 text-[10px] font-extrabold tracking-wider text-muted uppercase">Administration</div>
+          {supabase && (
+            <Fold id="membres" icon="👥" title="Équipe" summary="Comptes, rôles, secteurs">
+              <Members />
+            </Fold>
           )}
-        </div>
-        {msg && <p className="text-[11px] text-emerald-300">{msg}</p>}
-      </section>
+          <Fold id="referentiel" icon="📋" title="Critères et listes" summary="Critères, départements, régions">
+            <CriteriaEditor />
+            <ListEditor kind="department" />
+            <ListEditor kind="region" />
+          </Fold>
+          <Fold id="imports" icon="📥" title="Imports et sauvegarde" summary="Gest’Hand, sauvegarde, démo">
+            <LicenceImport />
+              {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
+              {can.exportAll(role) && (
+              <section className="card flex flex-col gap-2 p-4">
+                <div className="section-title">Sauvegarde</div>
+                <div className="flex gap-2">
+                  <button className="btn-ghost flex-1 text-xs" onClick={() => void exportBackup()}>
+                    Exporter (JSON)
+                  </button>
+                  {can.editCriteria(role) && (
+                  <label className="btn-ghost flex-1 cursor-pointer text-xs">
+                    Importer
+                    <input
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        try {
+                          setMsg(`${await importBackup(f)} élément(s) importé(s).`)
+                        } catch {
+                          setMsg('Fichier de sauvegarde invalide.')
+                        }
+                      }}
+                    />
+                  </label>
+                  )}
+                </div>
+                {msg && <p className="text-[11px] text-emerald-300">{msg}</p>}
+              </section>
+              )}
+              {can.loadDemo(role) && (
+              <section className="card flex flex-col gap-2 p-4">
+                <SectionTitle info="24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données.">
+                  Données de démonstration
+                </SectionTitle>
+                <div className="flex gap-2">
+                  <button
+                    className="btn-ghost flex-1 text-xs"
+                    onClick={async () => {
+                      const r = await loadDemo()
+                      setMsg(`Démo chargée : ${r.players} joueurs, ${r.measurements} mesures, ${r.events} événements, ${r.evaluations} avis.`)
+                    }}
+                  >
+                    Charger la démo
+                  </button>
+                  <button
+                    className="btn-ghost flex-1 text-xs"
+                    onClick={async () => {
+                      if (!(await ask('Effacer toutes les données de démonstration ? Tes propres données ne sont pas touchées.', { ok: 'Effacer' }))) return
+                      await clearDemo()
+                      setMsg('Données de démonstration effacées.')
+                    }}
+                  >
+                    Effacer la démo
+                  </button>
+                </div>
+              </section>
+              )}
+          </Fold>
+          {supabase && (
+            <Fold id="journal" icon="🕘" title="Historique" summary="Qui a créé, modifié ou supprimé quoi">
+              <ActivityLog />
+            </Fold>
+          )}
+        </>
       )}
+    </div>
+  )
+}
 
-      {can.loadDemo(role) && (
-      <section className="card flex flex-col gap-2 p-4">
-        <SectionTitle info="24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données.">
-          Données de démonstration
-        </SectionTitle>
-        <div className="flex gap-2">
-          <button
-            className="btn-ghost flex-1 text-xs"
-            onClick={async () => {
-              const r = await loadDemo()
-              setMsg(`Démo chargée : ${r.players} joueurs, ${r.measurements} mesures, ${r.events} événements, ${r.evaluations} avis.`)
-            }}
-          >
-            Charger la démo
-          </button>
-          <button
-            className="btn-ghost flex-1 text-xs"
-            onClick={async () => {
-              if (!(await ask('Effacer toutes les données de démonstration ? Tes propres données ne sont pas touchées.', { ok: 'Effacer' }))) return
-              await clearDemo()
-              setMsg('Données de démonstration effacées.')
-            }}
-          >
-            Effacer la démo
-          </button>
+/**
+ * Rubrique repliable des réglages : une ligne (icône, titre, résumé) qui s'ouvre sur ses réglages.
+ * Les cartes des réglages s'y fondent (séparées par un trait) ; l'état ouvert est gardé pendant la session.
+ */
+function Fold({ id, icon, title, summary, children }: { id: string; icon: string; title: string; summary?: string; children: ReactNode }) {
+  const [open, setOpen] = useSessionState(`handbase.settings.${id}`, false)
+  return (
+    <div className={`card overflow-hidden ${open ? 'border-accent/50' : ''}`}>
+      <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)}>
+        <span className="text-lg">{icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold">{title}</span>
+          {summary && <span className="block truncate text-[11px] text-muted">{summary}</span>}
+        </span>
+        <span className={`text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
+      </button>
+      {open && (
+        <div className="flex flex-col divide-y divide-line border-t border-line px-4 [&_section.card]:rounded-none [&_section.card]:border-0 [&_section.card]:bg-transparent [&_section.card]:px-0 [&_section.card]:py-4">
+          {children}
         </div>
-      </section>
       )}
     </div>
   )

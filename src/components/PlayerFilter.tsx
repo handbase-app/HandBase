@@ -141,7 +141,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     })
   }, [scoped, q, position, withSecondary])
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all'
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
     setQ('')
     setSex('all')
@@ -152,84 +152,129 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     setClub('')
     setYear('')
     setPosition('all')
+    setWithSecondary(false)
   }
+
+  // Filtres repliés par défaut : la recherche et les postes restent visibles, les filtres actifs
+  // s'affichent en pastilles qu'on retire d'un appui.
+  const [open, setOpen] = useSessionState(k('open'), false)
+  const chips: { label: string; clear: () => void }[] = [
+    sex !== 'all' && { label: sex === 'M' ? 'Garçons' : 'Filles', clear: () => setSex('all') },
+    year && { label: year, clear: () => setYear('') },
+    !!quarter && { label: `Q${quarter}`, clear: () => setQuarter(0) },
+    hand !== 'all' && { label: hand === 'droitier' ? 'Droitiers' : hand === 'gaucher' ? 'Gauchers' : 'Ambidextres', clear: () => setHand('all') },
+    dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
+    club && { label: club, clear: () => setClub('') },
+    current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), setDept(''), setClub('')) },
+    withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
+  ].filter((c): c is { label: string; clear: () => void } => !!c)
 
   const ui = (
     <div className="flex flex-col gap-2">
-      <input className="field" placeholder="Rechercher (nom, club, licence)…" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {(
-          [
-            ['all', 'Tous'],
-            ['M', 'Garçons'],
-            ['F', 'Filles'],
-          ] as const
-        ).map(([v, label]) => (
-          <button key={v} onClick={() => setSex(v)} className={`flex-1 py-1.5 ${sex === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="">Toutes les années</option>
-          {[...years, ...(year && !years.some(([y]) => y === year) ? [[year, 0] as [string, number]] : [])].map(([y, n]) => (
-            <option key={y} value={y}>
-              {y} ({n})
-            </option>
-          ))}
-        </select>
-        <select
-          className={`field py-1.5 text-xs ${quarter ? `font-bold ${QUARTER_ACTIVE[quarter - 1]}` : ''}`}
-          value={quarter}
-          onChange={(e) => setQuarter(Number(e.target.value))}
+      <div className="flex gap-2">
+        <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button
+          onClick={() => setOpen(!open)}
+          className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
         >
-          <option value={0}>Tous les trimestres</option>
-          {QUARTER_LABELS.map((l, i) => (
-            <option key={i} value={i + 1}>
-              {l}
-            </option>
-          ))}
-        </select>
+          Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+        </button>
       </div>
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {(
-          [
-            ['all', 'Toutes'],
-            ['droitier', 'Droitiers'],
-            ['gaucher', 'Gauchers'],
-            ['ambidextre', 'Ambi.'],
-          ] as const
-        ).map(([v, label]) => (
-          <button key={v} onClick={() => setHand(v)} className={`flex-1 py-1.5 ${hand === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {depts.length > 1 || dept ? (
-        <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
-          <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
-          {depts.map(([d, n]) => (
-            <option key={d} value={d}>
-              {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
-            </option>
+      {open && (
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+          <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+            {(
+              [
+                ['all', 'Tous'],
+                ['M', 'Garçons'],
+                ['F', 'Filles'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} onClick={() => setSex(v)} className={`flex-1 py-1.5 ${sex === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">Toutes les années</option>
+              {[...years, ...(year && !years.some(([y]) => y === year) ? [[year, 0] as [string, number]] : [])].map(([y, n]) => (
+                <option key={y} value={y}>
+                  {y} ({n})
+                </option>
+              ))}
+            </select>
+            <select
+              className={`field py-1.5 text-xs ${quarter ? `font-bold ${QUARTER_ACTIVE[quarter - 1]}` : ''}`}
+              value={quarter}
+              onChange={(e) => setQuarter(Number(e.target.value))}
+            >
+              <option value={0}>Tous les trimestres</option>
+              {QUARTER_LABELS.map((l, i) => (
+                <option key={i} value={i + 1}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+            {(
+              [
+                ['all', 'Toutes'],
+                ['droitier', 'Droitiers'],
+                ['gaucher', 'Gauchers'],
+                ['ambidextre', 'Ambi.'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} onClick={() => setHand(v)} className={`flex-1 py-1.5 ${hand === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {depts.length > 1 || dept ? (
+            <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
+              <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
+              {depts.map(([d, n]) => (
+                <option key={d} value={d}>
+                  {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={setClub} />
+          {groups.length > 0 && (
+            <select
+              className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
+              value={group}
+              onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''))}
+            >
+              <option value="">Tous les joueurs (sans groupe choisi)</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.private ? '🔒 ' : ''}Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <label className="flex items-center gap-1.5 self-start text-[11px] text-muted">
+            <input type="checkbox" checked={withSecondary} onChange={(e) => setWithSecondary(e.target.checked)} />
+            Inclure les postes secondaires
+          </label>
+        </div>
+      )}
+      {(chips.length > 0 || active) && !open && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {chips.map((c) => (
+            <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
+              {c.label} <span className="text-muted">✕</span>
+            </button>
           ))}
-        </select>
-      ) : null}
-      <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={setClub} />
-      {groups.length > 0 && (
-        <select
-          className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
-          value={group}
-          onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''))}
-        >
-          <option value="">Tous les joueurs (sans groupe choisi)</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.private ? '🔒 ' : ''}Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
-            </option>
-          ))}
-        </select>
+          {active && (
+            <button className="text-[11px] font-bold text-muted underline" onClick={reset}>
+              Tout effacer
+            </button>
+          )}
+        </div>
       )}
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {[{ id: 'all' as const, short: 'Tous postes' }, ...POSITIONS, { id: 'none' as const, short: 'Sans poste' }].map((p) => {
@@ -248,11 +293,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           )
         })}
       </div>
-      <label className="-mt-1 flex items-center gap-1.5 self-start text-[11px] text-muted">
-        <input type="checkbox" checked={withSecondary} onChange={(e) => setWithSecondary(e.target.checked)} />
-        Inclure les postes secondaires
-      </label>
-      {active && (
+      {open && active && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={reset}>
           Effacer les filtres
         </button>
