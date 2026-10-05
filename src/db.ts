@@ -218,12 +218,16 @@ export interface AlertRules {
   departments?: string[]
   /** Dernière taille mesurée ou déclarée (cm). */
   minHeight?: number
+  /** Garder les joueurs sans taille connue. */
+  keepMissingHeight?: boolean
   /** Taille adulte prédite (Khamis-Roche, cm) : il faut les tailles des parents. */
   minPredicted?: number
-  /** Dernière valeur d'un test : au moins (min) ou au plus (max). */
-  tests?: { criterionId: string; op: 'min' | 'max'; value: number }[]
-  /** Moyenne des avis validés sur un critère, au moins. */
-  avis?: { criterionId: string; min: number }[]
+  /** Exclure les joueurs dont la taille prédite n'est pas calculable (par défaut ils sont gardés). */
+  dropMissingPredicted?: boolean
+  /** Dernière valeur d'un test : au moins (min) ou au plus (max) ; keepMissing : garder les non testés. */
+  tests?: { criterionId: string; op: 'min' | 'max'; value: number; keepMissing?: boolean }[]
+  /** Moyenne des avis validés sur un critère, au moins ; keepMissing : garder les joueurs sans avis. */
+  avis?: { criterionId: string; min: number; keepMissing?: boolean }[]
 }
 
 /**

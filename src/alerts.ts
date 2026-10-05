@@ -66,6 +66,40 @@ export function predictedHeight(p: Player, ctx: AlertContext) {
   return snapshots(p, ctx.byPlayer.get(p.id) ?? []).at(-1)?.kr?.predicted ?? undefined
 }
 
+/** Moyenne des avis validés d'un joueur sur un critère (undefined : aucun avis). */
+function avisMean(p: Player, criterionId: string, ctx: AlertContext) {
+  const vs = (ctx.avis.get(p.id) ?? []).map((e) => num(e.scores[criterionId])).filter((v): v is number => v !== undefined)
+  return vs.length ? vs.reduce((x, y) => x + y, 0) / vs.length : undefined
+}
+
+/**
+ * Valeurs chiffrées d'une alerte pour ce joueur : pour chaque condition, la valeur (ou undefined si elle
+ * n'est pas connue), le seuil est-il respecté, et garde-t-on le joueur quand la valeur manque.
+ */
+function numericChecks(p: Player, r: AlertRules, ctx: AlertContext, criteria?: Criterion[]) {
+  const latest = ctx.latest.get(p.id)
+  const label = (id: string) => criteria?.find((c) => c.id === id)?.label ?? id
+  const checks: { label: string; value?: number; ok: boolean; keepMissing: boolean }[] = []
+  if (r.minHeight) {
+    const v = num(latest?.get('taille')?.value)
+    checks.push({ label: 'taille', value: v, ok: v !== undefined && v >= r.minHeight, keepMissing: !!r.keepMissingHeight })
+  }
+  for (const t of r.tests ?? []) {
+    const v = num(latest?.get(t.criterionId)?.value)
+    checks.push({ label: label(t.criterionId), value: v, ok: v !== undefined && (t.op === 'min' ? v >= t.value : v <= t.value), keepMissing: !!t.keepMissing })
+  }
+  for (const a of r.avis ?? []) {
+    const v = avisMean(p, a.criterionId, ctx)
+    checks.push({ label: `avis ${label(a.criterionId)}`, value: v, ok: v !== undefined && v >= a.min, keepMissing: !!a.keepMissing })
+  }
+  // Taille prédite en dernier : son calcul est le plus coûteux.
+  if (r.minPredicted) {
+    const v = predictedHeight(p, ctx)
+    checks.push({ label: 'prédite', value: v, ok: v !== undefined && v >= r.minPredicted, keepMissing: !r.dropMissingPredicted })
+  }
+  return checks
+}
+
 export function matches(p: Player, r: AlertRules, ctx: AlertContext): boolean {
   if (r.sex && p.sex !== r.sex) return false
   if (r.years?.length && !r.years.includes(p.birthDate?.slice(0, 4) ?? '')) return false
@@ -76,24 +110,15 @@ export function matches(p: Player, r: AlertRules, ctx: AlertContext): boolean {
     if (!r.positions.some((x) => own.includes(x))) return false
   }
   if (r.departments?.length && !r.departments.includes(department(p) ?? '')) return false
-  const latest = ctx.latest.get(p.id)
-  if (r.minHeight) {
-    const h = num(latest?.get('taille')?.value)
-    if (h === undefined || h < r.minHeight) return false
-  }
-  for (const t of r.tests ?? []) {
-    const v = num(latest?.get(t.criterionId)?.value)
-    if (v === undefined || (t.op === 'min' ? v < t.value : v > t.value)) return false
-  }
-  for (const a of r.avis ?? []) {
-    const vs = (ctx.avis.get(p.id) ?? []).map((e) => num(e.scores[a.criterionId])).filter((v): v is number => v !== undefined)
-    if (!vs.length || vs.reduce((x, y) => x + y, 0) / vs.length < a.min) return false
-  }
-  if (r.minPredicted) {
-    const ph = predictedHeight(p, ctx)
-    if (ph === undefined || ph < r.minPredicted) return false
-  }
-  return true
+  // Valeur sous le seuil : exclu ; valeur inconnue : gardé seulement si la condition le prévoit.
+  return numericChecks(p, r, ctx).every((c) => c.ok || (c.value === undefined && c.keepMissing))
+}
+
+/** Conditions gardées faute de valeur (« prédite ? », « CMJ hauteur ? ») : à vérifier sur ce joueur. */
+export function missingFor(p: Player, r: AlertRules, ctx: AlertContext, criteria: Criterion[]) {
+  return numericChecks(p, r, ctx, criteria)
+    .filter((c) => c.value === undefined)
+    .map((c) => c.label)
 }
 
 export const matchAlert = (a: PlayerAlert, ctx: AlertContext) => ctx.players.filter((p) => matches(p, a.rules, ctx))
@@ -108,13 +133,13 @@ export function rulesSummary(r: AlertRules, criteria: Criterion[]) {
     r.laterality ? { droitier: 'droitiers', gaucher: 'gauchers', ambidextre: 'ambidextres' }[r.laterality] : '',
     r.positions?.length ? r.positions.map((x) => positionLabel(x)).join(', ') + (r.withSecondary ? ' (+ secondaires)' : '') : '',
     r.departments?.length ? r.departments.map(departmentLabel).join(', ') : '',
-    r.minHeight ? `taille ≥ ${r.minHeight} cm` : '',
-    r.minPredicted ? `taille adulte prédite ≥ ${r.minPredicted} cm` : '',
+    r.minHeight ? `taille ≥ ${r.minHeight} cm${r.keepMissingHeight ? ' (ou inconnue)' : ''}` : '',
+    r.minPredicted ? `taille adulte prédite ≥ ${r.minPredicted} cm${r.dropMissingPredicted ? '' : ' (ou inconnue)'}` : '',
     ...(r.tests ?? []).map((t) => {
       const c = label(t.criterionId)
-      return `${c?.label ?? t.criterionId} ${t.op === 'min' ? '≥' : '≤'} ${t.value.toLocaleString('fr-FR')}${c?.unit ? ` ${c.unit}` : ''}`
+      return `${c?.label ?? t.criterionId} ${t.op === 'min' ? '≥' : '≤'} ${t.value.toLocaleString('fr-FR')}${c?.unit ? ` ${c.unit}` : ''}${t.keepMissing ? ' (ou non testé)' : ''}`
     }),
-    ...(r.avis ?? []).map((a) => `avis « ${label(a.criterionId)?.label ?? a.criterionId} » ≥ ${a.min.toLocaleString('fr-FR')}`),
+    ...(r.avis ?? []).map((a) => `avis « ${label(a.criterionId)?.label ?? a.criterionId} » ≥ ${a.min.toLocaleString('fr-FR')}${a.keepMissing ? ' (ou sans avis)' : ''}`),
   ]
     .filter(Boolean)
     .join(' · ') || 'Aucune condition : tous les joueurs'

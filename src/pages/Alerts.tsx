@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { computeAlerts, loadAlertContext, markSeen, matches, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
+import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
 import { Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
@@ -143,13 +143,13 @@ export function AlertDetail() {
       </div>
       {!players.length && <Empty>Aucun joueur ne correspond pour l’instant : tu seras prévenu dès qu’un joueur y entrera.</Empty>}
       {sorted.map((p) => (
-        <PlayerRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} />
+        <PlayerRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
       ))}
     </div>
   )
 }
 
-function PlayerRow({ p, ctx, fresh, rules }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules }) {
+function PlayerRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules; missing: string[] }) {
   const h = ctx.latest.get(p.id)?.get('taille')?.value
   const ph = rules.minPredicted ? predictedHeight(p, ctx) : undefined
   return (
@@ -170,6 +170,16 @@ function PlayerRow({ p, ctx, fresh, rules }: { p: Player; ctx: AlertContext; fre
           {ph !== undefined && <span>· prédit {Math.round(ph)} cm</span>}
           {p.club && <span className="truncate">· {p.club}</span>}
         </div>
+        {/* Gardé faute de valeur : à vérifier. */}
+        {missing.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {missing.map((m) => (
+              <span key={m} className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-200">
+                {m} ?
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </Link>
   )
@@ -210,6 +220,14 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
     if (ctx) resetSeen(row.id, ctx.players.filter((p) => matches(p, clean, ctx)).map((p) => p.id))
     onDone(row)
   }
+
+  // « Garder les joueurs sans valeur » : sous le seuil, exclu ; valeur inconnue, gardé si coché.
+  const keep = (checked: boolean, onChange: (v: boolean) => void, what = 'sans valeur') => (
+    <label className="-mt-1 flex items-center gap-1.5 text-[11px] text-muted">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      Garder aussi les joueurs {what} (à vérifier)
+    </label>
+  )
 
   const numInput = (value: number | undefined, onChange: (v?: number) => void, placeholder: string) => (
     <input
@@ -324,13 +342,15 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           <span>Taille actuelle au moins (cm)</span>
           {numInput(r.minHeight, (v) => set({ minHeight: v }), '185')}
         </div>
+        {!!r.minHeight && keep(!!r.keepMissingHeight, (v) => set({ keepMissingHeight: v }), 'sans taille connue')}
         <div className="flex items-center justify-between gap-3 text-xs">
           <span>
             Taille adulte prédite au moins (cm)
-            <span className="block text-[10px] text-muted">Seulement pour les joueurs dont on connaît la taille des parents.</span>
+            <span className="block text-[10px] text-muted">Calculable seulement si on connaît la taille des parents.</span>
           </span>
           {numInput(r.minPredicted, (v) => set({ minPredicted: v }), '190')}
         </div>
+        {!!r.minPredicted && keep(!r.dropMissingPredicted, (v) => set({ dropMissingPredicted: !v }), 'dont elle n’est pas calculable')}
       </div>
 
       <div className="card flex flex-col gap-2 p-4">
@@ -362,7 +382,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
               ✕
             </button>
           </div>
-        ))}
+        )).flatMap((row, i) => [row, <div key={`k${i}`}>{keep(!!r.tests![i].keepMissing, (v) => set({ tests: r.tests!.map((x, j) => (j === i ? { ...x, keepMissing: v } : x)) }), 'non testés')}</div>])}
         {tests.length > 0 && (
           <button className="self-start text-xs font-bold text-accent" onClick={() => set({ tests: [...(r.tests ?? []), { criterionId: tests[0].id, op: 'min', value: 0 }] })}>
             + Ajouter un test
@@ -392,7 +412,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
               ✕
             </button>
           </div>
-        ))}
+        )).flatMap((row, i) => [row, <div key={`k${i}`}>{keep(!!r.avis![i].keepMissing, (v) => set({ avis: r.avis!.map((x, j) => (j === i ? { ...x, keepMissing: v } : x)) }), 'sans avis')}</div>])}
         {avisCriteria.length > 0 && (
           <button className="self-start text-xs font-bold text-accent" onClick={() => set({ avis: [...(r.avis ?? []), { criterionId: avisCriteria[0].id, min: 4 }] })}>
             + Ajouter un critère d’avis
