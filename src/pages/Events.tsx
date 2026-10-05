@@ -254,10 +254,24 @@ export function EventDetail() {
   const inRoster = new Set(ev.playerIds ?? [])
   const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
   const observers = [...new Set(evals.map((e) => e.observer))].sort()
+  // Hors liste : avis en attente (à décider) et joueurs dont aucun avis n'attend (à ajouter, ou anciens).
+  const pendingOff = evals.filter((e) => e.review === 'pending' && offList.some((p) => p.id === e.playerId))
+  const settled = offList.filter((p) => !pendingOff.some((e) => e.playerId === p.id) && evals.some((e) => e.playerId === p.id && counts(e)))
   const manage = can.editEvent(role, ev)
+  // Participant (supabase/024) : ajoute des joueurs, retire les siens, co-organise les avis hors liste.
+  const contribute = can.contributeEvent(role, ev)
+  const who = (uid?: string) => (uid ? (ev.names?.[uid] ?? (uid === ev.createdBy ? ev.createdByName : undefined)) : undefined)
+  const addedByOf = (pid: string) => who(ev.addedBy?.[pid] ?? ev.createdBy)
 
   async function setRoster(ids: string[]) {
-    await save<HBEvent>('events', { ...ev!, playerIds: ids })
+    // « Ajouté par » des nouveaux joueurs : posé ici pour l'affichage ; le serveur le refait (024).
+    const me = currentUserId()
+    const added = ids.filter((id) => !(ev!.playerIds ?? []).includes(id))
+    await save<HBEvent>('events', {
+      ...ev!,
+      playerIds: ids,
+      ...(me && added.length && { addedBy: { ...ev!.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
+    })
   }
 
   return (
@@ -319,6 +333,23 @@ export function EventDetail() {
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
           {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
+          {!!ev.editors?.length && (
+            <div className="mt-1 text-[11px] text-muted">
+              Participants : <b className="text-fg">{ev.editors.map((u) => who(u) ?? '?').join(', ')}</b>
+              {contribute && (
+                <button
+                  className="ml-2 font-bold text-accent underline"
+                  onClick={async () => {
+                    if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les joueurs que tu as ajoutés restent dans la liste.`, { ok: 'Me retirer' }))) return
+                    const me = currentUserId()
+                    await save<HBEvent>('events', { ...ev, editors: (ev.editors ?? []).filter((u) => u !== me) })
+                  }}
+                >
+                  Me retirer
+                </button>
+              )}
+            </div>
+          )}
           <StampLine row={ev} />
         </div>
       )}
@@ -345,24 +376,50 @@ export function EventDetail() {
           <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
           <div className="flex flex-col gap-2">
-            {manage && (
+            {(manage || contribute) && (
               <button className="btn-ghost text-xs" onClick={() => setAdding(true)}>
                 + Ajouter des joueurs (par groupe ou un par un)
               </button>
             )}
             {offList.length > 0 && (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-                <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
-                <p className="mt-0.5 text-[11px] text-muted">
-                  Joueurs repérés sur place. Un avis validé compte dans les moyennes et ajoute le joueur à la liste ; hors cadre, il est gardé sans compter.
-                </p>
-                <div className="mt-2 flex flex-col gap-2">
-                  {offList.flatMap((p) =>
-                    evals
-                      .filter((e) => e.playerId === p.id)
-                      .map((e) => <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} />),
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
+                  {(manage || contribute) && settled.length > 0 && (
+                    <button className="btn-primary px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...settled.map((p) => p.id)])}>
+                      Ajouter {settled.length > 1 ? `les ${settled.length}` : 'le joueur'} à la liste
+                    </button>
                   )}
                 </div>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  Joueurs repérés sur place. Un avis en attente validé compte dans les moyennes et ajoute le joueur à la liste ; hors cadre, il est gardé
+                  sans compter.
+                </p>
+                {/* Avis à valider : en grand, avec les boutons de décision. */}
+                {pendingOff.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    {pendingOff.map((e) => {
+                      const p = offList.find((x) => x.id === e.playerId)!
+                      return <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} />
+                    })}
+                  </div>
+                )}
+                {/* Joueurs hors liste dont les avis ne sont pas en attente (anciens avis, organisateur…) : en bref. */}
+                {settled.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {settled.map((p) => (
+                      <Link key={p.id} to={`/joueurs/${p.id}`} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate">
+                          <b>
+                            {p.lastName.toUpperCase()} {p.firstName}
+                          </b>
+                          <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-emerald-300">{evals.filter((e) => e.playerId === p.id).length} avis</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {roster.length === 0 ? (
@@ -391,10 +448,11 @@ export function EventDetail() {
                           <div className="truncate text-[10px] text-muted">
                             {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
                           </div>
+                          {!!ev.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
                         </div>
                       </Link>
                       <span className={`shrink-0 text-[10px] font-bold ${n ? 'text-emerald-300' : 'text-muted'}`}>{n ? `${n} avis` : '—'}</span>
-                      {manage && (
+                      {can.removeFromEvent(role, ev, p.id) && (
                         <button
                           className="shrink-0 px-1 text-muted hover:text-red-400"
                           title="Retirer de la liste"

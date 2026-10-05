@@ -8,6 +8,8 @@ import { ProposePlayer } from '../components/ProposePlayer'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { useSessionState } from '../components/PlayerFilter'
+import { StaffPicker } from '../components/StaffPicker'
+import { supabase } from '../sync'
 import {
   alive,
   CONTEXT_TYPES,
@@ -156,7 +158,7 @@ export default function Evaluate() {
       ? can.review(role)
         ? { review: 'validated' as const, reviewedBy: currentUserId() ?? undefined, reviewedByName: me, reviewedAt: new Date().toISOString(), reviewNote: undefined }
         : { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-      : event && !can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)
+      : event && !can.editEvent(role, event) && !can.contributeEvent(role, event) && !(event.playerIds ?? []).includes(player.id)
         ? // Joueur hors liste noté par un autre que l'organisateur : à valider (supabase/021_avis_hors_liste.sql).
           { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
         : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
@@ -175,8 +177,13 @@ export default function Evaluate() {
     } as Evaluation)
     if (spontaneous) setAvisId(id)
     // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
-    if (event && !spontaneous && can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)) {
-      await save<HBEvent>('events', { ...event, playerIds: [...(event.playerIds ?? []), player.id] })
+    if (event && !spontaneous && (can.editEvent(role, event) || can.contributeEvent(role, event)) && !(event.playerIds ?? []).includes(player.id)) {
+      const me = currentUserId()
+      await save<HBEvent>('events', {
+        ...event,
+        playerIds: [...(event.playerIds ?? []), player.id],
+        ...(me && { addedBy: { ...event.addedBy, [player.id]: me } }),
+      })
     }
     setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
@@ -341,7 +348,7 @@ export default function Evaluate() {
         {/* Joueur hors liste de l'événement (supabase/021_avis_hors_liste.sql) : prévenir avant de noter. */}
         {event && player && !spontaneous && !(event.playerIds ?? []).includes(player.id) && (
           <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
-            {can.editEvent(role, event) ? (
+            {can.editEvent(role, event) || can.contributeEvent(role, event) ? (
               <>
                 <b>Joueur hors liste.</b> Tu organises cet événement : en enregistrant ton avis, il sera ajouté à la liste.
               </>
@@ -563,6 +570,11 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
   const [type, setType] = useState<EventType>(event?.type ?? 'match')
   const [date, setDate] = useState(event?.date ?? today())
   const [place, setPlace] = useState(event?.place ?? '')
+  // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
+  const [editors, setEditors] = useState<string[]>(event?.editors ?? [])
+  const [staffNames, setStaffNames] = useState<Record<string, string>>({})
+  const chip = (on: boolean) =>
+    `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
   return (
     <div className="flex flex-col gap-2">
       <input className="field" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
@@ -581,16 +593,45 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           ))}
         </select>
       )}
+      {supabase && (
+        <>
+          <span className="label mt-1">Participants</span>
+          <p className="-mt-1 text-[11px] text-muted">
+            Encadrants qui co-organisent : ils ajoutent des joueurs à la liste, retirent ceux qu’ils ont ajoutés et valident les avis hors liste.
+            Modifier, archiver ou supprimer l’événement reste à toi (et aux administrateurs).
+          </p>
+          <StaffPicker value={editors} onChange={setEditors} ownerId={event?.createdBy} onNames={setStaffNames} chip={chip} />
+        </>
+      )}
       <div className="flex gap-2">
         <button
           className="btn-primary flex-1"
           disabled={!name.trim()}
           onClick={async () => {
-            const fields = { name: name.trim(), type, date, place: place || undefined }
+            const fields = {
+              name: name.trim(),
+              type,
+              date,
+              place: place || undefined,
+              editors,
+              names: { ...event?.names, ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])) },
+            }
             // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.
             const current = event && (await db.events.get(event.id))
             onDone(
-              await save<HBEvent>('events', current ? { ...current, ...fields } : { id: newId(), ...fields, playerIds: picked ? [...picked.playerIds] : undefined }),
+              await save<HBEvent>(
+                'events',
+                current
+                  ? { ...current, ...fields }
+                  : {
+                      id: newId(),
+                      ...fields,
+                      playerIds: picked ? [...picked.playerIds] : undefined,
+                      // Depuis un groupe : chaque joueur garde celui qui l'avait ajouté au groupe.
+                      addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined,
+                      names: { ...picked?.names, ...fields.names },
+                    },
+              ),
             )
           }}
         >

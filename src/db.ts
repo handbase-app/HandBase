@@ -142,6 +142,12 @@ export interface HBEvent extends Syncable {
   playerIds?: string[]
   /** Archivé : caché des listes (Évaluer, événements) ; ses avis comptent toujours. */
   archived?: boolean
+  /** Participants (encadrants, supabase/024) : ajoutent des joueurs, retirent les leurs, co-organisent. */
+  editors?: string[]
+  /** Qui a ajouté chaque joueur de la liste (identifiant de compte) ; tenu par le serveur. */
+  addedBy?: Record<string, string>
+  /** Noms des comptes cités (participants, « ajouté par »). */
+  names?: Record<string, string>
 }
 
 /** Contexte d'un avis spontané (joueur vu hors des événements prévus). */

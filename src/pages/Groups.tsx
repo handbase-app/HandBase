@@ -12,6 +12,7 @@ import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, useRole } from '../roles'
 import { supabase } from '../sync'
+import { StaffPicker } from '../components/StaffPicker'
 import { AddPlayers } from './Events'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
@@ -252,16 +253,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const years = year ? [year] : []
   // Participants (groupe partagé) : encadrants choisis parmi le staff (supabase/023_participants_groupes.sql).
   const [editors, setEditors] = useState<string[]>(group?.editors ?? [])
-  const [staff, setStaff] = useState<{ user_id: string; full_name: string | null }[] | null>(null)
-  useEffect(() => {
-    if (!supabase || priv) return
-    void supabase
-      .from('hb_profiles')
-      .select('user_id, full_name')
-      .eq('role', 'preparateur')
-      .order('full_name')
-      .then(({ data }) => setStaff((data ?? []).filter((p) => p.user_id !== (group?.createdBy ?? currentUserId()))))
-  }, [priv, group?.createdBy])
+  const [staffNames, setStaffNames] = useState<Record<string, string>>({})
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
 
@@ -296,24 +288,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
             Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer
             le groupe reste à toi (et aux administrateurs).
           </p>
-          {staff === null ? (
-            <p className="text-[11px] text-muted">{navigator.onLine ? 'Chargement du staff…' : 'Liste du staff disponible en ligne.'}</p>
-          ) : staff.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {staff.map((p) => (
-                <button
-                  key={p.user_id}
-                  type="button"
-                  className={chip(editors.includes(p.user_id))}
-                  onClick={() => setEditors((e) => (e.includes(p.user_id) ? e.filter((x) => x !== p.user_id) : [...e, p.user_id]))}
-                >
-                  {p.full_name || 'Sans nom'}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[11px] text-muted">Aucun autre encadrant.</p>
-          )}
+          <StaffPicker value={editors} onChange={setEditors} ownerId={group?.createdBy} onNames={setStaffNames} chip={chip} />
         </>
       )}
 
@@ -380,7 +355,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               editors: priv ? [] : editors,
               names: {
                 ...group?.names,
-                ...Object.fromEntries((staff ?? []).filter((p) => editors.includes(p.user_id)).map((p) => [p.user_id, p.full_name ?? ''])),
+                ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])),
               },
             }
             // Relit le groupe : sa liste a pu changer entre-temps.

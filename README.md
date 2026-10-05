@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `023_participants_groupes.sql`).
+   (`002_roles.sql` … `024_participants_evenements.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -106,7 +106,9 @@ les noms des départements (*Réglages → Départements*, `supabase/020_departe
 
 Un groupe partagé peut avoir des **participants** (encadrants choisis par son créateur) : ils ajoutent des joueurs et
 ne retirent que ceux qu'ils ont ajoutés (« ajouté par … ») ; renommer, archiver, supprimer le groupe ou choisir les
-participants reste au créateur et aux administrateurs (`supabase/023_participants_groupes.sql`).
+participants reste au créateur et aux administrateurs (`supabase/023_participants_groupes.sql`). Même principe pour les
+événements (`supabase/024_participants_evenements.sql`) : un participant est aussi co-organisateur pour les avis hors
+liste (il note sans validation et valide ceux des observateurs) ; un événement créé depuis un groupe garde « ajouté par ».
 
 ### Alertes
 

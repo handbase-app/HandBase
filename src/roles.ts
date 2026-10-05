@@ -119,6 +119,11 @@ export const can = {
   /** Retirer ce joueur du groupe : créateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
   removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
     can.editGroup(r, g) || (can.contributeGroup(r, g) && (g.addedBy?.[playerId] ?? g.createdBy) === userId),
+  /** Participant d'un événement (supabase/024_participants_evenements.sql) : co-organisateur pour la liste et les avis hors liste. */
+  contributeEvent: (r: Role, ev: { editors?: string[] }) => r === 'preparateur' && !!userId && !!ev.editors?.includes(userId),
+  /** Retirer ce joueur de la liste : organisateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
+  removeFromEvent: (r: Role, ev: { editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
+    can.editEvent(r, ev) || (can.contributeEvent(r, ev) && (ev.addedBy?.[playerId] ?? ev.createdBy) === userId),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
   /**
@@ -131,8 +136,8 @@ export const can = {
    * Décider d'un avis en attente : l'encadrant du secteur du joueur, ou, pour un avis hors liste sur un
    * événement, aussi l'organisateur de l'événement (supabase/021_avis_hors_liste.sql).
    */
-  reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string }) =>
-    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
+  reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string; editors?: string[] }) =>
+    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId || !!ev.editors?.includes(userId ?? ''))),
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
