@@ -54,6 +54,8 @@ export default function Evaluate() {
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
+  // Sens de l'animation au changement de joueur par glissement.
+  const [slide, setSlide] = useState<'left' | 'right' | null>(null)
 
   const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive), [], [])
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive), [], [])
@@ -209,8 +211,29 @@ export default function Evaluate() {
   const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
   const filled = Object.values(draft.scores ?? {}).filter(isFilled).length
 
+  // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement).
+  // Seulement un geste franchement horizontal, et pas dans un champ de saisie (qui garde son propre geste).
+  const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
+  const canSwipe = !spontaneous && roster.length > 0 && idx >= 0
+  const onTouchStart = (e: React.TouchEvent) => {
+    const el = e.target as HTMLElement
+    swipe.current = !canSwipe || el.closest('input, textarea, select, [data-noswipe]') ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }
+  }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const s = swipe.current
+    swipe.current = null
+    if (!s) return
+    const dx = e.changedTouches[0].clientX - s.x
+    const dy = e.changedTouches[0].clientY - s.y
+    if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6 || Date.now() - s.t > 800) return
+    const target = dx < 0 ? next : prev
+    if (!target) return
+    setSlide(dx < 0 ? 'left' : 'right')
+    void go('joueur', target.id)
+  }
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
       <div className="flex items-center justify-between gap-2">
         {event && !spontaneous ? (
@@ -311,6 +334,7 @@ export default function Evaluate() {
             <span className="text-center text-[11px] whitespace-nowrap text-muted">
               <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
               {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
+              {idx >= 0 && <span className="block text-[10px] font-normal">glisse ← → pour changer de joueur</span>}
             </span>
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => void go('joueur', (next ?? roster[0]).id)}>
               →
@@ -353,7 +377,8 @@ export default function Evaluate() {
       )}
 
       {player && (event || spontaneous) && (
-        <>
+        // Nouveau joueur après un glissement : la notation arrive du côté où l'on a glissé.
+        <div key={player.id} className={`flex flex-col gap-4 ${slide === 'left' ? 'animate-slide-left' : slide === 'right' ? 'animate-slide-right' : ''}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
               {player.firstName} {player.lastName} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
@@ -453,7 +478,7 @@ export default function Evaluate() {
           >
             {existing ? 'Mettre à jour mon avis' : 'Enregistrer mon avis'} ({filled} critère{filled > 1 ? 's' : ''})
           </button>
-        </>
+        </div>
       )}
     </div>
   )
