@@ -144,7 +144,7 @@ export function PlayerGroups({ playerId }: { playerId: string }) {
         ))}
         {!groups.length && <span className="text-[11px] text-muted">aucun</span>}
         {can.manageGroups(role) && !adding && (
-          <button className="rounded-full border border-dashed border-line px-2.5 py-0.5 text-[11px] text-muted hover:text-white" onClick={() => (setAdding(true), setMsg({ text: '' }))}>
+          <button className="rounded-full border border-dashed border-line px-2.5 py-0.5 text-[11px] text-muted hover:text-fg" onClick={() => (setAdding(true), setMsg({ text: '' }))}>
             + Ajouter à un groupe
           </button>
         )}

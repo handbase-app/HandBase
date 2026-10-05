@@ -87,7 +87,7 @@ export default function Events() {
             <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, lieu ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />
             <button
               onClick={() => setOpen(!open)}
-              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
             >
               Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
             </button>
@@ -211,16 +211,16 @@ function EventRow({ ev, evals, upcoming = false }: { ev: HBEvent; evals: Evaluat
         {es.length > 0 ? (
           <>
             <div>
-              <b className="text-white">{new Set(es.map((e) => e.playerId)).size}</b> joueurs
+              <b className="text-fg">{new Set(es.map((e) => e.playerId)).size}</b> joueurs
             </div>
             <div>
-              <b className="text-white">{es.length}</b> avis
+              <b className="text-fg">{es.length}</b> avis
             </div>
           </>
         ) : (
           (ev.playerIds ?? []).length > 0 && (
             <div>
-              <b className="text-white">{(ev.playerIds ?? []).length}</b> convoqué{(ev.playerIds ?? []).length > 1 ? 's' : ''}
+              <b className="text-fg">{(ev.playerIds ?? []).length}</b> convoqué{(ev.playerIds ?? []).length > 1 ? 's' : ''}
             </div>
           )
         )}
@@ -269,13 +269,13 @@ export function EventDetail() {
         {manage && (
           <div className="flex gap-4">
             {!editing && (
-              <button className="text-xs text-muted hover:text-white" onClick={() => setEditing(true)}>
+              <button className="text-xs text-muted hover:text-fg" onClick={() => setEditing(true)}>
                 Modifier
               </button>
             )}
             {/* Archiver : retiré des listes (Évaluer, événements), avis conservés. */}
             <button
-              className="text-xs text-muted hover:text-white"
+              className="text-xs text-muted hover:text-fg"
               onClick={async () => {
                 if (!ev.archived && !(await ask(`Archiver « ${ev.name} » ? Il n’apparaîtra plus dans Évaluer ni dans la liste ; ses avis sont gardés et comptent toujours.`, { ok: 'Archiver' })))
                   return

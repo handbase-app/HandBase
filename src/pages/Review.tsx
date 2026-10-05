@@ -89,7 +89,7 @@ export default function ReviewPage() {
             {!d && <div className="text-[10px] text-amber-200">Département inconnu : à valider par un administrateur.</div>}
             {p.createdByName && (
               <div className="text-[10px] text-muted">
-                Proposée par <b className="text-white">{p.createdByName}</b>
+                Proposée par <b className="text-fg">{p.createdByName}</b>
                 {p.createdAtServer && <> le {fmtDate(p.createdAtServer.slice(0, 10))}</>}
               </div>
             )}
@@ -129,7 +129,7 @@ export default function ReviewPage() {
       {can.review(role) && (
         <p className="text-[11px] text-muted">
           Mon secteur :{' '}
-          <b className="text-white">
+          <b className="text-fg">
             {role === 'admin' ? 'tous les départements (administrateur)' : depts.length ? depts.map(departmentLabel).join(', ') : 'tous les départements (aucun secteur attribué)'}
           </b>
         </p>

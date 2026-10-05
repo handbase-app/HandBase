@@ -95,7 +95,7 @@ export function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(o.value)}
           className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
-            value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'
+            value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
           }`}
         >
           {o.label}
@@ -153,7 +153,7 @@ export function CriterionInput({
             type="button"
             onClick={() => onChange(value === n ? undefined : n)}
             className={`h-8 w-8 rounded-md border text-xs font-bold transition ${
-              value === n ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'
+              value === n ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
           >
             {n}
@@ -171,7 +171,7 @@ export function CriterionInput({
             type="button"
             onClick={() => onChange(value === o ? undefined : o)}
             className={`rounded-md border px-2.5 py-1.5 text-xs font-bold transition ${
-              value === o ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'
+              value === o ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
           >
             {o}
@@ -257,7 +257,7 @@ export function InfoButton({ title, children }: { title?: string; children: Reac
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => setOpen(false)}>
             <div role="dialog" aria-modal="true" className="card w-full max-w-sm p-5 text-sm leading-relaxed shadow-2xl" onClick={(e) => e.stopPropagation()}>
               {title && <div className="mb-2 font-extrabold">{title}</div>}
-              <div className="flex flex-col gap-2 text-[13px] text-white/90">{children}</div>
+              <div className="flex flex-col gap-2 text-[13px] text-fg/90">{children}</div>
               <div className="mt-5 flex justify-end">
                 <button autoFocus className="btn-primary px-5" onClick={() => setOpen(false)}>
                   OK
@@ -329,6 +329,7 @@ export const ICONS = {
   check: 'M9 12l2 2 4-4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   message: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4',
   bell: 'M6 9a6 6 0 1 1 12 0c0 6 3 8 3 8H3s3-2 3-8M10 21a2 2 0 0 0 4 0',
+  palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01',
 } as const
 export type IconName = keyof typeof ICONS
 

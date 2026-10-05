@@ -48,7 +48,7 @@ export function ProposePlayer({
     <div className="flex flex-col gap-2">
       {!can.review(role) && !editing && (
         <p className="text-[11px] text-muted">
-          La fiche sera <b className="text-white">proposée</b> : un encadrant la validera. Tu peux la modifier tant qu’elle n’est pas traitée.
+          La fiche sera <b className="text-fg">proposée</b> : un encadrant la validera. Tu peux la modifier tant qu’elle n’est pas traitée.
         </p>
       )}
       <div className="grid grid-cols-2 gap-2">

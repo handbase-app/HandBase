@@ -138,7 +138,7 @@ export default function Feed() {
   const byDay = new Map<string, FeedItem[]>()
   for (const it of shown) byDay.set(it.day, [...(byDay.get(it.day) ?? []), it])
   const toggle = (k: FeedKind) => setPrefs((p) => ({ ...p, kinds: p.kinds.includes(k) ? p.kinds.filter((x) => x !== k) : [...p.kinds, k] }))
-  const chip = (on: boolean) => `rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-accent bg-accent/15 text-white' : 'border-line text-muted'}`
+  const chip = (on: boolean) => `rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-accent bg-accent/15 text-fg' : 'border-line text-muted'}`
 
   return (
     <div className="flex flex-col gap-4">

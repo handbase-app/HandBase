@@ -48,7 +48,7 @@ export function ReviewNote({ e }: { e: Reviewable }) {
   return (
     <div className="mt-1 text-[10px] text-muted">
       {e.review === 'validated' ? 'Validé' : 'Mis hors cadre'}
-      {e.reviewedByName && <> par <b className="text-white">{e.reviewedByName}</b></>}
+      {e.reviewedByName && <> par <b className="text-fg">{e.reviewedByName}</b></>}
       {e.reviewedAt && <> le {fmtDate(e.reviewedAt.slice(0, 10))}</>}
       {e.reviewNote && <> : « {e.reviewNote} »</>}
     </div>

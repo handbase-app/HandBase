@@ -20,13 +20,14 @@ import Feed from './pages/Feed'
 import Alerts, { AlertDetail, NewAlert } from './pages/Alerts'
 import { useAlertCount } from './alerts'
 import { Icon } from './components/ui'
+import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
 
 /** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell() {
   const n = useAlertCount()
   return (
-    <GuardedLink to="/alertes" className="relative text-muted hover:text-white" aria-label="Alertes">
+    <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Alertes">
       <Icon name="bell" className="h-5 w-5" />
       {n > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
@@ -90,6 +91,8 @@ export default function App() {
   useDepartments()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
+  // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
+  useThemeVersion()
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header

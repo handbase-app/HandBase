@@ -218,12 +218,12 @@ export function ActivityLog() {
               <button className="flex w-full items-start justify-between gap-2 text-left" onClick={() => setOpen(open === r.id ? null : r.id)}>
                 <span className="min-w-0">
                   <span className="text-[10px] text-muted">
-                    {new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · <b className="text-white">{r.user_name ?? '?'}</b>
+                    {new Date(r.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} · <b className="text-fg">{r.user_name ?? '?'}</b>
                     {r.user_role ? ` (${ROLES[r.user_role] ?? r.user_role})` : ''}
                   </span>
                   <br />
                   <span className={`font-bold ${ACTION_STYLE[r.action] ?? ''}`}>{r.action}</span> · {TABLES[r.table_name] ?? r.table_name} ·{' '}
-                  <span className="text-white">{r.summary ?? r.row_id}</span>
+                  <span className="text-fg">{r.summary ?? r.row_id}</span>
                 </span>
                 {changes.length > 0 && <span className="shrink-0 text-muted">{open === r.id ? '▴' : '▾'}</span>}
               </button>
@@ -272,12 +272,12 @@ export function StampLine({
     <div className="text-[10px] text-muted">
       {row.createdByName && (
         <>
-          Créé par <b className="text-white">{row.createdByName}</b> le {fmt(row.createdAtServer)}
+          Créé par <b className="text-fg">{row.createdByName}</b> le {fmt(row.createdAtServer)}
         </>
       )}
       {row.updatedByName && !sameAsCreation && (
         <>
-          {row.createdByName ? ' · ' : ''}modifié par <b className="text-white">{row.updatedByName}</b> le {fmt(row.updatedAtServer)}
+          {row.createdByName ? ' · ' : ''}modifié par <b className="text-fg">{row.updatedByName}</b> le {fmt(row.updatedAtServer)}
         </>
       )}
     </div>

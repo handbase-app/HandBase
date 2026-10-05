@@ -225,7 +225,7 @@ export default function Evaluate() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-extrabold">Évaluer</h1>
         <span className="text-[11px] text-muted">
-          Observateur : <b className="text-white">{me}</b>
+          Observateur : <b className="text-fg">{me}</b>
         </span>
       </div>
 
@@ -266,7 +266,7 @@ export default function Evaluate() {
             {/* Filtrer le menu (nom, type, archivés) ; on crée les événements depuis l'onglet Événements. */}
             <button
               onClick={() => setEvOpen(!evOpen)}
-              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${evOpen || evFilters ? 'border-accent text-white' : 'border-line text-muted'} ${evOpen ? 'bg-accent/15' : 'bg-panel-2'}`}
+              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${evOpen || evFilters ? 'border-accent text-fg' : 'border-line text-muted'} ${evOpen ? 'bg-accent/15' : 'bg-panel-2'}`}
             >
               Filtres{evFilters > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{evFilters}</span>} {evOpen ? '▴' : '▾'}
             </button>
@@ -359,7 +359,7 @@ export default function Evaluate() {
               ←
             </button>
             <span className="text-center text-[11px] whitespace-nowrap text-muted">
-              <b className="text-white">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
+              <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
               {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
             </span>
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => void go('joueur', (next ?? roster[0]).id)}>
@@ -527,7 +527,7 @@ function SpontaneousContext({
           <>Ton avis est validé d’office.</>
         ) : (
           <>
-            Ton avis sera <b className="text-white">soumis à validation</b> par un encadrant avant de compter dans les moyennes.
+            Ton avis sera <b className="text-fg">soumis à validation</b> par un encadrant avant de compter dans les moyennes.
           </>
         )}
       </p>

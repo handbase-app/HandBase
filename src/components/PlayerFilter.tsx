@@ -190,7 +190,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
         <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
         <button
           onClick={() => setOpen(!open)}
-          className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+          className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
         >
           Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
         </button>
@@ -385,7 +385,7 @@ function ClubPicker({
         }}
       />
       {value && !open && (
-        <button className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted hover:text-white" title="Tous les clubs" onClick={() => pick('')}>
+        <button className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted hover:text-fg" title="Tous les clubs" onClick={() => pick('')}>
           ✕
         </button>
       )}

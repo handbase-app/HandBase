@@ -36,7 +36,7 @@ export default function Alerts() {
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         <div>
-          <b className="text-white">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
+          <b className="text-fg">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
         </div>
         {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} nouveau{fresh.length > 1 ? 'x' : ''}</div>}
       </div>
@@ -113,7 +113,7 @@ export function AlertDetail() {
         </button>
         {manage && (
           <div className="flex gap-4">
-            <button className="text-xs text-muted hover:text-white" onClick={() => setParams({ modifier: '' }, { replace: true })}>
+            <button className="text-xs text-muted hover:text-fg" onClick={() => setParams({ modifier: '' }, { replace: true })}>
               Modifier
             </button>
             <button
@@ -139,7 +139,7 @@ export function AlertDetail() {
       </div>
       <div className="section-title mt-1 mb-0">
         {players.length} joueur{players.length > 1 ? 's' : ''}
-        {fresh && fresh.size > 0 && <span className="ml-2 text-white normal-case">· {fresh.size} nouveau{fresh.size > 1 ? 'x' : ''}</span>}
+        {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} nouveau{fresh.size > 1 ? 'x' : ''}</span>}
       </div>
       {!players.length && <Empty>Aucun joueur ne correspond pour l’instant : tu seras prévenu dès qu’un joueur y entrera.</Empty>}
       {sorted.map((p) => (
@@ -423,7 +423,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
 
       <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
         <span className="shrink-0 text-[11px] text-muted">
-          <b className="text-white">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
+          <b className="text-fg">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
         </span>
         <button className="btn-primary flex-1" disabled={!name.trim() || busy} onClick={() => void submit()}>
           {alert ? 'Enregistrer' : 'Créer l’alerte'}

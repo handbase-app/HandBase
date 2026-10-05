@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Legend, PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from 'recharts'
+import { themeColor } from '../theme'
 import { contextLabel, counts, fmtDate, remove, reviewOf, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
 import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
@@ -8,7 +9,13 @@ import { department } from './PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty } from './ui'
 
-const COLORS = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
+// Une couleur par observateur ; plus foncées sur les thèmes clairs.
+const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
+const COLORS_LIGHT = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#c2410c', '#be185d', '#0e7490', '#4d7c0f']
+const obsColor = (i: number) => {
+  const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
+  return list[i % list.length]
+}
 /** Écart (max − min) à partir duquel les avis sont considérés divergents. */
 export const DIVERGENCE = 2
 
@@ -168,7 +175,7 @@ export function Opinions({
                 <th className="sticky left-0 bg-panel px-1 py-1.5 text-left font-bold">Critère</th>
                 <th className="px-1.5 py-1.5 font-bold text-accent">Moy.</th>
                 {observers.map((o, i) => (
-                  <th key={o} className="px-1.5 py-1.5 font-bold whitespace-nowrap" style={{ color: COLORS[i % COLORS.length] }}>
+                  <th key={o} className="px-1.5 py-1.5 font-bold whitespace-nowrap" style={{ color: obsColor(i) }}>
                     {o}
                   </th>
                 ))}
@@ -210,13 +217,13 @@ export function Opinions({
         <div className="h-80">
           <ResponsiveContainer>
             <RadarChart data={radarData} outerRadius="58%" margin={{ left: 20, right: 20 }}>
-              <PolarGrid stroke="#3a3a56" />
-              <PolarAngleAxis dataKey="label" tick={{ fill: '#9a9ab8', fontSize: 9 }} />
+              <PolarGrid stroke={themeColor('line')} />
+              <PolarAngleAxis dataKey="label" tick={{ fill: themeColor('muted'), fontSize: 9 }} />
               <PolarRadiusAxis domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
               {observers.map((o, i) => (
-                <Radar key={o} name={o} dataKey={o} stroke={COLORS[i % COLORS.length]} fill="none" strokeWidth={1.2} strokeOpacity={0.8} />
+                <Radar key={o} name={o} dataKey={o} stroke={obsColor(i)} fill="none" strokeWidth={1.2} strokeOpacity={0.8} />
               ))}
-              <Radar name="Moyenne" dataKey="Moyenne" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.25} strokeWidth={2.5} />
+              <Radar name="Moyenne" dataKey="Moyenne" stroke={themeColor('accent')} fill={themeColor('accent')} fillOpacity={0.25} strokeWidth={2.5} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
             </RadarChart>
           </ResponsiveContainer>
@@ -266,22 +273,22 @@ export function AvisCard({ e, where, role, player, dept, event }: { e: Evaluatio
         <div className="text-[10px] text-muted">
           {player && (
             <>
-              <Link to={`/joueurs/${player.id}`} className="text-sm font-bold text-white">
+              <Link to={`/joueurs/${player.id}`} className="text-sm font-bold text-fg">
                 {player.firstName} {player.lastName}
               </Link>
               <br />
             </>
           )}
-          <b className="text-white">{e.observer}</b> · {where} · {fmtDate(e.date)}
+          <b className="text-fg">{e.observer}</b> · {where} · {fmtDate(e.date)}
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
           <br />
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
-          {typeof e.overall === 'number' && <> · note globale <b className="text-white">{e.overall}/5</b></>}
+          {typeof e.overall === 'number' && <> · note globale <b className="text-fg">{e.overall}/5</b></>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <ReviewBadge e={e} />
           {mine && e.contextType && (
-            <Link to={`/evaluer?contexte=libre&joueur=${e.playerId}&avis=${e.id}`} className="px-1 text-muted hover:text-white" title="Modifier cet avis">
+            <Link to={`/evaluer?contexte=libre&joueur=${e.playerId}&avis=${e.id}`} className="px-1 text-muted hover:text-fg" title="Modifier cet avis">
               ✎
             </Link>
           )}

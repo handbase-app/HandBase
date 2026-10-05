@@ -81,7 +81,7 @@ export default function Groups() {
             {hasInfo && (
               <button
                 onClick={() => setOpen(!open)}
-                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-white' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
               >
                 Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
               </button>
@@ -438,7 +438,7 @@ export function GroupDetail() {
           <div className="flex flex-wrap gap-3">
             {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
             <button
-              className="text-xs text-muted hover:text-white"
+              className="text-xs text-muted hover:text-fg"
               onClick={async () => {
                 const copy = await save<PlayerGroup>('groups', {
                   ...stripStamps(g),
@@ -455,10 +455,10 @@ export function GroupDetail() {
             </button>
             {manage && (
               <>
-                <button className="text-xs text-muted hover:text-white" onClick={() => setEditing(true)}>
+                <button className="text-xs text-muted hover:text-fg" onClick={() => setEditing(true)}>
                   Modifier
                 </button>
-                <button className="text-xs text-muted hover:text-white" onClick={() => void save<PlayerGroup>('groups', { ...g, archived: !g.archived })}>
+                <button className="text-xs text-muted hover:text-fg" onClick={() => void save<PlayerGroup>('groups', { ...g, archived: !g.archived })}>
                   {g.archived ? 'Désarchiver' : 'Archiver'}
                 </button>
                 <button

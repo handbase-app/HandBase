@@ -17,6 +17,7 @@ import { Avatar, fmtValue, groupBy, PosBadges, QuarterBadge } from '../component
 import { age, alive, criterionApplies, db, fmtDate, remove, type Criterion, type Measurement } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
+import { themeColor } from '../theme'
 import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 
@@ -40,7 +41,7 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 border-b-2 py-2.5 text-xs font-bold ${tab === t.id ? 'border-accent text-white' : 'border-transparent text-muted'}`}
+            className={`flex-1 border-b-2 py-2.5 text-xs font-bold ${tab === t.id ? 'border-accent text-fg' : 'border-transparent text-muted'}`}
           >
             {t.label}
             {t.id === 'avis' && avis > 0 && <span className="ml-1 text-[10px] text-muted">{avis}</span>}
@@ -384,11 +385,11 @@ function Tracking({
             <div className="h-48">
               <ResponsiveContainer>
                 <LineChart data={series.map((m) => ({ date: fmtDate(m.date).slice(0, 5) + '/' + m.date.slice(2, 4), v: m.value }))} margin={{ left: -18, right: 8, top: 8 }}>
-                  <CartesianGrid stroke="#3a3a56" strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fill: '#9a9ab8', fontSize: 9 }} />
-                  <YAxis domain={['auto', 'auto']} tick={{ fill: '#9a9ab8', fontSize: 9 }} />
-                  <Tooltip contentStyle={{ background: '#26263a', border: '1px solid #3a3a56', fontSize: 11 }} formatter={(v) => [fmtValue(current, v as number), current.label]} />
-                  <Line type="monotone" dataKey="v" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3, fill: '#f43f5e' }} />
+                  <CartesianGrid stroke={themeColor('line')} strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fill: themeColor('muted'), fontSize: 9 }} />
+                  <YAxis domain={['auto', 'auto']} tick={{ fill: themeColor('muted'), fontSize: 9 }} />
+                  <Tooltip contentStyle={{ background: themeColor('panel'), border: `1px solid ${themeColor('line')}`, fontSize: 11 }} formatter={(v) => [fmtValue(current, v as number), current.label]} />
+                  <Line type="monotone" dataKey="v" stroke={themeColor('accent')} strokeWidth={2} dot={{ r: 3, fill: themeColor('accent') }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

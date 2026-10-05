@@ -14,6 +14,7 @@ import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../lists'
 import { useSessionState } from '../components/PlayerFilter'
+import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -58,6 +59,9 @@ export default function Settings() {
         </section>
         <Account />
         {supabase && <PasswordChange />}
+      </Fold>
+      <Fold id="apparence" icon="palette" title="Apparence" summary={themeSummary()}>
+        <ThemePicker />
       </Fold>
       <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Droits des familles, charte du staff">
   <div className="flex gap-2">
@@ -153,6 +157,45 @@ export default function Settings() {
         </>
       )}
     </div>
+  )
+}
+
+const themeSummary = () => {
+  const c = readThemeChoice()
+  return c === AUTO ? `Auto (${resolveTheme(c).label})` : resolveTheme(c).label
+}
+
+/** Choix du thème : chaque vignette montre ses couleurs. Gardé sur cet appareil. */
+function ThemePicker() {
+  useThemeVersion()
+  const choice = readThemeChoice()
+  const tile = (id: string, label: string, t: Theme) => (
+    <button
+      key={id}
+      onClick={() => setThemeChoice(id)}
+      className={`flex items-center gap-2 rounded-lg border p-2 text-left text-xs ${choice === id ? 'border-accent ring-1 ring-accent' : 'border-line'}`}
+    >
+      <span className="flex h-9 w-12 shrink-0 flex-col justify-between overflow-hidden rounded-md border p-1" style={{ background: t.colors.bg, borderColor: t.colors.line }}>
+        <span className="h-2 rounded-sm" style={{ background: t.colors.panel }} />
+        <span className="flex items-center gap-1">
+          <span className="h-2 w-4 rounded-sm" style={{ background: t.colors.accent }} />
+          <span className="h-1 flex-1 rounded-sm" style={{ background: t.colors.muted }} />
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-bold">{label}</span>
+        <span className="text-[10px] text-muted">{id === AUTO ? 'suit le téléphone' : [t.light ? 'clair' : 'sombre', t.note].filter(Boolean).join(' · ')}</span>
+      </span>
+    </button>
+  )
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        {tile(AUTO, 'Auto', resolveTheme(AUTO))}
+        {THEMES.map((t) => tile(t.id, t.label, t))}
+      </div>
+      <p className="text-[11px] text-muted">Le thème est gardé sur cet appareil. « Auto » passe en Clair ou en Nuit selon le réglage du téléphone.</p>
+    </section>
   )
 }
 
