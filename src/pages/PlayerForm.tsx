@@ -80,7 +80,9 @@ export default function PlayerForm() {
     )
   }
 
-  const shown = criteria.filter((c) => criterionApplies(c, p.position))
+  // Profil rapide seulement (gabarit + critères physiologiques) : de quoi repérer un joueur vite.
+  // Les tests détaillés se saisissent ensuite, fiche enregistrée, avec « Nouvelle séance de tests ».
+  const shown = criteria.filter((c) => criterionApplies(c, p.position) && (c.category === 'Gabarit' || c.category === 'Critères physiologiques'))
   const testsFilled = shown.filter((c) => values[c.id] !== undefined && values[c.id] !== '' && values[c.id] !== initial[c.id]).length
 
   return (
@@ -228,12 +230,15 @@ export default function PlayerForm() {
       </Collapsible>
 
       <Collapsible
-        title="Tests physiques"
-        summary="À la date des tests ; laisser vide ce qui n’a pas été mesuré"
+        title="Profil physique"
+        summary="Taille, poids, explosivité, puissance, vitesse, détente, tir"
         count={testsFilled ? `${testsFilled} saisi${testsFilled > 1 ? 's' : ''}` : undefined}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[11px] text-muted">Saisis par le préparateur physique. Laisser vide si non mesuré.</div>
+          <div className="text-[11px] text-muted">
+            De quoi sortir un profil rapidement ; laisser vide ce qui n’est pas connu. Les tests détaillés (sprint, sauts, force…) se saisissent
+            ensuite depuis la fiche : onglet Tests, « Nouvelle séance de tests ».
+          </div>
           <div className="w-36 shrink-0">
             <span className="label">Date des tests</span>
             <input type="date" className="field" value={testDate} onChange={(e) => setTestDate(e.target.value)} />
