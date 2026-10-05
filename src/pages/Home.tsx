@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { db } from '../db'
 import { can, useRole } from '../roles'
 import { usePendingCount } from './Review'
+import { HomeFeed } from './Feed'
 
 const TILES = [
   { to: '/joueurs/nouveau', title: 'Inscrire un nouveau joueur', sub: 'Créer une fiche et saisir les tests physiques', icon: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6', main: true },
@@ -30,7 +31,10 @@ export default function Home() {
           {counts.players} joueur{counts.players > 1 ? 's' : ''} · {counts.evals} évaluation{counts.evals > 1 ? 's' : ''}
         </p>
       )}
-      <div className="mt-8 flex w-full max-w-md flex-col gap-3">
+      <div className="mt-6 w-full max-w-md">
+        <HomeFeed />
+      </div>
+      <div className="mt-4 flex w-full max-w-md flex-col gap-3">
         {TILES.filter((t) => !t.main || can.editPlayers(role)).map((t) => (
           <Link
             key={t.to}
