@@ -228,7 +228,7 @@ export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
 
-/** Version d'essai (/HandBase/essai/) : sa propre base locale, pour ne jamais gêner la version normale. */
+/** Version d'essai (VITE_TRIAL=1, test en local avant publication) : sa propre base locale et un bandeau. */
 export const TRIAL = !!import.meta.env.VITE_TRIAL
 
 export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {

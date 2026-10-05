@@ -1,6 +1,4 @@
-# Publie l'app sur GitHub Pages à chaque push sur main, avec la version d'essai (branche « essai »,
-# servie sous /HandBase/essai/) si la branche existe. Seule main a le droit de publier :
-# un push sur essai relance ce workflow sur main (essai.yml).
+# Publie l'app sur GitHub Pages à chaque push sur main.
 name: Déploiement GitHub Pages
 
 on:
@@ -22,8 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: main
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -34,25 +30,8 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-      # Version d'essai : même serveur, base locale séparée, bandeau « VERSION D'ESSAI ».
-      - name: Version d'essai
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/essai/
-          VITE_TRIAL: '1'
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-        run: |
-          if git ls-remote --exit-code --heads origin essai >/dev/null; then
-            git fetch --depth 1 origin essai
-            git worktree add "$RUNNER_TEMP/essai" FETCH_HEAD
-            (cd "$RUNNER_TEMP/essai" && npm ci && npm run build)
-            cp -r "$RUNNER_TEMP/essai/dist" dist/essai
-          fi
-      # GitHub Pages ne connaît pas les routes de l'app : on sert index.html pour toute page inconnue
-      # (une page de la version d'essai ouverte directement renvoie à l'accueil de l'essai).
-      - run: |
-          cp dist/index.html dist/404.html
-          sed -i "s|<head>|<head><script>if(location.pathname.startsWith('/${{ github.event.repository.name }}/essai/'))location.replace('/${{ github.event.repository.name }}/essai/')</script>|" dist/404.html
+      # GitHub Pages ne connaît pas les routes de l'app : on sert index.html pour toute page inconnue.
+      - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

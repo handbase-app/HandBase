@@ -80,7 +80,7 @@ export default function App() {
       >
         <GuardedLink to="/" className="text-sm font-extrabold tracking-widest">
           HAND<span className="text-accent">BASE</span>
-          {/* Version d'essai (/HandBase/essai/) : même serveur, donc les saisies y sont réelles. */}
+          {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
           {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">VERSION D’ESSAI</span>}
         </GuardedLink>
         <SyncBadge />
