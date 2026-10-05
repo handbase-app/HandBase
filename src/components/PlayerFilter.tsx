@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { departmentLabel, useDepartments } from '../lists'
 import { can } from '../roles'
 import { birthQuarter } from './ui'
+import { CourtFilter } from './CourtPicker'
 import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
@@ -126,26 +127,33 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const clubs = useMemo(() => countBy(clubBase, (p) => p.club), [clubBase])
   const years = useMemo(() => countBy(yearBase, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [yearBase])
   const scoped = useMemo(() => yearBase.filter(okYear), [yearBase, year]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Recherche, puis postes (comptés après la recherche : le chiffre d'un poste est celui qu'on obtiendra).
+  const searched = useMemo(() => {
+    const words = fold(q).split(/\s+/).filter(Boolean)
+    if (!words.length) return scoped
+    return scoped.filter((p) => {
+      const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.team ?? ''} ${p.license ?? ''}`)
+      return words.every((w) => hay.includes(w))
+    })
+  }, [scoped, q])
   const positionCounts = useMemo(() => {
     const c: Record<string, number> = { none: 0 }
-    for (const p of scoped) {
+    for (const p of searched) {
       c[p.position ?? 'none'] = (c[p.position ?? 'none'] ?? 0) + 1
       if (withSecondary) for (const x of p.secondaryPositions ?? []) if (x !== p.position) c[x] = (c[x] ?? 0) + 1
     }
     return c
-  }, [scoped, withSecondary])
+  }, [searched, withSecondary])
 
-  const filtered = useMemo(() => {
-    const words = fold(q).split(/\s+/).filter(Boolean)
-    return scoped.filter((p) => {
-      if (position === 'none' && p.position) return false
-      if (position !== 'all' && position !== 'none' && p.position !== position && !(withSecondary && p.secondaryPositions?.includes(position)))
-        return false
-      if (!words.length) return true
-      const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.team ?? ''} ${p.license ?? ''}`)
-      return words.every((w) => hay.includes(w))
-    })
-  }, [scoped, q, position, withSecondary])
+  const filtered = useMemo(
+    () =>
+      searched.filter((p) => {
+        if (position === 'none') return !p.position
+        if (position === 'all') return true
+        return p.position === position || (withSecondary && !!p.secondaryPositions?.includes(position))
+      }),
+    [searched, position, withSecondary],
+  )
 
   const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
@@ -172,6 +180,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
     current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), setDept(''), setClub('')) },
+    position !== 'all' && { label: position === 'none' ? 'Sans poste' : (POSITIONS.find((x) => x.id === position)?.label ?? position), clear: () => setPosition('all') },
     withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
   ].filter((c): c is { label: string; clear: () => void } => !!c)
 
@@ -262,10 +271,32 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
               ))}
             </select>
           )}
-          <label className="flex items-center gap-1.5 self-start text-[11px] text-muted">
-            <input type="checkbox" checked={withSecondary} onChange={(e) => setWithSecondary(e.target.checked)} />
-            Inclure les postes secondaires
-          </label>
+          <div className="flex flex-col gap-1.5 rounded-md border border-line bg-panel-2/50 p-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-bold text-muted">Poste</span>
+              <span className="flex gap-1.5">
+                <button
+                  onClick={() => setPosition('all')}
+                  className={`rounded-md border px-2 py-0.5 font-bold ${position === 'all' ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
+                >
+                  Tous {searched.length}
+                </button>
+                {(positionCounts.none > 0 || position === 'none') && (
+                  <button
+                    onClick={() => setPosition(position === 'none' ? 'all' : 'none')}
+                    className={`rounded-md border px-2 py-0.5 font-bold ${position === 'none' ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
+                  >
+                    Sans poste {positionCounts.none}
+                  </button>
+                )}
+              </span>
+            </div>
+            <CourtFilter value={position} counts={positionCounts} onChange={setPosition} />
+            <label className="flex items-center gap-1.5 self-start text-[11px] text-muted">
+              <input type="checkbox" checked={withSecondary} onChange={(e) => setWithSecondary(e.target.checked)} />
+              Inclure les postes secondaires
+            </label>
+          </div>
         </div>
       )}
       {(chips.length > 0 || active) && !open && (
@@ -282,23 +313,6 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           )}
         </div>
       )}
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {[{ id: 'all' as const, short: 'Tous postes' }, ...POSITIONS, { id: 'none' as const, short: 'Sans poste' }].map((p) => {
-          const n = p.id === 'all' ? scoped.length : (positionCounts[p.id] ?? 0)
-          if (p.id !== 'all' && !n && position !== p.id) return null
-          return (
-            <button
-              key={p.id}
-              onClick={() => setPosition(p.id)}
-              className={`shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-bold ${
-                position === p.id ? 'border-accent bg-accent text-white' : 'border-line bg-panel text-muted'
-              }`}
-            >
-              {p.short} {n}
-            </button>
-          )
-        })}
-      </div>
       {open && active && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={reset}>
           Effacer les filtres

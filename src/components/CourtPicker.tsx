@@ -69,9 +69,22 @@ export function CourtView({ value, secondary = [] }: { value?: Position; seconda
   )
 }
 
-function Court({ value, sec, onTap }: { value?: Position; sec: Position[]; onTap?: (pos: Position) => void }) {
+function Court({
+  value,
+  sec,
+  onTap,
+  counts,
+  className = 'max-w-[300px]',
+}: {
+  value?: Position
+  sec: Position[]
+  onTap?: (pos: Position) => void
+  /** Filtre : nombre de joueurs par poste (pastille), postes vides grisés. */
+  counts?: Record<string, number>
+  className?: string
+}) {
   return (
-    <svg viewBox="0 0 300 200" className="w-full max-w-[300px] rounded-lg border border-line bg-panel-2">
+    <svg viewBox="0 0 300 200" className={`w-full rounded-lg border border-line bg-panel-2 ${className}`}>
       {/* ligne de but et but de 3 m */}
       <line x1="0" y1="14" x2="300" y2="14" stroke="#9a9ab8" strokeWidth="1.5" />
       <rect x="127.5" y="4" width="45" height="10" fill="none" stroke="#fff" strokeWidth="1.5" />
@@ -87,7 +100,12 @@ function Court({ value, sec, onTap }: { value?: Position; sec: Position[]; onTap
         const on = value === p.id
         const sub = sec.includes(p.id)
         return (
-          <g key={p.id} onClick={onTap && (() => onTap(p.id))} className={onTap ? 'cursor-pointer' : undefined}>
+          <g
+            key={p.id}
+            onClick={onTap && (() => onTap(p.id))}
+            className={onTap ? 'cursor-pointer' : undefined}
+            opacity={counts && !counts[p.id] && !on ? 0.35 : 1}
+          >
             <circle
               cx={s.x}
               cy={s.y}
@@ -99,9 +117,39 @@ function Court({ value, sec, onTap }: { value?: Position; sec: Position[]; onTap
             <text x={s.x} y={s.y + 3.5} textAnchor="middle" fontSize={s.tag.length > 2 ? 8 : 10} fontWeight="700" fill="#fff" className="pointer-events-none">
               {s.tag}
             </text>
+            {counts && (
+              <g className="pointer-events-none">
+                {/* Pastille à droite du rond, à gauche près du bord droit du terrain. */}
+                <rect x={s.x + (s.x > 260 ? -29 : 7)} y={s.y - 21} width={22} height={13} rx={6.5} fill={on ? '#fff' : '#3a3a55'} />
+                <text x={s.x + (s.x > 260 ? -18 : 18)} y={s.y - 11.5} textAnchor="middle" fontSize={9} fontWeight="700" fill={on ? '#f43f5e' : '#fff'}>
+                  {counts[p.id] ?? 0}
+                </text>
+              </g>
+            )}
           </g>
         )
       })}
     </svg>
+  )
+}
+
+/** Filtre par poste sur le demi-terrain : un appui choisit le poste, un second appui le retire. */
+export function CourtFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: Position | 'all' | 'none'
+  counts: Record<string, number>
+  onChange: (v: Position | 'all' | 'none') => void
+}) {
+  return (
+    <Court
+      value={value === 'all' || value === 'none' ? undefined : value}
+      sec={[]}
+      counts={counts}
+      onTap={(pos) => onChange(value === pos ? 'all' : pos)}
+      className="mx-auto max-w-[260px]"
+    />
   )
 }

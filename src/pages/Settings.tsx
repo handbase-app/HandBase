@@ -175,7 +175,7 @@ function Fold({ id, icon, title, summary, children }: { id: string; icon: IconNa
         <span className={`text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
       </button>
       {open && (
-        <div className="flex flex-col divide-y divide-line border-t border-line px-4 [&_section.card]:rounded-none [&_section.card]:border-0 [&_section.card]:bg-transparent [&_section.card]:px-0 [&_section.card]:py-4">
+        <div className="flex flex-col divide-y divide-line border-t border-line px-4 [&>*]:py-4 [&_section.card]:rounded-none [&_section.card]:border-0 [&_section.card]:bg-transparent [&_section.card]:px-0 [&_section.card]:py-4">
           {children}
         </div>
       )}
