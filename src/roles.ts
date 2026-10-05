@@ -122,6 +122,12 @@ export const can = {
    */
   reviewDept: (r: Role, dept?: string) =>
     r === 'admin' || (r === 'preparateur' && (departments.length === 0 || (!!dept && departments.includes(dept)))),
+  /**
+   * Décider d'un avis en attente : l'encadrant du secteur du joueur, ou, pour un avis hors liste sur un
+   * événement, aussi l'organisateur de l'événement (supabase/021_avis_hors_liste.sql).
+   */
+  reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string }) =>
+    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

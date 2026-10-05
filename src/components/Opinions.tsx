@@ -229,7 +229,7 @@ export function Opinions({
         {[...listed]
           .sort((a, b) => b.date.localeCompare(a.date))
           .map((e) => (
-            <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} />
+            <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} event={events.find((x) => x.id === e.eventId)} />
           ))}
       </div>
 
@@ -242,7 +242,7 @@ export function Opinions({
             {[...refused]
               .sort((a, b) => b.date.localeCompare(a.date))
               .map((e) => (
-                <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} />
+                <AvisCard key={e.id} e={e} where={eventLabel(e)} role={role} dept={department(player)} event={events.find((x) => x.id === e.eventId)} />
               ))}
           </div>
         </details>
@@ -256,7 +256,7 @@ export function Opinions({
 }
 
 /** Un avis, avec son état de validation et, selon les droits, les actions possibles. */
-export function AvisCard({ e, where, role, player, dept }: { e: Evaluation; where: string; role: Role; player?: Player; dept?: string }) {
+export function AvisCard({ e, where, role, player, dept, event }: { e: Evaluation; where: string; role: Role; player?: Player; dept?: string; event?: HBEvent }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
   const notes = Object.values(e.scores).filter((v) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
@@ -313,7 +313,7 @@ export function AvisCard({ e, where, role, player, dept }: { e: Evaluation; wher
       <ReviewNote e={e} />
       {/* Les avis spontanés d'un validateur sont validés d'office : on ne se valide pas soi-même. */}
       {/* Décision : dans son secteur seulement (département du joueur). */}
-      {e.review && !mine && can.reviewDept(role, dept) && <ReviewActions e={e} compact={!player} />}
+      {e.review && !mine && can.reviewAvis(role, dept, event) && <ReviewActions e={e} compact={!player} />}
     </div>
   )
 }

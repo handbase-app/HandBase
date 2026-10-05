@@ -2,12 +2,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
-import { alive, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
+import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, useRole } from '../roles'
-import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
-import { DIVERGENCE } from '../components/Opinions'
+import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
+import { AvisCard, DIVERGENCE } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
@@ -352,26 +352,16 @@ export function EventDetail() {
             )}
             {offList.length > 0 && (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
-                  {manage && (
-                    <button className="btn-primary px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...offList.map((p) => p.id)])}>
-                      Les ajouter à la liste
-                    </button>
+                <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  Joueurs repérés sur place. Un avis validé compte dans les moyennes et ajoute le joueur à la liste ; hors cadre, il est gardé sans compter.
+                </p>
+                <div className="mt-2 flex flex-col gap-2">
+                  {offList.flatMap((p) =>
+                    evals
+                      .filter((e) => e.playerId === p.id)
+                      .map((e) => <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} />),
                   )}
-                </div>
-                <div className="mt-2 flex flex-col gap-1">
-                  {offList.map((p) => (
-                    <Link key={p.id} to={`/joueurs/${p.id}`} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate">
-                        <b>
-                          {p.lastName.toUpperCase()} {p.firstName}
-                        </b>
-                        <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={p.birthDate} />
-                      </span>
-                      <span className="shrink-0 text-[10px] text-emerald-300">{evals.filter((e) => e.playerId === p.id).length} avis</span>
-                    </Link>
-                  ))}
                 </div>
               </div>
             )}
@@ -421,7 +411,7 @@ export function EventDetail() {
           </div>
         )
       ) : (
-        <Ranking players={players} evals={evals} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} />
+        <Ranking players={players} evals={evals.filter(counts)} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} />
       )}
     </div>
   )

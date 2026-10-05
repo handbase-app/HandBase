@@ -21,11 +21,12 @@ export default function ReviewPage() {
     const ids = [...new Set(spontaneous.map((e) => e.playerId))]
     const players = (await db.players.bulkGet(ids)).filter((p): p is Player => !!p)
     const criteria = alive(await db.criteria.toArray())
+    const events = new Map((await db.events.toArray()).map((e) => [e.id, e]))
     // Doublons : seulement ceux où une fiche proposée ou hors cadre est en jeu (les autres sont à l'import).
     const duplicates = proposed.length
       ? possibleDuplicates(alive(await db.players.toArray())).filter(([a, b]) => !!a.review || !!b.review)
       : []
-    return { spontaneous, proposed, players: new Map(players.map((p) => [p.id, p])), criteria, duplicates }
+    return { spontaneous, proposed, players: new Map(players.map((p) => [p.id, p])), criteria, duplicates, events }
   }, [])
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
@@ -37,8 +38,12 @@ export default function ReviewPage() {
     return p && department(p)
   }
   const pendingAvis = data.spontaneous.filter((e) => reviewOf(e) === 'pending' && !isMine(e)).sort((a, b) => a.date.localeCompare(b.date))
-  const todo = pendingAvis.filter((e) => can.reviewDept(role, deptOf(e)))
-  const avisElsewhere = pendingAvis.filter((e) => !can.reviewDept(role, deptOf(e)))
+  const evOf = (e: Evaluation) => (e.eventId ? data.events.get(e.eventId) : undefined)
+  const mayDecide = (e: Evaluation) => can.reviewAvis(role, deptOf(e), evOf(e))
+  const todo = pendingAvis.filter(mayDecide)
+  const avisElsewhere = pendingAvis.filter((e) => !mayDecide(e))
+  // Avis sur un événement (joueur hors liste) : le nom de l'événement ; sinon le contexte libre.
+  const whereOf = (e: Evaluation) => (evOf(e) ? `${evOf(e)!.name} (hors liste)` : contextLabel(e))
   const decided = data.spontaneous
     .filter((e) => reviewOf(e) !== 'pending' && !isMine(e) && e.reviewedAt)
     .sort((a, b) => (b.reviewedAt ?? '').localeCompare(a.reviewedAt ?? ''))
@@ -60,7 +65,7 @@ export default function ReviewPage() {
       .join(' · ')
     return (
       <div key={e.id} className="flex flex-col">
-        <AvisCard e={e} where={contextLabel(e)} role={role} player={p} dept={p && department(p)} />
+        <AvisCard e={e} where={whereOf(e)} role={role} player={p} dept={p && department(p)} event={evOf(e)} />
         {scores && <div className="-mt-1 rounded-b-lg border border-t-0 border-line bg-panel px-2.5 py-1.5 text-[10px] text-muted">{scores}</div>}
       </div>
     )
@@ -211,8 +216,9 @@ export function usePendingCount() {
       const players = await db.players.bulkGet([...new Set(avis.map((e) => e.playerId))])
       const dept = new Map(players.filter((p) => !!p).map((p) => [p!.id, department(p!)]))
       const fiches = await db.players.filter((p) => p.review === 'pending' && !p.deleted && !(me && p.createdBy === me)).toArray()
+      const events = new Map((await db.events.toArray()).map((e) => [e.id, e]))
       return (
-        avis.filter((e) => can.reviewDept(role, dept.get(e.playerId))).length + fiches.filter((p) => can.reviewDept(role, department(p))).length
+        avis.filter((e) => can.reviewAvis(role, dept.get(e.playerId), e.eventId ? events.get(e.eventId) : undefined)).length + fiches.filter((p) => can.reviewDept(role, department(p))).length
       )
     },
     [role, myDepartments().join()],

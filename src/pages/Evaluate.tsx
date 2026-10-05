@@ -145,7 +145,10 @@ export default function Evaluate() {
       ? can.review(role)
         ? { review: 'validated' as const, reviewedBy: currentUserId() ?? undefined, reviewedByName: me, reviewedAt: new Date().toISOString(), reviewNote: undefined }
         : { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-      : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
+      : event && !can.editEvent(role, event) && !(event.playerIds ?? []).includes(player.id)
+        ? // Joueur hors liste noté par un autre que l'organisateur : à valider (supabase/021_avis_hors_liste.sql).
+          { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
+        : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
     await save<Evaluation>('evaluations', {
       ...draft,
       ...review,
