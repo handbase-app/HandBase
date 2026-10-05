@@ -135,3 +135,7 @@ Sur téléphone : ouvrir l'adresse, se connecter, puis « Ajouter à l'écran d'
 
 L'app contient des données de joueurs, souvent mineurs. Avant une utilisation réelle : comptes staff uniquement
 (pas d'inscription publique), informer les joueurs / parents, et limiter les données au nécessaire (RGPD).
+
+## Licence
+
+© 2026 Geoffroy Krantz et Stef Bascher. Tous droits réservés : voir [LICENSE](LICENSE).
