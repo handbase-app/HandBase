@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { groupBy, SectionTitle, Segmented, useMe } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
@@ -75,6 +76,20 @@ export default function Settings() {
       )}
 
       <section className="card flex flex-col gap-2 p-4">
+        <div className="section-title">Confidentialité</div>
+        <div className="flex gap-2">
+          <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
+            Données et droits
+          </Link>
+          <Link to="/confidentialite#charte" className="btn-ghost flex-1 text-center text-xs">
+            Charte du staff
+          </Link>
+        </div>
+      </section>
+
+      {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
+      {can.exportAll(role) && (
+      <section className="card flex flex-col gap-2 p-4">
         <div className="section-title">Sauvegarde</div>
         <div className="flex gap-2">
           <button className="btn-ghost flex-1 text-xs" onClick={() => void exportBackup()}>
@@ -102,6 +117,7 @@ export default function Settings() {
         </div>
         {msg && <p className="text-[11px] text-emerald-300">{msg}</p>}
       </section>
+      )}
 
       {can.loadDemo(role) && (
       <section className="card flex flex-col gap-2 p-4">

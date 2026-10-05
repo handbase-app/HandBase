@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { clearRole, refreshRole } from '../roles'
 import { supabase } from '../sync'
 import { useMe } from './ui'
+import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
 
 /**
  * Lien d'accès envoyé par un administrateur : …/HandBase/#acces=<e-mail>:<mot de passe provisoire>.
@@ -80,6 +81,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // Mot de passe provisoire (compte créé par un administrateur) ou lien « mot de passe oublié ».
   if (recovery || session.user.user_metadata?.must_change_password) return <NewPassword recovery={recovery} onDone={() => setRecovery(false)} />
   if (!name) return <AskName />
+  // Charte d'utilisation : acceptée une fois (et de nouveau si elle change).
+  if (session.user.user_metadata?.charter_version !== CHARTER_VERSION) return <AcceptCharter />
   return <>{children}</>
 }
 
@@ -102,6 +105,20 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
   const [busy, setBusy] = useState(false)
   const [forgot, setForgot] = useState(false)
   const [sent, setSent] = useState(false)
+  const [privacy, setPrivacy] = useState(false)
+
+  if (privacy)
+    return (
+      <Shell>
+        <div className="card flex flex-col gap-3 p-5">
+          <div className="text-sm font-extrabold">Confidentialité</div>
+          <PrivacyText />
+          <button type="button" className="btn-ghost text-xs" onClick={() => setPrivacy(false)}>
+            Retour à la connexion
+          </button>
+        </div>
+      </Shell>
+    )
 
   if (forgot)
     return (
@@ -181,6 +198,47 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
           Mot de passe oublié ?
         </button>
         <p className="text-[11px] text-muted">Pas de compte ? Demande à un administrateur. Une fois connecté, l'app fonctionne aussi hors ligne.</p>
+      </form>
+      <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => setPrivacy(true)}>
+        Confidentialité
+      </button>
+    </Shell>
+  )
+}
+
+/** Charte d'utilisation à accepter avant d'utiliser l'appli ; l'acceptation est gardée sur le compte. */
+function AcceptCharter() {
+  const [ok, setOk] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  return (
+    <Shell>
+      <form
+        className="card flex flex-col gap-3 p-5"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          setErr('')
+          setBusy(true)
+          const { error } = await supabase!.auth.updateUser({ data: { charter_version: CHARTER_VERSION, charter_accepted_at: new Date().toISOString() } })
+          setBusy(false)
+          if (error) setErr('Impossible d’enregistrer (connexion internet ?).')
+        }}
+      >
+        <div className="text-sm font-extrabold">Charte d’utilisation</div>
+        <div className="max-h-[55dvh] overflow-y-auto rounded-md border border-line bg-panel-2 p-3">
+          <CharterText />
+        </div>
+        <label className="flex items-start gap-2 text-xs">
+          <input type="checkbox" className="mt-0.5" checked={ok} onChange={(e) => setOk(e.target.checked)} />
+          J’ai lu la charte et je m’engage à la respecter.
+        </label>
+        <button className="btn-primary" disabled={!ok || busy}>
+          {busy ? 'Enregistrement…' : 'Accepter et continuer'}
+        </button>
+        {err && <p className="text-[11px] text-red-300">{err}</p>}
+        <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => void supabase!.auth.signOut()}>
+          Se déconnecter
+        </button>
       </form>
     </Shell>
   )

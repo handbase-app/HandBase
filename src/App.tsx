@@ -14,6 +14,7 @@ import Players from './pages/Players'
 import ReviewPage, { usePendingCount } from './pages/Review'
 import { useDailyPurge } from './purge'
 import Settings from './pages/Settings'
+import Privacy from './pages/Privacy'
 import { syncNow, useSyncState } from './sync'
 
 function SyncBadge() {
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path="/groupes/:id" element={<GroupDetail />} />
           <Route path="/parametres" element={<Settings />} />
+          <Route path="/confidentialite" element={<Privacy />} />
         </Routes>
       </main>
 

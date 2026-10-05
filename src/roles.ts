@@ -125,4 +125,8 @@ export const can = {
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
+  /** Sauvegarde complète de la base (JSON) : administrateurs seulement. */
+  exportAll: (r: Role) => r === 'admin',
+  /** Copie de toutes les données d'un joueur (demande d'accès RGPD d'une famille) : admin et encadrants. */
+  exportPlayer: (r: Role) => r !== 'observateur',
 }

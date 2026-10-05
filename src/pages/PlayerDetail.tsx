@@ -17,6 +17,7 @@ import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadges, QuarterBad
 import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
+import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 
 export default function PlayerDetail() {
@@ -99,6 +100,16 @@ export default function PlayerDetail() {
         <button onClick={() => nav('/joueurs')} className="text-xs font-bold text-muted">
           ← JOUEURS
         </button>
+        <div className="flex items-center gap-3">
+        {can.exportPlayer(role) && (
+          <button
+            onClick={() => void exportPlayer(p.id)}
+            className="text-[11px] font-bold text-muted hover:text-accent"
+            title="Copie de toutes ses données (demande d’un joueur ou de ses parents)"
+          >
+            ⤓ Ses données
+          </button>
+        )}
         {can.deletePlayers(role) && (
         <button onClick={() => void del()} className="text-muted hover:text-red-400" title="Supprimer">
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -106,6 +117,7 @@ export default function PlayerDetail() {
           </svg>
         </button>
         )}
+        </div>
       </div>
 
       <div className="flex items-center gap-4">

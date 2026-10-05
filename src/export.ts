@@ -1,4 +1,6 @@
-import { age, alive, counts, db, fmtDate, positionLabel } from './db'
+import { age, alive, contextLabel, counts, db, fmtDate, positionLabel } from './db'
+import { fmtValue } from './components/ui'
+import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
@@ -106,4 +108,87 @@ export async function importBackup(file: File) {
     })
   }
   return n
+}
+
+const h = (v: unknown) =>
+  String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+
+/**
+ * Copie de toutes les données d'un joueur (droit d'accès RGPD) : une page HTML lisible par une famille,
+ * à ouvrir dans un navigateur ou imprimer en PDF. Tout y est, y compris les avis en attente ou hors cadre.
+ */
+export async function exportPlayer(id: string) {
+  const p = await db.players.get(id)
+  if (!p) return
+  const [criteria, measurements, evaluations, events, groups] = await Promise.all([
+    db.criteria.toArray(),
+    db.measurements.where('playerId').equals(id).toArray().then(alive),
+    db.evaluations.where('playerId').equals(id).toArray().then(alive),
+    db.events.toArray(),
+    db.groups.toArray().then(alive),
+  ])
+  const crit = new Map(criteria.map((c) => [c.id, c]))
+  const ev = new Map(events.map((e) => [e.id, e]))
+  const dept = department(p)
+  const state = (r?: string) => (r === 'pending' ? 'en attente de validation' : r === 'refused' ? 'hors cadre (ne compte pas)' : '')
+  const table = (head: string[], rows: unknown[][]) =>
+    rows.length
+      ? `<table><tr>${head.map((x) => `<th>${h(x)}</th>`).join('')}</tr>${rows.map((r) => `<tr>${r.map((x) => `<td>${h(x)}</td>`).join('')}</tr>`).join('')}</table>`
+      : '<p class="m">Aucune.</p>'
+
+  const info: [string, unknown][] = [
+    ['Nom', p.lastName], ['Prénom', p.firstName], ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : ''],
+    ['Date de naissance', p.birthDate && fmtDate(p.birthDate)], ['Nationalité', p.nationality], ['Club', p.club], ['N° de club', p.clubCode],
+    ['Département', dept && departmentLabel(dept)], ['Licence', p.license], ['Anciennes licences', p.previousLicenses?.join(', ')],
+    ['État de la licence', p.licenseStatus], ['Type de licence', p.licenseRequestType], ['Équipe', p.team], ['Catégorie / niveau', p.category],
+    ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : ''], ['Latéralité', p.laterality],
+    ['Poste', positionLabel(p.position)], ['Postes secondaires', (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', ')],
+    ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm` : ''], ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm` : ''],
+    ['Lacunes', p.gaps], ['Notes', p.notes], ['Photo', p.photo ? 'Oui (enregistrée)' : ''],
+    ['Fiche', p.review === 'pending' ? 'Proposée, en attente de validation' : p.review === 'refused' ? 'Hors cadre' : ''],
+    ['Commentaire de validation', p.reviewNote], ['Fiche créée par', p.createdByName],
+  ]
+
+  const meas = [...measurements]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((m) => [fmtDate(m.date), crit.get(m.criterionId)?.label ?? m.criterionId, fmtValue(crit.get(m.criterionId), m.value), m.note, m.author])
+
+  const avis = [...evaluations]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((e) => {
+      const scores = Object.entries(e.scores)
+        .filter(([, v]) => v !== '' && v !== undefined)
+        .map(([k, v]) => `<li>${h(crit.get(k)?.label ?? k)} : ${h(fmtValue(crit.get(k), v))}</li>`)
+        .join('')
+      const where = e.eventId ? (ev.get(e.eventId)?.name ?? 'Événement') : contextLabel(e)
+      return `<div class="avis"><b>${h(fmtDate(e.date))} · ${h(where)}</b> — par ${h(e.observer)}${state(e.review) ? ` <i>(${h(state(e.review))})</i>` : ''}
+        ${e.overall !== undefined ? `<div>Note globale : ${h(e.overall)}/5</div>` : ''}${e.minutesObserved ? `<div>Temps observé : ${h(e.minutesObserved)} min</div>` : ''}
+        ${scores ? `<ul>${scores}</ul>` : ''}${e.strengths ? `<div>Points forts : ${h(e.strengths)}</div>` : ''}${e.improvements ? `<div>À travailler : ${h(e.improvements)}</div>` : ''}
+        ${e.reviewNote ? `<div class="m">Commentaire de validation : ${h(e.reviewNote)}</div>` : ''}</div>`
+    })
+    .join('')
+
+  const evts = events
+    .filter((e) => !e.deleted && (e.playerIds ?? []).includes(id))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((e) => [fmtDate(e.date), e.name, e.place])
+  const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
+
+  const name = `${p.lastName.toUpperCase()} ${p.firstName}`
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Données HandBase – ${h(name)}</title><style>
+body{font:14px/1.45 system-ui,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;color:#111}
+h1{font-size:20px;margin:0}h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #ccc;padding-bottom:4px}
+table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f3f3f3}
+.m{color:#666}.avis{border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin:8px 0}.avis ul{margin:4px 0;padding-left:18px}
+</style></head><body>
+<h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans HandBase, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
+<h2>Fiche</h2>${table(['Information', 'Valeur'], info.filter(([, v]) => v !== undefined && v !== null && v !== ''))}
+<h2>Mesures et tests (${meas.length})</h2>${table(['Date', 'Test', 'Valeur', 'Commentaire', 'Saisi par'], meas)}
+<h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
+<h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
+<h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
+</body></html>`
+  const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
+  download(`handbase-donnees-${file}.html`, html, 'text/html;charset=utf-8')
 }
