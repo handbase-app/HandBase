@@ -69,6 +69,12 @@ export default function Evaluate() {
 
   const player = players.find((p) => p.id === playerId)
   const event = events.find((e) => e.id === eventId)
+  // Menu des événements : à venir et des 15 derniers jours en premier (le temps de finir ses avis), les plus
+  // anciens à part ; les archivés n'y sont plus, sauf celui déjà choisi (lien direct).
+  const recentLimit = new Date(Date.now() - 15 * 86400000).toLocaleDateString('sv')
+  const listed = events.filter((e) => !e.archived || e.id === eventId)
+  const recentEvents = listed.filter((e) => e.date >= recentLimit)
+  const olderEvents = listed.filter((e) => e.date < recentLimit)
   const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
   const existing = spontaneous
     ? own && !own.deleted && own.playerId === playerId ? own : undefined
@@ -233,11 +239,21 @@ export default function Evaluate() {
           <div className="flex gap-2">
             <select className="field flex-1" value={eventId} onChange={(e) => void go('evenement', e.target.value)}>
               <option value="">— Choisir l’événement —</option>
-              {events.map((ev) => (
+              {recentEvents.map((ev) => (
                 <option key={ev.id} value={ev.id}>
                   {ev.name} · {fmtDate(ev.date)}
                 </option>
               ))}
+              {olderEvents.length > 0 && (
+                <optgroup label="Plus anciens">
+                  {olderEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.name} · {fmtDate(ev.date)}
+                      {ev.archived ? ' (archivé)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             {can.manageEvents(role) && (
               <button className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setCreatingEvent(true)}>

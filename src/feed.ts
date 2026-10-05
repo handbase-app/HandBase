@@ -203,7 +203,7 @@ export async function buildFeed({ days, sector = false }: { days: number; sector
 /** Prochains événements (aujourd'hui compris). */
 export async function upcomingEvents(n: number) {
   const today = localDay(Date.now())
-  return (await db.events.toArray()).filter((e) => !e.deleted && e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, n)
+  return (await db.events.toArray()).filter((e) => !e.deleted && !e.archived && e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, n)
 }
 
 /** Dernière visite du fil (sur cet appareil), pour la pastille des nouveautés. */

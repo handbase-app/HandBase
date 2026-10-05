@@ -22,13 +22,15 @@ export default function Events() {
   const [creating, setCreating] = useState(!!fromGroup)
   const nav = useNavigate()
   const [showAll, setShowAll] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   // À venir (aujourd'hui compris) du plus proche au plus lointain ; passés du plus récent au plus ancien.
   const todayIso = new Date().toLocaleDateString('sv')
-  const upcoming = events.filter((e) => e.date >= todayIso).reverse()
-  const past = events.filter((e) => e.date < todayIso)
+  const upcoming = events.filter((e) => !e.archived && e.date >= todayIso).reverse()
+  const past = events.filter((e) => !e.archived && e.date < todayIso)
+  const archived = events.filter((e) => e.archived)
 
   return (
     <div className="flex flex-col gap-3">
@@ -73,6 +75,14 @@ export default function Events() {
                   Afficher les {past.length - 10} plus anciens
                 </button>
               )}
+            </>
+          )}
+          {archived.length > 0 && (
+            <>
+              <button className="section-title mt-3 mb-0 flex items-center gap-1.5 text-left text-muted" onClick={() => setShowArchived(!showArchived)}>
+                Archivés ({archived.length}) <span>{showArchived ? '▴' : '▾'}</span>
+              </button>
+              {showArchived && archived.map((ev) => <EventRow key={ev.id} ev={ev} evals={evals} />)}
             </>
           )}
         </>
@@ -173,6 +183,17 @@ export function EventDetail() {
                 Modifier
               </button>
             )}
+            {/* Archiver : retiré des listes (Évaluer, événements), avis conservés. */}
+            <button
+              className="text-xs text-muted hover:text-white"
+              onClick={async () => {
+                if (!ev.archived && !(await ask(`Archiver « ${ev.name} » ? Il n’apparaîtra plus dans Évaluer ni dans la liste ; ses avis sont gardés et comptent toujours.`, { ok: 'Archiver' })))
+                  return
+                await save<HBEvent>('events', { ...ev, archived: !ev.archived })
+              }}
+            >
+              {ev.archived ? 'Désarchiver' : 'Archiver'}
+            </button>
             <button
               className="text-xs text-muted hover:text-red-400"
               onClick={async () => {
@@ -201,6 +222,7 @@ export function EventDetail() {
         </div>
       ) : (
         <div>
+          {ev.archived && <div className="mb-1 w-fit rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-bold text-muted">ARCHIVÉ</div>}
           <h1 className="text-lg font-extrabold">{ev.name}</h1>
           <div className="text-xs text-muted">
             {typeLabel(ev.type)} · {fmtDate(ev.date)}

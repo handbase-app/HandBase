@@ -140,6 +140,8 @@ export interface HBEvent extends Syncable {
   place?: string
   /** Joueurs convoqués / à évaluer sur l'événement (ordre de passage). */
   playerIds?: string[]
+  /** Archivé : caché des listes (Évaluer, événements) ; ses avis comptent toujours. */
+  archived?: boolean
 }
 
 /** Contexte d'un avis spontané (joueur vu hors des événements prévus). */
