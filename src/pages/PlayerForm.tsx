@@ -5,8 +5,8 @@ import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { departmentChoices } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
-import { alive, criterionApplies, db, newId, save, today, type HeightSource, type Measurement, type Player } from '../db'
+import { Collapsible, CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
+import { alive, criterionApplies, db, newId, positionLabel, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -81,9 +81,10 @@ export default function PlayerForm() {
   }
 
   const shown = criteria.filter((c) => criterionApplies(c, p.position))
+  const testsFilled = shown.filter((c) => values[c.id] !== undefined && values[c.id] !== '' && values[c.id] !== initial[c.id]).length
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3 pb-16">
       <div className="flex items-center justify-between">
         <button onClick={() => nav(-1)} className="text-xs font-bold text-muted">
           ← {editing ? 'MODIFIER LA FICHE' : 'NOUVEAU JOUEUR'}
@@ -92,138 +93,147 @@ export default function PlayerForm() {
 
       {error && <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
 
-      {/* Photo */}
-      <label className="mx-auto flex h-24 w-24 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-accent">
-        {p.photo ? (
-          <img src={p.photo} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <>
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
-              <circle cx="12" cy="13" r="3.5" />
-            </svg>
-            <span className="mt-1 text-[10px]">Photo joueur</span>
-          </>
-        )}
-        <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={async (e) => {
-            const f = e.target.files?.[0]
-            if (f) set('photo', await resizeImage(f))
-          }}
-        />
-      </label>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <span className="label">Prénom *</span>
-          <input className="field" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
-        </div>
-        <div>
-          <span className="label">Nom *</span>
-          <input className="field" value={p.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} />
-        </div>
-      </div>
-      <div>
-        <span className="label">Date de naissance</span>
-        <input type="date" className="field" value={p.birthDate ?? ''} onChange={(e) => set('birthDate', e.target.value || undefined)} />
-      </div>
-
-      <div>
-        <span className="label">Sexe</span>
-        <Segmented
-          value={p.sex}
-          onChange={(v) => set('sex', v)}
-          options={[
-            { value: 'M', label: 'Garçon' },
-            { value: 'F', label: 'Fille' },
-          ]}
-        />
-      </div>
-
-      <div>
-        <span className="label">Poste</span>
-        <CourtPicker
-          value={p.position}
-          secondary={p.secondaryPositions}
-          onChange={(pos, sec) => setP((x) => ({ ...x, position: pos, secondaryPositions: sec.length ? sec : undefined }))}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <span className="label">Équipe</span>
-          <input className="field" placeholder="Senior A" value={p.team ?? ''} onChange={(e) => set('team', e.target.value)} />
-        </div>
-        <div>
-          <span className="label">Licence</span>
-          <input className="field" value={p.license ?? ''} onChange={(e) => set('license', e.target.value)} />
-        </div>
-        <div>
-          <span className="label">Catégorie / niveau</span>
-          <input className="field" placeholder="-18 nat" value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
-        </div>
-        <div>
-          <span className="label">Club</span>
-          <input className="field" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
-        </div>
-        <div>
-          <span className="label">Département</span>
-          {/* Lu dans le n° de club ou de licence s'il y en a un ; sinon à choisir. */}
-          <select
-            className="field"
-            value={p.department ?? ''}
-            disabled={!!department({ clubCode: p.clubCode, license: p.license })}
-            onChange={(e) => set('department', e.target.value || undefined)}
-          >
-            <option value="">{department({ clubCode: p.clubCode, license: p.license }) ?? '—'}</option>
-            {departmentChoices().map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
-              </option>
-            ))}
-            {p.department && !departmentChoices().some((d) => d.value === p.department) && <option value={p.department}>{p.department}</option>}
-          </select>
-        </div>
-        <div>
-          <span className="label">Nationalité</span>
-          <input className="field" placeholder="France" value={p.nationality ?? ''} onChange={(e) => set('nationality', e.target.value || undefined)} />
-        </div>
-      </div>
-
-      <div>
-        <span className="label">Latéralité</span>
-        <Segmented
-          value={p.laterality}
-          onChange={(v) => set('laterality', v)}
-          options={[
-            { value: 'droitier', label: 'Droitier' },
-            { value: 'gaucher', label: 'Gaucher' },
-            { value: 'ambidextre', label: 'Ambidextre' },
-          ]}
-        />
-      </div>
-      <div>
-        <span className="label">Internat</span>
-        <Segmented
-          value={p.boarding === true ? 'oui' : p.boarding === false ? 'non' : undefined}
-          onChange={(v) => set('boarding', v === 'oui')}
-          options={[
-            { value: 'oui', label: 'Oui' },
-            { value: 'non', label: 'Non' },
-          ]}
-        />
-      </div>
-
-      {/* Tests factuels */}
-      <div className="card flex flex-col gap-4 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-extrabold">Tests physiques</div>
-            <div className="text-[11px] text-muted">Saisis par le préparateur physique. Laisser vide si non mesuré.</div>
+      {/* Identité : toujours visible (prénom et nom obligatoires). */}
+      <div className="card flex flex-col gap-3 p-4">
+        <div className="flex items-start gap-4">
+        {/* Photo */}
+        <label className="flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-accent">
+          {p.photo ? (
+            <img src={p.photo} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <>
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+              <span className="mt-1 text-[10px]">Photo joueur</span>
+            </>
+          )}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              if (f) set('photo', await resizeImage(f))
+            }}
+          />
+        </label>
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <span className="label">Prénom *</span>
+              <input className="field" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
+            </div>
+            <div>
+              <span className="label">Nom *</span>
+              <input className="field" value={p.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} />
+            </div>
           </div>
+          <div>
+            <span className="label">Date de naissance</span>
+            <input type="date" className="field" value={p.birthDate ?? ''} onChange={(e) => set('birthDate', e.target.value || undefined)} />
+          </div>
+
+          <div>
+            <span className="label">Sexe</span>
+            <Segmented
+              value={p.sex}
+              onChange={(v) => set('sex', v)}
+              options={[
+                { value: 'M', label: 'Garçon' },
+                { value: 'F', label: 'Fille' },
+              ]}
+            />
+          </div>
+          </div>
+        </div>
+      </div>
+
+      <Collapsible title="Profil sportif" summary={[positionLabel(p.position) !== '—' && positionLabel(p.position), p.laterality].filter(Boolean).join(' · ') || 'Poste, latéralité'} defaultOpen={!editing}>
+        <div>
+          <span className="label">Poste</span>
+          <CourtPicker
+            value={p.position}
+            secondary={p.secondaryPositions}
+            onChange={(pos, sec) => setP((x) => ({ ...x, position: pos, secondaryPositions: sec.length ? sec : undefined }))}
+          />
+        </div>
+        <div>
+          <span className="label">Latéralité</span>
+          <Segmented
+            value={p.laterality}
+            onChange={(v) => set('laterality', v)}
+            options={[
+              { value: 'droitier', label: 'Droitier' },
+              { value: 'gaucher', label: 'Gaucher' },
+              { value: 'ambidextre', label: 'Ambidextre' },
+            ]}
+          />
+        </div>
+      </Collapsible>
+
+      <Collapsible title="Club et licence" summary={[p.club, p.license, p.team].filter(Boolean).join(' · ') || 'Club, licence, équipe, département, nationalité, internat'}>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <span className="label">Équipe</span>
+            <input className="field" placeholder="Senior A" value={p.team ?? ''} onChange={(e) => set('team', e.target.value)} />
+          </div>
+          <div>
+            <span className="label">Licence</span>
+            <input className="field" value={p.license ?? ''} onChange={(e) => set('license', e.target.value)} />
+          </div>
+          <div>
+            <span className="label">Catégorie / niveau</span>
+            <input className="field" placeholder="-18 nat" value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
+          </div>
+          <div>
+            <span className="label">Club</span>
+            <input className="field" value={p.club ?? ''} onChange={(e) => set('club', e.target.value)} />
+          </div>
+          <div>
+            <span className="label">Département</span>
+            {/* Lu dans le n° de club ou de licence s'il y en a un ; sinon à choisir. */}
+            <select
+              className="field"
+              value={p.department ?? ''}
+              disabled={!!department({ clubCode: p.clubCode, license: p.license })}
+              onChange={(e) => set('department', e.target.value || undefined)}
+            >
+              <option value="">{department({ clubCode: p.clubCode, license: p.license }) ?? '—'}</option>
+              {departmentChoices().map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+              {p.department && !departmentChoices().some((d) => d.value === p.department) && <option value={p.department}>{p.department}</option>}
+            </select>
+          </div>
+          <div>
+            <span className="label">Nationalité</span>
+            <input className="field" placeholder="France" value={p.nationality ?? ''} onChange={(e) => set('nationality', e.target.value || undefined)} />
+          </div>
+        </div>
+        <div>
+          <span className="label">Internat</span>
+          <Segmented
+            value={p.boarding === true ? 'oui' : p.boarding === false ? 'non' : undefined}
+            onChange={(v) => set('boarding', v === 'oui')}
+            options={[
+              { value: 'oui', label: 'Oui' },
+              { value: 'non', label: 'Non' },
+            ]}
+          />
+        </div>
+      </Collapsible>
+
+      <Collapsible
+        title="Tests physiques"
+        summary="À la date des tests ; laisser vide ce qui n’a pas été mesuré"
+        count={testsFilled ? `${testsFilled} saisi${testsFilled > 1 ? 's' : ''}` : undefined}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] text-muted">Saisis par le préparateur physique. Laisser vide si non mesuré.</div>
           <div className="w-36 shrink-0">
             <span className="label">Date des tests</span>
             <input type="date" className="field" value={testDate} onChange={(e) => setTestDate(e.target.value)} />
@@ -245,22 +255,10 @@ export default function PlayerForm() {
           </div>
         ))}
         {editing && <div className="text-[11px] text-muted">Seules les valeurs modifiées sont ajoutées à l'historique, à la date des tests.</div>}
-      </div>
+      </Collapsible>
 
-      <div>
-        <span className="label">Lacunes mobilité / souplesse</span>
-        <textarea className="field min-h-16" placeholder="Chaîne P. G ++ / RE…" value={p.gaps ?? ''} onChange={(e) => set('gaps', e.target.value)} />
-      </div>
-      <div>
-        <span className="label">Notes</span>
-        <textarea className="field min-h-20" placeholder="Observations…" value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
-      </div>
-
-      <div className="card flex flex-col gap-3 p-3">
-        <div>
-          <div className="text-xs font-extrabold">Taille des parents biologiques (facultatif)</div>
-          <div className="text-[11px] text-muted">Sert à estimer la taille adulte. Une taille déclarée est corrigée (souvent surestimée).</div>
-        </div>
+      <Collapsible title="Taille des parents" summary={[p.motherHeight && `mère ${p.motherHeight} cm`, p.fatherHeight && `père ${p.fatherHeight} cm`].filter(Boolean).join(' · ') || 'Facultatif : pour la taille adulte prédite'}>
+        <div className="text-[11px] text-muted">Parents biologiques. Sert à estimer la taille adulte ; une taille déclarée est corrigée (souvent surestimée).</div>
         {(
           [
             ['motherHeight', 'motherHeightSource', 'Mère'],
@@ -284,9 +282,21 @@ export default function PlayerForm() {
             </div>
           </div>
         ))}
-      </div>
+      </Collapsible>
 
-      <div className="flex items-center gap-3">
+      <Collapsible title="Notes" summary={[p.gaps && 'lacunes', p.notes && 'notes'].filter(Boolean).join(' · ') || 'Lacunes mobilité, observations'}>
+        <div>
+          <span className="label">Lacunes mobilité / souplesse</span>
+          <textarea className="field min-h-16" placeholder="Chaîne P. G ++ / RE…" value={p.gaps ?? ''} onChange={(e) => set('gaps', e.target.value)} />
+        </div>
+        <div>
+          <span className="label">Notes</span>
+          <textarea className="field min-h-20" placeholder="Observations…" value={p.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+        </div>
+      </Collapsible>
+
+      {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas. */}
+      <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-3 border-t border-line bg-bg px-4 py-2">
         <button className="btn-primary flex-1" onClick={() => void submit()}>
           Enregistrer
         </button>

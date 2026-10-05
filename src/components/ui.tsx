@@ -340,3 +340,36 @@ export function Icon({ name, className = 'h-4 w-4' }: { name: IconName; classNam
     </svg>
   )
 }
+
+/**
+ * Section repliable d'un formulaire : un titre, un résumé de ce qui est rempli (visible replié), et un
+ * compteur facultatif. Même allure que les rubriques des Réglages.
+ */
+export function Collapsible({
+  title,
+  summary,
+  count,
+  defaultOpen = false,
+  children,
+}: {
+  title: string
+  summary?: string
+  count?: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`card overflow-hidden ${open ? 'border-accent/50' : ''}`}>
+      <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)}>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold">{title}</span>
+          {summary && !open && <span className="block truncate text-[11px] text-muted">{summary}</span>}
+        </span>
+        {count && <span className="shrink-0 rounded-full bg-panel-2 px-2 py-0.5 text-[10px] font-bold text-muted">{count}</span>}
+        <span className={`shrink-0 text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
+      </button>
+      {open && <div className="flex flex-col gap-3 border-t border-line p-4">{children}</div>}
+    </div>
+  )
+}
