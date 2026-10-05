@@ -570,9 +570,10 @@ function PlayerPicker({
 }) {
   const role = useRole()
   const [q, setQ] = useState('')
+  const [everywhere, setEverywhere] = useState(false)
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
-  useEffect(() => setActive(0), [q])
+  useEffect(() => setActive(0), [q, everywhere])
   useEffect(() => {
     listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active])
@@ -592,22 +593,21 @@ function PlayerPicker({
       </div>
     )
   const words = fold(q).split(/\s+/).filter(Boolean)
-  // Sans recherche : les joueurs déjà évalués ici d'abord, puis l'ordre alphabétique.
+  const hit = (p: Player) => {
+    const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.license ?? ''}`)
+    return words.every((w) => hay.includes(w))
+  }
+  // Événement avec une liste de joueurs : la recherche se fait dans cette liste ; toute la base sur demande.
+  const inRoster = roster.length > 0 && !everywhere
+  // Sans recherche : la liste de l'événement, sinon les joueurs déjà évalués ici.
   const matches = (
-    words.length
-      ? players.filter((p) => {
-          const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.license ?? ''}`)
-          return words.every((w) => hay.includes(w))
-        })
-      : roster.length
-        ? roster
-        : players.filter((p) => done.has(p.id))
-  ).slice(0, words.length ? 20 : Math.max(20, roster.length))
+    words.length ? (inRoster ? roster : players).filter(hit) : roster.length ? roster : players.filter((p) => done.has(p.id))
+  ).slice(0, words.length && !inRoster ? 20 : Math.max(20, roster.length))
   return (
     <div className="flex flex-col gap-1">
       <input
         className="field"
-        placeholder="Nom, prénom, club ou licence…"
+        placeholder={roster.length && !everywhere ? 'Chercher dans les joueurs de l’événement…' : 'Nom, prénom, club ou licence…'}
         value={q}
         autoFocus={!value}
         onChange={(e) => setQ(e.target.value)}
@@ -648,8 +648,15 @@ function PlayerPicker({
         </button>
       ))}
       </div>
-      {words.length > 0 && matches.length === 0 && <p className="text-[11px] text-muted">Aucun joueur trouvé.</p>}
-      {words.length > 0 && (
+      {words.length > 0 && matches.length === 0 && (
+        <p className="text-[11px] text-muted">{inRoster ? 'Aucun joueur de l’événement ne correspond.' : 'Aucun joueur trouvé.'}</p>
+      )}
+      {roster.length > 0 && words.length > 0 && (
+        <button className="self-start text-xs font-bold text-accent" onClick={() => setEverywhere(!everywhere)}>
+          {everywhere ? '← Chercher seulement dans les joueurs de l’événement' : 'Chercher dans toute la base (joueur hors liste)…'}
+        </button>
+      )}
+      {words.length > 0 && (!roster.length || everywhere) && (
         <button className="self-start text-xs font-bold text-accent" onClick={() => onPropose(q)}>
           + Joueur absent de la base : {can.editPlayers(role) ? 'créer' : 'proposer'} une fiche
         </button>
