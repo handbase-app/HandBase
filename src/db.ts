@@ -203,6 +203,12 @@ export interface PlayerGroup extends Syncable {
   years?: string[]
   /** Groupe d'une saison passée : caché des listes, gardé pour l'historique. */
   archived?: boolean
+  /** Participants (encadrants) : ajoutent des joueurs, retirent ceux qu'ils ont ajoutés (supabase/023). */
+  editors?: string[]
+  /** Qui a ajouté chaque joueur (identifiant de compte) ; tenu par le serveur. */
+  addedBy?: Record<string, string>
+  /** Noms des comptes cités (participants, « ajouté par »). */
+  names?: Record<string, string>
 }
 
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */

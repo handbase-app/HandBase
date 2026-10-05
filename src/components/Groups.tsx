@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { alive, db, save, type PlayerGroup } from '../db'
-import { can, useRole } from '../roles'
+import { can, currentUserId, useRole } from '../roles'
+import { getMe } from './ui'
 
 /** Ajoute des joueurs au groupe (sans doublon, ordre conservé). Renvoie le nombre de nouveaux. */
 export function addToGroup(g: PlayerGroup, ids: string[]) {
@@ -11,7 +12,17 @@ export function addToGroup(g: PlayerGroup, ids: string[]) {
     const cur = (await db.groups.get(g.id)) ?? g
     const have = new Set(cur.playerIds)
     const added = [...new Set(ids)].filter((id) => !have.has(id))
-    if (added.length) await save<PlayerGroup>('groups', { ...cur, playerIds: [...cur.playerIds, ...added] })
+    // « Ajouté par » : posé ici pour l'affichage immédiat ; le serveur le refait de son côté (023).
+    const me = currentUserId()
+    if (added.length)
+      await save<PlayerGroup>('groups', {
+        ...cur,
+        playerIds: [...cur.playerIds, ...added],
+        ...(me && {
+          addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) },
+          names: { ...cur.names, [me]: getMe() || cur.names?.[me] || '' },
+        }),
+      })
     return added.length
   })
 }
@@ -32,7 +43,7 @@ export function removeFromGroup(g: PlayerGroup, ids: string[]) {
 export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; onClose: (msg?: string, groupId?: string) => void }) {
   const role = useRole()
   const nav = useNavigate()
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.editGroup(role, g))), [role])
+  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && (can.editGroup(role, g) || can.contributeGroup(role, g)))), [role])
   const [picked, setPicked] = useState('')
   const n = playerIds.length
   const label = n > 1 ? `${n.toLocaleString('fr-FR')} joueurs` : 'ce joueur'

@@ -114,6 +114,11 @@ export const can = {
   /** Modifier / supprimer un groupe : privé, son créateur seul ; public, l'admin tous et l'encadrant les siens. */
   editGroup: (r: Role, g: { createdBy?: string; private?: boolean }) =>
     g.private ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
+  /** Participant d'un groupe partagé (supabase/023_participants_groupes.sql) : encadrant désigné par le créateur. */
+  contributeGroup: (r: Role, g: { private?: boolean; editors?: string[] }) => r === 'preparateur' && !g.private && !!userId && !!g.editors?.includes(userId),
+  /** Retirer ce joueur du groupe : créateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
+  removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
+    can.editGroup(r, g) || (can.contributeGroup(r, g) && (g.addedBy?.[playerId] ?? g.createdBy) === userId),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
   /**

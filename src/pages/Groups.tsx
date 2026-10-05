@@ -10,7 +10,8 @@ import { Avatar, Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../comp
 import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
 import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
-import { can, useRole } from '../roles'
+import { can, currentUserId, useRole } from '../roles'
+import { supabase } from '../sync'
 import { AddPlayers } from './Events'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
@@ -194,7 +195,12 @@ function GroupRow({ g }: { g: PlayerGroup }) {
         </div>
         {info && <div className="truncate text-[11px] font-bold text-accent">{info}</div>}
         {g.description && <div className="truncate text-[11px] text-muted">{g.description}</div>}
-        {g.createdByName && !g.private && <div className="text-[10px] text-muted">par {g.createdByName}</div>}
+        {g.createdByName && !g.private && (
+          <div className="text-[10px] text-muted">
+            par {g.createdByName}
+            {!!g.editors?.length && ` + ${g.editors.map((u) => g.names?.[u] ?? '?').join(', ')}`}
+          </div>
+        )}
       </div>
       <span className="shrink-0 text-xs font-bold text-muted">
         {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''} ›
@@ -244,6 +250,18 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const sortedYears = [...(group?.years ?? [])].sort()
   const [year, setYear] = useState(sortedYears[0] ?? '')
   const years = year ? [year] : []
+  // Participants (groupe partagé) : encadrants choisis parmi le staff (supabase/023_participants_groupes.sql).
+  const [editors, setEditors] = useState<string[]>(group?.editors ?? [])
+  const [staff, setStaff] = useState<{ user_id: string; full_name: string | null }[] | null>(null)
+  useEffect(() => {
+    if (!supabase || priv) return
+    void supabase
+      .from('hb_profiles')
+      .select('user_id, full_name')
+      .eq('role', 'preparateur')
+      .order('full_name')
+      .then(({ data }) => setStaff((data ?? []).filter((p) => p.user_id !== (group?.createdBy ?? currentUserId()))))
+  }, [priv, group?.createdBy])
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
 
@@ -270,6 +288,34 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
       <p className="text-[11px] text-muted">
         {priv ? 'Groupe privé : personne d’autre ne le voit, même pas les administrateurs.' : 'Groupe public : visible par tout le staff.'}
       </p>
+
+      {!priv && supabase && (
+        <>
+          <span className="label mt-2">Participants</span>
+          <p className="-mt-1 text-[11px] text-muted">
+            Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer
+            le groupe reste à toi (et aux administrateurs).
+          </p>
+          {staff === null ? (
+            <p className="text-[11px] text-muted">{navigator.onLine ? 'Chargement du staff…' : 'Liste du staff disponible en ligne.'}</p>
+          ) : staff.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {staff.map((p) => (
+                <button
+                  key={p.user_id}
+                  type="button"
+                  className={chip(editors.includes(p.user_id))}
+                  onClick={() => setEditors((e) => (e.includes(p.user_id) ? e.filter((x) => x !== p.user_id) : [...e, p.user_id]))}
+                >
+                  {p.full_name || 'Sans nom'}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted">Aucun autre encadrant.</p>
+          )}
+        </>
+      )}
 
       <div className="mt-2 text-[11px] text-muted">Informations facultatives, pour retrouver et filtrer les groupes :</div>
       <span className="label">Garçons / filles</span>
@@ -330,6 +376,12 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               department: department || undefined,
               regionId: region || undefined,
               years: years.length ? [...years].sort() : undefined,
+              // Participants : seulement sur un groupe partagé ; leurs noms pour l'affichage.
+              editors: priv ? [] : editors,
+              names: {
+                ...group?.names,
+                ...Object.fromEntries((staff ?? []).filter((p) => editors.includes(p.user_id)).map((p) => [p.user_id, p.full_name ?? ''])),
+              },
             }
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
@@ -411,6 +463,10 @@ export function GroupDetail() {
   const { g, players } = data
   if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   const manage = can.editGroup(role, g)
+  // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe.
+  const contribute = can.contributeGroup(role, g)
+  const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
+  const addedByOf = (pid: string) => who(g.addedBy?.[pid] ?? g.createdBy)
   const info = groupInfo(g, regionName(g.regionId))
   const sorted = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr') || a.firstName.localeCompare(b.firstName, 'fr'))
 
@@ -503,6 +559,23 @@ export function GroupDetail() {
           </h1>
           {info && <div className="text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
+          {!!g.editors?.length && (
+            <div className="mt-1 text-[11px] text-muted">
+              Participants : <b className="text-fg">{g.editors.map((u) => who(u) ?? '?').join(', ')}</b>
+              {contribute && (
+                <button
+                  className="ml-2 font-bold text-accent underline"
+                  onClick={async () => {
+                    if (!(await ask(`Te retirer des participants de « ${g.name} » ? Les joueurs que tu as ajoutés restent dans le groupe.`, { ok: 'Me retirer' }))) return
+                    const me = currentUserId()
+                    await save<PlayerGroup>('groups', { ...g, editors: (g.editors ?? []).filter((u) => u !== me) })
+                  }}
+                >
+                  Me retirer
+                </button>
+              )}
+            </div>
+          )}
           <div className="mt-1">
             <StampLine row={g} />
           </div>
@@ -532,11 +605,12 @@ export function GroupDetail() {
         )}
       </div>
 
-      {manage && (
+      {(manage || contribute) && (
         <button className="btn-ghost" onClick={() => setAdding(true)}>
           + Ajouter des joueurs (par filtres ou un par un)
         </button>
       )}
+      {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des joueurs et retirer ceux que tu as ajoutés.</p>}
 
       <div className="text-[11px] text-muted">
         {players.length} joueur{players.length > 1 ? 's' : ''}
@@ -552,9 +626,10 @@ export function GroupDetail() {
                   {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
                 </div>
                 <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
+                {!!g.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
               </div>
             </Link>
-            {manage && (
+            {can.removeFromGroup(role, g, p.id) && (
               <button className="px-1 text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
                 ✕
               </button>
