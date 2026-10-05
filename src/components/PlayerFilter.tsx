@@ -110,16 +110,22 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     const ids = new Set(current?.playerIds ?? [])
     return list.filter((p) => ids.has(p.id))
   }, [players, group, current])
-  const bySex = useMemo(
+  // Chaque menu compte les joueurs qui passent tous les AUTRES filtres : le nombre affiché à côté d'une
+  // année, d'un département ou d'un club est celui qu'on obtiendra en le choisissant.
+  const base = useMemo(
     () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand) && (!quarter || birthQuarter(p.birthDate) === quarter)),
     [all, sex, hand, quarter],
   )
-  const depts = useMemo(() => countBy(bySex, department), [bySex])
-  const byDept = useMemo(() => (dept ? bySex.filter((p) => department(p) === dept) : bySex), [bySex, dept])
-  const clubs = useMemo(() => countBy(byDept, (p) => p.club), [byDept])
-  const bySexClub = useMemo(() => (club ? byDept.filter((p) => p.club === club) : byDept), [byDept, club])
-  const years = useMemo(() => countBy(bySexClub, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [bySexClub])
-  const scoped = useMemo(() => (year ? bySexClub.filter((p) => p.birthDate?.startsWith(year)) : bySexClub), [bySexClub, year])
+  const okDept = (p: Player) => !dept || department(p) === dept
+  const okClub = (p: Player) => !club || p.club === club
+  const okYear = (p: Player) => !year || !!p.birthDate?.startsWith(year)
+  const deptBase = useMemo(() => base.filter((p) => okClub(p) && okYear(p)), [base, club, year]) // eslint-disable-line react-hooks/exhaustive-deps
+  const clubBase = useMemo(() => base.filter((p) => okDept(p) && okYear(p)), [base, dept, year]) // eslint-disable-line react-hooks/exhaustive-deps
+  const yearBase = useMemo(() => base.filter((p) => okDept(p) && okClub(p)), [base, dept, club]) // eslint-disable-line react-hooks/exhaustive-deps
+  const depts = useMemo(() => countBy(deptBase, department), [deptBase])
+  const clubs = useMemo(() => countBy(clubBase, (p) => p.club), [clubBase])
+  const years = useMemo(() => countBy(yearBase, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [yearBase])
+  const scoped = useMemo(() => yearBase.filter(okYear), [yearBase, year]) // eslint-disable-line react-hooks/exhaustive-deps
   const positionCounts = useMemo(() => {
     const c: Record<string, number> = { none: 0 }
     for (const p of scoped) {
@@ -233,7 +239,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           </div>
           {depts.length > 1 || dept ? (
             <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
-              <option value="">Tous les départements ({bySex.length.toLocaleString('fr-FR')})</option>
+              <option value="">Tous les départements ({deptBase.length.toLocaleString('fr-FR')})</option>
               {depts.map(([d, n]) => (
                 <option key={d} value={d}>
                   {departmentLabel(d)} ({n.toLocaleString('fr-FR')})
@@ -241,7 +247,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
               ))}
             </select>
           ) : null}
-          <ClubPicker clubs={clubs} total={byDept.length} value={club} onChange={setClub} />
+          <ClubPicker clubs={clubs} total={clubBase.length} value={club} onChange={setClub} />
           {groups.length > 0 && (
             <select
               className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
