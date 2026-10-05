@@ -15,6 +15,7 @@ import ReviewPage, { usePendingCount } from './pages/Review'
 import { useDailyPurge } from './purge'
 import Settings from './pages/Settings'
 import Privacy from './pages/Privacy'
+import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
 import { syncNow, useSyncState } from './sync'
 
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/joueurs/nouveau" element={<PlayerForm />} />
           <Route path="/joueurs/:id" element={<PlayerDetail />} />
           <Route path="/joueurs/:id/modifier" element={<PlayerForm />} />
+          <Route path="/joueurs/:id/mesures" element={<MeasureSession />} />
           <Route path="/evaluer" element={<Evaluate />} />
           <Route path="/avis-spontanes" element={<ReviewPage />} />
           <Route path="/rates" element={<Missed />} />

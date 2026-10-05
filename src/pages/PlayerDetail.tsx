@@ -13,8 +13,8 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
-import { Avatar, CriterionInput, fmtValue, getMe, groupBy, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, newId, remove, save, today, type Criterion, type Measurement, type Position } from '../db'
+import { Avatar, fmtValue, groupBy, PosBadges, QuarterBadge } from '../components/ui'
+import { age, alive, criterionApplies, db, fmtDate, remove, type Criterion, type Measurement } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { exportPlayer } from '../export'
@@ -304,7 +304,7 @@ export default function PlayerDetail() {
             </div>
           </div>
         ))}
-        <Tracking playerId={p.id} position={p.position} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+        <Tracking playerId={p.id} criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
         </>
       )}
 
@@ -337,13 +337,11 @@ export default function PlayerDetail() {
 /** « Suivi des mesures » : courbe d'évolution d'un critère factuel + saisie d'une séance de tests. */
 function Tracking({
   playerId,
-  position,
   criteria,
   measurements,
   editable,
 }: {
   playerId: string
-  position?: Position
   criteria: Criterion[]
   measurements: Measurement[]
   editable: boolean
@@ -351,12 +349,6 @@ function Tracking({
   const withData = criteria.filter((c) => c.scale !== 'text' && c.scale !== 'choice' && measurements.some((m) => m.criterionId === c.id))
   const [cid, setCid] = useState<string>('')
   const current = withData.find((c) => c.id === cid) ?? withData[0]
-  const [adding, setAdding] = useState(false)
-  // Séance de tests : toutes les valeurs saisies sont enregistrées ensemble, à la même date.
-  const [values, setValues] = useState<Record<string, number | string | undefined>>({})
-  const [newD, setNewD] = useState(today())
-  const filled = Object.entries(values).filter(([, v]) => v !== undefined && v !== '')
-
   const series = useMemo(
     () =>
       measurements
@@ -365,15 +357,6 @@ function Tracking({
     [measurements, current],
   )
 
-  async function add() {
-    if (!filled.length) return
-    const author = getMe() || undefined
-    for (const [criterionId, value] of filled) await save<Measurement>('measurements', { id: newId(), playerId, criterionId, value: value!, date: newD, author })
-    setAdding(false)
-    setValues({})
-    setCid(filled[0][0])
-  }
-
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -381,44 +364,11 @@ function Tracking({
           <span className="text-accent">↗</span> Suivi des mesures
         </div>
         {editable && (
-          <button className="btn-primary px-2.5 py-1 text-xs" onClick={() => setAdding((x) => !x)}>
-            {adding ? 'Fermer' : '+ Mesures'}
-          </button>
+          <Link to={`/joueurs/${playerId}/mesures`} className="btn-primary px-2.5 py-1 text-xs">
+            + Mesures
+          </Link>
         )}
       </div>
-
-      {editable && adding && (
-        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-accent/40 bg-accent-soft p-3">
-          <div className="flex items-end justify-between gap-3">
-            <div className="text-[11px] text-muted">Remplis seulement ce qui a été mesuré, tout est enregistré à la même date.</div>
-            <div className="w-40 shrink-0">
-              <span className="label">Date des tests</span>
-              <input type="date" className="field" value={newD} onChange={(e) => setNewD(e.target.value)} />
-            </div>
-          </div>
-          {groupBy(
-            criteria.filter((c) => criterionApplies(c, position)),
-            (c) => c.category,
-          ).map(([cat, cs]) => (
-            <div key={cat} className="rounded-lg border border-line bg-panel p-3">
-              <div className="section-title">{cat}</div>
-              <div className={`grid gap-3 ${cs.every((c) => c.scale === 'number') ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                {cs.map((c) => (
-                  <div key={c.id} className={c.scale === 'number' ? '' : 'flex items-center justify-between gap-3'}>
-                    <span className={c.scale === 'number' ? 'label' : 'text-xs font-bold'} title={c.description}>
-                      {c.label}
-                    </span>
-                    <CriterionInput c={c} value={values[c.id]} onChange={(v) => setValues((x) => ({ ...x, [c.id]: v }))} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          <button className="btn-primary" disabled={!filled.length} onClick={() => void add()}>
-            {filled.length > 1 ? `Enregistrer les ${filled.length} mesures` : 'Enregistrer la mesure'}
-          </button>
-        </div>
-      )}
 
       {!current ? (
         <div className="text-center text-xs text-muted">Aucune mesure enregistrée.</div>
