@@ -21,8 +21,14 @@ export default function Events() {
   const fromGroup = params.get('groupe') ?? undefined
   const [creating, setCreating] = useState(!!fromGroup)
   const nav = useNavigate()
+  const [showAll, setShowAll] = useState(false)
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+
+  // À venir (aujourd'hui compris) du plus proche au plus lointain ; passés du plus récent au plus ancien.
+  const todayIso = new Date().toLocaleDateString('sv')
+  const upcoming = events.filter((e) => e.date >= todayIso).reverse()
+  const past = events.filter((e) => e.date < todayIso)
 
   return (
     <div className="flex flex-col gap-3">
@@ -49,30 +55,77 @@ export default function Events() {
       {events.length === 0 ? (
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs évaluateurs puissent y noter les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
-        events.map((ev) => {
-          const es = evals.filter((e) => e.eventId === ev.id)
-          return (
-            <Link key={ev.id} to={`/evenements/${ev.id}`} className="card flex items-center justify-between p-3 hover:border-accent">
-              <div>
-                <div className="text-sm font-bold">{ev.name}</div>
-                <div className="text-[11px] text-muted">
-                  {typeLabel(ev.type)} · {fmtDate(ev.date)}
-                  {ev.place ? ` · ${ev.place}` : ''}
-                </div>
-              </div>
-              <div className="text-right text-[11px] text-muted">
-                <div>
-                  <b className="text-white">{new Set(es.map((e) => e.playerId)).size}</b> joueurs
-                </div>
-                <div>
-                  <b className="text-white">{new Set(es.map((e) => e.observer)).size}</b> observateurs
-                </div>
-              </div>
-            </Link>
-          )
-        })
+        <>
+          <div className="section-title mt-1 mb-0">À venir</div>
+          {upcoming.length ? (
+            upcoming.map((ev) => <EventRow key={ev.id} ev={ev} evals={evals} upcoming />)
+          ) : (
+            <p className="text-[11px] text-muted">Aucun événement prévu.</p>
+          )}
+          {past.length > 0 && (
+            <>
+              <div className="section-title mt-3 mb-0">Passés</div>
+              {past.slice(0, showAll ? undefined : 10).map((ev) => (
+                <EventRow key={ev.id} ev={ev} evals={evals} />
+              ))}
+              {past.length > 10 && !showAll && (
+                <button className="btn-ghost text-xs" onClick={() => setShowAll(true)}>
+                  Afficher les {past.length - 10} plus anciens
+                </button>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
+  )
+}
+
+/** Dans combien de jours : « aujourd'hui », « demain », « dans 5 jours ». */
+function inDays(date: string) {
+  const n = Math.round((new Date(date + 'T00:00:00').getTime() - new Date(new Date().toDateString()).getTime()) / 86400000)
+  return n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : `dans ${n} jours`
+}
+
+function EventRow({ ev, evals, upcoming = false }: { ev: HBEvent; evals: Evaluation[]; upcoming?: boolean }) {
+  const es = evals.filter((e) => e.eventId === ev.id)
+  const d = new Date(ev.date + 'T00:00:00')
+  const today = upcoming && inDays(ev.date) === 'aujourd’hui'
+  return (
+    <Link to={`/evenements/${ev.id}`} className={`card flex items-center gap-3 p-3 hover:border-accent ${today ? 'border-accent/70' : ''}`}>
+      <div className={`w-11 shrink-0 rounded-md py-1 text-center leading-tight ${upcoming ? 'bg-accent/15' : 'bg-panel-2'}`}>
+        <div className="text-[9px] font-bold text-muted uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</div>
+        <div className={`text-base font-extrabold ${upcoming ? 'text-accent' : ''}`}>{d.getDate()}</div>
+        <div className="text-[9px] text-muted">{d.toLocaleDateString('fr-FR', { month: 'short', ...(d.getFullYear() !== new Date().getFullYear() && { year: '2-digit' }) })}</div>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="line-clamp-2 text-sm font-bold">{ev.name}</div>
+        <div className="truncate text-[11px] text-muted">
+          {typeLabel(ev.type)}
+          {ev.place ? ` · ${ev.place}` : ''}
+        </div>
+        {upcoming && <div className="text-[11px] font-bold text-accent">{inDays(ev.date)}</div>}
+      </div>
+      <div className="shrink-0 text-right text-[11px] text-muted">
+        {/* Avant l'événement : les convoqués ; dès qu'il y a des avis : joueurs notés et nombre d'avis. */}
+        {es.length > 0 ? (
+          <>
+            <div>
+              <b className="text-white">{new Set(es.map((e) => e.playerId)).size}</b> joueurs
+            </div>
+            <div>
+              <b className="text-white">{es.length}</b> avis
+            </div>
+          </>
+        ) : (
+          (ev.playerIds ?? []).length > 0 && (
+            <div>
+              <b className="text-white">{(ev.playerIds ?? []).length}</b> convoqué{(ev.playerIds ?? []).length > 1 ? 's' : ''}
+            </div>
+          )
+        )}
+      </div>
+    </Link>
   )
 }
 
