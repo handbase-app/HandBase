@@ -314,7 +314,12 @@ export default function PlayerDetail() {
         </>
       )}
 
-      {/* Avis subjectifs */}
+      {/* Avis subjectifs ; « Donner un avis » ici = avis spontané (sur un événement : depuis l'événement). */}
+      {tab === 'avis' && (
+        <Link to={`/evaluer?contexte=libre&joueur=${p.id}`} className="btn-primary">
+          + Donner un avis
+        </Link>
+      )}
       {tab === 'avis' && (
         <div className="card p-4">
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">

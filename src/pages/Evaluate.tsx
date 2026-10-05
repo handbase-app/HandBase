@@ -7,7 +7,6 @@ import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
-import { useSessionState } from '../components/PlayerFilter'
 import { StaffPicker } from '../components/StaffPicker'
 import { supabase } from '../sync'
 import {
@@ -52,11 +51,6 @@ export default function Evaluate() {
   // Avis spontané en cours de modification (celui de l'URL, ou celui qu'on vient d'enregistrer).
   const [avisId, setAvisId] = useState(avisParam)
   const [mode, setMode] = useState<'rapide' | 'complet'>('rapide')
-  // Filtres du menu des événements (gardés pendant la session).
-  const [evOpen, setEvOpen] = useSessionState('handbase.evaluer.filtres', false)
-  const [evQ, setEvQ] = useSessionState('handbase.evaluer.q', '')
-  const [evType, setEvType] = useSessionState('handbase.evaluer.type', '')
-  const [evArchived, setEvArchived] = useSessionState('handbase.evaluer.archives', false)
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
@@ -76,18 +70,6 @@ export default function Evaluate() {
 
   const player = players.find((p) => p.id === playerId)
   const event = events.find((e) => e.id === eventId)
-  // Menu des événements : à venir et des 15 derniers jours en premier (le temps de finir ses avis), les plus
-  // anciens à part ; les archivés n'y sont plus, sauf celui déjà choisi (lien direct).
-  const recentLimit = new Date(Date.now() - 15 * 86400000).toLocaleDateString('sv')
-  const evWords = fold(evQ).split(/\s+/).filter(Boolean)
-  const listed = events.filter(
-    (e) =>
-      e.id === eventId ||
-      ((!e.archived || evArchived) && (!evType || e.type === evType) && evWords.every((w) => fold(`${e.name} ${e.place ?? ''}`).includes(w))),
-  )
-  const evFilters = [evQ, evType, evArchived].filter(Boolean).length
-  const recentEvents = listed.filter((e) => e.date >= recentLimit)
-  const olderEvents = listed.filter((e) => e.date < recentLimit)
   const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
   const existing = spontaneous
     ? own && !own.deleted && own.playerId === playerId ? own : undefined
@@ -229,93 +211,54 @@ export default function Evaluate() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-extrabold">Évaluer</h1>
-        <span className="text-[11px] text-muted">
+      {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
+      <div className="flex items-center justify-between gap-2">
+        {event && !spontaneous ? (
+          <Link to={`/evenements/${event.id}`} className="min-w-0 truncate text-xs font-bold text-muted">
+            ← {event.name.toUpperCase()}
+          </Link>
+        ) : spontaneous && playerId ? (
+          <Link to={`/joueurs/${playerId}?onglet=avis`} className="text-xs font-bold text-muted">
+            ← FICHE DU JOUEUR
+          </Link>
+        ) : (
+          <Link to="/avis-spontanes" className="text-xs font-bold text-muted">
+            ← PROPOSITIONS
+          </Link>
+        )}
+        <span className="shrink-0 text-[11px] text-muted">
           Observateur : <b className="text-fg">{me}</b>
         </span>
       </div>
 
-      {/* Contexte */}
-      <div className="card flex flex-col gap-2 p-3">
-        <span className="label">Contexte</span>
-        <Segmented
-          value={spontaneous ? 'libre' : 'evenement'}
-          onChange={(v) => void go('contexte', v === 'libre' ? 'libre' : '')}
-          options={[
-            { value: 'evenement', label: 'Sur un événement' },
-            { value: 'libre', label: 'Avis spontané' },
-          ]}
-        />
-        {spontaneous ? (
+      {event && !spontaneous ? (
+        <div>
+          <h1 className="text-lg font-extrabold">{event.name}</h1>
+          <div className="text-xs text-muted">
+            {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
+            {event.place ? ` · ${event.place}` : ''}
+          </div>
+        </div>
+      ) : spontaneous ? (
+        <div className="card flex flex-col gap-2 p-3">
+          <h1 className="text-lg font-extrabold">Avis spontané</h1>
           <SpontaneousContext draft={draft} setDraft={setDraft} validated={can.review(role)} />
-        ) : (
-          <>
+        </div>
+      ) : (
+        <div className="card flex flex-col gap-3 p-4 text-xs">
+          <h1 className="text-lg font-extrabold">Évaluer</h1>
+          <p className="text-muted">
+            Sur un match, un tournoi ou un stage : ouvre l’événement dans l’onglet <b className="text-fg">Événements</b>, puis « Évaluer ».
+            Pour un joueur vu ailleurs (UNSS, club…) : <b className="text-fg">avis spontané</b>, depuis sa fiche ou ici.
+          </p>
           <div className="flex gap-2">
-            <select className="field flex-1" value={eventId} onChange={(e) => void go('evenement', e.target.value)}>
-              <option value="">— Choisir l’événement —</option>
-              {recentEvents.map((ev) => (
-                <option key={ev.id} value={ev.id}>
-                  {ev.name} · {fmtDate(ev.date)}
-                </option>
-              ))}
-              {olderEvents.length > 0 && (
-                <optgroup label="Plus anciens">
-                  {olderEvents.map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.name} · {fmtDate(ev.date)}
-                      {ev.archived ? ' (archivé)' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            {/* Filtrer le menu (nom, type, archivés) ; on crée les événements depuis l'onglet Événements. */}
-            <button
-              onClick={() => setEvOpen(!evOpen)}
-              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${evOpen || evFilters ? 'border-accent text-fg' : 'border-line text-muted'} ${evOpen ? 'bg-accent/15' : 'bg-panel-2'}`}
-            >
-              Filtres{evFilters > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{evFilters}</span>} {evOpen ? '▴' : '▾'}
+            <Link to="/evenements" className="btn-primary flex-1">
+              Événements
+            </Link>
+            <button className="btn-ghost flex-1" onClick={() => void go('contexte', 'libre')}>
+              Avis spontané
             </button>
           </div>
-          {evOpen && (
-            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
-              <input className="field py-1.5 text-xs" placeholder="Nom ou lieu de l’événement…" value={evQ} onChange={(e) => setEvQ(e.target.value)} />
-              <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-                {[{ value: '', label: 'Tous' }, ...EVENT_TYPES].map((t) => (
-                  <button key={t.value} onClick={() => setEvType(t.value)} className={`flex-1 py-1.5 ${evType === t.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-                    {t.value === 'entrainement' ? 'Entraîn.' : t.value === 'observation' ? 'Observ.' : t.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={evArchived} onChange={(e) => setEvArchived(e.target.checked)} />
-                  Inclure les événements archivés
-                </label>
-                {evFilters > 0 && (
-                  <button className="text-[11px] font-bold text-muted underline" onClick={() => (setEvQ(''), setEvType(''), setEvArchived(false))}>
-                    Effacer
-                  </button>
-                )}
-              </div>
-              <p className="text-[11px] text-muted">
-                {listed.length} événement{listed.length > 1 ? 's' : ''} dans le menu.
-              </p>
-            </div>
-          )}
-          </>
-        )}
-      </div>
-
-      {!event && !spontaneous && (
-        <div className="rounded-md border border-line bg-panel p-3 text-xs text-muted">
-          Chaque avis est rattaché à un événement (match, tournoi, entraînement, observation…) : choisis-le d’abord.
-          Joueur vu ailleurs (UNSS, entraînement de club…) ? Choisis « Avis spontané ».
-          {!events.length &&
-            (can.manageEvents(role)
-              ? ' Aucun événement pour l’instant : crée-le dans l’onglet Événements.'
-              : ' Aucun événement pour l’instant : demande à un encadrant ou un administrateur d’en créer un.')}
         </div>
       )}
 

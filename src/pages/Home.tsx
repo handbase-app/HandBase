@@ -8,7 +8,7 @@ import { HomeFeed } from './Feed'
 // Actions rapides (le reste est dans la barre du bas). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
 const ACTIONS = [
   { to: '/joueurs/nouveau', title: 'Nouveau joueur', icon: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6', main: true },
-  { to: '/evaluer', title: 'Évaluer', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
+  { to: '/evenements', title: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
 ]
 

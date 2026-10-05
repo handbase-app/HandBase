@@ -61,13 +61,15 @@ function Row({ it, seen, withDay = false }: { it: FeedItem; seen: number; withDa
 
 function Upcoming({ n }: { n: number }) {
   const evs = useLiveQuery(() => upcomingEvents(n), [n], [])
+  const today = localDay(Date.now())
   if (!evs.length) return null
   return (
     <div className="flex flex-col gap-1.5">
       {evs.map((e) => {
         const d = new Date(e.date + 'T00:00:00')
         return (
-          <Link key={e.id} to={`/evenements/${e.id}`} className="flex items-center gap-3 rounded-lg border border-line bg-panel-2 px-3 py-2 hover:border-accent">
+          <div key={e.id} className="flex items-center gap-2 rounded-lg border border-line bg-panel-2 pr-2 hover:border-accent">
+          <Link to={`/evenements/${e.id}`} className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
             <div className="w-10 shrink-0 text-center leading-tight">
               <div className="text-[9px] font-bold text-muted uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</div>
               <div className="text-base font-extrabold text-accent">{d.getDate()}</div>
@@ -80,6 +82,13 @@ function Upcoming({ n }: { n: number }) {
               </div>
             </div>
           </Link>
+          {/* Le jour J : on note directement (il n'y a plus d'onglet Évaluer). */}
+          {e.date === today && (
+            <Link to={`/evaluer?evenement=${e.id}`} className="btn-primary shrink-0 px-3 py-1.5 text-xs">
+              Évaluer
+            </Link>
+          )}
+          </div>
         )
       })}
     </div>

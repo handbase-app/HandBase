@@ -103,7 +103,8 @@ export function Opinions({
     observers.map((o) => mean(evs.filter((e) => e.observer === o && typeof e.overall === 'number').map((e) => e.overall!))).filter((x): x is number => x !== null),
   )
 
-  const evaluateLink = `/evaluer?joueur=${player.id}${eventId !== 'all' && eventId !== 'none' ? `&evenement=${eventId}` : ''}`
+  // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
+  const evaluateLink = eventId !== 'all' && eventId !== 'none' ? `/evaluer?joueur=${player.id}&evenement=${eventId}` : `/evaluer?contexte=libre&joueur=${player.id}`
 
   if (!evaluations.length)
     return (
