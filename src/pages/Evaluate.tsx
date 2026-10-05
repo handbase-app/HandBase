@@ -7,6 +7,7 @@ import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
+import { useSessionState } from '../components/PlayerFilter'
 import {
   alive,
   CONTEXT_TYPES,
@@ -49,7 +50,11 @@ export default function Evaluate() {
   // Avis spontané en cours de modification (celui de l'URL, ou celui qu'on vient d'enregistrer).
   const [avisId, setAvisId] = useState(avisParam)
   const [mode, setMode] = useState<'rapide' | 'complet'>('rapide')
-  const [creatingEvent, setCreatingEvent] = useState(false)
+  // Filtres du menu des événements (gardés pendant la session).
+  const [evOpen, setEvOpen] = useSessionState('handbase.evaluer.filtres', false)
+  const [evQ, setEvQ] = useSessionState('handbase.evaluer.q', '')
+  const [evType, setEvType] = useSessionState('handbase.evaluer.type', '')
+  const [evArchived, setEvArchived] = useSessionState('handbase.evaluer.archives', false)
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
@@ -72,7 +77,13 @@ export default function Evaluate() {
   // Menu des événements : à venir et des 15 derniers jours en premier (le temps de finir ses avis), les plus
   // anciens à part ; les archivés n'y sont plus, sauf celui déjà choisi (lien direct).
   const recentLimit = new Date(Date.now() - 15 * 86400000).toLocaleDateString('sv')
-  const listed = events.filter((e) => !e.archived || e.id === eventId)
+  const evWords = fold(evQ).split(/\s+/).filter(Boolean)
+  const listed = events.filter(
+    (e) =>
+      e.id === eventId ||
+      ((!e.archived || evArchived) && (!evType || e.type === evType) && evWords.every((w) => fold(`${e.name} ${e.place ?? ''}`).includes(w))),
+  )
+  const evFilters = [evQ, evType, evArchived].filter(Boolean).length
   const recentEvents = listed.filter((e) => e.date >= recentLimit)
   const olderEvents = listed.filter((e) => e.date < recentLimit)
   const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
@@ -231,14 +242,8 @@ export default function Evaluate() {
         />
         {spontaneous ? (
           <SpontaneousContext draft={draft} setDraft={setDraft} validated={can.review(role)} />
-        ) : creatingEvent ? (
-          <NewEventForm
-            onDone={(ev) => {
-              setCreatingEvent(false)
-              if (ev) void go('evenement', ev.id)
-            }}
-          />
         ) : (
+          <>
           <div className="flex gap-2">
             <select className="field flex-1" value={eventId} onChange={(e) => void go('evenement', e.target.value)}>
               <option value="">— Choisir l’événement —</option>
@@ -258,12 +263,41 @@ export default function Evaluate() {
                 </optgroup>
               )}
             </select>
-            {can.manageEvents(role) && (
-              <button className="btn-ghost shrink-0 px-3 text-xs" onClick={() => setCreatingEvent(true)}>
-                + Nouveau
-              </button>
-            )}
+            {/* Filtrer le menu (nom, type, archivés) ; on crée les événements depuis l'onglet Événements. */}
+            <button
+              onClick={() => setEvOpen(!evOpen)}
+              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${evOpen || evFilters ? 'border-accent text-white' : 'border-line text-muted'} ${evOpen ? 'bg-accent/15' : 'bg-panel-2'}`}
+            >
+              Filtres{evFilters > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{evFilters}</span>} {evOpen ? '▴' : '▾'}
+            </button>
           </div>
+          {evOpen && (
+            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+              <input className="field py-1.5 text-xs" placeholder="Nom ou lieu de l’événement…" value={evQ} onChange={(e) => setEvQ(e.target.value)} />
+              <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                {[{ value: '', label: 'Tous' }, ...EVENT_TYPES].map((t) => (
+                  <button key={t.value} onClick={() => setEvType(t.value)} className={`flex-1 py-1.5 ${evType === t.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+                    {t.value === 'entrainement' ? 'Entraîn.' : t.value === 'observation' ? 'Observ.' : t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input type="checkbox" checked={evArchived} onChange={(e) => setEvArchived(e.target.checked)} />
+                  Inclure les événements archivés
+                </label>
+                {evFilters > 0 && (
+                  <button className="text-[11px] font-bold text-muted underline" onClick={() => (setEvQ(''), setEvType(''), setEvArchived(false))}>
+                    Effacer
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted">
+                {listed.length} événement{listed.length > 1 ? 's' : ''} dans le menu.
+              </p>
+            </div>
+          )}
+          </>
         )}
       </div>
 
@@ -273,7 +307,7 @@ export default function Evaluate() {
           Joueur vu ailleurs (UNSS, entraînement de club…) ? Choisis « Avis spontané ».
           {!events.length &&
             (can.manageEvents(role)
-              ? ' Aucun événement pour l’instant : crée-le avec « + Nouveau ».'
+              ? ' Aucun événement pour l’instant : crée-le dans l’onglet Événements.'
               : ' Aucun événement pour l’instant : demande à un encadrant ou un administrateur d’en créer un.')}
         </div>
       )}
@@ -304,6 +338,21 @@ export default function Evaluate() {
             }}
           />
         )}
+        {/* Joueur hors liste de l'événement (supabase/021_avis_hors_liste.sql) : prévenir avant de noter. */}
+        {event && player && !spontaneous && !(event.playerIds ?? []).includes(player.id) && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
+            {can.editEvent(role, event) ? (
+              <>
+                <b>Joueur hors liste.</b> Tu organises cet événement : en enregistrant ton avis, il sera ajouté à la liste.
+              </>
+            ) : (
+              <>
+                <b>⚠ Joueur hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+                administrateur : il ne comptera qu’une fois validé, et le joueur sera alors ajouté à la liste.
+              </>
+            )}
+          </div>
+        )}
         {roster.length > 0 && (
           <div className="flex items-center justify-between gap-2">
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && void go('joueur', prev.id)}>
@@ -329,7 +378,8 @@ export default function Evaluate() {
       {saved && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           ✓ Avis enregistré{event && !spontaneous ? ` pour « ${event.name} »` : ''}
-          {spontaneous && !can.review(role) ? ', en attente de validation par un encadrant' : ''}.{' '}
+          {spontaneous && !can.review(role) ? ', en attente de validation par un encadrant' : ''}
+          {existing?.review === 'pending' && !spontaneous ? ', en attente de validation (joueur hors liste)' : ''}.{' '}
           {nextTodo ? (
             <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
               Joueur suivant à noter : {nextTodo.firstName} {nextTodo.lastName} →
