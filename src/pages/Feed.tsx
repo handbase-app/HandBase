@@ -88,7 +88,7 @@ export function HomeFeed() {
   const items = useLiveQuery(() => buildFeed({ days: 14 }), [], [])
   const fresh = items.filter((i) => i.time > seen && !i.mine).length
   return (
-    <div className="card flex w-full max-w-md flex-col gap-3 p-4">
+    <div className="card flex w-full flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
         <div className="section-title mb-0">
           Quoi de neuf
@@ -101,7 +101,7 @@ export function HomeFeed() {
       <Upcoming n={2} />
       {items.length ? (
         <div className="divide-y divide-line">
-          {items.slice(0, 4).map((it) => (
+          {items.slice(0, 6).map((it) => (
             <Row key={it.key} it={it} seen={seen} withDay />
           ))}
         </div>
