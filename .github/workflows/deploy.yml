@@ -15,9 +15,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# Machine de publication : celles de GitHub par défaut. Variable HB_RUNNER = handbase-local pour publier
+# depuis le PC (runner auto-hébergé), par exemple pendant un incident GitHub Actions.
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.HB_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -38,7 +40,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.HB_RUNNER || 'ubuntu-latest' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
