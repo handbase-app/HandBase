@@ -12,14 +12,15 @@
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
   /* Changement de joueur par glissement (écran de notation). */
-  --animate-slide-left: slide-left 0.22s ease-out;
-  --animate-slide-right: slide-right 0.22s ease-out;
+  /* Le joueur suivant arrive du côté opposé au geste (l'ancien vient de partir de l'autre côté). */
+  --animate-slide-left: slide-left 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-right: slide-right 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   @keyframes slide-left {
-    from { transform: translateX(40px); opacity: 0.3; }
+    from { transform: translateX(45%); opacity: 0; }
     to { transform: none; opacity: 1; }
   }
   @keyframes slide-right {
-    from { transform: translateX(-40px); opacity: 0.3; }
+    from { transform: translateX(-45%); opacity: 0; }
     to { transform: none; opacity: 1; }
   }
 }
@@ -57,4 +58,12 @@ body {
   .text-orange-300 { color: #c2410c; }
   .text-rose-300 { color: #be123c; }
   .hover\:text-red-400:hover { color: #b91c1c; }
+}
+
+/* Téléphone réglé sur « Réduire les animations » : on change de joueur sans glissement. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-left,
+  .animate-slide-right {
+    animation: none;
+  }
 }
