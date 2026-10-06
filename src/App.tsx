@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { pushSupport, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
@@ -90,6 +92,10 @@ export default function App() {
   useDepartments()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
+  // Notifications : l'abonnement de ce téléphone est réenregistré sur le serveur à chaque ouverture.
+  useEffect(() => {
+    if (pushSupport() === 'ok') void syncSubscription()
+  }, [])
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
   return (

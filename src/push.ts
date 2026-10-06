@@ -53,6 +53,23 @@ export async function enablePush(): Promise<string | null> {
   return error ? `Enregistrement impossible : ${error.message}` : null
 }
 
+/**
+ * Réenregistre l'abonnement de cet appareil sur le serveur (sans rien demander) : rattrape un abonnement
+ * que le serveur n'a pas reçu (hors ligne, serveur pas prêt…) ou rattaché à un autre compte.
+ */
+export async function syncSubscription() {
+  const sub = await currentSubscription().catch(() => null)
+  if (!sub || !navigator.onLine) return !!sub
+  const json = sub.toJSON()
+  const { error } = await supabase!.rpc('hb_push_subscribe', {
+    p_endpoint: sub.endpoint,
+    p_p256dh: json.keys?.p256dh ?? '',
+    p_auth: json.keys?.auth ?? '',
+    p_user_agent: navigator.userAgent,
+  })
+  return !error
+}
+
 /** Désabonne cet appareil (le serveur l'oublie). */
 export async function disablePush() {
   const sub = await currentSubscription()

@@ -14,7 +14,7 @@ import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../lists'
 import { useSessionState } from '../components/PlayerFilter'
-import { currentSubscription, disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification } from '../push'
+import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
 import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
@@ -174,7 +174,8 @@ function NotificationSettings() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   useEffect(() => {
-    void currentSubscription().then((s) => setSubscribed(!!s))
+    // « Activées » seulement si le serveur a bien cet appareil (réenregistré au passage).
+    void syncSubscription().then(setSubscribed)
     void readNotifPrefs().then(setPrefs)
   }, [])
 
