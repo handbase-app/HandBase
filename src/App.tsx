@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { pushSupport, syncSubscription } from './push'
+import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
@@ -26,8 +26,7 @@ import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
 
 /** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
-function AlertBell() {
-  const n = useAlertCount()
+function AlertBell({ n }: { n: number }) {
   return (
     <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Alertes">
       <Icon name="bell" className="h-5 w-5" />
@@ -88,6 +87,11 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 export default function App() {
   // Avis spontanés à valider : pastille sur « Évaluer ».
   const toReview = usePendingCount()
+  const alerts = useAlertCount()
+  // Pastille sur l'icône de l'appli : tout ce qui attend (propositions à valider + nouvelles alertes).
+  useEffect(() => {
+    void setIconBadge(toReview + alerts)
+  }, [toReview, alerts])
   // Noms des départements (liste modifiable) : toute l'appli se redessine quand ils changent.
   useDepartments()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
@@ -109,7 +113,7 @@ export default function App() {
           {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">VERSION D’ESSAI</span>}
         </GuardedLink>
         <div className="flex items-center gap-3">
-          <AlertBell />
+          <AlertBell n={alerts} />
           <SyncBadge />
         </div>
       </header>

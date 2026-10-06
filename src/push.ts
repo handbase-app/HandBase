@@ -103,3 +103,28 @@ export async function sendTestNotification() {
   const { error } = (await supabase?.rpc('hb_notif_test')) ?? {}
   return error ? error.message : null
 }
+
+/*
+ * Pastille sur l'icône de l'appli (écran d'accueil) : avis et fiches à valider + nouvelles alertes.
+ * Appli ouverte : le chiffre exact. Appli fermée : le service worker ajoute 1 à chaque notification
+ * (public/push-sw.js), à partir du dernier chiffre gardé ici dans le cache « hb-badge ».
+ */
+const BADGE_CACHE = 'hb-badge'
+// Même adresse que dans le service worker (portée de l'appli + badge-count).
+const BADGE_URL = () => new URL(import.meta.env.BASE_URL + 'badge-count', location.origin).href
+
+export async function setIconBadge(n: number) {
+  const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> }
+  try {
+    if (n > 0) await nav.setAppBadge?.(n)
+    else await nav.clearAppBadge?.()
+  } catch {
+    /* non pris en charge ou refusé */
+  }
+  try {
+    const c = await caches.open(BADGE_CACHE)
+    await c.put(BADGE_URL(), new Response(String(n)))
+  } catch {
+    /* cache indisponible */
+  }
+}
