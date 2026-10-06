@@ -38,10 +38,15 @@ export interface FeedItem {
   to?: string
 }
 
-/** Moment de création : posé par le serveur ; à défaut (pas encore synchronisé, démo), dernière modification. */
-const created = (r: { createdAtServer?: string; updatedAt: number }) => {
+/**
+ * Moment de création : posé par le serveur. Sans lui : ligne pas encore envoyée (ou démo), on prend la
+ * dernière modification ; mais une ligne déjà passée par le serveur sans date de création (fiches importées
+ * avant la signature des lignes) est ancienne : la modifier ne doit pas la faire passer pour nouvelle.
+ */
+const created = (r: { createdAtServer?: string; updatedAtServer?: string; updatedAt: number }) => {
   const t = r.createdAtServer ? Date.parse(r.createdAtServer) : NaN
-  return isNaN(t) ? r.updatedAt : t
+  if (!isNaN(t)) return t
+  return r.updatedAtServer ? 0 : r.updatedAt
 }
 export const localDay = (t: number) => new Date(t).toLocaleDateString('sv')
 const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString('fr-FR')} ${n > 1 ? many : one}`
@@ -86,13 +91,13 @@ export async function buildFeed({ days, sector = false }: { days: number; sector
     const d = p && department(p)
     return !!d && depts.includes(d)
   }
-  const recent = <T extends { createdAtServer?: string; updatedAt: number }>(r: T) => created(r) >= since
+  const recent = <T extends { createdAtServer?: string; updatedAtServer?: string; updatedAt: number }>(r: T) => created(r) >= since
   const out: FeedItem[] = []
   const push = (it: Omit<FeedItem, 'day' | 'mine'> & { authorId?: string }) => {
     const { authorId, ...rest } = it
     out.push({ ...rest, day: localDay(it.time), mine: !!me && authorId === me })
   }
-  const latest = <T extends { createdAtServer?: string; updatedAt: number }>(rs: T[]) => rs.reduce((t, r) => Math.max(t, created(r)), 0)
+  const latest = <T extends { createdAtServer?: string; updatedAtServer?: string; updatedAt: number }>(rs: T[]) => rs.reduce((t, r) => Math.max(t, created(r)), 0)
 
   // Mesures : par auteur et par jour de saisie.
   const ms = measurements.filter((m) => recent(m) && inSector(m.playerId))
