@@ -5,7 +5,7 @@ import { CriterionInput, groupBy, NumberField, PosBadges, QuarterBadge, Segmente
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { sortRoster, useRosterSort } from '../rosterOrder'
+import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { StaffPicker } from '../components/StaffPicker'
@@ -13,6 +13,7 @@ import { supabase } from '../sync'
 import {
   alive,
   CONTEXT_TYPES,
+  POSITIONS,
   criterionApplies,
   db,
   fmtDate,
@@ -111,6 +112,8 @@ export default function Evaluate() {
   const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
   // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
   const [rosterSort] = useRosterSort(eventId || undefined)
+  // Filtres posés sur la page de l'événement (un poste, masquer ceux que j'ai notés) : on ne note que ces joueurs-là.
+  const rosterFilter = useRosterFilter(eventId || undefined)
   useEffect(() => {
     setLeaveGuard(() => leaveRef.current())
     return () => setLeaveGuard(null)
@@ -212,10 +215,13 @@ export default function Evaluate() {
   const evaluatedHere = new Set(spontaneous ? [] : mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
   // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
   const byId = new Map(players.map((p) => [p.id, p]))
-  const roster = sortRoster(
+  const fullRoster = sortRoster(
     (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
     rosterSort,
   )
+  // Le joueur en cours reste dans la liste même s'il vient d'être noté (sinon « → » ne saurait plus où il en est).
+  const roster = filterRoster(fullRoster, rosterFilter, evaluatedHere, playerId)
+  const posLabel = POSITIONS.find((x) => x.id === rosterFilter.pos)?.label
   const idx = roster.findIndex((p) => p.id === playerId)
   const prev = idx > 0 ? roster[idx - 1] : undefined
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
@@ -334,6 +340,23 @@ export default function Evaluate() {
                 administrateur : il ne comptera qu’une fois validé, et le joueur sera alors ajouté à la liste.
               </>
             )}
+          </div>
+        )}
+        {!spontaneous && rosterFilter.active && fullRoster.length > 0 && (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px]">
+            <span>
+              Filtre : <b>{[posLabel, rosterFilter.hideNoted && 'pas encore notés par moi'].filter(Boolean).join(' · ')}</b> —{' '}
+              {roster.length} joueur{roster.length > 1 ? 's' : ''} sur {fullRoster.length}
+            </span>
+            <button
+              className="shrink-0 font-bold text-accent"
+              onClick={() => {
+                rosterFilter.setPos('')
+                rosterFilter.setHideNoted(false)
+              }}
+            >
+              Tout afficher
+            </button>
           </div>
         )}
         {roster.length > 0 && (

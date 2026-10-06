@@ -9,7 +9,7 @@ import { can, currentUserId, useRole } from '../roles'
 import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { AvisCard, DIVERGENCE } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
-import { isMine, ROSTER_SORTS, sortRoster, useRosterSort, type RosterSort } from '../rosterOrder'
+import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -240,8 +240,8 @@ export function EventDetail() {
   // Liste des joueurs : toujours par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour cet
   // événement, repris par la notation). Filtres rapides : masquer ceux que j'ai notés, un poste.
   const [sort, setSort] = useRosterSort(id)
-  const [hideNoted, setHideNoted] = useState(false)
-  const [posFilter, setPosFilter] = useState<Position | ''>('')
+  // Filtres partagés avec la notation : elle ne propose que les joueurs affichés ici.
+  const { pos: posFilter, setPos: setPosFilter, hideNoted, setHideNoted } = useRosterFilter(id)
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -261,13 +261,15 @@ export function EventDetail() {
     (ev.playerIds ?? []).map((pid) => byId.get(pid)).filter((p): p is Player => !!p),
     sort,
   )
-  const shownRoster = roster.filter((p) => (!hideNoted || !notedByMe.has(p.id)) && (!posFilter || p.position === posFilter))
+  const shownRoster = filterRoster(roster, { pos: posFilter, hideNoted }, notedByMe)
+  const filtered = shownRoster.length < roster.length
   // Titres de poste, sauf si aucun joueur n'a de poste (un seul titre « Sans poste » n'apporterait rien).
   const withHeadings = roster.some((p) => p.position)
   const nNotedInRoster = roster.filter((p) => notedByMe.has(p.id)).length
   const rosterPositions = POSITIONS.filter((x) => roster.some((p) => p.position === x.id))
   // « Évaluer » ouvre le premier joueur que je n'ai pas encore noté, dans l'ordre choisi.
-  const firstToRate = roster.find((p) => !notedByMe.has(p.id)) ?? roster[0]
+  // Avec un filtre, seulement parmi les joueurs affichés.
+  const firstToRate = shownRoster.find((p) => !notedByMe.has(p.id)) ?? shownRoster[0]
   // Joueurs notés sur l'événement sans être dans la liste (ex. avis d'un observateur).
   const inRoster = new Set(ev.playerIds ?? [])
   const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
@@ -373,7 +375,9 @@ export function EventDetail() {
       )}
 
       <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className="btn-primary">
-        Évaluer {roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}
+        {filtered
+          ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
+          : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
       </Link>
 
       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
@@ -477,7 +481,9 @@ export function EventDetail() {
                           </Chip>
                         ))}
                     </div>
-                    <p className="text-[10px] text-muted">La notation (flèches, glisser) suit cet ordre.</p>
+                    <p className="text-[10px] text-muted">
+                      La notation (flèches, glisser) suit cet ordre{filtered ? ' et ne propose que les joueurs affichés' : ''}.
+                    </p>
                   </div>
                 )}
                 {shownRoster.length === 0 && (

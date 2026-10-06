@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useSessionState } from './components/PlayerFilter'
 import { getMe } from './components/ui'
-import { POSITIONS, type Evaluation, type Player } from './db'
+import { POSITIONS, type Evaluation, type Player, type Position } from './db'
 import { currentUserId } from './roles'
 
 /*
@@ -89,4 +90,23 @@ export function sortRoster(roster: Player[], sort: RosterSort): Player[] {
   const added = new Map(roster.map((p, i) => [p.id, i]))
   const inPost = within(sort, added)
   return [...roster].sort((a, b) => positionRank(a) - positionRank(b) || inPost(a, b))
+}
+
+/**
+ * Filtres de la liste d'un événement (un poste, masquer ceux que j'ai notés), gardés pendant la session
+ * pour cet événement : la notation ne passe que par les joueurs affichés sur la page de l'événement.
+ */
+export function useRosterFilter(eventId?: string) {
+  const k = (name: string) => `handbase.rosterFilter.${eventId ?? '-'}.${name}`
+  const [pos, setPos] = useSessionState<Position | ''>(k('pos'), '')
+  const [hideNoted, setHideNoted] = useSessionState(k('hide'), false)
+  return { pos, setPos, hideNoted, setHideNoted, active: !!pos || hideNoted }
+}
+
+/**
+ * Joueurs affichés après les filtres. `keep` : joueur en cours de notation, gardé même s'il vient d'être
+ * noté (sinon il disparaîtrait de la liste au moment de passer au suivant).
+ */
+export function filterRoster(roster: Player[], f: { pos: Position | ''; hideNoted: boolean }, notedByMe: Set<string>, keep?: string) {
+  return roster.filter((p) => p.id === keep || ((!f.hideNoted || !notedByMe.has(p.id)) && (!f.pos || p.position === f.pos)))
 }
