@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, NumberField, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
@@ -188,7 +188,7 @@ export default function Evaluate() {
   /** Si l'avis en cours a été modifié : enregistrer, abandonner ou rester. Renvoie true si on peut partir. */
   async function confirmLeave() {
     if (!dirty || !player) return true
-    const c = await choose(`Ton avis sur ${player.firstName} ${player.lastName} a été modifié mais pas enregistré.`, [
+    const c = await choose(`Ton avis sur ${playerName(player)} a été modifié mais pas enregistré.`, [
       { value: 'stay', label: 'Rester', style: 'ghost' },
       { value: 'discard', label: 'Ne pas enregistrer', style: 'ghost' },
       { value: 'save', label: 'Enregistrer', style: 'primary' },
@@ -321,9 +321,9 @@ export default function Evaluate() {
             done={evaluatedHere}
             onChange={(id) => void go('joueur', id)}
             onPropose={(q) => {
-              // « Jean Dupont » → prénom Jean, nom Dupont.
-              const [firstName, ...rest] = q.trim().split(/\s+/)
-              setProposing({ firstName, lastName: rest.join(' ') || undefined })
+              // Comme partout dans l'appli, le nom d'abord : « Dupont Jean » → nom Dupont, prénom Jean.
+              const [lastName, ...rest] = q.trim().split(/\s+/)
+              setProposing({ lastName, firstName: rest.join(' ') || undefined })
             }}
           />
         )}
@@ -389,7 +389,7 @@ export default function Evaluate() {
           {existing?.review === 'pending' && !spontaneous ? ', en attente de validation (joueur hors liste)' : ''}.{' '}
           {nextTodo ? (
             <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
-              Joueur suivant à noter : {nextTodo.firstName} {nextTodo.lastName} →
+              Joueur suivant à noter : {playerName(nextTodo)} →
             </button>
           ) : roster.length ? (
             <b>Tous les joueurs de la liste sont notés.</b>
@@ -429,7 +429,7 @@ export default function Evaluate() {
           )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
-              {player.firstName} {player.lastName} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
+              {playerName(player)} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
             </div>
             <div className="w-44">
               <Segmented
@@ -693,7 +693,7 @@ function PlayerPicker({
       <div className="flex items-center justify-between gap-2 rounded-md border border-line bg-panel-2 px-3 py-2 text-sm">
         <span className="min-w-0 truncate">
           <b>
-            {selected.firstName} {selected.lastName}
+            {playerName(selected)}
           </b>
           {selected.club && <span className="text-[11px] text-muted"> · {selected.club}</span>}
         </span>

@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { groupBy, Icon, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
+import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
@@ -375,7 +375,7 @@ function LicenceImport() {
                 <b>{fmt(plan.proposals.length)}</b> fiche(s) proposée(s) ou hors cadre retrouvée(s) dans les licences, qui seront complétées :{' '}
                 {plan.proposals
                   .slice(0, 8)
-                  .map(({ player: p }) => `${p.firstName} ${p.lastName}${p.review === 'refused' ? ' (hors cadre)' : ''}`)
+                  .map(({ player: p }) => `${playerName(p)}${p.review === 'refused' ? ' (hors cadre)' : ''}`)
                   .join(', ')}
                 {plan.proposals.length > 8 ? '…' : ''}
               </div>

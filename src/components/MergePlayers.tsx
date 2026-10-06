@@ -7,6 +7,7 @@ import { ask } from './Confirm'
 import { department, fold } from './PlayerFilter'
 import { departmentLabel } from '../lists'
 import { ReviewBadge } from './Review'
+import { playerName } from './ui'
 
 /**
  * Fusion de la fiche affichée avec une autre (doublon, fiche proposée qui a obtenu une licence…).
@@ -51,7 +52,7 @@ export function MergePlayers({ player, otherId, onClose }: { player: Player; oth
     if (!source || !target) return
     if (
       !(await ask(
-        `Fondre la fiche « ${source.firstName} ${source.lastName} » dans « ${target.firstName} ${target.lastName} » ? La première sera supprimée. On ne peut pas revenir en arrière.`,
+        `Fondre la fiche « ${playerName(source)} » dans « ${playerName(target)} » ? La première sera supprimée. On ne peut pas revenir en arrière.`,
         { ok: 'Fusionner' },
       ))
     )
