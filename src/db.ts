@@ -340,6 +340,12 @@ db.version(7).upgrade(applyDefaultCriteria)
 // v8 : alertes.
 db.version(8).stores({ alerts: 'id, name, updatedAt' })
 
+// v9 : index sur l'état de validation (propositions à valider, sans parcourir toute la base).
+db.version(9).stores({
+  players: 'id, lastName, position, updatedAt, review',
+  evaluations: 'id, playerId, eventId, observer, date, updatedAt, review',
+})
+
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
 export function newId(): string {
@@ -382,11 +388,33 @@ export const counts = (e: Evaluation) => reviewOf(e) === 'validated'
 export const contextLabel = (e: Evaluation) =>
   [CONTEXT_TYPES.find((c) => c.value === e.contextType)?.label ?? 'Hors événement', e.contextPlace].filter(Boolean).join(' · ')
 
+/**
+ * Comme save(), pour plusieurs lignes d'une même table en une seule transaction (séance de tests…) :
+ * même date de modification pour toutes, une entrée de file d'attente par ligne.
+ */
+export async function saveMany<T extends Row>(table: SyncTable, rows: (Omit<T, 'updatedAt'> & { updatedAt?: number })[]) {
+  const now = Date.now()
+  const full = rows.map((r) => ({ ...r, updatedAt: now }) as T)
+  if (!full.length) return full
+  await db.transaction('rw', db.table(table), db.outbox, async () => {
+    await db.table(table).bulkPut(full)
+    await db.outbox.bulkAdd(full.map((r) => ({ table, rowId: r.id })))
+  })
+  return full
+}
+
 // ---------- Utilitaires ----------
+
+/** Jour (AAAA-MM-JJ) en heure locale (toISOString donne le jour UTC : encore la veille entre minuit et 2 h en été). */
+export const localDay = (t: number) => new Date(t).toLocaleDateString('sv')
+
+/** « 1 joueur », « 12 joueurs » (nombre à la française). */
+export const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString('fr-FR')} ${n > 1 ? many : one}`
 
 export function age(birthDate?: string): number | null {
   if (!birthDate) return null
-  const b = new Date(birthDate)
+  // Date seule : lue en heure locale (sinon minuit UTC, la veille à l'ouest de Greenwich).
+  const b = new Date(birthDate + 'T00:00:00')
   if (isNaN(b.getTime())) return null
   const now = new Date()
   let a = now.getFullYear() - b.getFullYear()
@@ -394,7 +422,7 @@ export function age(birthDate?: string): number | null {
   return a
 }
 
-export const today = () => new Date().toISOString().slice(0, 10)
+export const today = () => localDay(Date.now())
 
 export const fmtDate = (d?: string) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('fr-FR') : '—')
 

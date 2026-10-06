@@ -1,8 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
-import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
+import { alive, db, newId, plural, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
@@ -114,7 +114,7 @@ export default function Settings() {
                         const f = e.target.files?.[0]
                         if (!f) return
                         try {
-                          setMsg(`${await importBackup(f)} élément(s) importé(s).`)
+                          setMsg(`${plural(await importBackup(f), 'élément importé', 'éléments importés')}.`)
                         } catch {
                           setMsg('Fichier de sauvegarde invalide.')
                         }
@@ -415,8 +415,42 @@ function Account() {
   )
 }
 
+// Une synchronisation complète (envoi + réception de tout ce qui manquait) a abouti pendant cette session.
+let caughtUp = false
+
+/**
+ * L'import compare le fichier à la base de l'appareil : elle doit être à jour (synchronisation terminée,
+ * rien en attente d'envoi), sinon on recréerait des joueurs déjà importés ailleurs. Renvoie la raison du blocage.
+ */
+function useImportBlock(): string | null {
+  const { state } = useSyncState()
+  const outbox = useLiveQuery(() => db.outbox.count(), [], 0)
+  const prev = useRef(state)
+  const [, force] = useState(0)
+  useEffect(() => {
+    if (prev.current === 'syncing' && state === 'synced' && !caughtUp) {
+      caughtUp = true
+      force((n) => n + 1)
+    }
+    prev.current = state
+  }, [state])
+  // Première visite : on lance une synchronisation pour savoir où on en est.
+  useEffect(() => {
+    if (supabase && !caughtUp) void syncNow()
+  }, [])
+  if (state === 'local') return null // pas de serveur : la base de l'appareil est la seule
+  if (state === 'offline') return 'Import impossible hors ligne : connecte-toi à internet pour que la base soit à jour avant d’importer.'
+  if (state === 'login') return 'Connecte-toi d’abord : l’import doit partir de la base à jour.'
+  if (state === 'error') return 'La synchronisation a échoué : utilise « Synchroniser maintenant » et attends qu’elle réussisse avant d’importer.'
+  if (state === 'syncing' || !caughtUp) return 'Synchronisation en cours… L’import sera possible dès que toute la base sera à jour sur cet appareil.'
+  if (outbox > 0)
+    return `${plural(outbox, 'modification attend', 'modifications attendent')} d’être envoyée${outbox > 1 ? 's' : ''} au serveur : garde l’appli ouverte et en ligne, l’import sera possible ensuite.`
+  return null
+}
+
 /** Import d'un export de licences Gest'Hand (administrateurs). */
 function LicenceImport() {
+  const blocked = useImportBlock()
   const [plan, setPlan] = useState<ImportPlan | null>(null)
   const [sourceDate, setSourceDate] = useState(today())
   const [busy, setBusy] = useState(false)
@@ -424,6 +458,7 @@ function LicenceImport() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function pick(file: File) {
+    if (blocked) return setMsg({ ok: false, text: blocked })
     setMsg(null)
     setPlan(null)
     setBusy(true)
@@ -442,8 +477,9 @@ function LicenceImport() {
 
   async function run() {
     if (!plan) return
+    if (blocked) return setMsg({ ok: false, text: blocked })
     const n = plan.create.length + plan.update.length
-    if (!(await ask(`Importer ${n.toLocaleString('fr-FR')} joueur(s) ? Ils seront visibles par tout le staff.`, { ok: 'Importer', danger: false }))) return
+    if (!(await ask(`Importer ${plural(n, 'joueur')} ? ${n > 1 ? 'Ils seront visibles' : 'Il sera visible'} par tout le staff.`, { ok: 'Importer', danger: false }))) return
     setBusy(true)
     try {
       const r = await applyImport(plan, sourceDate, (done, total) => setProgress([done, total]))
@@ -468,7 +504,8 @@ function LicenceImport() {
       >
         Importer des licences (Gest’Hand)
       </SectionTitle>
-      <label className={`btn-ghost cursor-pointer text-xs ${busy ? 'pointer-events-none opacity-40' : ''}`}>
+      {blocked && !busy && <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px]">{blocked}</p>}
+      <label className={`btn-ghost cursor-pointer text-xs ${busy || blocked ? 'pointer-events-none opacity-40' : ''}`}>
         {busy && !progress ? 'Lecture…' : 'Choisir le fichier CSV'}
         <input
           type="file"
@@ -495,7 +532,8 @@ function LicenceImport() {
             <div className="text-muted">{fmt(plan.duplicates)} doublons fusionnés</div>
             {plan.proposals.length > 0 && (
               <div className="col-span-2 mt-1 rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-[11px]">
-                <b>{fmt(plan.proposals.length)}</b> fiche(s) proposée(s) ou hors cadre retrouvée(s) dans les licences, qui seront complétées :{' '}
+                <b>{fmt(plan.proposals.length)}</b> {plan.proposals.length > 1 ? 'fiches proposées ou hors cadre retrouvées' : 'fiche proposée ou hors cadre retrouvée'} dans les licences,{' '}
+                {plan.proposals.length > 1 ? 'qui seront complétées' : 'qui sera complétée'} :{' '}
                 {plan.proposals
                   .slice(0, 8)
                   .map(({ player: p }) => `${playerName(p)}${p.review === 'refused' ? ' (hors cadre)' : ''}`)
@@ -508,7 +546,7 @@ function LicenceImport() {
             <span className="text-muted">Date de l’export :</span>
             <input type="date" className="field w-40 py-1 text-xs" value={sourceDate} onChange={(e) => setSourceDate(e.target.value)} />
           </div>
-          <button className="btn-primary" disabled={busy || plan.create.length + plan.update.length === 0} onClick={() => void run()}>
+          <button className="btn-primary" disabled={busy || !!blocked || plan.create.length + plan.update.length === 0} onClick={() => void run()}>
             Importer
           </button>
         </div>
@@ -770,7 +808,7 @@ function CriterionEdit({ c }: { c: Criterion }) {
           className="btn text-xs text-muted hover:text-red-400"
           onClick={async () => {
             const n = (await db.measurements.where('criterionId').equals(c.id).count()) + (await db.evaluations.filter((e) => c.id in e.scores).count())
-            if (n > 0) return inform(`Ce critère a ${n} valeur(s) enregistrée(s). Décoche « Actif » pour le masquer sans perdre l'historique.`)
+            if (n > 0) return inform(`Ce critère a ${plural(n, 'valeur enregistrée', 'valeurs enregistrées')}. Décoche « Actif » pour le masquer sans perdre l'historique.`)
             if (await ask(`Supprimer définitivement « ${c.label} » ?`, { ok: 'Supprimer' })) await remove('criteria', c.id)
           }}
         >

@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { age, alive, db, type Measurement } from '../db'
+import { age, alive, db, plural, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
@@ -119,7 +119,7 @@ export default function Players() {
       <div className="mb-3">{ui}</div>
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
-          {filtered.length.toLocaleString('fr-FR')} joueur(s)
+          {plural(filtered.length, 'joueur')}
           {group && (
             <>
               {' '}

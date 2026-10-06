@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
-import { ask, choose, setLeaveGuard } from '../components/Confirm'
+import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
@@ -70,9 +70,20 @@ export default function Evaluate() {
     [],
     [],
   )
+  // Mes avis : par compte une fois connecté (un nom peut changer ou être porté par deux personnes),
+  // par nom seulement en mode local. Il suffit de ceux de l'événement (ou du joueur, hors événement).
+  const uid = supabase ? currentUserId() : null
   const mine = useLiveQuery(
-    () => (me ? db.evaluations.where('observer').equals(me).toArray().then(alive) : Promise.resolve([] as Evaluation[])),
-    [me],
+    () =>
+      uid
+        ? (eventId ? db.evaluations.where('eventId').equals(eventId) : db.evaluations.where('playerId').equals(playerId))
+            .filter((e) => e.observerId === uid)
+            .toArray()
+            .then(alive)
+        : me
+          ? db.evaluations.where('observer').equals(me).toArray().then(alive)
+          : Promise.resolve([] as Evaluation[]),
+    [me, uid, eventId, eventId ? '' : playerId],
     [],
   )
 
@@ -129,12 +140,7 @@ export default function Evaluate() {
     setLeaveGuard(() => leaveRef.current())
     return () => setLeaveGuard(null)
   }, [])
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+  useUnsaved(dirty)
 
   const shown = useMemo(
     () => criteria.filter((c) => criterionApplies(c, player?.position) && (mode === 'complet' || c.quick || draft.scores?.[c.id] !== undefined)),

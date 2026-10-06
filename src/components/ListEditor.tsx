@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { db, newId, remove, save, type ListItem } from '../db'
+import { db, newId, plural, remove, save, type ListItem } from '../db'
 import { useDepartments, useRegions } from '../lists'
 import { ask } from './Confirm'
 import { SectionTitle } from './ui'
@@ -94,7 +94,7 @@ function ItemRow({ r }: { r: ListItem }) {
           let msg = `Retirer « ${label} » de la liste ?`
           if (r.kind === 'region') {
             const n = await db.groups.filter((g) => !g.deleted && g.regionId === r.id).count()
-            if (n) msg = `Supprimer « ${label} » ? ${n} groupe(s) n’auront plus de région.`
+            if (n) msg = `Supprimer « ${label} » ? ${plural(n, 'groupe')} n’${n > 1 ? 'auront' : 'aura'} plus de région.`
           } else {
             msg += ' Les joueurs, secteurs et groupes gardent leur numéro de département.'
           }

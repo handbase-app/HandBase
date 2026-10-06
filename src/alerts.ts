@@ -1,12 +1,12 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
 import { birthQuarter } from './components/ui'
 import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type Evaluation, type Measurement, type Player, type PlayerAlert } from './db'
 import { departmentLabel } from './lists'
+import { sharedQuery, useShared } from './live'
 import { latestByPlayer } from './pages/Players'
-import { can } from './roles'
+import { can, currentUserId, useRole } from './roles'
 
 /*
  * Alertes (supabase/022_alertes.sql) : chaque appareil calcule quels joueurs correspondent aux conditions
@@ -149,17 +149,32 @@ export function rulesSummary(r: AlertRules, criteria: Criterion[]) {
 
 const SEEN_KEY = 'handbase.alerts.seen'
 type Seen = Record<string, string[]>
+// Lu une seule fois (les listes peuvent être longues) ; relu si un autre onglet les change.
+let seenCache: Seen | null = null
+const seenSets = new Map<string, Set<string>>()
 function readSeen(): Seen {
-  try {
-    return JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Seen
-  } catch {
-    return {}
+  if (!seenCache) {
+    try {
+      seenCache = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Seen
+    } catch {
+      seenCache = {}
+    }
   }
+  return seenCache
 }
+if (typeof window !== 'undefined')
+  window.addEventListener('storage', (e) => {
+    if (e.key !== SEEN_KEY && e.key !== null) return
+    seenCache = null
+    seenSets.clear()
+    alertsStore.refresh()
+  })
 // Les « déjà vus » ne sont pas dans la base : on prévient nous-mêmes la cloche et le fil quand ils changent.
 let seenVersion = 0
 const seenListeners = new Set<() => void>()
 function writeSeen(s: Seen) {
+  seenCache = s
+  seenSets.clear()
   try {
     localStorage.setItem(SEEN_KEY, JSON.stringify(s))
   } catch {
@@ -167,6 +182,7 @@ function writeSeen(s: Seen) {
   }
   seenVersion++
   seenListeners.forEach((l) => l())
+  alertsStore.refresh()
 }
 
 /** Change quand des joueurs d'alerte sont marqués comme vus (à mettre dans les dépendances d'un useLiveQuery). */
@@ -185,28 +201,29 @@ export function useSeenVersion() {
 /** Joueurs déjà vus pour cette alerte ; la première fois, ceux du moment (liste de départ). */
 export function seenFor(alertId: string, current: string[]): Set<string> {
   const s = readSeen()
-  if (!s[alertId]) {
-    s[alertId] = current
-    writeSeen(s)
-  }
-  return new Set(s[alertId])
+  if (!s[alertId]) writeSeen({ ...s, [alertId]: current })
+  let set = seenSets.get(alertId)
+  if (!set) seenSets.set(alertId, (set = new Set(readSeen()[alertId])))
+  // Copie : l'appelant peut la modifier sans toucher au cache.
+  return new Set(set)
 }
 
 export function resetSeen(alertId: string, ids: string[]) {
-  const s = readSeen()
-  s[alertId] = ids
-  writeSeen(s)
+  writeSeen({ ...readSeen(), [alertId]: ids })
 }
 
 export function markSeen(alertId: string, ids: string[]) {
   const s = readSeen()
-  s[alertId] = [...new Set([...(s[alertId] ?? []), ...ids])]
-  writeSeen(s)
+  writeSeen({ ...s, [alertId]: [...new Set([...(s[alertId] ?? []), ...ids])] })
 }
+
+const EMPTY_CONTEXT: AlertContext = { players: [], measurements: [], latest: new Map(), byPlayer: new Map(), avis: new Map(), criteria: [], lastActivity: new Map() }
 
 /** Alertes visibles avec leurs joueurs et les nouveaux (entrés depuis la dernière visite). */
 export async function computeAlerts() {
-  const [alerts, ctx] = await Promise.all([db.alerts.toArray().then((as) => alive(as).filter(can.seeGroup)), loadAlertContext()])
+  const alerts = await db.alerts.toArray().then((as) => alive(as).filter(can.seeGroup))
+  // Aucune alerte : inutile de lire toute la base.
+  const ctx = alerts.length ? await loadAlertContext() : EMPTY_CONTEXT
   return {
     ctx,
     alerts: alerts
@@ -219,8 +236,30 @@ export async function computeAlerts() {
   }
 }
 
+/**
+ * Calcul partagé par la cloche, la pastille de l'icône et le fil : un seul pour toute l'appli,
+ * relancé au plus toutes les 1,5 s après un changement (pas à chaque paquet de la synchro).
+ */
+let computedFor: string | null | undefined
+const alertsStore = sharedQuery(['players', 'measurements', 'evaluations', 'criteria', 'alerts'], () => {
+  computedFor = currentUserId()
+  return computeAlerts()
+})
+
+export type AlertsResult = Awaited<ReturnType<typeof computeAlerts>>
+
+/** Mes alertes, calculées une fois pour toute l'appli (undefined pendant le premier calcul). */
+export function useAlerts(): AlertsResult | undefined {
+  // Autre compte : les alertes privées visibles changent.
+  useRole()
+  const uid = currentUserId()
+  useEffect(() => {
+    if (computedFor !== undefined && uid !== computedFor) alertsStore.refresh()
+  }, [uid])
+  return useShared(alertsStore)
+}
+
 /** Nombre total de nouveaux joueurs dans mes alertes (cloche de l'en-tête). */
 export function useAlertCount() {
-  const v = useSeenVersion()
-  return useLiveQuery(async () => (await computeAlerts()).alerts.reduce((n, a) => n + a.fresh.length, 0), [v], 0)
+  return useAlerts()?.alerts.reduce((n, a) => n + a.fresh.length, 0) ?? 0
 }

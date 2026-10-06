@@ -1,29 +1,38 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { db, TRIAL } from './db'
 import { useDepartments } from './lists'
-import Events, { EventDetail } from './pages/Events'
 import Evaluate from './pages/Evaluate'
-import Groups, { GroupDetail, NewGroup } from './pages/Groups'
 import Home from './pages/Home'
-import PlayerDetail from './pages/PlayerDetail'
 import PlayerForm from './pages/PlayerForm'
-import Missed from './pages/Missed'
 import Players from './pages/Players'
-import ReviewPage, { usePendingCount } from './pages/Review'
+import { usePendingCount } from './pending'
 import { useDailyPurge } from './purge'
-import Settings from './pages/Settings'
 import Privacy from './pages/Privacy'
 import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
-import Alerts, { AlertDetail, NewAlert } from './pages/Alerts'
 import { useAlertCount } from './alerts'
 import { Icon } from './components/ui'
 import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
+
+// Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
+// Le service worker les garde tous en cache : ils restent disponibles hors ligne.
+const PlayerDetail = lazy(() => import('./pages/PlayerDetail'))
+const ReviewPage = lazy(() => import('./pages/Review'))
+const Missed = lazy(() => import('./pages/Missed'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Events = lazy(() => import('./pages/Events'))
+const EventDetail = lazy(() => import('./pages/Events').then((m) => ({ default: m.EventDetail })))
+const Groups = lazy(() => import('./pages/Groups'))
+const GroupDetail = lazy(() => import('./pages/Groups').then((m) => ({ default: m.GroupDetail })))
+const NewGroup = lazy(() => import('./pages/Groups').then((m) => ({ default: m.NewGroup })))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertDetail })))
+const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
 
 /** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -119,8 +128,9 @@ export default function App() {
       </header>
 
       <main className="flex-1 px-4 pt-4 pb-28">
+        <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Home toReview={toReview} />} />
           <Route path="/joueurs" element={<Players />} />
           <Route path="/joueurs/nouveau" element={<PlayerForm />} />
           <Route path="/joueurs/:id" element={<PlayerDetail />} />
@@ -141,6 +151,7 @@ export default function App() {
           <Route path="/alertes/nouvelle" element={<NewAlert />} />
           <Route path="/alertes/:id" element={<AlertDetail />} />
         </Routes>
+        </Suspense>
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">

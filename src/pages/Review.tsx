@@ -16,8 +16,8 @@ import { possibleDuplicates } from '../merge'
 export default function ReviewPage() {
   const role = useRole()
   const data = useLiveQuery(async () => {
-    const spontaneous = alive(await db.evaluations.filter((e) => !!e.review).toArray())
-    const proposed = alive(await db.players.filter((p) => !!p.review).toArray())
+    const spontaneous = alive(await db.evaluations.where('review').anyOf('pending', 'validated', 'refused').toArray())
+    const proposed = alive(await db.players.where('review').anyOf('pending', 'validated', 'refused').toArray())
     const ids = [...new Set(spontaneous.map((e) => e.playerId))]
     const players = (await db.players.bulkGet(ids)).filter((p): p is Player => !!p)
     const criteria = alive(await db.criteria.toArray())
@@ -202,26 +202,5 @@ export default function ReviewPage() {
         </details>
       )}
     </div>
-  )
-}
-
-/** Nombre de propositions (avis spontanés et fiches) qui attendent ma validation (0 pour un observateur). */
-export function usePendingCount() {
-  const role = useRole()
-  return useLiveQuery(
-    async () => {
-      if (!can.review(role)) return 0
-      const me = currentUserId()
-      const avis = await db.evaluations.filter((e) => e.review === 'pending' && !e.deleted && !(me && e.observerId === me)).toArray()
-      const players = await db.players.bulkGet([...new Set(avis.map((e) => e.playerId))])
-      const dept = new Map(players.filter((p) => !!p).map((p) => [p!.id, department(p!)]))
-      const fiches = await db.players.filter((p) => p.review === 'pending' && !p.deleted && !(me && p.createdBy === me)).toArray()
-      const events = new Map((await db.events.toArray()).map((e) => [e.id, e]))
-      return (
-        avis.filter((e) => can.reviewAvis(role, dept.get(e.playerId), e.eventId ? events.get(e.eventId) : undefined)).length + fiches.filter((p) => can.reviewDept(role, department(p))).length
-      )
-    },
-    [role, myDepartments().join()],
-    0,
   )
 }

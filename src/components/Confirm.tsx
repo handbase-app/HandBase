@@ -102,3 +102,27 @@ export function setLeaveGuard(g: Guard | null) {
 export async function canLeave(): Promise<boolean> {
   return guard ? guard() : true
 }
+
+// Écrans avec une saisie non enregistrée en ce moment (une mise à jour de l'appli attend qu'il n'y en ait plus).
+let unsaved = 0
+
+/** Saisie non enregistrée : le navigateur prévient avant de fermer l'onglet, et l'appli ne se recharge pas. */
+export function useUnsaved(dirty: boolean) {
+  useEffect(() => {
+    if (!dirty) return
+    unsaved++
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => {
+      unsaved--
+      window.removeEventListener('beforeunload', warn)
+    }
+  }, [dirty])
+}
+
+/** Une saisie est-elle en cours (non enregistrée, ou champ en cours de frappe) ? */
+export function hasUnsaved() {
+  const el = document.activeElement
+  const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el as HTMLElement).isContentEditable)
+  return unsaved > 0 || typing || current !== null
+}
