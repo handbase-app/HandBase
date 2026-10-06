@@ -5,6 +5,7 @@ import { CriterionInput, groupBy, NumberField, PosBadges, QuarterBadge, Segmente
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
+import { sortRoster, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { StaffPicker } from '../components/StaffPicker'
@@ -106,6 +107,8 @@ export default function Evaluate() {
   // Geste de glisser (voir plus bas) : déclaré ici, avant l'écran « Qui évalue ? », car un hook
   // doit être appelé à chaque affichage, dans le même ordre.
   const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
+  // Ordre de la liste de l'événement : le même que sur la page de l'événement (« Nom » par défaut).
+  const [rosterSort] = useRosterSort(eventId || undefined)
   useEffect(() => {
     setLeaveGuard(() => leaveRef.current())
     return () => setLeaveGuard(null)
@@ -207,7 +210,13 @@ export default function Evaluate() {
   const evaluatedHere = new Set(spontaneous ? [] : mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
   // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
   const byId = new Map(players.map((p) => [p.id, p]))
-  const roster = (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p)
+  // « À noter d'abord » : pendant la notation, l'ordre doit rester stable (un joueur noté ne doit pas
+  // changer de place sous le doigt) ; on suit l'ordre alphabétique, et « joueur suivant à noter » saute ceux déjà notés.
+  const roster = sortRoster(
+    (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
+    rosterSort === 'anoter' ? 'nom' : rosterSort,
+    evaluatedHere,
+  )
   const idx = roster.findIndex((p) => p.id === playerId)
   const prev = idx > 0 ? roster[idx - 1] : undefined
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined

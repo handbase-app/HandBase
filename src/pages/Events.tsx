@@ -9,6 +9,7 @@ import { can, currentUserId, useRole } from '../roles'
 import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { AvisCard, DIVERGENCE } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
+import { isMine, ROSTER_SORTS, sortRoster, useRosterSort, type RosterSort } from '../rosterOrder'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -236,6 +237,10 @@ export function EventDetail() {
   const [tab, setTab] = useState<'joueurs' | 'classement'>('joueurs')
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(false)
+  // Liste des joueurs : ordre (gardé sur l'appareil pour cet événement, repris par la notation) et filtres rapides.
+  const [sort, setSort] = useRosterSort(id)
+  const [todoOnly, setTodoOnly] = useState(false)
+  const [posFilter, setPosFilter] = useState<Position | ''>('')
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -249,7 +254,17 @@ export function EventDetail() {
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
 
   const byId = new Map(players.map((p) => [p.id, p]))
-  const roster = (ev.playerIds ?? []).map((pid) => byId.get(pid)).filter((p): p is Player => !!p)
+  // Mes avis sur cet événement : ✓ dans la liste, tri « À noter d'abord », filtre « pas encore notés par moi ».
+  const notedByMe = new Set(evals.filter(isMine).map((e) => e.playerId))
+  const roster = sortRoster(
+    (ev.playerIds ?? []).map((pid) => byId.get(pid)).filter((p): p is Player => !!p),
+    sort,
+    notedByMe,
+  )
+  const shownRoster = roster.filter((p) => (!todoOnly || !notedByMe.has(p.id)) && (!posFilter || p.position === posFilter))
+  const rosterPositions = POSITIONS.filter((x) => roster.some((p) => p.position === x.id))
+  // « Évaluer » ouvre le premier joueur que je n'ai pas encore noté, dans l'ordre choisi.
+  const firstToRate = roster.find((p) => !notedByMe.has(p.id)) ?? roster[0]
   // Joueurs notés sur l'événement sans être dans la liste (ex. avis d'un observateur).
   const inRoster = new Set(ev.playerIds ?? [])
   const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
@@ -354,7 +369,7 @@ export function EventDetail() {
         </div>
       )}
 
-      <Link to={`/evaluer?evenement=${ev.id}${roster[0] ? `&joueur=${roster[0].id}` : ''}`} className="btn-primary">
+      <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className="btn-primary">
         Évaluer {roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}
       </Link>
 
@@ -434,10 +449,46 @@ export function EventDetail() {
                     Vider la liste
                   </button>
                 )}
-                {roster.map((p, i) => {
+                {roster.length > 1 && (
+                  <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
+                    <label className="flex items-center gap-2 text-xs">
+                      <span className="shrink-0 font-bold text-muted">Trier par</span>
+                      <select className="field flex-1 py-1 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
+                        {ROSTER_SORTS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex flex-wrap gap-1">
+                      <Chip on={todoOnly} onClick={() => setTodoOnly(!todoOnly)}>
+                        Pas encore notés par moi ({roster.filter((p) => !notedByMe.has(p.id)).length})
+                      </Chip>
+                      {rosterPositions.length > 1 &&
+                        rosterPositions.map((x) => (
+                          <Chip key={x.id} on={posFilter === x.id} onClick={() => setPosFilter(posFilter === x.id ? '' : x.id)}>
+                            {x.short} ({roster.filter((p) => p.position === x.id).length})
+                          </Chip>
+                        ))}
+                    </div>
+                    <p className="text-[10px] text-muted">La notation (flèches, glisser) suit cet ordre.</p>
+                  </div>
+                )}
+                {shownRoster.length === 0 && (
+                  <Empty>{todoOnly ? 'Tu as noté tous les joueurs affichés.' : 'Aucun joueur à ce poste.'}</Empty>
+                )}
+                {shownRoster.map((p, i) => {
                   const n = evals.filter((e) => e.playerId === p.id).length
+                  // Tri par poste : un titre à chaque nouveau poste.
+                  const heading =
+                    sort === 'poste' && (i === 0 || shownRoster[i - 1].position !== p.position)
+                      ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste')
+                      : null
                   return (
-                    <div key={p.id} className="card flex items-center gap-3 p-2.5">
+                    <div key={p.id} className="flex flex-col gap-2">
+                    {heading && <div className="section-title mt-2 mb-0">{heading}</div>}
+                    <div className="card flex items-center gap-3 p-2.5">
                       <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <Avatar p={p} size={32} />
@@ -451,7 +502,10 @@ export function EventDetail() {
                           {!!ev.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
                         </div>
                       </Link>
-                      <span className={`shrink-0 text-[10px] font-bold ${n ? 'text-emerald-300' : 'text-muted'}`}>{n ? `${n} avis` : '—'}</span>
+                      <span className={`shrink-0 text-right text-[10px] font-bold ${n ? 'text-emerald-300' : 'text-muted'}`}>
+                        {n ? `${n} avis` : '—'}
+                        {notedByMe.has(p.id) && <span className="block text-[9px]">✓ noté par moi</span>}
+                      </span>
                       {can.removeFromEvent(role, ev, p.id) && (
                         <button
                           className="shrink-0 px-1 text-muted hover:text-red-400"
@@ -461,6 +515,7 @@ export function EventDetail() {
                           ✕
                         </button>
                       )}
+                    </div>
                     </div>
                   )
                 })}
@@ -587,6 +642,18 @@ function playerScore(evs: Evaluation[]) {
 }
 
 /** Synthèse de fin de journée : classement par poste. */
+/** Petit bouton de filtre, allumé ou éteint. */
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel text-muted'}`}
+    >
+      {children}
+    </button>
+  )
+}
+
 function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; evals: Evaluation[]; rosterIds: Set<string>; eventName: string }) {
   const rows = players
     .map((p) => ({ p, s: playerScore(evals.filter((e) => e.playerId === p.id)) }))
