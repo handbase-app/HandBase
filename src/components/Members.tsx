@@ -15,7 +15,7 @@ interface Profile {
   user_id: string
   email: string | null
   full_name: string | null
-  role: Role
+  role: Role | null
   departments: string[] | null
   phone: string | null
 }
@@ -129,7 +129,10 @@ export function Members() {
     setErr('')
     const [{ data: s }, { data, error }] = await Promise.all([
       supabase!.auth.getSession(),
-      supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments, phone').order('full_name'),
+      // E-mail et téléphone : réservés aux administrateurs (supabase/029, hb_members) ; avant 029, lecture directe.
+      supabase!.rpc('hb_members').then((r) =>
+        r.error?.code === 'PGRST202' ? supabase!.from('hb_profiles').select('user_id, email, full_name, role, departments, phone').order('full_name') : r,
+      ),
     ])
     setMe(s.session?.user.id ?? null)
     if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'La gestion des membres se fait en ligne.')
@@ -221,7 +224,7 @@ export function Members() {
                   </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-2 text-[11px]">
-                  <span className={p.role === 'preparateur' ? 'font-bold text-accent' : 'text-muted'}>{ROLE_LABEL[p.role]}</span>
+                  <span className={p.role === 'preparateur' ? 'font-bold text-accent' : 'text-muted'}>{p.role ? ROLE_LABEL[p.role] : 'En attente (aucun rôle)'}</span>
                   <span className="text-muted">✎</span>
                 </span>
               </button>

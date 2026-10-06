@@ -205,14 +205,19 @@ export default function PlayerDetail() {
                 {playerName(d)}
               </Link>
               {d.license ? ' (licencié)' : d.review === 'refused' ? ' (hors cadre)' : d.review === 'pending' ? ' (proposée)' : ''}{' '}
-              <button className="font-bold text-accent" onClick={() => setParams({ fusion: d.id }, { replace: true })}>
-                Comparer et fusionner
-              </button>
+              {/* Fusion : administrateurs seulement (supabase/029) ; l'encadrant voit le doublon et le signale. */}
+              {role === 'admin' ? (
+                <button className="font-bold text-accent" onClick={() => setParams({ fusion: d.id }, { replace: true })}>
+                  Comparer et fusionner
+                </button>
+              ) : (
+                <span className="text-muted">(fusion : un administrateur)</span>
+              )}
             </span>
           ))}
         </div>
       )}
-      {can.editPlayers(role) && (merging || mergeWith) && (
+      {role === 'admin' && (merging || mergeWith) && (
         <MergePlayers
           player={p}
           otherId={mergeWith ?? undefined}
@@ -336,7 +341,7 @@ export default function PlayerDetail() {
           {can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition'}
         </Link>
       )}
-      {tab === 'profil' && can.editPlayers(role) && !merging && !mergeWith && (
+      {tab === 'profil' && role === 'admin' && !merging && !mergeWith && (
         <button className="btn-ghost text-xs" onClick={() => (setMerging(true), window.scrollTo({ top: 0, behavior: 'smooth' }))}>
           Fusionner avec une autre fiche (doublon)…
         </button>
