@@ -85,16 +85,16 @@ export const NOTIF_KINDS = [
   { id: 'rappel', label: 'Rappel la veille', help: 'La veille de tes événements (organisateur ou participant), vers 18 h.' },
 ] as const
 
-export async function readNotifPrefs(): Promise<Record<string, boolean>> {
+export async function readNotifPrefs(): Promise<Record<string, boolean | number>> {
   if (!supabase) return {}
   const { data: s } = await supabase.auth.getSession()
   const uid = s.session?.user.id
   if (!uid) return {}
   const { data } = await supabase.from('hb_profiles').select('notif').eq('user_id', uid).maybeSingle()
-  return (data?.notif as Record<string, boolean> | null) ?? {}
+  return (data?.notif as Record<string, boolean | number> | null) ?? {}
 }
 
-export async function saveNotifPrefs(prefs: Record<string, boolean>) {
+export async function saveNotifPrefs(prefs: Record<string, boolean | number>) {
   const { error } = (await supabase?.rpc('hb_set_notif_prefs', { p_prefs: prefs })) ?? {}
   return error ? error.message : null
 }

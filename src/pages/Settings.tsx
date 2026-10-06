@@ -170,7 +170,7 @@ export default function Settings() {
 function NotificationSettings() {
   const support = pushSupport()
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
-  const [prefs, setPrefs] = useState<Record<string, boolean>>({})
+  const [prefs, setPrefs] = useState<Record<string, boolean | number>>({})
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   useEffect(() => {
@@ -189,7 +189,7 @@ function NotificationSettings() {
     )
   if (support === 'unsupported') return <p className="text-xs text-muted">Ce navigateur ne permet pas les notifications.</p>
 
-  const toggle = async (id: string, on: boolean) => {
+  const toggle = async (id: string, on: boolean | number) => {
     const next = { ...prefs, [id]: on }
     setPrefs(next)
     const err = await saveNotifPrefs(next)
@@ -234,9 +234,39 @@ function NotificationSettings() {
           </label>
         ))}
       </div>
-      <p className="text-[11px] text-muted">
-        Plusieurs à la suite sont regroupées (« 3 avis à valider »). Rien entre 21 h et 8 h : elles arrivent le matin.
-      </p>
+      {/* Ne pas déranger (supabase/027_notifications_nuit.sql) : par défaut de 21 h à 8 h. */}
+      <div className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={prefs.quiet !== false} onChange={(e) => void toggle('quiet', e.target.checked)} />
+          <b>Ne pas déranger la nuit</b>
+        </label>
+        {prefs.quiet !== false && (
+          <div className="flex items-center gap-2 pl-6 text-xs">
+            de
+            <select className="field w-20 py-1 text-xs" value={Number(prefs.quietFrom ?? 21)} onChange={(e) => void toggle('quietFrom', Number(e.target.value))}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {h} h
+                </option>
+              ))}
+            </select>
+            à
+            <select className="field w-20 py-1 text-xs" value={Number(prefs.quietTo ?? 8)} onChange={(e) => void toggle('quietTo', Number(e.target.value))}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {h} h
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <p className="text-[11px] text-muted">
+          {prefs.quiet !== false
+            ? `Pendant ce créneau, rien n’arrive : les notifications partent à ${Number(prefs.quietTo ?? 8)} h.`
+            : 'Les notifications arrivent à toute heure.'}{' '}
+          Plusieurs à la suite sont regroupées (« 3 avis à valider »).
+        </p>
+      </div>
       {subscribed && (
         <button
           className="btn-ghost self-start px-3 py-1.5 text-xs"
