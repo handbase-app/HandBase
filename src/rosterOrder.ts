@@ -4,16 +4,16 @@ import { POSITIONS, type Evaluation, type Player } from './db'
 import { currentUserId } from './roles'
 
 /*
- * Ordre de la liste des joueurs d'un événement, choisi sur l'appareil pour chaque événement.
+ * Ordre de la liste des joueurs d'un événement : toujours regroupée par poste (ordre du terrain), et dans
+ * chaque poste l'ordre choisi sur l'appareil pour cet événement (alphabétique par défaut).
  * La notation (flèches, glisser, « joueur suivant à noter ») suit le même ordre que la page de l'événement.
  */
 
-export type RosterSort = 'nom' | 'poste' | 'anoter' | 'naissance' | 'club' | 'ajout'
+/** Ordre à l'intérieur de chaque poste. */
+export type RosterSort = 'nom' | 'naissance' | 'club' | 'ajout'
 
 export const ROSTER_SORTS: { value: RosterSort; label: string }[] = [
   { value: 'nom', label: 'Nom' },
-  { value: 'poste', label: 'Poste' },
-  { value: 'anoter', label: 'À noter d’abord' },
   { value: 'naissance', label: 'Naissance' },
   { value: 'club', label: 'Club' },
   { value: 'ajout', label: 'Ordre d’ajout' },
@@ -66,22 +66,27 @@ export const positionRank = (p: Pick<Player, 'position'>) => {
 const byName = (a: Player, b: Player) =>
   a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr', { sensitivity: 'base' })
 
-/** Trie la liste de l'événement. `notedByMe` : joueurs que j'ai déjà notés sur cet événement. */
-export function sortRoster(roster: Player[], sort: RosterSort, notedByMe: Set<string>): Player[] {
-  const list = [...roster]
+/** Valeur absente : toujours en fin de poste. */
+const last = (v: string | undefined) => (v ? `0${v}` : '1')
+
+/** Ordre à l'intérieur d'un poste. `added` : rang dans la liste enregistrée (ordre d'ajout). */
+function within(sort: RosterSort, added: Map<string, number>) {
   switch (sort) {
     case 'ajout':
-      return list
-    case 'poste':
-      return list.sort((a, b) => positionRank(a) - positionRank(b) || byName(a, b))
-    case 'anoter':
-      return list.sort((a, b) => Number(notedByMe.has(a.id)) - Number(notedByMe.has(b.id)) || byName(a, b))
+      return (a: Player, b: Player) => (added.get(a.id) ?? 0) - (added.get(b.id) ?? 0)
     case 'naissance':
       // Les plus âgés d'abord ; date inconnue à la fin.
-      return list.sort((a, b) => (a.birthDate ?? '9999').localeCompare(b.birthDate ?? '9999') || byName(a, b))
+      return (a: Player, b: Player) => last(a.birthDate).localeCompare(last(b.birthDate)) || byName(a, b)
     case 'club':
-      return list.sort((a, b) => (a.club ?? '￿').localeCompare(b.club ?? '￿', 'fr', { sensitivity: 'base' }) || byName(a, b))
+      return (a: Player, b: Player) => last(a.club).localeCompare(last(b.club), 'fr', { sensitivity: 'base' }) || byName(a, b)
     default:
-      return list.sort(byName)
+      return byName
   }
+}
+
+/** Trie la liste de l'événement : par poste (ordre du terrain), puis dans chaque poste selon `sort`. */
+export function sortRoster(roster: Player[], sort: RosterSort): Player[] {
+  const added = new Map(roster.map((p, i) => [p.id, i]))
+  const inPost = within(sort, added)
+  return [...roster].sort((a, b) => positionRank(a) - positionRank(b) || inPost(a, b))
 }
