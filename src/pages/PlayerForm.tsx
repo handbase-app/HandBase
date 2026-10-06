@@ -128,12 +128,12 @@ export default function PlayerForm() {
           <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <span className="label">Prénom *</span>
-              <input className="field" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
-            </div>
-            <div>
               <span className="label">Nom *</span>
               <input className="field" value={p.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} />
+            </div>
+            <div>
+              <span className="label">Prénom *</span>
+              <input className="field" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
             </div>
           </div>
           <div>

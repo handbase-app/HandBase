@@ -13,7 +13,7 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
-import { Avatar, fmtValue, groupBy, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, remove, type Criterion, type Measurement } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
@@ -124,7 +124,7 @@ export default function PlayerDetail() {
   )
 
   async function del() {
-    if (!(await ask(`Supprimer la fiche de ${p.firstName} ${p.lastName} ?`, { ok: 'Supprimer' }))) return
+    if (!(await ask(`Supprimer la fiche de ${playerName(p)} ?`, { ok: 'Supprimer' }))) return
     await remove('players', p.id)
     nav('/joueurs', { replace: true })
   }
@@ -159,7 +159,7 @@ export default function PlayerDetail() {
         <Avatar p={p} size={64} />
         <div>
           <h1 className="text-lg font-extrabold">
-            {p.firstName} {p.lastName}
+            {playerName(p)}
           </h1>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             <PosBadges p={p} />
@@ -202,7 +202,7 @@ export default function PlayerDetail() {
             <span key={d.id}>
               {i > 0 && ', '}
               <Link to={`/joueurs/${d.id}`} className="font-bold underline">
-                {d.firstName} {d.lastName}
+                {playerName(d)}
               </Link>
               {d.license ? ' (licencié)' : d.review === 'refused' ? ' (hors cadre)' : d.review === 'pending' ? ' (proposée)' : ''}{' '}
               <button className="font-bold text-accent" onClick={() => setParams({ fusion: d.id }, { replace: true })}>

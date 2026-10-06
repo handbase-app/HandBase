@@ -25,10 +25,13 @@ export function useMe(): [string, (v: string) => void] {
   return [me, setMe]
 }
 
+/** Nom d'un joueur tel qu'affiché partout : « NOM Prénom ». */
+export const playerName = (p: Pick<Player, 'firstName' | 'lastName'>) => `${(p.lastName ?? '').toUpperCase()} ${p.firstName ?? ''}`.trim()
+
 // ---------- Petits composants ----------
 
 export function Avatar({ p, size = 40 }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo'>; size?: number }) {
-  const initials = ((p.firstName?.[0] ?? '') + (p.lastName?.[0] ?? '')).toUpperCase()
+  const initials = ((p.lastName?.[0] ?? '') + (p.firstName?.[0] ?? '')).toUpperCase()
   return p.photo ? (
     <img src={p.photo} alt="" className="shrink-0 rounded-lg object-cover" style={{ width: size, height: size }} />
   ) : (

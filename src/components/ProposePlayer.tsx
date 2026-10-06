@@ -52,8 +52,8 @@ export function ProposePlayer({
         </p>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <input className="field" placeholder="Prénom *" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
         <input className="field" placeholder="Nom *" value={p.lastName ?? ''} onChange={(e) => set('lastName', e.target.value)} />
+        <input className="field" placeholder="Prénom *" value={p.firstName ?? ''} onChange={(e) => set('firstName', e.target.value)} />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>

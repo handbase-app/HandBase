@@ -7,7 +7,7 @@ import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
 import { department } from './PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
-import { Empty } from './ui'
+import { Empty, playerName } from './ui'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -275,7 +275,7 @@ export function AvisCard({ e, where, role, player, dept, event }: { e: Evaluatio
           {player && (
             <>
               <Link to={`/joueurs/${player.id}`} className="text-sm font-bold text-fg">
-                {player.firstName} {player.lastName}
+                {playerName(player)}
               </Link>
               <br />
             </>

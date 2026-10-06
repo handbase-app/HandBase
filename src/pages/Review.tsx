@@ -4,7 +4,7 @@ import { AvisCard } from '../components/Opinions'
 import { department } from '../components/PlayerFilter'
 import { departmentLabel } from '../lists'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
-import { Empty, QuarterBadge } from '../components/ui'
+import { Empty, playerName, QuarterBadge } from '../components/ui'
 import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player } from '../db'
 import { can, currentUserId, myDepartments, useRole } from '../roles'
 import { possibleDuplicates } from '../merge'
@@ -167,7 +167,7 @@ export default function ReviewPage() {
             <div key={keep.id + other.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
               <div className="min-w-0">
                 <b>
-                  {keep.firstName} {keep.lastName}
+                  {playerName(keep)}
                 </b>
                 <div className="text-[10px] text-muted">
                   {[keep, other]
