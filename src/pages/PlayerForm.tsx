@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { departmentChoices } from '../lists'
@@ -17,6 +17,10 @@ export default function PlayerForm() {
   const editing = !!id
   const nav = useNavigate()
   const role = useRole()
+  // Ouvert depuis la notation : on y revient après l'enregistrement (adresse interne à l'appli uniquement).
+  const [params] = useSearchParams()
+  const retour = params.get('retour')
+  const back = retour && retour.startsWith('/') && !retour.startsWith('//') ? retour : null
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'factual')))
   const [p, setP] = useState<Partial<Player>>({})
   const [values, setValues] = useState<Values>({})
@@ -62,7 +66,7 @@ export default function PlayerForm() {
       if (v === undefined || v === '' || v === initial[cid]) continue
       await save<Measurement>('measurements', { id: newId(), playerId: player.id, criterionId: cid, value: v, date: testDate, author })
     }
-    nav(`/joueurs/${player.id}`, { replace: true })
+    nav(back ?? `/joueurs/${player.id}`, { replace: true })
   }
 
   if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -152,7 +156,7 @@ export default function PlayerForm() {
         </div>
       </div>
 
-      <Collapsible title="Profil sportif" summary={[positionLabel(p.position) !== '—' && positionLabel(p.position), p.laterality].filter(Boolean).join(' · ') || 'Poste, latéralité'} defaultOpen={!editing}>
+      <Collapsible title="Profil sportif" summary={[positionLabel(p.position) !== '—' && positionLabel(p.position), p.laterality].filter(Boolean).join(' · ') || 'Poste, latéralité'} defaultOpen={!editing || params.get('ouvrir') === 'poste'}>
         <div>
           <span className="label">Poste</span>
           <CourtPicker

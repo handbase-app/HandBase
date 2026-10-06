@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
 import { choose, setLeaveGuard } from '../components/Confirm'
@@ -42,6 +42,8 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
  */
 export default function Evaluate() {
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
   const role = useRole()
   const [me, setMe] = useMe()
   const [meDraft, setMeDraft] = useState(me)
@@ -107,7 +109,7 @@ export default function Evaluate() {
   // Geste de glisser (voir plus bas) : déclaré ici, avant l'écran « Qui évalue ? », car un hook
   // doit être appelé à chaque affichage, dans le même ordre.
   const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
-  // Ordre de la liste de l'événement : le même que sur la page de l'événement (« Nom » par défaut).
+  // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
   const [rosterSort] = useRosterSort(eventId || undefined)
   useEffect(() => {
     setLeaveGuard(() => leaveRef.current())
@@ -210,12 +212,9 @@ export default function Evaluate() {
   const evaluatedHere = new Set(spontaneous ? [] : mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
   // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
   const byId = new Map(players.map((p) => [p.id, p]))
-  // « À noter d'abord » : pendant la notation, l'ordre doit rester stable (un joueur noté ne doit pas
-  // changer de place sous le doigt) ; on suit l'ordre alphabétique, et « joueur suivant à noter » saute ceux déjà notés.
   const roster = sortRoster(
     (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
-    rosterSort === 'anoter' ? 'nom' : rosterSort,
-    evaluatedHere,
+    rosterSort,
   )
   const idx = roster.findIndex((p) => p.id === playerId)
   const prev = idx > 0 ? roster[idx - 1] : undefined
@@ -390,6 +389,21 @@ export default function Evaluate() {
       {player && (event || spontaneous) && (
         // Nouveau joueur après un glissement : la notation arrive du côté où l'on a glissé.
         <div key={player.id} className={`flex flex-col gap-4 ${slide === 'left' ? 'animate-slide-left' : slide === 'right' ? 'animate-slide-right' : ''}`}>
+          {/* Encadrants et admins : corriger la fiche (poste…) sans quitter la notation ; on revient ici après. */}
+          {can.editPlayers(role) && (
+            <button
+              data-noswipe
+              className={`self-start text-[11px] font-bold ${player.position ? 'text-muted hover:text-fg' : 'text-amber-300'}`}
+              onClick={async () => {
+                if (!(await confirmLeave())) return
+                navigate(
+                  `/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}${player.position ? '' : '&ouvrir=poste'}`,
+                )
+              }}
+            >
+              ✎ {player.position ? 'Modifier la fiche' : 'Pas de poste : compléter la fiche'}
+            </button>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold">
               {player.firstName} {player.lastName} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
