@@ -32,6 +32,7 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
       # GitHub Pages ne connaît pas les routes de l'app : on sert index.html pour toute page inconnue.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3

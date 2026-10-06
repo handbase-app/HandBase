@@ -110,6 +110,17 @@ participants reste au créateur et aux administrateurs (`supabase/023_participan
 événements (`supabase/024_participants_evenements.sql`) : un participant est aussi co-organisateur pour les avis hors
 liste (il note sans validation et valide ceux des observateurs) ; un événement créé depuis un groupe garde « ajouté par ».
 
+### Notifications
+
+Notifications sur le téléphone (web push, `supabase/026_notifications.sql`) : avis à valider, fiches proposées, nouveau
+participant, rappel la veille d'un événement. Chacun les active sur son appareil et choisit lesquelles dans *Réglages →
+Notifications* (iPhone : appli ajoutée à l'écran d'accueil, iOS 16.4+). Les déclencheurs SQL mettent en file
+(`hb_notifications`) ; la fonction Supabase `supabase/functions/notify` (appelée toutes les 2 minutes par pg_cron)
+regroupe et envoie, sauf entre 21 h et 8 h. Mise en place : clés VAPID (`npx web-push generate-vapid-keys`), secrets de la
+fonction (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `HB_NOTIFY_SECRET`), fonction déployée sans
+vérification JWT, extensions pg_cron et pg_net, coffre (`hb_notify_url`, `hb_notify_secret`), puis le script 026 ;
+la clé publique va aussi dans la variable `VITE_VAPID_PUBLIC_KEY` (GitHub et `.env.local`).
+
 ### Alertes
 
 Une **alerte** est un filtre enregistré (sexe, années, trimestres, latéralité, postes, départements, taille, taille

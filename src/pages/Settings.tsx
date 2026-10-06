@@ -14,6 +14,7 @@ import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../lists'
 import { useSessionState } from '../components/PlayerFilter'
+import { currentSubscription, disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification } from '../push'
 import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
@@ -60,6 +61,11 @@ export default function Settings() {
         <Account />
         {supabase && <PasswordChange />}
       </Fold>
+      {supabase && (
+        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, rappels">
+          <NotificationSettings />
+        </Fold>
+      )}
       <Fold id="apparence" icon="palette" title="Apparence" summary={themeSummary()}>
         <ThemePicker />
       </Fold>
@@ -157,6 +163,92 @@ export default function Settings() {
         </>
       )}
     </div>
+  )
+}
+
+/** Notifications : activer sur cet appareil, choisir quoi recevoir (compte), envoyer un test. */
+function NotificationSettings() {
+  const support = pushSupport()
+  const [subscribed, setSubscribed] = useState<boolean | null>(null)
+  const [prefs, setPrefs] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => {
+    void currentSubscription().then((s) => setSubscribed(!!s))
+    void readNotifPrefs().then(setPrefs)
+  }, [])
+
+  if (support === 'not-configured') return <p className="text-xs text-muted">Notifications pas encore configurées sur le serveur.</p>
+  if (support === 'ios-install')
+    return (
+      <p className="text-xs">
+        Sur iPhone, les notifications marchent seulement dans l’appli <b>ajoutée à l’écran d’accueil</b> (Safari → Partager → « Sur l’écran
+        d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite HandBase depuis l’écran d’accueil et reviens ici.
+      </p>
+    )
+  if (support === 'unsupported') return <p className="text-xs text-muted">Ce navigateur ne permet pas les notifications.</p>
+
+  const toggle = async (id: string, on: boolean) => {
+    const next = { ...prefs, [id]: on }
+    setPrefs(next)
+    const err = await saveNotifPrefs(next)
+    if (err) setMsg({ ok: false, text: `Préférence non enregistrée : ${err}` })
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs">
+          Sur ce téléphone : <b className={subscribed ? 'text-emerald-300' : 'text-muted'}>{subscribed === null ? '…' : subscribed ? 'activées' : 'désactivées'}</b>
+        </span>
+        <button
+          className={subscribed ? 'btn-ghost px-3 py-1.5 text-xs' : 'btn-primary px-3 py-1.5 text-xs'}
+          disabled={busy || subscribed === null}
+          onClick={async () => {
+            setBusy(true)
+            setMsg(null)
+            if (subscribed) {
+              await disablePush()
+              setSubscribed(false)
+            } else {
+              const err = await enablePush()
+              setSubscribed(!err)
+              if (err) setMsg({ ok: false, text: err })
+            }
+            setBusy(false)
+          }}
+        >
+          {subscribed ? 'Désactiver' : 'Activer'}
+        </button>
+      </div>
+      <div className="flex flex-col gap-2">
+        <span className="label mb-0">Ce que je reçois (sur tous mes appareils)</span>
+        {NOTIF_KINDS.map((k) => (
+          <label key={k.id} className="flex items-start gap-2 text-xs">
+            <input type="checkbox" className="mt-0.5" checked={prefs[k.id] !== false} onChange={(e) => void toggle(k.id, e.target.checked)} />
+            <span>
+              <b>{k.label}</b>
+              <span className="block text-[11px] text-muted">{k.help}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted">
+        Plusieurs à la suite sont regroupées (« 3 avis à valider »). Rien entre 21 h et 8 h : elles arrivent le matin.
+      </p>
+      {subscribed && (
+        <button
+          className="btn-ghost self-start px-3 py-1.5 text-xs"
+          onClick={async () => {
+            const err = await sendTestNotification()
+            setMsg(err ? { ok: false, text: err } : { ok: true, text: 'Notification de test demandée : elle arrive d’ici 2 minutes.' })
+          }}
+        >
+          M’envoyer une notification de test
+        </button>
+      )}
+      {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
+    </section>
   )
 }
 
