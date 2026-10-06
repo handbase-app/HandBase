@@ -103,6 +103,9 @@ export default function Evaluate() {
   const dirty = !!player && fingerprint(draft) !== baseline
   // Avant de quitter l'écran (menu du bas) ou l'onglet : proposer d'enregistrer.
   const leaveRef = useRef<() => Promise<boolean>>(async () => true)
+  // Geste de glisser (voir plus bas) : déclaré ici, avant l'écran « Qui évalue ? », car un hook
+  // doit être appelé à chaque affichage, dans le même ordre.
+  const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
   useEffect(() => {
     setLeaveGuard(() => leaveRef.current())
     return () => setLeaveGuard(null)
@@ -213,7 +216,6 @@ export default function Evaluate() {
 
   // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement).
   // Seulement un geste franchement horizontal, et pas dans un champ de saisie (qui garde son propre geste).
-  const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
   const canSwipe = !spontaneous && roster.length > 0 && idx >= 0
   const onTouchStart = (e: React.TouchEvent) => {
     const el = e.target as HTMLElement
