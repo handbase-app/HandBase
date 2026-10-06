@@ -5,7 +5,7 @@ import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { departmentChoices } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { Collapsible, CriterionInput, getMe, groupBy, NumberField, resizeImage, Segmented } from '../components/ui'
+import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, newId, positionLabel, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
@@ -104,8 +104,8 @@ export default function PlayerForm() {
         <div className="flex items-start gap-4">
         {/* Photo */}
         <label className="flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-line text-muted hover:border-accent">
-          {p.photo ? (
-            <img src={p.photo} alt="" className="h-full w-full object-cover" />
+          {photoSrc(p.photo) ? (
+            <img src={photoSrc(p.photo)} alt="" className="h-full w-full object-cover" />
           ) : (
             <>
               <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">

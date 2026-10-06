@@ -28,12 +28,15 @@ export function useMe(): [string, (v: string) => void] {
 /** Nom d'un joueur tel qu'affiché partout : « NOM Prénom ». */
 export const playerName = (p: Pick<Player, 'firstName' | 'lastName'>) => `${(p.lastName ?? '').toUpperCase()} ${p.firstName ?? ''}`.trim()
 
+/** Photo de joueur affichable : seulement une image intégrée (data:image/…), jamais une adresse extérieure. */
+export const photoSrc = (s?: string) => (s?.startsWith('data:image/') ? s : undefined)
+
 // ---------- Petits composants ----------
 
 export function Avatar({ p, size = 40 }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo'>; size?: number }) {
   const initials = ((p.lastName?.[0] ?? '') + (p.firstName?.[0] ?? '')).toUpperCase()
-  return p.photo ? (
-    <img src={p.photo} alt="" className="shrink-0 rounded-lg object-cover" style={{ width: size, height: size }} />
+  return photoSrc(p.photo) ? (
+    <img src={photoSrc(p.photo)} alt="" className="shrink-0 rounded-lg object-cover" style={{ width: size, height: size }} />
   ) : (
     <div
       className="flex shrink-0 items-center justify-center rounded-lg border border-line bg-panel-2 font-extrabold text-accent"
