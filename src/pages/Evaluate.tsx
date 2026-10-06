@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, useRole } from '../roles'
-import { choose, setLeaveGuard } from '../components/Confirm'
+import { ask, choose, setLeaveGuard } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
@@ -18,6 +18,7 @@ import {
   db,
   fmtDate,
   newId,
+  remove,
   save,
   today,
   type ContextType,
@@ -183,6 +184,31 @@ export default function Evaluate() {
     setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Brouillon vierge pour ce joueur (on garde le contexte d'un avis spontané : lieu, date…). */
+  const blankDraft = (): Partial<Evaluation> =>
+    spontaneous
+      ? { scores: {}, contextType: draft.contextType, contextPlace: draft.contextPlace, date: draft.date ?? today() }
+      : { scores: {}, date: event?.date ?? today() }
+
+  /** « Annuler » : on oublie les modifications, retour au dernier avis enregistré (ou à un avis vierge). */
+  function revert() {
+    const init = existing ? { ...existing } : blankDraft()
+    setDraft(init)
+    setBaseline(fingerprint(init))
+  }
+
+  /** « Retirer mon avis » : supprime l'avis enregistré, après confirmation. */
+  async function withdraw() {
+    if (!existing || !player) return
+    if (!(await ask(`Retirer ton avis sur ${playerName(player)} ? Il sera supprimé.`, { ok: 'Retirer' }))) return
+    await remove('evaluations', existing.id)
+    const init = blankDraft()
+    setDraft(init)
+    setBaseline(fingerprint(init))
+    setSaved(false)
+    if (spontaneous) setAvisId('')
   }
 
   /** Si l'avis en cours a été modifié : enregistrer, abandonner ou rester. Renvoie true si on peut partir. */
@@ -519,13 +545,27 @@ export default function Evaluate() {
           </div>
 
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
-          <button
-            className="btn-primary"
-            disabled={(filled === 0 && draft.overall === undefined) || (spontaneous && !draft.contextType)}
-            onClick={() => void submit()}
-          >
-            {existing ? 'Mettre à jour mon avis' : 'Enregistrer mon avis'} ({filled} critère{filled > 1 ? 's' : ''})
-          </button>
+          {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur). */}
+          <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
+            <button
+              className="btn-primary flex-1"
+              disabled={(filled === 0 && draft.overall === undefined) || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
+              onClick={() => void submit()}
+            >
+              {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
+            </button>
+            {dirty ? (
+              <button className="btn shrink-0 text-xs text-muted" onClick={revert} title="Oublier les modifications">
+                Annuler
+              </button>
+            ) : (
+              existing && (
+                <button className="btn shrink-0 text-xs text-muted hover:text-red-400" onClick={() => void withdraw()}>
+                  Retirer mon avis
+                </button>
+              )
+            )}
+          </div>
         </div>
       )}
     </div>
