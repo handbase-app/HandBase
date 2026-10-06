@@ -1,6 +1,7 @@
-import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, isAuthRetryableFetchError, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
 import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
+import { disablePush } from './push'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -34,32 +35,111 @@ const setState = (s: SyncState, err = '') => {
 
 const PULL_KEY = (t: SyncTable) => `handbase${TRIAL ? '-essai' : ''}.lastPull.${t}`
 
-let running = false
+const store = {
+  get: (k: string) => {
+    try {
+      return localStorage.getItem(k)
+    } catch {
+      return null
+    }
+  },
+  set: (k: string, v: string) => {
+    try {
+      localStorage.setItem(k, v)
+    } catch {
+      /* stockage indisponible */
+    }
+  },
+}
+
+/*
+ * Propriétaire des données locales : le compte qui les a synchronisées. Un autre compte qui se connecte
+ * sur l'appareil (lien d'accès #acces=, ancienne version qui gardait les données à la déconnexion)
+ * repart d'un appareil vide. Avant cette version, le compte n'était noté que dans handbase.uid (roles.ts).
+ */
+const OWNER_KEY = `handbase${TRIAL ? '-essai' : ''}.owner`
+const legacyOwner = store.get('handbase.uid')
+
+/** Note le compte propriétaire des données locales ; false si elles sont à un autre compte (effacement lancé). */
+export function claimDevice(uid: string): boolean {
+  if (wiping) return false
+  const owner = store.get(OWNER_KEY) ?? legacyOwner
+  if (owner && owner !== uid) {
+    void wipeDevice()
+    return false
+  }
+  if (!store.get(OWNER_KEY)) store.set(OWNER_KEY, uid)
+  return true
+}
+
+let wiping = false
+
+/**
+ * Efface HandBase de cet appareil (déconnexion, ou données d'un autre compte) : notifications désabonnées,
+ * session fermée si demandé, base locale, réglages handbase.*, pastille de l'icône ; puis on recharge.
+ */
+export async function wipeDevice({ signOut = false } = {}) {
+  if (wiping) return
+  wiping = true
+  stopRealtime()
+  // Le serveur oublie l'abonnement de l'appareil (il faut encore la session). Sans service worker prêt, on n'attend pas.
+  await Promise.race([disablePush().catch(() => {}), new Promise((r) => setTimeout(r, 3000))])
+  if (signOut && supabase) {
+    await supabase.auth.signOut().catch(() => {})
+    // Hors ligne, signOut() échoue et garde la session : on l'oublie quand même sur l'appareil.
+    try {
+      for (const k of Object.keys(localStorage)) if (/^sb-.+-auth-token/.test(k)) localStorage.removeItem(k)
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+  try {
+    await db.delete({ disableAutoOpen: true })
+  } catch {
+    /* base déjà absente ou bloquée : rien de plus à faire */
+  }
+  for (const get of [() => localStorage, () => sessionStorage]) {
+    try {
+      const s = get()
+      // Le thème est un réglage de l'appareil, pas une donnée du compte.
+      for (const k of Object.keys(s)) if (/^handbase(-essai)?\./.test(k) && k !== 'handbase.theme') s.removeItem(k)
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+  try {
+    await caches.delete('hb-badge')
+  } catch {
+    /* cache indisponible */
+  }
+  try {
+    await (navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.()
+  } catch {
+    /* non pris en charge */
+  }
+  location.reload()
+}
+
+let running: Promise<void> | null = null
 let again = false
 
-export async function syncNow(): Promise<void> {
-  if (!supabase) return
+/** Lance une synchronisation (ou attend celle en cours). retry : renvoie aussi les modifications mises de côté. */
+export async function syncNow({ retry = false } = {}): Promise<void> {
+  if (!supabase || wiping) return
+  if (retry) {
+    setAside.clear()
+    failures.clear()
+  }
   if (!navigator.onLine) return setState('offline')
   if (running) {
     again = true
-    return
+    return running
   }
-  running = true
+  running = run()
   try {
-    const { data } = await supabase.auth.getSession()
-    if (!data.session) return setState('login')
-    setState('syncing')
-    rejectedCount = 0
-    await push()
-    await pull()
-    setState(
-      'synced',
-      rejectedCount ? `${rejectedCount} modification(s) annulée(s) : ton rôle ne le permet pas.` : '',
-    )
-  } catch (e) {
-    setState('error', e instanceof Error ? e.message : String(e))
+    await running
   } finally {
-    running = false
+    running = null
     if (again) {
       again = false
       void syncNow()
@@ -67,8 +147,62 @@ export async function syncNow(): Promise<void> {
   }
 }
 
+async function run() {
+  try {
+    const { data, error } = await supabase!.auth.getSession()
+    // Session expirée, pas renouvelable faute de réseau : on reste hors ligne (voir AuthGate).
+    if (!data.session) return setState(isAuthRetryableFetchError(error) ? 'offline' : 'login')
+    if (!claimDevice(data.session.user.id)) return
+    setState('syncing')
+    rejectedCount = 0
+    // Un envoi en échec n'empêche pas de recevoir les nouveautés des autres.
+    let pushError: unknown = null
+    try {
+      await push()
+    } catch (e) {
+      pushError = e
+    }
+    await pull()
+    if (pushError) throw pushError
+    const notes = [
+      rejectedCount && `${rejectedCount} modification(s) annulée(s) : refusée(s) par le serveur (droits) ou plus ancienne(s) que sa version.`,
+      setAside.size && `${setAside.size} modification(s) mise(s) de côté, refusée(s) à chaque envoi (${lastPushError}) ; « Synchroniser maintenant » les renvoie.`,
+    ].filter(Boolean)
+    setState('synced', notes.join(' '))
+  } catch (e) {
+    setState('error', e instanceof Error ? e.message : String((e as { message?: string } | null)?.message ?? e))
+  }
+}
+
+const PUSH_CHUNK = 400
+
+let rejectedCount = 0
+
+/*
+ * Ligne refusée à chaque envoi (donnée invalide…) : après MAX_FAILURES échecs, elle est mise de côté
+ * (gardée dans la file mais plus envoyée, jusqu'à « Synchroniser maintenant » ou au prochain lancement)
+ * pour ne pas bloquer toute la synchronisation.
+ */
+const MAX_FAILURES = 3
+const failures = new Map<string, number>()
+const setAside = new Set<string>()
+let lastPushError = ''
+const rowKey = (table: SyncTable, id: string) => `${table}:${id}`
+
+/**
+ * Réseau coupé, serveur indisponible ou refus de la requête entière (pas de code Postgres, codes PGRST…,
+ * délai dépassé) : on réessaiera, sans accuser la ligne.
+ */
+const transient = (e: { code?: string }) => !e.code || e.code.startsWith('PGRST') || e.code === '57014'
+
+type Payload = { id: string; data: unknown; updated_at_client: number; deleted: boolean }
+
+// Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
+// la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
+const upsert = (table: SyncTable, rows: Payload[]) => supabase!.rpc('hb_upsert', { p_table: table, p_rows: rows })
+
 async function push() {
-  const items = await db.outbox.orderBy('seq').toArray()
+  const items = (await db.outbox.orderBy('seq').toArray()).filter((i) => !setAside.has(rowKey(i.table, i.rowId)))
   if (!items.length) return
   for (const table of SYNC_TABLES) {
     const batch = items.filter((i) => i.table === table)
@@ -78,29 +212,52 @@ async function push() {
       const part = batch.slice(i, i + PUSH_CHUNK)
       const ids = [...new Set(part.map((it) => it.rowId))]
       const rows = (await db.table(table).bulkGet(ids)).filter(Boolean)
-      const payload = rows.map((r) => ({
+      const payload: Payload[] = rows.map((r) => ({
         id: r.id,
         data: r,
         updated_at_client: r.updatedAt,
         deleted: !!r.deleted,
       }))
-      // Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
-      // la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
-      const { data, error } = await supabase!.rpc('hb_upsert', { p_table: table, p_rows: payload })
-      if (error) throw error
-      await db.outbox.bulkDelete(part.map((it) => it.seq!))
-      const rejected: string[] = Array.isArray(data) ? data : []
-      if (rejected.length) {
-        rejectedCount += rejected.length
-        await restoreFromServer(table, rejected)
+      const { data, error } = await upsert(table, payload)
+      if (!error) {
+        // La file n'est vidée qu'une fois les refus traités (sinon on renverra).
+        await applyRejected(table, data)
+        await db.outbox.bulkDelete(part.map((it) => it.seq!))
+        continue
       }
+      if (transient(error)) throw error
+      // Paquet refusé : on renvoie ligne par ligne pour isoler la ou les lignes fautives.
+      for (const p of payload) {
+        const one = await upsert(table, [p])
+        const k = rowKey(table, p.id)
+        if (one.error) {
+          if (transient(one.error)) throw one.error
+          lastPushError = one.error.message
+          const n = (failures.get(k) ?? 0) + 1
+          failures.set(k, n)
+          if (n >= MAX_FAILURES) setAside.add(k)
+          continue
+        }
+        failures.delete(k)
+        await applyRejected(table, one.data)
+        await db.outbox.bulkDelete(part.filter((it) => it.rowId === p.id).map((it) => it.seq!))
+      }
+      // Entrées de la file dont la ligne n'existe plus sur l'appareil : rien à envoyer.
+      const sent = new Set(payload.map((p) => p.id))
+      await db.outbox.bulkDelete(part.filter((it) => !sent.has(it.rowId)).map((it) => it.seq!))
     }
   }
+  // Lignes refusées pas encore mises de côté : on le signale (elles repartiront au prochain envoi).
+  if ([...failures.keys()].some((k) => !setAside.has(k))) throw new Error(`Envoi refusé : ${lastPushError}`)
 }
 
-const PUSH_CHUNK = 400
-
-let rejectedCount = 0
+/** Refus du serveur (droits, ou version plus ancienne que la sienne) : on reprend sa version. */
+async function applyRejected(table: SyncTable, data: unknown) {
+  const rejected: string[] = Array.isArray(data) ? data : []
+  if (!rejected.length) return
+  rejectedCount += rejected.length
+  await restoreFromServer(table, rejected)
+}
 
 /** Annule localement les modifications refusées : on reprend la version du serveur (ou on retire la ligne). */
 async function restoreFromServer(table: SyncTable, ids: string[]) {
@@ -116,28 +273,39 @@ async function restoreFromServer(table: SyncTable, ids: string[]) {
   })
 }
 
+/*
+ * server_updated_at est l'heure d'écriture (clock_timestamp()), pas celle de validation : une ligne
+ * validée un peu plus tard peut porter une heure antérieure au dernier curseur. On relit donc la
+ * dernière minute à chaque fois (réappliquer une ligne déjà vue est sans effet), et on pagine sur
+ * (server_updated_at, id) pour avancer même si plus de PULL_PAGE lignes ont la même heure.
+ */
+const PULL_OVERLAP_MS = 60_000
+const PULL_PAGE = 500
+
 async function pull() {
   for (const table of SYNC_TABLES) {
     const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
-    let cursor = since
+    const start = new Date(new Date(since).getTime() - PULL_OVERLAP_MS).toISOString()
+    let after: { at: string; id: string } | null = null
     for (;;) {
-      const { data, error } = await supabase!
-        .from(`hb_${table}`)
-        .select('id, data, server_updated_at')
-        .gt('server_updated_at', cursor)
-        .order('server_updated_at')
-        .limit(500)
+      const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
+      const filtered = after
+        ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
+        : base.gte('server_updated_at', start)
+      const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
       if (error) throw error
       if (!data?.length) break
       await db.transaction('rw', db.table(table), async () => {
         for (const r of data) {
           const local = await db.table(table).get(r.id)
-          if (!local || (r.data.updatedAt ?? 0) >= (local.updatedAt ?? 0)) await db.table(table).put(r.data)
+          // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
+          if (!local || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (local.updatedAt ?? 0)) await db.table(table).put(r.data)
         }
       })
-      cursor = data[data.length - 1].server_updated_at
-      localStorage.setItem(PULL_KEY(table), cursor)
-      if (data.length < 500) break
+      const last: { id: string; server_updated_at: string } = data[data.length - 1]
+      after = { at: last.server_updated_at, id: last.id }
+      if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
+      if (data.length < PULL_PAGE) break
     }
   }
 }

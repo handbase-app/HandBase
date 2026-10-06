@@ -6,7 +6,7 @@ import { alive, db, newId, POSITIONS, remove, save, today, type Criterion, type 
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
-import { supabase, syncNow, useSyncState } from '../sync'
+import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
@@ -352,7 +352,24 @@ function Fold({ id, icon, title, summary, children }: { id: string; icon: IconNa
 function Account() {
   const { state, lastError } = useSyncState()
   const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
   const role = useRole()
+
+  /** Déconnexion : les données de l'appareil sont effacées ; on prévient s'il reste des modifications pas envoyées. */
+  async function logout() {
+    setBusy(true)
+    // Dernière chance d'envoyer ce qui attend.
+    if (navigator.onLine) await syncNow({ retry: true })
+    const pending = new Set((await db.outbox.toArray()).map((i) => `${i.table}:${i.rowId}`)).size
+    setBusy(false)
+    const ok = await ask(
+      pending
+        ? `${pending} modification(s) pas encore envoyée(s) au serveur (hors ligne, ou refusée(s)) seront PERDUES. Pour les garder, reste connecté et synchronise une fois en ligne (voir l’état de la synchronisation). Se déconnecter quand même ?`
+        : 'Se déconnecter ? Les données HandBase seront effacées de cet appareil ; elles restent sur le serveur et reviendront à la prochaine connexion.',
+      { ok: pending ? 'Perdre et se déconnecter' : 'Se déconnecter' },
+    )
+    if (ok) await wipeDevice({ signOut: true })
+  }
 
   useEffect(() => {
     void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
@@ -378,7 +395,7 @@ function Account() {
             <p>
               <b>{ROLE_LABEL[role]}</b> : {ROLE_HELP[role]}
             </p>
-            <p>Les données sont gardées sur l’appareil et envoyées au serveur dès que possible : on peut travailler hors ligne.</p>
+            <p>Les données sont gardées sur l’appareil et envoyées au serveur dès que possible : on peut travailler hors ligne. Se déconnecter les efface de l’appareil (elles restent sur le serveur).</p>
           </>
         }
       >
@@ -401,14 +418,11 @@ function Account() {
         {lastError && ` — ${lastError}`}
       </p>
       <div className="flex gap-2">
-        <button className="btn-ghost flex-1 text-xs" onClick={() => void syncNow()}>
+        <button className="btn-ghost flex-1 text-xs" onClick={() => void syncNow({ retry: true })}>
           Synchroniser maintenant
         </button>
-        <button
-          className="btn-ghost flex-1 text-xs"
-          onClick={async () => (await ask('Se déconnecter ? Les données pas encore synchronisées restent sur l’appareil.', { ok: 'Se déconnecter' })) && void supabase!.auth.signOut()}
-        >
-          Se déconnecter
+        <button className="btn-ghost flex-1 text-xs" disabled={busy} onClick={() => void logout()}>
+          {busy ? 'Envoi…' : 'Se déconnecter'}
         </button>
       </div>
     </section>

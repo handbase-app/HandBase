@@ -357,8 +357,12 @@ export function newId(): string {
 type Row = { id: string; updatedAt: number; deleted?: boolean }
 
 export async function save<T extends Row>(table: SyncTable, row: Omit<T, 'updatedAt'> & { updatedAt?: number }) {
-  const full = { ...row, updatedAt: Date.now() } as T
+  let full = row as T
   await db.transaction('rw', db.table(table), db.outbox, async () => {
+    // Toujours plus récent que la version précédente, même si l'horloge de l'appareil a reculé
+    // (sinon la modification perdrait contre l'ancienne version, ici ou sur le serveur).
+    const prev = (await db.table(table).get(row.id)) as Row | undefined
+    full = { ...row, updatedAt: Math.max(Date.now(), (prev?.updatedAt ?? 0) + 1) } as T
     await db.table(table).put(full)
     await db.outbox.add({ table, rowId: full.id })
   })
