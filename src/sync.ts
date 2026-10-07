@@ -280,7 +280,7 @@ async function restoreFromServer(table: SyncTable, ids: string[]) {
  * (server_updated_at, id) pour avancer même si plus de PULL_PAGE lignes ont la même heure.
  */
 const PULL_OVERLAP_MS = 60_000
-const PULL_PAGE = 500
+const PULL_PAGE = 1000
 
 async function pull() {
   for (const table of SYNC_TABLES) {
@@ -295,12 +295,12 @@ async function pull() {
       const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
       if (error) throw error
       if (!data?.length) break
+      // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
       await db.transaction('rw', db.table(table), async () => {
-        for (const r of data) {
-          const local = await db.table(table).get(r.id)
-          // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
-          if (!local || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (local.updatedAt ?? 0)) await db.table(table).put(r.data)
-        }
+        const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+        // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
+        const newer = data.filter((r, i) => !locals[i] || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0))
+        if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
       })
       const last: { id: string; server_updated_at: string } = data[data.length - 1]
       after = { at: last.server_updated_at, id: last.id }
