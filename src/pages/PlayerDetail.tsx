@@ -14,7 +14,7 @@ import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
 import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, remove, type Criterion, type Measurement } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, lateralityLabel, remove, type Criterion, type Measurement } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
@@ -113,7 +113,7 @@ export default function PlayerDetail() {
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
     ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
     ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],
-    ['Latéralité', p.laterality && p.laterality[0].toUpperCase() + p.laterality.slice(1)],
+    ['Latéralité', lateralityLabel(p.laterality, p.sex)],
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm (${p.motherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
     ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm (${p.fatherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
   ]

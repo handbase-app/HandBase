@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { age, alive, db, plural, type Measurement } from '../db'
+import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
@@ -169,7 +169,7 @@ export default function Players() {
                     {[
                       l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
                       l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
-                      p.laterality && p.laterality[0].toUpperCase() + p.laterality.slice(1),
+                      lateralityLabel(p.laterality, p.sex),
                       p.club,
                     ]
                       .filter(Boolean)

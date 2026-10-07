@@ -1,4 +1,4 @@
-import { age, alive, contextLabel, counts, db, fmtDate, positionLabel, today, type Evaluation, type Measurement } from './db'
+import { age, alive, contextLabel, counts, db, fmtDate, lateralityLabel, positionLabel, today, type Evaluation, type Measurement } from './db'
 import { fmtValue } from './components/ui'
 import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
@@ -78,7 +78,7 @@ export async function exportCsv(only?: { id: string }[]) {
     return [
       p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', '), p.team, p.license,
-      p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', p.laterality,
+      p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', lateralityLabel(p.laterality, p.sex),
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c)),
       r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
@@ -158,7 +158,7 @@ export async function exportPlayer(id: string) {
     ['Date de naissance', p.birthDate && fmtDate(p.birthDate)], ['Nationalité', p.nationality], ['Club', p.club], ['N° de club', p.clubCode],
     ['Département', dept && departmentLabel(dept)], ['Licence', p.license], ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['État de la licence', p.licenseStatus], ['Type de licence', p.licenseRequestType], ['Équipe', p.team], ['Catégorie / niveau', p.category],
-    ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : ''], ['Latéralité', p.laterality],
+    ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : ''], ['Latéralité', lateralityLabel(p.laterality, p.sex)],
     ['Poste', positionLabel(p.position)], ['Postes secondaires', (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', ')],
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm` : ''], ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm` : ''],
     ['Lacunes', p.gaps], ['Notes', p.notes], ['Photo', p.photo ? 'Oui (enregistrée)' : ''],

@@ -6,7 +6,7 @@ import { department } from '../components/PlayerFilter'
 import { departmentChoices } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
-import { alive, criterionApplies, db, newId, positionLabel, save, today, type HeightSource, type Measurement, type Player } from '../db'
+import { alive, criterionApplies, db, lateralityLabel, newId, positionLabel, save, today, type HeightSource, type Measurement, type Player } from '../db'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -156,7 +156,7 @@ export default function PlayerForm() {
         </div>
       </div>
 
-      <Collapsible title="Profil sportif" summary={[positionLabel(p.position) !== '—' && positionLabel(p.position), p.laterality].filter(Boolean).join(' · ') || 'Poste, latéralité'} defaultOpen={!editing || params.get('ouvrir') === 'poste'}>
+      <Collapsible title="Profil sportif" summary={[positionLabel(p.position) !== '—' && positionLabel(p.position), lateralityLabel(p.laterality, p.sex)].filter(Boolean).join(' · ') || 'Poste, latéralité'} defaultOpen={!editing || params.get('ouvrir') === 'poste'}>
         <div>
           <span className="label">Poste</span>
           <CourtPicker
@@ -171,8 +171,8 @@ export default function PlayerForm() {
             value={p.laterality}
             onChange={(v) => set('laterality', v)}
             options={[
-              { value: 'droitier', label: 'Droitier' },
-              { value: 'gaucher', label: 'Gaucher' },
+              { value: 'droitier', label: lateralityLabel('droitier', p.sex) },
+              { value: 'gaucher', label: lateralityLabel('gaucher', p.sex) },
               { value: 'ambidextre', label: 'Ambidextre' },
             ]}
           />

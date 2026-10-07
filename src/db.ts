@@ -19,6 +19,10 @@ export const positionLabel = (p?: Position | null) => POSITIONS.find((x) => x.id
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
+/** « Droitier », « Gauchère »… accordé au sexe du joueur (masculin si inconnu). */
+export const lateralityLabel = (l?: Laterality | null, sex?: string | null) =>
+  !l ? '' : l === 'ambidextre' ? 'Ambidextre' : sex === 'F' ? (l === 'gaucher' ? 'Gauchère' : 'Droitière') : l === 'gaucher' ? 'Gaucher' : 'Droitier'
+
 /** Champs communs à toutes les lignes synchronisées. */
 interface Syncable {
   id: string
