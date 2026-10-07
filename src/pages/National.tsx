@@ -110,6 +110,8 @@ const DOM_CODES: [string, string][] = [
   ['974', 'RE'],
   ['976', 'YT'],
   ['988', 'NC'],
+  // Ultramarin sans territoire précis (n° de club « 97… » : department() donne « 97 »).
+  ['97', 'OM'],
 ]
 /** Corse : un seul département pour nous (n° de club « 20 »). */
 const codeOf = (c: string) => (c === '2A' || c === '2B' ? '20' : c)
@@ -524,7 +526,7 @@ function NationalView() {
                 {/* Ultramarins : une case par territoire (Antilles = Guadeloupe + Martinique), ou seulement ceux de la ligue choisie. */}
                 {dom && (domOnly || !shapes.zoomed) && (() => {
                   const cells = DOM_CODES.filter(([c]) => !domOnly || regionOfDept(c) === region)
-                  const cols = Math.min(3, cells.length)
+                  const cols = Math.min(4, cells.length)
                   const rows = Math.ceil(cells.length / cols)
                   const cw = (dom.w - 16 - (cols - 1) * 4) / cols
                   const ch = (dom.h - 28 - (rows - 1) * 4) / rows

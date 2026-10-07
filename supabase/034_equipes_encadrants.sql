@@ -587,7 +587,7 @@ declare
   v_what text := case tg_table_name when 'hb_events' then 'à l’événement' else 'au groupe' end;
   v_url text := case tg_table_name when 'hb_events' then '/evenements/' else '/groupes/' end || new.id;
   v_who text := coalesce(new.data ->> 'createdByName', 'Un encadrant');
-  v_date text := case when tg_table_name = 'hb_events' and new.data ? 'date' then ' (' || to_char((new.data ->> 'date')::date, 'DD/MM') || ')' else '' end;
+  v_date text := case when tg_table_name = 'hb_events' and new.data ->> 'date' ~ '^\d{4}-\d{2}-\d{2}$' then ' (' || to_char((new.data ->> 'date')::date, 'DD/MM') || ')' else '' end;
 begin
   if new.deleted then return null; end if;
   for v_u in
