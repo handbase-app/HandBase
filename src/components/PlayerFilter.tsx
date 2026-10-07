@@ -4,7 +4,7 @@ import { departmentLabel, useDepartments } from '../lists'
 import { can } from '../roles'
 import { birthQuarter } from './ui'
 import { CourtFilter } from './CourtPicker'
-import { alive, db, POSITIONS, type Laterality, type Player, type Position } from '../db'
+import { alive, db, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -92,6 +92,26 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [hand, setHand] = useSessionState<'all' | Laterality>(k('hand'), 'all')
   // Trimestre de naissance (Q1 = janvier–mars … Q4 = octobre–décembre).
   const [quarter, setQuarter] = useSessionState(k('quarter'), 0)
+  // Taille (cm), d'après la dernière mesure : « plus de 1 m 80 » = minimum 180.
+  const [minH, setMinH] = useSessionState(k('minH'), '')
+  const [maxH, setMaxH] = useSessionState(k('maxH'), '')
+  const lo = Number(minH) || 0
+  const hi = Number(maxH) || 0
+  // Dernière taille de chaque joueur (chargée seulement quand le filtre sert).
+  const heights = useLiveQuery(
+    async () => {
+      if (!lo && !hi) return null
+      const last = new Map<string, Measurement>()
+      for (const m of await db.measurements.where('criterionId').equals('taille').toArray()) {
+        if (m.deleted || typeof m.value !== 'number') continue
+        const cur = last.get(m.playerId)
+        if (!cur || m.date > cur.date || (m.date === cur.date && m.updatedAt > cur.updatedAt)) last.set(m.playerId, m)
+      }
+      return new Map([...last].map(([id, m]) => [id, m.value as number]))
+    },
+    [!lo && !hi],
+    null,
+  )
 
   const setSex = (v: SexFilter) => {
     setSexState(v)
@@ -114,8 +134,15 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   // Chaque menu compte les joueurs qui passent tous les AUTRES filtres : le nombre affiché à côté d'une
   // année, d'un département ou d'un club est celui qu'on obtiendra en le choisissant.
   const base = useMemo(
-    () => all.filter((p) => (sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand) && (!quarter || birthQuarter(p.birthDate) === quarter)),
-    [all, sex, hand, quarter],
+    () =>
+      all.filter((p) => {
+        if (!((sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand) && (!quarter || birthQuarter(p.birthDate) === quarter))) return false
+        if (!lo && !hi) return true
+        // Filtre de taille : un joueur jamais mesuré n'y passe pas.
+        const h = heights?.get(p.id)
+        return h !== undefined && (!lo || h >= lo) && (!hi || h <= hi)
+      }),
+    [all, sex, hand, quarter, lo, hi, heights],
   )
   const okDept = (p: Player) => !dept || department(p) === dept
   const okClub = (p: Player) => !club || p.club === club
@@ -155,12 +182,14 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     [searched, position, withSecondary],
   )
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!group || !!dept || !!club || !!year || position !== 'all' || withSecondary
+  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!hi || !!group || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
     setQ('')
     setSex('all')
     setHand('all')
     setQuarter(0)
+    setMinH('')
+    setMaxH('')
     setGroup('')
     setDept('')
     setClub('')
@@ -176,6 +205,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     sex !== 'all' && { label: sex === 'M' ? 'Garçons' : 'Filles', clear: () => setSex('all') },
     year && { label: year, clear: () => setYear('') },
     !!quarter && { label: `Q${quarter}`, clear: () => setQuarter(0) },
+    (!!lo || !!hi) && {
+      label: lo && hi ? `${lo}–${hi} cm` : lo ? `≥ ${lo} cm` : `≤ ${hi} cm`,
+      clear: () => (setMinH(''), setMaxH('')),
+    },
     hand !== 'all' && { label: hand === 'droitier' ? 'Droitiers' : hand === 'gaucher' ? 'Gauchers' : 'Ambidextres', clear: () => setHand('all') },
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
@@ -231,6 +264,25 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
                 </option>
               ))}
             </select>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="shrink-0 font-bold text-muted">Taille (cm)</span>
+            <input
+              className={`field min-w-0 flex-1 py-1.5 text-xs ${lo ? 'border-accent font-bold' : ''}`}
+              type="number"
+              inputMode="numeric"
+              placeholder="min. (ex. 180)"
+              value={minH}
+              onChange={(e) => setMinH(e.target.value)}
+            />
+            <input
+              className={`field min-w-0 flex-1 py-1.5 text-xs ${hi ? 'border-accent font-bold' : ''}`}
+              type="number"
+              inputMode="numeric"
+              placeholder="max."
+              value={maxH}
+              onChange={(e) => setMaxH(e.target.value)}
+            />
           </div>
           <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
             {(
@@ -322,7 +374,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, quarter, group, dept, club, year, position, withSecondary])
+  const signature = JSON.stringify([q, sex, hand, quarter, lo, hi, group, dept, club, year, position, withSecondary])
   return { filtered, ui, active, reset, signature, group: current }
 }
 
