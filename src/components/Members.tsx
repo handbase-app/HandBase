@@ -31,8 +31,8 @@ interface Access {
 
 type StaffRole = 'observateur' | 'preparateur'
 
-/** Connecté : dernier signe de vie de l'appli il y a moins de 3 minutes (une par minute, supabase/030). */
-const ONLINE_MS = 3 * 60_000
+/** Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (un toutes les 30 s, supabase/030). */
+const ONLINE_MS = 90_000
 const DAY = (t: number) => new Date(t).toDateString()
 
 function fmtDay(t: number) {
@@ -234,7 +234,7 @@ export function Members() {
         if (!error) setSeen(Object.fromEntries((data as { user_id: string; last_seen_at: string }[]).map((r) => [r.user_id, Date.parse(r.last_seen_at)])))
       })
     loadSeen()
-    const t = setInterval(loadSeen, 60_000)
+    const t = setInterval(loadSeen, 20_000)
     return () => clearInterval(t)
   }, [])
   const seenOf = (id: string) => (seen ? (seen[id] ?? null) : undefined)

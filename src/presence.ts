@@ -1,7 +1,7 @@
 import { supabase } from './sync'
 
 /*
- * « L'appli est ouverte » (supabase/030_connexions.sql) : un signe de vie par minute tant que l'appli est
+ * « L'appli est ouverte » (supabase/030_connexions.sql) : un signe de vie toutes les 30 s tant que l'appli est
  * affichée et en ligne. Les administrateurs voient ainsi qui est connecté et quand (Réglages → Équipe).
  * Pas de canal temps réel : il montrerait à tout le staff qui est en ligne.
  */
@@ -32,7 +32,7 @@ async function ping() {
   const { data } = await supabase.auth.getSession()
   if (!data.session) return
   const { error } = await supabase.rpc('hb_ping', { p_session: SESSION, p_device: device() })
-  // Serveur sans 030 : on n'insiste pas. Autres erreurs : ignorées (prochain essai dans une minute).
+  // Serveur sans 030 : on n'insiste pas. Autres erreurs : ignorées (prochain essai dans 30 s).
   if (error?.code === 'PGRST202') stopped = true
 }
 
@@ -41,7 +41,7 @@ export function startPresence() {
   if (!supabase) return
   // Démarrage avec un compte, ou connexion : tout de suite (callback différé, comme dans sync.ts).
   supabase.auth.onAuthStateChange((e, s) => s && (e === 'INITIAL_SESSION' || e === 'SIGNED_IN') && setTimeout(() => void ping(), 0))
-  setInterval(() => void ping(), 60_000)
+  setInterval(() => void ping(), 30_000)
   document.addEventListener('visibilitychange', () => void ping())
   window.addEventListener('online', () => void ping())
 }
