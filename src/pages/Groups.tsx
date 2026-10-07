@@ -338,7 +338,9 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           options={[
             { value: 'private', label: GROUP_VIS.label.private, icon: 'lock' },
             { value: 'team', label: GROUP_VIS.label.team, icon: 'users' },
-            { value: 'staff', label: GROUP_VIS.label.staff, icon: 'globe' },
+            // « Tout le staff » retiré pour l'instant (en attendant « Mon territoire » / « Officiel ») : seulement
+            // pour un groupe qui l'est déjà, afin de pouvoir le garder tel quel.
+            ...(group && groupVisibility(group) === 'staff' ? [{ value: 'staff' as const, label: GROUP_VIS.label.staff, icon: 'globe' as const }] : []),
           ]}
         />
       ) : (
