@@ -33,30 +33,32 @@ export function FollowedVia({ playerId }: { playerId: string }) {
 }
 
 /**
- * Étoile d'une ligne de joueur (listes) : suivre / ne plus suivre sans ouvrir la fiche. Pleine : suivi par moi ;
- * pâle : suivi seulement via un groupe suivi ; vide : pas suivi. Utilisable dans un lien (le clic n'ouvre pas la fiche).
+ * Étoile d'une ligne de liste (joueur ou groupe) : suivre / ne plus suivre sans ouvrir la fiche. Pleine : suivi par moi ;
+ * pâle : suivi autrement (joueur via un groupe suivi, groupe « suivi par l'équipe ») ; vide : pas suivi.
+ * Utilisable dans un lien (le clic n'ouvre pas la fiche).
  */
-export function PlayerStar({ id }: { id: string }) {
+export function FollowStar({ kind = 'player', id }: { kind?: FollowKind; id: string }) {
   const follows = useFollows()
   if (!follows || !canFollow()) return null
-  const mine = follows.players.has(id)
-  const viaGroup = !mine && follows.followed.has(id)
+  const mine = kind === 'player' ? follows.players.has(id) : follows.groups.some((g) => g.group.id === id && g.personal)
+  const other = !mine && (kind === 'player' ? follows.followed.has(id) : follows.groups.some((g) => g.group.id === id))
   const toggle = (e: { preventDefault(): void; stopPropagation(): void }) => {
     e.preventDefault()
     e.stopPropagation()
-    void setFollow('player', id, !mine)
+    void setFollow(kind, id, !mine)
   }
+  const otherWhy = kind === 'player' ? 'Suivi via un groupe' : 'Suivi par l’équipe'
   return (
     <span
       role="button"
       tabIndex={0}
       aria-pressed={mine}
-      title={mine ? 'Suivi — toucher pour ne plus suivre' : viaGroup ? 'Suivi via un groupe — toucher pour le suivre aussi personnellement' : 'Suivre (Mes suivis)'}
+      title={mine ? 'Suivi — toucher pour ne plus suivre' : other ? `${otherWhy} — toucher pour le suivre aussi personnellement` : 'Suivre (Mes suivis)'}
       className="-my-2 -mr-1 shrink-0 cursor-pointer p-2"
       onClick={toggle}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle(e)}
     >
-      <Icon name="star" filled={mine || viaGroup} className={`h-4 w-4 ${mine ? 'text-accent' : viaGroup ? 'text-accent/40' : 'text-muted/60 hover:text-accent'}`} />
+      <Icon name="star" filled={mine || other} className={`h-4 w-4 ${mine ? 'text-accent' : other ? 'text-accent/40' : 'text-muted/60 hover:text-accent'}`} />
     </span>
   )
 }

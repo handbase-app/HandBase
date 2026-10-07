@@ -15,8 +15,8 @@ import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } fr
 import { supabase } from '../sync'
 import { StaffPicker } from '../components/StaffPicker'
 import { AddPlayers } from './Events'
-import { FollowButton, PlayerStar } from '../components/Follow'
-import { teamFollowed, useFollows } from '../follows'
+import { FollowButton, FollowStar } from '../components/Follow'
+import { teamFollowed } from '../follows'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -212,16 +212,10 @@ function TeamFollowChip() {
 function GroupRow({ g }: { g: PlayerGroup }) {
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
-  const followed = useFollows()?.groups.some((f) => f.group.id === g.id)
   return (
     <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
-          {followed && (
-            <span title="Groupe suivi (Mes suivis)" className="mr-1 shrink-0">
-              <Icon name="star" filled className="h-3 w-3 text-accent" />
-            </span>
-          )}
           <span className="truncate">{g.name}</span>
           {g.team && <TeamChip />}
           {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
@@ -235,8 +229,9 @@ function GroupRow({ g }: { g: PlayerGroup }) {
           </div>
         )}
       </div>
-      <span className="shrink-0 text-xs font-bold text-muted">
-        {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''} ›
+      <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-muted">
+        <FollowStar kind="group" id={g.id} />
+        {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''}
       </span>
     </Link>
   )
@@ -688,7 +683,7 @@ export function GroupDetail() {
                 {!!g.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
               </div>
             </Link>
-            {!removing && <PlayerStar id={p.id} />}
+            {!removing && <FollowStar id={p.id} />}
             {removing && can.removeFromGroup(role, g, p.id) && (
               <button className="px-1 text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
                 ✕

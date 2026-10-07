@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
-import { PlayerStar } from '../components/Follow'
+import { FollowStar } from '../components/Follow'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
@@ -179,7 +179,7 @@ export default function Players() {
                   </div>
                 </div>
                 {/* Suivre sans ouvrir la fiche ; l'étoile remplace la flèche « › » (toute la ligne ouvre la fiche). */}
-                <PlayerStar id={p.id} />
+                <FollowStar id={p.id} />
               </Link>
             )
           })}
