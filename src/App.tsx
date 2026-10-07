@@ -34,6 +34,7 @@ const GroupDetail = lazy(() => import('./pages/Groups').then((m) => ({ default: 
 const NewGroup = lazy(() => import('./pages/Groups').then((m) => ({ default: m.NewGroup })))
 const Alerts = lazy(() => import('./pages/Alerts'))
 const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertDetail })))
+const National = lazy(() => import('./pages/National'))
 const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
 
 /** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
@@ -169,6 +170,7 @@ export default function App() {
           <Route path="/alertes" element={<Alerts />} />
           <Route path="/alertes/nouvelle" element={<NewAlert />} />
           <Route path="/alertes/:id" element={<AlertDetail />} />
+          <Route path="/national" element={<National />} />
         </Routes>
         </Suspense>
       </main>

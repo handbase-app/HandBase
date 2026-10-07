@@ -3,6 +3,7 @@ import { db } from '../db'
 import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
 import { HomeFeed } from './Feed'
+import { Icon } from '../components/ui'
 
 // Actions rapides (le reste est dans la barre du bas). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
 const ACTIONS = [
@@ -54,6 +55,20 @@ export default function Home({ toReview }: { toReview: number }) {
           </Link>
         ))}
       </div>
+
+      {/* Vue nationale : carte des départements (administrateurs). */}
+      {can.nationalView(role) && (
+        <Link to="/national" className="card group flex items-center gap-3 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
+            <Icon name="map" className="h-6 w-6" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-extrabold">Vue nationale</span>
+            <span className="block text-[11px] text-muted">Carte des départements : joueurs, mesures, profils repérés</span>
+          </span>
+          <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
+        </Link>
+      )}
 
       <HomeFeed />
     </div>
