@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:test": "vite --mode test --port 5176 --host"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
