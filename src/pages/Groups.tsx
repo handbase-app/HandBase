@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
@@ -462,9 +463,7 @@ export function GroupDetail() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <button onClick={() => nav('/groupes')} className="text-xs font-bold whitespace-nowrap text-muted">
-          ← GROUPES
-        </button>
+        <BackButton fallback="/groupes" label="GROUPES" />
         {!editing && (
           <div className="flex flex-wrap gap-3">
             {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}

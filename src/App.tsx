@@ -18,6 +18,7 @@ import { useAlertCount } from './alerts'
 import { Icon } from './components/ui'
 import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
+import { BackTracker } from './backNav'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -127,6 +128,7 @@ export default function App() {
         </div>
       </header>
 
+      <BackTracker />
       <main className="flex-1 px-4 pt-4 pb-28">
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <Routes>

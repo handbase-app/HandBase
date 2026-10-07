@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
+import { BackButton } from '../backNav'
 
 /*
  * Confidentialité (information des joueurs et de leurs familles) et charte d'utilisation (staff).
@@ -119,9 +120,7 @@ export default function Privacy() {
   }, [hash])
   return (
     <div className="flex flex-col gap-4">
-      <Link to="/parametres" className="text-xs font-bold text-muted">
-        ← RÉGLAGES
-      </Link>
+      <BackButton fallback="/parametres" label="RÉGLAGES" className="self-start" />
       <section className="card p-4">
         <div className="section-title">Confidentialité</div>
         <PrivacyText />

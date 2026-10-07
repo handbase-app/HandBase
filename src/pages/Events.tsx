@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -309,9 +310,7 @@ export function EventDetail() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <button onClick={() => nav('/evenements')} className="text-xs font-bold text-muted">
-          ← ÉVÉNEMENTS
-        </button>
+        <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
         {manage && (
           <div className="flex gap-4">
             {!editing && (

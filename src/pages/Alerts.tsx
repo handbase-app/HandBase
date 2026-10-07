@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
 import { Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
@@ -108,9 +109,7 @@ export function AlertDetail() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <button onClick={() => nav('/alertes')} className="text-xs font-bold text-muted">
-          ← ALERTES
-        </button>
+        <BackButton fallback="/alertes" label="ALERTES" />
         {manage && (
           <div className="flex gap-4">
             <button className="text-xs text-muted hover:text-fg" onClick={() => setParams({ modifier: '' }, { replace: true })}>

@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
@@ -131,11 +132,9 @@ export default function PlayerDetail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <button onClick={() => nav('/joueurs')} className="text-xs font-bold text-muted">
-          ← JOUEURS
-        </button>
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <BackButton fallback="/joueurs" label="JOUEURS" />
+        <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         {can.exportPlayer(role) && (
           <button
             onClick={() => void exportPlayer(p.id)}
