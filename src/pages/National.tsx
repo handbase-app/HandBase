@@ -620,7 +620,7 @@ function NationalView() {
             <p className="py-6 text-center text-xs text-muted">Aucun département pour ces filtres.</p>
           )}
           <Link to="/alertes" className="mt-2 flex items-center gap-1.5 border-t border-line pt-2 text-[11px] font-bold text-muted hover:text-fg">
-            <Icon name="bell" className="h-3.5 w-3.5" /> Profils recherchés
+            <Icon name="target" className="h-3.5 w-3.5" /> Profils recherchés
           </Link>
         </section>
       </div>

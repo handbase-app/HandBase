@@ -29,7 +29,7 @@ export default function Alerts() {
   const card = ({ alert, players, fresh }: (typeof data.alerts)[number]) => (
     <Link key={alert.id} to={`/alertes/${alert.id}`} className="card flex items-center gap-3 p-3 hover:border-accent">
       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${fresh.length ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-        <Icon name="bell" className="h-5 w-5" />
+        <Icon name="target" className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-bold">{alert.name}</div>

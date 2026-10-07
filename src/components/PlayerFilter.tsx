@@ -1,3 +1,4 @@
+import { useAlerts } from '../alerts'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
@@ -90,6 +91,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [sex, setSexState] = useState<SexFilter>(readSex)
   useDepartments() // noms des départements à jour dans le menu
   const [group, setGroup] = useSessionState(k('group'), '')
+  // Profil recherché (alerte enregistrée) : seulement les joueurs qui y correspondent.
+  const [profile, setProfile] = useSessionState(k('profile'), '')
   const [deptState, setDept] = useSessionState(k('dept'), '')
   const dept = hideDept ? '' : deptState
   const [club, setClub] = useSessionState(k('club'), '')
@@ -131,12 +134,21 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   // Groupes (Intercomités, Pôle…) : le groupe choisi limite la liste avant tous les autres filtres.
   const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => can.seeGroup(g) && (!g.archived || g.id === group))), [group], [])
   const current = groups.find((g) => g.id === group)
+  // Profils recherchés : calcul déjà partagé avec la cible de l'en-tête (rien de plus à calculer).
+  const profiles = useAlerts()?.alerts
+  const currentProfile = profiles?.find((a) => a.alert.id === profile)
   const all = useMemo(() => {
-    const list = players ?? []
-    if (!group) return list
-    const ids = new Set(current?.playerIds ?? [])
-    return list.filter((p) => ids.has(p.id))
-  }, [players, group, current])
+    let list = players ?? []
+    if (group) {
+      const ids = new Set(current?.playerIds ?? [])
+      list = list.filter((p) => ids.has(p.id))
+    }
+    if (profile && currentProfile) {
+      const ids = new Set(currentProfile.players.map((p) => p.id))
+      list = list.filter((p) => ids.has(p.id))
+    }
+    return list
+  }, [players, group, current, profile, currentProfile])
   // Chaque menu compte les joueurs qui passent tous les AUTRES filtres : le nombre affiché à côté d'une
   // année, d'un département ou d'un club est celui qu'on obtiendra en le choisissant.
   const base0 = useMemo(
@@ -194,7 +206,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   const active =
-    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
+    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!profile || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
     if (!hideRegion) setRegion('')
     setQ('')
@@ -203,6 +215,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     setQuarter(0)
     setMinH('')
     setGroup('')
+    setProfile('')
     setDept('')
     setClub('')
     setYear('')
@@ -222,6 +235,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     !hideRegion && region && { label: regionLabel(region), clear: () => (setRegion(''), setDept(''), setClub('')) },
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
+    currentProfile && { label: `Profil : ${currentProfile.alert.name}`, clear: () => setProfile('') },
     current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), !hideRegion && setRegion(''), setDept(''), setClub('')) },
     position !== 'all' && { label: position === 'none' ? 'Sans poste' : (POSITIONS.find((x) => x.id === position)?.label ?? position), clear: () => setPosition('all') },
     withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
@@ -327,6 +341,16 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
             </select>
           ) : null}
           <ClubPicker clubs={clubs} total={clubBase.length} value={club} onChange={setClub} />
+          {!!profiles?.length && (
+            <select className={`field py-1.5 text-xs ${profile ? 'border-accent font-bold' : ''}`} value={profile} onChange={(e) => setProfile(e.target.value)}>
+              <option value="">Tous les joueurs (sans profil recherché)</option>
+              {profiles.map(({ alert, players: ps }) => (
+                <option key={alert.id} value={alert.id}>
+                  {alert.private ? '🔒 ' : ''}Profil : {alert.name} ({ps.length.toLocaleString('fr-FR')})
+                </option>
+              ))}
+            </select>
+          )}
           {groups.length > 0 && (
             <select
               className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
@@ -392,7 +416,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, region, dept, club, year, position, withSecondary])
+  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, region, dept, club, year, position, withSecondary])
   return { filtered, ui, active, reset, signature, group: current, region, setRegion, regionCounts }
 }
 
@@ -525,7 +549,7 @@ export function showGroupInPlayers(groupId: string) {
 }
 
 /** Filtres d'un écran (hors département et repli/dépli). */
-const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH'] as const
+const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH', 'profile'] as const
 
 /**
  * Ouvre la liste Joueurs avec les filtres d'un autre écran (`from`, région comprise), plus un département.

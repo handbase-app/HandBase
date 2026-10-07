@@ -13,7 +13,7 @@ import type { AlertsResult } from './alerts'
 export type FeedKind = 'alerts' | 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
 
 export const FEED_KINDS: { value: FeedKind; label: string; icon: IconName }[] = [
-  { value: 'alerts', label: 'Profils recherchés', icon: 'bell' },
+  { value: 'alerts', label: 'Profils recherchés', icon: 'target' },
   { value: 'measurements', label: 'Mesures', icon: 'ruler' },
   { value: 'evaluations', label: 'Avis', icon: 'star' },
   { value: 'players', label: 'Joueurs', icon: 'userPlus' },
