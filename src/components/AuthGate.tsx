@@ -2,7 +2,7 @@ import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
 import { clearRole, refreshRole } from '../roles'
 import { claimDevice, supabase } from '../sync'
-import { TRIAL } from '../db'
+import { TRIAL, TRIAL_LABEL } from '../db'
 import { useMe } from './ui'
 import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
 
@@ -169,7 +169,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-6">
       <div className="text-center">
         <div className="text-[10px] font-bold tracking-[0.3em] text-muted">HANDBASE</div>
-        {TRIAL && <div className="mx-auto mt-2 w-fit rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wider text-black">VERSION D’ESSAI</div>}
+        {TRIAL && <div className="mx-auto mt-2 w-fit rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wider text-black">{TRIAL_LABEL}</div>}
         <h1 className="mt-1 text-2xl font-extrabold">Collecte & suivi</h1>
       </div>
       {children}

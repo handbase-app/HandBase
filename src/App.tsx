@@ -4,7 +4,7 @@ import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
-import { db, TRIAL } from './db'
+import { db, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
 import Evaluate from './pages/Evaluate'
 import Home from './pages/Home'
@@ -137,7 +137,7 @@ export default function App() {
         <GuardedLink to="/" className="text-sm font-extrabold tracking-widest">
           HAND<span className="text-accent">BASE</span>
           {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
-          {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">VERSION D’ESSAI</span>}
+          {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">{TRIAL_LABEL}</span>}
         </GuardedLink>
         <div className="flex items-center gap-3">
           <AlertBell n={alerts} />

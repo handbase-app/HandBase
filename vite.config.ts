@@ -6,6 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Sur GitHub Pages l'app est servie sous /HandBase/ (défini par le workflow de déploiement),
 // VITE_TRIAL=1 : version d'essai testée en local (bandeau, base locale séparée).
 const trial = !!process.env.VITE_TRIAL
+// VITE_DEMO=1 : démonstration en ligne (dépôt HandBase-demo, base de test, données fictives).
+const demo = !!process.env.VITE_DEMO
 
 export default defineConfig({
   base: process.env.BASE_PATH || '/',
@@ -19,9 +21,9 @@ export default defineConfig({
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         // Identifiant d’app stable (même forme que l’adresse de démarrage).
-        id: '/HandBase/',
-        name: trial ? 'HandBase — ESSAI' : 'HandBase — Collecte & suivi',
-        short_name: trial ? 'HB essai' : 'HandBase',
+        id: process.env.BASE_PATH || '/HandBase/',
+        name: demo ? 'HandBase — Démo' : trial ? 'HandBase — ESSAI' : 'HandBase — Collecte & suivi',
+        short_name: demo ? 'HB démo' : trial ? 'HB essai' : 'HandBase',
         description: 'Données physiques et évaluations des joueurs de handball',
         lang: 'fr',
         theme_color: '#1e1e2e',

@@ -281,6 +281,9 @@ export type SyncTable = (typeof SYNC_TABLES)[number]
 
 /** Version d'essai (VITE_TRIAL=1, test en local avant publication) : sa propre base locale et un bandeau. */
 export const TRIAL = !!import.meta.env.VITE_TRIAL
+/** Démonstration en ligne (VITE_DEMO=1, base HandBase-test, données fictives) : bandeau dédié. */
+export const DEMO = !!import.meta.env.VITE_DEMO
+export const TRIAL_LABEL = DEMO ? 'DÉMONSTRATION · DONNÉES FICTIVES' : 'VERSION D’ESSAI'
 
 export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   players: EntityTable<Player, 'id'>
