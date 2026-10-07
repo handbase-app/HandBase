@@ -546,7 +546,7 @@ export function EventDetail() {
                         </div>
                       </Link>
                       <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
-                        {n ? <AvisToggle n={n} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} /> : <span className="text-muted">—</span>}
+                        {n ? <AvisToggle n={n} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} /> : null}
                         {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
                       {!removing && <FollowStar id={p.id} />}
