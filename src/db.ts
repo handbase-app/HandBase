@@ -350,6 +350,9 @@ db.version(9).stores({
   evaluations: 'id, playerId, eventId, observer, date, updatedAt, review',
 })
 
+// v10 : tests du FabLab (VMA, sprint 5 m, Illinois, CMJ bras libres, drop jumps et leur RSI).
+db.version(10).upgrade(applyDefaultCriteria)
+
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
 export function newId(): string {
