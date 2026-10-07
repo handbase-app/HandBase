@@ -83,6 +83,12 @@ export const NOTIF_KINDS = [
   { id: 'fiche', label: 'Fiches proposées', help: 'Fiches de joueurs proposées dans ton secteur.' },
   { id: 'participant', label: 'Participant', help: 'On t’ajoute comme participant d’un événement ou d’un groupe.' },
   { id: 'rappel', label: 'Rappel la veille', help: 'La veille de tes événements (organisateur ou participant), vers 18 h.' },
+  // supabase/033_notifications_suivis.sql
+  {
+    id: 'suivi',
+    label: 'Joueurs suivis',
+    help: 'Nouvelles mesures et nouveaux avis sur les joueurs que tu suis (directement ou par un groupe), regroupés.',
+  },
 ] as const
 
 export async function readNotifPrefs(): Promise<Record<string, boolean | number>> {
