@@ -502,19 +502,30 @@ export default function Evaluate() {
           style={{ touchAction: 'pan-y' }}
           className={`flex flex-col gap-4 ${enter?.id === player.id ? (enter.dir === 'left' ? 'animate-slide-left' : 'animate-slide-right') : ''}`}
         >
-          {/* Encadrants et admins : corriger la fiche (poste…) sans quitter la notation ; on revient ici après. */}
-          {can.editPlayers(role) && (
+          {/* Voir la fiche du joueur (mesures, avis, maturité…) ; le bouton retour ramène ici. Sans poste, les encadrants
+              et admins sont invités à la compléter directement. */}
+          {!player.position && can.editPlayers(role) ? (
             <button
               data-noswipe
-              className={`self-start text-[11px] font-bold ${player.position ? 'text-muted hover:text-fg' : 'text-amber-300'}`}
+              className="self-start text-[11px] font-bold text-amber-300"
               onClick={async () => {
                 if (!(await confirmLeave())) return
-                navigate(
-                  `/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}${player.position ? '' : '&ouvrir=poste'}`,
-                )
+                navigate(`/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`)
               }}
             >
-              ✎ {player.position ? 'Modifier la fiche' : 'Pas de poste : compléter la fiche'}
+              ✎ Pas de poste : compléter la fiche
+            </button>
+          ) : (
+            <button
+              data-noswipe
+              className="flex items-center gap-1.5 self-start text-[11px] font-bold text-muted hover:text-fg"
+              onClick={async () => {
+                if (!(await confirmLeave())) return
+                navigate(`/joueurs/${player.id}`)
+              }}
+            >
+              <Icon name="user" className="h-3.5 w-3.5" />
+              Voir la fiche
             </button>
           )}
           <div className="flex items-center justify-between">
