@@ -13,6 +13,8 @@ import { ListEditor } from '../components/ListEditor'
 import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { departmentLabel } from '../lists'
+import { STAFF } from '../staffLabels'
+import { useTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
 import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
@@ -33,6 +35,7 @@ export default function Settings() {
   const role = useRole()
 
   const admin = can.manageRoles(role)
+  const teams = useTeams() ?? []
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-lg font-extrabold">Réglages</h1>
@@ -80,6 +83,8 @@ export default function Settings() {
         </div>
       </Fold>
 
+      {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
+
       {admin && (
         <>
           <div className="mt-3 text-[10px] font-extrabold tracking-wider text-muted uppercase">Administration</div>
@@ -95,6 +100,12 @@ export default function Settings() {
           </Link>
           {supabase && (
             <Fold id="membres" icon="users" title="Équipe" summary="Comptes, rôles, secteurs">
+              <p className="text-[11px] text-muted">
+                {STAFF.settingsHelp}{' '}
+                <Link to={STAFF.route} className="font-bold text-accent underline">
+                  {STAFF.title}
+                </Link>
+              </p>
               <Members />
             </Fold>
           )}
@@ -336,6 +347,22 @@ function ThemePicker() {
  * Rubrique repliable des réglages : une ligne (icône, titre, résumé) qui s'ouvre sur ses réglages.
  * Les cartes des réglages s'y fondent (séparées par un trait) ; l'état ouvert est gardé pendant la session.
  */
+/** Lien vers « Mes staffs » (équipes d'encadrants, supabase/034). */
+function TeamsLink() {
+  return (
+    <Link to={STAFF.route} className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
+        <Icon name="users" className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold">{STAFF.title}</span>
+        <span className="block truncate text-[11px] text-muted">{STAFF.settingsHelp}</span>
+      </span>
+      <span className="text-muted">›</span>
+    </Link>
+  )
+}
+
 function Fold({ id, icon, title, summary, children }: { id: string; icon: IconName; title: string; summary?: string; children: ReactNode }) {
   const [open, setOpen] = useSessionState(`handbase.settings.${id}`, false)
   return (

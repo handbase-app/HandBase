@@ -1,4 +1,5 @@
 import type { SyncTable } from './db'
+import { STAFF } from './staffLabels'
 
 /*
  * Avancement d'un gros téléchargement (premier chargement d'un appareil) : pour chaque table en cours,
@@ -40,6 +41,7 @@ export const TABLE_LABELS: Record<SyncTable, string> = {
   lists: 'listes',
   alerts: 'profils recherchés',
   follows: 'suivis',
+  teams: STAFF.many,
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')

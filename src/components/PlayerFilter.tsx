@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
 import { can, groupTag } from '../roles'
+import { loadTeams } from '../teams'
 import { birthQuarter, Icon } from './ui'
 import { CourtFilter } from './CourtPicker'
 import { alive, db, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
@@ -135,7 +136,11 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   }
 
   // Groupes (Intercomités, Pôle…) : le groupe choisi limite la liste avant tous les autres filtres.
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => can.seeGroup(g) && (!g.archived || g.id === group))), [group], [])
+  const groups = useLiveQuery(
+    () => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => can.seeGroup(g) && (!g.archived || g.id === group)))),
+    [group],
+    [],
+  )
   const current = groups.find((g) => g.id === group)
   // Profils recherchés : calcul déjà partagé avec la cible de l'en-tête (rien de plus à calculer).
   const profiles = useAlerts()?.alerts

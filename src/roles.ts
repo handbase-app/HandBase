@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './sync'
+import { GROUP_VIS } from './staffLabels'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -95,11 +96,49 @@ export function useRole(): Role {
   return role
 }
 
-/** Visibilité d'un groupe : « Moi seul », « Équipe » (créateur et participants) ou « Tout le staff ». */
+/** Visibilité d'un groupe : « Moi seul », « Mon staff » (team : créateur et participants) ou « Tout le staff ». */
 export type GroupVisibility = 'private' | 'team' | 'staff'
 export const groupVisibility = (g: { private?: boolean; team?: boolean }): GroupVisibility => (g.private ? 'private' : g.team ? 'team' : 'staff')
-/** Mention après le nom d'un groupe dans les menus déroulants (qui n'affichent que du texte) : « (privé) », « (équipe) ». */
-export const groupTag = (g: { private?: boolean; team?: boolean }) => ({ private: ' (privé)', team: ' (équipe)', staff: '' })[groupVisibility(g)]
+/** Mention après le nom d'un groupe dans les menus déroulants (qui n'affichent que du texte) : « (privé) », « (mon staff) ». */
+export const groupTag = (g: { private?: boolean; team?: boolean }) => GROUP_VIS.tag[groupVisibility(g)]
+
+// ---------- Staffs (supabase/034_equipes_encadrants.sql) ----------
+
+/**
+ * Membres des staffs présents sur l'appareil (ceux que je vois : les miens et ceux dont je fais partie), tenus à
+ * jour par teams.ts. Un staff supprimé ou absent (dont je ne fais pas partie) est ignoré, comme sur le serveur.
+ */
+let teamMembers = new Map<string, string[]>()
+let teamSig = ''
+
+/** Met à jour les staffs connus ; prévient les écrans (comme un changement de rôle) seulement s'ils ont changé. */
+export function setTeamCache(teams: { id: string; members?: string[]; deleted?: boolean }[]) {
+  const alive = teams.filter((t) => !t.deleted)
+  const sig = alive
+    .map((t) => `${t.id}:${[...(t.members ?? [])].sort().join(',')}`)
+    .sort()
+    .join('|')
+  if (sig === teamSig) return
+  teamSig = sig
+  teamMembers = new Map(alive.map((t) => [t.id, t.members ?? []]))
+  listeners.forEach((l) => l())
+}
+
+/** Membres d'un staff visible et non supprimé (undefined sinon). */
+export const teamMembersOf = (id: string) => teamMembers.get(id)
+
+type WithParticipants = { editors?: string[]; teams?: string[] }
+
+/** Participants effectifs d'un groupe ou d'un événement : choisis un par un, et membres actuels des staffs choisis. */
+export function participants(x: WithParticipants): string[] {
+  const all = new Set(x.editors ?? [])
+  for (const t of x.teams ?? []) for (const u of teamMembers.get(t) ?? []) all.add(u)
+  return [...all]
+}
+
+/** Ce compte est-il participant (directement ou par un staff dont il est membre) ? (supabase/034 : hb_participant_of) */
+export const isParticipant = (x: WithParticipants, uid = userId) =>
+  !!uid && (!!x.editors?.includes(uid) || !!x.teams?.some((t) => teamMembers.get(t)?.includes(uid)))
 
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
 export const can = {
@@ -118,26 +157,27 @@ export const can = {
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   /** Créer des groupes : tout le monde (l'observateur seulement des groupes privés). */
   manageGroups: (_r: Role) => true,
-  /** Groupes « Tout le staff » ou « Équipe » (et profils recherchés partagés) : pas l'observateur. */
+  /** Groupes « Tout le staff » ou « Mon staff » (et profils recherchés partagés) : pas l'observateur. */
   publicGroups: (r: Role) => r !== 'observateur',
   /**
-   * Voir un groupe : le sien, ou un groupe du staff, ou un groupe d'équipe dont on est participant
-   * (supabase/017_groupes_prives.sql, 031_groupes_equipe.sql). Sert aussi aux profils recherchés (sans « team »).
+   * Voir un groupe : le sien, ou un groupe du staff, ou un groupe « Mon staff » (team) dont on est participant,
+   * directement ou par un staff (supabase/017_groupes_prives.sql, 031_groupes_equipe.sql, 034).
+   * Sert aussi aux profils recherchés (sans « team »).
    */
-  seeGroup: (g: { createdBy?: string; private?: boolean; team?: boolean; editors?: string[] }) =>
-    !g.createdBy || g.createdBy === userId || (!g.private && (!g.team || (!!userId && !!g.editors?.includes(userId)))),
-  /** Modifier / supprimer un groupe : privé ou d'équipe, son créateur seul ; du staff, l'admin tous et l'encadrant les siens. */
+  seeGroup: (g: { createdBy?: string; private?: boolean; team?: boolean; editors?: string[]; teams?: string[] }) =>
+    !g.createdBy || g.createdBy === userId || (!g.private && (!g.team || isParticipant(g))),
+  /** Modifier / supprimer un groupe : privé ou « Mon staff », son créateur seul ; du staff, l'admin tous et l'encadrant les siens. */
   editGroup: (r: Role, g: { createdBy?: string; private?: boolean; team?: boolean }) =>
     g.private || g.team ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
-  /** Participant d'un groupe du staff ou d'équipe (supabase/023, 031) : encadrant désigné par le créateur. */
-  contributeGroup: (r: Role, g: { private?: boolean; editors?: string[] }) => r === 'preparateur' && !g.private && !!userId && !!g.editors?.includes(userId),
+  /** Participant d'un groupe du staff ou « Mon staff » (supabase/023, 031, 034) : encadrant désigné par le créateur, ou membre d'un staff choisi. */
+  contributeGroup: (r: Role, g: { private?: boolean; editors?: string[]; teams?: string[] }) => r === 'preparateur' && !g.private && isParticipant(g),
   /** Retirer ce joueur du groupe : créateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
-  removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
+  removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; teams?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
     can.editGroup(r, g) || (can.contributeGroup(r, g) && (g.addedBy?.[playerId] ?? g.createdBy) === userId),
   /** Participant d'un événement (supabase/024_participants_evenements.sql) : co-organisateur pour la liste et les avis hors liste. */
-  contributeEvent: (r: Role, ev: { editors?: string[] }) => r === 'preparateur' && !!userId && !!ev.editors?.includes(userId),
+  contributeEvent: (r: Role, ev: { editors?: string[]; teams?: string[] }) => r === 'preparateur' && isParticipant(ev),
   /** Retirer ce joueur de la liste : organisateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
-  removeFromEvent: (r: Role, ev: { editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
+  removeFromEvent: (r: Role, ev: { editors?: string[]; teams?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
     can.editEvent(r, ev) || (can.contributeEvent(r, ev) && (ev.addedBy?.[playerId] ?? ev.createdBy) === userId),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
@@ -151,8 +191,12 @@ export const can = {
    * Décider d'un avis en attente : l'encadrant du secteur du joueur, ou, pour un avis hors liste sur un
    * événement, aussi l'organisateur de l'événement (supabase/021_avis_hors_liste.sql).
    */
-  reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string; editors?: string[] }) =>
-    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId || !!ev.editors?.includes(userId ?? ''))),
+  reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string; editors?: string[]; teams?: string[] }) =>
+    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId || isParticipant(ev))),
+  /** Créer un staff (supabase/034) : encadrants et administrateurs. */
+  manageTeams: (r: Role) => r !== 'observateur',
+  /** Modifier / supprimer un staff : son créateur seul (sans créateur connu : créé sur cet appareil, pas encore envoyé). */
+  editTeam: (t: { createdBy?: string }) => !t.createdBy || t.createdBy === userId,
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

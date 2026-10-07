@@ -5,6 +5,7 @@ import { alive, db, fmtDate, localDay, plural, positionLabel, type Player } from
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews } from '../follows'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon } from '../components/ui'
+import { TEAM_FOLLOW } from '../staffLabels'
 
 function dayLabel(day: string) {
   const now = Date.now()
@@ -59,7 +60,7 @@ export default function Follows() {
   useEffect(() => markFollowsSeen(), [])
   const [days, setDays] = useState(30)
   const follows = useFollows()
-  const news = useThrottledQuery(() => (follows ? buildFollowNews(days, follows) : Promise.resolve(undefined)), [days, follows], NEWS_TABLES.filter((t) => t !== 'follows' && t !== 'groups'))
+  const news = useThrottledQuery(() => (follows ? buildFollowNews(days, follows) : Promise.resolve(undefined)), [days, follows], NEWS_TABLES.filter((t) => t !== 'follows' && t !== 'groups' && t !== 'teams'))
   // Joueurs cités (nouveautés et suivis directs), lus un par un : jamais toute la base.
   const ids = [...new Set([...(news ?? []).map((n) => n.playerId), ...(follows?.players ?? [])])]
   const players = useLiveQuery(
@@ -92,7 +93,7 @@ export default function Follows() {
           Mes suivis
         </h1>
         <p className="text-[11px] text-muted">
-          Les nouvelles mesures et les nouveaux avis des joueurs que tu suis. Personne d’autre ne voit tes suivis ; un groupe « suivi par l’équipe » l’est par son
+          Les nouvelles mesures et les nouveaux avis des joueurs que tu suis. Personne d’autre ne voit tes suivis ; un groupe « {TEAM_FOLLOW.label.toLowerCase()} » l’est par son
           créateur et ses participants.
         </p>
       </div>
@@ -153,8 +154,8 @@ export default function Follows() {
                     Ne plus suivre
                   </button>
                 ) : (
-                  <span className="shrink-0 text-[11px] text-muted" title="Suivi par l’équipe : seul le créateur du groupe peut le retirer">
-                    {team ? 'par l’équipe' : ''}
+                  <span className="shrink-0 text-[11px] text-muted" title={TEAM_FOLLOW.removeTitle}>
+                    {team ? TEAM_FOLLOW.short : ''}
                   </span>
                 )}
               </div>

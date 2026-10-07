@@ -8,9 +8,11 @@ import { startSync } from './sync.ts'
 import { startPresence } from './presence.ts'
 import { applyTheme } from './theme.ts'
 import { startPwaUpdates } from './pwa.ts'
+import { startTeamCache } from './teams.ts'
 
 // Couleurs du thème choisi, avant le premier affichage (pas de flash).
 applyTheme()
+startTeamCache()
 startSync()
 startPresence()
 startPwaUpdates()

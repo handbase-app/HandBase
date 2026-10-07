@@ -2,13 +2,15 @@ import { useEffect, useReducer } from 'react'
 import { alive, contextLabel, db, localDay, remove, save, type Criterion, type Follow, type HBEvent, type PlayerGroup } from './db'
 import { fmtValue } from './components/ui'
 import { sharedQuery, useShared } from './live'
-import { can, currentUserId, useRole } from './roles'
+import { can, currentUserId, isParticipant, useRole } from './roles'
+import { loadTeams } from './teams'
 import { supabase } from './sync'
 
 /*
  * « Mes suivis » (supabase/032_suivis.sql) : joueurs et groupes suivis, à la façon d'un réseau social.
  *  - suivi personnel : une ligne de la table follows, privée (son créateur seul la voit, sur tous ses appareils) ;
- *  - suivi d'équipe : groupe « Suivi par l'équipe » (teamFollow), suivi par son créateur et ses participants.
+ *  - suivi par le staff : groupe « Suivi par le staff » (teamFollow), suivi par son créateur et ses participants
+ *    (choisis un par un ou membres d'un staff choisi, supabase/034).
  * Suivre un groupe = suivre tous ses joueurs, y compris ceux ajoutés plus tard (calculé à chaque fois).
  * Nouveautés d'un joueur suivi : ses nouvelles mesures et ses nouveaux avis (rien d'autre).
  */
@@ -22,25 +24,25 @@ const followId = (me: string, kind: FollowKind, targetId: string) => `${me}:${ki
 /** Peut-on suivre (compte connu) ? */
 export const canFollow = () => !!owner()
 
-/** Groupe suivi par l'équipe, pour ce compte : il en est le créateur ou un participant (jamais un groupe privé). */
+/** Groupe suivi par le staff, pour ce compte : il en est le créateur ou un participant (jamais un groupe privé). */
 export function teamFollowed(g: PlayerGroup, uid = currentUserId()) {
   if (!g.teamFollow || g.private) return false
   // Sans créateur connu : groupe créé sur cet appareil, pas encore envoyé (donc le mien).
-  return !g.createdBy || (!!uid && (g.createdBy === uid || !!g.editors?.includes(uid)))
+  return !g.createdBy || (!!uid && (g.createdBy === uid || isParticipant(g, uid)))
 }
 
 export interface FollowedGroup {
   group: PlayerGroup
   /** Suivi personnel (ligne follows). */
   personal: boolean
-  /** Suivi par l'équipe (teamFollow, et je suis créateur ou participant). */
+  /** Suivi par le staff (teamFollow, et je suis créateur ou participant). */
   team: boolean
 }
 
 export interface FollowsResult {
   /** Joueurs suivis directement. */
   players: Set<string>
-  /** Groupes suivis (personnellement ou par l'équipe), visibles, non supprimés. */
+  /** Groupes suivis (personnellement ou par le staff), visibles, non supprimés. */
   groups: FollowedGroup[]
   /** Tous les joueurs suivis (directement ou par un groupe). */
   followed: Set<string>
@@ -51,6 +53,8 @@ export interface FollowsResult {
 /** Mes suivis (lus dans follows et groups : quelques centaines de lignes au plus). */
 export async function computeFollows(): Promise<FollowsResult> {
   const me = owner()
+  // Staffs relus d'abord : ils comptent dans les participants (seeGroup, teamFollowed).
+  await loadTeams()
   const [rows, groups] = await Promise.all([db.follows.toArray(), db.groups.toArray()])
   const mine = me ? alive(rows).filter((f) => f.id.startsWith(`${me}:`)) : []
   const players = new Set(mine.filter((f) => f.kind === 'player').map((f) => f.targetId))
@@ -75,7 +79,7 @@ export async function computeFollows(): Promise<FollowsResult> {
 
 let computedFor: string | null | undefined
 const followsStore = sharedQuery(
-  ['follows', 'groups'],
+  ['follows', 'groups', 'teams'],
   () => {
     computedFor = currentUserId()
     return computeFollows()
@@ -136,7 +140,7 @@ const created = (r: { createdAtServer?: string; updatedAtServer?: string; update
 }
 
 /** Tables lues par les nouveautés (pour les relancer quand elles changent). */
-export const NEWS_TABLES = ['follows', 'groups', 'measurements', 'evaluations', 'players', 'criteria', 'events']
+export const NEWS_TABLES = ['follows', 'groups', 'teams', 'measurements', 'evaluations', 'players', 'criteria', 'events']
 
 /**
  * Nouvelles mesures et nouveaux avis des joueurs suivis, sur les `days` derniers jours, les plus récents d'abord.

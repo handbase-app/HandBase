@@ -23,6 +23,7 @@ import { syncNow, useSyncState } from './sync'
 import { SyncProgressBar } from './components/SyncProgress'
 import { percent, showProgress } from './syncProgress'
 import { BackTracker } from './backNav'
+import { STAFF } from './staffLabels'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -40,6 +41,7 @@ const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: 
 const National = lazy(() => import('./pages/National'))
 const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
 const Follows = lazy(() => import('./pages/Follows'))
+const Teams = lazy(() => import('./pages/Teams'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -184,6 +186,7 @@ export default function App() {
           <Route path="/groupes" element={<Groups />} />
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path="/groupes/:id" element={<GroupDetail />} />
+          <Route path={STAFF.route} element={<Teams />} />
           <Route path="/parametres" element={<Settings />} />
           <Route path="/confidentialite" element={<Privacy />} />
           <Route path="/actualite" element={<Feed />} />

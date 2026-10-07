@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { alive, db, plural, save, type PlayerGroup } from '../db'
 import { can, currentUserId, useRole } from '../roles'
+import { loadTeams } from '../teams'
 import { getMe, GroupMark } from './ui'
 
 /** Ajoute des joueurs au groupe (sans doublon, ordre conservé). Renvoie le nombre de nouveaux. */
@@ -43,7 +44,10 @@ export function removeFromGroup(g: PlayerGroup, ids: string[]) {
 export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; onClose: (msg?: string, groupId?: string) => void }) {
   const role = useRole()
   const nav = useNavigate()
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && (can.editGroup(role, g) || can.contributeGroup(role, g)))), [role])
+  const groups = useLiveQuery(
+    () => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && (can.editGroup(role, g) || can.contributeGroup(role, g))))),
+    [role],
+  )
   const [picked, setPicked] = useState('')
   const n = playerIds.length
   const label = n > 1 ? `${n.toLocaleString('fr-FR')} joueurs` : 'ce joueur'
@@ -136,7 +140,7 @@ export function GroupNotice({ msg, groupId }: { msg: string; groupId?: string })
 export function PlayerGroups({ playerId }: { playerId: string }) {
   const role = useRole()
   const groups = useLiveQuery(
-    () => db.groups.toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g) && g.playerIds.includes(playerId))),
+    () => loadTeams().then(() => db.groups.toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g) && g.playerIds.includes(playerId)))),
     [playerId],
     [],
   )

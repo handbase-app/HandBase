@@ -3,12 +3,13 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, Icon, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
+import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
-import { StaffPicker } from '../components/StaffPicker'
+import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { supabase } from '../sync'
 import {
   alive,
@@ -695,7 +696,7 @@ const isFilled = (v: unknown): v is number | string => typeof v === 'number' || 
 /** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
 export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void }) {
   // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g))), [], [])
+  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g)))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
   const picked = groups.find((g) => g.id === group)
   const [name, setName] = useState(event?.name ?? '')
@@ -704,6 +705,9 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
   const [place, setPlace] = useState(event?.place ?? '')
   // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
   const [editors, setEditors] = useState<string[]>(event?.editors ?? [])
+  // Staffs choisis (supabase/034) : leurs membres du moment co-organisent. Ceux que je ne vois pas restent tels quels.
+  const [teams, setTeams] = useState<string[]>(event?.teams ?? [])
+  const canPick = useCanPickStaff()
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
@@ -725,14 +729,22 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           ))}
         </select>
       )}
-      {supabase && (
+      {canPick && (
         <>
           <span className="label mt-1">Participants</span>
           <p className="-mt-1 text-[11px] text-muted">
             Encadrants qui co-organisent : ils ajoutent des joueurs à la liste, retirent ceux qu’ils ont ajoutés et valident les avis hors liste.
             Modifier, archiver ou supprimer l’événement reste à toi (et aux administrateurs).
           </p>
-          <StaffPicker value={editors} onChange={setEditors} ownerId={event?.createdBy} onNames={setStaffNames} chip={chip} />
+          <StaffPicker
+            value={editors}
+            onChange={setEditors}
+            teams={teams}
+            onTeams={setTeams}
+            ownerId={event?.createdBy}
+            onNames={setStaffNames}
+            chip={chip}
+          />
         </>
       )}
       <div className="flex gap-2">
@@ -746,6 +758,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
               date,
               place: place || undefined,
               editors,
+              teams: teams.length ? teams : undefined,
               names: { ...event?.names, ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])) },
             }
             // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.

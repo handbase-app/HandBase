@@ -355,7 +355,7 @@ export function Icon({ name, className = 'h-4 w-4', filled = false }: { name: Ic
   )
 }
 
-/** Petite icône devant le nom d'un groupe privé (cadenas) ou d'équipe (personnes) ; rien pour un groupe du staff. */
+/** Petite icône devant le nom d'un groupe privé (cadenas) ou « Mon staff » (personnes) ; rien pour un groupe du staff. */
 export function GroupMark({ g, className = 'mr-1 inline h-3 w-3 -translate-y-px' }: { g: { private?: boolean; team?: boolean }; className?: string }) {
   if (!g.private && !g.team) return null
   return <Icon name={g.private ? 'lock' : 'users'} className={className} />

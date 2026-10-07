@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
 import { SectionTitle } from './ui'
+import { STAFF } from '../staffLabels'
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /*
  * Journal d'activité (administrateurs) : lu directement sur le serveur, en ligne uniquement.
@@ -29,6 +32,7 @@ const TABLES: Record<string, string> = {
   groups: 'Groupe',
   alerts: 'Profil recherché',
   follows: 'Suivi (privé)',
+  teams: `${cap(STAFF.one)} (privé)`,
   lists: 'Liste (région, département)',
   profiles: 'Membre du staff',
 }
@@ -45,6 +49,7 @@ const FIELDS: Record<string, string> = {
   club: 'Club',
   clubCode: 'N° club',
   team: 'Équipe',
+  teams: cap(STAFF.many),
   category: 'Catégorie',
   license: 'Licence',
   licenseStatus: 'État licence',

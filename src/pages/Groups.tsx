@@ -12,8 +12,12 @@ import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '.
 import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
-import { supabase } from '../sync'
-import { StaffPicker } from '../components/StaffPicker'
+import { loadTeams } from '../teams'
+import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
+import { Participants } from '../components/Participants'
+import { GROUP_VIS, STAFF, TEAM_FOLLOW } from '../staffLabels'
+import { participantSummary, useTeams } from '../teams'
+import type { Team } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { teamFollowed } from '../follows'
@@ -21,7 +25,8 @@ import { teamFollowed } from '../follows'
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
   const role = useRole()
-  const groups = useLiveQuery(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup)))
+  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup))))
+  const teams = useTeams() ?? []
   const [showArchived, setShowArchived] = useState(false)
   const regionName = useRegionName()
   // Filtres de la liste (gardés pendant la session).
@@ -69,11 +74,18 @@ export default function Groups() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-extrabold">Groupes</h1>
-        {can.manageGroups(role) && (
-          <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
-            + Groupe
-          </Link>
-        )}
+        <div className="flex items-center gap-3">
+          {(can.manageTeams(role) || teams.length > 0) && (
+            <Link to={STAFF.route} className="flex items-center gap-1 text-xs font-bold text-muted hover:text-fg">
+              <Icon name="users" className="h-3.5 w-3.5" /> {STAFF.title}
+            </Link>
+          )}
+          {can.manageGroups(role) && (
+            <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
+              + Groupe
+            </Link>
+          )}
+        </div>
       </div>
       <p className="text-[11px] text-muted">
         Des listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : un clic pour les filtrer, les exporter ou remplir un
@@ -163,7 +175,7 @@ export default function Groups() {
               {active
                 .filter((g) => groupVisibility(g) === sec.vis)
                 .map((g) => (
-                  <GroupRow key={g.id} g={g} />
+                  <GroupRow key={g.id} g={g} teams={teams} />
                 ))}
             </Fragment>
           ),
@@ -173,45 +185,48 @@ export default function Groups() {
           {showArchived ? 'Masquer' : 'Voir'} les groupes archivés ({archived.length})
         </button>
       )}
-      {showArchived && archived.map((g) => <GroupRow key={g.id} g={g} />)}
+      {showArchived && archived.map((g) => <GroupRow key={g.id} g={g} teams={teams} />)}
     </div>
   )
 }
 
 /** Sections de la liste, une par visibilité. */
 const SECTIONS = [
-  { vis: 'private', icon: 'lock', title: 'Mes groupes privés' },
-  { vis: 'team', icon: 'users', title: 'Groupes d’équipe' },
-  { vis: 'staff', icon: 'globe', title: 'Groupes du staff' },
+  { vis: 'private', icon: 'lock', title: GROUP_VIS.section.private },
+  { vis: 'team', icon: 'users', title: GROUP_VIS.section.team },
+  { vis: 'staff', icon: 'globe', title: GROUP_VIS.section.staff },
 ] as const
 
-/** Pastille « Équipe » : groupe visible par son créateur et ses participants seulement. */
+/** Pastille « Mon staff » (team) : groupe visible par son créateur et ses participants seulement. */
 function TeamChip() {
   return (
     <span
-      title="Groupe d’équipe : visible seulement par son créateur et ses participants"
+      title={GROUP_VIS.chipTitle}
       className="ml-2 inline-flex shrink-0 items-center gap-0.5 rounded-full border border-line px-1.5 align-[1px] text-[10px] font-bold text-muted"
     >
-      <Icon name="users" className="h-2.5 w-2.5" /> Équipe
+      <Icon name="users" className="h-2.5 w-2.5" /> {GROUP_VIS.chip}
     </span>
   )
 }
 
-/** Pastille « Suivi par l'équipe » : le groupe compte comme suivi pour son créateur et ses participants. */
+/** Pastille « Suivi par le staff » (teamFollow) : le groupe compte comme suivi pour son créateur et ses participants. */
 function TeamFollowChip() {
   return (
     <span
-      title="Suivi par l’équipe : ses joueurs sont suivis par son créateur et ses participants (Mes suivis)"
+      title={TEAM_FOLLOW.chipTitle}
       className="ml-2 inline-flex shrink-0 items-center gap-0.5 rounded-full border border-accent/50 px-1.5 align-[1px] text-[10px] font-bold text-muted"
     >
-      <Icon name="star" filled className="h-2.5 w-2.5 text-accent" /> Suivi par l’équipe
+      <Icon name="star" filled className="h-2.5 w-2.5 text-accent" /> {TEAM_FOLLOW.label}
     </span>
   )
 }
 
-function GroupRow({ g }: { g: PlayerGroup }) {
+function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
+  // Participants en bref : staffs choisis (par leur nom), puis participants choisis un par un.
+  const ps = participantSummary(g, teams)
+  const who = [...ps.teams.map((t) => t.name), ...(ps.hidden ? [STAFF.hidden(ps.hidden)] : []), ...ps.others.map((u) => g.names?.[u] ?? '?')]
   return (
     <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
@@ -225,7 +240,7 @@ function GroupRow({ g }: { g: PlayerGroup }) {
         {g.createdByName && !g.private && (
           <div className="text-[10px] text-muted">
             par {g.createdByName}
-            {!!g.editors?.length && ` + ${g.editors.map((u) => g.names?.[u] ?? '?').join(', ')}`}
+            {!!who.length && ` + ${who.join(', ')}`}
           </div>
         )}
       </div>
@@ -257,11 +272,7 @@ export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years'>, 
   return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, region].filter(Boolean).join(' · ')
 }
 
-const VIS_HELP: Record<GroupVisibility, string> = {
-  private: 'Moi seul : personne d’autre ne le voit, même pas les administrateurs.',
-  team: 'Équipe : visible seulement par toi et les participants que tu choisis (pas par les administrateurs).',
-  staff: 'Tout le staff : visible par tout le staff.',
-}
+const VIS_HELP: Record<GroupVisibility, string> = GROUP_VIS.help
 /** Du moins visible au plus visible. */
 const VIS_RANK: Record<GroupVisibility, number> = { private: 0, team: 1, staff: 2 }
 
@@ -289,7 +300,10 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const years = year ? [year] : []
   // Participants (groupe partagé) : encadrants choisis parmi le staff (supabase/023_participants_groupes.sql).
   const [editors, setEditors] = useState<string[]>(group?.editors ?? [])
-  // « Suivi par l'équipe » (supabase/032_suivis.sql) : le créateur seul le change ; groupe d'équipe ou du staff.
+  // Staffs choisis (supabase/034) : leurs membres du moment participent. Ceux que je ne vois pas restent tels quels.
+  const [teams, setTeams] = useState<string[]>(group?.teams ?? [])
+  const canPick = useCanPickStaff()
+  // « Suivi par le staff » (teamFollow, supabase/032_suivis.sql) : le créateur seul le change ; groupe « Mon staff » ou du staff.
   const creator = !group?.createdBy || group.createdBy === currentUserId()
   const [teamFollow, setTeamFollow] = useState(!!group?.teamFollow)
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
@@ -309,9 +323,9 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           value={vis}
           onChange={setVis}
           options={[
-            { value: 'private', label: 'Moi seul', icon: 'lock' },
-            { value: 'team', label: 'Équipe', icon: 'users' },
-            { value: 'staff', label: 'Tout le staff', icon: 'globe' },
+            { value: 'private', label: GROUP_VIS.label.private, icon: 'lock' },
+            { value: 'team', label: GROUP_VIS.label.team, icon: 'users' },
+            { value: 'staff', label: GROUP_VIS.label.staff, icon: 'globe' },
           ]}
         />
       ) : (
@@ -322,7 +336,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
       )}
       <p className="text-[11px] text-muted">{VIS_HELP[vis]}</p>
 
-      {!priv && supabase && (
+      {!priv && canPick && (
         <>
           <span className="label mt-2">Participants</span>
           <p className="-mt-1 text-[11px] text-muted">
@@ -330,17 +344,23 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               ? 'Encadrants qui voient ce groupe, y ajoutent des joueurs et retirent ceux qu’ils ont ajoutés. Renommer, archiver ou supprimer le groupe, ou changer ses participants, reste à toi.'
               : 'Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer le groupe reste à toi (et aux administrateurs).'}
           </p>
-          <StaffPicker value={editors} onChange={setEditors} ownerId={group?.createdBy} onNames={setStaffNames} chip={chip} />
+          <StaffPicker
+            value={editors}
+            onChange={setEditors}
+            teams={teams}
+            onTeams={setTeams}
+            ownerId={group?.createdBy}
+            onNames={setStaffNames}
+            chip={chip}
+          />
         </>
       )}
       {!priv && creator && (
         <label className="mt-2 flex items-start gap-2 text-xs">
           <input type="checkbox" className="mt-0.5" checked={teamFollow} onChange={(e) => setTeamFollow(e.target.checked)} />
           <span>
-            <b>Suivi par l’équipe</b>
-            <span className="block text-[11px] text-muted">
-              Toi et les participants suivez ses joueurs : leurs nouvelles mesures et leurs nouveaux avis arrivent dans « Mes suivis ».
-            </span>
+            <b>{TEAM_FOLLOW.label}</b>
+            <span className="block text-[11px] text-muted">{TEAM_FOLLOW.help}</span>
           </span>
         </label>
       )}
@@ -406,6 +426,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               years: years.length ? [...years].sort() : undefined,
               // Participants : seulement sur un groupe partagé ; leurs noms pour l'affichage.
               editors: priv ? [] : editors,
+              teams: priv || !teams.length ? undefined : teams,
               names: {
                 ...group?.names,
                 ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])),
@@ -420,7 +441,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
             if (current && VIS_RANK[vis] < VIS_RANK[groupVisibility(current)]) {
-              // Moins visible (staff → équipe ou privé, équipe → privé) : nouveau groupe, et l'ancien est supprimé
+              // Moins visible (staff → mon staff ou privé, mon staff → privé) : nouveau groupe, et l'ancien est supprimé
               // chez tout le monde. Sinon, ceux qui ne le voient plus garderaient leur copie : le serveur ne leur
               // envoie plus rien de ce groupe, pas même sa suppression.
               const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, ...flags, id: newId() })
@@ -490,14 +511,15 @@ export function GroupDetail() {
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
   const [removing, setRemoving] = useState(false)
   const data = useLiveQuery(async () => {
+    const teams = await loadTeams()
     const g = await db.groups.get(id!)
     const players = alive((await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p))
-    return { g, players }
+    return { g, players, teams }
   }, [id])
 
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
   if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { g, players } = data
+  const { g, players, teams } = data
   if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   const manage = can.editGroup(role, g)
   // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe.
@@ -539,6 +561,7 @@ export function GroupDetail() {
                   // L'observateur ne crée que des groupes privés.
                   private: can.publicGroups(role) ? g.private : true,
                   team: can.publicGroups(role) ? g.team : undefined,
+                  teams: can.publicGroups(role) ? g.teams : undefined,
                   // La copie est à moi : je ne suis pas mon propre participant.
                   editors: can.publicGroups(role) ? g.editors?.filter((u) => u !== currentUserId()) : [],
                 })
@@ -579,7 +602,7 @@ export function GroupDetail() {
             onDone={(saved) => {
               setEditing(false)
               if (params.has('modifier')) setParams({}, { replace: true })
-              // Rendu moins visible (privé, équipe) : c'est un nouveau groupe (voir GroupForm).
+              // Rendu moins visible (privé, mon staff) : c'est un nouveau groupe (voir GroupForm).
               if (saved && saved.id !== g.id) nav(`/groupes/${saved.id}`, { replace: true })
             }}
           />
@@ -599,27 +622,24 @@ export function GroupDetail() {
           </h1>
           <div className="my-1.5 flex flex-wrap items-center gap-2">
             <FollowButton kind="group" id={g.id} />
-            {teamFollowed(g) && <span className="text-[10px] text-muted">Déjà suivi par l’équipe (toi compris).</span>}
+            {teamFollowed(g) && <span className="text-[10px] text-muted">{TEAM_FOLLOW.already}</span>}
           </div>
           {info && <div className="text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
-          {!!g.editors?.length && (
-            <div className="mt-1 text-[11px] text-muted">
-              Participants : <b className="text-fg">{g.editors.map((u) => who(u) ?? '?').join(', ')}</b>
-              {contribute && (
-                <button
-                  className="ml-2 font-bold text-accent underline"
-                  onClick={async () => {
+          <Participants
+            x={g}
+            teams={teams}
+            who={who}
+            onLeave={
+              contribute
+                ? async () => {
                     if (!(await ask(`Te retirer des participants de « ${g.name} » ? Les joueurs que tu as ajoutés restent dans le groupe.`, { ok: 'Me retirer' }))) return
                     const me = currentUserId()
                     await save<PlayerGroup>('groups', { ...g, editors: (g.editors ?? []).filter((u) => u !== me) })
-                  }}
-                >
-                  Me retirer
-                </button>
-              )}
-            </div>
-          )}
+                  }
+                : undefined
+            }
+          />
           <div className="mt-1">
             <StampLine row={g} />
           </div>

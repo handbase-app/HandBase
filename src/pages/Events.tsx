@@ -10,6 +10,8 @@ import { can, currentUserId, useRole } from '../roles'
 import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
+import { Participants } from '../components/Participants'
+import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
@@ -247,6 +249,7 @@ export function EventDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
+  const teams = useTeams() ?? []
   const [tab, setTab] = useState<'joueurs' | 'classement'>('joueurs')
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -369,23 +372,20 @@ export function EventDetail() {
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
           {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
-          {!!ev.editors?.length && (
-            <div className="mt-1 text-[11px] text-muted">
-              Participants : <b className="text-fg">{ev.editors.map((u) => who(u) ?? '?').join(', ')}</b>
-              {contribute && (
-                <button
-                  className="ml-2 font-bold text-accent underline"
-                  onClick={async () => {
+          <Participants
+            x={ev}
+            teams={teams}
+            who={who}
+            onLeave={
+              contribute
+                ? async () => {
                     if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les joueurs que tu as ajoutés restent dans la liste.`, { ok: 'Me retirer' }))) return
                     const me = currentUserId()
                     await save<HBEvent>('events', { ...ev, editors: (ev.editors ?? []).filter((u) => u !== me) })
-                  }}
-                >
-                  Me retirer
-                </button>
-              )}
-            </div>
-          )}
+                  }
+                : undefined
+            }
+          />
           <StampLine row={ev} />
         </div>
       )}

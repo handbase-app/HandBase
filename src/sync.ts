@@ -165,7 +165,7 @@ async function run() {
     } catch (e) {
       pushError = e
     }
-    await pull()
+    await pull(data.session.user.id)
     if (pushError) throw pushError
     const notes = [
       rejectedCount && `${rejectedCount} modification(s) annulée(s) : refusée(s) par le serveur (droits) ou plus ancienne(s) que sa version.`,
@@ -178,6 +178,9 @@ async function run() {
 }
 
 const PUSH_CHUNK = 400
+
+/** Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. */
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams']
 
 let rejectedCount = 0
 
@@ -222,9 +225,9 @@ async function push() {
         deleted: !!r.deleted,
       }))
       const { data, error } = await upsert(table, payload)
-      // Suivis envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql pas encore passé) :
-      // gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
-      if (error && table === 'follows' && /Table inconnue/.test(error.message)) break
+      // Suivis ou staffs envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql, 034_equipes_encadrants.sql
+      // pas encore passés) : gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
+      if (error && OPTIONAL_TABLES.includes(table) && /Table inconnue/.test(error.message)) break
       if (!error) {
         // La file n'est vidée qu'une fois les refus traités (sinon on renverra).
         await applyRejected(table, data)
@@ -306,7 +309,17 @@ const setProgress = (p: SyncProgress | null) => {
   listeners.forEach((l) => l())
 }
 
-async function pull() {
+/**
+ * Staffs dont ce compte est membre (ou créateur), avec leur version : un staff qui apparaît ou change (on vient
+ * d'y entrer, par exemple) peut ouvrir des groupes « Mon staff » qui, eux, n'ont pas changé : le serveur ne les
+ * enverrait pas (on ne reçoit que ce qui a changé depuis la dernière fois). On relit alors tous les groupes.
+ */
+async function myTeams(uid: string) {
+  const teams = await db.teams.toArray()
+  return new Map(teams.filter((t) => !t.deleted && (t.createdBy === uid || t.members?.includes(uid))).map((t) => [t.id, t.updatedAt]))
+}
+
+async function pull(uid: string) {
   /*
    * Avancement : tables jamais téléchargées comptées d'avance (en parallèle) ; les autres seulement si
    * leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
@@ -317,44 +330,69 @@ async function pull() {
   await Promise.all(fresh.map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
   if (fresh.length) setProgress(aggregate(per, null, first))
   try {
-    for (const table of SYNC_TABLES) await pullTable(table, per, first)
+    const teamsBefore = await myTeams(uid)
+    for (const table of SYNC_TABLES) {
+      if (table === 'groups') {
+        const after = await myTeams(uid)
+        if ([...after].some(([id, v]) => teamsBefore.get(id) !== v)) localStorage.removeItem(PULL_KEY('groups'))
+      }
+      await pullTable(table, per, first)
+    }
   } finally {
     if (progress) setProgress(null)
   }
-  await forgetHiddenGroups()
+  await forgetHidden()
 }
 
 /*
- * Groupes que ce compte ne voit plus : groupe d'équipe dont il a été retiré (ou dont il s'est retiré),
- * supabase/031_groupes_equipe.sql. Le serveur ne lui en envoie plus rien, pas même la suppression : sa copie
- * resterait sur l'appareil. Au lancement puis toutes les 10 minutes, on relit la liste des groupes visibles
- * (seulement leurs identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus,
- * sauf s'ils ont une modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et
- * supprime l'ancien, voir GroupForm : cela, tous les appareils le reçoivent tout de suite.)
+ * Lignes que ce compte ne voit plus. Le serveur ne lui en envoie plus rien, pas même la suppression : sa copie
+ * resterait sur l'appareil.
+ *  - staffs dont il a été retiré (supabase/034_equipes_encadrants.sql) : sa copie le dirait encore membre ;
+ *  - groupes « Mon staff » dont il a été retiré (ou dont il s'est retiré, supabase/031_groupes_equipe.sql), ou
+ *    ouverts par un staff dont il est sorti (034).
+ * (Les événements sont visibles par tout le staff : rien à oublier ; les droits de participant suivent les staffs.)
+ * Au lancement puis toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs
+ * identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une
+ * modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et supprime l'ancien, voir
+ * GroupForm : cela, tous les appareils le reçoivent tout de suite.)
  */
 const FORGET_EVERY_MS = 10 * 60_000
 let lastForget = 0
 
-async function forgetHiddenGroups() {
-  if (Date.now() - lastForget < FORGET_EVERY_MS) return
+/** Identifiants visibles d'une table (null : erreur, ou table inconnue du serveur). */
+async function visibleIds(table: 'groups' | 'teams') {
   const visible = new Set<string>()
   // Pagination par identifiant (et non par position) : aucune ligne sautée si le serveur change entre deux pages.
   for (let after = ''; ; ) {
-    const { data, error } = await supabase!.from('hb_groups').select('id').gt('id', after).order('id').limit(PULL_PAGE)
-    if (error) return // on réessaiera à la prochaine synchronisation
+    const { data, error } = await supabase!.from(`hb_${table}`).select('id').gt('id', after).order('id').limit(PULL_PAGE)
+    if (error) return null // on réessaiera à la prochaine synchronisation
     for (const r of data) visible.add(r.id as string)
     if (data.length < PULL_PAGE) break
     after = data[data.length - 1].id as string
   }
-  lastForget = Date.now()
-  // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence.
-  if (!visible.size) return
-  // Une seule transaction : un groupe créé sur l'appareil pendant ce temps est forcément dans la file d'envoi.
-  await db.transaction('rw', db.groups, db.outbox, async () => {
-    const pending = new Set((await db.outbox.where('table').equals('groups').toArray()).map((i) => i.rowId))
-    const gone = ((await db.groups.toCollection().primaryKeys()) as string[]).filter((id) => !visible.has(id) && !pending.has(id))
-    if (gone.length) await db.groups.bulkDelete(gone)
+  return visible
+}
+
+/** Retire de l'appareil les lignes de `table` absentes de `visible` (sauf celles qui attendent d'être envoyées). */
+async function forgetRows(table: 'groups' | 'teams', visible: Set<string>) {
+  // Une seule transaction : une ligne créée sur l'appareil pendant ce temps est forcément dans la file d'envoi.
+  await db.transaction('rw', db.table(table), db.outbox, async () => {
+    const pending = new Set((await db.outbox.where('table').equals(table).toArray()).map((i) => i.rowId))
+    const gone = ((await db.table(table).toCollection().primaryKeys()) as string[]).filter((id) => !visible.has(id) && !pending.has(id))
+    if (gone.length) await db.table(table).bulkDelete(gone)
   })
+}
+
+async function forgetHidden() {
+  if (Date.now() - lastForget < FORGET_EVERY_MS) return
+  const [teams, groups] = await Promise.all([visibleIds('teams'), visibleIds('groups')])
+  if (!groups) return
+  lastForget = Date.now()
+  // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence. Aucun staff
+  // visible, en revanche, est courant (personne n'en a encore créé) ; table absente du serveur (null) : rien.
+  if (!groups.size) return
+  if (teams) await forgetRows('teams', teams)
+  await forgetRows('groups', groups)
 }
 
 /** Table inconnue du serveur (Postgres 42P01, ou cache de PostgREST : PGRST205). */
@@ -371,8 +409,8 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
       ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
       : base.gte('server_updated_at', start)
     const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
-    // Table des suivis absente du serveur (supabase/032_suivis.sql pas encore passé) : rien à recevoir.
-    if (error && table === 'follows' && missingTable(error)) return
+    // Table des suivis ou des staffs absente du serveur (supabase/032, 034 pas encore passés) : rien à recevoir.
+    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) return
     if (error) throw error
     if (!data?.length) break
     // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
@@ -413,8 +451,9 @@ let channel: RealtimeChannel | null = null
 function startRealtime() {
   if (!supabase || channel) return
   channel = supabase.channel('handbase-sync')
-  // Suivis : pas de diffusion en direct (privés, rarement changés ; relus à chaque synchronisation).
-  for (const t of SYNC_TABLES.filter((t) => t !== 'follows')) {
+  // Suivis et staffs : pas de diffusion en direct (privés, rarement changés ; relus à chaque synchronisation,
+  // au plus toutes les minutes ; un staff absent du serveur ne doit pas faire échouer l'abonnement).
+  for (const t of SYNC_TABLES.filter((t) => !OPTIONAL_TABLES.includes(t))) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
   }
   channel.subscribe((status) => {

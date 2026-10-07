@@ -1,5 +1,6 @@
 import { canFollow, setFollow, useFollows, type FollowKind } from '../follows'
 import { Icon } from './ui'
+import { TEAM_FOLLOW } from '../staffLabels'
 
 /** Bouton « Suivre / Suivi » (étoile) d'une fiche joueur ou d'un groupe : suivi personnel, privé. */
 export function FollowButton({ kind, id }: { kind: FollowKind; id: string }) {
@@ -34,7 +35,7 @@ export function FollowedVia({ playerId }: { playerId: string }) {
 
 /**
  * Étoile d'une ligne de liste (joueur ou groupe) : suivre / ne plus suivre sans ouvrir la fiche. Pleine : suivi par moi ;
- * pâle : suivi autrement (joueur via un groupe suivi, groupe « suivi par l'équipe ») ; vide : pas suivi.
+ * pâle : suivi autrement (joueur via un groupe suivi, groupe « suivi par le staff ») ; vide : pas suivi.
  * Utilisable dans un lien (le clic n'ouvre pas la fiche).
  */
 export function FollowStar({ kind = 'player', id }: { kind?: FollowKind; id: string }) {
@@ -47,7 +48,7 @@ export function FollowStar({ kind = 'player', id }: { kind?: FollowKind; id: str
     e.stopPropagation()
     void setFollow(kind, id, !mine)
   }
-  const otherWhy = kind === 'player' ? 'Suivi via un groupe' : 'Suivi par l’équipe'
+  const otherWhy = kind === 'player' ? 'Suivi via un groupe' : TEAM_FOLLOW.label
   return (
     <span
       role="button"

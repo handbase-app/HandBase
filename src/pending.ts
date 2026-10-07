@@ -3,14 +3,17 @@ import { department } from './components/PlayerFilter'
 import { db } from './db'
 import { sharedQuery, useShared } from './live'
 import { can, currentUserId, myDepartments, useRole, type Role } from './roles'
+import { loadTeams } from './teams'
 
 // Compteur partagé (barre du bas et accueil) : un seul calcul pour toute l'appli.
 let pendingFor: { role: Role; key: string } | null = null
 const pendingStore = sharedQuery(
-  ['evaluations', 'players', 'events'],
+  ['evaluations', 'players', 'events', 'teams'],
   async () => {
     const role = pendingFor?.role
     if (!role || !can.review(role)) return 0
+    // Staffs : leurs membres co-organisent les événements qui les citent (supabase/034).
+    await loadTeams()
     const me = currentUserId()
     const avis = (await db.evaluations.where('review').equals('pending').toArray()).filter((e) => !e.deleted && !(me && e.observerId === me))
     const players = await db.players.bulkGet([...new Set(avis.map((e) => e.playerId))])

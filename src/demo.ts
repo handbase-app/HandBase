@@ -1,4 +1,4 @@
-import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position } from './db'
+import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position, type Team } from './db'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -52,9 +52,17 @@ const OBSERVERS = [
 const EVENTS: Omit<HBEvent, 'updatedAt'>[] = [
   { id: PREFIX + 'ev-1', name: 'Stage de rentrée', type: 'entrainement', date: '2026-08-28', place: 'Valence' },
   { id: PREFIX + 'ev-2', name: 'J1 — Rhône Sud vs Collines', type: 'match', date: '2026-09-13', place: 'Montélimar' },
-  { id: PREFIX + 'ev-3', name: 'Tournoi de la Drôme', type: 'tournoi', date: '2026-09-20', place: 'Romans' },
+  { id: PREFIX + 'ev-3', name: 'Tournoi de la Drôme', type: 'tournoi', date: '2026-09-20', place: 'Romans', teams: [PREFIX + 'staff-1'] },
   { id: PREFIX + 'ev-4', name: 'J3 — Vallée Bleue vs Rhône Sud', type: 'match', date: '2026-09-27', place: 'Privas' },
 ]
+
+// Staffs (équipes d'encadrants) fictifs, avec des comptes fictifs : le choix des participants en mode local.
+const STAFF_NAMES = ['Coach Paul', 'Julie Adjointe', 'Sophie Conseillère', 'Karim Gardiens', 'Marc Recruteur']
+const staffId = (i: number) => `${PREFIX}compte-${i + 1}`
+const TEAMS: Omit<Team, 'updatedAt'>[] = [
+  { id: PREFIX + 'staff-1', name: 'Staff Drôme', description: 'Encadrement départemental', members: [0, 1, 2].map(staffId) },
+  { id: PREFIX + 'staff-2', name: 'Staff gardiens', members: [3, 0].map(staffId) },
+].map((t) => ({ ...t, names: Object.fromEntries(t.members.map((u) => [u, STAFF_NAMES[Number(u.split('-').pop()) - 1]])) }))
 
 const GAPS = ['Chaîne P. G ++ / RE hanche', 'Dorsiflexion cheville D limitée', 'Épaule RI G à travailler', 'Squat overhead : buste penché', '', '', '']
 const STRENGTHS = ['Très bonne lecture du jeu', 'Puissant au tir de loin', 'Excellent sur le premier pas', 'Gros volume de course', 'Leader naturel, parle beaucoup', 'Bon jeu à deux avec le pivot', 'Solide en défense 1-1']
@@ -214,7 +222,8 @@ export async function loadDemo() {
     }
   }
 
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations], async () => {
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams], async () => {
+    await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
@@ -225,8 +234,8 @@ export async function loadDemo() {
 
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.outbox], async () => {
-    for (const t of [db.players, db.measurements, db.events, db.evaluations] as const) {
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.outbox], async () => {
+    for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)
       await t.bulkDelete(ids)
     }

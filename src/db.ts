@@ -148,6 +148,8 @@ export interface HBEvent extends Syncable {
   archived?: boolean
   /** Participants (encadrants, supabase/024) : ajoutent des joueurs, retirent les leurs, co-organisent. */
   editors?: string[]
+  /** Staffs choisis (supabase/034) : leurs membres du moment sont participants, comme ceux de editors. */
+  teams?: string[]
   /** Qui a ajouté chaque joueur de la liste (identifiant de compte) ; tenu par le serveur. */
   addedBy?: Record<string, string>
   /** Noms des comptes cités (participants, « ajouté par »). */
@@ -204,7 +206,7 @@ export interface PlayerGroup extends Syncable {
   playerIds: string[]
   /** Groupe privé (« Moi seul ») : visible et modifiable par son créateur seul. */
   private?: boolean
-  /** Groupe d'équipe : visible par son créateur et ses participants seulement (supabase/031) ; jamais avec private. */
+  /** Groupe « Mon staff » (team) : visible par son créateur et ses participants seulement (supabase/031) ; jamais avec private. */
   team?: boolean
   /** Informations facultatives, pour filtrer et retrouver les groupes. */
   sex?: 'M' | 'F' | 'mixte'
@@ -217,12 +219,14 @@ export interface PlayerGroup extends Syncable {
   archived?: boolean
   /** Participants (encadrants) : ajoutent des joueurs, retirent ceux qu'ils ont ajoutés (supabase/023). */
   editors?: string[]
+  /** Staffs choisis (supabase/034) : leurs membres du moment sont participants, comme ceux de editors. */
+  teams?: string[]
   /** Qui a ajouté chaque joueur (identifiant de compte) ; tenu par le serveur. */
   addedBy?: Record<string, string>
   /** Noms des comptes cités (participants, « ajouté par »). */
   names?: Record<string, string>
   /**
-   * « Suivi par l'équipe » (supabase/032_suivis.sql) : groupe d'équipe ou du staff qui compte comme suivi pour
+   * « Suivi par le staff » (supabase/032_suivis.sql) : groupe « Mon staff » ou du staff qui compte comme suivi pour
    * son créateur et ses participants. Seul le créateur le change ; jamais sur un groupe privé.
    */
   teamFollow?: boolean
@@ -236,6 +240,19 @@ export interface PlayerGroup extends Syncable {
 export interface Follow extends Syncable {
   kind: 'player' | 'group'
   targetId: string
+}
+
+/**
+ * Staff (supabase/034_equipes_encadrants.sql) : équipe d'encadrants enregistrée (« ETD Var »…), à choisir d'un clic
+ * comme participants d'un groupe ou d'un événement. Visible par son créateur et ses membres seulement ;
+ * modifiable par son créateur seul. Membres : comptes encadrants ; leurs noms sont tenus par le serveur.
+ */
+export interface Team extends Syncable {
+  name: string
+  description?: string
+  members: string[]
+  /** Noms des membres (affichage hors ligne). */
+  names?: Record<string, string>
 }
 
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */
@@ -293,7 +310,8 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows'] as const
+// Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -314,6 +332,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   lists: EntityTable<ListItem, 'id'>
   alerts: EntityTable<PlayerAlert, 'id'>
   follows: EntityTable<Follow, 'id'>
+  teams: EntityTable<Team, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -378,6 +397,9 @@ db.version(10).upgrade(applyDefaultCriteria)
 
 // v11 : suivis (joueurs et groupes suivis, supabase/032_suivis.sql).
 db.version(11).stores({ follows: 'id, updatedAt' })
+
+// v12 : staffs (équipes d'encadrants, supabase/034_equipes_encadrants.sql).
+db.version(12).stores({ teams: 'id, name, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

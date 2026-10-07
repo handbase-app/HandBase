@@ -1,6 +1,7 @@
 import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type Player } from './db'
 import { department } from './components/PlayerFilter'
-import { can, currentUserId, myDepartments } from './roles'
+import { can, currentUserId, groupTag, myDepartments } from './roles'
+import { loadTeams } from './teams'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -68,7 +69,7 @@ function bucket<T>(rows: T[], key: (r: T) => string) {
 }
 
 /** Tables lues par le fil (pour le relancer quand elles changent). */
-export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 'groups', 'criteria']
+export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 'groups', 'teams', 'criteria']
 
 /**
  * Fil des `days` derniers jours ; `sector` : seulement les joueurs de mon secteur ;
@@ -88,6 +89,8 @@ export async function buildFeed({
 }): Promise<FeedItem[]> {
   const since = Date.now() - days * 24 * 3600 * 1000
   const me = currentUserId()
+  // Staffs relus d'abord : ils comptent dans les participants (can.seeGroup).
+  await loadTeams()
   const [players, measurements, evaluations, events, groups, criteria] = await Promise.all([
     db.players.toArray(),
     db.measurements.toArray().then(alive),
@@ -183,8 +186,9 @@ export async function buildFeed({
     })
   }
 
-  // Groupes : un par un (les groupes privés des autres, et les groupes d'équipe dont on n'est pas, ne sont jamais
-  // sur l'appareil ; can.seeGroup écarte en plus une vieille copie d'un groupe d'équipe dont on a été retiré).
+  // Groupes : un par un (les groupes privés des autres, et les groupes « Mon staff » dont on n'est pas, ne sont jamais
+  // sur l'appareil ; can.seeGroup écarte en plus une vieille copie d'un groupe « Mon staff » dont on a été retiré,
+  // directement ou en sortant d'un staff).
   for (const g of groups.filter((g) => !only && recent(g) && can.seeGroup(g))) {
     push({
       key: `g|${g.id}`,
@@ -192,7 +196,7 @@ export async function buildFeed({
       time: created(g),
       author: g.createdByName,
       authorId: g.createdBy,
-      text: `nouveau groupe : ${g.name}${g.private ? ' (privé)' : g.team ? ' (équipe)' : ''}`,
+      text: `nouveau groupe : ${g.name}${groupTag(g)}`,
       detail: plural(g.playerIds.length, 'joueur'),
       to: `/groupes/${g.id}`,
     })
