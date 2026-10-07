@@ -196,7 +196,7 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       author: e.createdByName ?? e.observer,
       mine: !!me && (e.createdBy ?? e.observerId) === me,
       text: ev ? ev.name : contextLabel(e),
-      detail: typeof e.overall === 'number' ? `note globale ${e.overall}/5` : noted ? `${noted} critère${noted > 1 ? 's' : ''} noté${noted > 1 ? 's' : ''}` : undefined,
+      detail: noted ? `${noted} critère${noted > 1 ? 's' : ''} noté${noted > 1 ? 's' : ''}` : undefined,
       pending: e.review === 'pending',
     })
   }

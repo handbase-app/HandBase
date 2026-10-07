@@ -657,12 +657,12 @@ export function AddPlayers({
   )
 }
 
-/** Note d'un joueur sur l'événement : moyenne des évaluateurs (note globale, sinon moyenne de ses critères). */
+/** Note d'un joueur sur l'événement : moyenne des évaluateurs (chacun : moyenne de ses critères). */
 function playerScore(evs: Evaluation[]) {
   const perObserver = new Map<string, number[]>()
   for (const e of evs) {
     const crit = Object.values(e.scores).filter((v) => typeof v === 'number')
-    const v = typeof e.overall === 'number' ? e.overall : crit.length ? crit.reduce((a, b) => a + b, 0) / crit.length : null
+    const v = crit.length ? crit.reduce((a, b) => a + b, 0) / crit.length : null
     if (v === null) continue
     if (!perObserver.has(e.observer)) perObserver.set(e.observer, [])
     perObserver.get(e.observer)!.push(v)
@@ -761,7 +761,7 @@ function Ranking({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] text-muted">Note = moyenne des évaluateurs (note globale, sinon moyenne de leurs critères). <Icon name="alert" className="inline h-3 w-3 -translate-y-px" /> = avis très partagés.</p>
+        <p className="text-[11px] text-muted">Note = moyenne des évaluateurs (chacun : moyenne de ses critères). <Icon name="alert" className="inline h-3 w-3 -translate-y-px" /> = avis très partagés.</p>
         <button className="btn-ghost shrink-0 px-3 py-1 text-xs" onClick={exportRanking}>
           Exporter
         </button>

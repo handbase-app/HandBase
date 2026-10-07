@@ -212,7 +212,6 @@ export async function loadDemo() {
           observer: o.name,
           date: ev.date,
           scores: sc,
-          overall: clamp(Math.round(vals.reduce((a, b) => a + b, 0) / vals.length + (rand() - 0.5)), 1, 5),
           minutesObserved: ev.type === 'tournoi' ? Math.round(between(40, 120)) : Math.round(between(15, 60)),
           strengths: rand() < 0.5 ? pick(p.position === 'GB' ? GB_STRENGTHS : STRENGTHS) : undefined,
           improvements: rand() < 0.45 ? pick(p.position === 'GB' ? GB_IMPROVE : IMPROVE) : undefined,

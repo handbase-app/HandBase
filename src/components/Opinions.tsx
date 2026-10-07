@@ -109,8 +109,11 @@ export function Opinions({
   // Sur l'événement, radar d'abord… s'il y a de quoi le tracer.
   const view = locked && chosenView === 'radar' && numericRows.length < 3 ? 'table' : chosenView
 
+  // Moyenne : pour chaque observateur, moyenne de ses notes de critères ; puis moyenne des observateurs.
   const overall = mean(
-    observers.map((o) => mean(evs.filter((e) => e.observer === o && typeof e.overall === 'number').map((e) => e.overall!))).filter((x): x is number => x !== null),
+    observers
+      .map((o) => mean(evs.filter((e) => e.observer === o).flatMap((e) => Object.values(e.scores).filter((v): v is number => typeof v === 'number'))))
+      .filter((x): x is number => x !== null),
   )
 
   // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
@@ -145,7 +148,7 @@ export function Opinions({
             {overall !== null && (
               <>
                 {' '}
-                · note globale <b className="text-fg">{f1(overall)}/5</b>
+                · moyenne <b className="text-fg">{f1(overall)}/5</b>
               </>
             )}
           </div>
@@ -174,7 +177,7 @@ export function Opinions({
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="Avis" value={String(evs.length)} />
           <Stat label="Observateurs" value={String(observers.length)} />
-          <Stat label="Note globale" value={overall === null ? '—' : `${f1(overall)}/5`} />
+          <Stat label="Moyenne" value={overall === null ? '—' : `${f1(overall)}/5`} />
         </div>
       )}
 
@@ -335,7 +338,6 @@ export function AvisCard({
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
           <br />
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
-          {typeof e.overall === 'number' && <> · note globale <b className="text-fg">{e.overall}/5</b></>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <ReviewBadge e={e} />
@@ -432,11 +434,11 @@ export function EventAvis({ player, evals, criteria, event }: { player: Player; 
   const list = evals.filter((e) => e.playerId === player.id)
   // Mêmes critères que l'onglet Avis de la fiche : subjectifs, du poste du joueur.
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, player.position))
-  // Note de chaque évaluateur (avis validés seulement, comme le classement) : note globale, sinon moyenne de ses critères.
+  // Note de chaque évaluateur (avis validés seulement, comme le classement) : moyenne de ses critères.
   const perObs = new Map<string, number[]>()
   for (const e of list.filter(counts)) {
     const crit = Object.values(e.scores).filter((v): v is number => typeof v === 'number')
-    const v = typeof e.overall === 'number' ? e.overall : mean(crit)
+    const v = mean(crit)
     if (v === null) continue
     perObs.set(e.observer, [...(perObs.get(e.observer) ?? []), v])
   }

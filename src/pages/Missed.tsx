@@ -29,13 +29,13 @@ export default function Missed() {
       const since = refusal.at?.slice(0, 10) ?? ''
       const nEvents = data.events.filter((ev) => (ev.playerIds ?? []).includes(p.id) && (!since || ev.date >= since)).length
       const later = (evalsBy.get(p.id) ?? []).filter((e) => !since || e.date >= since)
-      const overall = later.map((e) => e.overall).filter((v): v is number => typeof v === 'number')
-      const avg = overall.length ? overall.reduce((a, b) => a + b, 0) / overall.length : null
+      const notes = later.flatMap((e) => Object.values(e.scores).filter((v): v is number => typeof v === 'number'))
+      const avg = notes.length ? notes.reduce((a, b) => a + b, 0) / notes.length : null
       const signals = [
         p.license && `Licencié${p.club ? ` à ${p.club}` : ''}`,
         nEvents > 0 && `Convoqué à ${nEvents} événement${nEvents > 1 ? 's' : ''}`,
         later.length > 0 &&
-          `${later.length} avis validé${later.length > 1 ? 's' : ''}${avg !== null ? ` (note globale ${avg.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/5)` : ''}`,
+          `${later.length} avis validé${later.length > 1 ? 's' : ''}${avg !== null ? ` (moyenne ${avg.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}/5)` : ''}`,
       ].filter((x): x is string => !!x)
       return { p, refusal, signals, avg }
     })

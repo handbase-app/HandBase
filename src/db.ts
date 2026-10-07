@@ -193,7 +193,6 @@ export interface Evaluation extends Syncable {
   date: string
   /** Note (nombre), option choisie ou texte libre, selon l'échelle du critère. */
   scores: Record<string, number | string>
-  overall?: number
   minutesObserved?: number
   strengths?: string
   improvements?: string

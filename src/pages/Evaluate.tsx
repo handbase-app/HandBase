@@ -590,14 +590,6 @@ export default function Evaluate() {
           ))}
 
           <div className="card flex flex-col gap-3 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold">Note globale de la prestation</span>
-              <CriterionInput
-                c={{ scale: 'score5' } as never}
-                value={draft.overall}
-                onChange={(v) => setDraft((d) => ({ ...d, overall: typeof v === 'number' ? v : undefined }))}
-              />
-            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <span className="label">Temps observé</span>
@@ -626,7 +618,7 @@ export default function Evaluate() {
           <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
             <button
               className="btn-primary flex-1"
-              disabled={(filled === 0 && draft.overall === undefined) || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
+              disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
               onClick={() => void submit()}
             >
               {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
@@ -910,5 +902,5 @@ function fingerprint(d: Partial<Evaluation>) {
     .filter(([, v]) => isFilled(v))
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
-  return JSON.stringify([scores, d.overall ?? null, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
+  return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
 }
