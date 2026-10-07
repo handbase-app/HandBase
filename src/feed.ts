@@ -72,9 +72,20 @@ export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 
 
 /**
  * Fil des `days` derniers jours ; `sector` : seulement les joueurs de mon secteur ;
- * `alerts` : mes alertes, déjà calculées pour toute l'appli (useAlerts).
+ * `alerts` : mes alertes, déjà calculées pour toute l'appli (useAlerts) ;
+ * `only` : seulement ces joueurs (« Mes suivis ») : les nouveautés sans joueur (événements, groupes) sont écartées.
  */
-export async function buildFeed({ days, sector = false, alerts }: { days: number; sector?: boolean; alerts?: AlertsResult }): Promise<FeedItem[]> {
+export async function buildFeed({
+  days,
+  sector = false,
+  alerts,
+  only,
+}: {
+  days: number
+  sector?: boolean
+  alerts?: AlertsResult
+  only?: Set<string>
+}): Promise<FeedItem[]> {
   const since = Date.now() - days * 24 * 3600 * 1000
   const me = currentUserId()
   const [players, measurements, evaluations, events, groups, criteria] = await Promise.all([
@@ -90,6 +101,7 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
   const crit = new Map(criteria.map((c) => [c.id, c.label]))
   const depts = myDepartments()
   const inSector = (playerId: string) => {
+    if (only && !only.has(playerId)) return false
     if (!sector || !depts.length) return true
     const p = byId.get(playerId)
     const d = p && department(p)
@@ -158,7 +170,7 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
   }
 
   // Événements : un par un, avec leur date.
-  for (const e of events.filter((e) => !e.deleted && recent(e))) {
+  for (const e of events.filter((e) => !only && !e.deleted && recent(e))) {
     push({
       key: `ev|${e.id}`,
       kind: 'events',
@@ -173,7 +185,7 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
 
   // Groupes : un par un (les groupes privés des autres, et les groupes d'équipe dont on n'est pas, ne sont jamais
   // sur l'appareil ; can.seeGroup écarte en plus une vieille copie d'un groupe d'équipe dont on a été retiré).
-  for (const g of groups.filter((g) => recent(g) && can.seeGroup(g))) {
+  for (const g of groups.filter((g) => !only && recent(g) && can.seeGroup(g))) {
     push({
       key: `g|${g.id}`,
       kind: 'groups',
@@ -211,7 +223,8 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
   }
 
   // Alertes : joueurs qui viennent d'entrer dans une de mes alertes (pas encore vus), datés de leur dernière activité.
-  for (const { alert, fresh } of alerts?.alerts ?? []) {
+  for (const { alert, fresh: all } of alerts?.alerts ?? []) {
+    const fresh = only ? all.filter((p) => only.has(p.id)) : all
     if (!fresh.length) continue
     const time = fresh.reduce((t, p) => Math.max(t, alerts!.ctx.lastActivity.get(p.id) ?? 0), 0) || Date.now()
     push({

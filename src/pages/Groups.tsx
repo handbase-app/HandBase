@@ -15,6 +15,8 @@ import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } fr
 import { supabase } from '../sync'
 import { StaffPicker } from '../components/StaffPicker'
 import { AddPlayers } from './Events'
+import { FollowButton } from '../components/Follow'
+import { teamFollowed, useFollows } from '../follows'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -195,13 +197,31 @@ function TeamChip() {
   )
 }
 
+/** Pastille « Suivi par l'équipe » : le groupe compte comme suivi pour son créateur et ses participants. */
+function TeamFollowChip() {
+  return (
+    <span
+      title="Suivi par l’équipe : ses joueurs sont suivis par son créateur et ses participants (Mes suivis)"
+      className="ml-2 inline-flex shrink-0 items-center gap-0.5 rounded-full border border-accent/50 px-1.5 align-[1px] text-[10px] font-bold text-muted"
+    >
+      <Icon name="star" filled className="h-2.5 w-2.5 text-accent" /> Suivi par l’équipe
+    </span>
+  )
+}
+
 function GroupRow({ g }: { g: PlayerGroup }) {
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
+  const followed = useFollows()?.groups.some((f) => f.group.id === g.id)
   return (
     <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
+          {followed && (
+            <span title="Groupe suivi (Mes suivis)" className="mr-1 shrink-0">
+              <Icon name="star" filled className="h-3 w-3 text-accent" />
+            </span>
+          )}
           <span className="truncate">{g.name}</span>
           {g.team && <TeamChip />}
           {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
@@ -274,6 +294,9 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const years = year ? [year] : []
   // Participants (groupe partagé) : encadrants choisis parmi le staff (supabase/023_participants_groupes.sql).
   const [editors, setEditors] = useState<string[]>(group?.editors ?? [])
+  // « Suivi par l'équipe » (supabase/032_suivis.sql) : le créateur seul le change ; groupe d'équipe ou du staff.
+  const creator = !group?.createdBy || group.createdBy === currentUserId()
+  const [teamFollow, setTeamFollow] = useState(!!group?.teamFollow)
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
@@ -314,6 +337,17 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           </p>
           <StaffPicker value={editors} onChange={setEditors} ownerId={group?.createdBy} onNames={setStaffNames} chip={chip} />
         </>
+      )}
+      {!priv && creator && (
+        <label className="mt-2 flex items-start gap-2 text-xs">
+          <input type="checkbox" className="mt-0.5" checked={teamFollow} onChange={(e) => setTeamFollow(e.target.checked)} />
+          <span>
+            <b>Suivi par l’équipe</b>
+            <span className="block text-[11px] text-muted">
+              Toi et les participants suivez ses joueurs : leurs nouvelles mesures et leurs nouveaux avis arrivent dans « Mes suivis ».
+            </span>
+          </span>
+        </label>
       )}
 
       <div className="mt-2 text-[11px] text-muted">Informations facultatives, pour retrouver et filtrer les groupes :</div>
@@ -382,7 +416,12 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
                 ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])),
               },
             }
-            const flags = { private: priv, team: vis === 'team' || undefined }
+            const flags = {
+              private: priv,
+              team: vis === 'team' || undefined,
+              // Seul le créateur le change ; sinon le groupe garde le sien (le serveur l'impose aussi).
+              teamFollow: (creator ? !priv && teamFollow : !priv && !!group?.teamFollow) || undefined,
+            }
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
             if (current && VIS_RANK[vis] < VIS_RANK[groupVisibility(current)]) {
@@ -558,8 +597,13 @@ export function GroupDetail() {
             )}
             {g.name}
             {g.team && <TeamChip />}
+            {g.teamFollow && !g.private && <TeamFollowChip />}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
           </h1>
+          <div className="my-1.5 flex flex-wrap items-center gap-2">
+            <FollowButton kind="group" id={g.id} />
+            {teamFollowed(g) && <span className="text-[10px] text-muted">Déjà suivi par l’équipe (toi compris).</span>}
+          </div>
           {info && <div className="text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
           {!!g.editors?.length && (

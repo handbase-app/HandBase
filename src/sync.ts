@@ -222,6 +222,9 @@ async function push() {
         deleted: !!r.deleted,
       }))
       const { data, error } = await upsert(table, payload)
+      // Suivis envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql pas encore passé) :
+      // gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
+      if (error && table === 'follows' && /Table inconnue/.test(error.message)) break
       if (!error) {
         // La file n'est vidée qu'une fois les refus traités (sinon on renverra).
         await applyRejected(table, data)
@@ -354,6 +357,9 @@ async function forgetHiddenGroups() {
   })
 }
 
+/** Table inconnue du serveur (Postgres 42P01, ou cache de PostgREST : PGRST205). */
+const missingTable = (e: { code?: string }) => e.code === '42P01' || e.code === 'PGRST205'
+
 async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean) {
   const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
   const at = new Date(since).getTime()
@@ -365,6 +371,8 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
       ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
       : base.gte('server_updated_at', start)
     const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
+    // Table des suivis absente du serveur (supabase/032_suivis.sql pas encore passé) : rien à recevoir.
+    if (error && table === 'follows' && missingTable(error)) return
     if (error) throw error
     if (!data?.length) break
     // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
@@ -405,7 +413,8 @@ let channel: RealtimeChannel | null = null
 function startRealtime() {
   if (!supabase || channel) return
   channel = supabase.channel('handbase-sync')
-  for (const t of SYNC_TABLES) {
+  // Suivis : pas de diffusion en direct (privés, rarement changés ; relus à chaque synchronisation).
+  for (const t of SYNC_TABLES.filter((t) => t !== 'follows')) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
   }
   channel.subscribe((status) => {

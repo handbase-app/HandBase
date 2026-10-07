@@ -1,9 +1,10 @@
 import { useAlerts } from '../alerts'
+import { useFollows } from '../follows'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
 import { can, groupTag } from '../roles'
-import { birthQuarter } from './ui'
+import { birthQuarter, Icon } from './ui'
 import { CourtFilter } from './CourtPicker'
 import { alive, db, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
 
@@ -93,6 +94,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const [group, setGroup] = useSessionState(k('group'), '')
   // Profil recherché (alerte enregistrée) : seulement les joueurs qui y correspondent.
   const [profile, setProfile] = useSessionState(k('profile'), '')
+  // Seulement les joueurs que je suis (un par un ou par leurs groupes, « Mes suivis »).
+  const [followedOnly, setFollowedOnly] = useSessionState(k('followed'), false)
   const [deptState, setDept] = useSessionState(k('dept'), '')
   const dept = hideDept ? '' : deptState
   const [club, setClub] = useSessionState(k('club'), '')
@@ -137,8 +140,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   // Profils recherchés : calcul déjà partagé avec la cible de l'en-tête (rien de plus à calculer).
   const profiles = useAlerts()?.alerts
   const currentProfile = profiles?.find((a) => a.alert.id === profile)
+  const followed = useFollows()?.followed
   const all = useMemo(() => {
     let list = players ?? []
+    if (followedOnly) list = followed ? list.filter((p) => followed.has(p.id)) : []
     if (group) {
       const ids = new Set(current?.playerIds ?? [])
       list = list.filter((p) => ids.has(p.id))
@@ -148,7 +153,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
       list = list.filter((p) => ids.has(p.id))
     }
     return list
-  }, [players, group, current, profile, currentProfile])
+  }, [players, group, current, profile, currentProfile, followedOnly, followed])
   // Chaque menu compte les joueurs qui passent tous les AUTRES filtres : le nombre affiché à côté d'une
   // année, d'un département ou d'un club est celui qu'on obtiendra en le choisissant.
   const base0 = useMemo(
@@ -206,7 +211,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   const active =
-    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!profile || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
+    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!profile || followedOnly || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
     if (!hideRegion) setRegion('')
     setQ('')
@@ -216,6 +221,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     setMinH('')
     setGroup('')
     setProfile('')
+    setFollowedOnly(false)
     setDept('')
     setClub('')
     setYear('')
@@ -235,6 +241,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     !hideRegion && region && { label: regionLabel(region), clear: () => (setRegion(''), setDept(''), setClub('')) },
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
+    followedOnly && { label: 'Suivis', clear: () => setFollowedOnly(false) },
     currentProfile && { label: `Profil : ${currentProfile.alert.name}`, clear: () => setProfile('') },
     current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), !hideRegion && setRegion(''), setDept(''), setClub('')) },
     position !== 'all' && { label: position === 'none' ? 'Sans poste' : (POSITIONS.find((x) => x.id === position)?.label ?? position), clear: () => setPosition('all') },
@@ -341,6 +348,15 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
             </select>
           ) : null}
           <ClubPicker clubs={clubs} total={clubBase.length} value={club} onChange={setClub} />
+          {(!!followed?.size || followedOnly) && (
+            <button
+              onClick={() => setFollowedOnly(!followedOnly)}
+              className={`flex items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-bold ${followedOnly ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`}
+            >
+              <Icon name="star" filled={followedOnly} className="h-3.5 w-3.5 text-accent" />
+              Seulement mes suivis ({followed?.size.toLocaleString('fr-FR') ?? 0})
+            </button>
+          )}
           {!!profiles?.length && (
             <select className={`field py-1.5 text-xs ${profile ? 'border-accent font-bold' : ''}`} value={profile} onChange={(e) => setProfile(e.target.value)}>
               <option value="">Tous les joueurs (sans profil recherché)</option>
@@ -416,7 +432,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, region, dept, club, year, position, withSecondary])
+  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, followedOnly, region, dept, club, year, position, withSecondary])
   return { filtered, ui, active, reset, signature, group: current, region, setRegion, regionCounts }
 }
 
@@ -543,13 +559,14 @@ export function showGroupInPlayers(groupId: string) {
     sessionStorage.setItem('handbase.filter.joueurs.position', JSON.stringify('all'))
     sessionStorage.setItem('handbase.filter.joueurs.hand', JSON.stringify('all'))
     sessionStorage.setItem('handbase.filter.joueurs.quarter', JSON.stringify(0))
+    sessionStorage.setItem('handbase.filter.joueurs.followed', JSON.stringify(false))
   } catch {
     /* stockage indisponible */
   }
 }
 
 /** Filtres d'un écran (hors département et repli/dépli). */
-const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH', 'profile'] as const
+const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH', 'profile', 'followed'] as const
 
 /**
  * Ouvre la liste Joueurs avec les filtres d'un autre écran (`from`, région comprise), plus un département.

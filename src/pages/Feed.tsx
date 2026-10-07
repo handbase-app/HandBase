@@ -4,20 +4,25 @@ import { Link } from 'react-router-dom'
 import { buildFeed, FEED_KINDS, FEED_TABLES, feedSeen, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
 import { useAlerts } from '../alerts'
+import { useFollows } from '../follows'
 import { useThrottledQuery } from '../live'
 import { localDay } from '../db'
 import { EVENT_TYPES } from './Evaluate'
 import { Icon } from '../components/ui'
 
 const PREFS_KEY = 'handbase.feedPrefs'
-type Prefs = { kinds: FeedKind[]; hideMine: boolean; sector: boolean }
+type Prefs = { kinds: FeedKind[]; hideMine: boolean; sector: boolean; follows: boolean }
+const DEFAULT_PREFS: Prefs = { kinds: [], hideMine: false, sector: false, follows: false }
 const readPrefs = (): Prefs => {
   try {
-    return { kinds: [], hideMine: false, sector: false, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
+    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') }
   } catch {
-    return { kinds: [], hideMine: false, sector: false }
+    return DEFAULT_PREFS
   }
 }
+
+/** Aucun joueur suivi (même objet à chaque rendu : le fil n'est pas relancé pour rien). */
+const NO_ONE = new Set<string>()
 
 const icon = (k: FeedKind) => FEED_KINDS.find((x) => x.value === k)!.icon
 const time = (t: number) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -144,7 +149,14 @@ export default function Feed() {
   }, [prefs])
   const hasSector = myDepartments().length > 0
   const alerts = useAlerts()
-  const items = useThrottledQuery(() => buildFeed({ days, sector: hasSector && prefs.sector, alerts }), [days, prefs.sector, hasSector, alerts], FEED_TABLES)
+  // « Mes suivis » : seulement les joueurs suivis (un par un ou par leurs groupes).
+  const follows = useFollows()
+  const only = prefs.follows ? (follows?.followed ?? NO_ONE) : undefined
+  const items = useThrottledQuery(
+    () => buildFeed({ days, sector: hasSector && prefs.sector, alerts, only }),
+    [days, prefs.sector, hasSector, alerts, only],
+    FEED_TABLES,
+  )
   const shown = (items ?? []).filter((i) => (!prefs.kinds.length || prefs.kinds.includes(i.kind)) && !(prefs.hideMine && i.mine))
   const byDay = new Map<string, FeedItem[]>()
   for (const it of shown) byDay.set(it.day, [...(byDay.get(it.day) ?? []), it])
@@ -179,6 +191,11 @@ export default function Feed() {
           </label>
         )}
         <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={prefs.follows} onChange={(e) => setPrefs((p) => ({ ...p, follows: e.target.checked }))} />
+          <Icon name="star" filled={prefs.follows} className="h-3.5 w-3.5 text-accent" />
+          Mes suivis
+        </label>
+        <label className="flex items-center gap-1.5">
           <input type="checkbox" checked={prefs.hideMine} onChange={(e) => setPrefs((p) => ({ ...p, hideMine: e.target.checked }))} />
           Masquer mes actions
         </label>
@@ -198,7 +215,17 @@ export default function Feed() {
               </div>
             </section>
           ))}
-          {!shown.length && <p className="py-6 text-center text-xs text-muted">Rien de nouveau sur les {days} derniers jours.</p>}
+          {!shown.length && (
+            <p className="py-6 text-center text-xs text-muted">
+              {prefs.follows && !follows?.followed.size ? (
+                <>
+                  Tu ne suis encore personne : <Link to="/suivis" className="font-bold text-accent">Mes suivis</Link>.
+                </>
+              ) : (
+                <>Rien de nouveau sur les {days} derniers jours{prefs.follows ? ' pour tes suivis' : ''}.</>
+              )}
+            </p>
+          )}
           <button className="btn-ghost text-xs" onClick={() => setDays((d) => d + 60)}>
             Voir plus ancien
           </button>

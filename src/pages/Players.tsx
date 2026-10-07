@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
-import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, fmtValue, Icon, PosBadges, QuarterBadge } from '../components/ui'
+import { useFollows } from '../follows'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
@@ -60,6 +61,8 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
+  // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
+  const followed = useFollows()?.followed
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
@@ -156,6 +159,11 @@ export default function Players() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-bold">
+                      {followed?.has(p.id) && (
+                        <span title="Suivi (Mes suivis)">
+                          <Icon name="star" filled className="mr-1 inline h-3 w-3 align-[-1px] text-accent/80" />
+                        </span>
+                      )}
                       {p.lastName.toUpperCase()} {p.firstName}
                     </span>
                     {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
