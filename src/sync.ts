@@ -2,6 +2,7 @@ import { createClient, isAuthRetryableFetchError, type RealtimeChannel, type Sup
 import { useEffect, useState } from 'react'
 import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
 import { disablePush } from './push'
+import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -26,6 +27,8 @@ let state: SyncState = syncEnabled ? (navigator.onLine ? 'synced' : 'offline') :
 let lastError = ''
 /** Connexion « en direct » active (notifications du serveur reçues). */
 let live = false
+/** Avancement d'un gros téléchargement en cours (null sinon). */
+let progress: SyncProgress | null = null
 const listeners = new Set<() => void>()
 const setState = (s: SyncState, err = '') => {
   state = s
@@ -285,33 +288,74 @@ const PULL_OVERLAP_MS = 60_000
 const OVERLAP_WINDOW_MS = 5 * 60_000
 const PULL_PAGE = 1000
 
-async function pull() {
-  for (const table of SYNC_TABLES) {
-    const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
-    const at = new Date(since).getTime()
-    const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
-    let after: { at: string; id: string } | null = null
-    for (;;) {
-      const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
-      const filtered = after
-        ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
-        : base.gte('server_updated_at', start)
-      const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
-      if (error) throw error
-      if (!data?.length) break
-      // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
-      await db.transaction('rw', db.table(table), async () => {
-        const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
-        // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
-        const newer = data.filter((r, i) => !locals[i] || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0))
-        if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
-      })
-      const last: { id: string; server_updated_at: string } = data[data.length - 1]
-      after = { at: last.server_updated_at, id: last.id }
-      if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
-      if (data.length < PULL_PAGE) break
-    }
+/** Nombre de lignes à recevoir depuis start, estimé par le serveur sans les télécharger (0 si inconnu). */
+async function countSince(table: SyncTable, start: string) {
+  try {
+    const { count } = await supabase!.from(`hb_${table}`).select('id', { count: 'estimated', head: true }).gte('server_updated_at', start)
+    return count ?? 0
+  } catch {
+    return 0
   }
+}
+
+const setProgress = (p: SyncProgress | null) => {
+  progress = p
+  listeners.forEach((l) => l())
+}
+
+async function pull() {
+  /*
+   * Avancement : tables jamais téléchargées comptées d'avance (en parallèle) ; les autres seulement si
+   * leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
+   */
+  const per: Partial<Record<SyncTable, TableProgress>> = {}
+  const fresh = SYNC_TABLES.filter((t) => !localStorage.getItem(PULL_KEY(t)))
+  const first = fresh.length === SYNC_TABLES.length
+  await Promise.all(fresh.map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
+  if (fresh.length) setProgress(aggregate(per, null, first))
+  try {
+    for (const table of SYNC_TABLES) await pullTable(table, per, first)
+  } finally {
+    if (progress) setProgress(null)
+  }
+}
+
+async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean) {
+  const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
+  const at = new Date(since).getTime()
+  const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
+  let after: { at: string; id: string } | null = null
+  for (;;) {
+    const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
+    const filtered = after
+      ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
+      : base.gte('server_updated_at', start)
+    const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
+    if (error) throw error
+    if (!data?.length) break
+    // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
+    await db.transaction('rw', db.table(table), async () => {
+      const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+      // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
+      const newer = data.filter((r, i) => !locals[i] || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0))
+      if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
+    })
+    const last: { id: string; server_updated_at: string } = data[data.length - 1]
+    after = { at: last.server_updated_at, id: last.id }
+    if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
+    // Gros retard (premier paquet plein) : on compte ce qui reste, une seule fois.
+    if (!per[table] && data.length === PULL_PAGE) per[table] = { done: 0, total: await countSince(table, start) }
+    const p = per[table]
+    if (p) {
+      p.done += data.length
+      setProgress(aggregate(per, table, first))
+    }
+    if (data.length < PULL_PAGE) break
+  }
+  // Table terminée : son total devient exact (l'estimation peut être un peu fausse).
+  if (per[table]) per[table]!.total = per[table]!.done
+  // Table vide sur le serveur : curseur posé quand même, pour ne plus la recompter à chaque synchro.
+  if (!localStorage.getItem(PULL_KEY(table))) localStorage.setItem(PULL_KEY(table), since)
 }
 
 // Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation.
@@ -377,5 +421,5 @@ export function useSyncState() {
       listeners.delete(l)
     }
   }, [])
-  return { state, lastError, live }
+  return { state, lastError, live, progress }
 }

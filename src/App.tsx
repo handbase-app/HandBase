@@ -19,6 +19,8 @@ import { useAlertCount } from './alerts'
 import { Icon } from './components/ui'
 import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
+import { SyncProgressBar } from './components/SyncProgress'
+import { percent, showProgress } from './syncProgress'
 import { BackTracker } from './backNav'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
@@ -49,13 +51,13 @@ function AlertBell({ n }: { n: number }) {
 }
 
 function SyncBadge() {
-  const { state, lastError, live } = useSyncState()
+  const { state, lastError, live, progress } = useSyncState()
   const pending = useLiveQuery(() => db.outbox.count(), [], 0)
   const map = {
     local: { dot: 'bg-muted', text: 'Local' },
     login: { dot: 'bg-amber-400', text: 'Non connecté' },
     offline: { dot: 'bg-amber-400', text: 'Hors ligne' },
-    syncing: { dot: 'bg-sky-400 animate-pulse', text: 'Synchro…' },
+    syncing: { dot: 'bg-sky-400 animate-pulse', text: showProgress(progress) ? `Synchro… ${percent(progress)} %` : 'Synchro…' },
     synced: { dot: 'bg-emerald-400', text: live ? 'En direct' : 'Synchronisé' },
     error: { dot: 'bg-red-500', text: 'Erreur synchro' },
   }[state]
@@ -143,6 +145,7 @@ export default function App() {
           <AlertBell n={alerts} />
           <SyncBadge />
         </div>
+        <SyncProgressBar />
       </header>
 
       <BackTracker />
