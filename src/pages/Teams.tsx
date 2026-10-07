@@ -95,18 +95,23 @@ export default function Teams() {
                     : STAFF.count(0)}
                 </p>
                 {can.editTeam(t) && (
-                  <div className="flex gap-4">
-                    <button className="text-xs text-muted hover:text-fg" onClick={() => setEditing(t.id)}>
+                  <div className="flex gap-2">
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-2 px-3 py-1.5 text-xs font-bold text-fg transition hover:border-accent"
+                      onClick={() => setEditing(t.id)}
+                    >
+                      <Icon name="pencil" className="h-3.5 w-3.5" />
                       Modifier
                     </button>
                     <button
-                      className="text-xs text-muted hover:text-red-400"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-2 px-3 py-1.5 text-xs font-bold text-muted transition hover:border-red-400 hover:text-red-400"
                       onClick={async () => {
                         if (!(await ask(STAFF.confirmDelete(t.name), { ok: 'Supprimer' }))) return
                         await remove('teams', t.id)
                         setOpen(null)
                       }}
                     >
+                      <Icon name="trash" className="h-3.5 w-3.5" />
                       Supprimer
                     </button>
                   </div>
