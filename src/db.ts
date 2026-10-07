@@ -397,10 +397,13 @@ export const contextLabel = (e: Evaluation) =>
  * même date de modification pour toutes, une entrée de file d'attente par ligne.
  */
 export async function saveMany<T extends Row>(table: SyncTable, rows: (Omit<T, 'updatedAt'> & { updatedAt?: number })[]) {
-  const now = Date.now()
-  const full = rows.map((r) => ({ ...r, updatedAt: now }) as T)
-  if (!full.length) return full
+  let full: T[] = []
+  if (!rows.length) return full
   await db.transaction('rw', db.table(table), db.outbox, async () => {
+    // Comme save() : toujours plus récent que la version précédente de chaque ligne.
+    const now = Date.now()
+    const prev = (await db.table(table).bulkGet(rows.map((r) => r.id))) as (Row | undefined)[]
+    full = rows.map((r, i) => ({ ...r, updatedAt: Math.max(now, (prev[i]?.updatedAt ?? 0) + 1) }) as T)
     await db.table(table).bulkPut(full)
     await db.outbox.bulkAdd(full.map((r) => ({ table, rowId: r.id })))
   })
