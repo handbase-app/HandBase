@@ -581,8 +581,8 @@ function NationalView() {
               ? 'Part des joueurs avec au moins une mesure prise par le staff (hors tailles déclarées à la licence).'
               : metric === 'spotted'
                 ? fromAlerts.n
-                  ? `Joueurs présents dans au moins une de mes alertes (${fromAlerts.n} alerte${fromAlerts.n > 1 ? 's' : ''}).`
-                  : 'Aucune alerte : joueurs dont la dernière taille atteint le 90e centile de leur année et de leur sexe.'
+                  ? `Joueurs correspondant à au moins un de mes profils recherchés (${fromAlerts.n} profil${fromAlerts.n > 1 ? 's' : ''}).`
+                  : 'Aucun profil recherché : joueurs dont la dernière taille atteint le 90e centile de leur année et de leur sexe.'
                 : 'Joueurs licenciés dans un club du département.'}{' '}
             {region ? 'Toucher un département pour voir ses joueurs.' : 'Toucher une région pour la voir de plus près.'}
           </p>
@@ -620,7 +620,7 @@ function NationalView() {
             <p className="py-6 text-center text-xs text-muted">Aucun département pour ces filtres.</p>
           )}
           <Link to="/alertes" className="mt-2 flex items-center gap-1.5 border-t border-line pt-2 text-[11px] font-bold text-muted hover:text-fg">
-            <Icon name="bell" className="h-3.5 w-3.5" /> Alertes et profils repérés
+            <Icon name="bell" className="h-3.5 w-3.5" /> Profils recherchés
           </Link>
         </section>
       </div>

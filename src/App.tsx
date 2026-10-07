@@ -42,7 +42,7 @@ const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.N
 /** Cloche de l'en-tête : les alertes, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
   return (
-    <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Alertes">
+    <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Profils recherchés">
       <Icon name="bell" className="h-5 w-5" />
       {n > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>

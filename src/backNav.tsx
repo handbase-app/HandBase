@@ -80,7 +80,7 @@ const STATIC: Record<string, string> = {
   '/joueurs': 'JOUEURS',
   '/evenements': 'ÉVÉNEMENTS',
   '/groupes': 'GROUPES',
-  '/alertes': 'ALERTES',
+  '/alertes': 'PROFILS RECHERCHÉS',
   '/actualite': 'QUOI DE NEUF',
   '/avis-spontanes': 'PROPOSITIONS',
   '/rates': 'RATÉS',
@@ -99,7 +99,7 @@ function useTargetLabel(path?: string): string | undefined {
       return p ? playerName(p) : 'FICHE DU JOUEUR'
     }
     const row = await (kind === 'evenements' ? db.events : kind === 'groupes' ? db.groups : db.alerts).get(id)
-    return row?.name?.toUpperCase() ?? { evenements: 'ÉVÉNEMENT', groupes: 'GROUPE', alertes: 'ALERTE' }[kind]
+    return row?.name?.toUpperCase() ?? { evenements: 'ÉVÉNEMENT', groupes: 'GROUPE', alertes: 'PROFIL RECHERCHÉ' }[kind]
   }, [kind, id])
   if (!path) return undefined
   return id ? (name ?? '…') : STATIC[path]

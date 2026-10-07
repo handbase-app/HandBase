@@ -38,7 +38,7 @@ export const TABLE_LABELS: Record<SyncTable, string> = {
   evaluations: 'avis',
   groups: 'groupes',
   lists: 'listes',
-  alerts: 'alertes',
+  alerts: 'profils recherchés',
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')

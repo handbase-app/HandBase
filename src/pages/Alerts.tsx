@@ -46,20 +46,20 @@ export default function Alerts() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-extrabold">Alertes</h1>
+        <h1 className="text-lg font-extrabold">Profils recherchés</h1>
         <Link to="/alertes/nouvelle" className="btn-primary px-3 py-1.5 text-xs">
-          + Alerte
+          + Profil
         </Link>
       </div>
       <p className="text-[11px] text-muted">
-        Un filtre enregistré (ex. grand gaucher 2011) : l’appli te signale chaque joueur qui vient d’y entrer — nouvelle fiche, nouvelle mesure
+        Un profil recherché (ex. grand gaucher 2011) : l’appli te signale chaque joueur qui vient d’y entrer — nouvelle fiche, nouvelle mesure
         ou nouvel avis.
       </p>
-      {!data.alerts.length && <Empty>Aucune alerte pour l’instant. Crée la première avec « + Alerte ».</Empty>}
+      {!data.alerts.length && <Empty>Aucun profil recherché pour l’instant. Crée le premier avec « + Profil ».</Empty>}
       {mine.length > 0 && (
         <>
           <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-            <Icon name="lock" className="h-3.5 w-3.5" /> Mes alertes privées
+            <Icon name="lock" className="h-3.5 w-3.5" /> Mes profils recherchés (privés)
           </div>
           {mine.map(card)}
         </>
@@ -67,12 +67,12 @@ export default function Alerts() {
       {shared.length > 0 && (
         <>
           <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-            <Icon name="users" className="h-3.5 w-3.5" /> Alertes du staff
+            <Icon name="users" className="h-3.5 w-3.5" /> Profils recherchés du staff
           </div>
           {shared.map(card)}
         </>
       )}
-      {!can.publicGroups(role) && <p className="text-[11px] text-muted">Tes alertes sont privées : seuls les encadrants partagent des alertes au staff.</p>}
+      {!can.publicGroups(role) && <p className="text-[11px] text-muted">Tes profils recherchés sont privés : seuls les encadrants les partagent au staff.</p>}
     </div>
   )
 }
@@ -101,7 +101,7 @@ export function AlertDetail() {
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { alert, ctx } = data
-  if (!alert || alert.deleted || !can.seeGroup(alert)) return <div className="py-20 text-center text-sm text-muted">Alerte introuvable.</div>
+  if (!alert || alert.deleted || !can.seeGroup(alert)) return <div className="py-20 text-center text-sm text-muted">Profil recherché introuvable.</div>
   if (editing) return <AlertForm alert={alert} onDone={() => setParams({}, { replace: true })} />
   const manage = can.editGroup(role, alert)
   const sorted = [...players].sort((a, b) => Number(fresh?.has(b.id) ?? 0) - Number(fresh?.has(a.id) ?? 0) || a.lastName.localeCompare(b.lastName))
@@ -109,7 +109,7 @@ export function AlertDetail() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <BackButton fallback="/alertes" label="ALERTES" />
+        <BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />
         {manage && (
           <div className="flex gap-4">
             <button className="text-xs text-muted hover:text-fg" onClick={() => setParams({ modifier: '' }, { replace: true })}>
@@ -118,7 +118,7 @@ export function AlertDetail() {
             <button
               className="text-xs text-muted hover:text-red-400"
               onClick={async () => {
-                if (!(await ask(`Supprimer l’alerte « ${alert.name} » ? Les joueurs ne sont pas touchés.`, { ok: 'Supprimer' }))) return
+                if (!(await ask(`Supprimer le profil recherché « ${alert.name} » ? Les joueurs ne sont pas touchés.`, { ok: 'Supprimer' }))) return
                 await remove('alerts', alert.id)
                 nav('/alertes', { replace: true })
               }}
@@ -244,7 +244,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
       <button onClick={() => onDone(alert)} className="self-start text-xs font-bold text-muted">
         ← {alert ? alert.name : 'ALERTES'}
       </button>
-      <h1 className="text-lg font-extrabold">{alert ? 'Modifier l’alerte' : 'Nouvelle alerte'}</h1>
+      <h1 className="text-lg font-extrabold">{alert ? 'Modifier le profil recherché' : 'Nouveau profil recherché'}</h1>
 
       <div className="card flex flex-col gap-3 p-4">
         <div>
@@ -425,7 +425,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           <b className="text-fg">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
         </span>
         <button className="btn-primary flex-1" disabled={!name.trim() || busy} onClick={() => void submit()}>
-          {alert ? 'Enregistrer' : 'Créer l’alerte'}
+          {alert ? 'Enregistrer' : 'Créer le profil'}
         </button>
       </div>
     </div>

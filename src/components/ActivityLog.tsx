@@ -27,7 +27,7 @@ const TABLES: Record<string, string> = {
   evaluations: 'Avis',
   criteria: 'Critère',
   groups: 'Groupe',
-  alerts: 'Alerte',
+  alerts: 'Profil recherché',
   lists: 'Liste (région, département)',
   profiles: 'Membre du staff',
 }

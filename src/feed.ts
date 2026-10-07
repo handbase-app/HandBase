@@ -13,7 +13,7 @@ import type { AlertsResult } from './alerts'
 export type FeedKind = 'alerts' | 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
 
 export const FEED_KINDS: { value: FeedKind; label: string; icon: IconName }[] = [
-  { value: 'alerts', label: 'Alertes', icon: 'bell' },
+  { value: 'alerts', label: 'Profils recherchés', icon: 'bell' },
   { value: 'measurements', label: 'Mesures', icon: 'ruler' },
   { value: 'evaluations', label: 'Avis', icon: 'star' },
   { value: 'players', label: 'Joueurs', icon: 'userPlus' },
@@ -217,7 +217,7 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
       key: `a|${alert.id}`,
       kind: 'alerts',
       time,
-      text: `Alerte « ${alert.name} » : ${listNames(fresh)}`,
+      text: `Profil recherché « ${alert.name} » : ${listNames(fresh)}`,
       detail: `${plural(fresh.length, 'nouveau joueur', 'nouveaux joueurs')} correspond${fresh.length > 1 ? 'ent' : ''}`,
       to: `/alertes/${alert.id}`,
     })
