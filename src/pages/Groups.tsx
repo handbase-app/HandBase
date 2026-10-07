@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
@@ -11,7 +11,7 @@ import { Avatar, Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../comp
 import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
 import { useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
-import { can, currentUserId, useRole } from '../roles'
+import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
 import { supabase } from '../sync'
 import { StaffPicker } from '../components/StaffPicker'
 import { AddPlayers } from './Events'
@@ -151,29 +151,20 @@ export default function Groups() {
       {!groups.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
       )}
-      {active.some((g) => g.private) && (
-        <>
-          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-            <Icon name="lock" className="h-3.5 w-3.5" /> Mes groupes privés
-          </div>
-          {active
-            .filter((g) => g.private)
-            .map((g) => (
-              <GroupRow key={g.id} g={g} />
-            ))}
-        </>
-      )}
-      {active.some((g) => !g.private) && (
-        <>
-          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-            <Icon name="users" className="h-3.5 w-3.5" /> Groupes du staff
-          </div>
-          {active
-            .filter((g) => !g.private)
-            .map((g) => (
-              <GroupRow key={g.id} g={g} />
-            ))}
-        </>
+      {SECTIONS.map(
+        (sec) =>
+          active.some((g) => groupVisibility(g) === sec.vis) && (
+            <Fragment key={sec.vis}>
+              <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
+                <Icon name={sec.icon} className="h-3.5 w-3.5" /> {sec.title}
+              </div>
+              {active
+                .filter((g) => groupVisibility(g) === sec.vis)
+                .map((g) => (
+                  <GroupRow key={g.id} g={g} />
+                ))}
+            </Fragment>
+          ),
       )}
       {archived.length > 0 && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={() => setShowArchived((x) => !x)}>
@@ -185,15 +176,35 @@ export default function Groups() {
   )
 }
 
+/** Sections de la liste, une par visibilité. */
+const SECTIONS = [
+  { vis: 'private', icon: 'lock', title: 'Mes groupes privés' },
+  { vis: 'team', icon: 'users', title: 'Groupes d’équipe' },
+  { vis: 'staff', icon: 'globe', title: 'Groupes du staff' },
+] as const
+
+/** Pastille « Équipe » : groupe visible par son créateur et ses participants seulement. */
+function TeamChip() {
+  return (
+    <span
+      title="Groupe d’équipe : visible seulement par son créateur et ses participants"
+      className="ml-2 inline-flex shrink-0 items-center gap-0.5 rounded-full border border-line px-1.5 align-[1px] text-[10px] font-bold text-muted"
+    >
+      <Icon name="users" className="h-2.5 w-2.5" /> Équipe
+    </span>
+  )
+}
+
 function GroupRow({ g }: { g: PlayerGroup }) {
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
   return (
     <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
-        <div className="truncate text-sm font-bold">
-          {g.name}
-          {g.archived && <span className="ml-2 text-[10px] text-muted">archivé</span>}
+        <div className="flex items-center text-sm font-bold">
+          <span className="truncate">{g.name}</span>
+          {g.team && <TeamChip />}
+          {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
         </div>
         {info && <div className="truncate text-[11px] font-bold text-accent">{info}</div>}
         {g.description && <div className="truncate text-[11px] text-muted">{g.description}</div>}
@@ -231,6 +242,14 @@ export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years'>, 
   return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, region].filter(Boolean).join(' · ')
 }
 
+const VIS_HELP: Record<GroupVisibility, string> = {
+  private: 'Moi seul : personne d’autre ne le voit, même pas les administrateurs.',
+  team: 'Équipe : visible seulement par toi et les participants que tu choisis (pas par les administrateurs).',
+  staff: 'Tout le staff : visible par tout le staff.',
+}
+/** Du moins visible au plus visible. */
+const VIS_RANK: Record<GroupVisibility, number> = { private: 0, team: 1, staff: 2 }
+
 /** Copie d'un groupe sans la signature serveur de l'original (la copie a son propre créateur). */
 function stripStamps(g: PlayerGroup): PlayerGroup {
   const { createdBy: _a, createdByName: _b, createdAtServer: _c, updatedByName: _d, updatedAtServer: _e, ...rest } = g
@@ -243,7 +262,8 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
   // Nouveau groupe : privé par défaut ; l'observateur ne crée que des groupes privés.
-  const [priv, setPriv] = useState(group ? !!group.private : true)
+  const [vis, setVis] = useState<GroupVisibility>(group ? groupVisibility(group) : 'private')
+  const priv = vis === 'private'
   const [sex, setSex] = useState(group?.sex)
   const [department, setDepartment] = useState(group?.department ?? '')
   const regions = useRegions()
@@ -267,27 +287,27 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
 
       <span className="label">Visible par</span>
       {can.publicGroups(role) || (group && !group.private) ? (
-        <Segmented<'prive' | 'public'>
-          value={priv ? 'prive' : 'public'}
-          onChange={(v) => setPriv(v === 'prive')}
+        <Segmented<GroupVisibility>
+          value={vis}
+          onChange={setVis}
           options={[
-            { value: 'prive', label: '🔒 Moi seul' },
-            { value: 'public', label: '👥 Tout le staff' },
+            { value: 'private', label: '🔒 Moi seul' },
+            { value: 'team', label: '👥 Équipe' },
+            { value: 'staff', label: '🌐 Tout le staff' },
           ]}
         />
       ) : (
         <p className="text-xs">🔒 Moi seul (groupe privé)</p>
       )}
-      <p className="text-[11px] text-muted">
-        {priv ? 'Groupe privé : personne d’autre ne le voit, même pas les administrateurs.' : 'Groupe public : visible par tout le staff.'}
-      </p>
+      <p className="text-[11px] text-muted">{VIS_HELP[vis]}</p>
 
       {!priv && supabase && (
         <>
           <span className="label mt-2">Participants</span>
           <p className="-mt-1 text-[11px] text-muted">
-            Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer
-            le groupe reste à toi (et aux administrateurs).
+            {vis === 'team'
+              ? 'Encadrants qui voient ce groupe, y ajoutent des joueurs et retirent ceux qu’ils ont ajoutés. Renommer, archiver ou supprimer le groupe, ou changer ses participants, reste à toi.'
+              : 'Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer le groupe reste à toi (et aux administrateurs).'}
           </p>
           <StaffPicker value={editors} onChange={setEditors} ownerId={group?.createdBy} onNames={setStaffNames} chip={chip} />
         </>
@@ -359,19 +379,21 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
                 ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])),
               },
             }
+            const flags = { private: priv, team: vis === 'team' || undefined }
             // Relit le groupe : sa liste a pu changer entre-temps.
             const current = group && (await db.groups.get(group.id))
-            if (current && priv && !current.private) {
-              // Public → privé : nouveau groupe privé, et l'ancien est supprimé chez tout le monde
-              // (sinon les autres appareils garderaient leur copie publique).
-              const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, id: newId(), private: true })
+            if (current && VIS_RANK[vis] < VIS_RANK[groupVisibility(current)]) {
+              // Moins visible (staff → équipe ou privé, équipe → privé) : nouveau groupe, et l'ancien est supprimé
+              // chez tout le monde. Sinon, ceux qui ne le voient plus garderaient leur copie : le serveur ne leur
+              // envoie plus rien de ce groupe, pas même sa suppression.
+              const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, ...flags, id: newId() })
               await remove('groups', current.id)
               return onDone(copy)
             }
             onDone(
               await save<PlayerGroup>(
                 'groups',
-                current ? { ...current, ...fields, private: priv } : { id: newId(), playerIds: [...new Set(playerIds)], ...fields, private: priv },
+                current ? { ...current, ...fields, ...flags } : { id: newId(), playerIds: [...new Set(playerIds)], ...fields, ...flags },
               ),
             )
           }}
@@ -477,6 +499,9 @@ export function GroupDetail() {
                   archived: undefined,
                   // L'observateur ne crée que des groupes privés.
                   private: can.publicGroups(role) ? g.private : true,
+                  team: can.publicGroups(role) ? g.team : undefined,
+                  // La copie est à moi : je ne suis pas mon propre participant.
+                  editors: can.publicGroups(role) ? g.editors?.filter((u) => u !== currentUserId()) : [],
                 })
                 nav(`/groupes/${copy.id}?modifier=1`)
               }}
@@ -515,7 +540,7 @@ export function GroupDetail() {
             onDone={(saved) => {
               setEditing(false)
               if (params.has('modifier')) setParams({}, { replace: true })
-              // Passé en privé : c'est un nouveau groupe (voir GroupForm).
+              // Rendu moins visible (privé, équipe) : c'est un nouveau groupe (voir GroupForm).
               if (saved && saved.id !== g.id) nav(`/groupes/${saved.id}`, { replace: true })
             }}
           />
@@ -529,6 +554,7 @@ export function GroupDetail() {
               </span>
             )}
             {g.name}
+            {g.team && <TeamChip />}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
           </h1>
           {info && <div className="text-xs font-bold text-accent">{info}</div>}

@@ -95,6 +95,12 @@ export function useRole(): Role {
   return role
 }
 
+/** Visibilité d'un groupe : « Moi seul », « Équipe » (créateur et participants) ou « Tout le staff ». */
+export type GroupVisibility = 'private' | 'team' | 'staff'
+export const groupVisibility = (g: { private?: boolean; team?: boolean }): GroupVisibility => (g.private ? 'private' : g.team ? 'team' : 'staff')
+/** Marque devant le nom d'un groupe dans les menus : 🔒 privé, 👥 équipe. */
+export const groupMark = (g: { private?: boolean; team?: boolean }) => ({ private: '🔒 ', team: '👥 ', staff: '' })[groupVisibility(g)]
+
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
 export const can = {
   editPlayers: (r: Role) => r !== 'observateur',
@@ -112,13 +118,18 @@ export const can = {
   editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
   /** Créer des groupes : tout le monde (l'observateur seulement des groupes privés). */
   manageGroups: (_r: Role) => true,
+  /** Groupes « Tout le staff » ou « Équipe » (et profils recherchés partagés) : pas l'observateur. */
   publicGroups: (r: Role) => r !== 'observateur',
-  /** Voir un groupe : public, ou privé à soi (supabase/017_groupes_prives.sql). */
-  seeGroup: (g: { createdBy?: string; private?: boolean }) => !g.private || !g.createdBy || g.createdBy === userId,
-  /** Modifier / supprimer un groupe : privé, son créateur seul ; public, l'admin tous et l'encadrant les siens. */
-  editGroup: (r: Role, g: { createdBy?: string; private?: boolean }) =>
-    g.private ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
-  /** Participant d'un groupe partagé (supabase/023_participants_groupes.sql) : encadrant désigné par le créateur. */
+  /**
+   * Voir un groupe : le sien, ou un groupe du staff, ou un groupe d'équipe dont on est participant
+   * (supabase/017_groupes_prives.sql, 031_groupes_equipe.sql). Sert aussi aux profils recherchés (sans « team »).
+   */
+  seeGroup: (g: { createdBy?: string; private?: boolean; team?: boolean; editors?: string[] }) =>
+    !g.createdBy || g.createdBy === userId || (!g.private && (!g.team || (!!userId && !!g.editors?.includes(userId)))),
+  /** Modifier / supprimer un groupe : privé ou d'équipe, son créateur seul ; du staff, l'admin tous et l'encadrant les siens. */
+  editGroup: (r: Role, g: { createdBy?: string; private?: boolean; team?: boolean }) =>
+    g.private || g.team ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
+  /** Participant d'un groupe du staff ou d'équipe (supabase/023, 031) : encadrant désigné par le créateur. */
   contributeGroup: (r: Role, g: { private?: boolean; editors?: string[] }) => r === 'preparateur' && !g.private && !!userId && !!g.editors?.includes(userId),
   /** Retirer ce joueur du groupe : créateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
   removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>

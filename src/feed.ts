@@ -1,6 +1,6 @@
 import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type Player } from './db'
 import { department } from './components/PlayerFilter'
-import { currentUserId, myDepartments } from './roles'
+import { can, currentUserId, myDepartments } from './roles'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -171,15 +171,16 @@ export async function buildFeed({ days, sector = false, alerts }: { days: number
     })
   }
 
-  // Groupes : un par un (les groupes privés des autres ne sont jamais sur l'appareil).
-  for (const g of groups.filter((g) => recent(g))) {
+  // Groupes : un par un (les groupes privés des autres, et les groupes d'équipe dont on n'est pas, ne sont jamais
+  // sur l'appareil ; can.seeGroup écarte en plus une vieille copie d'un groupe d'équipe dont on a été retiré).
+  for (const g of groups.filter((g) => recent(g) && can.seeGroup(g))) {
     push({
       key: `g|${g.id}`,
       kind: 'groups',
       time: created(g),
       author: g.createdByName,
       authorId: g.createdBy,
-      text: `nouveau groupe : ${g.name}${g.private ? ' (privé)' : ''}`,
+      text: `nouveau groupe : ${g.name}${g.private ? ' (privé)' : g.team ? ' (équipe)' : ''}`,
       detail: plural(g.playerIds.length, 'joueur'),
       to: `/groupes/${g.id}`,
     })

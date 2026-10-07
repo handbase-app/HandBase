@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
-import { can, currentUserId, useRole } from '../roles'
+import { can, currentUserId, groupMark, useRole } from '../roles'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
@@ -709,7 +709,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
-              Joueurs : {g.private ? '🔒 ' : ''}groupe {g.name} ({g.playerIds.length})
+              Joueurs : {groupMark(g)}groupe {g.name} ({g.playerIds.length})
             </option>
           ))}
         </select>

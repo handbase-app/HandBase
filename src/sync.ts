@@ -318,6 +318,40 @@ async function pull() {
   } finally {
     if (progress) setProgress(null)
   }
+  await forgetHiddenGroups()
+}
+
+/*
+ * Groupes que ce compte ne voit plus : groupe d'équipe dont il a été retiré (ou dont il s'est retiré),
+ * supabase/031_groupes_equipe.sql. Le serveur ne lui en envoie plus rien, pas même la suppression : sa copie
+ * resterait sur l'appareil. Au lancement puis toutes les 10 minutes, on relit la liste des groupes visibles
+ * (seulement leurs identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus,
+ * sauf s'ils ont une modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et
+ * supprime l'ancien, voir GroupForm : cela, tous les appareils le reçoivent tout de suite.)
+ */
+const FORGET_EVERY_MS = 10 * 60_000
+let lastForget = 0
+
+async function forgetHiddenGroups() {
+  if (Date.now() - lastForget < FORGET_EVERY_MS) return
+  const visible = new Set<string>()
+  // Pagination par identifiant (et non par position) : aucune ligne sautée si le serveur change entre deux pages.
+  for (let after = ''; ; ) {
+    const { data, error } = await supabase!.from('hb_groups').select('id').gt('id', after).order('id').limit(PULL_PAGE)
+    if (error) return // on réessaiera à la prochaine synchronisation
+    for (const r of data) visible.add(r.id as string)
+    if (data.length < PULL_PAGE) break
+    after = data[data.length - 1].id as string
+  }
+  lastForget = Date.now()
+  // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence.
+  if (!visible.size) return
+  // Une seule transaction : un groupe créé sur l'appareil pendant ce temps est forcément dans la file d'envoi.
+  await db.transaction('rw', db.groups, db.outbox, async () => {
+    const pending = new Set((await db.outbox.where('table').equals('groups').toArray()).map((i) => i.rowId))
+    const gone = ((await db.groups.toCollection().primaryKeys()) as string[]).filter((id) => !visible.has(id) && !pending.has(id))
+    if (gone.length) await db.groups.bulkDelete(gone)
+  })
 }
 
 async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean) {

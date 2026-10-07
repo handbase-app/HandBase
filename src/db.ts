@@ -202,8 +202,10 @@ export interface PlayerGroup extends Syncable {
   name: string
   description?: string
   playerIds: string[]
-  /** Groupe privé : visible et modifiable par son créateur seul. */
+  /** Groupe privé (« Moi seul ») : visible et modifiable par son créateur seul. */
   private?: boolean
+  /** Groupe d'équipe : visible par son créateur et ses participants seulement (supabase/031) ; jamais avec private. */
+  team?: boolean
   /** Informations facultatives, pour filtrer et retrouver les groupes. */
   sex?: 'M' | 'F' | 'mixte'
   department?: string

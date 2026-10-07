@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { alive, db, plural, save, type PlayerGroup } from '../db'
-import { can, currentUserId, useRole } from '../roles'
+import { can, currentUserId, groupMark, useRole } from '../roles'
 import { getMe } from './ui'
 
 /** Ajoute des joueurs au groupe (sans doublon, ordre conservé). Renvoie le nombre de nouveaux. */
@@ -76,7 +76,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                   <span className={`h-3.5 w-3.5 shrink-0 rounded-full border ${picked === g.id ? 'border-accent bg-accent' : 'border-line'}`} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-bold">
-                      {g.private ? '🔒 ' : ''}
+                      {groupMark(g)}
                       {g.name}
                     </span>
                     <span className="block truncate text-[10px] text-muted">
@@ -149,7 +149,7 @@ export function PlayerGroups({ playerId }: { playerId: string }) {
         <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Groupes</span>
         {groups.map((g) => (
           <Link key={g.id} to={`/groupes/${g.id}`} className="rounded-full border border-accent/50 bg-accent-soft px-2.5 py-0.5 text-[11px] font-bold hover:border-accent">
-            {g.private ? '🔒 ' : ''}
+            {groupMark(g)}
             {g.name}
           </Link>
         ))}
