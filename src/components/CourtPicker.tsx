@@ -5,8 +5,8 @@ import { choose } from './Confirm'
 // Terrain à l'échelle : 1 m = 15 px, ligne de but à y = 14, poteaux à x = 127,5 et 172,5.
 const SPOTS: Record<Position, { x: number; y: number; tag: string }> = {
   GB: { x: 150, y: 24, tag: 'G' },
-  AG: { x: 20, y: 34, tag: 'AG' },
-  AD: { x: 280, y: 34, tag: 'AD' },
+  AG: { x: 20, y: 34, tag: 'ALG' },
+  AD: { x: 280, y: 34, tag: 'ALD' },
   ARG: { x: 42, y: 140, tag: 'ARG' },
   DC: { x: 150, y: 172, tag: 'DC' },
   ARD: { x: 258, y: 140, tag: 'ARD' },
