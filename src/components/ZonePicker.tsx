@@ -15,6 +15,7 @@ export function ZonePicker({
   onChange,
   extra = [],
   label = 'Zone',
+  emptyLabel,
 }: {
   /** Numéros des départements choisis (vide = toute la France). */
   value: string[] | undefined
@@ -22,6 +23,8 @@ export function ZonePicker({
   /** Numéros à proposer en plus des départements connus (ex. ceux des joueurs). */
   extra?: string[]
   label?: string
+  /** Texte quand rien n'est choisi (sinon « Toute la France »). */
+  emptyLabel?: string
 }) {
   const listed = useDepartments()
   const regions = useRegions()
@@ -79,7 +82,7 @@ export function ZonePicker({
       return n
     })
 
-  const summary = zoneSummary(value)
+  const summary = !value?.length && emptyLabel ? emptyLabel : zoneSummary(value)
 
   return (
     <div>

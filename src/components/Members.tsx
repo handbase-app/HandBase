@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
-import { departmentChoices, departmentLabel } from '../lists'
 import { Icon, SectionTitle, Segmented } from './ui'
+import { ZonePicker } from './ZonePicker'
 
 /*
  * Membres du staff (administrateurs) : créer, modifier, supprimer des observateurs et des encadrants,
@@ -374,7 +374,6 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   const [password, setPassword] = useState(member ? '' : generatePassword())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const toggleDept = (d: string) => setDepts((ds) => (ds.includes(d) ? ds.filter((x) => x !== d) : [...ds, d]))
   const valid = name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && (member ? !password || password.length >= 8 : password.length >= 8)
 
   async function submit() {
@@ -467,21 +466,12 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         />
       </div>
       <div>
-        <span className="label">Secteur (départements)</span>
-        <div className="flex flex-wrap items-center gap-1">
-          {[...new Set([...departmentChoices().map((d) => d.value), ...depts])].map((d) => (
-            <button
-              key={d}
-              type="button"
-              title={departmentLabel(d)}
-              onClick={() => toggleDept(d)}
-              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${depts.includes(d) ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
-            >
-              {d}
-            </button>
-          ))}
-          <span className="text-[10px] text-muted">{depts.length ? '' : role === 'preparateur' ? 'aucun : valide tous les départements' : 'aucun'}</span>
-        </div>
+        <ZonePicker
+          label="Secteur"
+          value={depts}
+          onChange={(v) => setDepts(v ?? [])}
+          emptyLabel={role === 'preparateur' ? 'Aucun : valide tous les départements' : 'Aucun département'}
+        />
       </div>
       {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « lien » s'en occupe. */}
       {!member && (
