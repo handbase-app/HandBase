@@ -10,10 +10,11 @@ const ACTIONS = [
   { to: '/joueurs/nouveau', title: 'Nouveau joueur', icon: 'M15 19c0-3-3-5-6-5s-6 2-6 5M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6', main: true },
   { to: '/evenements', title: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
+  { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
 ]
 
-/** `toReview` : propositions à valider (compté une seule fois, dans App). */
-export default function Home({ toReview }: { toReview: number }) {
+/** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */
+export default function Home({ toReview, followNews }: { toReview: number; followNews: number }) {
   const role = useRole()
   const counts = useThrottledQuery(
     async () => ({
@@ -36,7 +37,7 @@ export default function Home({ toReview }: { toReview: number }) {
         )}
       </div>
 
-      <div className={`grid gap-2 ${actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid gap-2 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {actions.map((t) => (
           <Link
             key={t.to}
@@ -51,6 +52,9 @@ export default function Home({ toReview }: { toReview: number }) {
             <span className="text-xs font-bold">{t.title}</span>
             {t.to === '/avis-spontanes' && toReview > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-black">{toReview}</span>
+            )}
+            {t.to === '/suivis' && followNews > 0 && (
+              <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{followNews > 99 ? '99+' : followNews}</span>
             )}
           </Link>
         ))}

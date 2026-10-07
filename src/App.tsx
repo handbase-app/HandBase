@@ -16,6 +16,7 @@ import Privacy from './pages/Privacy'
 import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
 import { useAlertCount } from './alerts'
+import { useFollowNewsCount } from './follows'
 import { Icon } from './components/ui'
 import { useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
@@ -38,12 +39,25 @@ const Alerts = lazy(() => import('./pages/Alerts'))
 const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertDetail })))
 const National = lazy(() => import('./pages/National'))
 const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
+const Follows = lazy(() => import('./pages/Follows'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
   return (
     <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Profils recherchés">
       <Icon name="target" className="h-5 w-5" />
+      {n > 0 && (
+        <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
+      )}
+    </GuardedLink>
+  )
+}
+
+/** Étoile de l'en-tête : « Mes suivis », avec le nombre de nouveautés pas encore vues. */
+function FollowStar({ n }: { n: number }) {
+  return (
+    <GuardedLink to="/suivis" className="relative text-muted hover:text-fg" aria-label={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'}>
+      <Icon name="star" className="h-5 w-5" />
       {n > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
       )}
@@ -118,6 +132,7 @@ export default function App() {
   // Avis spontanés à valider : pastille sur « Évaluer ».
   const toReview = usePendingCount()
   const alerts = useAlertCount()
+  const followNews = useFollowNewsCount()
   // Pastille sur l'icône de l'appli : tout ce qui attend (propositions à valider + nouvelles alertes).
   useEffect(() => {
     void setIconBadge(toReview + alerts)
@@ -143,6 +158,7 @@ export default function App() {
           {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">{TRIAL_LABEL}</span>}
         </GuardedLink>
         <div className="flex items-center gap-3">
+          <FollowStar n={followNews} />
           <AlertBell n={alerts} />
           <SyncBadge />
         </div>
@@ -153,7 +169,8 @@ export default function App() {
       <main className="flex-1 px-4 pt-4 pb-28">
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <Routes>
-          <Route path="/" element={<Home toReview={toReview} />} />
+          <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
+          <Route path="/suivis" element={<Follows />} />
           <Route path="/joueurs" element={<Players />} />
           <Route path="/joueurs/nouveau" element={<PlayerForm />} />
           <Route path="/joueurs/:id" element={<PlayerDetail />} />

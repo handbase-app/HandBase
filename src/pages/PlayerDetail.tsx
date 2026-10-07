@@ -21,6 +21,7 @@ import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
 import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
+import { FollowButton, FollowedVia } from '../components/Follow'
 
 const TABS = [
   { id: 'profil', label: 'Profil' },
@@ -156,16 +157,18 @@ export default function PlayerDetail() {
 
       <div className="flex items-center gap-4">
         <Avatar p={p} size={64} />
-        <div>
-          <h1 className="text-lg font-extrabold">
-            {playerName(p)}
-          </h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="min-w-0 text-lg font-extrabold">{playerName(p)}</h1>
+            <FollowButton kind="player" id={p.id} />
+          </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             <PosBadges p={p} />
             {a !== null && <span>{a} ans</span>}
             <QuarterBadge birthDate={p.birthDate} />
           </div>
           <StampLine row={p} />
+          <FollowedVia playerId={p.id} />
         </div>
       </div>
 

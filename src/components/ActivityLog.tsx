@@ -28,6 +28,7 @@ const TABLES: Record<string, string> = {
   criteria: 'Critère',
   groups: 'Groupe',
   alerts: 'Profil recherché',
+  follows: 'Suivi (privé)',
   lists: 'Liste (région, département)',
   profiles: 'Membre du staff',
 }

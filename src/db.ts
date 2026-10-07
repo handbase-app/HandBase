@@ -221,6 +221,21 @@ export interface PlayerGroup extends Syncable {
   addedBy?: Record<string, string>
   /** Noms des comptes cités (participants, « ajouté par »). */
   names?: Record<string, string>
+  /**
+   * « Suivi par l'équipe » (supabase/032_suivis.sql) : groupe d'équipe ou du staff qui compte comme suivi pour
+   * son créateur et ses participants. Seul le créateur le change ; jamais sur un groupe privé.
+   */
+  teamFollow?: boolean
+}
+
+/**
+ * Suivi personnel d'un joueur ou d'un groupe (supabase/032_suivis.sql) : visible par son seul créateur.
+ * Identifiant fixe « <compte>:<player|group>:<cible> » (même ligne d'un appareil à l'autre) ;
+ * arrêter de suivre = ligne supprimée (deleted), reprise si on suit à nouveau.
+ */
+export interface Follow extends Syncable {
+  kind: 'player' | 'group'
+  targetId: string
 }
 
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */
@@ -278,7 +293,7 @@ export interface OutboxItem {
   rowId: string
 }
 
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts'] as const
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -298,6 +313,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   groups: EntityTable<PlayerGroup, 'id'>
   lists: EntityTable<ListItem, 'id'>
   alerts: EntityTable<PlayerAlert, 'id'>
+  follows: EntityTable<Follow, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -359,6 +375,9 @@ db.version(9).stores({
 
 // v10 : tests du FabLab (VMA, sprint 5 m, Illinois, CMJ bras libres, drop jumps et leur RSI).
 db.version(10).upgrade(applyDefaultCriteria)
+
+// v11 : suivis (joueurs et groupes suivis, supabase/032_suivis.sql).
+db.version(11).stores({ follows: 'id, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
