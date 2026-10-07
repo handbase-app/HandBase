@@ -31,6 +31,91 @@ interface Access {
 
 type StaffRole = 'observateur' | 'preparateur'
 
+/** Connecté : dernier signe de vie de l'appli il y a moins de 3 minutes (une par minute, supabase/030). */
+const ONLINE_MS = 3 * 60_000
+const DAY = (t: number) => new Date(t).toDateString()
+
+function fmtDay(t: number) {
+  const d = new Date(t)
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })
+}
+function fmtTime(t: number) {
+  const d = new Date(t)
+  return `${String(d.getHours()).padStart(2, '0')} h ${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** « vu il y a 5 min », « vu il y a 2 h », « vu hier », « vu le 3 oct. ». */
+function seenLabel(t: number) {
+  const ago = Date.now() - t
+  if (ago < 60 * 60_000) return `vu il y a ${Math.max(1, Math.floor(ago / 60_000))} min`
+  if (DAY(t) === DAY(Date.now())) return `vu il y a ${Math.floor(ago / 3_600_000)} h`
+  if (DAY(t) === DAY(Date.now() - 86_400_000)) return 'vu hier'
+  return `vu le ${fmtDay(t)}`
+}
+
+/** Pastille verte si connecté, sinon dernière connexion (rien tant que le serveur n'a pas répondu). */
+function Seen({ t }: { t: number | null | undefined }) {
+  if (t === undefined) return null
+  if (t && Date.now() - t < ONLINE_MS) return <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" title="Connecté en ce moment" />
+  return <span className="text-[10px] text-muted">{t ? seenLabel(t) : 'jamais vu'}</span>
+}
+
+interface Connection {
+  session_id: string
+  device: string | null
+  started_at: string
+  last_seen_at: string
+}
+
+/** Journal des connexions d'un membre : une ligne par ouverture de l'appli, la plus récente d'abord. */
+function ConnectionLog({ userId }: { userId: string }) {
+  const PAGE = 30
+  const [rows, setRows] = useState<Connection[]>([])
+  const [more, setMore] = useState(false)
+  const [state, setState] = useState<'…' | 'ok' | 'err'>('…')
+
+  async function load(from: number) {
+    const { data, error } = await supabase!
+      .from('hb_connections')
+      .select('session_id, device, started_at, last_seen_at')
+      .eq('user_id', userId)
+      .order('started_at', { ascending: false })
+      .range(from, from + PAGE) // une ligne de plus : y en a-t-il encore ?
+    if (error) return setState('err')
+    setRows((r) => [...r.slice(0, from), ...(data as Connection[]).slice(0, PAGE)])
+    setMore(data.length > PAGE)
+    setState('ok')
+  }
+  useEffect(() => {
+    void load(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
+
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px]">
+      <span className="label">Connexions (6 derniers mois)</span>
+      {state === 'err' && <p className="text-muted">Journal indisponible.</p>}
+      {state === 'ok' && rows.length === 0 && <p className="text-muted">Aucune connexion enregistrée.</p>}
+      {rows.map((c) => {
+        const a = Date.parse(c.started_at)
+        const b = Date.parse(c.last_seen_at)
+        const end = Date.now() - b < ONLINE_MS ? 'en cours' : `${DAY(a) === DAY(b) ? '' : fmtDay(b) + ' '}${fmtTime(b)}`
+        return (
+          <div key={c.session_id} className="text-muted">
+            <span className="text-fg">{fmtDay(a)}</span> · {fmtTime(a)} – {end}
+            {c.device && ` · ${c.device}`}
+          </div>
+        )
+      })}
+      {more && (
+        <button type="button" className="self-start text-accent" onClick={() => void load(rows.length)}>
+          voir plus
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** Mot de passe provisoire facile à dicter (sans 0/O, 1/l…) : « kq7m-x4tr-9b ». */
 function generatePassword() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789'
@@ -124,6 +209,8 @@ export function Members() {
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<string | null>(null) // id du membre ouvert, ou 'nouveau'
   const [access, setAccess] = useState<Access | null>(null)
+  // Dernière connexion de chaque membre (supabase/030 ; absent avant 030 : rien d'affiché).
+  const [seen, setSeen] = useState<Record<string, number> | null>(null)
 
   async function load() {
     setErr('')
@@ -141,6 +228,16 @@ export function Members() {
   useEffect(() => {
     void load()
   }, [])
+  useEffect(() => {
+    const loadSeen = () =>
+      void supabase!.rpc('hb_last_seen').then(({ data, error }) => {
+        if (!error) setSeen(Object.fromEntries((data as { user_id: string; last_seen_at: string }[]).map((r) => [r.user_id, Date.parse(r.last_seen_at)])))
+      })
+    loadSeen()
+    const t = setInterval(loadSeen, 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const seenOf = (id: string) => (seen ? (seen[id] ?? null) : undefined)
 
   const admins = list?.filter((p) => p.role === 'admin') ?? []
   const staff = list?.filter((p) => p.role !== 'admin') ?? []
@@ -198,7 +295,7 @@ export function Members() {
         <div className="divide-y divide-line rounded-lg border border-line">
           {staff.map((p) =>
             open === p.user_id ? (
-              <div key={p.user_id} className="p-2">
+              <div key={p.user_id} className="flex flex-col gap-2 p-2">
                 <MemberForm
                   member={p}
                   onDone={async (res) => {
@@ -208,6 +305,7 @@ export function Members() {
                     if (p.user_id === me) await refreshRole()
                   }}
                 />
+                {seen && <ConnectionLog userId={p.user_id} />}
               </div>
             ) : (
               <button
@@ -224,6 +322,7 @@ export function Members() {
                   </div>
                 </div>
                 <span className="flex shrink-0 items-center gap-2 text-[11px]">
+                  <Seen t={seenOf(p.user_id)} />
                   <span className={p.role === 'preparateur' ? 'font-bold text-accent' : 'text-muted'}>{p.role ? ROLE_LABEL[p.role] : 'En attente (aucun rôle)'}</span>
                   <span className="text-muted">✎</span>
                 </span>
@@ -231,16 +330,29 @@ export function Members() {
             ),
           )}
           {admins.map((p) => (
-            <div key={p.user_id} className="flex items-center justify-between gap-2 px-3 py-2">
-              <div className="min-w-0">
-                <div className="truncate text-xs font-bold">
-                  {p.full_name || p.email} {p.user_id === me && <span className="text-muted">— toi</span>}
+            <div key={p.user_id}>
+              {/* Administrateur : pas modifiable ici ; un appui montre seulement ses connexions. */}
+              <button
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                disabled={!seen}
+                onClick={() => setOpen(open === p.user_id ? null : p.user_id)}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-bold">
+                    {p.full_name || p.email} {p.user_id === me && <span className="text-muted">— toi</span>}
+                  </div>
+                  <div className="truncate text-[10px] text-muted">{p.email}</div>
                 </div>
-                <div className="truncate text-[10px] text-muted">{p.email}</div>
-              </div>
-              <span className="shrink-0 text-[11px] text-muted" title="Géré uniquement depuis Supabase (SQL Editor)">
-                Administrateur 🔒
-              </span>
+                <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted" title="Géré uniquement depuis Supabase (SQL Editor)">
+                  <Seen t={seenOf(p.user_id)} />
+                  Administrateur 🔒
+                </span>
+              </button>
+              {open === p.user_id && seen && (
+                <div className="px-3 pb-2">
+                  <ConnectionLog userId={p.user_id} />
+                </div>
+              )}
             </div>
           ))}
         </div>

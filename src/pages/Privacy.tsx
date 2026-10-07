@@ -43,7 +43,8 @@ export function PrivacyText() {
       <p>
         Seuls les membres du staff qui ont un compte personnel : administrateurs, encadrants et observateurs, chacun selon son
         rôle. Chaque création ou modification est enregistrée avec son auteur. Chaque membre du staff a accepté la charte
-        d’utilisation ci-dessous.
+        d’utilisation ci-dessous. Les administrateurs voient aussi quand chaque membre du staff utilise l’application (heures
+        de connexion et type d’appareil, sans adresse IP) : gardé 6 mois.
       </p>
 
       <H>Où sont-elles stockées ?</H>

@@ -5,12 +5,14 @@ import './index.css'
 import App from './App.tsx'
 import { AuthGate } from './components/AuthGate.tsx'
 import { startSync } from './sync.ts'
+import { startPresence } from './presence.ts'
 import { applyTheme } from './theme.ts'
 import { startPwaUpdates } from './pwa.ts'
 
 // Couleurs du thème choisi, avant le premier affichage (pas de flash).
 applyTheme()
 startSync()
+startPresence()
 startPwaUpdates()
 
 createRoot(document.getElementById('root')!).render(

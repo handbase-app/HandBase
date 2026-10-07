@@ -44,6 +44,7 @@ rassemblements et sélections. Les données ne servent qu'à cela : ni vente, ni
 ### 4. Quelles données sur le staff ?
 Nom, e-mail, téléphone, rôle, départements suivis, préférences de notifications, et le nom de l'auteur de chaque
 fiche, mesure ou avis. Le **journal d'activité** garde qui a fait quoi, quand, avec l'ancienne et la nouvelle valeur.
+Les **connexions** (heures d'utilisation de l'appli et type d'appareil, sans adresse IP) sont visibles des administrateurs seuls et effacées après **6 mois**.
 
 ### 5. Qui voit quoi ?
 Seulement le staff, avec un compte personnel créé par un administrateur (pas d'inscription libre) :

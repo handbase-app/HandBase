@@ -79,6 +79,7 @@ Pour chaque point : **ce que fait l'appli aujourd'hui**, puis **notre propositio
 | Joueur validé (suivi) | **pas de limite** | [À VALIDER : fin de la catégorie jeunes (ex. 31 décembre de ses 18 ans) ou 2 ans sans activité] |
 | Joueur mis « hors cadre » (refusé) | **pas de limite** (gardé pour la vue « Ratés ») | [À VALIDER : 2 ans après la décision] |
 | Journal d'activité (garde les anciennes valeurs) | **pas de limite** | [À VALIDER : 12 mois] |
+| Connexions du staff (heures d'utilisation, type d'appareil, sans IP ; vues par les admins) | 6 mois (effacement automatique chaque nuit) | garder |
 | Notifications envoyées | pas de limite (en cours de correction) | 30 jours |
 | Abonnements aux notifications d'un appareil | pas de limite | supprimés avec le compte ou après 6 mois sans utilisation |
 | Compte d'un membre du staff qui part | supprimé à la main par un admin | [À VALIDER : désactivé au départ, effacé après 3 mois] |
