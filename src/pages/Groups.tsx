@@ -15,7 +15,7 @@ import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } fr
 import { supabase } from '../sync'
 import { StaffPicker } from '../components/StaffPicker'
 import { AddPlayers } from './Events'
-import { FollowButton } from '../components/Follow'
+import { FollowButton, PlayerStar } from '../components/Follow'
 import { teamFollowed, useFollows } from '../follows'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
@@ -492,6 +492,8 @@ export function GroupDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
   const [adding, setAdding] = useState(params.has('ajout'))
+  // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
+  const [removing, setRemoving] = useState(false)
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id!)
     const players = alive((await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p))
@@ -659,8 +661,18 @@ export function GroupDetail() {
       )}
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des joueurs et retirer ceux que tu as ajoutés.</p>}
 
-      <div className="text-[11px] text-muted">
-        {players.length} joueur{players.length > 1 ? 's' : ''}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
+        <span>
+          {players.length} joueur{players.length > 1 ? 's' : ''}
+        </span>
+        {players.some((p) => can.removeFromGroup(role, g, p.id)) && (
+          <button
+            className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
+            onClick={() => setRemoving((r) => !r)}
+          >
+            {removing ? 'Terminé' : 'Retirer des joueurs'}
+          </button>
+        )}
       </div>
       {!players.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
       <div className="flex flex-col gap-1.5" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
@@ -676,7 +688,8 @@ export function GroupDetail() {
                 {!!g.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
               </div>
             </Link>
-            {can.removeFromGroup(role, g, p.id) && (
+            {!removing && <PlayerStar id={p.id} />}
+            {removing && can.removeFromGroup(role, g, p.id) && (
               <button className="px-1 text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
                 ✕
               </button>
