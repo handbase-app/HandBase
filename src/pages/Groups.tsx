@@ -8,8 +8,8 @@ import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Avatar, Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
-import { alive, db, newId, remove, save, type Player, type PlayerGroup } from '../db'
-import { useRegionName, useRegions } from '../lists'
+import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
+import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
 import { loadTeams } from '../teams'
@@ -266,10 +266,13 @@ function yearChoices(selected: string[] = []) {
 }
 
 /** « Garçons · 83 · 2010-2011 · Région Sud » : les informations du groupe, en clair. */
-export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years'>, region?: string) {
+export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years' | 'scope'>, region?: string) {
   const ys = [...(g.years ?? [])].sort()
   const years = !ys.length ? '' : ys.length > 1 && Number(ys[ys.length - 1]) - Number(ys[0]) === ys.length - 1 ? `${ys[0]}-${ys[ys.length - 1]}` : ys.join(', ')
-  return [SEXES.find((x) => x.value === g.sex)?.label, g.department && departmentLabel(g.department), years, region].filter(Boolean).join(' · ')
+  const scope =
+    g.scope === 'federation' ? 'Fédération' : g.scope === 'ligue' ? `Ligue${region ? ` ${region}` : ''}` : g.scope === 'comite' ? `Comité${g.department ? ` ${g.department}` : ''}` : ''
+  const place = g.scope === 'ligue' ? '' : g.scope === 'comite' ? (g.department ? departmentLabel(g.department).replace(/^\S+ · /, '') : '') : g.department && departmentLabel(g.department)
+  return [scope, SEXES.find((x) => x.value === g.sex)?.label, place, years, g.scope ? '' : region].filter(Boolean).join(' · ')
 }
 
 const VIS_HELP: Record<GroupVisibility, string> = GROUP_VIS.help
@@ -294,6 +297,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const [department, setDepartment] = useState(group?.department ?? '')
   const regions = useRegions()
   const [region, setRegion] = useState(group?.regionId ?? '')
+  const [scope, setScope] = useState<GroupScope | undefined>(group?.scope)
   // Année d'âge (les anciens groupes à plusieurs années gardent la première).
   const sortedYears = [...(group?.years ?? [])].sort()
   const [year, setYear] = useState(sortedYears[0] ?? '')
@@ -365,6 +369,24 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
         </label>
       )}
 
+      <span className="label mt-2">Portée</span>
+      <div className="flex gap-1">
+        {GROUP_SCOPES.map((x) => (
+          <button key={x.value} type="button" className={`flex-1 ${chip(scope === x.value)}`} onClick={() => setScope(scope === x.value ? undefined : x.value)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <p className="-mt-1 text-[11px] text-muted">
+        {scope === 'federation'
+          ? 'Groupe national (DTN, stages nationaux, équipes de France jeunes).'
+          : scope === 'ligue'
+            ? 'Groupe de ligue : choisis la région ci-dessous.'
+            : scope === 'comite'
+              ? 'Groupe de comité : choisis le département ci-dessous.'
+              : 'Facultatif : à quel niveau ce groupe appartient-il ?'}
+      </p>
+
       <div className="mt-2 text-[11px] text-muted">Informations facultatives, pour retrouver et filtrer les groupes :</div>
       <span className="label">Garçons / filles</span>
       <div className="flex gap-1">
@@ -375,7 +397,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
         ))}
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div>
+        <div className={scope === 'federation' || scope === 'ligue' ? 'hidden' : scope === 'comite' ? 'col-span-2' : ''}>
           <span className="label">Département</span>
           <select className="field" value={department} onChange={(e) => setDepartment(e.target.value)}>
             <option value="">—</option>
@@ -386,8 +408,8 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
             ))}
           </select>
         </div>
-        <div>
-          <span className="label">Région</span>
+        <div className={scope === 'federation' || scope === 'comite' ? 'hidden' : scope === 'ligue' ? 'col-span-2' : ''}>
+          <span className="label">{scope === 'ligue' ? 'Ligue (région)' : 'Région'}</span>
           <select className="field" value={region} onChange={(e) => setRegion(e.target.value)}>
             <option value="">—</option>
             {regions.map((r) => (
@@ -421,8 +443,10 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
               name: name.trim(),
               description: description.trim() || undefined,
               sex,
-              department: department || undefined,
-              regionId: region || undefined,
+              scope,
+              // Portée : on ne garde que le territoire qui lui correspond (comité → département, ligue → région).
+              department: scope === 'federation' || scope === 'ligue' ? undefined : department || undefined,
+              regionId: scope === 'federation' ? undefined : scope === 'comite' ? regionOfDept(department) ?? (region || undefined) : region || undefined,
               years: years.length ? [...years].sort() : undefined,
               // Participants : seulement sur un groupe partagé ; leurs noms pour l'affichage.
               editors: priv ? [] : editors,

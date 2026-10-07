@@ -200,6 +200,13 @@ export interface Evaluation extends Syncable {
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */
+export type GroupScope = 'federation' | 'ligue' | 'comite'
+export const GROUP_SCOPES: { value: GroupScope; label: string }[] = [
+  { value: 'federation', label: 'Fédération' },
+  { value: 'ligue', label: 'Ligue' },
+  { value: 'comite', label: 'Comité' },
+]
+
 export interface PlayerGroup extends Syncable {
   name: string
   description?: string
@@ -213,6 +220,8 @@ export interface PlayerGroup extends Syncable {
   department?: string
   /** Identifiant de la région (liste « region » de hb_lists). */
   regionId?: string
+  /** Portée du groupe : fédération (national), ligue (région) ou comité (département). Information seulement. */
+  scope?: GroupScope
   /** Années de naissance concernées (ex. ['2010', '2011']). */
   years?: string[]
   /** Groupe d'une saison passée : caché des listes, gardé pour l'historique. */
