@@ -70,6 +70,8 @@ export function StaffPicker({
   const myTeams = useTeams()
   const staff = useStaffDirectory(includeSelf ? null : (ownerId ?? currentUserId()), myTeams)
   const [open, setOpen] = useState<string | null>(null)
+  // Avec des staffs : les encadrants un par un sont repliés (on n'affiche que ceux déjà choisis).
+  const [others, setOthers] = useState(false)
   useEffect(() => {
     if (staff) onNames(Object.fromEntries(staff.map((p) => [p.user_id, p.full_name ?? ''])))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,6 +80,10 @@ export function StaffPicker({
   // Staffs cités mais pas sur l'appareil (supprimés, ou dont je ne fais pas partie) : gardés tels quels, signalés.
   const hidden = pickedTeams.filter((id) => !myTeams?.some((t) => t.id === id)).length
   const shownTeam = myTeams?.find((t) => t.id === open)
+  const withTeams = !!onTeams && !!myTeams?.length
+  // Déjà couverts par un staff choisi : inutile de les proposer un par un.
+  const covered = new Set(myTeams?.filter((t) => pickedTeams.includes(t.id)).flatMap((t) => t.members) ?? [])
+  const listed = staff?.filter((p) => !withTeams || others ? !covered.has(p.user_id) || value.includes(p.user_id) : value.includes(p.user_id))
 
   return (
     <div className="flex flex-col gap-2">
@@ -120,16 +126,20 @@ export function StaffPicker({
               {STAFF.pickerManage}
             </Link>
           </p>
-          <div className="mt-1 text-[11px] font-bold text-muted">{STAFF.pickerOthers}</div>
         </div>
+      )}
+      {withTeams && (
+        <button type="button" className="self-start text-[11px] font-bold text-muted underline hover:text-fg" onClick={() => setOthers(!others)}>
+          {others ? 'Masquer les encadrants hors staff' : `+ Ajouter un encadrant hors staff${value.length ? ` (${value.length} choisi${value.length > 1 ? 's' : ''})` : ''}`}
+        </button>
       )}
       {staff === null ? (
         <p className="text-[11px] text-muted">{navigator.onLine ? 'Chargement du staff…' : 'Liste du staff disponible en ligne.'}</p>
       ) : !staff.length ? (
         <p className="text-[11px] text-muted">Aucun autre encadrant.</p>
-      ) : (
+      ) : !listed?.length ? null : (
         <div className="flex flex-wrap gap-1.5">
-          {staff.map((p) => (
+          {listed.map((p) => (
             <button key={p.user_id} type="button" className={chip(value.includes(p.user_id))} onClick={() => onChange(toggle(value, p.user_id))}>
               {p.full_name || 'Sans nom'}
             </button>
