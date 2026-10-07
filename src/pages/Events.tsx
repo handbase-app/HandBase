@@ -3,12 +3,12 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
-import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Evaluation, type HBEvent, type Player, type Position } from '../db'
+import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, useRole } from '../roles'
 import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
-import { AvisCard, DIVERGENCE } from '../components/Opinions'
+import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
 
@@ -255,16 +255,21 @@ export function EventDetail() {
   const [sort, setSort] = useRosterSort(id)
   // Filtres partagés avec la notation : elle ne propose que les joueurs affichés ici.
   const { pos: posFilter, setPos: setPosFilter, hideNoted, setHideNoted } = useRosterFilter(id)
+  // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
+  const [openAvis, setOpenAvis] = useState<string | null>(null)
+  const toggleAvis = (pid: string) => setOpenAvis((o) => (o === pid ? null : pid))
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
     const ids = [...new Set([...(ev?.playerIds ?? []), ...evals.map((e) => e.playerId)])]
     const players = alive((await db.players.bulkGet(ids)).filter((p): p is Player => !!p))
-    return { ev, evals, players }
+    // Critères (libellés à jour) pour détailler les notes des avis.
+    const criteria = alive(await db.criteria.orderBy('order').toArray())
+    return { ev, evals, players, criteria }
   }, [id])
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { ev, evals, players } = data
+  const { ev, evals, players, criteria } = data
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
 
   const byId = new Map(players.map((p) => [p.id, p]))
@@ -433,7 +438,7 @@ export function EventDetail() {
                   <div className="mt-2 flex flex-col gap-2">
                     {pendingOff.map((e) => {
                       const p = offList.find((x) => x.id === e.playerId)!
-                      return <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} />
+                      return <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} criteria={criteria} />
                     })}
                   </div>
                 )}
@@ -441,15 +446,18 @@ export function EventDetail() {
                 {settled.length > 0 && (
                   <div className="mt-2 flex flex-col gap-1">
                     {settled.map((p) => (
-                      <Link key={p.id} to={`/joueurs/${p.id}`} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="truncate">
-                          <b>
-                            {p.lastName.toUpperCase()} {p.firstName}
-                          </b>
-                          <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
-                        </span>
-                        <span className="shrink-0 text-[10px] text-emerald-300">{evals.filter((e) => e.playerId === p.id).length} avis</span>
-                      </Link>
+                      <div key={p.id} className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <Link to={`/joueurs/${p.id}`} className="truncate">
+                            <b>
+                              {p.lastName.toUpperCase()} {p.firstName}
+                            </b>
+                            <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
+                          </Link>
+                          <AvisToggle n={evals.filter((e) => e.playerId === p.id).length} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} />
+                        </div>
+                        {openAvis === p.id && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -524,9 +532,9 @@ export function EventDetail() {
                           {!!ev.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
                         </div>
                       </Link>
-                      <span className={`shrink-0 text-right text-[10px] font-bold ${n ? 'text-emerald-300' : 'text-muted'}`}>
-                        {n ? `${n} avis` : '—'}
-                        {notedByMe.has(p.id) && <span className="block text-[9px]">✓ noté par moi</span>}
+                      <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
+                        {n ? <AvisToggle n={n} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} /> : <span className="text-muted">—</span>}
+                        {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
                       {can.removeFromEvent(role, ev, p.id) && (
                         <button
@@ -538,6 +546,7 @@ export function EventDetail() {
                         </button>
                       )}
                     </div>
+                    {openAvis === p.id && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
                     </div>
                   )
                 })}
@@ -546,7 +555,7 @@ export function EventDetail() {
           </div>
         )
       ) : (
-        <Ranking players={players} evals={evals.filter(counts)} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} />
+        <Ranking players={players} evals={evals.filter(counts)} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} details={{ evals, criteria, event: ev }} />
       )}
     </div>
   )
@@ -676,7 +685,39 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   )
 }
 
-function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; evals: Evaluation[]; rosterIds: Set<string>; eventName: string }) {
+/** Bouton « N avis » : déplie ou replie les avis du joueur sous sa ligne. */
+function AvisToggle({ n, open, onClick }: { n: number; open: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-expanded={open}
+      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-emerald-300 ${open ? 'border-accent bg-accent/15' : 'border-emerald-500/40'}`}
+      title={open ? 'Masquer les avis' : 'Lire les avis'}
+    >
+      {n} avis {open ? '▴' : '▾'}
+    </button>
+  )
+}
+
+/** Avis de l'événement (tous ceux visibles, pas seulement ceux comptés), pour les déplier sous une ligne. */
+type AvisDetails = { evals: Evaluation[]; criteria: Criterion[]; event: HBEvent }
+
+function Ranking({
+  players,
+  evals,
+  rosterIds,
+  eventName,
+  details,
+}: {
+  players: Player[]
+  evals: Evaluation[]
+  rosterIds: Set<string>
+  eventName: string
+  details: AvisDetails
+}) {
+  // Joueur dont les avis sont dépliés (un seul à la fois).
+  const [open, setOpen] = useState<string | null>(null)
+  const toggle = (pid: string) => setOpen((o) => (o === pid ? null : pid))
   const rows = players
     .map((p) => ({ p, s: playerScore(evals.filter((e) => e.playerId === p.id)) }))
     .sort((a, b) => (b.s?.avg ?? -1) - (a.s?.avg ?? -1))
@@ -733,10 +774,10 @@ function Ranking({ players, evals, rosterIds, eventName }: { players: Player[]; 
           </div>
           <div className="divide-y divide-line">
             {g.rows.map((r, i) => (
-              <RankRow key={r.p.id} r={r} rank={r.s ? String(i + 1) : '–'} f1={f1} />
+              <RankRow key={r.p.id} r={r} rank={r.s ? String(i + 1) : '–'} f1={f1} open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} />
             ))}
             {g.extra.map((r) => (
-              <RankRow key={r.p.id} r={r} rank="" f1={f1} secondary />
+              <RankRow key={r.p.id} r={r} rank="" f1={f1} secondary open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} />
             ))}
           </div>
         </div>
@@ -751,25 +792,45 @@ function RankRow({
   rank,
   f1,
   secondary,
+  open,
+  onToggle,
+  details,
 }: {
   r: { p: Player; s: ReturnType<typeof playerScore> }
   rank: string
   f1: (n: number) => string
   secondary?: boolean
+  open: boolean
+  onToggle: () => void
+  details: AvisDetails
 }) {
+  // Toucher la ligne déplie les avis du joueur (note de chaque évaluateur, détail) ; la fiche est un lien dedans.
   return (
-    <Link to={`/joueurs/${r.p.id}`} className={`flex items-center gap-3 py-1.5 text-xs ${secondary ? 'opacity-45' : ''}`} title={secondary ? 'Poste secondaire' : undefined}>
-      <span className="w-5 text-center font-extrabold text-muted">{secondary ? '○' : rank}</span>
-      <span className="min-w-0 flex-1 truncate">
-        <b>
-          {r.p.lastName.toUpperCase()} {r.p.firstName}
-        </b>
-        <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
-        {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
-      </span>
-      {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
-      <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
-      <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
-    </Link>
+    <div>
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`flex w-full items-center gap-3 py-1.5 text-left text-xs ${secondary && !open ? 'opacity-45' : ''}`}
+        title={secondary ? 'Poste secondaire' : undefined}
+      >
+        <span className="w-5 text-center font-extrabold text-muted">{secondary ? '○' : rank}</span>
+        <span className="min-w-0 flex-1 truncate">
+          <b>
+            {r.p.lastName.toUpperCase()} {r.p.firstName}
+          </b>
+          <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
+          {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
+        </span>
+        {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
+        <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
+        <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
+        <span className="w-3 shrink-0 text-[10px] text-muted">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="pb-2">
+          <EventAvis player={r.p} evals={details.evals} criteria={details.criteria} event={details.event} />
+        </div>
+      )}
+    </div>
   )
 }
