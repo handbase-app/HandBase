@@ -16,7 +16,18 @@ const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?
 export default function Events() {
   const role = useRole()
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
-  const evals = useLiveQuery(() => db.evaluations.toArray().then(alive), [], [])
+  // Avis comptés une fois par événement (et non pour chaque ligne de la liste).
+  const stats = useLiveQuery(async () => {
+    const m = new Map<string, EventStats>()
+    await db.evaluations.orderBy('eventId').each((e) => {
+      if (e.deleted || !e.eventId) return
+      let s = m.get(e.eventId)
+      if (!s) m.set(e.eventId, (s = { avis: 0, players: new Set() }))
+      s.avis++
+      s.players.add(e.playerId)
+    })
+    return m
+  }, [], new Map<string, EventStats>())
   // Depuis un groupe : « Créer un événement » ouvre le formulaire avec ses joueurs.
   const [params, setParams] = useSearchParams()
   const fromGroup = params.get('groupe') ?? undefined
@@ -138,7 +149,7 @@ export default function Events() {
             {results.length} résultat{results.length > 1 ? 's' : ''} <span className="text-muted normal-case">(archivés compris)</span>
           </div>
           {results.map((ev) => (
-            <EventRow key={ev.id} ev={ev} evals={evals} upcoming={!ev.archived && ev.date >= todayIso} />
+            <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
           ))}
           {!results.length && <Empty>Aucun événement ne correspond.</Empty>}
         </>
@@ -148,7 +159,7 @@ export default function Events() {
         <>
           <div className="section-title mt-1 mb-0">À venir</div>
           {upcoming.length ? (
-            upcoming.map((ev) => <EventRow key={ev.id} ev={ev} evals={evals} upcoming />)
+            upcoming.map((ev) => <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming />)
           ) : (
             <p className="text-[11px] text-muted">Aucun événement prévu.</p>
           )}
@@ -156,7 +167,7 @@ export default function Events() {
             <>
               <div className="section-title mt-3 mb-0">Passés</div>
               {past.slice(0, showAll ? undefined : 10).map((ev) => (
-                <EventRow key={ev.id} ev={ev} evals={evals} />
+                <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
               ))}
               {past.length > 10 && !showAll && (
                 <button className="btn-ghost text-xs" onClick={() => setShowAll(true)}>
@@ -170,7 +181,7 @@ export default function Events() {
               <button className="section-title mt-3 mb-0 flex items-center gap-1.5 text-left text-muted" onClick={() => setShowArchived(!showArchived)}>
                 Archivés ({archived.length}) <span>{showArchived ? '▴' : '▾'}</span>
               </button>
-              {showArchived && archived.map((ev) => <EventRow key={ev.id} ev={ev} evals={evals} />)}
+              {showArchived && archived.map((ev) => <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />)}
             </>
           )}
         </>
@@ -185,8 +196,9 @@ function inDays(date: string) {
   return n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : `dans ${n} jours`
 }
 
-function EventRow({ ev, evals, upcoming = false }: { ev: HBEvent; evals: Evaluation[]; upcoming?: boolean }) {
-  const es = evals.filter((e) => e.eventId === ev.id)
+type EventStats = { avis: number; players: Set<string> }
+
+function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
   return (
@@ -209,13 +221,13 @@ function EventRow({ ev, evals, upcoming = false }: { ev: HBEvent; evals: Evaluat
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         {/* Avant l'événement : les convoqués ; dès qu'il y a des avis : joueurs notés et nombre d'avis. */}
-        {es.length > 0 ? (
+        {stats ? (
           <>
             <div>
-              <b className="text-fg">{new Set(es.map((e) => e.playerId)).size}</b> joueurs
+              <b className="text-fg">{stats.players.size}</b> joueur{stats.players.size > 1 ? 's' : ''}
             </div>
             <div>
-              <b className="text-fg">{es.length}</b> avis
+              <b className="text-fg">{stats.avis}</b> avis
             </div>
           </>
         ) : (

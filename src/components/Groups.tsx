@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { alive, db, save, type PlayerGroup } from '../db'
+import { alive, db, plural, save, type PlayerGroup } from '../db'
 import { can, currentUserId, useRole } from '../roles'
 import { getMe } from './ui'
 
@@ -106,7 +106,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
             disabled={!target}
             onClick={async () => {
               const added = await addToGroup(target!, playerIds)
-              onClose(added ? `${added.toLocaleString('fr-FR')} joueur(s) ajouté(s) à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)
+              onClose(added ? `${plural(added, 'joueur ajouté', 'joueurs ajoutés')} à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)
             }}
           >
             Ajouter

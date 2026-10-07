@@ -1,9 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { buildFeed, FEED_KINDS, feedSeen, localDay, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
+import { buildFeed, FEED_KINDS, FEED_TABLES, feedSeen, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
-import { useSeenVersion } from '../alerts'
+import { useAlerts } from '../alerts'
+import { useThrottledQuery } from '../live'
+import { localDay } from '../db'
 import { EVENT_TYPES } from './Evaluate'
 import { Icon } from '../components/ui'
 
@@ -98,8 +100,8 @@ function Upcoming({ n }: { n: number }) {
 /** Encadré de l'accueil : prochains événements et dernières nouveautés. */
 export function HomeFeed() {
   const [seen] = useState(feedSeen)
-  const v = useSeenVersion()
-  const items = useLiveQuery(() => buildFeed({ days: 14 }), [v], [])
+  const alerts = useAlerts()
+  const items = useThrottledQuery(() => buildFeed({ days: 14, alerts }), [alerts], FEED_TABLES, undefined, [])
   const fresh = items.filter((i) => i.time > seen && !i.mine).length
   return (
     <div className="card flex w-full flex-col gap-3 p-4">
@@ -141,8 +143,8 @@ export default function Feed() {
     }
   }, [prefs])
   const hasSector = myDepartments().length > 0
-  const v = useSeenVersion()
-  const items = useLiveQuery(() => buildFeed({ days, sector: hasSector && prefs.sector }), [days, prefs.sector, hasSector, v])
+  const alerts = useAlerts()
+  const items = useThrottledQuery(() => buildFeed({ days, sector: hasSector && prefs.sector, alerts }), [days, prefs.sector, hasSector, alerts], FEED_TABLES)
   const shown = (items ?? []).filter((i) => (!prefs.kinds.length || prefs.kinds.includes(i.kind)) && !(prefs.hideMine && i.mine))
   const byDay = new Map<string, FeedItem[]>()
   for (const it of shown) byDay.set(it.day, [...(byDay.get(it.day) ?? []), it])

@@ -1,4 +1,4 @@
-import { age, alive, contextLabel, counts, db, fmtDate, positionLabel } from './db'
+import { age, alive, contextLabel, counts, db, fmtDate, positionLabel, today, type Evaluation, type Measurement } from './db'
 import { fmtValue } from './components/ui'
 import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
@@ -6,8 +6,22 @@ import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
 
 const esc = (v: unknown) => {
-  const s = v === undefined || v === null ? '' : String(v)
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  let s = v === undefined || v === null ? '' : String(v)
+  // Texte qu'un tableur prendrait pour une formule (=, +, -, @…) : neutralisé par une apostrophe.
+  // Les nombres (« -1,5 ») restent des nombres.
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(,\d+)?$/.test(s)) s = `'${s}`
+  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** Regroupe des lignes par joueur (une seule passe). */
+function byPlayer<T extends { playerId: string }>(rows: T[]) {
+  const m = new Map<string, T[]>()
+  for (const r of rows) {
+    const a = m.get(r.playerId)
+    if (a) a.push(r)
+    else m.set(r.playerId, [r])
+  }
+  return m
 }
 
 function download(name: string, content: string, type: string) {
@@ -33,6 +47,8 @@ export async function exportCsv(only?: { id: string }[]) {
   const factual = criteria.filter((c) => c.kind === 'factual')
   const subjective = criteria.filter((c) => c.kind === 'subjective')
   const latest = latestByPlayer(measurements)
+  const evsOf = byPlayer<Evaluation>(evaluations)
+  const msOf = byPlayer<Measurement>(alive(measurements))
 
   const head = [
     'Nom', 'Prénom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Postes secondaires', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Latéralité',
@@ -43,7 +59,7 @@ export async function exportCsv(only?: { id: string }[]) {
   ]
   const rows = players.map((p) => {
     const l = latest.get(p.id)
-    const evs = evaluations.filter((e) => e.playerId === p.id)
+    const evs = evsOf.get(p.id) ?? []
     const avg = (c: (typeof subjective)[number]) => {
       if (c.scale === 'choice' || c.scale === 'text') {
         // Choix : le plus fréquent ; texte : toutes les réponses.
@@ -58,7 +74,7 @@ export async function exportCsv(only?: { id: string }[]) {
     }
     const num = (v: unknown) => (typeof v === 'number' ? String(v).replace('.', ',') : v)
     const r1 = (v: number | null | undefined) => (typeof v === 'number' ? num(Math.round(v * 10) / 10) : '')
-    const snap = snapshots(p, measurements.filter((m) => m.playerId === p.id && !m.deleted)).at(-1)
+    const snap = snapshots(p, msOf.get(p.id) ?? []).at(-1)
     return [
       p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', '), p.team, p.license,
@@ -70,7 +86,7 @@ export async function exportCsv(only?: { id: string }[]) {
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
-  download(`handbase-joueurs-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8')
+  download(`handbase-joueurs-${today()}.csv`, csv, 'text/csv;charset=utf-8')
 }
 
 /** Sauvegarde complète (JSON) de la base locale. */
@@ -87,7 +103,7 @@ export async function exportBackup() {
     lists: await db.lists.toArray(),
     alerts: await db.alerts.toArray(),
   }
-  download(`handbase-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data), 'application/json')
+  download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
 
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */

@@ -6,10 +6,12 @@ import App from './App.tsx'
 import { AuthGate } from './components/AuthGate.tsx'
 import { startSync } from './sync.ts'
 import { applyTheme } from './theme.ts'
+import { startPwaUpdates } from './pwa.ts'
 
 // Couleurs du thème choisi, avant le premier affichage (pas de flash).
 applyTheme()
 startSync()
+startPwaUpdates()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -112,8 +112,8 @@ export function MergePlayers({ player, otherId, onClose }: { player: Player; oth
           </div>
           {preview && source && target && (
             <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px]">
-              Passeront sur la fiche gardée : <b>{preview.evaluations}</b> avis, <b>{preview.measurements}</b> mesure(s),{' '}
-              <b>{preview.events}</b> événement(s) mis à jour. Les informations manquantes de la
+              Passeront sur la fiche gardée : <b>{preview.evaluations}</b> avis, <b>{preview.measurements}</b> {preview.measurements > 1 ? 'mesures' : 'mesure'},{' '}
+              <b>{preview.events}</b> {preview.events > 1 ? 'événements mis' : 'événement mis'} à jour. Les informations manquantes de la
               fiche gardée sont complétées par l’autre, sans rien écraser
               {source.review === 'refused' ? ' ; la mise hors cadre de la fiche fondue reste dans son historique (vue « Ratés »)' : ''}.
             </div>

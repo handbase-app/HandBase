@@ -1,8 +1,8 @@
-import { alive, contextLabel, db, fmtDate, type HBEvent, type Player } from './db'
+import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type Player } from './db'
 import { department } from './components/PlayerFilter'
 import { currentUserId, myDepartments } from './roles'
 import type { IconName } from './components/ui'
-import { computeAlerts } from './alerts'
+import type { AlertsResult } from './alerts'
 
 /*
  * Fil « Quoi de neuf » : les ajouts récents de tout le staff, jour par jour, construit avec les
@@ -48,8 +48,6 @@ const created = (r: { createdAtServer?: string; updatedAtServer?: string; update
   if (!isNaN(t)) return t
   return r.updatedAtServer ? 0 : r.updatedAt
 }
-export const localDay = (t: number) => new Date(t).toLocaleDateString('sv')
-const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString('fr-FR')} ${n > 1 ? many : one}`
 const nameOf = (p?: Player) => (p ? `${p.lastName.toUpperCase()} ${p.firstName}` : 'joueur supprimé')
 const listNames = (ps: (Player | undefined)[]) => (ps.length <= 3 ? ps.map(nameOf).join(', ') : `${ps.slice(0, 2).map(nameOf).join(', ')} et ${ps.length - 2} autres`)
 const dateRange = (dates: string[]) => {
@@ -69,8 +67,14 @@ function bucket<T>(rows: T[], key: (r: T) => string) {
   return m
 }
 
-/** Fil des `days` derniers jours ; `sector` : seulement les joueurs de mon secteur. */
-export async function buildFeed({ days, sector = false }: { days: number; sector?: boolean }): Promise<FeedItem[]> {
+/** Tables lues par le fil (pour le relancer quand elles changent). */
+export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 'groups', 'criteria']
+
+/**
+ * Fil des `days` derniers jours ; `sector` : seulement les joueurs de mon secteur ;
+ * `alerts` : mes alertes, déjà calculées pour toute l'appli (useAlerts).
+ */
+export async function buildFeed({ days, sector = false, alerts }: { days: number; sector?: boolean; alerts?: AlertsResult }): Promise<FeedItem[]> {
   const since = Date.now() - days * 24 * 3600 * 1000
   const me = currentUserId()
   const [players, measurements, evaluations, events, groups, criteria] = await Promise.all([
@@ -206,10 +210,9 @@ export async function buildFeed({ days, sector = false }: { days: number; sector
   }
 
   // Alertes : joueurs qui viennent d'entrer dans une de mes alertes (pas encore vus), datés de leur dernière activité.
-  const { alerts, ctx } = await computeAlerts()
-  for (const { alert, fresh } of alerts) {
+  for (const { alert, fresh } of alerts?.alerts ?? []) {
     if (!fresh.length) continue
-    const time = fresh.reduce((t, p) => Math.max(t, ctx.lastActivity.get(p.id) ?? 0), 0) || Date.now()
+    const time = fresh.reduce((t, p) => Math.max(t, alerts!.ctx.lastActivity.get(p.id) ?? 0), 0) || Date.now()
     push({
       key: `a|${alert.id}`,
       kind: 'alerts',

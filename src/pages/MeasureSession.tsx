@@ -1,9 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ask } from '../components/Confirm'
+import { ask, inform, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { CriterionInput, fmtValue, getMe, groupBy, QuarterBadge } from '../components/ui'
-import { alive, criterionApplies, db, fmtDate, newId, save, today, type Measurement } from '../db'
+import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
 
@@ -38,6 +38,17 @@ export default function MeasureSession() {
   const [date, setDate] = useState(today())
   const [open, setOpenState] = useState<string[]>(readOpen)
   const [busy, setBusy] = useState(false)
+  // Saisie en cours : on prévient avant de quitter l'écran (menu du bas) ou l'onglet.
+  const pending = busy ? 0 : Object.values(values).filter((v) => v !== undefined && v !== '').length
+  const leaveRef = useRef<() => Promise<boolean>>(async () => true)
+  useEffect(() => {
+    leaveRef.current = async () => !pending || ask(`Abandonner ${pending > 1 ? `les ${pending} mesures saisies` : 'la mesure saisie'} ?`, { ok: 'Abandonner' })
+  }, [pending])
+  useEffect(() => {
+    setLeaveGuard(() => leaveRef.current())
+    return () => setLeaveGuard(null)
+  }, [])
+  useUnsaved(pending > 0)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data === null || data.player.deleted) return <div className="py-20 text-center text-sm text-muted">Joueur introuvable.</div>
@@ -64,14 +75,24 @@ export default function MeasureSession() {
 
   async function saveAll() {
     if (!filled.length) return
+    if (!date) return inform('Indique la date de la séance de tests.')
     setBusy(true)
     const author = getMe() || undefined
-    for (const [criterionId, value] of filled) await save<Measurement>('measurements', { id: newId(), playerId: p.id, criterionId, value: value!, date, author })
+    try {
+      // Toute la séance en une seule transaction : tout est enregistré, ou rien.
+      await saveMany<Measurement>(
+        'measurements',
+        filled.map(([criterionId, value]) => ({ id: newId(), playerId: p.id, criterionId, value: value!, date, author })),
+      )
+    } catch (e) {
+      setBusy(false)
+      return inform(`Mesures non enregistrées : ${e instanceof Error ? e.message : e}`)
+    }
     back()
   }
 
   async function cancel() {
-    if (filled.length && !(await ask(`Abandonner les ${filled.length} mesure(s) saisie(s) ?`, { ok: 'Abandonner' }))) return
+    if (filled.length && !(await ask(`Abandonner ${filled.length > 1 ? `les ${plural(filled.length, 'mesure')} saisies` : 'la mesure saisie'} ?`, { ok: 'Abandonner' }))) return
     back()
   }
 
@@ -90,7 +111,7 @@ export default function MeasureSession() {
 
       <div className="card flex items-center justify-between gap-3 p-3">
         <span className="text-[11px] text-muted">Remplis seulement ce qui a été mesuré : tout est enregistré à cette date.</span>
-        <input type="date" className="field w-40 shrink-0" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input type="date" required className="field w-40 shrink-0" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
 
       {sections.map(([cat, cs]) => {
@@ -135,8 +156,8 @@ export default function MeasureSession() {
         <button className="btn-ghost" onClick={() => void cancel()}>
           Annuler
         </button>
-        <button className="btn-primary flex-1 shadow-lg" disabled={!filled.length || busy} onClick={() => void saveAll()}>
-          {filled.length > 1 ? `Enregistrer les ${filled.length} mesures` : filled.length ? 'Enregistrer la mesure' : 'Aucune mesure saisie'}
+        <button className="btn-primary flex-1 shadow-lg" disabled={!filled.length || !date || busy} onClick={() => void saveAll()}>
+          {!date ? 'Date de la séance manquante' : filled.length > 1 ? `Enregistrer les ${filled.length} mesures` : filled.length ? 'Enregistrer la mesure' : 'Aucune mesure saisie'}
         </button>
       </div>
     </div>

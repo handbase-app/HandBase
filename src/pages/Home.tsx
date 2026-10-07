@@ -1,8 +1,7 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { db } from '../db'
+import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
-import { usePendingCount } from './Review'
 import { HomeFeed } from './Feed'
 
 // Actions rapides (le reste est dans la barre du bas). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
@@ -12,13 +11,17 @@ const ACTIONS = [
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
 ]
 
-export default function Home() {
+/** `toReview` : propositions à valider (compté une seule fois, dans App). */
+export default function Home({ toReview }: { toReview: number }) {
   const role = useRole()
-  const toReview = usePendingCount()
-  const counts = useLiveQuery(async () => ({
-    players: await db.players.filter((p) => !p.deleted).count(),
-    evals: await db.evaluations.filter((e) => !e.deleted).count(),
-  }))
+  const counts = useThrottledQuery(
+    async () => ({
+      players: await db.players.filter((p) => !p.deleted).count(),
+      evals: await db.evaluations.filter((e) => !e.deleted).count(),
+    }),
+    [],
+    ['players', 'evaluations'],
+  )
   const actions = ACTIONS.filter((t) => !t.main || can.editPlayers(role))
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2">

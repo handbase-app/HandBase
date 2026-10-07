@@ -13,7 +13,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Mise à jour : nouvelle version mise en attente, appliquée par src/pwa.ts quand aucune saisie n'est en cours.
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         // Identifiant d’app stable (même forme que l’adresse de démarrage).
@@ -37,6 +39,8 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
+        // Première installation : la page ouverte passe tout de suite sous le service worker (hors ligne).
+        clientsClaim: true,
         // Réception des notifications (public/push-sw.js).
         importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
