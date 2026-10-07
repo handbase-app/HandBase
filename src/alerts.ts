@@ -3,7 +3,7 @@ import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
 import { birthQuarter } from './components/ui'
 import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type Evaluation, type Measurement, type Player, type PlayerAlert } from './db'
-import { departmentLabel } from './lists'
+import { zoneSummary } from './lists'
 import { sharedQuery, useShared } from './live'
 import { latestByPlayer } from './pages/Players'
 import { can, currentUserId, useRole } from './roles'
@@ -132,7 +132,7 @@ export function rulesSummary(r: AlertRules, criteria: Criterion[]) {
     r.quarters?.length ? r.quarters.map((q) => `Q${q}`).join(', ') : '',
     r.laterality ? { droitier: 'droitiers', gaucher: 'gauchers', ambidextre: 'ambidextres' }[r.laterality] : '',
     r.positions?.length ? r.positions.map((x) => positionLabel(x)).join(', ') + (r.withSecondary ? ' (+ secondaires)' : '') : '',
-    r.departments?.length ? r.departments.map(departmentLabel).join(', ') : '',
+    r.departments?.length ? zoneSummary(r.departments) : '',
     r.minHeight ? `taille ≥ ${r.minHeight} cm${r.keepMissingHeight ? ' (ou inconnue)' : ''}` : '',
     r.minPredicted ? `taille adulte prédite ≥ ${r.minPredicted} cm${r.dropMissingPredicted ? '' : ' (ou inconnue)'}` : '',
     ...(r.tests ?? []).map((t) => {

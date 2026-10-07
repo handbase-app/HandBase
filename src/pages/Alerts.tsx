@@ -6,8 +6,9 @@ import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predict
 import { ask } from '../components/Confirm'
 import { Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
-import { departmentLabel, useDepartments } from '../lists'
+import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
+import { ZonePicker } from '../components/ZonePicker'
 import { can, useRole } from '../roles'
 
 /*
@@ -321,18 +322,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
             Inclure les postes secondaires
           </label>
         </div>
-        {depts.length > 1 && (
-          <div>
-            <span className="label">Départements</span>
-            <div className="flex flex-wrap gap-1.5">
-              {depts.map((d) => (
-                <button key={d} className={chip(!!r.departments?.includes(d))} onClick={() => set({ departments: toggle(r.departments, d) })}>
-                  {departmentLabel(d)}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <ZonePicker value={r.departments} onChange={(v) => set({ departments: v })} extra={depts} />
       </div>
 
       <div className="card flex flex-col gap-3 p-4">

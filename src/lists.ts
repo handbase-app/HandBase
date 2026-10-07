@@ -123,9 +123,48 @@ export function deptsOfRegion(regionId: string): string[] {
   return [...new Set([...DEPT_REGION.keys(), ...departments.map((d) => d.code!)])].filter((c) => regionOfDept(c) === regionId)
 }
 
+/**
+ * Tous les départements connus (liste des Réglages + découpage officiel), triés par numéro.
+ * Du découpage officiel, seuls les numéros à deux chiffres : ceux que donnent les licences (Corse « 20 », outre-mer « 97 »).
+ */
+export function allDepts(): string[] {
+  const codes = new Set([...[...DEPT_REGION.keys()].filter((c) => /^\d\d$/.test(c)), ...departments.map((d) => d.code!)])
+  return [...codes].sort((a, b) => codeKey(a) - codeKey(b))
+}
+
+// Noms des régions de la liste, tenus à jour comme les départements (pour `regionLabel` hors composant).
+let regionNames = new Map<string, string>()
+liveQuery(() => db.lists.where('kind').equals('region').toArray()).subscribe((rs) => {
+  regionNames = new Map(alive(rs).map((r) => [r.id, r.name]))
+  listeners.forEach((l) => l())
+})
+
 /** Nom d'une région : celui de la liste, sinon le nom officiel. */
+export function regionLabel(id: string) {
+  return regionNames.get(id) ?? REGION_FALLBACK[id] ?? id
+}
+
+/** Nom d'une région, en redessinant le composant quand la liste change. */
 export function useRegionLabel() {
-  const regions = useRegions()
-  const names = new Map(regions.map((r) => [r.id, r.name]))
-  return (id: string) => names.get(id) ?? REGION_FALLBACK[id] ?? id
+  useDepartments()
+  return regionLabel
+}
+
+/**
+ * Résumé court d'une zone (numéros de départements) : régions complètes par leur nom, puis numéros
+ * des départements seuls (« Île-de-France · 13, 83 ») ; au-delà de 4 éléments, « 3 régions, 2 départements ».
+ */
+export function zoneSummary(codes: string[] | undefined) {
+  if (!codes?.length) return 'Toute la France'
+  const sel = new Set(codes)
+  const all = allDepts()
+  const regions = [...new Set(all.map((c) => regionOfDept(c)).filter((r): r is string => !!r))]
+  const full = regions.filter((r) => deptsOfRegion(r).filter((c) => all.includes(c)).every((c) => sel.has(c)))
+  const inFull = new Set(full.flatMap((r) => deptsOfRegion(r)))
+  const rank = new Map(all.map((c, i) => [c, i]))
+  const loose = codes.filter((c) => !inFull.has(c)).sort((a, b) => (rank.get(a) ?? 999) - (rank.get(b) ?? 999))
+  if (!full.length && loose.length === 1) return departmentLabel(loose[0])
+  if (full.length + loose.length <= 4) return [full.map(regionLabel).join(', '), loose.join(', ')].filter(Boolean).join(' · ')
+  const n = (k: number, w: string) => `${k} ${w}${k > 1 ? 's' : ''}`
+  return [full.length ? n(full.length, 'région') : '', loose.length ? n(loose.length, 'département') : ''].filter(Boolean).join(', ')
 }
