@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { departmentLabel, useDepartments } from '../lists'
+import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
 import { can } from '../roles'
 import { birthQuarter } from './ui'
 import { CourtFilter } from './CourtPicker'
@@ -73,17 +73,25 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 }
 
 /**
- * Filtres communs (groupe, sexe, département, club, année de naissance, poste, recherche) pour parcourir des milliers
+ * Filtres communs (groupe, sexe, région, département, club, année de naissance, poste, recherche) pour parcourir des milliers
  * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
  * pendant la session, séparément pour chaque écran (`scope`).
  */
-export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs') {
+export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs', opts: { hide?: ('dept' | 'region')[] } = {}) {
   const k = (name: string) => `handbase.filter.${scope}.${name}`
+  // Filtres gérés par l'écran lui-même (Vue nationale : la carte choisit la région et le département) :
+  // absents du panneau, des pastilles et de « Tout effacer ». Un département masqué n'est jamais appliqué ;
+  // une région masquée l'est (l'écran la change avec `setRegion`).
+  const hideDept = !!opts.hide?.includes('dept')
+  const hideRegion = !!opts.hide?.includes('region')
+  const regionLabel = useRegionLabel()
+  const [region, setRegion] = useSessionState(k('region'), '')
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
   useDepartments() // noms des départements à jour dans le menu
   const [group, setGroup] = useSessionState(k('group'), '')
-  const [dept, setDept] = useSessionState(k('dept'), '')
+  const [deptState, setDept] = useSessionState(k('dept'), '')
+  const dept = hideDept ? '' : deptState
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
@@ -131,7 +139,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   }, [players, group, current])
   // Chaque menu compte les joueurs qui passent tous les AUTRES filtres : le nombre affiché à côté d'une
   // année, d'un département ou d'un club est celui qu'on obtiendra en le choisissant.
-  const base = useMemo(
+  const base0 = useMemo(
     () =>
       all.filter((p) => {
         if (!((sex === 'all' || p.sex === sex) && (hand === 'all' || p.laterality === hand) && (!quarter || birthQuarter(p.birthDate) === quarter))) return false
@@ -145,6 +153,11 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   const okDept = (p: Player) => !dept || department(p) === dept
   const okClub = (p: Player) => !club || p.club === club
   const okYear = (p: Player) => !year || !!p.birthDate?.startsWith(year)
+  // Région : limite les départements et les clubs proposés (comptée avant le choix du département).
+  const regionOf = (p: Player) => regionOfDept(department(p))
+  const regionBase = useMemo(() => base0.filter((p) => okClub(p) && okYear(p)), [base0, club, year]) // eslint-disable-line react-hooks/exhaustive-deps
+  const regionCounts = useMemo(() => countBy(regionBase, regionOf), [regionBase]) // eslint-disable-line react-hooks/exhaustive-deps
+  const base = useMemo(() => (region ? base0.filter((p) => regionOf(p) === region) : base0), [base0, region]) // eslint-disable-line react-hooks/exhaustive-deps
   const deptBase = useMemo(() => base.filter((p) => okClub(p) && okYear(p)), [base, club, year]) // eslint-disable-line react-hooks/exhaustive-deps
   const clubBase = useMemo(() => base.filter((p) => okDept(p) && okYear(p)), [base, dept, year]) // eslint-disable-line react-hooks/exhaustive-deps
   const yearBase = useMemo(() => base.filter((p) => okDept(p) && okClub(p)), [base, dept, club]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -180,8 +193,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     [searched, position, withSecondary],
   )
 
-  const active = !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!dept || !!club || !!year || position !== 'all' || withSecondary
+  const active =
+    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
+    if (!hideRegion) setRegion('')
     setQ('')
     setSex('all')
     setHand('all')
@@ -204,9 +219,10 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     !!quarter && { label: `Q${quarter}`, clear: () => setQuarter(0) },
     !!lo && { label: `≥ ${lo} cm`, clear: () => setMinH('') },
     hand !== 'all' && { label: hand === 'droitier' ? 'Droitiers' : hand === 'gaucher' ? 'Gauchers' : 'Ambidextres', clear: () => setHand('all') },
+    !hideRegion && region && { label: regionLabel(region), clear: () => (setRegion(''), setDept(''), setClub('')) },
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
-    current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), setDept(''), setClub('')) },
+    current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), !hideRegion && setRegion(''), setDept(''), setClub('')) },
     position !== 'all' && { label: position === 'none' ? 'Sans poste' : (POSITIONS.find((x) => x.id === position)?.label ?? position), clear: () => setPosition('all') },
     withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
   ].filter((c): c is { label: string; clear: () => void } => !!c)
@@ -284,7 +300,23 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
               </button>
             ))}
           </div>
-          {depts.length > 1 || dept ? (
+          {!hideRegion && (regionCounts.length > 1 || region) ? (
+            <select
+              className={`field py-1.5 text-xs ${region ? 'border-accent font-bold' : ''}`}
+              value={region}
+              onChange={(e) => (setRegion(e.target.value), setDept(''), setClub(''))}
+            >
+              <option value="">Toutes les régions ({regionBase.length.toLocaleString('fr-FR')})</option>
+              {[...regionCounts]
+                .sort((a, b) => regionLabel(a[0]).localeCompare(regionLabel(b[0]), 'fr'))
+                .map(([r, n]) => (
+                  <option key={r} value={r}>
+                    {regionLabel(r)} ({n.toLocaleString('fr-FR')})
+                  </option>
+                ))}
+            </select>
+          ) : null}
+          {!hideDept && (depts.length > 1 || dept) ? (
             <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
               <option value="">Tous les départements ({deptBase.length.toLocaleString('fr-FR')})</option>
               {depts.map(([d, n]) => (
@@ -299,7 +331,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
             <select
               className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
               value={group}
-              onChange={(e) => (setGroup(e.target.value), setDept(''), setClub(''))}
+              onChange={(e) => (setGroup(e.target.value), !hideRegion && setRegion(''), setDept(''), setClub(''))}
             >
               <option value="">Tous les joueurs (sans groupe choisi)</option>
               {groups.map((g) => (
@@ -360,8 +392,8 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
   )
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
-  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, dept, club, year, position, withSecondary])
-  return { filtered, ui, active, reset, signature, group: current }
+  const signature = JSON.stringify([q, sex, hand, quarter, lo, group, region, dept, club, year, position, withSecondary])
+  return { filtered, ui, active, reset, signature, group: current, region, setRegion, regionCounts }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
@@ -483,10 +515,30 @@ export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: stri
 export function showGroupInPlayers(groupId: string) {
   try {
     sessionStorage.setItem('handbase.filter.joueurs.group', JSON.stringify(groupId))
-    for (const f of ['dept', 'club', 'year', 'q']) sessionStorage.setItem(`handbase.filter.joueurs.${f}`, JSON.stringify(''))
+    for (const f of ['region', 'dept', 'club', 'year', 'q']) sessionStorage.setItem(`handbase.filter.joueurs.${f}`, JSON.stringify(''))
     sessionStorage.setItem('handbase.filter.joueurs.position', JSON.stringify('all'))
     sessionStorage.setItem('handbase.filter.joueurs.hand', JSON.stringify('all'))
     sessionStorage.setItem('handbase.filter.joueurs.quarter', JSON.stringify(0))
+  } catch {
+    /* stockage indisponible */
+  }
+}
+
+/** Filtres d'un écran (hors département et repli/dépli). */
+const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH'] as const
+
+/**
+ * Ouvre la liste Joueurs avec les filtres d'un autre écran (`from`, région comprise), plus un département.
+ * Le choix Garçons / Filles est déjà commun à tous les écrans.
+ */
+export function showDeptInPlayers(from: string, dept: string) {
+  try {
+    for (const f of FILTER_KEYS) {
+      const v = sessionStorage.getItem(`handbase.filter.${from}.${f}`)
+      if (v === null) sessionStorage.removeItem(`handbase.filter.joueurs.${f}`)
+      else sessionStorage.setItem(`handbase.filter.joueurs.${f}`, v)
+    }
+    sessionStorage.setItem('handbase.filter.joueurs.dept', JSON.stringify(dept))
   } catch {
     /* stockage indisponible */
   }

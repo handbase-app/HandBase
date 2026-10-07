@@ -265,6 +265,8 @@ export interface ListItem extends Syncable {
   name: string
   /** Département : son numéro (83, 2A…), qui sert d'identifiant (licences, secteurs, groupes). */
   code?: string
+  /** Département : sa région (identifiant d'une région de la liste) ; sinon, découpage officiel (lists.ts). */
+  regionId?: string
   order: number
 }
 
