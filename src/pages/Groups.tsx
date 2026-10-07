@@ -298,6 +298,15 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   const regions = useRegions()
   const [region, setRegion] = useState(group?.regionId ?? '')
   const [scope, setScope] = useState<GroupScope | undefined>(group?.scope)
+  // Obligatoires : nom, portée (avec sa ligue ou son comité) et garçons / filles ; l'année d'âge reste facultative.
+  const missing = [
+    !name.trim() && 'le nom',
+    !scope && 'la portée',
+    scope === 'ligue' && !region && 'la ligue',
+    scope === 'comite' && !department && 'le comité',
+    !sex && 'garçons / filles',
+  ].filter(Boolean) as string[]
+  const complete = !missing.length
   // Année d'âge (les anciens groupes à plusieurs années gardent la première).
   const sortedYears = [...(group?.years ?? [])].sort()
   const [year, setYear] = useState(sortedYears[0] ?? '')
@@ -369,60 +378,48 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
         </label>
       )}
 
-      <span className="label mt-2">Portée</span>
+      <span className="label mt-2">Portée *</span>
       <div className="flex gap-1">
         {GROUP_SCOPES.map((x) => (
-          <button key={x.value} type="button" className={`flex-1 ${chip(scope === x.value)}`} onClick={() => setScope(scope === x.value ? undefined : x.value)}>
+          <button key={x.value} type="button" className={`flex-1 ${chip(scope === x.value)}`} onClick={() => setScope(x.value)}>
             {x.label}
           </button>
         ))}
       </div>
-      <p className="-mt-1 text-[11px] text-muted">
-        {scope === 'federation'
-          ? 'Groupe national (DTN, stages nationaux, équipes de France jeunes).'
-          : scope === 'ligue'
-            ? 'Groupe de ligue : choisis la région ci-dessous.'
-            : scope === 'comite'
-              ? 'Groupe de comité : choisis le département ci-dessous.'
-              : 'Facultatif : à quel niveau ce groupe appartient-il ?'}
-      </p>
+      {scope === 'federation' && <p className="-mt-1 text-[11px] text-muted">Groupe national (DTN, stages nationaux, équipes de France jeunes).</p>}
+      {scope === 'ligue' && (
+        <select className={`field ${region ? '' : 'border-amber-400'}`} value={region} onChange={(e) => setRegion(e.target.value)}>
+          <option value="">Choisir la ligue (région) *</option>
+          {regions.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {scope === 'comite' && (
+        <select className={`field ${department ? '' : 'border-amber-400'}`} value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">Choisir le comité (département) *</option>
+          {[...departmentChoices(), ...(department && !departmentChoices().some((d) => d.value === department) ? [{ value: department, label: departmentLabel(department) }] : [])].map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      )}
 
-      <div className="mt-2 text-[11px] text-muted">Informations facultatives, pour retrouver et filtrer les groupes :</div>
-      <span className="label">Garçons / filles</span>
+      <span className="label mt-2">Garçons / filles *</span>
       <div className="flex gap-1">
         {SEXES.map((x) => (
-          <button key={x.value} type="button" className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(sex === x.value ? undefined : x.value)}>
+          <button key={x.value} type="button" className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(x.value)}>
             {x.label}
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className={scope === 'federation' || scope === 'ligue' ? 'hidden' : scope === 'comite' ? 'col-span-2' : ''}>
-          <span className="label">Département</span>
-          <select className="field" value={department} onChange={(e) => setDepartment(e.target.value)}>
-            <option value="">—</option>
-            {[...departmentChoices(), ...(department && !departmentChoices().some((d) => d.value === department) ? [{ value: department, label: departmentLabel(department) }] : [])].map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className={scope === 'federation' || scope === 'comite' ? 'hidden' : scope === 'ligue' ? 'col-span-2' : ''}>
-          <span className="label">{scope === 'ligue' ? 'Ligue (région)' : 'Région'}</span>
-          <select className="field" value={region} onChange={(e) => setRegion(e.target.value)}>
-            <option value="">—</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <span className="label">Année d’âge (naissance)</span>
+          <span className="label">Année d’âge (facultatif)</span>
           <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
             <option value="">—</option>
             {yearChoices(sortedYears).map((y) => (
@@ -434,10 +431,11 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
         </div>
       </div>
 
+      {!complete && <p className="mt-2 text-[11px] text-amber-300">À compléter : {missing.join(', ')}.</p>}
       <div className="mt-2 flex gap-2">
         <button
           className="btn-primary flex-1"
-          disabled={!name.trim()}
+          disabled={!complete}
           onClick={async () => {
             const fields = {
               name: name.trim(),
