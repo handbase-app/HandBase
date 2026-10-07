@@ -1,8 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
-import { can, currentUserId, groupMark, useRole } from '../roles'
+import { CriterionInput, groupBy, Icon, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { can, currentUserId, groupTag, useRole } from '../roles'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
@@ -420,7 +420,7 @@ export default function Evaluate() {
               </>
             ) : (
               <>
-                <b>⚠ Joueur hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+                <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Joueur hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
                 administrateur : il ne comptera qu’une fois validé, et le joueur sera alors ajouté à la liste.
               </>
             )}
@@ -709,7 +709,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
-              Joueurs : {groupMark(g)}groupe {g.name} ({g.playerIds.length})
+              Joueurs : groupe {g.name}{groupTag(g)} ({g.playerIds.length})
             </option>
           ))}
         </select>

@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
-import { Avatar, Empty, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, Icon, PosBadges, QuarterBadge } from '../components/ui'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
@@ -761,7 +761,7 @@ function Ranking({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] text-muted">Note = moyenne des évaluateurs (note globale, sinon moyenne de leurs critères). ⚠ = avis très partagés.</p>
+        <p className="text-[11px] text-muted">Note = moyenne des évaluateurs (note globale, sinon moyenne de leurs critères). <Icon name="alert" className="inline h-3 w-3 -translate-y-px" /> = avis très partagés.</p>
         <button className="btn-ghost shrink-0 px-3 py-1 text-xs" onClick={exportRanking}>
           Exporter
         </button>
@@ -821,7 +821,7 @@ function RankRow({
           <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
           {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
         </span>
-        {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <span className="text-amber-300">⚠</span>}
+        {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <Icon name="alert" className="h-3.5 w-3.5 shrink-0 text-amber-300" />}
         <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
         <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
         <span className="w-3 shrink-0 text-[10px] text-muted">{open ? '▴' : '▾'}</span>

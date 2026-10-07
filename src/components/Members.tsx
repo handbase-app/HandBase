@@ -3,7 +3,7 @@ import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
 import { departmentChoices, departmentLabel } from '../lists'
-import { SectionTitle, Segmented } from './ui'
+import { Icon, SectionTitle, Segmented } from './ui'
 
 /*
  * Membres du staff (administrateurs) : créer, modifier, supprimer des observateurs et des encadrants,
@@ -175,8 +175,9 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
           </button>
           {/* SMS : ouvre directement la conversation avec son numéro, message déjà écrit. */}
           {phone && (
-            <a className="btn-ghost flex-1 text-center text-xs" href={`sms:${phone}?&body=${encodeURIComponent(text)}`}>
-              💬 SMS
+            <a className="btn-ghost flex flex-1 items-center justify-center gap-1.5 text-xs" href={`sms:${phone}?&body=${encodeURIComponent(text)}`}>
+              <Icon name="message" className="h-3.5 w-3.5" />
+              SMS
             </a>
           )}
         </div>
@@ -184,10 +185,11 @@ function AccessShare({ access, onClose }: { access: Access; onClose: () => void 
         // Navigateur d'ordinateur sans partage : e-mail tout prêt, ou copier le message pour le coller où l'on veut.
         <div className="mt-2 grid grid-cols-2 gap-2">
           <a
-            className="btn-primary text-center text-xs"
+            className="btn-primary flex items-center justify-center gap-1.5 text-xs"
             href={`mailto:${encodeURIComponent(access.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}
           >
-            ✉ E-mail
+            <Icon name="mail" className="h-3.5 w-3.5" />
+            E-mail
           </a>
           <button className="btn-ghost text-xs" onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}>
             {copied ? 'Message copié ✓' : 'Copier le message'}
@@ -345,7 +347,8 @@ export function Members() {
                 </div>
                 <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted" title="Géré uniquement depuis Supabase (SQL Editor)">
                   <Seen t={seenOf(p.user_id)} />
-                  Administrateur 🔒
+                  Administrateur
+                  <Icon name="lock" className="h-3 w-3" />
                 </span>
               </button>
               {open === p.user_id && seen && (
@@ -435,8 +438,9 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
     <div className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-panel-2 p-3">
       <div className="text-xs font-extrabold">{member ? `Modifier ${member.full_name || member.email}` : 'Nouveau membre'}</div>
       {member && (
-        <button type="button" className="btn-ghost text-xs" disabled={busy} onClick={() => void resetLink()}>
-          🔑 Lui envoyer un lien pour changer son mot de passe
+        <button type="button" className="btn-ghost flex items-center justify-center gap-1.5 text-xs" disabled={busy} onClick={() => void resetLink()}>
+          <Icon name="key" className="h-3.5 w-3.5" />
+          Lui envoyer un lien pour changer son mot de passe
         </button>
       )}
       <div>
@@ -479,7 +483,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           <span className="text-[10px] text-muted">{depts.length ? '' : role === 'preparateur' ? 'aucun : valide tous les départements' : 'aucun'}</span>
         </div>
       </div>
-      {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « 🔑 lien » s'en occupe. */}
+      {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « lien » s'en occupe. */}
       {!member && (
         <div>
           <span className="label">Mot de passe provisoire</span>

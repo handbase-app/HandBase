@@ -5,7 +5,7 @@ import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
 import { department } from './PlayerFilter'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
-import { Empty, playerName } from './ui'
+import { Empty, Icon, playerName } from './ui'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -190,7 +190,7 @@ export function Opinions({
 
       {divergent.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-          ⚠ Avis divergents sur : <b>{divergent.map((r) => r.c.label).join(', ')}</b> — à discuter en staff.
+          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Avis divergents sur : <b>{divergent.map((r) => r.c.label).join(', ')}</b> — à discuter en staff.
         </div>
       )}
 
@@ -223,7 +223,7 @@ export function Opinions({
                     <tr className={r.divergent ? 'bg-amber-500/10' : ''}>
                       <td className="sticky left-0 border-t border-line bg-panel px-1 py-1.5" title={r.c.description}>
                         {r.c.label}
-                        {r.divergent && <span className="ml-1 text-amber-300">⚠</span>}
+                        {r.divergent && <Icon name="alert" className="ml-1 inline h-3.5 w-3.5 -translate-y-px text-amber-300" />}
                       </td>
                       <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
                       {r.perObs.map((v, i) => (

@@ -2,7 +2,7 @@ import { useAlerts } from '../alerts'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
-import { can, groupMark } from '../roles'
+import { can, groupTag } from '../roles'
 import { birthQuarter } from './ui'
 import { CourtFilter } from './CourtPicker'
 import { alive, db, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
@@ -346,7 +346,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
               <option value="">Tous les joueurs (sans profil recherché)</option>
               {profiles.map(({ alert, players: ps }) => (
                 <option key={alert.id} value={alert.id}>
-                  {alert.private ? '🔒 ' : ''}Profil : {alert.name} ({ps.length.toLocaleString('fr-FR')})
+                  Profil : {alert.name}{alert.private ? ' (privé)' : ''} ({ps.length.toLocaleString('fr-FR')})
                 </option>
               ))}
             </select>
@@ -360,7 +360,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
               <option value="">Tous les joueurs (sans groupe choisi)</option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {groupMark(g)}Groupe : {g.name} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
+                  Groupe : {g.name}{groupTag(g)} ({g.playerIds.length.toLocaleString('fr-FR')}){g.archived ? ' — archivé' : ''}
                 </option>
               ))}
             </select>

@@ -88,7 +88,7 @@ export function Segmented<T extends string>({
   columns,
 }: {
   value: T | undefined
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; icon?: IconName }[]
   onChange: (v: T) => void
   /** Nombre de colonnes (sinon tout sur une ligne). */
   columns?: number
@@ -100,10 +100,11 @@ export function Segmented<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
             value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
           }`}
         >
+          {o.icon && <Icon name={o.icon} className="h-3.5 w-3.5 shrink-0" />}
           {o.label}
         </button>
       ))}
@@ -338,6 +339,9 @@ export const ICONS = {
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z',
   bell: 'M6 9a6 6 0 1 1 12 0c0 6 3 8 3 8H3s3-2 3-8M10 21a2 2 0 0 0 4 0',
+  mail: 'M3 5h18v14H3zM3 6l9 7 9-7',
+  key: 'M8 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 11h9M18 11v3M15 11v2.5',
+  alert: 'M12 3L2 20h20zM12 10v4M12 17h.01',
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01',
 } as const
 export type IconName = keyof typeof ICONS
@@ -348,6 +352,12 @@ export function Icon({ name, className = 'h-4 w-4' }: { name: IconName; classNam
       <path d={ICONS[name]} />
     </svg>
   )
+}
+
+/** Petite icône devant le nom d'un groupe privé (cadenas) ou d'équipe (personnes) ; rien pour un groupe du staff. */
+export function GroupMark({ g, className = 'mr-1 inline h-3 w-3 -translate-y-px' }: { g: { private?: boolean; team?: boolean }; className?: string }) {
+  if (!g.private && !g.team) return null
+  return <Icon name={g.private ? 'lock' : 'users'} className={className} />
 }
 
 /**

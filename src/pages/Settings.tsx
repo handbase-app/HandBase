@@ -791,7 +791,7 @@ function CriterionEdit({ c }: { c: Criterion }) {
         </div>
       )}
       {d.scale !== c.scale && (
-        <p className="text-[11px] text-amber-300">⚠ Changer d'échelle rend les anciennes valeurs difficiles à comparer avec les nouvelles.</p>
+        <p className="text-[11px] text-amber-300"><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Changer d'échelle rend les anciennes valeurs difficiles à comparer avec les nouvelles.</p>
       )}
       <div>
         <span className="label">Postes concernés (aucun = tous)</span>

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { fmtDate, type Measurement, type Player } from '../db'
-import { InfoButton } from './ui'
+import { Icon, InfoButton } from './ui'
 import {
   correctedParentHeight,
   decimalAge,
@@ -158,7 +158,7 @@ function OffsetBlock({ snap, sex, noSitting, noWeight }: { snap: Snapshot; sex: 
       </div>
       {!reliable && (
         <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-          ⚠ Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : 'joueur loin de son pic'}.
+          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : 'joueur loin de son pic'}.
         </div>
       )}
     </div>

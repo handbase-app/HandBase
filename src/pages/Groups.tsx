@@ -291,13 +291,16 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           value={vis}
           onChange={setVis}
           options={[
-            { value: 'private', label: '🔒 Moi seul' },
-            { value: 'team', label: '👥 Équipe' },
-            { value: 'staff', label: '🌐 Tout le staff' },
+            { value: 'private', label: 'Moi seul', icon: 'lock' },
+            { value: 'team', label: 'Équipe', icon: 'users' },
+            { value: 'staff', label: 'Tout le staff', icon: 'globe' },
           ]}
         />
       ) : (
-        <p className="text-xs">🔒 Moi seul (groupe privé)</p>
+        <p className="flex items-center gap-1.5 text-xs">
+          <Icon name="lock" className="h-3.5 w-3.5" />
+          Moi seul (groupe privé)
+        </p>
       )}
       <p className="text-[11px] text-muted">{VIS_HELP[vis]}</p>
 

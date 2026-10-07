@@ -98,8 +98,8 @@ export function useRole(): Role {
 /** Visibilité d'un groupe : « Moi seul », « Équipe » (créateur et participants) ou « Tout le staff ». */
 export type GroupVisibility = 'private' | 'team' | 'staff'
 export const groupVisibility = (g: { private?: boolean; team?: boolean }): GroupVisibility => (g.private ? 'private' : g.team ? 'team' : 'staff')
-/** Marque devant le nom d'un groupe dans les menus : 🔒 privé, 👥 équipe. */
-export const groupMark = (g: { private?: boolean; team?: boolean }) => ({ private: '🔒 ', team: '👥 ', staff: '' })[groupVisibility(g)]
+/** Mention après le nom d'un groupe dans les menus déroulants (qui n'affichent que du texte) : « (privé) », « (équipe) ». */
+export const groupTag = (g: { private?: boolean; team?: boolean }) => ({ private: ' (privé)', team: ' (équipe)', staff: '' })[groupVisibility(g)]
 
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
 export const can = {
