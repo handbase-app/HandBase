@@ -1,7 +1,7 @@
-import type { Session } from '@supabase/supabase-js'
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
 import { clearRole, refreshRole } from '../roles'
-import { supabase } from '../sync'
+import { claimDevice, supabase } from '../sync'
 import { TRIAL } from '../db'
 import { useMe } from './ui'
 import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
@@ -28,6 +28,51 @@ const loginError = (message: string) =>
     ? 'Ce mot de passe provisoire a expiré (24 h) : demande un nouvel accès à un administrateur.'
     : 'E-mail ou mot de passe incorrect.'
 
+/** Session enregistrée par Supabase sur l'appareil (clé sb-…-auth-token), même si son jeton a expiré. */
+function storedSession(): Session | null {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (!/^sb-.+-auth-token$/.test(k)) continue
+      const s = JSON.parse(localStorage.getItem(k) ?? 'null') as Session | null
+      if (s?.refresh_token && s.user?.id) return s
+    }
+  } catch {
+    /* stockage illisible */
+  }
+  return null
+}
+
+/**
+ * Session du compte. Jeton d'accès expiré (plus d'une heure) et renouvellement impossible faute de réseau
+ * (gymnase sans réseau) : Supabase répond « pas de session » mais la garde sur l'appareil ; on la reprend
+ * alors pour travailler hors ligne (error renseignée). Une vraie déconnexion ou une session révoquée
+ * l'efface du stockage : on revient à la connexion.
+ */
+async function loadSession(): Promise<{ session: Session | null; error?: unknown }> {
+  const kept = storedSession()
+  const expired = !!kept?.expires_at && kept.expires_at * 1000 < Date.now()
+  // Hors ligne, inutile d'attendre Supabase : il réessaie le renouvellement pendant une trentaine de secondes.
+  if (kept && expired && !navigator.onLine) return { session: kept, error: 'offline' }
+  let error: unknown = null
+  try {
+    const r = await Promise.race([
+      supabase!.auth.getSession(),
+      // Réseau qui ne répond pas (wifi sans internet…) : on n'attend pas plus de quelques secondes.
+      new Promise<'timeout'>((ok) => setTimeout(() => ok('timeout'), kept ? 5000 : 60_000)),
+    ])
+    if (r === 'timeout') error = r
+    else if (r.data.session) return { session: r.data.session }
+    else error = r.error
+  } catch (e) {
+    error = e
+  }
+  const network = error === 'timeout' || isAuthRetryableFetchError(error) || error instanceof TypeError || !navigator.onLine
+  // storedSession() relu : une session révoquée a été effacée du stockage entre-temps.
+  const still = storedSession()
+  if (still && network) return { session: still, error }
+  return { session: null }
+}
+
 /** Nom affiché d'un compte : stocké dans les métadonnées Supabase (full_name). */
 export const accountName = (s: Session | null) => (s?.user.user_metadata?.full_name as string | undefined)?.trim() || ''
 
@@ -43,32 +88,64 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [recovery, setRecovery] = useState(false)
   const [inviteErr, setInviteErr] = useState('')
 
+  // Session gardée sur l'appareil mais pas renouvelable faute de réseau : on travaille hors ligne.
+  const [offline, setOffline] = useState(false)
+
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getSession().then(async ({ data }) => {
+    void loadSession().then(async ({ session: s, error }) => {
       // Lien d'accès : connexion directe (l'appli demandera ensuite de choisir son mot de passe).
-      if (invite && data.session?.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
-        if (data.session) await supabase!.auth.signOut()
+      if (invite && s?.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
+        if (s) await supabase!.auth.signOut()
         const { data: r, error } = await supabase!.auth.signInWithPassword(invite)
         if (error) setInviteErr(navigator.onLine ? loginError(error.message) : 'Pas de connexion internet : réessaie le lien une fois en ligne.')
         return setSession(r.session)
       }
-      setSession(data.session)
+      setOffline(!!s && !!error)
+      setSession(s)
     })
     const { data } = supabase.auth.onAuthStateChange((e, s) => {
       if (e === 'PASSWORD_RECOVERY') setRecovery(true)
-      setSession(s)
+      if (s) {
+        setOffline(false)
+        setSession(s)
+      } else if (e === 'SIGNED_OUT') {
+        // Vraie déconnexion, ou session refusée par le serveur (révoquée) : retour à la connexion.
+        setOffline(false)
+        setSession(null)
+      }
+      // INITIAL_SESSION sans session : loadSession() décide (session gardée hors ligne, ou connexion).
     })
     return () => data.subscription.unsubscribe()
   }, [])
 
-  // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion.
+  // Hors ligne avec une session expirée : on retente dès que le réseau revient (et de temps en temps).
+  useEffect(() => {
+    if (!supabase || !offline) return
+    const retry = () =>
+      void loadSession().then(({ session: s, error }) => {
+        if (error) return // toujours pas de réseau
+        setOffline(false)
+        setSession(s)
+      })
+    window.addEventListener('online', retry)
+    const t = window.setInterval(() => navigator.onLine && retry(), 30_000)
+    return () => {
+      window.removeEventListener('online', retry)
+      window.clearInterval(t)
+    }
+  }, [offline])
+
+  // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion (pas en mode hors ligne).
   const uid = session?.user.id
   useEffect(() => {
     if (!supabase) return // mode local : l'unique utilisateur garde tous les droits
     if (session === null) clearRole()
-    else if (uid) void refreshRole()
-  }, [uid, session])
+    else if (uid && !offline) void refreshRole()
+  }, [uid, session, offline])
+
+  // Données locales d'un autre compte (changement de compte par lien d'accès…) : on efface d'abord.
+  const owned = !uid || claimDevice(uid)
 
   // Le nom d'observateur suit le compte connecté.
   const name = accountName(session ?? null)
@@ -77,7 +154,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [name, me, setMe])
 
   if (!supabase) return <>{children}</>
-  if (session === undefined) return null
+  if (session === undefined || !owned) return null
   if (!session) return <Login initialEmail={invite?.email} initialError={inviteErr} />
   // Mot de passe provisoire (compte créé par un administrateur) ou lien « mot de passe oublié ».
   if (recovery || session.user.user_metadata?.must_change_password) return <NewPassword recovery={recovery} onDone={() => setRecovery(false)} />

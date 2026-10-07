@@ -98,9 +98,13 @@ export function useRole(): Role {
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
 export const can = {
   editPlayers: (r: Role) => r !== 'observateur',
-  /** Modifier cette fiche : l'encadrant toutes, l'observateur la fiche qu'il a proposée, tant qu'elle n'est pas traitée. */
-  editPlayer: (r: Role, p: { review?: string; createdBy?: string }) =>
-    r !== 'observateur' || (p.review === 'pending' && (!p.createdBy || p.createdBy === userId)),
+  /**
+   * Modifier cette fiche : l'encadrant toutes, l'observateur la fiche qu'il a proposée, tant qu'elle n'est pas traitée
+   * (le serveur exige createdBy = son compte : une fiche venue du serveur sans auteur ne lui est pas ouverte ;
+   * seule sa propre proposition pas encore envoyée, sans signature du serveur, l'est).
+   */
+  editPlayer: (r: Role, p: { review?: string; createdBy?: string; createdAtServer?: string }) =>
+    r !== 'observateur' || (p.review === 'pending' && (p.createdBy ? p.createdBy === userId : !p.createdAtServer)),
   deletePlayers: (r: Role) => r === 'admin',
   editMeasurements: (r: Role) => r !== 'observateur',
   manageEvents: (r: Role) => r !== 'observateur',
