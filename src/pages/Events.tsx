@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, Icon, PosBadges, QuarterBadge } from '../components/ui'
+import { FollowStar } from '../components/Follow'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
@@ -253,6 +254,8 @@ export function EventDetail() {
   const [tab, setTab] = useState<'joueurs' | 'classement'>('joueurs')
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(false)
+  // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
+  const [removing, setRemoving] = useState(false)
   // Liste des joueurs : toujours par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour cet
   // événement, repris par la notation). Filtres rapides : masquer ceux que j'ai notés, un poste.
   const [sort, setSort] = useRosterSort(id)
@@ -467,13 +470,23 @@ export function EventDetail() {
               offList.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
             ) : (
               <>
-                {manage && roster.length > 1 && (
-                  <button
-                    className="self-end text-[11px] font-bold text-muted underline"
-                    onClick={async () => (await ask(`Retirer les ${roster.length} joueurs de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster([])}
-                  >
-                    Vider la liste
-                  </button>
+                {roster.some((p) => can.removeFromEvent(role, ev, p.id)) && (
+                  <div className="flex items-center justify-end gap-3">
+                    {manage && roster.length > 1 && removing && (
+                      <button
+                        className="text-[11px] font-bold text-muted underline"
+                        onClick={async () => (await ask(`Retirer les ${roster.length} joueurs de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster([])}
+                      >
+                        Vider la liste
+                      </button>
+                    )}
+                    <button
+                      className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
+                      onClick={() => setRemoving((r) => !r)}
+                    >
+                      {removing ? 'Terminé' : 'Retirer des joueurs'}
+                    </button>
+                  </div>
                 )}
                 {roster.length > 1 && (
                   <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
@@ -536,7 +549,8 @@ export function EventDetail() {
                         {n ? <AvisToggle n={n} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} /> : <span className="text-muted">—</span>}
                         {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
-                      {can.removeFromEvent(role, ev, p.id) && (
+                      {!removing && <FollowStar id={p.id} />}
+                      {removing && can.removeFromEvent(role, ev, p.id) && (
                         <button
                           className="shrink-0 px-1 text-muted hover:text-red-400"
                           title="Retirer de la liste"
