@@ -7,6 +7,7 @@ import { FollowStar } from '../components/Follow'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
+import { TabBackButton } from '../backNav'
 import { AddToGroupDialog, GroupNotice } from '../components/Groups'
 import { can, useRole } from '../roles'
 
@@ -68,6 +69,7 @@ export default function Players() {
 
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
+      <TabBackButton className="mb-2 block" />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Joueurs</h1>
         <div className="flex gap-2 whitespace-nowrap">

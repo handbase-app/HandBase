@@ -67,7 +67,7 @@ export const departmentChoices = () => departments.map((d) => ({ value: d.code!,
 /**
  * Découpage officiel (INSEE, régions de 2016), avec les identifiants de la liste des régions
  * (supabase/019_listes_regions.sql). Référence quand un département de la liste n'a pas de région.
- * Corse : un seul département pour nous (« 20 », n° de club) ; outre-mer : « 97 ».
+ * Corse : un seul département pour nous (« 20 », n° de club) ; ultramarins : une ligue par territoire (Antilles = 971 + 972).
  */
 const OFFICIAL_REGIONS: Record<string, string> = {
   'region-ara': '01 03 07 15 26 38 42 43 63 69 73 74',
@@ -83,7 +83,13 @@ const OFFICIAL_REGIONS: Record<string, string> = {
   'region-occ': '09 11 12 30 31 32 34 46 48 65 66 81 82',
   'region-pdl': '44 49 53 72 85',
   'region-sud': '04 05 06 13 83 84',
-  'region-om': '97 971 972 973 974 976',
+  // Ligues ultramarines (nom fédéral : « Ultramarins ») ; « 97 » = territoire non précisé (anciens n° de club).
+  'region-ant': '971 972',
+  'region-guy': '973',
+  'region-reu': '974',
+  'region-may': '976',
+  'region-nc': '988',
+  'region-om': '97',
 }
 const DEPT_REGION = new Map(Object.entries(OFFICIAL_REGIONS).flatMap(([r, ds]) => ds.split(' ').map((d) => [d, r] as const)))
 
@@ -102,7 +108,12 @@ const REGION_FALLBACK: Record<string, string> = {
   'region-occ': 'Occitanie',
   'region-pdl': 'Pays de la Loire',
   'region-sud': 'Région Sud',
-  'region-om': 'Outre-mer',
+  'region-ant': 'Antilles',
+  'region-guy': 'Guyane',
+  'region-reu': 'La Réunion',
+  'region-may': 'Mayotte',
+  'region-nc': 'Nouvelle-Calédonie',
+  'region-om': 'Ultramarins (non précisé)',
 }
 
 /** Région d'un département : celle de la liste (Réglages) si elle est renseignée, sinon le découpage officiel. */

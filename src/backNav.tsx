@@ -54,6 +54,28 @@ export function BackTracker() {
 // Formulaires et écrans de passage : on ne revient pas dessus.
 const TRANSIENT = /\/(nouveau|nouvelle|modifier|mesures)$/
 
+/** Écran d'où l'on vient (même règle que useBack), ou undefined. */
+function previousPath(key: string, pathname: string): string | undefined {
+  for (let e = map[key], steps = 0; e?.prev && steps < 50; steps++) {
+    const t = map[e.prev]
+    if (!t) return undefined
+    if (t.path !== pathname && !TRANSIENT.test(t.path)) return t.path
+    e = t
+  }
+  return undefined
+}
+
+// Onglets de la barre du bas : on y revient par la barre, pas besoin de bouton retour vers eux.
+const TABS = new Set(['/', '/joueurs', '/evenements', '/groupes', '/parametres'])
+
+/** Bouton retour pour un onglet (ex. Joueurs) : seulement si l'on vient d'un autre écran que les onglets (vue nationale, groupe…). */
+export function TabBackButton({ className = '' }: { className?: string }) {
+  const loc = useLocation()
+  const prev = previousPath(loc.key, loc.pathname)
+  if (!prev || TABS.has(prev)) return null
+  return <BackButton fallback="/" label="ACCUEIL" className={className} />
+}
+
 /** Retour : l'écran d'où l'on vient (en sautant le même écran et les formulaires), sinon `fallback`. */
 export function useBack(fallback: string, fallbackLabel: string): { label: string; go: () => void } {
   const loc = useLocation()
@@ -87,6 +109,9 @@ const STATIC: Record<string, string> = {
   '/parametres': 'RÉGLAGES',
   '/confidentialite': 'CONFIDENTIALITÉ',
   '/evaluer': 'ÉVALUER',
+  '/national': 'VUE NATIONALE',
+  '/suivis': 'MES SUIVIS',
+  '/staffs': 'MES STAFFS',
 }
 
 /** Nom de l'écran visé : fixe, ou lu dans la base (joueur, événement, groupe, alerte). */

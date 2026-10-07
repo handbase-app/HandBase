@@ -100,8 +100,17 @@ interface Agg {
 // (projection recalée sur ses départements) ; on y touche ensuite un département pour voir ses joueurs.
 // La largeur est fixée ; la hauteur suit celle du pays, et reste la même quand on zoome sur une région.
 const W = 600
-const DOM_W = 96
-const DOM_H = 50
+const DOM_W = 132
+const DOM_H = 62
+/** Territoires ultramarins (pas sur la carte) : une case chacun, dans l'encadré « Ultramarins ». */
+const DOM_CODES: [string, string][] = [
+  ['971', 'GP'],
+  ['972', 'MQ'],
+  ['973', 'GF'],
+  ['974', 'RE'],
+  ['976', 'YT'],
+  ['988', 'NC'],
+]
 /** Corse : un seul département pour nous (n° de club « 20 »). */
 const codeOf = (c: string) => (c === '2A' || c === '2B' ? '20' : c)
 
@@ -275,7 +284,13 @@ function NationalView() {
   const geoNames = useMemo(() => {
     const m = new Map<string, string>([
       ['20', 'Corse'],
-      ['97', 'Outre-mer'],
+      ['97', 'Ultramarins (non précisé)'],
+      ['971', 'Guadeloupe'],
+      ['972', 'Martinique'],
+      ['973', 'Guyane'],
+      ['974', 'La Réunion'],
+      ['976', 'Mayotte'],
+      ['988', 'Nouvelle-Calédonie'],
     ])
     for (const f of geo?.features ?? []) if (!m.has(codeOf(f.properties.code))) m.set(codeOf(f.properties.code), f.properties.nom)
     return m
@@ -506,26 +521,44 @@ function NationalView() {
                     )}
                   </>
                 )}
-                {/* Outre-mer : les n° de club en 97 ne disent pas quel territoire ; une seule case (département 97). */}
-                {dom && (domOnly || !shapes.zoomed) && (
-                  <>
-                    <rect x={dom.x} y={dom.y} width={dom.w} height={dom.h} rx={8} fill="var(--color-panel)" stroke="var(--color-line)" />
-                    <text x={dom.x + 8} y={dom.y + 13} fontSize={10} fontWeight={700} fill="var(--color-muted)">
-                      Outre-mer
-                    </text>
-                    <rect
-                      x={dom.x + 8}
-                      y={dom.y + 20}
-                      width={dom.w - 16}
-                      height={dom.h - 28}
-                      rx={4}
-                      fill={shade('97')}
-                      stroke={tip?.code === '97' ? 'var(--color-fg)' : 'var(--color-line)'}
-                      className="cursor-pointer transition-[fill] duration-300"
-                      {...deptHandlers('97')}
-                    />
-                  </>
-                )}
+                {/* Ultramarins : une case par territoire (Antilles = Guadeloupe + Martinique), ou seulement ceux de la ligue choisie. */}
+                {dom && (domOnly || !shapes.zoomed) && (() => {
+                  const cells = DOM_CODES.filter(([c]) => !domOnly || regionOfDept(c) === region)
+                  const cols = Math.min(3, cells.length)
+                  const rows = Math.ceil(cells.length / cols)
+                  const cw = (dom.w - 16 - (cols - 1) * 4) / cols
+                  const ch = (dom.h - 28 - (rows - 1) * 4) / rows
+                  return (
+                    <>
+                      <rect x={dom.x} y={dom.y} width={dom.w} height={dom.h} rx={8} fill="var(--color-panel)" stroke="var(--color-line)" />
+                      <text x={dom.x + 8} y={dom.y + 13} fontSize={10} fontWeight={700} fill="var(--color-muted)">
+                        Ultramarins
+                      </text>
+                      {cells.map(([code, abbr], i) => {
+                        const x = dom.x + 8 + (i % cols) * (cw + 4)
+                        const y = dom.y + 20 + Math.floor(i / cols) * (ch + 4)
+                        return (
+                          <g key={code}>
+                            <rect
+                              x={x}
+                              y={y}
+                              width={cw}
+                              height={ch}
+                              rx={4}
+                              fill={shade(code)}
+                              stroke={tip?.code === code ? 'var(--color-fg)' : 'var(--color-line)'}
+                              className="cursor-pointer transition-[fill] duration-300"
+                              {...deptHandlers(code)}
+                            />
+                            <text x={x + cw / 2} y={y + ch / 2 + 3} fontSize={8} fontWeight={700} textAnchor="middle" fill="var(--color-muted)" pointerEvents="none">
+                              {abbr}
+                            </text>
+                          </g>
+                        )
+                      })}
+                    </>
+                  )
+                })()}
               </svg>
             )}
             {tip && (
