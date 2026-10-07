@@ -113,7 +113,9 @@ liste (il note sans validation et valide ceux des observateurs) ; un événement
 ### Notifications
 
 Notifications sur le téléphone (web push, `supabase/026_notifications.sql`) : avis à valider, fiches proposées, nouveau
-participant, rappel la veille d'un événement. Chacun les active sur son appareil et choisit lesquelles dans *Réglages →
+participant, rappel la veille d'un événement, nouvelles mesures et nouveaux avis des joueurs suivis (`033`, directement,
+par un groupe suivi ou un groupe « Suivi par l'équipe » ; un avis en attente n'est annoncé aux observateurs qu'une fois
+validé ; résumé envoyé quand la saisie se calme : 10 minutes sans nouveauté, 1 heure au plus). Chacun les active sur son appareil et choisit lesquelles dans *Réglages →
 Notifications* (iPhone : appli ajoutée à l'écran d'accueil, iOS 16.4+). Les déclencheurs SQL mettent en file
 (`hb_notifications`) ; la fonction Supabase `supabase/functions/notify` (appelée toutes les 2 minutes par pg_cron)
 regroupe et envoie, sauf pendant le créneau « ne pas déranger » de chacun (par défaut 21 h – 8 h, `027`). Mise en place : clés VAPID (`npx web-push generate-vapid-keys`), secrets de la

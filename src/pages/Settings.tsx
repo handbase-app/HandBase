@@ -62,7 +62,7 @@ export default function Settings() {
         {supabase && <PasswordChange />}
       </Fold>
       {supabase && (
-        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, rappels">
+        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, rappels, suivis">
           <NotificationSettings />
         </Fold>
       )}

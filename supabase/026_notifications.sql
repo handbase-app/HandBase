@@ -8,6 +8,7 @@
 --   fiche        une fiche proposée attend une validation : encadrants du secteur, administrateurs ;
 --   participant  on t'a ajouté comme participant d'un événement ou d'un groupe ;
 --   rappel       la veille d'un événement (vers 18 h) : son organisateur et ses participants.
+--   suivi        (033) nouvelle mesure ou nouvel avis sur un joueur suivi : ceux qui le suivent.
 -- On n'est jamais prévenu de sa propre action. Les notifications attendent dans hb_notifications ; la
 -- fonction « notify » (appelée toutes les 2 minutes) les regroupe (« 3 avis à valider ») et les envoie,
 -- sauf entre 21 h et 8 h (elles partent le matin).
