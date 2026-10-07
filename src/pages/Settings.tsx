@@ -99,7 +99,7 @@ export default function Settings() {
             <span className="text-muted">›</span>
           </Link>
           {supabase && (
-            <Fold id="membres" icon="users" title="Équipe" summary="Comptes, rôles, secteurs">
+            <Fold id="membres" icon="users" title="Utilisateurs" summary="Comptes, rôles, secteurs">
               <p className="text-[11px] text-muted">
                 {STAFF.settingsHelp}{' '}
                 <Link to={STAFF.route} className="font-bold text-accent underline">

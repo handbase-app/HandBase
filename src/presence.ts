@@ -2,7 +2,7 @@ import { supabase } from './sync'
 
 /*
  * « L'appli est ouverte » (supabase/030_connexions.sql) : un signe de vie toutes les 30 s tant que l'appli est
- * affichée et en ligne. Les administrateurs voient ainsi qui est connecté et quand (Réglages → Équipe).
+ * affichée et en ligne. Les administrateurs voient ainsi qui est connecté et quand (Réglages → Utilisateurs).
  * Pas de canal temps réel : il montrerait à tout le staff qui est en ligne.
  */
 
