@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
 import { Avatar, Empty, fmtValue, Icon, PosBadges, QuarterBadge } from '../components/ui'
-import { useFollows } from '../follows'
+import { canFollow, setFollow, useFollows } from '../follows'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { exportCsv } from '../export'
@@ -62,7 +62,7 @@ export default function Players() {
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
   // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
-  const followed = useFollows()?.followed
+  const follows = useFollows()
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
@@ -159,11 +159,6 @@ export default function Players() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-bold">
-                      {followed?.has(p.id) && (
-                        <span title="Suivi (Mes suivis)">
-                          <Icon name="star" filled className="mr-1 inline h-3 w-3 align-[-1px] text-accent/80" />
-                        </span>
-                      )}
                       {p.lastName.toUpperCase()} {p.firstName}
                     </span>
                     {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
@@ -184,7 +179,40 @@ export default function Players() {
                       .join(' · ')}
                   </div>
                 </div>
-                <span className="text-muted">›</span>
+                {/* Suivre / ne plus suivre sans ouvrir la fiche. Étoile pâle : suivi seulement via un groupe suivi.
+                    Elle remplace la flèche « › », purement décorative (toute la ligne ouvre la fiche). */}
+                {follows && canFollow() && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={follows.players.has(p.id)}
+                    title={
+                      follows.players.has(p.id)
+                        ? 'Suivi — toucher pour ne plus suivre'
+                        : follows.followed.has(p.id)
+                          ? 'Suivi via un groupe — toucher pour le suivre aussi personnellement'
+                          : 'Suivre (Mes suivis)'
+                    }
+                    className="-my-2 -mr-1 shrink-0 p-2"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      void setFollow('player', p.id, !follows.players.has(p.id))
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      void setFollow('player', p.id, !follows.players.has(p.id))
+                    }}
+                  >
+                    <Icon
+                      name="star"
+                      filled={follows.followed.has(p.id)}
+                      className={`h-4 w-4 ${follows.players.has(p.id) ? 'text-accent' : follows.followed.has(p.id) ? 'text-accent/40' : 'text-muted/60 hover:text-accent'}`}
+                    />
+                  </span>
+                )}
               </Link>
             )
           })}
