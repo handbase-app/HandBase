@@ -477,6 +477,8 @@ export async function saveMany<T extends Row>(table: SyncTable, rows: (Omit<T, '
 
 /** Jour (AAAA-MM-JJ) en heure locale (toISOString donne le jour UTC : encore la veille entre minuit et 2 h en été). */
 export const localDay = (t: number) => new Date(t).toLocaleDateString('sv')
+/** Jour local (AAAA-MM-JJ) d'un horodatage ISO : « 2026-10-07T23:23Z » est le 8 octobre à Paris. */
+export const dayOf = (iso: string) => localDay(Date.parse(iso))
 
 /** « 1 joueur », « 12 joueurs » (nombre à la française). */
 export const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString('fr-FR')} ${n > 1 ? many : one}`

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { db, fmtDate, save, type ReviewState } from '../db'
+import { db, fmtDate, save, type ReviewState, dayOf } from '../db'
 import { currentUserId } from '../roles'
 import { getMe } from './ui'
 
@@ -49,7 +49,7 @@ export function ReviewNote({ e }: { e: Reviewable }) {
     <div className="mt-1 text-[10px] text-muted">
       {e.review === 'validated' ? 'Validé' : 'Mis hors cadre'}
       {e.reviewedByName && <> par <b className="text-fg">{e.reviewedByName}</b></>}
-      {e.reviewedAt && <> le {fmtDate(e.reviewedAt.slice(0, 10))}</>}
+      {e.reviewedAt && <> le {fmtDate(dayOf(e.reviewedAt))}</>}
       {e.reviewNote && <> : « {e.reviewNote} »</>}
     </div>
   )

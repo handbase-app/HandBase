@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { Empty, QuarterBadge } from '../components/ui'
-import { alive, counts, db, fmtDate, type Evaluation, type Player } from '../db'
+import { alive, counts, db, fmtDate, type Evaluation, type Player, dayOf } from '../db'
 
 /**
  * « Ratés » : les joueurs dont on a mis la fiche hors cadre (directement, ou une fiche fondue depuis
@@ -26,7 +26,7 @@ export default function Missed() {
     .map((p) => {
       const refusal = refusalOf(p)
       if (!refusal) return null
-      const since = refusal.at?.slice(0, 10) ?? ''
+      const since = (refusal.at ? dayOf(refusal.at) : '')
       const nEvents = data.events.filter((ev) => (ev.playerIds ?? []).includes(p.id) && (!since || ev.date >= since)).length
       const later = (evalsBy.get(p.id) ?? []).filter((e) => !since || e.date >= since)
       const notes = later.flatMap((e) => Object.values(e.scores).filter((v): v is number => typeof v === 'number'))
@@ -64,7 +64,7 @@ export default function Missed() {
               <div className="text-[10px] text-muted">
                 {refusal.proposedBy && <>Proposé par {refusal.proposedBy}. </>}
                 Mis hors cadre{refusal.by && <> par {refusal.by}</>}
-                {refusal.at && <> le {fmtDate(refusal.at.slice(0, 10))}</>}
+                {refusal.at && <> le {fmtDate(dayOf(refusal.at))}</>}
                 {refusal.note && <> : « {refusal.note} »</>}.
               </div>
               {signals.length > 0 ? (

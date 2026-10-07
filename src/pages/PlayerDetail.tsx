@@ -15,7 +15,7 @@ import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
 import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, lateralityLabel, remove, type Criterion, type Measurement } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, lateralityLabel, remove, type Criterion, type Measurement, dayOf } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
@@ -280,11 +280,11 @@ export default function PlayerDetail() {
                     {m.review === 'refused' && (
                       <span className="text-amber-200">
                         Mise hors cadre{m.reviewedByName && <> par {m.reviewedByName}</>}
-                        {m.reviewedAt && <> le {fmtDate(m.reviewedAt.slice(0, 10))}</>}
+                        {m.reviewedAt && <> le {fmtDate(dayOf(m.reviewedAt))}</>}
                         {m.reviewNote && <> : « {m.reviewNote} »</>}.{' '}
                       </span>
                     )}
-                    Fusionnée le {fmtDate(m.mergedAt.slice(0, 10))}
+                    Fusionnée le {fmtDate(dayOf(m.mergedAt))}
                     {m.mergedByName && <> par {m.mergedByName}</>}.
                   </div>
                 </div>

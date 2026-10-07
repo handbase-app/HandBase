@@ -5,7 +5,7 @@ import { department } from '../components/PlayerFilter'
 import { departmentLabel } from '../lists'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { Empty, playerName, QuarterBadge } from '../components/ui'
-import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player } from '../db'
+import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player, dayOf } from '../db'
 import { can, currentUserId, myDepartments, useRole } from '../roles'
 import { possibleDuplicates } from '../merge'
 
@@ -90,7 +90,7 @@ export default function ReviewPage() {
             {p.createdByName && (
               <div className="text-[10px] text-muted">
                 Proposée par <b className="text-fg">{p.createdByName}</b>
-                {p.createdAtServer && <> le {fmtDate(p.createdAtServer.slice(0, 10))}</>}
+                {p.createdAtServer && <> le {fmtDate(dayOf(p.createdAtServer))}</>}
               </div>
             )}
             {p.notes && <div className="mt-1">{p.notes}</div>}
