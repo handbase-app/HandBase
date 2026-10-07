@@ -1,3 +1,4 @@
+import { applyUpdate, useUpdateReady } from './pwa'
 import { lazy, Suspense, useEffect } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -94,6 +95,22 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
   )
 }
 
+/** Nouvelle version prête : un appui pour la prendre, sans fermer l'appli. */
+function UpdateBanner() {
+  const ready = useUpdateReady()
+  if (!ready) return null
+  return (
+    <div className="fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4">
+      <div className="flex w-full items-center gap-3 rounded-lg border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
+        <span className="min-w-0 flex-1">Nouvelle version de HandBase disponible.</span>
+        <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
+          Mettre à jour
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   // Avis spontanés à valider : pastille sur « Évaluer ».
   const toReview = usePendingCount()
@@ -181,6 +198,7 @@ export default function App() {
           ))}
         </div>
       </nav>
+      <UpdateBanner />
       <ConfirmHost />
     </div>
   )
