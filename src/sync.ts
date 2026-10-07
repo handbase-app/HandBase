@@ -276,16 +276,20 @@ async function restoreFromServer(table: SyncTable, ids: string[]) {
 /*
  * server_updated_at est l'heure d'écriture (clock_timestamp()), pas celle de validation : une ligne
  * validée un peu plus tard peut porter une heure antérieure au dernier curseur. On relit donc la
- * dernière minute à chaque fois (réappliquer une ligne déjà vue est sans effet), et on pagine sur
+ * dernière minute (réappliquer une ligne déjà vue est sans effet), et on pagine sur
  * (server_updated_at, id) pour avancer même si plus de PULL_PAGE lignes ont la même heure.
+ * Seulement quand le curseur est récent : une écriture validée en retard l'est en quelques secondes.
+ * Sinon, un import massif (des milliers de lignes dans la même minute) serait retéléchargé à chaque fois.
  */
 const PULL_OVERLAP_MS = 60_000
+const OVERLAP_WINDOW_MS = 5 * 60_000
 const PULL_PAGE = 1000
 
 async function pull() {
   for (const table of SYNC_TABLES) {
     const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
-    const start = new Date(new Date(since).getTime() - PULL_OVERLAP_MS).toISOString()
+    const at = new Date(since).getTime()
+    const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
     let after: { at: string; id: string } | null = null
     for (;;) {
       const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
