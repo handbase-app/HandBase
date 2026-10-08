@@ -6,7 +6,7 @@ import { department } from '../components/PlayerFilter'
 import { departmentChoices } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
-import { alive, criterionApplies, db, lateralityLabel, newId, positionLabel, save, today, type HeightSource, type Measurement, type Player } from '../db'
+import { alive, criterionApplies, db, lateralityLabel, newId, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PolePeriod, type Player } from '../db'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -231,6 +231,36 @@ export default function PlayerForm() {
             ]}
           />
         </div>
+      </Collapsible>
+
+      <Collapsible title="Pôle Espoirs" summary={poleSummary(p) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
+        <p className="text-[11px] text-muted">Une ligne par période. Date de sortie vide : encore au pôle.</p>
+        {(p.poles ?? []).map((x, i) => {
+          const upd = (patch: Partial<PolePeriod>) => set('poles', (p.poles ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
+          return (
+            <div key={i} className="flex flex-col gap-1.5 rounded-md border border-line p-2">
+              <div className="flex items-center gap-2">
+                <input className="field min-w-0 flex-1" placeholder="Pôle Espoirs Région Sud (site de…)" value={x.name ?? ''} onChange={(e) => upd({ name: e.target.value || undefined })} />
+                <button type="button" className="shrink-0 px-1 text-muted hover:text-red-400" title="Retirer cette période" onClick={() => set('poles', (p.poles ?? []).filter((_, k) => k !== i).length ? (p.poles ?? []).filter((_, k) => k !== i) : undefined)}>
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-0.5">
+                  <span className="label">Entrée</span>
+                  <input type="date" className="field" value={x.from ?? ''} onChange={(e) => upd({ from: e.target.value || undefined })} />
+                </label>
+                <label className="flex flex-col gap-0.5">
+                  <span className="label">Sortie</span>
+                  <input type="date" className="field" value={x.to ?? ''} onChange={(e) => upd({ to: e.target.value || undefined })} />
+                </label>
+              </div>
+            </div>
+          )
+        })}
+        <button type="button" className="btn-ghost text-xs" onClick={() => set('poles', [...(p.poles ?? []), {}])}>
+          + Ajouter une période en pôle
+        </button>
       </Collapsible>
 
       <Collapsible

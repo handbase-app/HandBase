@@ -39,6 +39,29 @@ interface Syncable {
 
 export type HeightSource = 'mesuree' | 'declaree'
 
+/** Une période en Pôle Espoirs : nom du pôle (ou du site), date d'entrée, date de sortie (vide = en cours). */
+export interface PolePeriod {
+  name?: string
+  from?: string
+  to?: string
+}
+
+/** Pôle Espoirs : « current » (en cours aujourd'hui), « past » (y est passé, en est sorti), sinon rien. */
+export function poleStatus(p: Pick<Player, 'poles'>, today = new Date().toLocaleDateString('sv')): 'current' | 'past' | undefined {
+  const ps = (p.poles ?? []).filter((x) => x.from || x.to || x.name)
+  if (!ps.length) return undefined
+  return ps.some((x) => (!x.from || x.from <= today) && (!x.to || x.to >= today)) ? 'current' : 'past'
+}
+
+/** « Pôle Espoirs Sud, depuis le 01/09/2025 » ; périodes séparées par « ; ». */
+export function poleSummary(p: Pick<Player, 'poles'>) {
+  const d = (s: string) => s.split('-').reverse().join('/')
+  return (p.poles ?? [])
+    .filter((x) => x.from || x.to || x.name)
+    .map((x) => [x.name || 'Pôle Espoirs', x.from && x.to ? `du ${d(x.from)} au ${d(x.to)}` : x.from ? `depuis le ${d(x.from)}` : x.to ? `jusqu'au ${d(x.to)}` : ''].filter(Boolean).join(', '))
+    .join(' ; ')
+}
+
 export interface Player extends Syncable {
   firstName: string
   lastName: string
@@ -65,6 +88,8 @@ export interface Player extends Syncable {
   category?: string
   club?: string
   boarding?: boolean | null
+  /** Passages en Pôle Espoirs (une ligne par période) : liste des sportifs de haut niveau pour le ministère. */
+  poles?: PolePeriod[]
   laterality?: Laterality
   photo?: string
   gaps?: string

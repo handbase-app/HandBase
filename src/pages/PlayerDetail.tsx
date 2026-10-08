@@ -15,7 +15,7 @@ import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
 import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, lateralityLabel, remove, type Criterion, type Measurement, dayOf } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, poleSummary, lateralityLabel, remove, type Criterion, type Measurement, dayOf } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
@@ -112,6 +112,7 @@ export default function PlayerDetail() {
     ['Type de licence', p.licenseRequestType && p.licenseRequestType.charAt(0) + p.licenseRequestType.slice(1).toLowerCase()],
     ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : undefined],
+    ['Pôle Espoirs', poleSummary(p) || undefined],
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
     ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
     ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],
