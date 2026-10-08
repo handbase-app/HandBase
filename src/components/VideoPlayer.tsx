@@ -128,7 +128,6 @@ function YouTubeAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       className="h-full w-full"
       sandbox={SANDBOX}
       allow={ALLOW}
-      allowFullScreen
       referrerPolicy="strict-origin-when-cross-origin"
     />
   )
@@ -171,7 +170,6 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
             send('setCurrentTime', t)
           },
           play: () => {
-            st.playing = true
             st.ended = false
             send('play')
           },
@@ -186,7 +184,7 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       else if (d.event === 'ended') {
         st.playing = false
         st.ended = true
-      } else if (d.event === 'error' && !ready) onFail()
+      } else if (d.event === 'error') onFail() // vidéo privée, lecture refusée ou impossible dans ce navigateur
     }
     window.addEventListener('message', onMessage)
     return () => {
@@ -203,7 +201,6 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       className="h-full w-full"
       sandbox={SANDBOX}
       allow={ALLOW}
-      allowFullScreen
       referrerPolicy="strict-origin-when-cross-origin"
     />
   )
@@ -214,6 +211,20 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
 function FileAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
   const ref = useRef<HTMLVideoElement>(null)
   const src = embed.kind === 'file' ? embed.src : ''
+  // Pilotable tout de suite (sur mobile, le navigateur peut ne rien précharger avant « lire »).
+  useEffect(() => {
+    const v = ref.current
+    if (!v) return
+    onCtl({
+      seek: (t) => (v.currentTime = t),
+      play: () => void v.play().catch(() => {}),
+      pause: () => v.pause(),
+      time: () => v.currentTime,
+      playing: () => !v.paused,
+      ended: () => v.ended,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <video
       ref={ref}
@@ -223,18 +234,6 @@ function FileAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       controls
       playsInline
       preload="metadata"
-      onLoadedMetadata={() => {
-        const v = ref.current
-        if (!v) return
-        onCtl({
-          seek: (t) => (v.currentTime = t),
-          play: () => void v.play().catch(() => {}),
-          pause: () => v.pause(),
-          time: () => v.currentTime,
-          playing: () => !v.paused,
-          ended: () => v.ended,
-        })
-      }}
       onError={onFail}
     />
   )
@@ -354,10 +353,11 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
       target="_blank"
       rel="noopener noreferrer"
       referrerPolicy="no-referrer"
-      className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-accent hover:underline"
+      className="inline-flex min-w-0 max-w-[55%] items-center gap-1 text-[11px] font-bold text-accent hover:underline"
+      title={`Ouvrir sur ${source} (nouvel onglet)`}
     >
-      <Icon name="external" className="h-3.5 w-3.5" />
-      Ouvrir sur {source}
+      <Icon name="external" className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">Ouvrir sur {source}</span>
     </a>
   )
   const cur = run ? moments[run.i] : undefined
@@ -374,7 +374,7 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
         <div className="flex items-center gap-2 px-3 py-2">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-bold">{video.title || `Vidéo ${source}`}</div>
-            <span className="rounded bg-panel-2 px-1 py-px text-[10px] font-bold text-muted">{source}</span>
+            <span className="inline-block max-w-full truncate align-top rounded bg-panel-2 px-1 py-px text-[10px] font-bold text-muted">{source}</span>
           </div>
           {canPlay && openLink}
           <button ref={closeBtn} className="shrink-0 rounded p-1.5 text-muted hover:bg-panel-2 hover:text-fg" title="Fermer (Échap)" aria-label="Fermer le lecteur" onClick={onClose}>
@@ -471,7 +471,7 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
                         {body}
                       </button>
                     )
-                  const to = openUrl(video, m.at) // YouTube s'ouvre à ce moment, les autres au début
+                  const to = online ? openUrl(video, m.at) : undefined // YouTube s'ouvre à ce moment, les autres au début
                   return to ? (
                     <a key={i} href={to} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className={`${cls} hover:border-accent hover:text-accent`} title={momentLabel(m)}>
                       {body}

@@ -192,11 +192,20 @@ function VideoRow({
   }
   const link = (cls: string, children: React.ReactNode, label?: string) =>
     onPlay ? (
-      <button type="button" onClick={() => onPlay()} className={`${cls} text-left`} aria-label={label} title="Lire la vidéo">
+      <button type="button" onClick={() => onPlay()} className={`${cls} max-w-full text-left`} aria-label={label} title="Lire la vidéo">
         {children}
       </button>
     ) : href ? (
-      <a href={href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={guard} className={cls} aria-label={label}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        onClick={guard}
+        className={cls}
+        aria-label={label}
+        title={`Ouvrir sur ${source} (nouvel onglet)`}
+      >
         {children}
       </a>
     ) : (
