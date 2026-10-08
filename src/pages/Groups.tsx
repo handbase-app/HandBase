@@ -7,7 +7,7 @@ import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
-import { Avatar, Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
+import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -763,7 +763,7 @@ export function GroupDetail() {
       {!players.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
       <div className="flex flex-col gap-1.5" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         {sorted.map((p) => (
-          <div key={p.id} className="card flex items-center gap-3 p-2.5">
+          <div key={p.id} className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)}`}>
             <Link to={`/joueurs/${p.id}`} data-player className="flex min-w-0 flex-1 items-center gap-3 outline-none focus:text-accent">
               <Avatar p={p} size={32} />
               <div className="min-w-0">

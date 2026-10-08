@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
-import { Avatar, Empty, fmtValue, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, fmtValue, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
 import { FollowStar } from '../components/Follow'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
@@ -154,7 +154,7 @@ export default function Players() {
                 key={p.id}
                 data-player
                 to={`/joueurs/${p.id}`}
-                className="card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2"
+                className={`card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2 ${poleEdge(p)}`}
               >
                 <Avatar p={p} />
                 <div className="min-w-0 flex-1">

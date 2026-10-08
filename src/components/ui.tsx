@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
+import { poleStatus, POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
 import { spyTarget } from '../spy'
 
 // ---------- Identité de l'utilisateur sur cet appareil ----------
@@ -71,10 +71,24 @@ export function PosBadge({ pos }: { pos?: Position }) {
 }
 
 /** Poste principal (pastille) et postes secondaires, plus discrets : « Ailier G. + DC ». */
-export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> }) {
+/** Joueur au Pôle Espoirs en ce moment : pastille « PÔLE » (couleur réservée) ; voir aussi `poleEdge`. */
+export function PoleBadge({ p }: { p: Pick<Player, 'poles'> }) {
+  if (poleStatus(p) !== 'current') return null
+  return (
+    <span className="rounded border border-fuchsia-500/40 bg-fuchsia-500/20 px-1.5 py-0.5 text-[10px] font-bold text-fuchsia-300" title="Au Pôle Espoirs">
+      PÔLE
+    </span>
+  )
+}
+
+/** Liseré gauche d'une carte de joueur au Pôle Espoirs (même couleur que la pastille). */
+export const poleEdge = (p: Pick<Player, 'poles'>) => (poleStatus(p) === 'current' ? 'border-l-4 border-l-fuchsia-500' : '')
+
+export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> & Partial<Pick<Player, 'poles'>> }) {
   const sec = (p.secondaryPositions ?? []).filter((x) => x !== p.position)
   return (
     <>
+      <PoleBadge p={p} />
       <PosBadge pos={p.position} />
       {sec.length > 0 && (
         <span className="text-[10px] font-bold text-muted" title="Postes secondaires">

@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
-import { Avatar, Empty, Icon, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
 import { FollowStar } from '../components/Follow'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -531,7 +531,7 @@ export function EventDetail() {
                   return (
                     <div key={p.id} className="flex flex-col gap-2">
                     {heading && <div className="section-title mt-2 mb-0">{heading}</div>}
-                    <div className="card flex items-center gap-3 p-2.5">
+                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)}`}>
                       <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <Avatar p={p} size={32} />
