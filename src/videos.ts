@@ -149,6 +149,49 @@ export function momentsShort(v: Pick<Video, 'at' | 'moments'>) {
   return ms.length ? `à ${ms.map((m) => fmtMoment(m.at)).join(', ')}` : ''
 }
 
+/**
+ * Lecture dans l'appli (src/components/VideoPlayer.tsx) : comment lire ce lien, ou undefined quand il s'ouvre seulement sur
+ * son site (Rematch, Handball TV, Facebook, Dartfish, Dailymotion, Google Drive…). Liste blanche : seuls YouTube
+ * (youtube-nocookie.com) et Vimeo (player.vimeo.com) sont intégrés en cadre ; un fichier vidéo direct (.mp4, .webm, .m4v,
+ * .mov, Dropbox compris) est lu par la balise <video> du navigateur. Toujours en https.
+ */
+export type Embed = { kind: 'youtube'; id: string } | { kind: 'vimeo'; id: string; hash?: string } | { kind: 'file'; src: string }
+
+const VIDEO_FILE = /\.(mp4|webm|m4v|mov)$/i
+
+export function embedOf(url: string): Embed | undefined {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return undefined
+  }
+  if (u.protocol !== 'https:' || u.username || u.password) return undefined
+  const h = u.hostname.toLowerCase()
+  const yt = youtubeId(url)
+  if (yt) return { kind: 'youtube', id: yt }
+  if (isHost(h, 'vimeo.com')) {
+    // vimeo.com/123456, vimeo.com/123456/abcdef12 (non répertoriée), vimeo.com/channels/x/123456, player.vimeo.com/video/123456?h=…
+    const m =
+      h === 'player.vimeo.com'
+        ? u.pathname.match(/^\/video\/(\d{3,12})\/?$/)
+        : u.pathname.match(/^\/(?:channels\/[\w-]+\/|groups\/[\w-]+\/videos\/|showcase\/\d+\/video\/)?(\d{3,12})(?:\/([0-9a-f]{6,20}))?\/?$/)
+    if (!m) return undefined
+    const hash = m[2] ?? u.searchParams.get('h') ?? undefined
+    return { kind: 'vimeo', id: m[1], hash: hash && /^[0-9a-f]{6,20}$/.test(hash) ? hash : undefined }
+  }
+  if (!VIDEO_FILE.test(u.pathname)) return undefined
+  // Dropbox : lien de partage (dl=0, page de prévisualisation) → le fichier lui-même (raw=1).
+  if (isHost(h, 'dropbox.com')) {
+    u.searchParams.delete('dl')
+    u.searchParams.set('raw', '1')
+    return { kind: 'file', src: u.href }
+  }
+  // Google Drive et sources connues (Facebook…) : pas de lien direct fiable, on ouvre leur page.
+  if (videoSource(url) !== 'other' || isHost(h, 'google.com')) return undefined
+  return { kind: 'file', src: u.href }
+}
+
 /** Lien à ouvrir : YouTube démarre au moment demandé (paramètre t=), par défaut le premier ; les autres sources tel quel. */
 export function openUrl(v: Pick<Video, 'url' | 'at'>, at = v.at) {
   if (!/^https?:\/\//i.test(v.url)) return undefined // jamais autre chose que http(s)

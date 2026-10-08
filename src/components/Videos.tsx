@@ -1,10 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
 import { can, useRole } from '../roles'
 import { supabase } from '../sync'
 import {
   cleanUrl,
+  embedOf,
   fmtMoment,
   MAX_MOMENTS,
   momentInUrl,
@@ -25,6 +26,17 @@ import { Icon, InfoButton } from './ui'
  * (Rematch, YouTube, Handball TV, Facebook…) pour regarder quelques minutes avant d'aller voir un joueur.
  * Tout le monde en ajoute ; son auteur modifie le sien ; auteur, administrateur ou encadrant (secteur) supprime.
  */
+
+/** Lecteur intégré : son code (et celui des lecteurs YouTube/Vimeo) n'est chargé qu'au premier clic sur une vidéo. */
+const VideoPlayer = lazy(() =>
+  import('./VideoPlayer').catch(() => ({
+    default: ({ onClose }: { onClose: () => void }) => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+        <p className="card max-w-sm p-4 text-sm">Le lecteur n’a pas pu être chargé (connexion ?). Réessaie plus tard ou ouvre la vidéo sur son site.</p>
+      </div>
+    ),
+  })),
+)
 
 function useOnline() {
   const [on, setOn] = useState(navigator.onLine)
@@ -57,6 +69,9 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
   // Formulaire : null = fermé, 'new' = ajout, sinon le lien modifié.
   const [form, setForm] = useState<'new' | Video | null>(null)
   const [note, setNote] = useState('')
+  // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite).
+  const [playing, setPlaying] = useState<{ v: Video; moment?: number } | null>(null)
+  const closePlayer = useCallback(() => setPlaying(null), [])
   if (!videos) return null
 
   const what = kind === 'player' ? 'ce joueur' : 'cet événement'
@@ -72,7 +87,11 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
           </p>
           <p>
             Seul le lien est enregistré, jamais la vidéo. Indique un ou plusieurs moments où regarder (début, durée et note facultatives, ex. « 12:30 ·
-            15 s · contre-attaque ») : sur YouTube, chaque moment ouvre la vidéo directement à cet endroit.
+            15 s · contre-attaque »).
+          </p>
+          <p>
+            YouTube, Vimeo et fichiers vidéo (.mp4…) se lisent dans l’appli : chaque moment joue son passage, « Voir les actions » les enchaîne. Les
+            autres sites (Rematch, Handball TV, Facebook, Dartfish…) s’ouvrent dans un nouvel onglet. Rien n’est téléchargé avant le clic.
           </p>
           <p>Tout le monde peut ajouter un lien ; chacun modifie les siens. Les encadrants et les administrateurs peuvent retirer un lien.</p>
         </InfoButton>
@@ -89,6 +108,7 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
                 v={v}
                 online={online}
                 onOffline={() => setNote('Hors ligne : la vidéo pourra s’ouvrir une fois la connexion revenue.')}
+                onPlay={embedOf(v.url) ? (moment) => (setNote(''), setPlaying({ v, moment })) : undefined}
                 onEdit={can.editVideo(v) ? () => setForm(v) : undefined}
                 onDelete={
                   can.deleteVideo(role, v, dept)
@@ -123,6 +143,18 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
           + Ajouter une vidéo
         </button>
       )}
+
+      {playing && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 text-sm text-white/80" role="status">
+              Chargement du lecteur…
+            </div>
+          }
+        >
+          <VideoPlayer video={playing.v} moment={playing.moment} onClose={closePlayer} />
+        </Suspense>
+      )}
     </div>
   )
 }
@@ -133,12 +165,15 @@ function VideoRow({
   onOffline,
   onEdit,
   onDelete,
+  onPlay,
 }: {
   v: Video
   online: boolean
   onOffline: () => void
   onEdit?: () => void
   onDelete?: () => void
+  /** Lecture dans l'appli (source lisible ici), éventuellement à un moment ; sinon le lien s'ouvre sur son site. */
+  onPlay?: (moment?: number) => void
 }) {
   const href = openUrl(v)
   const moments = momentsOf(v)
@@ -156,7 +191,11 @@ function VideoRow({
     }
   }
   const link = (cls: string, children: React.ReactNode, label?: string) =>
-    href ? (
+    onPlay ? (
+      <button type="button" onClick={() => onPlay()} className={`${cls} text-left`} aria-label={label} title="Lire la vidéo">
+        {children}
+      </button>
+    ) : href ? (
       <a href={href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={guard} className={cls} aria-label={label}>
         {children}
       </a>
@@ -225,6 +264,12 @@ function VideoRow({
                 </span>
               </>
             )
+            if (onPlay)
+              return (
+                <button key={i} type="button" onClick={() => onPlay(i)} className={`${cls} hover:border-accent hover:text-accent`} title={`${momentLabel(m)} — jouer ce passage`}>
+                  {body}
+                </button>
+              )
             const hint = `${momentLabel(m)} — ${youtube ? 'ouvrir la vidéo à ce moment' : 'ouvrir la vidéo (au début : avancer jusqu’à ce moment)'}`
             return to ? (
               <a

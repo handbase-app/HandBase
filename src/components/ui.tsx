@@ -365,6 +365,11 @@ export const ICONS = {
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
   play: 'M9 6.5v11l9-5.5z',
+  close: 'M6 6l12 12M18 6L6 18',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  prev: 'M7 6v12M18 6l-8 6 8 6z',
+  next: 'M17 6v12M6 6l8 6-8 6z',
+  stop: 'M7 7h10v10H7z',
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01',
 } as const
 export type IconName = keyof typeof ICONS
