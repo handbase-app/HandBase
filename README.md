@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `025_nom_prenom.sql`).
+   (`002_roles.sql` … `035_voir_comme.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -132,6 +132,15 @@ sur l'appareil, et à la première ouverture les joueurs du moment forment la li
 staff, avec les mêmes droits que les groupes (`supabase/022_alertes.sql`). Sur un événement, un avis sur un joueur
 hors liste est en attente ; validé par l'organisateur, un administrateur ou l'encadrant du secteur, il compte et le
 joueur rejoint la liste (`supabase/021_avis_hors_liste.sql`).
+
+### Outils administrateur : « Voir comme… »
+
+*Réglages → Outils administrateur* (administrateurs, interrupteur gardé sur l'appareil) : « Voir comme » un
+encadrant ou un observateur. L'appli se comporte comme pour lui (rôle, secteur, « mes avis », groupes et
+événements visibles), **en lecture seule** (rien n'est enregistré), avec un bandeau « Quitter » ; la simulation
+s'arrête aussi en fermant l'appli. Elle n'utilise que les données que l'administrateur reçoit : les groupes
+privés, « Mon staff » dont il ne fait pas partie, staffs et suivis des autres n'apparaissent pas. Chaque
+simulation est notée dans le journal d'activité (`supabase/035_voir_comme.sql`).
 
 ### Journal d'activité
 

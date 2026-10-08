@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './sync'
 import { GROUP_VIS } from './staffLabels'
+import { clearSpy, spyTarget } from './spy'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -66,8 +67,19 @@ function set(r: Role, uid: string | null, depts: string[] = []) {
   listeners.forEach((l) => l())
 }
 
-export const currentUserId = () => userId
-export const myDepartments = () => departments
+/*
+ * Identité effective : la mienne, ou celle du membre simulé par « Voir comme… » (outil administrateur, spy.ts).
+ * Les droits (can.*), « mes avis », mon secteur et les groupes visibles suivent l'identité effective ;
+ * le compte réellement connecté (synchronisation, présence) ne change pas.
+ */
+const effUid = () => spyTarget()?.uid ?? userId
+const effDepts = () => spyTarget()?.departments ?? departments
+const effRole = (): Role => spyTarget()?.role ?? role
+
+export const currentUserId = () => effUid()
+export const myDepartments = () => effDepts()
+/** Rôle réel du compte connecté (même pendant « Voir comme… ») : outils administrateur, sortie de la simulation. */
+export const realRole = () => role
 
 /** Recharge le rôle depuis le serveur (si connecté et en ligne). */
 export async function refreshRole() {
@@ -81,6 +93,7 @@ export async function refreshRole() {
 }
 
 export function clearRole() {
+  clearSpy()
   set('observateur', null)
 }
 
@@ -93,7 +106,7 @@ export function useRole(): Role {
       listeners.delete(l)
     }
   }, [])
-  return role
+  return effRole()
 }
 
 /** Visibilité d'un groupe : « Moi seul », « Mon staff » (team : créateur et participants) ou « Tout le staff ». */
@@ -137,7 +150,7 @@ export function participants(x: WithParticipants): string[] {
 }
 
 /** Ce compte est-il participant (directement ou par un staff dont il est membre) ? (supabase/034 : hb_participant_of) */
-export const isParticipant = (x: WithParticipants, uid = userId) =>
+export const isParticipant = (x: WithParticipants, uid = effUid()) =>
   !!uid && (!!x.editors?.includes(uid) || !!x.teams?.some((t) => teamMembers.get(t)?.includes(uid)))
 
 /** Ce que chaque rôle peut faire (miroir des règles du serveur). */
@@ -149,12 +162,12 @@ export const can = {
    * seule sa propre proposition pas encore envoyée, sans signature du serveur, l'est).
    */
   editPlayer: (r: Role, p: { review?: string; createdBy?: string; createdAtServer?: string }) =>
-    r !== 'observateur' || (p.review === 'pending' && (p.createdBy ? p.createdBy === userId : !p.createdAtServer)),
+    r !== 'observateur' || (p.review === 'pending' && (p.createdBy ? p.createdBy === effUid() : !p.createdAtServer)),
   deletePlayers: (r: Role) => r === 'admin',
   editMeasurements: (r: Role) => r !== 'observateur',
   manageEvents: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un événement : l'admin tous, l'encadrant les siens (ou ceux sans créateur connu, antérieurs au journal). */
-  editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId)),
+  editEvent: (r: Role, ev: { createdBy?: string }) => r === 'admin' || (r === 'preparateur' && (!ev.createdBy || ev.createdBy === effUid())),
   /** Créer des groupes : tout le monde (l'observateur seulement des groupes privés). */
   manageGroups: (_r: Role) => true,
   /** Groupes « Tout le staff » ou « Mon staff » (et profils recherchés partagés) : pas l'observateur. */
@@ -165,20 +178,20 @@ export const can = {
    * Sert aussi aux profils recherchés (sans « team »).
    */
   seeGroup: (g: { createdBy?: string; private?: boolean; team?: boolean; editors?: string[]; teams?: string[] }) =>
-    !g.createdBy || g.createdBy === userId || (!g.private && (!g.team || isParticipant(g))),
+    !g.createdBy || g.createdBy === effUid() || (!g.private && (!g.team || isParticipant(g))),
   /** Modifier / supprimer un groupe : privé ou « Mon staff », son créateur seul ; du staff, l'admin tous et l'encadrant les siens. */
   editGroup: (r: Role, g: { createdBy?: string; private?: boolean; team?: boolean }) =>
-    g.private || g.team ? !g.createdBy || g.createdBy === userId : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === userId)),
+    g.private || g.team ? !g.createdBy || g.createdBy === effUid() : r === 'admin' || (r === 'preparateur' && (!g.createdBy || g.createdBy === effUid())),
   /** Participant d'un groupe du staff ou « Mon staff » (supabase/023, 031, 034) : encadrant désigné par le créateur, ou membre d'un staff choisi. */
   contributeGroup: (r: Role, g: { private?: boolean; editors?: string[]; teams?: string[] }) => r === 'preparateur' && !g.private && isParticipant(g),
   /** Retirer ce joueur du groupe : créateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
   removeFromGroup: (r: Role, g: { private?: boolean; editors?: string[]; teams?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
-    can.editGroup(r, g) || (can.contributeGroup(r, g) && (g.addedBy?.[playerId] ?? g.createdBy) === userId),
+    can.editGroup(r, g) || (can.contributeGroup(r, g) && (g.addedBy?.[playerId] ?? g.createdBy) === effUid()),
   /** Participant d'un événement (supabase/024_participants_evenements.sql) : co-organisateur pour la liste et les avis hors liste. */
   contributeEvent: (r: Role, ev: { editors?: string[]; teams?: string[] }) => r === 'preparateur' && isParticipant(ev),
   /** Retirer ce joueur de la liste : organisateur ou admin (tous), participant (seulement ceux qu'il a ajoutés). */
   removeFromEvent: (r: Role, ev: { editors?: string[]; teams?: string[]; createdBy?: string; addedBy?: Record<string, string> }, playerId: string) =>
-    can.editEvent(r, ev) || (can.contributeEvent(r, ev) && (ev.addedBy?.[playerId] ?? ev.createdBy) === userId),
+    can.editEvent(r, ev) || (can.contributeEvent(r, ev) && (ev.addedBy?.[playerId] ?? ev.createdBy) === effUid()),
   /** Valider ou mettre hors cadre les avis spontanés des observateurs (les siens sont validés d'office). */
   review: (r: Role) => r !== 'observateur',
   /**
@@ -186,17 +199,17 @@ export const can = {
    * ou partout s'il n'a pas de département attribué. Joueur sans département : admin ou encadrant sans secteur.
    */
   reviewDept: (r: Role, dept?: string) =>
-    r === 'admin' || (r === 'preparateur' && (departments.length === 0 || (!!dept && departments.includes(dept)))),
+    r === 'admin' || (r === 'preparateur' && (effDepts().length === 0 || (!!dept && effDepts().includes(dept)))),
   /**
    * Décider d'un avis en attente : l'encadrant du secteur du joueur, ou, pour un avis hors liste sur un
    * événement, aussi l'organisateur de l'événement (supabase/021_avis_hors_liste.sql).
    */
   reviewAvis: (r: Role, dept: string | undefined, ev?: { createdBy?: string; editors?: string[]; teams?: string[] }) =>
-    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === userId || isParticipant(ev))),
+    can.reviewDept(r, dept) || (!!ev && r === 'preparateur' && (!ev.createdBy || ev.createdBy === effUid() || isParticipant(ev))),
   /** Créer un staff (supabase/034) : encadrants et administrateurs. */
   manageTeams: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un staff : son créateur seul (sans créateur connu : créé sur cet appareil, pas encore envoyé). */
-  editTeam: (t: { createdBy?: string }) => !t.createdBy || t.createdBy === userId,
+  editTeam: (t: { createdBy?: string }) => !t.createdBy || t.createdBy === effUid(),
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

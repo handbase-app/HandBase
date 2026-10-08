@@ -107,6 +107,7 @@ const ACTION_STYLE: Record<string, string> = {
   restauration: 'text-amber-300',
   rôle: 'text-violet-300',
   secteur: 'text-violet-300',
+  'voir comme': 'text-amber-300',
 }
 
 function show(field: string, v: unknown): string {
