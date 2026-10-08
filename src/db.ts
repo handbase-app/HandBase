@@ -43,7 +43,7 @@ export type HeightSource = 'mesuree' | 'declaree'
 export interface PolePeriod {
   /** Ligue qui porte le pôle (identifiant de région de la liste « region »). */
   regionId?: string
-  programme?: 'accession' | 'excellence'
+  programme?: PoleProgramme
   /** Ville du site (Toulouse, Nîmes…). */
   site?: string
   from?: string
@@ -60,10 +60,23 @@ export const POLE_EXITS: { value: PoleExit; label: string }[] = [
   { value: 'blessure', label: 'Blessure' },
   { value: 'autre', label: 'Autre' },
 ]
-export const POLE_PROGRAMMES = [
-  { value: 'accession', label: 'Accession' },
-  { value: 'excellence', label: 'Excellence' },
-] as const
+/**
+ * Programmes du PPF 2025-2029. Garçons : accession territoriale (3e-2de) puis accession nationale (1re-Tle).
+ * Filles : site d'accession (3e-2de, territorial ou national) puis site d'excellence (16-17 ans).
+ * « accession » : premières saisies, sans précision.
+ */
+export type PoleProgramme = 'accession_territoriale' | 'accession_nationale' | 'excellence' | 'accession'
+export const POLE_PROGRAMMES: { value: PoleProgramme; label: string; short: string }[] = [
+  { value: 'accession_territoriale', label: 'Accession territoriale', short: 'Acc. territoriale' },
+  { value: 'accession_nationale', label: 'Accession nationale', short: 'Acc. nationale' },
+  { value: 'excellence', label: 'Excellence', short: 'Excellence' },
+]
+const PROGRAMME_LABEL: Record<PoleProgramme, string> = {
+  accession: 'Accession',
+  accession_territoriale: 'Accession territoriale',
+  accession_nationale: 'Accession nationale',
+  excellence: 'Excellence',
+}
 
 const filled = (x: PolePeriod) => !!(x.from || x.to || x.name || x.regionId || x.site)
 
@@ -76,7 +89,7 @@ export function poleStatus(p: Pick<Player, 'poles'>, today = new Date().toLocale
 
 /** Nom d'une période : « Pôle Espoirs Occitanie – Excellence (Toulouse) ». `region` donne le nom d'une ligue. */
 export function poleName(x: PolePeriod, region: (id: string) => string | undefined = () => undefined) {
-  const prog = POLE_PROGRAMMES.find((p) => p.value === x.programme)?.label
+  const prog = x.programme && PROGRAMME_LABEL[x.programme]
   const base = x.regionId ? `Pôle Espoirs ${region(x.regionId) ?? x.regionId}` : x.name || 'Pôle Espoirs'
   return `${base}${prog ? ` – ${prog}` : ''}${x.site ? ` (${x.site})` : ''}`
 }

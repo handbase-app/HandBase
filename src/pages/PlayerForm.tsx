@@ -255,14 +255,12 @@ export default function PlayerForm() {
                   ✕
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Segmented
-                  value={x.programme}
-                  onChange={(v) => upd({ programme: v })}
-                  options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.label }))}
-                />
-                <input className="field" placeholder="Site (ville)" value={x.site ?? ''} onChange={(e) => upd({ site: e.target.value || undefined })} />
-              </div>
+              <Segmented
+                value={x.programme}
+                onChange={(v) => upd({ programme: v })}
+                options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.short }))}
+              />
+              <input className="field" placeholder="Site (ville : Toulouse, Metz…)" value={x.site ?? ''} onChange={(e) => upd({ site: e.target.value || undefined })} />
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-0.5">
                   <span className="label">Entrée</span>
