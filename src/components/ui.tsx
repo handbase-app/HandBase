@@ -75,14 +75,14 @@ export function PosBadge({ pos }: { pos?: Position }) {
 export function PoleBadge({ p }: { p: Pick<Player, 'poles'> }) {
   if (poleStatus(p) !== 'current') return null
   return (
-    <span className="rounded border border-fuchsia-500/40 bg-fuchsia-500/20 px-1.5 py-0.5 text-[10px] font-bold text-fuchsia-300" title="Au Pôle Espoirs">
+    <span className="rounded border border-teal-500/35 bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-bold text-teal-300" title="Au Pôle Espoirs">
       PÔLE
     </span>
   )
 }
 
 /** Liseré gauche d'une carte de joueur au Pôle Espoirs (même couleur que la pastille). */
-export const poleEdge = (p: Pick<Player, 'poles'>) => (poleStatus(p) === 'current' ? 'border-l-4 border-l-fuchsia-500' : '')
+export const poleEdge = (p: Pick<Player, 'poles'>) => (poleStatus(p) === 'current' ? 'border-l-4 border-l-teal-500/70' : '')
 
 export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> & Partial<Pick<Player, 'poles'>> }) {
   const sec = (p.secondaryPositions ?? []).filter((x) => x !== p.position)
