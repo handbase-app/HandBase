@@ -1,11 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
+import { spyTarget } from '../spy'
 
 // ---------- Identité de l'utilisateur sur cet appareil ----------
 
 const ME_KEY = 'handbase.me'
 export function getMe(): string {
+  // « Voir comme… » : le nom du membre simulé (pour « mes avis », « noté par moi »…).
+  const spy = spyTarget()
+  if (spy) return spy.name
   try {
     return localStorage.getItem(ME_KEY) ?? ''
   } catch {
@@ -344,6 +348,7 @@ export const ICONS = {
   alert: 'M12 3L2 20h20zM12 10v4M12 17h.01',
   pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01',
 } as const
 export type IconName = keyof typeof ICONS

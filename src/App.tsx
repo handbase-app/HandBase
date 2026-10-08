@@ -24,6 +24,8 @@ import { SyncProgressBar } from './components/SyncProgress'
 import { percent, showProgress } from './syncProgress'
 import { BackTracker } from './backNav'
 import { STAFF } from './staffLabels'
+import { SpyBanner } from './components/ViewAs'
+import { spyTarget } from './spy'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -165,10 +167,12 @@ export default function App() {
           <SyncBadge />
         </div>
         <SyncProgressBar />
+        {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
+        <SpyBanner />
       </header>
 
       <BackTracker />
-      <main className="flex-1 px-4 pt-4 pb-28">
+      <main className={`flex-1 px-4 pb-28 ${spyTarget() ? 'pt-14' : 'pt-4'}`}>
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <Routes>
           <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />

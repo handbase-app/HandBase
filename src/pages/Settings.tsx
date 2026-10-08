@@ -11,7 +11,8 @@ import { ActivityLog } from '../components/ActivityLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
 import { ask, inform } from '../components/Confirm'
-import { can, myDepartments, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { can, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { AdminTools } from '../components/ViewAs'
 import { departmentLabel } from '../lists'
 import { STAFF } from '../staffLabels'
 import { useTeams } from '../teams'
@@ -182,6 +183,12 @@ export default function Settings() {
             </Fold>
           )}
         </>
+      )}
+      {/* Outils administrateur (« Voir comme… ») : selon le vrai rôle, absents pendant la simulation (bandeau « Quitter »). */}
+      {realRole() === 'admin' && admin && (
+        <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff">
+          <AdminTools />
+        </Fold>
       )}
     </div>
   )

@@ -29,7 +29,7 @@ Pour tester sur un téléphone du même réseau Wi-Fi : l'adresse « Network » 
 
 1. Créer un projet gratuit sur https://supabase.com.
 2. *SQL Editor* → coller et exécuter `supabase/schema.sql`, puis les scripts numérotés dans l'ordre
-   (`002_roles.sql` … `025_nom_prenom.sql`).
+   (`002_roles.sql` … `035_voir_comme.sql`).
 3. *Authentication → Users* → créer un compte (e-mail + mot de passe) pour chaque membre du staff.
    Désactiver les inscriptions publiques (*Authentication → Sign In / Providers → Allow new users to sign up*).
 4. Copier `.env.example` en `.env.local` et y mettre l'URL du projet et la clé publique *anon*
@@ -133,6 +133,15 @@ staff, avec les mêmes droits que les groupes (`supabase/022_alertes.sql`). Sur 
 hors liste est en attente ; validé par l'organisateur, un administrateur ou l'encadrant du secteur, il compte et le
 joueur rejoint la liste (`supabase/021_avis_hors_liste.sql`).
 
+### Outils administrateur : « Voir comme… »
+
+*Réglages → Outils administrateur* (administrateurs, interrupteur gardé sur l'appareil) : « Voir comme » un
+encadrant ou un observateur. L'appli se comporte comme pour lui (rôle, secteur, « mes avis », groupes et
+événements visibles), **en lecture seule** (rien n'est enregistré), avec un bandeau « Quitter » ; la simulation
+s'arrête aussi en fermant l'appli. Elle n'utilise que les données que l'administrateur reçoit : les groupes
+privés, « Mon staff » dont il ne fait pas partie, staffs et suivis des autres n'apparaissent pas. Chaque
+simulation est notée dans le journal d'activité (`supabase/035_voir_comme.sql`).
+
 ### Journal d'activité
 
 `supabase/004_audit.sql` trace toute écriture côté serveur (déclencheurs de la base, y compris les scripts
@@ -143,6 +152,12 @@ administrateurs dans *Réglages → Journal d'activité* ; les événements et f
 
 Chaque `git push` sur `main` publie automatiquement l'app sur **https://handbase-app.github.io/HandBase/**
 (workflow `.github/workflows/deploy.yml`, à suivre dans l'onglet *Actions* du dépôt).
+
+Dans la foulée, la **démo** (https://handbase-demo.github.io/, base de test, données fictives) est publiée sur la
+même version du code : le workflow lance « Publier la démo » du dépôt `handbase-demo/handbase-demo.github.io`. Il
+faut pour cela le secret `DEMO_DISPATCH_TOKEN` (*Settings → Secrets and variables → Actions → Secrets*) : une clé
+GitHub *fine-grained* limitée à ce dépôt, permission *Actions : Read and write*. Sans lui, l'étape est sautée avec
+un avertissement et la démo se publie à la main. Les migrations SQL restent à exécuter sur les deux bases.
 
 La configuration Supabase du site en ligne est dans *Settings → Secrets and variables → Actions → Variables* :
 `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (clé *publishable*, publique par nature — ne jamais y mettre la clé *secret*).

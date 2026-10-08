@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
+import { guardWrite } from './spy'
 import { DEFAULT_CRITERIA } from './criteria'
 
 // ---------- Types ----------
@@ -426,6 +427,7 @@ export function newId(): string {
 type Row = { id: string; updatedAt: number; deleted?: boolean }
 
 export async function save<T extends Row>(table: SyncTable, row: Omit<T, 'updatedAt'> & { updatedAt?: number }) {
+  guardWrite() // « Voir comme… » : lecture seule
   let full = row as T
   await db.transaction('rw', db.table(table), db.outbox, async () => {
     // Toujours plus récent que la version précédente, même si l'horloge de l'appareil a reculé
@@ -440,6 +442,7 @@ export async function save<T extends Row>(table: SyncTable, row: Omit<T, 'update
 
 /** Suppression logique : la ligne reste pour propager la suppression aux autres appareils. */
 export async function remove(table: SyncTable, id: string) {
+  guardWrite()
   const row = await db.table(table).get(id)
   if (row) await save(table, { ...row, deleted: true })
 }
@@ -460,6 +463,7 @@ export const contextLabel = (e: Evaluation) =>
  * même date de modification pour toutes, une entrée de file d'attente par ligne.
  */
 export async function saveMany<T extends Row>(table: SyncTable, rows: (Omit<T, 'updatedAt'> & { updatedAt?: number })[]) {
+  guardWrite()
   let full: T[] = []
   if (!rows.length) return full
   await db.transaction('rw', db.table(table), db.outbox, async () => {
