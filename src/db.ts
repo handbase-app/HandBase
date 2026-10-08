@@ -39,26 +39,58 @@ interface Syncable {
 
 export type HeightSource = 'mesuree' | 'declaree'
 
-/** Une période en Pôle Espoirs : nom du pôle (ou du site), date d'entrée, date de sortie (vide = en cours). */
+/** Une période en Pôle Espoirs : pôle (ligue), programme, site, entrée, sortie (vide = encore au pôle) et motif. */
 export interface PolePeriod {
-  name?: string
+  /** Ligue qui porte le pôle (identifiant de région de la liste « region »). */
+  regionId?: string
+  programme?: 'accession' | 'excellence'
+  /** Ville du site (Toulouse, Nîmes…). */
+  site?: string
   from?: string
   to?: string
+  exitReason?: PoleExit
+  /** Ancien nom libre (premières saisies). */
+  name?: string
 }
+export type PoleExit = 'fin_cursus' | 'exclusion' | 'abandon' | 'blessure' | 'autre'
+export const POLE_EXITS: { value: PoleExit; label: string }[] = [
+  { value: 'fin_cursus', label: 'Fin de cursus' },
+  { value: 'exclusion', label: 'Exclusion' },
+  { value: 'abandon', label: 'Abandon' },
+  { value: 'blessure', label: 'Blessure' },
+  { value: 'autre', label: 'Autre' },
+]
+export const POLE_PROGRAMMES = [
+  { value: 'accession', label: 'Accession' },
+  { value: 'excellence', label: 'Excellence' },
+] as const
+
+const filled = (x: PolePeriod) => !!(x.from || x.to || x.name || x.regionId || x.site)
 
 /** Pôle Espoirs : « current » (en cours aujourd'hui), « past » (y est passé, en est sorti), sinon rien. */
 export function poleStatus(p: Pick<Player, 'poles'>, today = new Date().toLocaleDateString('sv')): 'current' | 'past' | undefined {
-  const ps = (p.poles ?? []).filter((x) => x.from || x.to || x.name)
+  const ps = (p.poles ?? []).filter(filled)
   if (!ps.length) return undefined
   return ps.some((x) => (!x.from || x.from <= today) && (!x.to || x.to >= today)) ? 'current' : 'past'
 }
 
-/** « Pôle Espoirs Sud, depuis le 01/09/2025 » ; périodes séparées par « ; ». */
-export function poleSummary(p: Pick<Player, 'poles'>) {
+/** Nom d'une période : « Pôle Espoirs Occitanie – Excellence (Toulouse) ». `region` donne le nom d'une ligue. */
+export function poleName(x: PolePeriod, region: (id: string) => string | undefined = () => undefined) {
+  const prog = POLE_PROGRAMMES.find((p) => p.value === x.programme)?.label
+  const base = x.regionId ? `Pôle Espoirs ${region(x.regionId) ?? x.regionId}` : x.name || 'Pôle Espoirs'
+  return `${base}${prog ? ` – ${prog}` : ''}${x.site ? ` (${x.site})` : ''}`
+}
+
+/** « Pôle Espoirs Occitanie – Excellence (Toulouse), depuis le 01/09/2025 » ; périodes séparées par « ; ». */
+export function poleSummary(p: Pick<Player, 'poles'>, region?: (id: string) => string | undefined) {
   const d = (s: string) => s.split('-').reverse().join('/')
   return (p.poles ?? [])
-    .filter((x) => x.from || x.to || x.name)
-    .map((x) => [x.name || 'Pôle Espoirs', x.from && x.to ? `du ${d(x.from)} au ${d(x.to)}` : x.from ? `depuis le ${d(x.from)}` : x.to ? `jusqu'au ${d(x.to)}` : ''].filter(Boolean).join(', '))
+    .filter(filled)
+    .map((x) => {
+      const when = x.from && x.to ? `du ${d(x.from)} au ${d(x.to)}` : x.from ? `depuis le ${d(x.from)}` : x.to ? `jusqu'au ${d(x.to)}` : ''
+      const why = x.to && x.exitReason ? `(${POLE_EXITS.find((e) => e.value === x.exitReason)?.label.toLowerCase()})` : ''
+      return [poleName(x, region), [when, why].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+    })
     .join(' ; ')
 }
 

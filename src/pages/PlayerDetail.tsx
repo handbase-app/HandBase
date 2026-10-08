@@ -8,7 +8,7 @@ import { MaturityCard } from '../components/MaturityCard'
 import { PlayerGroups } from '../components/Groups'
 import { Opinions } from '../components/Opinions'
 import { department } from '../components/PlayerFilter'
-import { departmentLabel } from '../lists'
+import { departmentLabel, regionLabel } from '../lists'
 import { MergePlayers } from '../components/MergePlayers'
 import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
@@ -112,7 +112,7 @@ export default function PlayerDetail() {
     ['Type de licence', p.licenseRequestType && p.licenseRequestType.charAt(0) + p.licenseRequestType.slice(1).toLowerCase()],
     ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : undefined],
-    ['Pôle Espoirs', poleSummary(p) || undefined],
+    ['Pôle Espoirs', poleSummary(p, regionLabel) || undefined],
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
     ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
     ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],

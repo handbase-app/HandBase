@@ -1,4 +1,5 @@
-import { age, alive, contextLabel, counts, db, fmtDate, lateralityLabel, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player } from './db'
+import { regionLabel } from './lists'
+import { age, alive, contextLabel, counts, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
 import { fmtValue } from './components/ui'
 import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
@@ -158,7 +159,7 @@ export async function exportPlayer(id: string) {
     ['Date de naissance', p.birthDate && fmtDate(p.birthDate)], ['Nationalité', p.nationality], ['Club', p.club], ['N° de club', p.clubCode],
     ['Département', dept && departmentLabel(dept)], ['Licence', p.license], ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['État de la licence', p.licenseStatus], ['Type de licence', p.licenseRequestType], ['Équipe', p.team], ['Catégorie / niveau', p.category],
-    ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : ''], ['Pôle Espoirs', poleSummary(p)], ['Latéralité', lateralityLabel(p.laterality, p.sex)],
+    ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : ''], ['Pôle Espoirs', poleSummary(p, regionLabel)], ['Latéralité', lateralityLabel(p.laterality, p.sex)],
     ['Poste', positionLabel(p.position)], ['Postes secondaires', (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', ')],
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm` : ''], ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm` : ''],
     ['Lacunes', p.gaps], ['Notes', p.notes], ['Photo', p.photo ? 'Oui (enregistrée)' : ''],
@@ -212,7 +213,12 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 
 /** Colonnes « Pôle Espoirs » du CSV : une valeur par période, séparées par « ; » (dates JJ/MM/AAAA). */
 function poleCols(p: Player) {
-  const ps = (p.poles ?? []).filter((x) => x.from || x.to || x.name)
+  const ps = (p.poles ?? []).filter((x) => x.from || x.to || x.name || x.regionId || x.site)
   const d = (s?: string) => (s ? s.split('-').reverse().join('/') : '')
-  return { name: ps.map((x) => x.name || 'Pôle Espoirs').join(' ; '), from: ps.map((x) => d(x.from)).join(' ; '), to: ps.map((x) => d(x.to) || 'en cours').join(' ; ') }
+  const why = (x: PolePeriod) => POLE_EXITS.find((e) => e.value === x.exitReason)?.label
+  return {
+    name: ps.map((x) => poleName(x, regionLabel)).join(' ; '),
+    from: ps.map((x) => d(x.from)).join(' ; '),
+    to: ps.map((x) => (x.to ? `${d(x.to)}${why(x) ? ` (${why(x)})` : ''}` : 'en cours')).join(' ; '),
+  }
 }

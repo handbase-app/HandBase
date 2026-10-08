@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
-import { departmentChoices } from '../lists'
+import { departmentChoices, officialRegions, regionLabel, useRegions } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
-import { alive, criterionApplies, db, lateralityLabel, newId, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PolePeriod, type Player } from '../db'
+import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -17,6 +17,8 @@ export default function PlayerForm() {
   const editing = !!id
   const nav = useNavigate()
   const role = useRole()
+  const listedRegions = useRegions()
+  const regions = listedRegions.length ? listedRegions : officialRegions()
   // Ouvert depuis la notation : on y revient après l'enregistrement (adresse interne à l'appli uniquement).
   const [params] = useSearchParams()
   const retour = params.get('retour')
@@ -233,17 +235,33 @@ export default function PlayerForm() {
         </div>
       </Collapsible>
 
-      <Collapsible title="Pôle Espoirs" summary={poleSummary(p) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
-        <p className="text-[11px] text-muted">Une ligne par période. Date de sortie vide : encore au pôle.</p>
+      <Collapsible title="Pôle Espoirs" summary={poleSummary(p, regionLabel) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
+        <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que le joueur est au pôle.</p>
         {(p.poles ?? []).map((x, i) => {
           const upd = (patch: Partial<PolePeriod>) => set('poles', (p.poles ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
+          const rest = (p.poles ?? []).filter((_, k) => k !== i)
           return (
             <div key={i} className="flex flex-col gap-1.5 rounded-md border border-line p-2">
               <div className="flex items-center gap-2">
-                <input className="field min-w-0 flex-1" placeholder="Pôle Espoirs Région Sud (site de…)" value={x.name ?? ''} onChange={(e) => upd({ name: e.target.value || undefined })} />
-                <button type="button" className="shrink-0 px-1 text-muted hover:text-red-400" title="Retirer cette période" onClick={() => set('poles', (p.poles ?? []).filter((_, k) => k !== i).length ? (p.poles ?? []).filter((_, k) => k !== i) : undefined)}>
+                <select className="field min-w-0 flex-1" value={x.regionId ?? ''} onChange={(e) => upd({ regionId: e.target.value || undefined })}>
+                  <option value="">{x.name ? `${x.name} (choisir la ligue)` : 'Pôle (ligue)…'}</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      Pôle Espoirs {r.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="shrink-0 px-1 text-muted hover:text-red-400" title="Retirer cette période" onClick={() => set('poles', rest.length ? rest : undefined)}>
                   ✕
                 </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Segmented
+                  value={x.programme}
+                  onChange={(v) => upd({ programme: v })}
+                  options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.label }))}
+                />
+                <input className="field" placeholder="Site (ville)" value={x.site ?? ''} onChange={(e) => upd({ site: e.target.value || undefined })} />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-0.5">
@@ -251,10 +269,20 @@ export default function PlayerForm() {
                   <input type="date" className="field" value={x.from ?? ''} onChange={(e) => upd({ from: e.target.value || undefined })} />
                 </label>
                 <label className="flex flex-col gap-0.5">
-                  <span className="label">Sortie</span>
-                  <input type="date" className="field" value={x.to ?? ''} onChange={(e) => upd({ to: e.target.value || undefined })} />
+                  <span className="label">Sortie (vide = au pôle)</span>
+                  <input type="date" className="field" value={x.to ?? ''} onChange={(e) => upd({ to: e.target.value || undefined, exitReason: e.target.value ? x.exitReason : undefined })} />
                 </label>
               </div>
+              {x.to && (
+                <select className="field" value={x.exitReason ?? ''} onChange={(e) => upd({ exitReason: (e.target.value || undefined) as PoleExit | undefined })}>
+                  <option value="">Motif de sortie…</option>
+                  {POLE_EXITS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )
         })}

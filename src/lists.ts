@@ -116,6 +116,9 @@ const REGION_FALLBACK: Record<string, string> = {
   'region-om': 'Ultramarins (non précisé)',
 }
 
+/** Régions officielles (repli quand la liste des régions n'est pas encore synchronisée). */
+export const officialRegions = () => Object.keys(REGION_FALLBACK).map((id) => ({ id, name: REGION_FALLBACK[id] }))
+
 /** Région d'un département : celle de la liste (Réglages) si elle est renseignée, sinon le découpage officiel. */
 export function regionOfDept(code?: string): string | undefined {
   if (!code) return undefined
