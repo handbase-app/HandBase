@@ -153,11 +153,9 @@ administrateurs dans *Réglages → Journal d'activité* ; les événements et f
 Chaque `git push` sur `main` publie automatiquement l'app sur **https://handbase-app.github.io/HandBase/**
 (workflow `.github/workflows/deploy.yml`, à suivre dans l'onglet *Actions* du dépôt).
 
-Dans la foulée, la **démo** (https://handbase-demo.github.io/, base de test, données fictives) est publiée sur la
-même version du code : le workflow lance « Publier la démo » du dépôt `handbase-demo/handbase-demo.github.io`. Il
-faut pour cela le secret `DEMO_DISPATCH_TOKEN` (*Settings → Secrets and variables → Actions → Secrets*) : une clé
-GitHub *fine-grained* limitée à ce dépôt, permission *Actions : Read and write*. Sans lui, l'étape est sautée avec
-un avertissement et la démo se publie à la main. Les migrations SQL restent à exécuter sur les deux bases.
+La **démo** (https://handbase-demo.github.io/, base de test, données fictives) se publie à part, depuis le dépôt
+`handbase-demo/handbase-demo.github.io` : *Actions → Publier la démo → Run workflow*, en choisissant la branche de
+HandBase à publier. Les migrations SQL sont à exécuter sur les deux bases.
 
 La configuration Supabase du site en ligne est dans *Settings → Secrets and variables → Actions → Variables* :
 `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (clé *publishable*, publique par nature — ne jamais y mettre la clé *secret*).
