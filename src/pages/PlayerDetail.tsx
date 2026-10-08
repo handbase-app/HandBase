@@ -15,7 +15,7 @@ import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
 import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, poleSummary, lateralityLabel, remove, type Criterion, type Measurement, dayOf } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, type Criterion, type Measurement, type Player, dayOf } from '../db'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
@@ -112,7 +112,6 @@ export default function PlayerDetail() {
     ['Type de licence', p.licenseRequestType && p.licenseRequestType.charAt(0) + p.licenseRequestType.slice(1).toLowerCase()],
     ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : undefined],
-    ['Pôle Espoirs', poleSummary(p, regionLabel) || undefined],
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
     ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
     ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],
@@ -247,6 +246,8 @@ export default function PlayerDetail() {
               </div>
             ))}
         </div>
+
+        <PoleCard player={p} />
 
         {(p.position || (p.secondaryPositions ?? []).length > 0) && (
           <div className="card p-4">
@@ -448,6 +449,41 @@ function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
     <div title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
       <div className="text-[10px] text-muted">Ratio Shirado / Sorensen</div>
       <div className={`text-sm font-extrabold ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</div>
+    </div>
+  )
+}
+
+/** Pôle Espoirs : une ligne par période, la plus récente en haut (« Au pôle » ou « Sorti », dates, motif). */
+function PoleCard({ player }: { player: Player }) {
+  const today = new Date().toLocaleDateString('sv')
+  const periods = (player.poles ?? []).filter((x) => x.from || x.to || x.regionId || x.site || x.name).sort((a, b) => (b.from ?? '').localeCompare(a.from ?? ''))
+  if (!periods.length) return null
+  const d = (s?: string) => (s ? s.split('-').reverse().join('/') : '?')
+  return (
+    <div className="card p-4">
+      <div className="section-title">Pôle Espoirs</div>
+      <div className="flex flex-col gap-2">
+        {periods.map((x, i) => {
+          const now = (!x.from || x.from <= today) && (!x.to || x.to >= today)
+          const why = POLE_EXITS.find((e) => e.value === x.exitReason)?.label
+          return (
+            <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel-2 px-3 py-2">
+              <span
+                className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${now ? 'bg-emerald-500/15 text-emerald-300' : 'bg-panel text-muted'}`}
+              >
+                {now ? 'Au pôle' : 'Sorti'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold">{poleName(x, regionLabel)}</div>
+                <div className="text-[11px] text-muted">
+                  {x.to ? `${d(x.from)} → ${d(x.to)}` : `depuis le ${d(x.from)}`}
+                  {x.to && why ? ` · ${why}` : ''}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
