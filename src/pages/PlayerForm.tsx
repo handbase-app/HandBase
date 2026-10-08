@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
+import { poleSites } from '../poles'
 import { departmentChoices, officialRegions, regionLabel, useRegions } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
@@ -260,7 +261,25 @@ export default function PlayerForm() {
                 onChange={(v) => upd({ programme: v })}
                 options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.short }))}
               />
-              <input className="field" placeholder="Site (ville : Toulouse, Metz…)" value={x.site ?? ''} onChange={(e) => upd({ site: e.target.value || undefined })} />
+              {/* Site : suggestions selon le pôle et le sexe (src/poles.ts) ; un site à un seul niveau le remplit. */}
+              <input
+                className="field"
+                list={`pole-sites-${i}`}
+                placeholder="Site (ville : Toulouse, Metz…)"
+                value={x.site ?? ''}
+                onChange={(e) => {
+                  const site = e.target.value || undefined
+                  const known = poleSites(x.regionId, p.sex).find((s) => s.site === site)
+                  upd({ site, ...(known && !x.programme && known.levels.length === 1 && known.levels[0] !== 'accession' ? { programme: known.levels[0] } : {}) })
+                }}
+              />
+              <datalist id={`pole-sites-${i}`}>
+                {poleSites(x.regionId, p.sex).map((s) => (
+                  <option key={s.site + s.sex} value={s.site}>
+                    {s.levels.map((l) => POLE_PROGRAMMES.find((o) => o.value === l)?.label ?? 'Accession').join(', ')}
+                  </option>
+                ))}
+              </datalist>
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-0.5">
                   <span className="label">Entrée</span>
