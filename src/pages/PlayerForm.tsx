@@ -261,25 +261,38 @@ export default function PlayerForm() {
                 onChange={(v) => upd({ programme: v })}
                 options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.short }))}
               />
-              {/* Site : suggestions selon le pôle et le sexe (src/poles.ts) ; un site à un seul niveau le remplit. */}
-              <input
-                className="field"
-                list={`pole-sites-${i}`}
-                placeholder="Site (ville : Toulouse, Metz…)"
-                value={x.site ?? ''}
-                onChange={(e) => {
-                  const site = e.target.value || undefined
-                  const known = poleSites(x.regionId, p.sex).find((s) => s.site === site)
-                  upd({ site, ...(known && !x.programme && known.levels.length === 1 && known.levels[0] !== 'accession' ? { programme: known.levels[0] } : {}) })
-                }}
-              />
-              <datalist id={`pole-sites-${i}`}>
-                {poleSites(x.regionId, p.sex).map((s) => (
-                  <option key={s.site + s.sex} value={s.site}>
-                    {s.levels.map((l) => POLE_PROGRAMMES.find((o) => o.value === l)?.label ?? 'Accession').join(', ')}
-                  </option>
-                ))}
-              </datalist>
+              {/* Site : liste des sites du pôle pour le sexe du joueur (src/poles.ts), ou « Autre site » à taper. */}
+              {(() => {
+                const sites = poleSites(x.regionId, p.sex)
+                const known = !x.site || sites.some((s) => s.site === x.site)
+                const other = x.site !== undefined && !known
+                const levels = (l: string[]) => l.map((v) => POLE_PROGRAMMES.find((o) => o.value === v)?.short ?? 'accession').join(', ')
+                return (
+                  <>
+                    <select
+                      className="field"
+                      value={other || x.site === '' ? '__autre' : (x.site ?? '')}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        if (v === '__autre') return upd({ site: '' })
+                        const site = sites.find((s) => s.site === v)
+                        upd({ site: v || undefined, ...(site && !x.programme && site.levels.length === 1 && site.levels[0] !== 'accession' ? { programme: site.levels[0] } : {}) })
+                      }}
+                    >
+                      <option value="">{x.regionId ? 'Site…' : 'Site (choisir d’abord le pôle)…'}</option>
+                      {sites.map((s) => (
+                        <option key={s.site + s.sex} value={s.site}>
+                          {s.site} — {levels(s.levels)}
+                        </option>
+                      ))}
+                      <option value="__autre">Autre site…</option>
+                    </select>
+                    {(other || x.site === '') && (
+                      <input className="field" autoComplete="off" placeholder="Ville du site" value={x.site ?? ''} onChange={(e) => upd({ site: e.target.value })} />
+                    )}
+                  </>
+                )
+              })()}
               <div className="grid grid-cols-2 gap-2">
                 <label className="flex flex-col gap-0.5">
                   <span className="label">Entrée</span>
