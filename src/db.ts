@@ -229,13 +229,15 @@ export interface HBEvent extends Syncable {
 }
 
 /** Contexte d'un avis spontané (joueur vu hors des événements prévus). */
-export type ContextType = 'unss' | 'club' | 'match' | 'selection' | 'autre'
+export type ContextType = 'unss' | 'club' | 'match' | 'selection' | 'video' | 'autre'
 
 export const CONTEXT_TYPES: { value: ContextType; label: string }[] = [
   { value: 'unss', label: 'UNSS / scolaire' },
   { value: 'club', label: 'Entraînement club' },
   { value: 'match', label: 'Match' },
   { value: 'selection', label: 'Sélection' },
+  // Joueur vu à l'écran (Rematch, YouTube…), pas sur place : mention « Vidéo » sur l'avis.
+  { value: 'video', label: 'Vidéo' },
   { value: 'autre', label: 'Autre' },
 ]
 
@@ -335,6 +337,20 @@ export interface Team extends Syncable {
   names?: Record<string, string>
 }
 
+/**
+ * Lien vidéo (supabase/036_videos.sql) sur un joueur ou un événement : on ne garde que le lien (Rematch, YouTube…),
+ * jamais la vidéo. Tout compte avec un rôle en ajoute ; son auteur le modifie ; son auteur, un administrateur ou un
+ * encadrant (secteur du joueur) le supprime. Auteur et date : signature du serveur (createdByName, createdAtServer).
+ */
+export interface Video extends Syncable {
+  targetKind: 'player' | 'event'
+  targetId: string
+  url: string
+  title?: string
+  /** Moment à regarder, en secondes depuis le début (YouTube : la vidéo s'ouvre à ce moment). */
+  at?: number
+}
+
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */
 export interface AlertRules {
   sex?: 'M' | 'F'
@@ -391,7 +407,8 @@ export interface OutboxItem {
 }
 
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows'] as const
+// Vidéos en dernier : le serveur vérifie que le joueur ou l'événement visé existe (envoyé juste avant).
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -413,6 +430,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   alerts: EntityTable<PlayerAlert, 'id'>
   follows: EntityTable<Follow, 'id'>
   teams: EntityTable<Team, 'id'>
+  videos: EntityTable<Video, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -480,6 +498,9 @@ db.version(11).stores({ follows: 'id, updatedAt' })
 
 // v12 : staffs (équipes d'encadrants, supabase/034_equipes_encadrants.sql).
 db.version(12).stores({ teams: 'id, name, updatedAt' })
+
+// v13 : liens vidéo (supabase/036_videos.sql).
+db.version(13).stores({ videos: 'id, targetId, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

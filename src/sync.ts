@@ -180,7 +180,7 @@ async function run() {
 const PUSH_CHUNK = 400
 
 /** Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. */
-const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams']
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos']
 
 let rejectedCount = 0
 
@@ -225,8 +225,8 @@ async function push() {
         deleted: !!r.deleted,
       }))
       const { data, error } = await upsert(table, payload)
-      // Suivis ou staffs envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql, 034_equipes_encadrants.sql
-      // pas encore passés) : gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
+      // Suivis, staffs ou vidéos envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql, 034_equipes_encadrants.sql,
+      // 036_videos.sql pas encore passés) : gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
       if (error && OPTIONAL_TABLES.includes(table) && /Table inconnue/.test(error.message)) break
       if (!error) {
         // La file n'est vidée qu'une fois les refus traités (sinon on renverra).
@@ -409,7 +409,7 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
       ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
       : base.gte('server_updated_at', start)
     const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
-    // Table des suivis ou des staffs absente du serveur (supabase/032, 034 pas encore passés) : rien à recevoir.
+    // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
     if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) return
     if (error) throw error
     if (!data?.length) break
@@ -451,8 +451,8 @@ let channel: RealtimeChannel | null = null
 function startRealtime() {
   if (!supabase || channel) return
   channel = supabase.channel('handbase-sync')
-  // Suivis et staffs : pas de diffusion en direct (privés, rarement changés ; relus à chaque synchronisation,
-  // au plus toutes les minutes ; un staff absent du serveur ne doit pas faire échouer l'abonnement).
+  // Suivis, staffs et vidéos : pas de diffusion en direct (rarement changés ; relus à chaque synchronisation,
+  // au plus toutes les minutes ; une table absente du serveur ne doit pas faire échouer l'abonnement).
   for (const t of SYNC_TABLES.filter((t) => !OPTIONAL_TABLES.includes(t))) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
   }

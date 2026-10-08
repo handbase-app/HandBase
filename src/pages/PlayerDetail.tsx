@@ -22,6 +22,7 @@ import { themeColor } from '../theme'
 import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
+import { VideoSection } from '../components/Videos'
 
 const TABS = [
   { id: 'profil', label: 'Profil' },
@@ -248,6 +249,8 @@ export default function PlayerDetail() {
         </div>
 
         <PoleCard player={p} />
+
+        <VideoSection kind="player" targetId={p.id} dept={department(p)} />
 
         {(p.position || (p.secondaryPositions ?? []).length > 0) && (
           <div className="card p-4">

@@ -5,6 +5,7 @@ import { sharedQuery, useShared } from './live'
 import { can, currentUserId, isParticipant, useRole } from './roles'
 import { loadTeams } from './teams'
 import { supabase } from './sync'
+import { fmtMoment, sourceLabel } from './videos'
 
 /*
  * « Mes suivis » (supabase/032_suivis.sql) : joueurs et groupes suivis, à la façon d'un réseau social.
@@ -12,7 +13,7 @@ import { supabase } from './sync'
  *  - suivi par le staff : groupe « Suivi par le staff » (teamFollow), suivi par son créateur et ses participants
  *    (choisis un par un ou membres d'un staff choisi, supabase/034).
  * Suivre un groupe = suivre tous ses joueurs, y compris ceux ajoutés plus tard (calculé à chaque fois).
- * Nouveautés d'un joueur suivi : ses nouvelles mesures et ses nouveaux avis (rien d'autre).
+ * Nouveautés d'un joueur suivi : ses nouvelles mesures, ses nouveaux avis et ses nouvelles vidéos (rien d'autre).
  */
 
 export type FollowKind = Follow['kind']
@@ -116,7 +117,7 @@ export async function setFollow(kind: FollowKind, targetId: string, on: boolean)
 
 export interface FollowNews {
   key: string
-  kind: 'measurement' | 'evaluation'
+  kind: 'measurement' | 'evaluation' | 'video'
   playerId: string
   /** Moment de l'ajout (ms). */
   time: number
@@ -140,7 +141,7 @@ const created = (r: { createdAtServer?: string; updatedAtServer?: string; update
 }
 
 /** Tables lues par les nouveautés (pour les relancer quand elles changent). */
-export const NEWS_TABLES = ['follows', 'groups', 'teams', 'measurements', 'evaluations', 'players', 'criteria', 'events']
+export const NEWS_TABLES = ['follows', 'groups', 'teams', 'measurements', 'evaluations', 'players', 'criteria', 'events', 'videos']
 
 /**
  * Nouvelles mesures et nouveaux avis des joueurs suivis, sur les `days` derniers jours, les plus récents d'abord.
@@ -154,10 +155,11 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
   if (!ids.length) return []
   const since = Date.now() - days * 24 * 3600 * 1000
   const me = currentUserId()
-  const [ms, es, criteria] = await Promise.all([
+  const [ms, es, criteria, vs] = await Promise.all([
     db.measurements.where('playerId').anyOf(ids).toArray(),
     db.evaluations.where('playerId').anyOf(ids).toArray(),
     db.criteria.toArray(),
+    db.videos.where('targetId').anyOf(ids).toArray(),
   ])
   const crit = new Map<string, Criterion>(criteria.map((c) => [c.id, c]))
   const recentEs = es.filter((e) => !e.deleted && e.review !== 'refused' && created(e) >= since)
@@ -198,6 +200,23 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       text: ev ? ev.name : contextLabel(e),
       detail: noted ? `${noted} critère${noted > 1 ? 's' : ''} noté${noted > 1 ? 's' : ''}` : undefined,
       pending: e.review === 'pending',
+    })
+  }
+  // Liens vidéo sur un joueur suivi (supabase/036_videos.sql).
+  for (const v of vs) {
+    if (v.deleted || v.targetKind !== 'player' || !v.url) continue
+    const time = created(v)
+    if (time < since) continue
+    out.push({
+      key: `v|${v.id}`,
+      kind: 'video',
+      playerId: v.targetId,
+      time,
+      day: localDay(time),
+      author: v.createdByName,
+      mine: !!me && v.createdBy === me,
+      text: v.title || sourceLabel(v.url),
+      detail: [v.title && sourceLabel(v.url), v.at !== undefined && `à ${fmtMoment(v.at)}`].filter(Boolean).join(' ') || undefined,
     })
   }
   return out.sort((a, b) => b.time - a.time)

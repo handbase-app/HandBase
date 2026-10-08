@@ -654,7 +654,7 @@ function SpontaneousContext({
   return (
     <div className="flex flex-col gap-2">
       <p className="text-[11px] text-muted">
-        Pour un joueur vu hors des événements prévus : UNSS, entraînement de club, match local…{' '}
+        Pour un joueur vu hors des événements prévus : UNSS, entraînement de club, match local, ou en vidéo…{' '}
         {validated ? (
           <>Ton avis est validé d’office.</>
         ) : (
@@ -672,7 +672,7 @@ function SpontaneousContext({
       <div className="grid grid-cols-2 gap-2">
         <input
           className="field"
-          placeholder="Lieu, établissement, club…"
+          placeholder={draft.contextType === 'video' ? 'Vidéo vue (Rematch, YouTube, match…)' : 'Lieu, établissement, club…'}
           value={draft.contextPlace ?? ''}
           onChange={(e) => setDraft((d) => ({ ...d, contextPlace: e.target.value }))}
         />

@@ -2,6 +2,7 @@ import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type 
 import { department } from './components/PlayerFilter'
 import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
+import { fmtMoment, sourceLabel } from './videos'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -11,12 +12,13 @@ import type { AlertsResult } from './alerts'
  * Seulement les ajouts et les validations, pas les modifications. Regroupé par auteur, jour et sujet.
  */
 
-export type FeedKind = 'alerts' | 'players' | 'measurements' | 'evaluations' | 'events' | 'groups' | 'reviews'
+export type FeedKind = 'alerts' | 'players' | 'measurements' | 'evaluations' | 'videos' | 'events' | 'groups' | 'reviews'
 
 export const FEED_KINDS: { value: FeedKind; label: string; icon: IconName }[] = [
   { value: 'alerts', label: 'Profils recherchés', icon: 'target' },
   { value: 'measurements', label: 'Mesures', icon: 'ruler' },
   { value: 'evaluations', label: 'Avis', icon: 'star' },
+  { value: 'videos', label: 'Vidéos', icon: 'video' },
   { value: 'players', label: 'Joueurs', icon: 'userPlus' },
   { value: 'events', label: 'Événements', icon: 'calendar' },
   { value: 'groups', label: 'Groupes', icon: 'users' },
@@ -69,7 +71,7 @@ function bucket<T>(rows: T[], key: (r: T) => string) {
 }
 
 /** Tables lues par le fil (pour le relancer quand elles changent). */
-export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 'groups', 'teams', 'criteria']
+export const FEED_TABLES = ['players', 'measurements', 'evaluations', 'events', 'groups', 'teams', 'criteria', 'videos']
 
 /**
  * Fil des `days` derniers jours ; `sector` : seulement les joueurs de mon secteur ;
@@ -91,13 +93,14 @@ export async function buildFeed({
   const me = currentUserId()
   // Staffs relus d'abord : ils comptent dans les participants (can.seeGroup).
   await loadTeams()
-  const [players, measurements, evaluations, events, groups, criteria] = await Promise.all([
+  const [players, measurements, evaluations, events, groups, criteria, videos] = await Promise.all([
     db.players.toArray(),
     db.measurements.toArray().then(alive),
     db.evaluations.toArray().then(alive),
     db.events.toArray(),
     db.groups.toArray().then(alive),
     db.criteria.toArray(),
+    db.videos.toArray().then(alive),
   ])
   const byId = new Map(players.map((p) => [p.id, p]))
   const evById = new Map<string, HBEvent>(events.map((e) => [e.id, e]))
@@ -151,6 +154,28 @@ export async function buildFeed({
       text: `${plural(rs.length, 'avis', 'avis')} · ${ev ? ev.name : rs.length === 1 ? contextLabel(rs[0]) : 'avis spontanés'}`,
       detail: [`${plural(pids.length, 'joueur')} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
       to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
+    })
+  }
+
+  // Vidéos (liens) : par auteur, jour et joueur ou événement. Sur un événement : écartées dans « Mes suivis ».
+  const vs = videos.filter(
+    (v) =>
+      v.url &&
+      recent(v) &&
+      (v.targetKind === 'player' ? !byId.get(v.targetId)?.deleted && inSector(v.targetId) : !only && !evById.get(v.targetId)?.deleted),
+  )
+  for (const [k, rs] of bucket(vs, (v) => `${v.createdBy ?? ''}|${localDay(created(v))}|${v.targetKind}:${v.targetId}`)) {
+    const v = rs[0]
+    const subject = v.targetKind === 'player' ? nameOf(byId.get(v.targetId)) : (evById.get(v.targetId)?.name ?? 'événement')
+    push({
+      key: `v|${k}`,
+      kind: 'videos',
+      time: latest(rs),
+      author: v.createdByName,
+      authorId: v.createdBy,
+      text: `${rs.length === 1 ? 'nouvelle vidéo' : `${rs.length} nouvelles vidéos`} : ${subject}`,
+      detail: rs.map((x) => [x.title || sourceLabel(x.url), x.at !== undefined && `à ${fmtMoment(x.at)}`].filter(Boolean).join(' ')).join(' · '),
+      to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}`,
     })
   }
 

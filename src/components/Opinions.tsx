@@ -297,6 +297,19 @@ export function Opinions({
   )
 }
 
+/** Mention discrète « Vidéo » d'un avis donné en regardant une vidéo (contexte « Vidéo » d'un avis spontané). */
+export function VideoMark() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-sky-300 uppercase"
+      title="Avis donné en regardant une vidéo, pas sur place"
+    >
+      <Icon name="video" className="h-3 w-3" />
+      Vidéo
+    </span>
+  )
+}
+
 /**
  * Un avis, avec son état de validation et, selon les droits, les actions possibles.
  * Avec `criteria`, la note de chaque critère est détaillée (sinon : seulement leur nombre).
@@ -340,6 +353,8 @@ export function AvisCard({
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {/* Joueur vu à l'écran (Rematch, YouTube…), pas sur place. */}
+          {e.contextType === 'video' && <VideoMark />}
           <ReviewBadge e={e} />
           {mine && e.contextType && (
             <Link to={`/evaluer?contexte=libre&joueur=${e.playerId}&avis=${e.id}`} className="px-1 text-muted hover:text-fg" title="Modifier cet avis">

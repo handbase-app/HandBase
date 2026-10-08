@@ -34,6 +34,7 @@ const TABLES: Record<string, string> = {
   follows: 'Suivi (privé)',
   teams: `${cap(STAFF.one)} (privé)`,
   lists: 'Liste (région, département)',
+  videos: 'Vidéo',
   profiles: 'Membre du staff',
 }
 
@@ -97,6 +98,9 @@ const FIELDS: Record<string, string> = {
   mergedInto: 'Fondue dans',
   label: 'Nom',
   active: 'Actif',
+  url: 'Lien',
+  title: 'Titre',
+  at: 'Moment (s)',
 }
 
 const ACTION_STYLE: Record<string, string> = {

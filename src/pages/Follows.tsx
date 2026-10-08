@@ -18,15 +18,15 @@ function dayLabel(day: string) {
 
 const nameOf = (p?: Player) => (p ? `${p.lastName.toUpperCase()} ${p.firstName}` : 'Joueur')
 
-/** Une nouveauté (mesure ou avis) d'un joueur suivi, sur une ligne. */
+/** Une nouveauté (mesure, avis ou vidéo) d'un joueur suivi, sur une ligne. */
 function NewsLine({ n, seen }: { n: FollowNews; seen: number }) {
   return (
     <div className="flex items-center gap-2 py-1 text-xs">
-      <Icon name={n.kind === 'measurement' ? 'ruler' : 'star'} className="h-3.5 w-3.5 shrink-0 text-muted" />
+      <Icon name={n.kind === 'measurement' ? 'ruler' : n.kind === 'video' ? 'video' : 'star'} className="h-3.5 w-3.5 shrink-0 text-muted" />
       <span className="min-w-0 flex-1 truncate">
-        <b>{n.kind === 'evaluation' ? `Avis · ${n.text}` : n.text}</b>
+        <b>{n.kind === 'evaluation' ? `Avis · ${n.text}` : n.kind === 'video' ? `Vidéo · ${n.text}` : n.text}</b>
         {n.pending && <span className="text-amber-300"> · à valider</span>}
-        <span className="text-muted">{[n.kind === 'evaluation' ? n.detail : n.testDate && fmtDate(n.testDate), n.author].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+        <span className="text-muted">{[n.kind === 'measurement' ? n.testDate && fmtDate(n.testDate) : n.detail, n.author].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
       </span>
       {n.time > seen && !n.mine && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="Nouveau depuis ta dernière visite" />}
     </div>
@@ -38,7 +38,7 @@ function PlayerNews({ items, seen }: { items: FollowNews[]; seen: number }) {
   const [all, setAll] = useState(false)
   const SHOWN = 5
   const ms = items.filter((n) => n.kind === 'measurement')
-  const shown = [...items.filter((n) => n.kind === 'evaluation'), ...(all ? ms : ms.slice(0, SHOWN))]
+  const shown = [...items.filter((n) => n.kind !== 'measurement'), ...(all ? ms : ms.slice(0, SHOWN))]
   return (
     <>
       {shown.map((n) => (

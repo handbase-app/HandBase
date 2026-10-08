@@ -210,6 +210,11 @@ export const can = {
   manageTeams: (r: Role) => r !== 'observateur',
   /** Modifier / supprimer un staff : son créateur seul (sans créateur connu : créé sur cet appareil, pas encore envoyé). */
   editTeam: (t: { createdBy?: string }) => !t.createdBy || t.createdBy === effUid(),
+  /** Modifier un lien vidéo (supabase/036_videos.sql) : son auteur seul (sans auteur connu : ajouté ici, pas encore envoyé). */
+  editVideo: (v: { createdBy?: string; createdAtServer?: string }) => (v.createdBy ? v.createdBy === effUid() : !v.createdAtServer),
+  /** Supprimer un lien vidéo : son auteur, l'admin, l'encadrant (lien sur un joueur : dans son secteur ; sur un événement : tous). */
+  deleteVideo: (r: Role, v: { createdBy?: string; createdAtServer?: string; targetKind: string }, dept?: string) =>
+    can.editVideo(v) || r === 'admin' || (r === 'preparateur' && (v.targetKind === 'event' || can.reviewDept(r, dept))),
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

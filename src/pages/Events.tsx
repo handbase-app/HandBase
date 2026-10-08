@@ -12,6 +12,7 @@ import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '..
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
+import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
 
@@ -392,6 +393,8 @@ export function EventDetail() {
           <StampLine row={ev} />
         </div>
       )}
+
+      {!editing && <VideoSection kind="event" targetId={ev.id} />}
 
       <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className="btn-primary">
         {filtered

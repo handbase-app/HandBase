@@ -363,6 +363,8 @@ export const ICONS = {
   pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
+  play: 'M9 6.5v11l9-5.5z',
   palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01',
 } as const
 export type IconName = keyof typeof ICONS

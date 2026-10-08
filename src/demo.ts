@@ -1,4 +1,4 @@
-import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position, type Team } from './db'
+import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position, type Team, type Video } from './db'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -221,20 +221,43 @@ export async function loadDemo() {
     }
   }
 
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams], async () => {
+  // Avis spontané donné en regardant une vidéo (mention « Vidéo » dans le détail des avis).
+  evaluations.push({
+    id: `${PREFIX}e-video-1`,
+    playerId: `${PREFIX}p-4`,
+    contextType: 'video',
+    contextPlace: 'Rematch – temps forts J2',
+    review: 'validated',
+    observer: 'Marc (recruteur)',
+    date: '2026-10-02',
+    scores: { vision: 4, decision: 3, efficacite_tir: 4, engagement: 4 },
+    strengths: 'Très rapide en contre-attaque',
+    updatedAt: now,
+  })
+
+  // Liens vidéo fictifs (adresses génériques : rien de réel sur ces joueurs).
+  const ago = (days: number) => new Date(now - days * 24 * 3600 * 1000).toISOString()
+  const videos: Video[] = [
+    { id: `${PREFIX}v-1`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.rematch.tv/', title: 'Temps forts J2 — contre-attaques', at: 754, createdByName: 'Marc Recruteur', createdAtServer: ago(1), updatedAt: now },
+    { id: `${PREFIX}v-2`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', title: 'Exemple de lien YouTube (vidéo générique)', at: 5, createdByName: 'Julie Adjointe', createdAtServer: ago(3), updatedAt: now },
+    { id: `${PREFIX}v-3`, targetKind: 'event', targetId: `${PREFIX}ev-2`, url: 'https://www.handballtv.fr/', title: 'Match complet', createdByName: 'Coach Paul', createdAtServer: ago(2), updatedAt: now },
+  ]
+
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos], async () => {
     await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
     await db.evaluations.bulkPut(evaluations)
+    await db.videos.bulkPut(videos)
   })
-  return { players: players.length, measurements: measurements.length, events: EVENTS.length, evaluations: evaluations.length }
+  return { players: players.length, measurements: measurements.length, events: EVENTS.length, evaluations: evaluations.length, videos: videos.length }
 }
 
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.outbox], async () => {
-    for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams] as const) {
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.outbox], async () => {
+    for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)
       await t.bulkDelete(ids)
     }

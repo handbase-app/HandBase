@@ -1,6 +1,7 @@
 import { regionLabel } from './lists'
-import { age, alive, contextLabel, counts, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
+import { age, alive, contextLabel, counts, dayOf, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
 import { fmtValue } from './components/ui'
+import { fmtMoment } from './videos'
 import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
@@ -103,6 +104,7 @@ export async function exportBackup() {
     groups: await db.groups.toArray(),
     lists: await db.lists.toArray(),
     alerts: await db.alerts.toArray(),
+    videos: await db.videos.toArray(),
   }
   download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
@@ -110,7 +112,7 @@ export async function exportBackup() {
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []
@@ -138,12 +140,13 @@ const h = (v: unknown) =>
 export async function exportPlayer(id: string) {
   const p = await db.players.get(id)
   if (!p) return
-  const [criteria, measurements, evaluations, events, groups] = await Promise.all([
+  const [criteria, measurements, evaluations, events, groups, videos] = await Promise.all([
     db.criteria.toArray(),
     db.measurements.where('playerId').equals(id).toArray().then(alive),
     db.evaluations.where('playerId').equals(id).toArray().then(alive),
     db.events.toArray(),
     db.groups.toArray().then(alive),
+    db.videos.where('targetId').equals(id).toArray().then((vs) => alive(vs).filter((v) => v.targetKind === 'player')),
   ])
   const crit = new Map(criteria.map((c) => [c.id, c]))
   const ev = new Map(events.map((e) => [e.id, e]))
@@ -191,6 +194,7 @@ export async function exportPlayer(id: string) {
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((e) => [fmtDate(e.date), e.name, e.place])
   const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
+  const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, v.at !== undefined ? fmtMoment(v.at) : '', v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -206,6 +210,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
 <h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
 <h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
+<h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moment', 'Ajouté par'], vids)}
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
   download(`handbase-donnees-${file}.html`, html, 'text/html;charset=utf-8')
