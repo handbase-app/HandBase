@@ -1,7 +1,7 @@
 import { regionLabel } from './lists'
 import { age, alive, contextLabel, counts, dayOf, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
 import { fmtValue } from './components/ui'
-import { fmtMoment } from './videos'
+import { momentLabel, momentsOf } from './videos'
 import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
@@ -194,7 +194,7 @@ export async function exportPlayer(id: string) {
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((e) => [fmtDate(e.date), e.name, e.place])
   const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
-  const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, v.at !== undefined ? fmtMoment(v.at) : '', v.createdByName])
+  const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, momentsOf(v).map(momentLabel).join(' ; '), v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -210,7 +210,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
 <h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
 <h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
-<h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moment', 'Ajouté par'], vids)}
+<h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
   download(`handbase-donnees-${file}.html`, html, 'text/html;charset=utf-8')

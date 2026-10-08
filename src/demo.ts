@@ -238,8 +238,8 @@ export async function loadDemo() {
   // Liens vidéo fictifs (adresses génériques : rien de réel sur ces joueurs).
   const ago = (days: number) => new Date(now - days * 24 * 3600 * 1000).toISOString()
   const videos: Video[] = [
-    { id: `${PREFIX}v-1`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.rematch.tv/', title: 'Temps forts J2 — contre-attaques', at: 754, createdByName: 'Marc Recruteur', createdAtServer: ago(1), updatedAt: now },
-    { id: `${PREFIX}v-2`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', title: 'Exemple de lien YouTube (vidéo générique)', at: 5, createdByName: 'Julie Adjointe', createdAtServer: ago(3), updatedAt: now },
+    { id: `${PREFIX}v-1`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.rematch.tv/', title: 'Temps forts J2 — contre-attaques', at: 754, moments: [{ at: 754, dur: 20, note: 'contre-attaque' }], createdByName: 'Marc Recruteur', createdAtServer: ago(1), updatedAt: now },
+    { id: `${PREFIX}v-2`, targetKind: 'player', targetId: `${PREFIX}p-4`, url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', title: 'Exemple de lien YouTube (vidéo générique)', at: 5, moments: [{ at: 5, dur: 15, note: 'contre-attaque' }, { at: 12, note: 'défense' }], createdByName: 'Julie Adjointe', createdAtServer: ago(3), updatedAt: now },
     { id: `${PREFIX}v-3`, targetKind: 'event', targetId: `${PREFIX}ev-2`, url: 'https://www.handballtv.fr/', title: 'Match complet', createdByName: 'Coach Paul', createdAtServer: ago(2), updatedAt: now },
   ]
 

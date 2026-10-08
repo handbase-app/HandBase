@@ -1,18 +1,19 @@
-import type { Video } from './db'
+import type { Video, VideoMoment } from './db'
 
 /*
  * Liens vidéo (supabase/036_videos.sql) : on ne garde que l'adresse d'une vidéo (Rematch, YouTube, Handball TV,
- * Facebook…), jamais la vidéo elle-même. Ici : vérification du lien, source reconnue d'après le domaine (sans appel
+ * Facebook, Dartfish…), jamais la vidéo elle-même. Ici : vérification du lien, source reconnue d'après le domaine (sans appel
  * à leurs services), moment à regarder (« 1:35 ») et lien qui s'ouvre à ce moment quand c'est possible (YouTube).
  */
 
-export type VideoSource = 'youtube' | 'rematch' | 'handballtv' | 'facebook' | 'other'
+export type VideoSource = 'youtube' | 'rematch' | 'handballtv' | 'facebook' | 'dartfish' | 'other'
 
 const SOURCE_LABEL: Record<Exclude<VideoSource, 'other'>, string> = {
   youtube: 'YouTube',
   rematch: 'Rematch',
   handballtv: 'Handball TV',
   facebook: 'Facebook',
+  dartfish: 'Dartfish',
 }
 
 const host = (url: string) => {
@@ -33,6 +34,8 @@ export function videoSource(url: string): VideoSource {
   if (labels.some((l) => l.startsWith('rematch'))) return 'rematch'
   if (labels.some((l) => l.startsWith('handballtv'))) return 'handballtv'
   if (['facebook.com', 'fb.watch', 'fb.com'].some((d) => isHost(h, d))) return 'facebook'
+  // Dartfish : dartfish.tv (et sous-domaines), liens courts de partage dartfi.sh (vidéo ou collection de clips).
+  if (['dartfish.tv', 'dartfi.sh'].some((d) => isHost(h, d))) return 'dartfish'
   return 'other'
 }
 
@@ -115,14 +118,45 @@ export function momentInUrl(url: string): number | undefined {
   }
 }
 
-/** Lien à ouvrir : YouTube démarre au moment indiqué (paramètre t=) ; les autres sources tel quel. */
-export function openUrl(v: Pick<Video, 'url' | 'at'>) {
+export const MAX_MOMENTS = 20
+
+/** Moments d'un lien : sa liste, sinon (ligne plus ancienne) son moment unique, sinon aucun. */
+export function momentsOf(v: Pick<Video, 'at' | 'moments'>): VideoMoment[] {
+  if (v.moments?.length) return v.moments
+  return v.at !== undefined ? [{ at: v.at }] : []
+}
+
+/** Moments triés et bornés comme le serveur (037) + moment unique pour les anciennes versions (début du premier). */
+export function withMoments(list: VideoMoment[]): Pick<Video, 'at' | 'moments'> {
+  const moments = list
+    .filter((m) => Number.isFinite(m.at) && m.at >= 0 && m.at < 360000)
+    .map((m) => ({
+      at: Math.floor(m.at),
+      ...(m.dur && m.dur >= 1 && m.dur <= 600 ? { dur: Math.floor(m.dur) } : {}),
+      ...(m.note?.trim() ? { note: m.note.trim().slice(0, 120) } : {}),
+    }))
+    .sort((a, b) => a.at - b.at)
+    .slice(0, MAX_MOMENTS)
+  return moments.length ? { at: moments[0].at, moments } : { at: undefined, moments: undefined }
+}
+
+/** « 1:00 · 15 s · contre-attaque ». */
+export const momentLabel = (m: VideoMoment) => [fmtMoment(m.at), m.dur && `${m.dur} s`, m.note].filter(Boolean).join(' · ')
+
+/** « à 1:00, 10:00 » (fil, suivis), ou rien. */
+export function momentsShort(v: Pick<Video, 'at' | 'moments'>) {
+  const ms = momentsOf(v)
+  return ms.length ? `à ${ms.map((m) => fmtMoment(m.at)).join(', ')}` : ''
+}
+
+/** Lien à ouvrir : YouTube démarre au moment demandé (paramètre t=), par défaut le premier ; les autres sources tel quel. */
+export function openUrl(v: Pick<Video, 'url' | 'at'>, at = v.at) {
   if (!/^https?:\/\//i.test(v.url)) return undefined // jamais autre chose que http(s)
-  if (!v.at || videoSource(v.url) !== 'youtube') return v.url
+  if (!at || videoSource(v.url) !== 'youtube') return v.url
   try {
     const u = new URL(v.url)
     u.searchParams.delete('start')
-    u.searchParams.set('t', `${Math.floor(v.at)}s`)
+    u.searchParams.set('t', `${Math.floor(at)}s`)
     return u.href
   } catch {
     return v.url

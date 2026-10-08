@@ -347,8 +347,20 @@ export interface Video extends Syncable {
   targetId: string
   url: string
   title?: string
-  /** Moment à regarder, en secondes depuis le début (YouTube : la vidéo s'ouvre à ce moment). */
+  /**
+   * Moment à regarder, en secondes depuis le début (YouTube : la vidéo s'ouvre à ce moment). Avec une liste de
+   * moments : début du premier (gardé pour les anciennes versions de l'appli, 037_moments_video.sql).
+   */
   at?: number
+  /** Moments à regarder (037), triés par début ; absent sur une ligne plus ancienne (at seul = un moment). */
+  moments?: VideoMoment[]
+}
+
+/** Un passage d'une vidéo : début (secondes), durée facultative (secondes, 600 au plus), note (120 caractères). */
+export interface VideoMoment {
+  at: number
+  dur?: number
+  note?: string
 }
 
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */

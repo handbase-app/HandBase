@@ -2,7 +2,7 @@ import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type 
 import { department } from './components/PlayerFilter'
 import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
-import { fmtMoment, sourceLabel } from './videos'
+import { momentsShort, sourceLabel } from './videos'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -174,7 +174,7 @@ export async function buildFeed({
       author: v.createdByName,
       authorId: v.createdBy,
       text: `${rs.length === 1 ? 'nouvelle vidéo' : `${rs.length} nouvelles vidéos`} : ${subject}`,
-      detail: rs.map((x) => [x.title || sourceLabel(x.url), x.at !== undefined && `à ${fmtMoment(x.at)}`].filter(Boolean).join(' ')).join(' · '),
+      detail: rs.map((x) => [x.title || sourceLabel(x.url), momentsShort(x)].filter(Boolean).join(' ')).join(' · '),
       to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}`,
     })
   }

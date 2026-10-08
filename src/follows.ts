@@ -5,7 +5,7 @@ import { sharedQuery, useShared } from './live'
 import { can, currentUserId, isParticipant, useRole } from './roles'
 import { loadTeams } from './teams'
 import { supabase } from './sync'
-import { fmtMoment, sourceLabel } from './videos'
+import { momentsShort, sourceLabel } from './videos'
 
 /*
  * « Mes suivis » (supabase/032_suivis.sql) : joueurs et groupes suivis, à la façon d'un réseau social.
@@ -216,7 +216,7 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       author: v.createdByName,
       mine: !!me && v.createdBy === me,
       text: v.title || sourceLabel(v.url),
-      detail: [v.title && sourceLabel(v.url), v.at !== undefined && `à ${fmtMoment(v.at)}`].filter(Boolean).join(' ') || undefined,
+      detail: [v.title && sourceLabel(v.url), momentsShort(v)].filter(Boolean).join(' ') || undefined,
     })
   }
   return out.sort((a, b) => b.time - a.time)
