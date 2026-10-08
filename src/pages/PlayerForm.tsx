@@ -256,11 +256,6 @@ export default function PlayerForm() {
                   ✕
                 </button>
               </div>
-              <Segmented
-                value={x.programme}
-                onChange={(v) => upd({ programme: v })}
-                options={POLE_PROGRAMMES.map((o) => ({ value: o.value, label: o.short }))}
-              />
               {/* Site : liste des sites du pôle pour le sexe du joueur (src/poles.ts), ou « Autre site » à taper. */}
               {(() => {
                 const sites = poleSites(x.regionId, p.sex)
@@ -276,7 +271,7 @@ export default function PlayerForm() {
                         const v = e.target.value
                         if (v === '__autre') return upd({ site: '' })
                         const site = sites.find((s) => s.site === v)
-                        upd({ site: v || undefined, ...(site && !x.programme && site.levels.length === 1 && site.levels[0] !== 'accession' ? { programme: site.levels[0] } : {}) })
+                        upd({ site: site ? v : undefined })
                       }}
                     >
                       <option value="">{x.regionId ? 'Site…' : 'Site (choisir d’abord le pôle)…'}</option>

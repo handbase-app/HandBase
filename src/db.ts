@@ -43,6 +43,7 @@ export type HeightSource = 'mesuree' | 'declaree'
 export interface PolePeriod {
   /** Ligue qui porte le pôle (identifiant de région de la liste « region »). */
   regionId?: string
+  /** Niveau (plus saisi pour l'instant : le site suffit ; gardé pour pouvoir le remettre). */
   programme?: PoleProgramme
   /** Ville du site (Toulouse, Nîmes…). */
   site?: string
