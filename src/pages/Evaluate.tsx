@@ -11,6 +11,7 @@ import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { supabase } from '../sync'
+import { MQ, useMedia } from '../layout'
 import {
   alive,
   CONTEXT_TYPES,
@@ -45,6 +46,7 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
  */
 export default function Evaluate() {
   const [params, setParams] = useSearchParams()
+  const sideScreen = useMedia(MQ.side)
   const navigate = useNavigate()
   const location = useLocation()
   const role = useRole()
@@ -333,8 +335,18 @@ export default function Evaluate() {
     else springBack()
   }
 
+  // Ordinateur, un joueur ouvert : joueur et contexte à gauche, grille de notation à droite.
+  // Ailleurs, les deux blocs s'effacent (display: contents) : même colonne qu'avant.
+  const duo = sideScreen && !!player && !!(event || spontaneous)
   return (
-    <div className="flex flex-col gap-4" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={springBack}>
+    <div
+      className={`flex flex-col gap-4 ${duo ? 'side:grid side:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] side:items-start side:gap-6' : 'side:mx-auto side:w-full side:max-w-2xl'}`}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={springBack}
+    >
+      <div className={duo ? 'sticky top-[calc(var(--hdr)+1.25rem)] flex flex-col gap-4' : 'contents'}>
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
       <div className="flex items-center justify-between gap-2">
         {event && !spontaneous ? (
@@ -494,8 +506,10 @@ export default function Evaluate() {
         </div>
       )}
 
+      </div>
+
       {player && (event || spontaneous) && (
-        <>
+        <div className={duo ? 'flex flex-col gap-4' : 'contents'}>
         {/* Fiche du joueur : suit le doigt pendant le glissement ; un nouveau joueur arrive du côté opposé au geste. */}
         <div
           key={player.id}
@@ -635,7 +649,7 @@ export default function Evaluate() {
               )
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

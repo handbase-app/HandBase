@@ -10,6 +10,7 @@ import { exportCsv } from '../export'
 import { TabBackButton } from '../backNav'
 import { AddToGroupDialog, GroupNotice } from '../components/Groups'
 import { can, useRole } from '../roles'
+import { selectedCls, useSelected } from '../components/MasterDetail'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -62,6 +63,8 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
+  // Ordinateur : joueur ouvert dans le panneau de droite (surligné).
+  const selected = useSelected('/joueurs')
   // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -122,7 +125,7 @@ export default function Players() {
 
       <div className={side ? 'grid grid-cols-[21rem_minmax(0,1fr)] items-start gap-5' : ''}>
       {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
-      <div>
+      <div className="md-box">
       <div className="mb-3">{ui}</div>
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
@@ -156,8 +159,10 @@ export default function Players() {
               <Link
                 key={p.id}
                 data-player
+                data-md={p.id}
+                aria-current={selected === p.id || undefined}
                 to={`/joueurs/${p.id}`}
-                className={`card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2 ${poleEdge(p)}`}
+                className={`card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2 ${poleEdge(p)} ${selectedCls(selected === p.id)}`}
               >
                 <Avatar p={p} />
                 <div className="min-w-0 flex-1">

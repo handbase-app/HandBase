@@ -15,6 +15,8 @@ import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
+import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
+import { MQ, useMedia, useWidth } from '../layout'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -231,8 +233,15 @@ type EventStats = { avis: number; players: Set<string> }
 function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
+  // Ordinateur : événement ouvert dans le panneau de droite.
+  const on = useSelected('/evenements') === ev.id
   return (
-    <Link to={`/evenements/${ev.id}`} className={`card flex items-center gap-3 p-3 hover:border-accent ${today ? 'border-accent/70' : ''}`}>
+    <Link
+      to={`/evenements/${ev.id}`}
+      data-md={ev.id}
+      aria-current={on || undefined}
+      className={`card flex items-center gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${today ? 'border-accent/70' : ''} ${selectedCls(on)}`}
+    >
       <div className={`w-11 shrink-0 rounded-md py-1 text-center leading-tight ${upcoming ? 'bg-accent/15' : 'bg-panel-2'}`}>
         <div className="text-[9px] font-bold text-muted uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</div>
         <div className={`text-base font-extrabold ${upcoming ? 'text-accent' : ''}`}>{d.getDate()}</div>
@@ -290,6 +299,12 @@ export function EventDetail() {
   // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
   const [openAvis, setOpenAvis] = useState<string | null>(null)
   const toggleAvis = (pid: string) => setOpenAvis((o) => (o === pid ? null : pid))
+  const panel = usePanel()
+  // Ordinateur : boutons en barre d'actions compacte ; et, s'il y a la place, liste des joueurs à gauche
+  // et avis du joueur choisi à droite (sur téléphone, les avis se déplient sous la ligne).
+  const bar = useMedia(MQ.side)
+  const [boxRef, boxW] = useWidth<HTMLDivElement>()
+  const duo = bar && boxW >= 680
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -344,10 +359,27 @@ export function EventDetail() {
     })
   }
 
+  const tabs = (cls = '') => (
+    <div className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
+      {(
+        [
+          ['joueurs', `Joueurs (${roster.length})`],
+          ['classement', 'Classement'],
+        ] as const
+      ).map(([v, label]) => (
+        <button key={v} onClick={() => setTab(v)} className={`flex-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+  // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
+  const avisPlayer = duo && openAvis ? players.find((p) => p.id === openAvis) : undefined
+
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={boxRef} className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
+        {panel ? <PanelClose /> : <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />}
         {manage && (
           <div className="flex gap-4">
             {!editing && (
@@ -421,31 +453,30 @@ export function EventDetail() {
 
       {!editing && <VideoSection kind="event" targetId={ev.id} />}
 
-      <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className="btn-primary">
-        {filtered
-          ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
-          : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
-      </Link>
-
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {(
-          [
-            ['joueurs', `Joueurs (${roster.length})`],
-            ['classement', 'Classement'],
-          ] as const
-        ).map(([v, label]) => (
-          <button key={v} onClick={() => setTab(v)} className={`flex-1 py-2 ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-            {label}
+      {/* Téléphone : boutons pleine largeur, l'un sous l'autre ; ordinateur : une barre d'actions compacte. */}
+      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'contents'}>
+        <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : ''}`}>
+          {filtered
+            ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
+            : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
+        </Link>
+        {bar && tab === 'joueurs' && !adding && (manage || contribute) && (
+          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAdding(true)}>
+            + Ajouter des joueurs
           </button>
-        ))}
+        )}
+        {bar && tabs('ml-auto w-64')}
       </div>
+
+      {!bar && tabs()}
 
       {tab === 'joueurs' ? (
         adding ? (
           <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
-          <div className="flex flex-col gap-2">
-            {(manage || contribute) && (
+          <div className={duo ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : ''}>
+          <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
+            {!bar && (manage || contribute) && (
               <button className="btn-ghost text-xs" onClick={() => setAdding(true)}>
                 + Ajouter des joueurs (par groupe ou un par un)
               </button>
@@ -477,17 +508,17 @@ export function EventDetail() {
                 {settled.length > 0 && (
                   <div className="cols mt-2 flex flex-col gap-1 gap-x-6">
                     {settled.map((p) => (
-                      <div key={p.id} className={`flex flex-col gap-1 ${openAvis === p.id ? 'col-span-full' : ''}`}>
-                        <div className="flex items-center justify-between gap-2 text-xs">
+                      <div key={p.id} className={`flex flex-col gap-1 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
+                        <div className={`flex items-center justify-between gap-2 rounded text-xs ${duo && openAvis === p.id ? 'bg-accent/10' : ''}`}>
                           <Link to={`/joueurs/${p.id}`} className="truncate">
                             <b>
                               {p.lastName.toUpperCase()} {p.firstName}
                             </b>
                             <span className="text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
                           </Link>
-                          <AvisToggle n={evals.filter((e) => e.playerId === p.id).length} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} />
+                          <AvisToggle n={evals.filter((e) => e.playerId === p.id).length} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} />
                         </div>
-                        {openAvis === p.id && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
+                        {openAvis === p.id && !duo && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
                       </div>
                     ))}
                   </div>
@@ -559,8 +590,8 @@ export function EventDetail() {
                   const n = evals.filter((e) => e.playerId === p.id).length
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
-                    <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id ? 'col-span-full' : ''}`}>
-                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)}`}>
+                    <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
+                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${selectedCls(duo && openAvis === p.id)}`}>
                       <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <Avatar p={p} size={32} />
@@ -575,7 +606,7 @@ export function EventDetail() {
                         </div>
                       </Link>
                       <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
-                        {n ? <AvisToggle n={n} open={openAvis === p.id} onClick={() => toggleAvis(p.id)} /> : null}
+                        {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
                         {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
                       {!removing && <FollowStar id={p.id} />}
@@ -589,7 +620,7 @@ export function EventDetail() {
                         </button>
                       )}
                     </div>
-                    {openAvis === p.id && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
+                    {openAvis === p.id && !duo && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
                     </div>
                   )
                 })}
@@ -598,6 +629,29 @@ export function EventDetail() {
                 ))}
               </>
             )}
+          </div>
+          {duo && (
+            // Avis du joueur choisi : colonne collée en haut du panneau, qui défile seule.
+            <aside className="md-box sticky top-0 z-10 flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] flex-col gap-2 overflow-y-auto overscroll-contain">
+              {avisPlayer ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-bold">
+                      {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
+                    </span>
+                    <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setOpenAvis(null)}>
+                      <Icon name="close" className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <EventAvis player={avisPlayer} evals={evals} criteria={criteria} event={ev} />
+                </>
+              ) : (
+                <p className="rounded-lg border border-dashed border-line p-4 text-center text-[11px] text-muted">
+                  {evals.length ? 'Choisis « avis » sur la ligne d’un joueur : ses avis et son radar s’affichent ici.' : 'Aucun avis pour l’instant sur cet événement.'}
+                </p>
+              )}
+            </aside>
+          )}
           </div>
         )
       ) : (
@@ -622,6 +676,8 @@ export function AddPlayers({
 }) {
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
   const { filtered, ui } = usePlayerFilter(all, scope)
+  // Dans le panneau de droite (ordinateur), la barre se colle en haut du panneau, qui défile seul.
+  const inPanel = !!usePanel()
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [limit, setLimit] = useState(60)
   const inList = new Set(current)
@@ -653,7 +709,7 @@ export function AddPlayers({
         {ui}
       </div>
 
-      <div className="sticky top-14 z-10 flex items-center justify-between gap-2 rounded-lg rail:top-11 border border-line bg-bg/95 p-2 backdrop-blur">
+      <div className={`sticky z-10 flex items-center justify-between gap-2 rounded-lg border border-line bg-bg/95 p-2 backdrop-blur ${inPanel ? 'top-0' : 'top-14 rail:top-11'}`}>
         <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!available.length} onClick={() => void pickAll()}>
           {allPicked ? 'Tout désélectionner' : `Tout sélectionner (${available.length.toLocaleString('fr-FR')})`}
         </button>
@@ -732,7 +788,7 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 }
 
 /** Bouton « N avis » : déplie ou replie les avis du joueur sous sa ligne. */
-function AvisToggle({ n, open, onClick }: { n: number; open: boolean; onClick: () => void }) {
+function AvisToggle({ n, open, side = false, onClick }: { n: number; open: boolean; side?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -740,7 +796,7 @@ function AvisToggle({ n, open, onClick }: { n: number; open: boolean; onClick: (
       className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-emerald-300 ${open ? 'border-accent bg-accent/15' : 'border-emerald-500/40'}`}
       title={open ? 'Masquer les avis' : 'Lire les avis'}
     >
-      {n} avis {open ? '▴' : '▾'}
+      {n} avis {side ? '›' : open ? '▴' : '▾'}
     </button>
   )
 }

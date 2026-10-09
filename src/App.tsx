@@ -1,5 +1,5 @@
 import { applyUpdate, useUpdateReady } from './pwa'
-import { lazy, Suspense, useEffect, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
@@ -26,6 +26,8 @@ import { BackTracker } from './backNav'
 import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
 import { spyTarget } from './spy'
+import MasterDetail from './components/MasterDetail'
+import { MQ, useMedia } from './layout'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -134,17 +136,40 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
  * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
  */
 const PAGE_W: [RegExp, string][] = [
-  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|evaluer)$/, ''],
+  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite)$/, ''],
+  // Notation : joueur à gauche, grille de notation à droite sur ordinateur (étroite ailleurs).
+  [/^\/evaluer$/, 'side:max-w-6xl'],
   [/^\/joueurs\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
+/** Listes en maître-détail (liste + panneau sur ordinateur) : même largeur, liste seule ou fiche ouverte. */
+const MASTER = /^\/(joueurs|groupes|evenements)(\/[^/]+)?$/
+
 function PageWidth({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
-  const w = PAGE_W.find(([re]) => re.test(pathname))?.[1] ?? ''
+  const split = useMedia(MQ.split)
+  const md = split && MASTER.test(pathname) && !/\/(nouveau)$/.test(pathname)
+  const w = md ? 'wide:max-w-7xl page-md' : (PAGE_W.find(([re]) => re.test(pathname))?.[1] ?? '')
   return <div className={`mx-auto w-full max-w-2xl ${w}`}>{children}</div>
 }
+
+/** Hauteur de l'en-tête dans --hdr (panneaux et colonnes collés juste dessous). */
+function useHeaderHeight() {
+  const ref = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty('--hdr', `${el.offsetHeight}px`))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return ref
+}
+
+/** Colonne de la liste des joueurs, fiche ouverte : avec la colonne de filtres (≥ 1280 px), une liste d'une carte de large à côté. */
+const PLAYERS_COL = 'minmax(0, var(--players-col))'
 
 /** Nouvelle version prête : un appui pour la prendre, sans fermer l'appli. */
 function UpdateBanner() {
@@ -181,11 +206,13 @@ export default function App() {
   }, [])
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
+  const header = useHeaderHeight()
   return (
     // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
     // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
+        ref={header}
         className={`sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
         <Logo className="side:hidden" />
@@ -208,19 +235,26 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
           <Route path="/suivis" element={<Follows />} />
-          <Route path="/joueurs" element={<Players />} />
+          {/* Listes en maître-détail : /joueurs/:id = liste + fiche sur ordinateur, fiche seule sur téléphone. */}
+          <Route path="/joueurs" element={<MasterDetail base="/joueurs" list={<Players />} listCol={PLAYERS_COL} />}>
+            <Route index element={null} />
+            <Route path=":id" element={<PlayerDetail />} />
+          </Route>
           <Route path="/joueurs/nouveau" element={<PlayerForm />} />
-          <Route path="/joueurs/:id" element={<PlayerDetail />} />
           <Route path="/joueurs/:id/modifier" element={<PlayerForm />} />
           <Route path="/joueurs/:id/mesures" element={<MeasureSession />} />
           <Route path="/evaluer" element={<Evaluate />} />
           <Route path="/avis-spontanes" element={<ReviewPage />} />
           <Route path="/rates" element={<Missed />} />
-          <Route path="/evenements" element={<Events />} />
-          <Route path="/evenements/:id" element={<EventDetail />} />
-          <Route path="/groupes" element={<Groups />} />
+          <Route path="/evenements" element={<MasterDetail base="/evenements" list={<Events />} listCol="minmax(0, var(--md-col))" />}>
+            <Route index element={null} />
+            <Route path=":id" element={<EventDetail />} />
+          </Route>
+          <Route path="/groupes" element={<MasterDetail base="/groupes" list={<Groups />} listCol="minmax(0, var(--md-col))" />}>
+            <Route index element={null} />
+            <Route path=":id" element={<GroupDetail />} />
+          </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
-          <Route path="/groupes/:id" element={<GroupDetail />} />
           <Route path={STAFF.route} element={<Teams />} />
           <Route path="/parametres" element={<Settings />} />
           <Route path="/confidentialite" element={<Privacy />} />

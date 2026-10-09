@@ -21,6 +21,8 @@ import type { Team } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { teamFollowed } from '../follows'
+import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
+import { MQ, useMedia } from '../layout'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -282,8 +284,15 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   // Participants en bref : staffs choisis (par leur nom), puis participants choisis un par un.
   const ps = participantSummary(g, teams)
   const who = [...ps.teams.map((t) => t.name), ...(ps.hidden ? [STAFF.hidden(ps.hidden)] : []), ...ps.others.map((u) => g.names?.[u] ?? '?')]
+  // Ordinateur : groupe ouvert dans le panneau de droite.
+  const on = useSelected('/groupes') === g.id
   return (
-    <Link to={`/groupes/${g.id}`} className={`card flex items-center justify-between gap-3 p-3 hover:border-accent ${g.archived ? 'opacity-60' : ''}`}>
+    <Link
+      to={`/groupes/${g.id}`}
+      data-md={g.id}
+      aria-current={on || undefined}
+      className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${g.archived ? 'opacity-60' : ''} ${selectedCls(on)}`}
+    >
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
           <span className="truncate">{g.name}</span>
@@ -587,6 +596,9 @@ export function GroupDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
   const [adding, setAdding] = useState(params.has('ajout'))
+  const panel = usePanel()
+  // Ordinateur : boutons regroupés en une barre d'actions compacte (pleine largeur sur téléphone).
+  const bar = useMedia(MQ.side)
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
   const [removing, setRemoving] = useState(false)
   const data = useLiveQuery(async () => {
@@ -625,7 +637,7 @@ export function GroupDetail() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <BackButton fallback="/groupes" label="GROUPES" />
+        {panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
         {!editing && (
           <div className="flex flex-wrap gap-3">
             {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
@@ -725,9 +737,14 @@ export function GroupDetail() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-3 gap-2'}>
+        {bar && (manage || contribute) && (
+          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAdding(true)}>
+            + Ajouter des joueurs
+          </button>
+        )}
         <button
-          className="btn-ghost px-2 text-xs"
+          className={`btn-ghost text-xs ${bar ? 'px-3 py-1.5' : 'px-2'}`}
           disabled={!players.length}
           onClick={() => {
             showGroupInPlayers(g.id)
@@ -736,19 +753,22 @@ export function GroupDetail() {
         >
           Voir dans Joueurs
         </button>
-        <button className="btn-ghost px-2 text-xs" disabled={!players.length} onClick={() => void exportCsv(players)}>
+        <button className={`btn-ghost text-xs ${bar ? 'px-3 py-1.5' : 'px-2'}`} disabled={!players.length} onClick={() => void exportCsv(players)}>
           Exporter ({players.length})
         </button>
         {can.manageEvents(role) ? (
-          <Link to={`/evenements?groupe=${g.id}`} className={`btn-primary px-2 text-center text-xs ${players.length ? '' : 'pointer-events-none opacity-50'}`}>
+          <Link
+            to={`/evenements?groupe=${g.id}`}
+            className={`btn-primary text-center text-xs ${bar ? 'px-3 py-1.5' : 'px-2'} ${players.length ? '' : 'pointer-events-none opacity-50'}`}
+          >
             Créer un événement
           </Link>
         ) : (
-          <span />
+          !bar && <span />
         )}
       </div>
 
-      {(manage || contribute) && (
+      {!bar && (manage || contribute) && (
         <button className="btn-ghost" onClick={() => setAdding(true)}>
           + Ajouter des joueurs (par filtres ou un par un)
         </button>

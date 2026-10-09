@@ -98,6 +98,11 @@ export function setLeaveGuard(g: Guard | null) {
   guard = g
 }
 
+/** Retire `g` s'il est toujours la garde en place (un autre écran a pu poser la sienne entre-temps). */
+export function releaseLeaveGuard(g: Guard) {
+  if (guard === g) guard = null
+}
+
 /** true si on peut quitter l'écran courant (rien en cours, ou l'utilisateur a choisi). */
 export async function canLeave(): Promise<boolean> {
   return guard ? guard() : true

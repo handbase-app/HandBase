@@ -61,6 +61,25 @@ html, body, #root { min-height: 100%; }
   .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Maître-détail (ordinateur, components/MasterDetail.tsx) : liste à gauche, élément ouvert dans un panneau à droite.
+   La liste passe sur une colonne (deux si elle en a la place) ; dans le panneau, les listes suivent la largeur
+   du panneau, pas celle de l'écran. --hdr : hauteur de l'en-tête (mesurée dans App.tsx). */
+:root { --hdr: 53px; --players-col: clamp(19rem, 28vw, 22rem); --md-col: clamp(19rem, 28vw, 24rem); }
+@media (min-width: 1280px) and (min-height: 521px) {
+  :root { --players-col: 44rem; }
+}
+@media (min-width: 1700px) and (min-height: 521px) {
+  .page-md { max-width: 96rem; }
+}
+.md-list, .md-panel, .md-box { container-type: inline-size; }
+.md-list .cols, .md-panel .cols { display: flex; }
+@container (min-width: 40rem) {
+  .md-list .cols, .md-panel .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (min-width: 64rem) {
+  .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 body {
   margin: 0;
   background: var(--color-bg);

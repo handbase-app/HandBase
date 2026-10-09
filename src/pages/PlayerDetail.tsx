@@ -23,6 +23,7 @@ import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
+import { PanelClose, usePanel } from '../components/MasterDetail'
 
 const TABS = [
   { id: 'profil', label: 'Profil' },
@@ -34,7 +35,9 @@ type TabId = (typeof TABS)[number]['id']
 
 /** Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. */
 function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; avis: number }) {
-  // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…).
+  // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…) ; dans le panneau de droite
+  // (ordinateur), le panneau défile seul : les onglets se collent en haut du panneau.
+  const inPanel = !!usePanel()
   const [top, setTop] = useState(50)
   // Remesurée quand l'écran tourne (en-tête plus compact sur téléphone couché).
   useLayoutEffect(() => {
@@ -44,7 +47,7 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
     return () => window.removeEventListener('resize', measure)
   }, [])
   return (
-    <div className="sticky z-10 -mx-4 border-b border-line bg-bg/95 px-4 backdrop-blur" style={{ top }}>
+    <div className="sticky z-10 -mx-4 border-b border-line bg-bg/95 px-4 backdrop-blur" style={{ top: inPanel ? 0 : top }}>
       <div className="flex">
         {TABS.map((t) => (
           <button
@@ -65,6 +68,7 @@ export default function PlayerDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
+  const panel = usePanel()
   // ?fusion=<id> : ouvre la fusion avec cette autre fiche (lien « Comparer et fusionner »).
   const [params, setParams] = useSearchParams()
   const mergeWith = params.get('fusion')
@@ -141,7 +145,7 @@ export default function PlayerDetail() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <BackButton fallback="/joueurs" label="JOUEURS" />
+        {panel ? <PanelClose /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
         <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         {can.exportPlayer(role) && (
           <button
@@ -355,7 +359,7 @@ export default function PlayerDetail() {
         </Link>
       )}
       {tab === 'profil' && role === 'admin' && !merging && !mergeWith && (
-        <button className="btn-ghost text-xs" onClick={() => (setMerging(true), window.scrollTo({ top: 0, behavior: 'smooth' }))}>
+        <button className="btn-ghost text-xs" onClick={() => (setMerging(true), (document.querySelector('.md-panel') ?? window).scrollTo({ top: 0, behavior: 'smooth' }))}>
           Fusionner avec une autre fiche (doublon)…
         </button>
       )}
