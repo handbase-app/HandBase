@@ -144,7 +144,7 @@ export default function MasterDetail({ base, list, listCol }: { base: string; li
   }
 
   return (
-    <div className={open ? 'grid items-start gap-5' : ''} style={open ? { gridTemplateColumns: `${listCol} minmax(0, 1fr)` } : undefined}>
+    <div className={open ? 'grid items-start gap-5 rail:gap-2' : ''} style={open ? { gridTemplateColumns: `${listCol} minmax(0, 1fr)` } : undefined}>
       <div ref={listRef} className={`min-w-0 ${open ? 'md-list' : ''}`} onClickCapture={onClick} onKeyDown={onKeyDown}>
         {list}
       </div>
@@ -153,7 +153,7 @@ export default function MasterDetail({ base, list, listCol }: { base: string; li
           ref={panelRef}
           aria-label="Détail"
           // z-30 : au-dessus de l'en-tête et du menu, pour que les fenêtres ouvertes depuis le panneau (lecteur vidéo…) les couvrent.
-          className="md-panel sticky top-[calc(var(--hdr)+1.25rem)] z-30 max-h-[calc(100dvh-var(--hdr)-2.5rem)] overflow-y-auto overscroll-contain rounded-xl border border-line bg-bg px-4 pt-3 pb-6"
+          className="md-panel sticky top-[calc(var(--hdr)+1.25rem)] z-30 max-h-[calc(100dvh-var(--hdr)-2.5rem)] rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-line bg-bg px-4 pt-3 pb-6"
           onInput={(e) => {
             if ((e.target as Element).matches(TYPED)) typed.current.add(e.target as Element)
           }}

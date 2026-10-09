@@ -69,6 +69,11 @@ html, body, #root { min-height: 100%; }
 @media (min-width: 1280px) and (min-height: 521px) {
   :root { --players-col: 44rem; }
 }
+/* Téléphone couché : liste étroite (un tiers de l'écran) à gauche, fiche à droite ; panneau plus serré. */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --players-col: 34vw; --md-col: 34vw; }
+  .md-panel { padding-left: 0.75rem; padding-right: 0.75rem; padding-top: 0.5rem; }
+}
 @media (min-width: 1700px) and (min-height: 521px) {
   .page-md { max-width: 96rem; }
 }

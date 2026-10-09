@@ -8,9 +8,9 @@ export const MQ = {
   side: '(min-width: 1024px) and (min-height: 521px)',
   /** Grand écran : assez de place pour une colonne de filtres à côté de la liste. */
   xl: '(min-width: 1280px) and (min-height: 521px)',
-  /** Maître-détail (liste à gauche, fiche à droite) : ordinateur seulement. Sur téléphone couché, la hauteur
-   *  (≈ 390 px) ne laisse pas la place à deux colonnes qui défilent chacune de leur côté. */
-  split: '(min-width: 1024px) and (min-height: 521px)',
+  /** Maître-détail (liste à gauche, fiche à droite) : ordinateur, et téléphone couché assez large (liste étroite,
+   *  voir --md-col dans index.css). */
+  split: '(min-width: 1024px) and (min-height: 521px), (orientation: landscape) and (max-height: 520px) and (min-width: 640px)',
 }
 
 /** Vrai tant que la requête média correspond (suit les rotations et redimensionnements). */
