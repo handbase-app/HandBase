@@ -46,6 +46,7 @@ const National = lazy(() => import('./pages/National'))
 const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
 const Follows = lazy(() => import('./pages/Follows'))
 const Teams = lazy(() => import('./pages/Teams'))
+const Compare = lazy(() => import('./pages/Compare'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -141,6 +142,8 @@ const PAGE_W: [RegExp, string][] = [
   [/^\/evaluer$/, 'side:max-w-6xl'],
   [/^\/joueurs\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
+  // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
+  [/^\/comparer$/, 'wide:max-w-6xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
@@ -263,6 +266,7 @@ export default function App() {
           <Route path="/alertes/nouvelle" element={<NewAlert />} />
           <Route path="/alertes/:id" element={<AlertDetail />} />
           <Route path="/national" element={<National />} />
+          <Route path="/comparer" element={<Compare />} />
         </Routes>
         </PageWidth>
         </Suspense>

@@ -17,6 +17,8 @@ import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia, useWidth } from '../layout'
+import { playerScore } from '../compare'
+import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -305,6 +307,8 @@ export function EventDetail() {
   const bar = useMedia(MQ.side)
   const [boxRef, boxW] = useWidth<HTMLDivElement>()
   const duo = bar && boxW >= 680
+  // « Comparer » : cases à cocher sur les joueurs (liste et classement), deux à comparer.
+  const pick = useComparePick()
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -529,8 +533,9 @@ export function EventDetail() {
               offList.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
             ) : (
               <>
-                {roster.some((p) => can.removeFromEvent(role, ev, p.id)) && (
+                {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
                   <div className="flex items-center justify-end gap-3">
+                    {roster.length > 1 && !removing && <CompareToggle pick={pick} className="mr-auto" />}
                     {manage && roster.length > 1 && removing && (
                       <button
                         className="text-[11px] font-bold text-muted underline"
@@ -539,12 +544,14 @@ export function EventDetail() {
                         Vider la liste
                       </button>
                     )}
-                    <button
-                      className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
-                      onClick={() => setRemoving((r) => !r)}
-                    >
-                      {removing ? 'Terminé' : 'Retirer des joueurs'}
-                    </button>
+                    {!pick.on && roster.some((p) => can.removeFromEvent(role, ev, p.id)) && (
+                      <button
+                        className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
+                        onClick={() => setRemoving((r) => !r)}
+                      >
+                        {removing ? 'Terminé' : 'Retirer des joueurs'}
+                      </button>
+                    )}
                   </div>
                 )}
                 {roster.length > 1 && (
@@ -591,7 +598,8 @@ export function EventDetail() {
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
                     <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
-                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${selectedCls(duo && openAvis === p.id)}`}>
+                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${selectedCls(duo && openAvis === p.id)} ${pick.picked.includes(p.id) ? 'border-accent' : ''}`}>
+                      <PickBox pick={pick} p={p} />
                       <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <Avatar p={p} size={32} />
@@ -655,8 +663,9 @@ export function EventDetail() {
           </div>
         )
       ) : (
-        <Ranking players={players} evals={evals.filter(counts)} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} details={{ evals, criteria, event: ev }} />
+        <Ranking players={players} evals={evals.filter(counts)} rosterIds={new Set(ev.playerIds ?? [])} eventName={ev.name} details={{ evals, criteria, event: ev }} pick={pick} />
       )}
+      <CompareBar pick={pick} players={players} eventId={ev.id} />
     </div>
   )
 }
@@ -759,21 +768,6 @@ export function AddPlayers({
   )
 }
 
-/** Note d'un joueur sur l'événement : moyenne des évaluateurs (chacun : moyenne de ses critères). */
-function playerScore(evs: Evaluation[]) {
-  const perObserver = new Map<string, number[]>()
-  for (const e of evs) {
-    const crit = Object.values(e.scores).filter((v) => typeof v === 'number')
-    const v = crit.length ? crit.reduce((a, b) => a + b, 0) / crit.length : null
-    if (v === null) continue
-    if (!perObserver.has(e.observer)) perObserver.set(e.observer, [])
-    perObserver.get(e.observer)!.push(v)
-  }
-  const vals = [...perObserver.values()].map((xs) => xs.reduce((a, b) => a + b, 0) / xs.length)
-  if (!vals.length) return null
-  return { avg: vals.reduce((a, b) => a + b, 0) / vals.length, observers: vals.length, spread: Math.max(...vals) - Math.min(...vals) }
-}
-
 /** Synthèse de fin de journée : classement par poste. */
 /** Petit bouton de filtre, allumé ou éteint. */
 function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -810,12 +804,14 @@ function Ranking({
   rosterIds,
   eventName,
   details,
+  pick,
 }: {
   players: Player[]
   evals: Evaluation[]
   rosterIds: Set<string>
   eventName: string
   details: AvisDetails
+  pick: ComparePick
 }) {
   // Joueur dont les avis sont dépliés (un seul à la fois).
   const [open, setOpen] = useState<string | null>(null)
@@ -864,9 +860,12 @@ function Ranking({
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted">Note = moyenne des évaluateurs (chacun : moyenne de ses critères). <Icon name="alert" className="inline h-3 w-3 -translate-y-px" /> = avis très partagés.</p>
-        <button className="btn-ghost shrink-0 px-3 py-1 text-xs" onClick={exportRanking}>
-          Exporter
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {rows.length > 1 && <CompareToggle pick={pick} />}
+          <button className="btn-ghost shrink-0 px-3 py-1 text-xs" onClick={exportRanking}>
+            Exporter
+          </button>
+        </div>
       </div>
       {groups.map((g) => (
         <div key={g.id} className="card p-3">
@@ -876,10 +875,10 @@ function Ranking({
           </div>
           <div className="divide-y divide-line">
             {g.rows.map((r, i) => (
-              <RankRow key={r.p.id} r={r} rank={r.s ? String(i + 1) : '–'} f1={f1} open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} />
+              <RankRow key={r.p.id} r={r} rank={r.s ? String(i + 1) : '–'} f1={f1} open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} pick={pick} />
             ))}
             {g.extra.map((r) => (
-              <RankRow key={r.p.id} r={r} rank="" f1={f1} secondary open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} />
+              <RankRow key={r.p.id} r={r} rank="" f1={f1} secondary open={open === r.p.id} onToggle={() => toggle(r.p.id)} details={details} pick={pick} />
             ))}
           </div>
         </div>
@@ -897,6 +896,7 @@ function RankRow({
   open,
   onToggle,
   details,
+  pick,
 }: {
   r: { p: Player; s: ReturnType<typeof playerScore> }
   rank: string
@@ -905,14 +905,17 @@ function RankRow({
   open: boolean
   onToggle: () => void
   details: AvisDetails
+  pick: ComparePick
 }) {
   // Toucher la ligne déplie les avis du joueur (note de chaque évaluateur, détail) ; la fiche est un lien dedans.
   return (
     <div>
+      <div className="flex items-center gap-3">
+      <PickBox pick={pick} p={r.p} />
       <button
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center gap-3 py-1.5 text-left text-xs ${secondary && !open ? 'opacity-45' : ''}`}
+        className={`flex min-w-0 flex-1 items-center gap-3 py-1.5 text-left text-xs ${secondary && !open ? 'opacity-45' : ''}`}
         title={secondary ? 'Poste secondaire' : undefined}
       >
         <span className="w-5 text-center font-extrabold text-muted">{secondary ? '○' : rank}</span>
@@ -928,6 +931,7 @@ function RankRow({
         <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
         <span className="w-3 shrink-0 text-[10px] text-muted">{open ? '▴' : '▾'}</span>
       </button>
+      </div>
       {open && (
         <div className="pb-2">
           <EventAvis player={r.p} evals={details.evals} criteria={details.criteria} event={details.event} />
