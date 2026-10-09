@@ -363,15 +363,15 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
   const cur = run ? moments[run.i] : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/80 sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/80 sm:items-center sm:p-4 [@media(max-height:520px)]:p-0" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-label={video.title || `Vidéo ${source}`}
-        className="flex h-full w-full flex-col overflow-y-auto bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:rounded-lg sm:border sm:border-line sm:shadow-2xl"
+        className="flex h-full w-full flex-col overflow-y-auto bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:rounded-lg sm:border sm:border-line sm:shadow-2xl landscape:overflow-hidden sm:landscape:h-[88vh] sm:landscape:max-w-6xl lg:landscape:max-w-7xl [@media(max-height:520px)]:h-full [@media(max-height:520px)]:max-w-none [@media(max-height:520px)]:rounded-none [@media(max-height:520px)]:border-0 [@media(max-height:520px)]:px-[env(safe-area-inset-left)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-3 py-2 [@media(max-height:520px)]:py-1">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-bold">{video.title || `Vidéo ${source}`}</div>
             <span className="inline-block max-w-full truncate align-top rounded bg-panel-2 px-1 py-px text-[10px] font-bold text-muted">{source}</span>
@@ -382,12 +382,15 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
           </button>
         </div>
 
+        {/* Portrait : vidéo puis moments. Paysage (téléphone couché, ordinateur) : vidéo à gauche, moments à droite. */}
+        <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
+        <div className="flex shrink-0 items-center justify-center bg-black landscape:min-w-0 landscape:flex-1">
         {canPlay && embed ? (
-          <div className="aspect-video w-full shrink-0 bg-black">
+          <div className="aspect-video w-full bg-black landscape:h-full landscape:max-h-full landscape:w-auto landscape:max-w-full">
             <Adapter embed={embed} start={moments[moment ?? 0]?.at ?? 0} onCtl={onCtl} onFail={() => (setFailed(true), setRun(null))} />
           </div>
         ) : (
-          <div className="flex aspect-video w-full shrink-0 flex-col items-center justify-center gap-3 bg-black px-6 text-center text-sm text-white/80">
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center text-sm text-white/80 landscape:h-full landscape:w-auto landscape:max-w-full">
             <Icon name={online ? 'video' : 'alert'} className="h-8 w-8 text-white/50" />
             <p>
               {!online
@@ -399,8 +402,9 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
             {online && openLink}
           </div>
         )}
+        </div>
 
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex flex-col gap-2 p-3 landscape:w-72 landscape:shrink-0 landscape:overflow-y-auto landscape:border-l landscape:border-line lg:landscape:w-80">
           {blocked && run && (
             <p className="text-[11px] text-amber-200" role="status">
               Le navigateur a bloqué la lecture automatique : touche la vidéo pour lancer le passage.
@@ -449,10 +453,10 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1.5" aria-label="Moments à regarder">
+              <div className="flex flex-wrap gap-1.5 landscape:flex-col landscape:flex-nowrap" aria-label="Moments à regarder">
                 {moments.map((m, i) => {
                   const active = run?.i === i
-                  const cls = `inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                  const cls = `inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] landscape:rounded-md landscape:py-1.5 ${
                     active ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2'
                   }`
                   const body = (
@@ -486,6 +490,7 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
               {canPlay && <p className="text-[10px] text-muted">Un moment sans durée est lu {DEFAULT_DUR} s (ou jusqu’au moment suivant).</p>}
             </>
           )}
+        </div>
         </div>
       </div>
     </div>
