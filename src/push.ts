@@ -82,7 +82,7 @@ export async function disablePush() {
 export const NOTIF_KINDS = [
   { id: 'avis', label: 'Avis à valider', help: 'Avis hors liste sur tes événements, avis spontanés de ton secteur.' },
   { id: 'fiche', label: 'Fiches proposées', help: 'Fiches de joueurs proposées dans ton secteur.' },
-  { id: 'participant', label: 'Participant', help: `On t’ajoute comme participant d’un événement ou d’un groupe, ou dans un ${STAFF.one}.` },
+  { id: 'participant', label: 'Participant', help: `On t’ajoute comme participant d’un événement ou d’un groupe, ou dans un ${STAFF.one} ; un administrateur te confie un groupe.` },
   { id: 'rappel', label: 'Rappel la veille', help: 'La veille de tes événements (organisateur ou participant), vers 18 h.' },
   // supabase/033_notifications_suivis.sql
   {

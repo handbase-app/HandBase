@@ -383,6 +383,15 @@ async function forgetRows(table: 'groups' | 'teams', visible: Set<string>) {
   })
 }
 
+/**
+ * Synchronise tout de suite en relisant les lignes visibles (sans attendre les 10 minutes) : après une action du
+ * serveur qui me retire l'accès à un groupe (réattribution d'un groupe privé, supabase/038), il est effacé de l'appareil.
+ */
+export function syncAndForgetHidden() {
+  lastForget = 0
+  return syncNow()
+}
+
 async function forgetHidden() {
   if (Date.now() - lastForget < FORGET_EVERY_MS) return
   const [teams, groups] = await Promise.all([visibleIds('teams'), visibleIds('groups')])

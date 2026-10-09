@@ -101,6 +101,8 @@ const FIELDS: Record<string, string> = {
   url: 'Lien',
   title: 'Titre',
   at: 'Moment (s)',
+  createdByName: 'Propriétaire',
+  oldOwnerKept: 'Ancien propriétaire gardé comme participant',
 }
 
 const ACTION_STYLE: Record<string, string> = {
@@ -112,6 +114,7 @@ const ACTION_STYLE: Record<string, string> = {
   rôle: 'text-violet-300',
   secteur: 'text-violet-300',
   'voir comme': 'text-amber-300',
+  réattribution: 'text-violet-300',
 }
 
 function show(field: string, v: unknown): string {

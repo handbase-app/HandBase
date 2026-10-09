@@ -24,6 +24,7 @@ import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
 import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
+import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -604,6 +605,9 @@ export function GroupDetail() {
   const [removing, setRemoving] = useState(false)
   // « Comparer » : cases à cocher sur les joueurs, deux à comparer.
   const pick = useComparePick()
+  // « Réattribuer… » (administrateurs, supabase/038) : panneau ouvert.
+  const [transferring, setTransferring] = useState(false)
+  useEffect(() => setTransferring(false), [id])
   const data = useLiveQuery(async () => {
     const teams = await loadTeams()
     const g = await db.groups.get(id!)
@@ -684,9 +688,18 @@ export function GroupDetail() {
                 </button>
               </>
             )}
+            {canTransferGroup(role) && (
+              <button className="text-xs text-muted hover:text-fg" aria-expanded={transferring} onClick={() => setTransferring((t) => !t)}>
+                Réattribuer…
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {transferring && !editing && canTransferGroup(role) && (
+        <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={() => nav('/groupes', { replace: true })} />
+      )}
 
       {editing ? (
         <div className="card p-3">
