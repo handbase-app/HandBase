@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Formats d'écran (le téléphone tenu droit reste la référence : aucun de ces variants ne s'y applique).
+   rail : téléphone couché (peu de hauteur) → fine colonne d'icônes à gauche, en-tête compact.
+   side : ordinateur / tablette (≥ 1024 px de large) → menu à gauche avec libellés.
+   wide : l'un ou l'autre (plus de barre en bas, contenu plus large). */
+@custom-variant rail (@media (orientation: landscape) and (max-height: 520px));
+@custom-variant side (@media (min-width: 1024px) and (min-height: 521px));
+@custom-variant wide {
+  @media (orientation: landscape) and (max-height: 520px) { @slot; }
+  @media (min-width: 1024px) and (min-height: 521px) { @slot; }
+}
+
 @theme {
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-bg: #1e1e2e;
@@ -26,6 +37,30 @@
 }
 
 html, body, #root { min-height: 100%; }
+
+/* Place prise par la navigation : en bas (barre d'onglets) ou à gauche (colonne). Les barres d'action
+   collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
+:root {
+  --nav-b: calc(52px + env(safe-area-inset-bottom));
+  --nav-l: 0px;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  :root { --nav-b: env(safe-area-inset-bottom); --nav-l: calc(56px + env(safe-area-inset-left)); }
+}
+@media (min-width: 1024px) and (min-height: 521px) {
+  :root { --nav-b: 0px; --nav-l: 13rem; }
+}
+
+/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 puis 3 colonnes en paysage et sur
+   ordinateur, selon la largeur disponible (à réserver aux pages larges, voir PAGE_W dans App.tsx).
+   Les éléments qui doivent prendre toute la ligne (« Afficher plus »…) portent col-span-full. */
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 640px), (min-width: 1024px) and (min-height: 521px) {
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1280px) and (min-height: 521px) {
+  .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 body {
   margin: 0;
   background: var(--color-bg);

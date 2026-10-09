@@ -36,7 +36,13 @@ type TabId = (typeof TABS)[number]['id']
 function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; avis: number }) {
   // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…).
   const [top, setTop] = useState(50)
-  useLayoutEffect(() => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50), [])
+  // Remesurée quand l'écran tourne (en-tête plus compact sur téléphone couché).
+  useLayoutEffect(() => {
+    const measure = () => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50)
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   return (
     <div className="sticky z-10 -mx-4 border-b border-line bg-bg/95 px-4 backdrop-blur" style={{ top }}>
       <div className="flex">

@@ -219,11 +219,13 @@ export default function Groups() {
               <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
                 <Icon name={sec.icon} className="h-3.5 w-3.5" /> {sec.title}
               </div>
-              {active
-                .filter((g) => groupVisibility(g) === sec.vis)
-                .map((g) => (
-                  <GroupRow key={g.id} g={g} teams={teams} />
-                ))}
+              <div className="cols flex flex-col gap-3">
+                {active
+                  .filter((g) => groupVisibility(g) === sec.vis)
+                  .map((g) => (
+                    <GroupRow key={g.id} g={g} teams={teams} />
+                  ))}
+              </div>
             </Fragment>
           ),
       )}
@@ -232,7 +234,13 @@ export default function Groups() {
           {showArchived ? 'Masquer' : 'Voir'} les groupes archivés ({archived.length})
         </button>
       )}
-      {showArchived && archived.map((g) => <GroupRow key={g.id} g={g} teams={teams} />)}
+      {showArchived && (
+        <div className="cols flex flex-col gap-3">
+          {archived.map((g) => (
+            <GroupRow key={g.id} g={g} teams={teams} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -761,7 +769,7 @@ export function GroupDetail() {
         )}
       </div>
       {!players.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
-      <div className="flex flex-col gap-1.5" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
+      <div className="cols flex flex-col gap-1.5" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         {sorted.map((p) => (
           <div key={p.id} className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)}`}>
             <Link to={`/joueurs/${p.id}`} data-player className="flex min-w-0 flex-1 items-center gap-3 outline-none focus:text-accent">

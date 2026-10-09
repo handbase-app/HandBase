@@ -38,9 +38,11 @@ export default function Settings() {
   const admin = can.manageRoles(role)
   const teams = useTeams() ?? []
   return (
-    <div className="flex flex-col gap-3">
-      <h1 className="text-lg font-extrabold">Réglages</h1>
+    // Ordinateur (administrateur) : « Mon espace » à gauche, « Administration » à droite.
+    <div className={`flex flex-col gap-3 ${admin ? 'side:grid side:grid-cols-2 side:items-start side:gap-x-6' : ''}`}>
+      <h1 className="text-lg font-extrabold side:col-span-full">Réglages</h1>
 
+      <div className="flex flex-col gap-3">
       <div className="mt-1 text-[10px] font-extrabold tracking-wider text-muted uppercase">Mon espace</div>
       <Fold id="compte" icon="user" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
         <section className="card flex flex-col gap-2 p-4">
@@ -85,10 +87,11 @@ export default function Settings() {
       </Fold>
 
       {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
+      </div>
 
       {admin && (
-        <>
-          <div className="mt-3 text-[10px] font-extrabold tracking-wider text-muted uppercase">Administration</div>
+        <div className="flex flex-col gap-3">
+          <div className="mt-3 text-[10px] side:mt-1 font-extrabold tracking-wider text-muted uppercase">Administration</div>
           <Link to="/national" className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
               <Icon name="map" className="h-5 w-5" />
@@ -182,13 +185,13 @@ export default function Settings() {
               <ActivityLog />
             </Fold>
           )}
-        </>
-      )}
-      {/* Outils administrateur (« Voir comme… ») : selon le vrai rôle, absents pendant la simulation (bandeau « Quitter »). */}
-      {realRole() === 'admin' && admin && (
-        <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff">
-          <AdminTools />
-        </Fold>
+          {/* Outils administrateur (« Voir comme… ») : selon le vrai rôle, absents pendant la simulation (bandeau « Quitter »). */}
+          {realRole() === 'admin' && (
+            <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff">
+              <AdminTools />
+            </Fold>
+          )}
+        </div>
       )}
     </div>
   )

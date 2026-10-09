@@ -615,7 +615,7 @@ export default function Evaluate() {
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
         </div>
           {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
-          <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
+          <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
             <button
               className="btn-primary flex-1"
               disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}

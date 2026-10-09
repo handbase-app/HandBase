@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
@@ -153,9 +153,11 @@ export default function Events() {
           <div className="section-title mt-1 mb-0">
             {results.length} résultat{results.length > 1 ? 's' : ''} <span className="text-muted normal-case">(archivés compris)</span>
           </div>
-          {results.map((ev) => (
-            <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
-          ))}
+          <div className="cols flex flex-col gap-3">
+            {results.map((ev) => (
+              <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
+            ))}
+          </div>
           {!results.length && <Empty>Aucun événement ne correspond.</Empty>}
         </>
       ) : events.length === 0 ? (
@@ -164,16 +166,22 @@ export default function Events() {
         <>
           <div className="section-title mt-1 mb-0">À venir</div>
           {upcoming.length ? (
-            upcoming.map((ev) => <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming />)
+            <div className="cols flex flex-col gap-3">
+              {upcoming.map((ev) => (
+                <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming />
+              ))}
+            </div>
           ) : (
             <p className="text-[11px] text-muted">Aucun événement prévu.</p>
           )}
           {past.length > 0 && (
             <>
               <div className="section-title mt-3 mb-0">Passés</div>
-              {past.slice(0, showAll ? undefined : 10).map((ev) => (
-                <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
-              ))}
+              <div className="cols flex flex-col gap-3">
+                {past.slice(0, showAll ? undefined : 10).map((ev) => (
+                  <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
+                ))}
+              </div>
               {past.length > 10 && !showAll && (
                 <button className="btn-ghost text-xs" onClick={() => setShowAll(true)}>
                   Afficher les {past.length - 10} plus anciens
@@ -186,13 +194,30 @@ export default function Events() {
               <button className="section-title mt-3 mb-0 flex items-center gap-1.5 text-left text-muted" onClick={() => setShowArchived(!showArchived)}>
                 Archivés ({archived.length}) <span>{showArchived ? '▴' : '▾'}</span>
               </button>
-              {showArchived && archived.map((ev) => <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />)}
+              {showArchived && (
+                <div className="cols flex flex-col gap-3">
+                  {archived.map((ev) => (
+                    <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </>
       )}
     </div>
   )
+}
+
+/** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
+function rosterSections(list: Player[], withHeadings: boolean) {
+  const out: { heading: string | null; start: number; players: Player[] }[] = []
+  list.forEach((p, i) => {
+    if (i === 0 || (withHeadings && list[i - 1].position !== p.position))
+      out.push({ heading: withHeadings ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste') : null, start: i, players: [] })
+    out[out.length - 1].players.push(p)
+  })
+  return out
 }
 
 /** Dans combien de jours : « aujourd'hui », « demain », « dans 5 jours ». */
@@ -441,7 +466,7 @@ export function EventDetail() {
                 </p>
                 {/* Avis à valider : en grand, avec les boutons de décision. */}
                 {pendingOff.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-2">
+                  <div className="cols mt-2 flex flex-col gap-2">
                     {pendingOff.map((e) => {
                       const p = offList.find((x) => x.id === e.playerId)!
                       return <AvisCard key={e.id} e={e} where={ev.name} role={role} player={p} dept={department(p)} event={ev} criteria={criteria} />
@@ -450,9 +475,9 @@ export function EventDetail() {
                 )}
                 {/* Joueurs hors liste dont les avis ne sont pas en attente (anciens avis, organisateur…) : en bref. */}
                 {settled.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1">
+                  <div className="cols mt-2 flex flex-col gap-1 gap-x-6">
                     {settled.map((p) => (
-                      <div key={p.id} className="flex flex-col gap-1">
+                      <div key={p.id} className={`flex flex-col gap-1 ${openAvis === p.id ? 'col-span-full' : ''}`}>
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <Link to={`/joueurs/${p.id}`} className="truncate">
                             <b>
@@ -524,16 +549,17 @@ export function EventDetail() {
                 {shownRoster.length === 0 && (
                   <Empty>{hideNoted ? 'Tu as noté tous les joueurs affichés.' : 'Aucun joueur à ce poste.'}</Empty>
                 )}
-                {shownRoster.map((p, i) => {
+                {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
+                {rosterSections(shownRoster, withHeadings).map((sec) => (
+                  <Fragment key={sec.start}>
+                  {sec.heading && <div className="section-title mt-2 mb-0">{sec.heading}</div>}
+                  <div className="cols flex flex-col gap-2">
+                {sec.players.map((p, j) => {
+                  const i = sec.start + j
                   const n = evals.filter((e) => e.playerId === p.id).length
-                  // Un titre à chaque nouveau poste.
-                  const heading =
-                    withHeadings && (i === 0 || shownRoster[i - 1].position !== p.position)
-                      ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste')
-                      : null
                   return (
-                    <div key={p.id} className="flex flex-col gap-2">
-                    {heading && <div className="section-title mt-2 mb-0">{heading}</div>}
+                    // Avis ouverts : le joueur prend toute la ligne.
+                    <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id ? 'col-span-full' : ''}`}>
                     <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)}`}>
                       <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
@@ -567,6 +593,9 @@ export function EventDetail() {
                     </div>
                   )
                 })}
+                  </div>
+                  </Fragment>
+                ))}
               </>
             )}
           </div>
@@ -624,7 +653,7 @@ export function AddPlayers({
         {ui}
       </div>
 
-      <div className="sticky top-14 z-10 flex items-center justify-between gap-2 rounded-lg border border-line bg-bg/95 p-2 backdrop-blur">
+      <div className="sticky top-14 z-10 flex items-center justify-between gap-2 rounded-lg rail:top-11 border border-line bg-bg/95 p-2 backdrop-blur">
         <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!available.length} onClick={() => void pickAll()}>
           {allPicked ? 'Tout désélectionner' : `Tout sélectionner (${available.length.toLocaleString('fr-FR')})`}
         </button>
@@ -638,7 +667,7 @@ export function AddPlayers({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="cols flex flex-col gap-1">
         {filtered.slice(0, limit).map((p) => {
           const already = inList.has(p.id)
           const on = already || picked.has(p.id)
@@ -664,7 +693,7 @@ export function AddPlayers({
           )
         })}
         {filtered.length > limit && (
-          <button className="btn-ghost text-xs" onClick={() => setLimit((l) => l + 60)}>
+          <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + 60)}>
             Afficher plus ({(filtered.length - limit).toLocaleString('fr-FR')} restants)
           </button>
         )}

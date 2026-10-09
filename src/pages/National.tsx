@@ -438,8 +438,8 @@ function NationalView() {
   const dom = domOnly ? { x: W / 2 - 120, y: (shapes?.h ?? 0) / 2 - 60, w: 240, h: 120 } : shapes?.dom
 
   return (
-    // Écran large : la vue sort de la colonne de l'appli pour mettre la carte et les chiffres côte à côte.
-    <div className="flex flex-col gap-3 lg:relative lg:left-1/2 lg:w-[min(68rem,calc(100vw-2rem))] lg:-translate-x-1/2">
+    // Écran large : carte et chiffres côte à côte (la page a toute la largeur en paysage / sur ordinateur ; sinon elle sort de la colonne).
+    <div className="flex flex-col gap-3 lg:relative lg:left-1/2 lg:w-[min(68rem,calc(100vw-2rem))] lg:-translate-x-1/2 wide:static wide:w-auto wide:translate-x-0">
       <div className="flex items-end justify-between gap-2">
         <div>
           <h1 className="text-lg font-extrabold">Vue nationale{region ? ` · ${regionLabel(region)}` : ''}</h1>
@@ -461,7 +461,7 @@ function NationalView() {
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start">
+      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[3fr_2fr] lg:items-start wide:grid wide:grid-cols-[3fr_2fr] wide:items-start">
         <section className="card flex flex-col gap-2 p-3">
           <div className="flex gap-2">
             {region && (
@@ -490,7 +490,7 @@ function NationalView() {
             ) : (
               <svg
                 viewBox={`0 0 ${W} ${shapes.h}`}
-                className="block h-auto w-full select-none"
+                className="block h-auto w-full select-none side:max-h-[max(28rem,calc(100dvh-15rem))]"
                 role="img"
                 aria-label={region ? `Carte des départements : ${regionLabel(region)}` : 'Carte des régions et des départements'}
                 // Appui hors d'un département : la bulle se ferme.

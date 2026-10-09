@@ -86,13 +86,14 @@ export default function Follows() {
   const nothing = !follows.followed.size
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
+    // Ordinateur : nouveautés à gauche, groupes et joueurs suivis à droite.
+    <div className="flex flex-col gap-4 side:grid side:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] side:items-start side:gap-x-6">
+      <div className="side:col-span-full">
         <h1 className="flex items-center gap-2 text-lg font-extrabold">
           <Icon name="star" filled className="h-4 w-4 text-accent" />
           Mes suivis
         </h1>
-        <p className="text-[11px] text-muted">
+        <p className="max-w-3xl text-[11px] text-muted">
           Les nouvelles mesures et les nouveaux avis des joueurs que tu suis. Personne d’autre ne voit tes suivis ; un groupe « {TEAM_FOLLOW.label.toLowerCase()} » l’est par son
           créateur et ses participants.
         </p>
@@ -139,6 +140,7 @@ export default function Follows() {
         </section>
       )}
 
+      <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-1">
         <div className="section-title mb-0">Groupes suivis ({follows.groups.length})</div>
         {follows.groups.length ? (
@@ -186,6 +188,7 @@ export default function Follows() {
           <p className="text-[11px] text-muted">Aucun joueur suivi un par un.</p>
         )}
       </section>
+      </div>
     </div>
   )
 }

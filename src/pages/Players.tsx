@@ -35,7 +35,7 @@ export default function Players() {
     () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
     [all, view],
   )
-  const { filtered, ui, signature: filterSig, group } = usePlayerFilter(players)
+  const { filtered, ui, side, signature: filterSig, group } = usePlayerFilter(players, 'joueurs', DOCK)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -120,6 +120,9 @@ export default function Players() {
         </p>
       )}
 
+      <div className={side ? 'grid grid-cols-[21rem_minmax(0,1fr)] items-start gap-5' : ''}>
+      {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
+      <div>
       <div className="mb-3">{ui}</div>
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
@@ -145,7 +148,7 @@ export default function Players() {
       {shown.length === 0 ? (
         <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
           {shown.map((p) => {
             const l = latest.get(p.id)
             const a = age(p.birthDate)
@@ -186,18 +189,22 @@ export default function Players() {
             )
           })}
           {filtered.length > shown.length && (
-            <button className="btn-ghost text-xs" onClick={() => setLimit((l) => l + PAGE)}>
+            <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
               Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} restants)
             </button>
           )}
         </div>
       )}
+      </div>
+      </div>
     </div>
   )
 }
 
 /** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
 const PAGE = 60
+/** Grand écran : filtres dans une colonne toujours ouverte, à gauche de la liste. */
+const DOCK = { dock: true }
 const SCROLL_KEY = 'handbase.joueurs.scroll'
 
 export { fold }

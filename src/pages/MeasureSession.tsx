@@ -152,7 +152,7 @@ export default function MeasureSession() {
       })}
 
       {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas. */}
-      <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex gap-2 border-t border-line bg-bg px-4 py-2">
+      <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex gap-2 border-t border-line bg-bg px-4 py-2">
         <button className="btn-ghost" onClick={() => void cancel()}>
           Annuler
         </button>

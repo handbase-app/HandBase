@@ -1,8 +1,8 @@
 import { applyUpdate, useUpdateReady } from './pwa'
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { NavLink, Route, Routes, useNavigate, type NavLinkProps } from 'react-router-dom'
+import { NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { db, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
@@ -116,12 +116,42 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
   )
 }
 
+/** Nom de l'appli (en-tête ; en haut du menu de gauche sur ordinateur). */
+function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
+  return (
+    <GuardedLink to="/" className={`text-sm font-extrabold tracking-widest ${className}`}>
+      HAND<span className="text-accent">BASE</span>
+      {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
+      {TRIAL && (
+        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black ${stacked ? 'mt-1 block w-fit' : 'ml-2'}`}>{TRIAL_LABEL}</span>
+      )}
+    </GuardedLink>
+  )
+}
+
+/**
+ * Largeur du contenu en paysage et sur ordinateur, selon l'écran (sur téléphone tenu droit, tout reste
+ * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
+ */
+const PAGE_W: [RegExp, string][] = [
+  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|evaluer)$/, ''],
+  [/^\/joueurs\/[^/]+$/, 'wide:max-w-4xl'],
+  [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
+  [/^\//, 'wide:max-w-7xl'],
+]
+
+function PageWidth({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  const w = PAGE_W.find(([re]) => re.test(pathname))?.[1] ?? ''
+  return <div className={`mx-auto w-full max-w-2xl ${w}`}>{children}</div>
+}
+
 /** Nouvelle version prête : un appui pour la prendre, sans fermer l'appli. */
 function UpdateBanner() {
   const ready = useUpdateReady()
   if (!ready) return null
   return (
-    <div className="fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4">
+    <div className="fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
       <div className="flex w-full items-center gap-3 rounded-lg border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
         <span className="min-w-0 flex-1">Nouvelle version de HandBase disponible.</span>
         <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
@@ -152,15 +182,13 @@ export default function App() {
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
   return (
-    <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
+    // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
+    // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
+    <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
-        className={`sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur ${TRIAL ? 'border-t-4 border-t-amber-500' : ''}`}
+        className={`sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
-        <GuardedLink to="/" className="text-sm font-extrabold tracking-widest">
-          HAND<span className="text-accent">BASE</span>
-          {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
-          {TRIAL && <span className="ml-2 rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black">{TRIAL_LABEL}</span>}
-        </GuardedLink>
+        <Logo className="side:hidden" />
         <div className="flex items-center gap-3">
           <FollowStar n={followNews} />
           <AlertBell n={alerts} />
@@ -172,8 +200,11 @@ export default function App() {
       </header>
 
       <BackTracker />
-      <main className={`flex-1 px-4 pb-28 ${spyTarget() ? 'pt-14' : 'pt-4'}`}>
+      <main
+        className={`flex-1 px-4 pb-28 wide:pb-10 rail:pr-[max(1rem,env(safe-area-inset-right))] side:px-6 ${spyTarget() ? 'pt-14' : 'pt-4 rail:pt-3 side:pt-5'}`}
+      >
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
+        <PageWidth>
         <Routes>
           <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
           <Route path="/suivis" element={<Follows />} />
@@ -199,22 +230,29 @@ export default function App() {
           <Route path="/alertes/:id" element={<AlertDetail />} />
           <Route path="/national" element={<National />} />
         </Routes>
+        </PageWidth>
         </Suspense>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <div className="mx-auto flex max-w-2xl">
+      {/* Onglets : barre en bas (tenu droit), fine colonne d'icônes (téléphone couché), menu à gauche (ordinateur). */}
+      <nav
+        aria-label="Menu principal"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur wide:top-0 wide:right-auto wide:w-[var(--nav-l)] wide:border-t-0 wide:border-r wide:pb-[env(safe-area-inset-bottom)] rail:pl-[env(safe-area-inset-left)]"
+      >
+        <Logo stacked className="hidden side:block side:px-5 side:pt-4 side:pb-5" />
+        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:h-full rail:justify-center rail:gap-1 side:gap-0.5 side:px-2">
           {NAV.map((n) => (
             <GuardedLink
               key={n.to}
               to={n.to}
               end={n.to === '/'}
+              title={n.label}
               className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold ${isActive ? 'text-accent' : 'text-muted'}`
+                `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold wide:flex-none rail:py-2.5 side:flex-row side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
               }
             >
               <span className="relative">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+                <svg viewBox="0 0 24 24" className="h-5 w-5 rail:h-6 rail:w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
                   <path d={n.icon} />
                 </svg>
                 {/* Propositions à valider : pastille sur l'accueil (le bouton Propositions y est). */}
@@ -222,7 +260,8 @@ export default function App() {
                   <span className="absolute -top-1.5 -right-2.5 rounded-full bg-amber-400 px-1 text-[9px] leading-tight text-black">{toReview}</span>
                 )}
               </span>
-              {n.label}
+              {/* Téléphone couché : icônes seules (le libellé reste lu par les lecteurs d'écran et en info-bulle). */}
+              <span className="rail:sr-only">{n.label}</span>
             </GuardedLink>
           ))}
         </div>

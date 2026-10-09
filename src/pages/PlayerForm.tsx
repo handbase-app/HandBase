@@ -388,7 +388,7 @@ export default function PlayerForm() {
       </Collapsible>
 
       {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas. */}
-      <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-3 border-t border-line bg-bg px-4 py-2">
+      <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-3 border-t border-line bg-bg px-4 py-2">
         <button className="btn-primary flex-1" onClick={() => void submit()}>
           Enregistrer
         </button>

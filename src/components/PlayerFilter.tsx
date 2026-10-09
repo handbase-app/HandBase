@@ -7,6 +7,7 @@ import { can, groupTag } from '../roles'
 import { loadTeams } from '../teams'
 import { birthQuarter, Icon } from './ui'
 import { CourtFilter } from './CourtPicker'
+import { MQ, useMedia } from '../layout'
 import { alive, db, poleStatus, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
@@ -80,8 +81,13 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
  * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
  * pendant la session, séparément pour chaque écran (`scope`).
  */
-export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs', opts: { hide?: ('dept' | 'region')[] } = {}) {
+export function usePlayerFilter(
+  players: Player[] | undefined,
+  scope = 'joueurs',
+  opts: { hide?: ('dept' | 'region')[]; dock?: boolean } = {},
+) {
   const k = (name: string) => `handbase.filter.${scope}.${name}`
+  const wideScreen = useMedia(MQ.xl)
   // Filtres gérés par l'écran lui-même (Vue nationale : la carte choisit la région et le département) :
   // absents du panneau, des pastilles et de « Tout effacer ». Un département masqué n'est jamais appliqué ;
   // une région masquée l'est (l'écran la change avec `setRegion`).
@@ -267,18 +273,7 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
     withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
   ].filter((c): c is { label: string; clear: () => void } => !!c)
 
-  const ui = (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button
-          onClick={() => setOpen(!open)}
-          className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-        >
-          Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-        </button>
-      </div>
-      {open && (
+  const panel = (
         <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
           <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
             {(
@@ -439,8 +434,25 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
             </label>
           </div>
         </div>
-      )}
-      {(chips.length > 0 || active) && !open && (
+  )
+
+  // Grand écran (opts.dock) : le panneau est toujours ouvert, dans une colonne à côté de la liste (`side`).
+  const docked = !!opts.dock && wideScreen
+  const ui = (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+        {!docked && (
+          <button
+            onClick={() => setOpen(!open)}
+            className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+          >
+            Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+          </button>
+        )}
+      </div>
+      {open && !docked && panel}
+      {(chips.length > 0 || active) && !open && !docked && (
         <div className="flex flex-wrap items-center gap-1.5">
           {chips.map((c) => (
             <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
@@ -454,17 +466,30 @@ export function usePlayerFilter(players: Player[] | undefined, scope = 'joueurs'
           )}
         </div>
       )}
-      {open && active && (
+      {open && active && !docked && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={reset}>
           Effacer les filtres
         </button>
       )}
     </div>
   )
+  const side = docked ? (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="section-title mb-0">Filtres{chips.length > 0 && ` (${chips.length})`}</span>
+        {active && (
+          <button className="text-[11px] font-bold text-muted underline" onClick={reset}>
+            Effacer les filtres
+          </button>
+        )}
+      </div>
+      {panel}
+    </div>
+  ) : null
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
   const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, followedOnly, pole, videoOnly, region, dept, club, year, position, withSecondary])
-  return { filtered, ui, active, reset, signature, group: current, region, setRegion, regionCounts }
+  return { filtered, ui, side, active, reset, signature, group: current, region, setRegion, regionCounts }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
@@ -562,7 +587,9 @@ function ClubPicker({
  */
 export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: string) {
   // Les listes de propositions (choix du club…) gèrent déjà leurs flèches.
-  if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.defaultPrevented) return
+  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key) || e.defaultPrevented) return
+  // ← → ne servent qu'entre éléments (dans un champ, ils déplacent le curseur).
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !(e.target as HTMLElement).matches(itemSelector)) return
   const root = e.currentTarget
   const items = [...root.querySelectorAll<HTMLElement>(itemSelector)].filter((el) => !(el as HTMLButtonElement).disabled)
   if (!items.length) return
@@ -577,8 +604,18 @@ export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: stri
     return
   }
   e.preventDefault()
-  if (e.key === 'ArrowDown') items[Math.min(i + 1, items.length - 1)].focus()
-  else if (i > 0) items[i - 1].focus()
+  // Liste en colonnes (paysage, ordinateur) : ↑ ↓ changent de ligne en restant dans la colonne,
+  // ← → passent à l'élément voisin. Sur une seule colonne, c'est l'élément précédent / suivant.
+  const top0 = items[0].getBoundingClientRect().top
+  let cols = 1
+  while (cols < items.length && Math.abs(items[cols].getBoundingClientRect().top - top0) < 2) cols++
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    const j = i + (e.key === 'ArrowRight' ? 1 : -1)
+    if (j >= 0 && j < items.length) items[j].focus()
+    return
+  }
+  if (e.key === 'ArrowDown') items[Math.min(i + cols, items.length - 1)].focus()
+  else if (i - cols >= 0) items[i - cols].focus()
   else root.querySelector<HTMLInputElement>('input[placeholder^="Rechercher"]')?.focus()
 }
 

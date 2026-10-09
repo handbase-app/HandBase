@@ -64,9 +64,10 @@ export default function Teams() {
 
       {!teams.length && editing !== 'new' && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
 
+      <div className="cols flex flex-col gap-3">
       {teams.map((t) =>
         editing === t.id ? (
-          <div key={t.id} className="card p-3">
+          <div key={t.id} className="card col-span-full p-3">
             <TeamForm team={t} onDone={() => setEditing(null)} />
           </div>
         ) : (
@@ -121,6 +122,7 @@ export default function Teams() {
           </div>
         ),
       )}
+      </div>
     </div>
   )
 }

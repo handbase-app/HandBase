@@ -410,7 +410,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
         <p className="text-[10px] text-muted">Moyenne des avis validés du joueur sur ce critère.</p>
       </div>
 
-      <div className="sticky bottom-[calc(52px+env(safe-area-inset-bottom))] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
+      <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
         <span className="shrink-0 text-[11px] text-muted">
           <b className="text-fg">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
         </span>

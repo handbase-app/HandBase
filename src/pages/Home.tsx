@@ -25,7 +25,9 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
   )
   const actions: { to: string; title: string; icon: string; main?: boolean }[] = ACTIONS
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2">
+    // Paysage / ordinateur : actions à gauche, fil « Quoi de neuf » à droite.
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 wide:grid wide:max-w-5xl wide:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] wide:items-start wide:gap-6 rail:pt-0">
+      <div className="flex flex-col gap-4">
       <div className="text-center">
         <h1 className="text-xl font-extrabold">Collecte & suivi</h1>
         {counts && (
@@ -72,6 +74,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
           <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
         </Link>
       )}
+      </div>
 
       <HomeFeed />
     </div>
