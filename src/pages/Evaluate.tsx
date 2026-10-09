@@ -829,37 +829,51 @@ function RosterList({
           }}
         />
       )}
-      <div ref={boxRef} className="-mx-1 flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1" onKeyDown={onKeyDown}>
-        {items.map((p) => {
-          const on = p.id === value
-          const ok = done.has(p.id)
-          return (
-            <button
-              key={p.id}
-              data-pid={p.id}
-              aria-current={on || undefined}
-              title={ok ? 'Noté par moi' : 'Pas encore noté par moi'}
-              onClick={() => !on && onPick(p.id)}
-              className={`flex min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs rail:py-1 ${
-                on ? 'border-accent bg-accent/10 ring-1 ring-accent' : 'border-transparent hover:bg-panel-2'
-              }`}
-            >
-              {ok ? (
-                <Icon name="check" className="h-4 w-4 shrink-0 text-emerald-300" />
-              ) : (
-                <span className="m-px h-3.5 w-3.5 shrink-0 rounded-full border border-muted/60" />
-              )}
-              <span className={`min-w-0 flex-1 truncate ${ok && !on ? 'text-muted' : ''}`}>
-                <b>{p.lastName.toUpperCase()}</b> {p.firstName}
-                {on && dirty && <span className="text-amber-300" title="Saisie non enregistrée"> •</span>}
-              </span>
-              <span className="flex shrink-0 items-center gap-1">
-                <PosBadge pos={p.position} />
-                <QuarterBadge birthDate={p.birthDate} />
-              </span>
-            </button>
-          )
-        })}
+      <div ref={boxRef} className="-mx-1 flex min-h-0 flex-col gap-1.5 overflow-y-auto overscroll-contain px-1 pb-1" onKeyDown={onKeyDown}>
+        {/* Une capsule par poste (même présentation que la liste de l'événement), les joueurs dans l'ordre de notation. */}
+        {items
+          .reduce<{ pos: string; players: typeof items }[]>((acc, p) => {
+            const pos = p.position ?? ''
+            const last = acc[acc.length - 1]
+            if (last && last.pos === pos) last.players.push(p)
+            else acc.push({ pos, players: [p] })
+            return acc
+          }, [])
+          .map((sec, si) => (
+            <div key={sec.pos + si} className="flex flex-col gap-1">
+              <div className="section-title mt-1.5 mb-0 px-0.5 text-[10px]">{POSITIONS.find((x) => x.id === sec.pos)?.label ?? 'Sans poste'}</div>
+              {sec.players.map((p) => {
+                const on = p.id === value
+                const ok = done.has(p.id)
+                return (
+                  <button
+                    key={p.id}
+                    data-pid={p.id}
+                    aria-current={on || undefined}
+                    title={ok ? 'Noté par moi' : 'Pas encore noté par moi'}
+                    onClick={() => !on && onPick(p.id)}
+                    className={`card flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-left text-xs transition rail:py-1 ${
+                      on ? 'border-accent bg-accent/10 ring-1 ring-accent' : 'hover:border-accent'
+                    }`}
+                  >
+                    {ok ? (
+                      <Icon name="check" className="h-4 w-4 shrink-0 text-emerald-300" />
+                    ) : (
+                      <span className="m-px h-3.5 w-3.5 shrink-0 rounded-full border border-muted/60" />
+                    )}
+                    <span className={`min-w-0 flex-1 truncate ${ok && !on ? 'text-muted' : ''}`}>
+                      <b>{p.lastName.toUpperCase()}</b> {p.firstName}
+                      {on && dirty && <span className="text-amber-300" title="Saisie non enregistrée"> •</span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <PosBadge pos={p.position} />
+                      <QuarterBadge birthDate={p.birthDate} />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Aucun joueur ne correspond.</p>}
       </div>
       <button className="self-start px-1 text-[11px] font-bold text-accent" onClick={onOther}>
