@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NumberField, playerName, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, Icon, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -47,6 +47,9 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
 export default function Evaluate() {
   const [params, setParams] = useSearchParams()
   const sideScreen = useMedia(MQ.side)
+  // Ordinateur ou téléphone couché : liste des joueurs de l'événement à gauche, fiche d'évaluation à droite.
+  const split = useMedia(MQ.split)
+  const listModeRef = useRef(false)
   const navigate = useNavigate()
   const location = useLocation()
   const role = useRole()
@@ -109,6 +112,8 @@ export default function Evaluate() {
     setDraft(init)
     setBaseline(fingerprint(init))
     setSaved(false)
+    // Liste à gauche : le joueur choisi s'affiche depuis le haut de sa fiche.
+    if (listModeRef.current && window.scrollY > 0) window.scrollTo({ top: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerId, eventId, spontaneous, avisParam])
   // …et on charge mon avis existant dès qu'il arrive de la base (chargement asynchrone).
@@ -272,6 +277,10 @@ export default function Evaluate() {
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
   const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
   const filled = Object.values(draft.scores ?? {}).filter(isFilled).length
+  // Liste des joueurs à gauche (ordinateur, téléphone couché) : seulement pour un événement qui a une liste.
+  const listMode = split && !spontaneous && !!event && fullRoster.length > 0
+  listModeRef.current = listMode
+  const inList = !!player && !!event && (event.playerIds ?? []).includes(player.id)
 
   // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement).
   // La fiche suit le doigt ; au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté,
@@ -337,17 +346,11 @@ export default function Evaluate() {
 
   // Ordinateur, un joueur ouvert : joueur et contexte à gauche, grille de notation à droite.
   // Ailleurs, les deux blocs s'effacent (display: contents) : même colonne qu'avant.
-  const duo = sideScreen && !!player && !!(event || spontaneous)
-  return (
-    <div
-      className={`flex flex-col gap-4 ${duo ? 'side:grid side:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] side:items-start side:gap-6' : 'side:mx-auto side:w-full side:max-w-2xl'}`}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={springBack}
-    >
+  const duo = sideScreen && !!player && !!(event || spontaneous) && !listMode
+  const head = (
       <div className={duo ? 'sticky top-[calc(var(--hdr)+1.25rem)] flex flex-col gap-4' : 'contents'}>
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
+      {!listMode && (
       <div className="flex items-center justify-between gap-2">
         {event && !spontaneous ? (
           <Link to={`/evenements/${event.id}`} className="min-w-0 truncate text-xs font-bold text-muted">
@@ -366,8 +369,9 @@ export default function Evaluate() {
           Observateur : <b className="text-fg">{me}</b>
         </span>
       </div>
+      )}
 
-      {event && !spontaneous ? (
+      {listMode ? null : event && !spontaneous ? (
         <div>
           <h1 className="text-lg font-extrabold">{event.name}</h1>
           <div className="text-xs text-muted">
@@ -398,10 +402,13 @@ export default function Evaluate() {
         </div>
       )}
 
-      {/* Joueur */}
-      {(event || spontaneous) && (
+      {/* Joueur (liste à gauche : seulement pour choisir un joueur hors liste, ou s'il en est un) */}
+      {(event || spontaneous) && (!listMode || !player || !!proposing || !inList) && (
       <div className="card flex flex-col gap-2 p-3">
-        <span className="label">Joueur</span>
+        <span className="label">{listMode && !player ? 'Joueur hors liste' : 'Joueur'}</span>
+        {listMode && !player && !proposing && (
+          <p className="-mt-1 text-[11px] text-muted">Choisis un joueur dans la liste, ou cherche ici un joueur absent de la liste de l’événement.</p>
+        )}
         {proposing ? (
           <ProposePlayer
             initial={proposing}
@@ -416,6 +423,7 @@ export default function Evaluate() {
             roster={roster}
             value={playerId}
             done={evaluatedHere}
+            searchOnly={listMode}
             onChange={(id) => void go('joueur', id)}
             onPropose={(q) => {
               // Comme partout dans l'appli, le nom d'abord : « Dupont Jean » → nom Dupont, prénom Jean.
@@ -439,7 +447,7 @@ export default function Evaluate() {
             )}
           </div>
         )}
-        {!spontaneous && rosterFilter.active && fullRoster.length > 0 && (
+        {!spontaneous && !listMode && rosterFilter.active && fullRoster.length > 0 && (
           <div className="flex items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px]">
             <span>
               Filtre : <b>{[posLabel, rosterFilter.hideNoted && 'pas encore notés par moi'].filter(Boolean).join(' · ')}</b> —{' '}
@@ -456,7 +464,7 @@ export default function Evaluate() {
             </button>
           </div>
         )}
-        {roster.length > 0 && (
+        {roster.length > 0 && !listMode && (
           <div className="flex items-center justify-between gap-2">
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={!prev} onClick={() => prev && void changePlayer(prev, 'right')}>
               ←
@@ -507,19 +515,20 @@ export default function Evaluate() {
       )}
 
       </div>
+  )
 
-      {player && (event || spontaneous) && (
+  const sheet = player && (event || spontaneous) && (
         <div className={duo ? 'flex flex-col gap-4' : 'contents'}>
         {/* Fiche du joueur : suit le doigt pendant le glissement ; un nouveau joueur arrive du côté opposé au geste. */}
         <div
           key={player.id}
           ref={cardRef}
           style={{ touchAction: 'pan-y' }}
-          className={`flex flex-col gap-4 ${enter?.id === player.id ? (enter.dir === 'left' ? 'animate-slide-left' : 'animate-slide-right') : ''}`}
+          className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'} ${enter?.id === player.id ? (enter.dir === 'left' ? 'animate-slide-left' : 'animate-slide-right') : ''}`}
         >
           {/* Voir la fiche du joueur (mesures, avis, maturité…) ; le bouton retour ramène ici. Sans poste, les encadrants
               et admins sont invités à la compléter directement. */}
-          {!player.position && can.editPlayers(role) ? (
+          {listMode ? null : !player.position && can.editPlayers(role) ? (
             <button
               data-noswipe
               className="self-start text-[11px] font-bold text-amber-300"
@@ -543,11 +552,29 @@ export default function Evaluate() {
               Voir la fiche
             </button>
           )}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold">
+          <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
+            <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
               {playerName(player)} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
+              {/* Liste à gauche : en-tête compact, « Voir la fiche » sur la ligne du nom. */}
+              {listMode && (
+                <button
+                  data-noswipe
+                  className={`flex items-center gap-1 text-[11px] font-bold ${!player.position && can.editPlayers(role) ? 'text-amber-300' : 'text-muted hover:text-fg'}`}
+                  onClick={async () => {
+                    if (!(await confirmLeave())) return
+                    navigate(
+                      !player.position && can.editPlayers(role)
+                        ? `/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`
+                        : `/joueurs/${player.id}`,
+                    )
+                  }}
+                >
+                  <Icon name="user" className="h-3.5 w-3.5" />
+                  {!player.position && can.editPlayers(role) ? 'Compléter le poste' : 'Voir la fiche'}
+                </button>
+              )}
             </div>
-            <div className="w-44">
+            <div className={listMode ? 'w-36 shrink-0' : 'w-44'}>
               <Segmented
                 value={mode}
                 onChange={setMode}
@@ -629,7 +656,7 @@ export default function Evaluate() {
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
         </div>
           {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
-          <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
+          <div className={`sticky bottom-[var(--nav-b)] z-10 flex items-center gap-2 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
             <button
               className="btn-primary flex-1"
               disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
@@ -650,8 +677,195 @@ export default function Evaluate() {
             )}
           </div>
         </div>
-      )}
+  )
+
+  const touch = { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: springBack }
+  if (listMode && event)
+    return (
+      <div className="grid items-start gap-5 rail:gap-2" style={{ gridTemplateColumns: 'minmax(0, var(--md-col)) minmax(0, 1fr)' }} {...touch}>
+        <RosterList
+          event={event}
+          me={me}
+          roster={roster}
+          total={fullRoster.length}
+          noted={fullRoster.filter((p) => evaluatedHere.has(p.id)).length}
+          value={playerId}
+          done={evaluatedHere}
+          dirty={dirty}
+          filter={rosterFilter}
+          posLabel={posLabel}
+          onPick={(id) => void go('joueur', id)}
+          onOther={() => void go('joueur', '')}
+        />
+        <div className="flex min-w-0 flex-col gap-3">
+          {head}
+          {sheet}
+        </div>
+      </div>
+    )
+  return (
+    <div
+      // Téléphone couché : la page est élargie pour la liste (App.tsx) ; sans liste, la colonne reste celle d'avant.
+      className={`flex flex-col gap-4 rail:mx-auto rail:w-full rail:max-w-2xl ${duo ? 'side:grid side:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] side:items-start side:gap-6' : 'side:mx-auto side:w-full side:max-w-2xl'}`}
+      {...touch}
+    >
+      {head}
+      {sheet}
     </div>
+  )
+}
+
+/**
+ * Liste des joueurs de l'événement (ordinateur, téléphone couché) : même ordre que la notation, repère
+ * « noté par moi », joueur en cours surligné et toujours visible. Choisir un joueur passe par `go`
+ * (confirmation si l'avis en cours n'est pas enregistré).
+ */
+function RosterList({
+  event,
+  me,
+  roster,
+  total,
+  noted,
+  value,
+  done,
+  dirty,
+  filter,
+  posLabel,
+  onPick,
+  onOther,
+}: {
+  event: HBEvent
+  me: string
+  roster: Player[]
+  total: number
+  noted: number
+  value: string
+  done: Set<string>
+  dirty: boolean
+  filter: ReturnType<typeof useRosterFilter>
+  posLabel?: string
+  onPick: (id: string) => void
+  onOther: () => void
+}) {
+  const [q, setQ] = useState('')
+  const boxRef = useRef<HTMLDivElement>(null)
+  // Rotation (ordinateur ↔ téléphone couché) : la hauteur de la liste change, on recadre le joueur en cours.
+  const rail = useMedia(MQ.rail)
+  const words = fold(q).split(/\s+/).filter(Boolean)
+  const items = words.length ? roster.filter((p) => words.every((w) => fold(`${p.firstName} ${p.lastName} ${p.club ?? ''}`).includes(w))) : roster
+  // Joueur en cours : gardé visible dans la liste (sans faire défiler la page).
+  useEffect(() => {
+    const box = boxRef.current
+    const el = box?.querySelector<HTMLElement>(`[data-pid="${CSS.escape(value)}"]`)
+    if (!box || !el) return
+    const top = el.offsetTop - box.offsetTop
+    if (top < box.scrollTop) box.scrollTop = top - 4
+    else if (top + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top + el.offsetHeight - box.clientHeight + 4
+  }, [value, items.length, rail])
+  /** ↑ ↓ dans la liste : joueur précédent / suivant. */
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const t = e.target as HTMLElement
+    if (!t.dataset.pid) return
+    const btns = [...(boxRef.current?.querySelectorAll<HTMLElement>('[data-pid]') ?? [])]
+    const nxt = btns[btns.indexOf(t) + (e.key === 'ArrowDown' ? 1 : -1)]
+    e.preventDefault()
+    if (!nxt) return
+    nxt.focus()
+    onPick(nxt.dataset.pid!)
+  }
+  return (
+    <aside
+      data-noswipe
+      aria-label="Joueurs de l’événement"
+      className="sticky top-[calc(var(--hdr)+1.25rem)] flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] min-w-0 flex-col gap-2 rounded-xl border border-line bg-panel p-2.5 rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] rail:gap-1.5 rail:p-1.5"
+    >
+      <div className="min-w-0">
+        <Link to={`/evenements/${event.id}`} className="block truncate text-xs font-extrabold hover:text-accent" title={event.name}>
+          ← {event.name}
+        </Link>
+        <div className="truncate text-[10px] text-muted rail:hidden">
+          {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
+          {event.place ? ` · ${event.place}` : ''} · Observateur : <b className="text-fg">{me}</b>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="whitespace-nowrap">
+          <b className={noted === total ? 'text-emerald-300' : ''}>
+            {noted} / {total}
+          </b>{' '}
+          <span className="text-muted">noté{noted > 1 ? 's' : ''}</span>
+        </span>
+        {(noted > 0 || filter.hideNoted) && (
+          <label className="flex min-w-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
+            <input type="checkbox" className="accent-accent" checked={filter.hideNoted} onChange={(e) => filter.setHideNoted(e.target.checked)} />
+            <span className="truncate">Masquer les notés</span>
+          </label>
+        )}
+      </div>
+      {filter.pos && (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-[10px]">
+          <span className="min-w-0 truncate">
+            Poste : <b>{posLabel}</b>
+          </span>
+          <button className="shrink-0 font-bold text-accent" onClick={() => filter.setPos('')}>
+            Tout afficher
+          </button>
+        </div>
+      )}
+      {roster.length > 12 && (
+        <input
+          type="search"
+          className="field py-1 text-xs"
+          placeholder="Chercher un joueur…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setQ('')
+            else if (e.key === 'Enter' && items[0]) {
+              e.preventDefault()
+              onPick(items[0].id)
+            }
+          }}
+        />
+      )}
+      <div ref={boxRef} className="-mx-1 flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain px-1" onKeyDown={onKeyDown}>
+        {items.map((p) => {
+          const on = p.id === value
+          const ok = done.has(p.id)
+          return (
+            <button
+              key={p.id}
+              data-pid={p.id}
+              aria-current={on || undefined}
+              title={ok ? 'Noté par moi' : 'Pas encore noté par moi'}
+              onClick={() => !on && onPick(p.id)}
+              className={`flex min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs rail:py-1 ${
+                on ? 'border-accent bg-accent/10 ring-1 ring-accent' : 'border-transparent hover:bg-panel-2'
+              }`}
+            >
+              {ok ? (
+                <Icon name="check" className="h-4 w-4 shrink-0 text-emerald-300" />
+              ) : (
+                <span className="m-px h-3.5 w-3.5 shrink-0 rounded-full border border-muted/60" />
+              )}
+              <span className={`min-w-0 flex-1 truncate ${ok && !on ? 'text-muted' : ''}`}>
+                <b>{p.lastName.toUpperCase()}</b> {p.firstName}
+                {on && dirty && <span className="text-amber-300" title="Saisie non enregistrée"> •</span>}
+              </span>
+              <span className="flex shrink-0 items-center gap-1">
+                <PosBadge pos={p.position} />
+                <QuarterBadge birthDate={p.birthDate} />
+              </span>
+            </button>
+          )
+        })}
+        {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Aucun joueur ne correspond.</p>}
+      </div>
+      <button className="self-start px-1 text-[11px] font-bold text-accent" onClick={onOther}>
+        + Joueur hors liste…
+      </button>
+    </aside>
   )
 }
 
@@ -802,6 +1016,7 @@ function PlayerPicker({
   roster,
   value,
   done,
+  searchOnly = false,
   onChange,
   onPropose,
 }: {
@@ -809,6 +1024,8 @@ function PlayerPicker({
   roster: Player[]
   value: string
   done: Set<string>
+  /** Liste de l'événement déjà affichée à côté : seulement la recherche, dans toute la base. */
+  searchOnly?: boolean
   onChange: (id: string) => void
   /** Joueur introuvable : proposer une fiche (reçoit le texte cherché). */
   onPropose: (q: string) => void
@@ -843,18 +1060,18 @@ function PlayerPicker({
     return words.every((w) => hay.includes(w))
   }
   // Événement avec une liste de joueurs : la recherche se fait dans cette liste ; toute la base sur demande.
-  const inRoster = roster.length > 0 && !everywhere
+  const inRoster = roster.length > 0 && !everywhere && !searchOnly
   // Sans recherche : la liste de l'événement, sinon les joueurs déjà évalués ici.
   const matches = (
-    words.length ? (inRoster ? roster : players).filter(hit) : roster.length ? roster : players.filter((p) => done.has(p.id))
+    words.length ? (inRoster ? roster : players).filter(hit) : searchOnly ? [] : roster.length ? roster : players.filter((p) => done.has(p.id))
   ).slice(0, words.length && !inRoster ? 20 : Math.max(20, roster.length))
   return (
     <div className="flex flex-col gap-1">
       <input
         className="field"
-        placeholder={roster.length && !everywhere ? 'Chercher dans les joueurs de l’événement…' : 'Nom, prénom, club ou licence…'}
+        placeholder={roster.length && !everywhere && !searchOnly ? 'Chercher dans les joueurs de l’événement…' : 'Nom, prénom, club ou licence…'}
         value={q}
-        autoFocus={!value}
+        autoFocus={!value && !searchOnly}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           // ↑ ↓ pour se déplacer dans la liste, Entrée pour choisir le joueur.
@@ -896,12 +1113,12 @@ function PlayerPicker({
       {words.length > 0 && matches.length === 0 && (
         <p className="text-[11px] text-muted">{inRoster ? 'Aucun joueur de l’événement ne correspond.' : 'Aucun joueur trouvé.'}</p>
       )}
-      {roster.length > 0 && words.length > 0 && (
+      {roster.length > 0 && words.length > 0 && !searchOnly && (
         <button className="self-start text-xs font-bold text-accent" onClick={() => setEverywhere(!everywhere)}>
           {everywhere ? '← Chercher seulement dans les joueurs de l’événement' : 'Chercher dans toute la base (joueur hors liste)…'}
         </button>
       )}
-      {words.length > 0 && (!roster.length || everywhere) && (
+      {words.length > 0 && (!roster.length || everywhere || searchOnly) && (
         <button className="self-start text-xs font-bold text-accent" onClick={() => onPropose(q)}>
           + Joueur absent de la base : {can.editPlayers(role) ? 'créer' : 'proposer'} une fiche
         </button>

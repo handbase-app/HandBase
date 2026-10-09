@@ -138,8 +138,9 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
  */
 const PAGE_W: [RegExp, string][] = [
   [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite)$/, ''],
-  // Notation : joueur à gauche, grille de notation à droite sur ordinateur (étroite ailleurs).
-  [/^\/evaluer$/, 'side:max-w-6xl'],
+  // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
+  // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
+  [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
   [/^\/joueurs\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
