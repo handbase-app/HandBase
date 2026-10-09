@@ -96,7 +96,8 @@ tâche de nuit si l'extension *pg_cron* est disponible, sinon lancée une fois p
 
 Listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : filtre « Groupe » dans les listes de joueurs,
 export, création d'un événement avec les joueurs d'un groupe, duplication (ex. le pôle de la saison suivante).
-Un groupe est privé (son créateur seul, administrateurs compris, `supabase/017_groupes_prives.sql`) ou public
+Un groupe est privé (son créateur seul, `supabase/017_groupes_prives.sql` ; un administrateur peut y accéder en cas de
+besoin par « Voir tous les groupes », chaque accès étant noté au journal, `supabase/039_admin_groupes.sql`) ou public
 (tout le staff ; un encadrant ne modifie que les siens, un administrateur tous). Les observateurs créent des
 groupes privés uniquement. Une fusion de fiches remplace aussi la fiche
 fondue dans les groupes (`supabase/013_groupes.sql`). La liste des régions n'est pas écrite dans l'appli : elle est

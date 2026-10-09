@@ -120,7 +120,8 @@ Pour chaque point : **ce que fait l'appli aujourd'hui**, puis **notre propositio
 
 **15. Qui voit quoi dans le staff ?**
 - Aujourd'hui : **tout le staff connecté voit tous les joueurs**, observateurs compris, sur tous les départements.
-  Groupes et alertes privés : leur créateur seul. Journal d'activité : administrateurs seuls. Export CSV des joueurs
+  Groupes et alertes privés : leur créateur seul (groupes privés et « Mon staff » : un administrateur peut
+  y accéder en cas de besoin, départ ou réattribution, chaque accès étant noté au journal d'activité). Journal d'activité : administrateurs seuls. Export CSV des joueurs
   affichés : **tout le staff** ; sauvegarde complète : administrateurs ; copie d'un joueur : admin et encadrants.
 - Proposition : limiter l'**export CSV** aux encadrants et admins ; garder la lecture de tous les joueurs pour tout
   le staff (un observateur doit pouvoir retrouver un joueur vu ailleurs). Ou faut-il limiter les observateurs à

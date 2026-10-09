@@ -25,6 +25,7 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia } from '../layout'
 import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
+import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -120,6 +121,7 @@ export default function Groups() {
         Des listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : un clic pour les filtrer, les exporter ou remplir un
         événement.
       </p>
+      <AllGroupsToggle role={role} />
       {groups.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
@@ -233,6 +235,7 @@ export default function Groups() {
             </Fragment>
           ),
       )}
+      <OtherGroupsSection role={role} info={groupInfo} />
       {archived.length > 0 && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={() => setShowArchived((x) => !x)}>
           {showArchived ? 'Masquer' : 'Voir'} les groupes archivés ({archived.length})
@@ -608,6 +611,8 @@ export function GroupDetail() {
   // « Réattribuer… » (administrateurs, supabase/038) : panneau ouvert.
   const [transferring, setTransferring] = useState(false)
   useEffect(() => setTransferring(false), [id])
+  // « Voir tous les groupes » (administrateurs, supabase/039) : un groupe absent de l'appareil se lit sur le serveur.
+  const allGroups = useAllGroups(role).on
   const data = useLiveQuery(async () => {
     const teams = await loadTeams()
     const g = await db.groups.get(id!)
@@ -618,7 +623,10 @@ export function GroupDetail() {
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
   if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { g, players, teams } = data
-  if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
+  if (!g || g.deleted || !can.seeGroup(g)) {
+    if (allGroups && id) return <OtherGroupDetail key={id} id={id} info={groupInfo} />
+    return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
+  }
   const manage = can.editGroup(role, g)
   // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe.
   const contribute = can.contributeGroup(role, g)
@@ -718,7 +726,7 @@ export function GroupDetail() {
         <div>
           <h1 className="text-lg font-extrabold">
             {g.private && (
-              <span title="Groupe privé : visible par toi seul">
+              <span title={GROUP_VIS.privateTitle}>
                 <Icon name="lock" className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
               </span>
             )}

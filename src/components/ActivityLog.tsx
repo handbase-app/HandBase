@@ -115,6 +115,7 @@ const ACTION_STYLE: Record<string, string> = {
   secteur: 'text-violet-300',
   'voir comme': 'text-amber-300',
   réattribution: 'text-violet-300',
+  consultation: 'text-amber-300',
 }
 
 function show(field: string, v: unknown): string {
@@ -225,7 +226,8 @@ export function ActivityLog() {
         }}
       >
         {rows.map((r) => {
-          const link = r.action.startsWith('suppression') ? null : r.table_name === 'players' ? `/joueurs/${r.row_id}` : r.table_name === 'events' ? `/evenements/${r.row_id}` : r.table_name === 'groups' ? `/groupes/${r.row_id}` : r.table_name === 'alerts' ? `/alertes/${r.row_id}` : null
+          // Consultation d'un groupe d'un autre (supabase/039) : pas de lien (le groupe n'est pas sur l'appareil).
+          const link = r.action.startsWith('suppression') || r.action === 'consultation' || r.row_id === '-' ? null : r.table_name === 'players' ? `/joueurs/${r.row_id}` : r.table_name === 'events' ? `/evenements/${r.row_id}` : r.table_name === 'groups' ? `/groupes/${r.row_id}` : r.table_name === 'alerts' ? `/alertes/${r.row_id}` : null
           const changes = r.changes ? Object.entries(r.changes) : []
           return (
             <div key={r.id} className="px-3 py-2 text-xs">

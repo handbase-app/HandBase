@@ -59,14 +59,35 @@ export const GROUP_VIS = {
   tag: { private: ' (privé)', team: ' (mon staff)', staff: '' },
   section: { private: 'Mes groupes privés', team: 'Groupes de mon staff', staff: 'Groupes du staff' },
   help: {
-    private: 'Moi seul : personne d’autre ne le voit, même pas les administrateurs.',
-    team: 'Mon staff : visible seulement par toi et les participants que tu choisis (pas par les administrateurs).',
+    private:
+      'Moi seul : visible par toi seul. Les administrateurs peuvent y accéder en cas de besoin (départ, réattribution) ; chaque accès est noté dans le journal d’activité.',
+    team: 'Mon staff : visible seulement par toi et les participants que tu choisis. Les administrateurs peuvent y accéder en cas de besoin (départ, réattribution) ; chaque accès est noté dans le journal d’activité.',
     staff: 'Tout le staff : visible par tout le staff.',
   },
   /** Pastille d'un groupe « Mon staff ». */
   chip: 'Mon staff',
-  chipTitle: 'Groupe de mon staff : visible seulement par son créateur et ses participants',
+  chipTitle: 'Groupe de mon staff : visible seulement par son créateur et ses participants (administrateurs en cas de besoin)',
+  /** Icône cadenas d'un groupe privé. */
+  privateTitle: 'Groupe privé : visible par toi seul (administrateurs en cas de besoin, accès noté)',
 } as const
+
+/** « Voir tous les groupes » (administrateurs, supabase/039_admin_groupes.sql). */
+export const ADMIN_GROUPS = {
+  toggle: 'Voir tous les groupes',
+  toggleHelp:
+    'Affiche aussi les groupes privés et « Mon staff » des autres comptes, en lecture seule, pour les réattribuer ou les supprimer (départ d’un membre…). Chaque affichage et chaque consultation sont notés dans le journal d’activité. Rien n’est copié sur cet appareil.',
+  section: 'Groupes des autres (privés et Mon staff)',
+  noServer: 'Voir tous les groupes se lit sur le serveur : indisponible dans cette version sans serveur.',
+  offline: 'Hors ligne : les groupes des autres se lisent sur le serveur. Réessaie une fois connecté.',
+  missing: 'Pas encore disponible sur le serveur : exécute d’abord supabase/039_admin_groupes.sql dans Supabase.',
+  empty: 'Aucun groupe privé ou « Mon staff » chez les autres comptes.',
+  loading: 'Chargement des groupes des autres…',
+  /** Étiquette d'un groupe d'un autre : « privé de Léa », « Mon staff de Paul ». */
+  owner: (g: { private?: boolean }, name: string) => `${g.private ? 'privé' : 'Mon staff'} de ${name}`,
+  notice: 'Consultation administrateur, en lecture seule. Elle est notée dans le journal d’activité (sans le contenu du groupe).',
+  confirmDelete: (name: string, owner: string) =>
+    `Supprimer le groupe « ${name} » (${owner}) ? Il disparaît aussi chez son propriétaire, qui est prévenu. Les joueurs, leurs avis et les événements ne sont pas touchés.`,
+}
 
 /** « Suivi par le staff » (teamFollow, supabase/032_suivis.sql). */
 export const TEAM_FOLLOW = {

@@ -19,10 +19,10 @@ interface Member {
   role: Role | null
 }
 
-/** Proposé à un administrateur (pas pendant « Voir comme… »), sur un groupe qu'il voit. */
+/** Proposé à un administrateur (pas pendant « Voir comme… ») : sur un groupe qu’il voit, ou sur celui d’un autre ouvert par « Voir tous les groupes » (039). */
 export const canTransferGroup = (role: Role) => role === 'admin' && !spyTarget()
 
-function useOnline() {
+export function useOnline() {
   const [on, setOn] = useState(navigator.onLine)
   useEffect(() => {
     const up = () => setOn(true)
@@ -39,7 +39,23 @@ function useOnline() {
 
 const label = (m: Member) => m.full_name || m.email || 'Sans nom'
 
-export function TransferGroup({ g, onClose, onHidden }: { g: PlayerGroup; onClose: () => void; onHidden: () => void }) {
+/**
+ * foreign : groupe privé ou « Mon staff » d'un autre, ouvert par « Voir tous les groupes » (supabase/039) : il n'est
+ * pas sur cet appareil, rien à y effacer. onDone : après une réattribution réussie.
+ */
+export function TransferGroup({
+  g,
+  onClose,
+  onHidden,
+  onDone,
+  foreign = false,
+}: {
+  g: Pick<PlayerGroup, 'id' | 'name' | 'private' | 'team' | 'createdBy' | 'createdByName'>
+  onClose: () => void
+  onHidden: () => void
+  onDone?: () => void
+  foreign?: boolean
+}) {
   const online = useOnline()
   const [list, setList] = useState<Member[] | null>(null)
   const [err, setErr] = useState('')
@@ -70,7 +86,9 @@ export function TransferGroup({ g, onClose, onHidden }: { g: PlayerGroup; onClos
   async function submit() {
     if (!supabase || !target) return
     const kept = keepOld && canKeep
-    const lose = g.private
+    const lose = foreign
+      ? ''
+      : g.private
       ? ' Groupe privé : tu ne le verras plus, il disparaîtra de cet appareil.'
       : g.team
         ? ' Groupe « Mon staff » : tu n’y auras plus accès, sauf si tu en es participant.'
@@ -88,10 +106,11 @@ export function TransferGroup({ g, onClose, onHidden }: { g: PlayerGroup; onClos
     if (error)
       return inform(
         error.code === 'PGRST202'
-          ? 'Réattribution pas encore disponible sur le serveur : exécute d’abord supabase/038_reattribuer_groupe.sql dans Supabase.'
+          ? 'Réattribution pas encore disponible sur le serveur : exécute d’abord supabase/038_reattribuer_groupe.sql (et 039 pour les groupes des autres) dans Supabase.'
           : `Réattribution impossible : ${error.message}`,
       )
     const visible = (data as { visible?: boolean } | null)?.visible !== false
+    onDone?.()
     if (!visible) onHidden()
     else onClose()
     // Version du serveur ramenée tout de suite ; groupe devenu invisible : effacé de l'appareil.
