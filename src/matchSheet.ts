@@ -163,6 +163,19 @@ const KNOWN: [RegExp, ActionKind][] = [
 ]
 const KNOWN_PREFIX = /^(but 7 ?m|but|tir 7 ?m|tir|arr[eê]t 7 ?m|arr[eê]t|2 ?mn|2 ?min|avertissement|disqualification|carton rouge|carton bleu|temps mort)\b/i
 
+/** Colonne de statistique qui compte une action (pour départager deux homonymes). */
+const STAT_OF: Partial<Record<ActionKind, keyof SheetStats>> = {
+  but: 'buts',
+  but7: 'buts',
+  tir: 'tirs',
+  tir7: 'tirs',
+  arret: 'arrets',
+  arret7: 'arrets',
+  '2mn': 'deux',
+  avert: 'av',
+  disq: 'dis',
+}
+
 function kindOf(label: string): ActionKind {
   const f = fold(clean(label))
   return KNOWN.find(([re]) => re.test(f))?.[1] ?? 'autre'
@@ -333,7 +346,16 @@ export function parseSheet(all: PdfItem[]): ParsedSheet {
     const k = kindOf(label)
     const goal = k === 'but' || k === 'but7'
     const scoreSide: Side | undefined = r.s[0] > prev[0] ? 'home' : r.s[1] > prev[1] ? 'away' : undefined
-    const pick = cands.length > 1 && goal && scoreSide ? cands.find((c) => c.side === scoreSide) : cands[0]
+    // Homonymes : l'équipe qui marque (buts), puis la statistique de la feuille (seul l'un des deux a des arrêts…).
+    let pool = cands
+    if (pool.length > 1 && goal && scoreSide && pool.some((c) => c.side === scoreSide)) pool = pool.filter((c) => c.side === scoreSide)
+    const stat = STAT_OF[k]
+    if (pool.length > 1 && stat) {
+      const withStat = pool.filter((c) => (roster[c.idx].stats[stat] ?? 0) > 0)
+      if (withStat.length) pool = withStat
+    }
+    const pick = pool.length === 1 ? pool[0] : undefined
+    if (!pick && cands.length) who = clean(text.slice(text.length - len))
     let side: Side | undefined = goal && scoreSide ? scoreSide : pick?.side
     if (k === 'tm') {
       side = /recevant/i.test(r.text) ? 'home' : /visiteur/i.test(r.text) ? 'away' : undefined

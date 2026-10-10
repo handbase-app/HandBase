@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Video, VideoMoment } from '../db'
 import { embedOf, fmtMoment, momentLabel, momentsOf, openUrl, sourceLabel, type Embed } from '../videos'
 import { Icon } from './ui'
@@ -258,6 +258,16 @@ function useOnline() {
   return on
 }
 
+/** Commandes offertes aux outils ajoutés sous les moments (calage d'une feuille de match…). */
+export interface PlayerTools {
+  /** Le lecteur est prêt (sinon time() rend undefined et seek ne fait rien). */
+  ready: boolean
+  /** Temps courant de la vidéo (s). */
+  time(): number | undefined
+  /** Aller à ce temps et lire. */
+  seek(t: number): void
+}
+
 /** Passage en cours : moment i, seul ou dans l'enchaînement de tous les moments. */
 type Run = { i: number; seq: boolean }
 
@@ -265,7 +275,18 @@ type Run = { i: number; seq: boolean }
  * Panneau (plein écran sur mobile) : lecteur, moments à jouer, enchaînement « Voir les actions ».
  * `moment` : indice du moment à jouer dès que le lecteur est prêt (clic sur une pastille).
  */
-export default function VideoPlayer({ video, moment, onClose }: { video: Video; moment?: number; onClose: () => void }) {
+export default function VideoPlayer({
+  video,
+  moment,
+  onClose,
+  tools,
+}: {
+  video: Video
+  moment?: number
+  onClose: () => void
+  /** Outils affichés sous les moments (ex. calage d'une feuille de match sur la vidéo de l'événement). */
+  tools?: (api: PlayerTools) => ReactNode
+}) {
   const embed = embedOf(video.url)
   const online = useOnline()
   const moments = momentsOf(video)
@@ -490,6 +511,16 @@ export default function VideoPlayer({ video, moment, onClose }: { video: Video; 
               {canPlay && <p className="text-[10px] text-muted">Un moment sans durée est lu {DEFAULT_DUR} s (ou jusqu’au moment suivant).</p>}
             </>
           )}
+          {tools?.({
+            ready: !!ctl && canPlay,
+            time: () => ctl?.time(),
+            seek: (t) => {
+              if (!ctl) return
+              setRun(null)
+              ctl.seek(Math.max(0, t))
+              ctl.play()
+            },
+          })}
         </div>
         </div>
       </div>

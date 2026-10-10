@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
 import { can, useRole } from '../roles'
 import { supabase } from '../sync'
@@ -20,6 +20,7 @@ import {
 } from '../videos'
 import { ask } from './Confirm'
 import { Icon, InfoButton } from './ui'
+import type { PlayerTools } from './VideoPlayer'
 
 /*
  * Section « Vidéos » d'une fiche joueur ou d'un événement (supabase/036_videos.sql) : liens vers des vidéos
@@ -56,7 +57,21 @@ function useOnline() {
 /** Moment d'ajout, pour l'ordre et la date affichée : celui du serveur, sinon celui de l'appareil (pas encore envoyé). */
 const addedAt = (v: Video) => (v.createdAtServer ? Date.parse(v.createdAtServer) : v.updatedAt)
 
-export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind']; targetId: string; dept?: string }) {
+export function VideoSection({
+  kind,
+  targetId,
+  dept,
+  tools,
+  children,
+}: {
+  kind: Video['targetKind']
+  targetId: string
+  dept?: string
+  /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement). */
+  tools?: (v: Video, api: PlayerTools) => ReactNode
+  /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
+  children?: ReactNode
+}) {
   const role = useRole()
   const online = useOnline()
   const videos = useLiveQuery(
@@ -144,6 +159,8 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
         </button>
       )}
 
+      {children}
+
       {playing && (
         <Suspense
           fallback={
@@ -152,7 +169,7 @@ export function VideoSection({ kind, targetId, dept }: { kind: Video['targetKind
             </div>
           }
         >
-          <VideoPlayer video={playing.v} moment={playing.moment} onClose={closePlayer} />
+          <VideoPlayer video={playing.v} moment={playing.moment} onClose={closePlayer} tools={tools && ((api) => tools(playing.v, api))} />
         </Suspense>
       )}
     </div>

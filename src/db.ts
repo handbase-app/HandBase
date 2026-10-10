@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
 import { guardWrite } from './spy'
 import { DEFAULT_CRITERIA } from './criteria'
+import type { MatchSheet } from './matchSheet'
 
 // ---------- Types ----------
 
@@ -226,6 +227,13 @@ export interface HBEvent extends Syncable {
   addedBy?: Record<string, string>
   /** Noms des comptes cités (participants, « ajouté par »). */
   names?: Record<string, string>
+  /** Heure de début (HH:MM), lue sur la feuille de match. */
+  time?: string
+  /**
+   * Feuille de match importée (src/matchSheet.ts) : équipes, score, numéros et fiches reliées, déroulé, calage sur la
+   * vidéo. Champ libre de l'événement, gardé tel quel par le serveur (hb_upsert, 037). Ni noms ni licences, ni le PDF.
+   */
+  matchSheet?: MatchSheet
 }
 
 /** Contexte d'un avis spontané (joueur vu hors des événements prévus). */

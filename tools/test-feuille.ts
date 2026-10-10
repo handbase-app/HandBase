@@ -4,7 +4,7 @@
 //   npx jiti tools/test-feuille.ts chemin.pdf      → lit une autre feuille et n'affiche que des comptes (aucun nom)
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { AWAY, FINAL, FLOW, HOME, LATE_T, PDF_BYTES } from './feuille-fictive.mjs'
+import { build } from './feuille-fictive.mjs'
 import {
   actionKeys,
   countKinds,
@@ -65,7 +65,10 @@ if (other) {
 }
 
 // ---------- Feuille fictive ----------
-const s = parseSheet(await items(new Uint8Array(PDF_BYTES())))
+const T = build('test')
+const { flow: FLOW, final: FINAL, home: HOME, away: AWAY } = T
+const LATE_T = 412
+const s = parseSheet(await items(new Uint8Array(T.bytes)))
 assert.equal(s.code, 'ZZTEST1')
 assert.equal(s.competition, 'U15 MASCULINS 2026-2027 TEST (PHASE 1)')
 assert.equal(s.pool, 'POULE 1')
@@ -111,7 +114,7 @@ for (const [i, a] of s.actions.entries()) {
     assert.equal(a.label, 'Commotion')
   }
   assert.equal(s.roster[a.pl!].name, f.name, `joueur de l’action ${i}`)
-  if (f.label.startsWith('But')) assert.equal(a.side, f.team)
+  if (f.label.startsWith('But')) assert.equal(a.side, f.side)
 }
 assert.equal(guessHalfMin(s.actions), 25)
 const late = lateIndexes(s.actions)
@@ -175,4 +178,19 @@ st.sync.opts = { saves: true }
 const gk = planPlayerMoments(st, 0)
 assert.equal(gk.generated + gk.unplaced, FLOW.filter((a) => a.name === HOME[0].name && (a.label === 'Arrêt' || a.label.startsWith('But'))).length)
 
-console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min`)
+// ---------- Feuille de la démo (joueurs de la base de démonstration, homonymes dans la même équipe) ----------
+const D = build('demo')
+const d = parseSheet(await items(new Uint8Array(D.bytes)))
+assert.equal(d.roster.length, D.home.length + D.away.length)
+assert.equal(d.actions.length, D.flow.length)
+assert.deepEqual(d.score, D.final)
+assert.equal(guessHalfMin(d.actions), 30)
+assert.deepEqual([...new Set(d.actions.map((a) => a.p))], [1, 2])
+for (const [i, a] of d.actions.entries()) {
+  const f = D.flow[i]
+  assert.equal(a.t, f.t)
+  if (f.lic) assert.equal(d.roster[a.pl!]?.license, f.lic, `joueur (licence) de l’action ${i} : ${f.label}`)
+}
+assert.equal(lateIndexes(d.actions).size, 13)
+
+console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)
