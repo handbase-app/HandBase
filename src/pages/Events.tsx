@@ -93,10 +93,10 @@ export default function Events() {
         <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
           <div className="flex gap-2">
-            <button className="btn-ghost px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
-              + Depuis une feuille de match
+            <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
+              + Feuille de match
             </button>
-            <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
+            <button className="btn-primary whitespace-nowrap px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
               + Événement
             </button>
           </div>

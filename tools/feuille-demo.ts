@@ -102,7 +102,7 @@ const r = writeSheet(
     competition: real.competition ?? 'U18 MASCULINS',
     pool: 'POULE A',
     date: `${weekday} ${d}/${m}/${y}${real.time ? ` ${real.time}` : ''}`,
-    salle: ['GYMNASE DU LUNEIGNAN', 'GYMNASE DU LUNEIGNAN 2 AVENUE DU STADE 55100 SAINTE-LUNEIGNAN'],
+    salle: ['SALLE DU STADE', 'SALLE DU STADE 2 RUE DU PORT 55100 SAINTE-LUNEIGNAN'],
     table: 'LEFORT Agnès',
     home: { name: 'JS SAINTE-LUNEIGNAN HANDBALL', club: '5531320', officials: [OFFICIAL, 'LECLERC Sophie'], players: team('home') },
     away: { name: 'OLYMPIQUE PORTLIEU HANDBALL', club: '6075817', officials: ['BARON Michel'], players: team('away') },
