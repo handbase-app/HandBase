@@ -445,8 +445,6 @@ export interface MatchSync {
   fix?: Record<string, number>
   /** Moments générés en plus des buts : arrêts (gardiens), tirs. */
   opts?: { saves?: boolean; shots?: boolean }
-  /** Dernière génération des moments (ms). */
-  generatedAt?: number
 }
 
 export interface MatchSheet {

@@ -46,7 +46,15 @@ export default defineConfig({
         // Réception des notifications (public/push-sw.js).
         importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Lecteur de PDF (feuille de match, ~1,8 Mo avec son worker) : pas installé d'avance pour tout le monde,
+        // gardé en cache au premier import (ensuite disponible hors ligne).
+        globIgnores: ['**/assets/pdf-*.js', '**/assets/pdf.worker*'],
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /\/assets\/pdf(\.worker\.min)?-[\w-]+\.m?js$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: { cacheName: 'pdfjs', expiration: { maxEntries: 6 } },
+          },
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
             handler: 'CacheFirst',

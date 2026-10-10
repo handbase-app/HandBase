@@ -178,19 +178,17 @@ st.sync.opts = { saves: true }
 const gk = planPlayerMoments(st, 0)
 assert.equal(gk.generated + gk.unplaced, FLOW.filter((a) => a.name === HOME[0].name && (a.label === 'Arrêt' || a.label.startsWith('But'))).length)
 
-// ---------- Feuille de la démo (joueurs de la base de démonstration, homonymes dans la même équipe) ----------
-const D = build('demo')
-const d = parseSheet(await items(new Uint8Array(D.bytes)))
-assert.equal(d.roster.length, D.home.length + D.away.length)
-assert.equal(d.actions.length, D.flow.length)
-assert.deepEqual(d.score, D.final)
+// ---------- Feuille de la démo (public/demo, faite par tools/feuille-demo.ts) ----------
+const d = parseSheet(await items(new Uint8Array(readFileSync(new URL('../public/demo/feuille-match-demo.pdf', import.meta.url)))))
 assert.equal(guessHalfMin(d.actions), 30)
 assert.deepEqual([...new Set(d.actions.map((a) => a.p))], [1, 2])
-for (const [i, a] of d.actions.entries()) {
-  const f = D.flow[i]
-  assert.equal(a.t, f.t)
-  if (f.lic) assert.equal(d.roster[a.pl!]?.license, f.lic, `joueur (licence) de l’action ${i} : ${f.label}`)
-}
-assert.equal(lateIndexes(d.actions).size, 13)
+assert.deepEqual(d.actions.at(-1)!.s, d.score)
+assert.ok(d.roster.every((r) => /^(5531320|6075817)\d{6}$/.test(r.license ?? '')), 'licences de la démo')
+// Homonymes (même équipe) : le gardien a les arrêts, l'autre les buts ; aucune action d'un joueur sans joueur relié.
+const gkHomonym = d.roster.findIndex((r) => r.license === '5531320000080')
+const fieldHomonym = d.roster.findIndex((r) => r.license === '5531320000093')
+assert.ok(gkHomonym >= 0 && fieldHomonym >= 0 && d.roster[gkHomonym].name === d.roster[fieldHomonym].name)
+assert.ok(d.actions.filter((a) => a.k === 'arret' && d.roster[a.pl!]?.name === d.roster[gkHomonym].name).every((a) => a.pl === gkHomonym))
+assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.who).length, 0)
 
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

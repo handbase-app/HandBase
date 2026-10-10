@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, useState } from 'react'
+import { Fragment, lazy, Suspense, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
@@ -19,6 +19,12 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
+
+// Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
+const loadSheet = () => import('../components/MatchSheet')
+const MatchImport = lazy(() => loadSheet().then((m) => ({ default: m.MatchImport })))
+const MatchSheetCard = lazy(() => loadSheet().then((m) => ({ default: m.MatchSheetCard })))
+const MatchSyncTools = lazy(() => loadSheet().then((m) => ({ default: m.MatchSyncTools })))
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -41,6 +47,7 @@ export default function Events() {
   const [params, setParams] = useSearchParams()
   const fromGroup = params.get('groupe') ?? undefined
   const [creating, setCreating] = useState(!!fromGroup)
+  const [fromSheet, setFromSheet] = useState(false)
   const nav = useNavigate()
   const [showAll, setShowAll] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -85,11 +92,26 @@ export default function Events() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
-          <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
-            + Événement
-          </button>
+          <div className="flex gap-2">
+            <button className="btn-ghost px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
+              + Depuis une feuille de match
+            </button>
+            <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
+              + Événement
+            </button>
+          </div>
         )}
       </div>
+      {fromSheet && (
+        <Suspense fallback={null}>
+          <MatchImport
+            onClose={(id) => {
+              setFromSheet(false)
+              if (id) nav(`/evenements/${id}`)
+            }}
+          />
+        </Suspense>
+      )}
       {creating && (
         <div className="card p-3">
           <NewEventForm
@@ -293,6 +315,7 @@ export function EventDetail() {
   const [editing, setEditing] = useState(false)
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
   const [removing, setRemoving] = useState(false)
+  const [importing, setImporting] = useState(false)
   // Liste des joueurs : toujours par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour cet
   // événement, repris par la notation). Filtres rapides : masquer ceux que j'ai notés, un poste.
   const [sort, setSort] = useRosterSort(id)
@@ -434,6 +457,7 @@ export function EventDetail() {
           <h1 className="text-lg font-extrabold">{ev.name}</h1>
           <div className="text-xs text-muted">
             {typeLabel(ev.type)} · {fmtDate(ev.date)}
+            {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
           {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
@@ -455,7 +479,37 @@ export function EventDetail() {
         </div>
       )}
 
-      {!editing && <VideoSection kind="event" targetId={ev.id} />}
+      {!editing && (
+        <VideoSection
+          kind="event"
+          targetId={ev.id}
+          tools={
+            ev.matchSheet
+              ? (v, api) => (
+                  <Suspense fallback={null}>
+                    <MatchSyncTools eventId={ev.id} video={v} api={api} />
+                  </Suspense>
+                )
+              : undefined
+          }
+        >
+          {!ev.matchSheet && manage && (
+            <button className="btn-ghost mt-2 w-full py-1.5 text-xs" onClick={() => setImporting(true)}>
+              + Importer une feuille de match (PDF)
+            </button>
+          )}
+        </VideoSection>
+      )}
+      {!editing && ev.matchSheet && (
+        <Suspense fallback={null}>
+          <MatchSheetCard ev={ev} manage={manage} />
+        </Suspense>
+      )}
+      {importing && (
+        <Suspense fallback={null}>
+          <MatchImport event={ev} onClose={() => setImporting(false)} />
+        </Suspense>
+      )}
 
       {/* Téléphone : boutons pleine largeur, l'un sous l'autre ; ordinateur : une barre d'actions compacte. */}
       <div className={bar ? 'flex flex-wrap items-center gap-2' : 'contents'}>
