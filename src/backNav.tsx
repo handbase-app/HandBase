@@ -120,7 +120,8 @@ const STATIC: Record<string, string> = {
 
 /** Nom de l'écran visé : fixe, ou lu dans la base (joueur, événement, groupe, alerte). */
 function useTargetLabel(path?: string): string | undefined {
-  const [, kind, id] = path?.match(/^\/(joueurs|evenements|groupes|alertes)\/([^/]+)$/) ?? []
+  // Fiche ouverte depuis un événement (/evenements/:id/joueurs/:pid) : le nom du joueur.
+  const [, kind, id] = path?.replace(/^\/evenements\/[^/]+(?=\/joueurs\/[^/]+$)/, '').match(/^\/(joueurs|evenements|groupes|alertes)\/([^/]+)$/) ?? []
   const name = useLiveQuery(async () => {
     if (!id) return undefined
     if (kind === 'joueurs') {

@@ -37,6 +37,8 @@ const Missed = lazy(() => import('./pages/Missed'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Events = lazy(() => import('./pages/Events'))
 const EventDetail = lazy(() => import('./pages/Events').then((m) => ({ default: m.EventDetail })))
+const EventPlayers = lazy(() => import('./pages/EventPlayers'))
+const EventPlayer = lazy(() => import('./pages/EventPlayers').then((m) => ({ default: m.EventPlayer })))
 const Groups = lazy(() => import('./pages/Groups'))
 const GroupDetail = lazy(() => import('./pages/Groups').then((m) => ({ default: m.GroupDetail })))
 const NewGroup = lazy(() => import('./pages/Groups').then((m) => ({ default: m.NewGroup })))
@@ -144,7 +146,7 @@ const PAGE_W: [RegExp, string][] = [
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
-  [/^\/joueurs\/[^/]+$/, 'wide:max-w-4xl'],
+  [/^\/(joueurs|evenements\/[^/]+\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
@@ -154,7 +156,7 @@ const PAGE_W: [RegExp, string][] = [
 ]
 
 /** Listes en maître-détail (liste + panneau sur ordinateur) : même largeur, liste seule ou fiche ouverte. */
-const MASTER = /^\/(joueurs|groupes|evenements)(\/[^/]+)?$/
+const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|evenements\/[^/]+\/joueurs\/[^/]+)$/
 
 function PageWidth({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -258,6 +260,10 @@ export default function App() {
           <Route path="/evenements" element={<MasterDetail base="/evenements" list={<Events />} listCol="minmax(0, var(--md-col))" />}>
             <Route index element={null} />
             <Route path=":id" element={<EventDetail />} />
+          </Route>
+          {/* Fiche ouverte depuis un événement : ses joueurs à gauche (ordinateur), ‹ › sur téléphone (EventPlayers.tsx). */}
+          <Route path="/evenements/:id/joueurs" element={<EventPlayers />}>
+            <Route path=":pid" element={<EventPlayer />} />
           </Route>
           <Route path="/groupes" element={<MasterDetail base="/groupes" list={<Groups />} listCol="minmax(0, var(--md-col))" />}>
             <Route index element={null} />

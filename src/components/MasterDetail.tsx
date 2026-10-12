@@ -40,7 +40,11 @@ export function PanelClose() {
 // Champs de texte pour lesquels une saisie compte (pas les recherches ni les menus de tri).
 const TYPED = 'textarea, input:not([type]), input[type=text], input[type=number], input[type=email], input[type=tel], input[type=url], input[type=date]'
 
-export default function MasterDetail({ base, list, listCol }: { base: string; list: ReactNode; listCol: string }) {
+/**
+ * `closeTo` : écran où mène « Fermer » (Échap) quand on n'y revient pas par l'historique (adresse partagée…) ;
+ * par défaut la liste seule (`base`). Fiche ouverte depuis un événement : l'événement.
+ */
+export default function MasterDetail({ base, list, listCol, closeTo }: { base: string; list: ReactNode; listCol: string; closeTo?: string }) {
   const split = useMedia(MQ.split)
   const outlet = useOutlet()
   const id = useMatch(`${base}/:id`)?.params.id
@@ -64,7 +68,7 @@ export default function MasterDetail({ base, list, listCol }: { base: string; li
   async function close() {
     if (!(await canLeave())) return
     if ((loc.state as { md?: boolean } | null)?.md) nav(-1)
-    else nav(base, { replace: true })
+    else nav(closeTo ?? base, { replace: true })
   }
   const closeRef = useRef(close)
   closeRef.current = close

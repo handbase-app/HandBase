@@ -42,7 +42,12 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
   const [top, setTop] = useState(50)
   // Remesurée quand l'écran tourne (en-tête plus compact sur téléphone couché).
   useLayoutEffect(() => {
-    const measure = () => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50)
+    // Barre collée sous l'en-tête (fiche ouverte depuis un événement, sur téléphone) : les onglets se collent dessous.
+    const measure = () =>
+      setTop(
+        (document.querySelector('header')?.getBoundingClientRect().height ?? 50) +
+          (document.querySelector<HTMLElement>('[data-ctx-bar]')?.offsetHeight ?? 0),
+      )
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
@@ -67,8 +72,13 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
   )
 }
 
-export default function PlayerDetail() {
-  const { id } = useParams()
+/**
+ * Fiche d'un joueur : /joueurs/:id, ou ouverte depuis une liste (événement…) qui passe `id` elle-même.
+ * `hideBack` : la liste fournit déjà son bouton retour (barre du haut sur téléphone).
+ */
+export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: string; hideBack?: boolean } = {}) {
+  const route = useParams()
+  const id = idProp ?? route.id
   const nav = useNavigate()
   const role = useRole()
   const panel = usePanel()
@@ -157,7 +167,7 @@ export default function PlayerDetail() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        {panel ? <PanelClose /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
+        {panel ? <PanelClose /> : hideBack ? <span /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
         <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         {can.exportPlayer(role) && (
           <button

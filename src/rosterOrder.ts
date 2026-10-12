@@ -154,3 +154,41 @@ export function groupRoster(list: Player[], ev: Pick<HBEvent, 'tournament'> | un
   if (!ev || group === 'poste' || !tournamentTeams(ev).length) return list
   return teamGroups(list, ev, group === 'equipe-poste').flatMap((g) => g.players)
 }
+
+/**
+ * Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs.
+ * `sub` : poste à l'intérieur d'une équipe (liste « Par équipe et poste »).
+ */
+export type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string }
+
+/** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
+export function rosterSections(list: Player[], withHeadings: boolean) {
+  const out: RosterSection[] = []
+  list.forEach((p, i) => {
+    if (i === 0 || (withHeadings && list[i - 1].position !== p.position))
+      out.push({ heading: withHeadings ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste') : null, start: i, players: [] })
+    out[out.length - 1].players.push(p)
+  })
+  return out
+}
+
+/**
+ * Liste d'un événement découpée comme sur sa page, sans les compteurs : par équipe (mes équipes d'abord, sous-titres
+ * de poste en « Par équipe et poste »), sinon par poste. `list` : déjà triée par sortRoster. Reprise par la fiche
+ * ouverte depuis l'événement (colonne de gauche, joueur précédent / suivant).
+ */
+export function eventSections(list: Player[], ev: Pick<HBEvent, 'tournament'>, group: RosterGroup): RosterSection[] {
+  if (!tournamentTeams(ev).length || group === 'poste') return rosterSections(list, list.some((p) => p.position))
+  const byPosition = group === 'equipe-poste'
+  const out: RosterSection[] = []
+  let start = 0
+  for (const { team, mine, players } of teamGroups(list, ev, byPosition)) {
+    if (byPosition)
+      rosterSections(players, true).forEach((s, k) =>
+        out.push({ heading: k === 0 ? team.name : null, mine: k === 0 && mine, sub: s.heading ?? undefined, start: start + s.start, players: s.players }),
+      )
+    else out.push({ heading: team.name, mine, start, players })
+    start += players.length
+  }
+  return out
+}

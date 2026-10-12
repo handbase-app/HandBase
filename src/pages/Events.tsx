@@ -14,11 +14,12 @@ import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
-import { filterRoster, isMine, ROSTER_GROUPS, ROSTER_SORTS, sortRoster, teamGroups, useRosterFilter, useRosterGroup, useRosterSort, type RosterSort } from '../rosterOrder'
+import { filterRoster, isMine, ROSTER_GROUPS, ROSTER_SORTS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort, type RosterSort } from '../rosterOrder'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
+import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
 import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 
@@ -240,23 +241,6 @@ export default function Events() {
 }
 
 /**
- * Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs.
- * `sub` : poste à l'intérieur d'une équipe (liste « Par équipe et poste »).
- */
-type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string }
-
-/** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
-function rosterSections(list: Player[], withHeadings: boolean) {
-  const out: RosterSection[] = []
-  list.forEach((p, i) => {
-    if (i === 0 || (withHeadings && list[i - 1].position !== p.position))
-      out.push({ heading: withHeadings ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste') : null, start: i, players: [] })
-    out[out.length - 1].players.push(p)
-  })
-  return out
-}
-
-/**
  * Tournoi réparti (supabase/041) : liste découpée par équipe, mes équipes d'abord, puis les autres, puis « Sans équipe » ;
  * dans chaque équipe, par poste (sous-titres, ordre du terrain) puis numéro de maillot, ou par numéro seulement.
  * Titre : progression (vus / total) et observateurs qui en ont la charge. Même ordre que la notation (groupRoster).
@@ -387,6 +371,9 @@ export function EventDetail() {
     const origins = (await db.events.bulkGet([...new Set(rewatch.map((r) => r.originEventId).filter((x): x is string => !!x))])).filter((e): e is HBEvent => !!e)
     return { ev, evals, players, criteria, seen, rewatch, extra, origins }
   }, [id])
+
+  // Retour d'une fiche ouverte depuis la liste : même position qu'avant.
+  useRestoreScroll(`evenement.${id}`, !!data)
 
   // Match importé d'une feuille avant la répartition en équipes : l'organisateur ou un participant qui l'ouvre
   // range une fois (par appareil) les joueurs dans les deux équipes de la feuille. Retirer ces équipes ensuite ne les
@@ -803,7 +790,15 @@ export function EventDetail() {
                         {byTeam ? (numOf(ev, p.id) ?? '–') : i + 1}
                       </span>
                       {/* La photo (ou les initiales) ouvre la fiche du joueur ; le reste de la ligne mène à l'évaluation. */}
-                      <Link to={`/joueurs/${p.id}`} title="Voir la fiche" aria-label={`Fiche de ${p.firstName} ${p.lastName}`} className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60">
+                      {/* Fiche dans l'événement : ses joueurs seulement autour (EventPlayers.tsx) ; le retour revient ici, à la même position. */}
+                      <Link
+                        to={`/evenements/${ev.id}/joueurs/${p.id}`}
+                        state={{ md: true }}
+                        onClick={() => rememberScroll(`evenement.${ev.id}`)}
+                        title="Voir la fiche"
+                        aria-label={`Fiche de ${p.firstName} ${p.lastName}`}
+                        className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60"
+                      >
                         <Avatar p={p} size={44} />
                       </Link>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
