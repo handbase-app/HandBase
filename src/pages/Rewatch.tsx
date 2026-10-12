@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, db, fmtDate, type HBEvent, type Player, type PlayerGroup } from '../db'
 import { useThrottledQuery } from '../live'
-import { useRole } from '../roles'
+import { can, useRole } from '../roles'
 import { loadRewatchEntries, revisitedAt, setRevisited, stamp, type RewatchEntry } from '../scouting'
 import { RewatchButton, RewatchOrigins } from '../components/Scouting'
 import { Avatar, Empty, GroupMark, PosBadges } from '../components/ui'
@@ -54,6 +54,11 @@ export default function RewatchPage() {
         <p className="text-[11px] text-muted">
           Joueurs que ton staff veut revoir. Revu dès qu’il est vu ou noté dans un événement visé ; pour un groupe ou la liste générale, avec « Revu ».
         </p>
+        {can.viewCoverage(role) && (
+          <Link to="/bilan" className="mt-1 inline-block text-[11px] font-bold text-accent">
+            Bilan du repérage : qui reste à voir, par génération et par club →
+          </Link>
+        )}
       </div>
       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
         {(

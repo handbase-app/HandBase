@@ -48,6 +48,8 @@ const Follows = lazy(() => import('./pages/Follows'))
 const Teams = lazy(() => import('./pages/Teams'))
 const Compare = lazy(() => import('./pages/Compare'))
 const RewatchPage = lazy(() => import('./pages/Rewatch'))
+const Coverage = lazy(() => import('./pages/Coverage'))
+const CoverageReport = lazy(() => import('./pages/Coverage').then((m) => ({ default: m.CoverageReport })))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -146,6 +148,8 @@ const PAGE_W: [RegExp, string][] = [
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
+  // Rapport chiffré du bilan : une feuille à imprimer.
+  [/^\/bilan\/rapport$/, 'wide:max-w-4xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
@@ -181,7 +185,7 @@ function UpdateBanner() {
   const ready = useUpdateReady()
   if (!ready) return null
   return (
-    <div className="fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
+    <div className="no-print fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
       <div className="flex w-full items-center gap-3 rounded-lg border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
         <span className="min-w-0 flex-1">Nouvelle version de HandBase disponible.</span>
         <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
@@ -270,6 +274,8 @@ export default function App() {
           <Route path="/national" element={<National />} />
           <Route path="/comparer" element={<Compare />} />
           <Route path="/a-revoir" element={<RewatchPage />} />
+          <Route path="/bilan" element={<Coverage />} />
+          <Route path="/bilan/rapport" element={<CoverageReport />} />
         </Routes>
         </PageWidth>
         </Suspense>

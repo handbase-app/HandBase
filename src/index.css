@@ -132,3 +132,13 @@ body {
     animation: none;
   }
 }
+
+/* Impression (Rapport Fédé du bilan du repérage, src/pages/Coverage.tsx) : seulement la feuille, sur fond blanc,
+   sans en-tête, menu ni boutons (.no-print). */
+@media print {
+  @page { margin: 12mm; }
+  :root { --nav-l: 0px !important; }
+  html, body { background: #fff !important; color: #000 !important; }
+  header, nav, .no-print { display: none !important; }
+  main { padding: 0 !important; }
+}

@@ -69,6 +69,19 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
             )}
           </Link>
         ))}
+        {/* Bilan du repérage (administrateurs et encadrants) : sous « Mes à revoir », toute la largeur des tuiles. */}
+        {can.viewCoverage(role) && (
+          <Link to="/bilan" className="card group col-span-full flex items-center gap-3 px-3 py-2.5 transition hover:border-accent">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
+              <Icon name="check" className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-bold">Bilan du repérage</span>
+              <span className="block truncate text-[11px] text-muted">Qui a été vu, par génération et par club</span>
+            </span>
+            <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
+          </Link>
+        )}
       </div>
 
       {/* Vue nationale : carte des départements (administrateurs). */}

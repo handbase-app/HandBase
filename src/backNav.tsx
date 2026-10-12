@@ -113,6 +113,9 @@ const STATIC: Record<string, string> = {
   '/suivis': 'MES SUIVIS',
   '/staffs': 'MES STAFFS',
   '/comparer': 'COMPARAISON',
+  '/a-revoir': 'MES À REVOIR',
+  '/bilan': 'BILAN DU REPÉRAGE',
+  '/bilan/rapport': 'RAPPORT CHIFFRÉ',
 }
 
 /** Nom de l'écran visé : fixe, ou lu dans la base (joueur, événement, groupe, alerte). */
