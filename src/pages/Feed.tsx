@@ -66,12 +66,12 @@ function Row({ it, seen, withDay = false }: { it: FeedItem; seen: number; withDa
   )
 }
 
-function Upcoming({ n }: { n: number }) {
+function Upcoming({ n, className = '' }: { n: number; className?: string }) {
   const evs = useLiveQuery(() => upcomingEvents(n), [n], [])
   const today = localDay(Date.now())
   if (!evs.length) return null
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={`flex flex-col gap-1.5 ${className}`}>
       {evs.map((e) => {
         const d = new Date(e.date + 'T00:00:00')
         return (
@@ -119,16 +119,19 @@ export function HomeFeed() {
           Tout voir →
         </Link>
       </div>
-      <Upcoming n={2} />
-      {items.length ? (
-        <div className="divide-y divide-line">
-          {items.slice(0, 6).map((it) => (
-            <Row key={it.key} it={it} seen={seen} withDay />
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-muted">Rien de nouveau ces deux dernières semaines.</p>
-      )}
+      {/* Ordinateur : prochains événements à gauche, nouveautés à droite (le cadre prend toute la largeur). */}
+      <div className="flex flex-col gap-3 side:flex-row side:items-start side:gap-5">
+        <Upcoming n={2} className="side:w-80 side:shrink-0" />
+        {items.length ? (
+          <div className="divide-y divide-line side:min-w-0 side:flex-1">
+            {items.slice(0, 6).map((it) => (
+              <Row key={it.key} it={it} seen={seen} withDay />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted side:flex-1">Rien de nouveau ces deux dernières semaines.</p>
+        )}
+      </div>
     </div>
   )
 }

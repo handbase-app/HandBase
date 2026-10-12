@@ -532,8 +532,14 @@ export function EventDetail() {
         adding ? (
           <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
-          <div className={duo ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : ''}>
+          // Deux colonnes seulement quand un joueur est choisi : sinon la liste (et « Notés hors liste ») prend toute la largeur.
+          <div className={avisPlayer ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : ''}>
           <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
+            {duo && !avisPlayer && (
+              <p className="text-[11px] text-muted">
+                {evals.length ? 'Choisis « avis » sur la ligne d’un joueur : ses avis et son radar s’affichent à droite.' : 'Aucun avis pour l’instant sur cet événement.'}
+              </p>
+            )}
             {!bar && (manage || contribute) && (
               <button className="btn-ghost text-xs" onClick={() => setAdding(true)}>
                 + Ajouter des joueurs (par groupe ou un par un)
@@ -692,26 +698,18 @@ export function EventDetail() {
               </>
             )}
           </div>
-          {duo && (
+          {avisPlayer && (
             // Avis du joueur choisi : colonne collée en haut du panneau, qui défile seule.
             <aside className="md-box sticky top-0 z-10 flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] flex-col gap-2 overflow-y-auto overscroll-contain">
-              {avisPlayer ? (
-                <>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-bold">
-                      {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
-                    </span>
-                    <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setOpenAvis(null)}>
-                      <Icon name="close" className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <EventAvis player={avisPlayer} evals={evals} criteria={criteria} event={ev} />
-                </>
-              ) : (
-                <p className="rounded-lg border border-dashed border-line p-4 text-center text-[11px] text-muted">
-                  {evals.length ? 'Choisis « avis » sur la ligne d’un joueur : ses avis et son radar s’affichent ici.' : 'Aucun avis pour l’instant sur cet événement.'}
-                </p>
-              )}
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-sm font-bold">
+                  {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
+                </span>
+                <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setOpenAvis(null)}>
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+              <EventAvis player={avisPlayer} evals={evals} criteria={criteria} event={ev} />
             </aside>
           )}
           </div>

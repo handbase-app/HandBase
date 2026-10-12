@@ -39,7 +39,8 @@ export function department(p: Pick<Player, 'clubCode' | 'license' | 'department'
 
 // Trimestre choisi : même code couleur que la pastille Q1…Q4 (vert → rouge).
 const QUARTER_ACTIVE = ['border-emerald-500 text-emerald-300', 'border-yellow-500 text-yellow-300', 'border-orange-500 text-orange-300', 'border-red-500 text-red-300']
-const QUARTER_LABELS = ['Q1 · janvier–mars', 'Q2 · avril–juin', 'Q3 · juillet–septembre', 'Q4 · octobre–décembre']
+// Libellés courts : ils tiennent dans la demi-largeur du panneau (colonne de filtres de l'ordinateur, téléphone).
+const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.–sept.', 'Q4 · oct.–déc.']
 
 export type SexFilter = 'all' | 'M' | 'F'
 
@@ -288,9 +289,9 @@ export function usePlayerFilter(
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
-              <option value="">Toutes les années</option>
+          <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2">
+            <select className={`field px-2 py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">Toutes années</option>
               {[...years, ...(year && !years.some(([y]) => y === year) ? [[year, 0] as [string, number]] : [])].map(([y, n]) => (
                 <option key={y} value={y}>
                   {y} ({n})
@@ -298,11 +299,11 @@ export function usePlayerFilter(
               ))}
             </select>
             <select
-              className={`field py-1.5 text-xs ${quarter ? `font-bold ${QUARTER_ACTIVE[quarter - 1]}` : ''}`}
+              className={`field px-2 py-1.5 text-xs ${quarter ? `font-bold ${QUARTER_ACTIVE[quarter - 1]}` : ''}`}
               value={quarter}
               onChange={(e) => setQuarter(Number(e.target.value))}
             >
-              <option value={0}>Tous les trimestres</option>
+              <option value={0}>Tous trimestres</option>
               {QUARTER_LABELS.map((l, i) => (
                 <option key={i} value={i + 1}>
                   {l}
@@ -437,6 +438,7 @@ export function usePlayerFilter(
   )
 
   // Grand écran (opts.dock) : le panneau est toujours ouvert, dans une colonne à côté de la liste (`side`).
+  // Sans `dock` (fiche ouverte à droite), il redevient repliable au-dessus de la liste.
   const docked = !!opts.dock && wideScreen
   const ui = (
     <div className="flex flex-col gap-2">

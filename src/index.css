@@ -66,7 +66,11 @@ html, body, #root { min-height: 100%; }
    La liste passe sur une colonne (deux si elle en a la place) ; dans le panneau, les listes suivent la largeur
    du panneau, pas celle de l'écran. --hdr : hauteur de l'en-tête (mesurée dans App.tsx). */
 :root { --hdr: 53px; --players-col: clamp(19rem, 28vw, 22rem); --md-col: clamp(19rem, 28vw, 24rem); }
+/* Fiche ouverte, les filtres des joueurs se replient : liste d'une carte de large, deux sur très grand écran. */
 @media (min-width: 1280px) and (min-height: 521px) {
+  :root { --players-col: 25rem; }
+}
+@media (min-width: 1700px) and (min-height: 521px) {
   :root { --players-col: 44rem; }
 }
 /* Téléphone couché : liste étroite (un tiers de l'écran) à gauche, fiche à droite ; panneau plus serré. */

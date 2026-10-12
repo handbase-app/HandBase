@@ -25,25 +25,28 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
   )
   const actions: { to: string; title: string; icon: string; main?: boolean }[] = ACTIONS
   return (
-    // Paysage / ordinateur : actions à gauche, fil « Quoi de neuf » à droite.
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 wide:grid wide:max-w-5xl wide:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] wide:items-start wide:gap-6 rail:pt-0">
-      <div className="flex flex-col gap-4">
-      <div className="text-center">
+    // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
+    // la largeur (tuiles et Vue nationale sur une rangée), fil en dessous.
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 rail:grid rail:max-w-5xl rail:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] rail:items-start rail:gap-6 rail:pt-0 side:max-w-6xl side:gap-5">
+      <div className="flex flex-col gap-4 side:grid side:grid-cols-5 side:gap-x-4 side:gap-y-5">
+      <div className="text-center side:col-span-full side:flex side:items-baseline side:gap-3 side:text-left">
         <h1 className="text-xl font-extrabold">Collecte & suivi</h1>
         {counts && (
-          <p className="mt-0.5 text-[11px] text-muted">
+          <p className="mt-0.5 text-[11px] text-muted side:mt-0">
             {counts.players.toLocaleString('fr-FR')} joueur{counts.players > 1 ? 's' : ''} · {counts.evals.toLocaleString('fr-FR')} évaluation
             {counts.evals > 1 ? 's' : ''}
           </p>
         )}
       </div>
 
-      <div className={`grid gap-2 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div
+        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} ${can.nationalView(role) ? 'side:col-span-3' : 'side:col-span-full'}`}
+      >
         {actions.map((t) => (
           <Link
             key={t.to}
             to={t.to}
-            className={`card relative flex flex-col items-center gap-1.5 px-2 py-3 text-center transition hover:border-accent ${t.main ? 'border-accent/60' : ''}`}
+            className={`card relative flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center side:py-4 transition hover:border-accent ${t.main ? 'border-accent/60' : ''}`}
           >
             <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${t.main ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -63,7 +66,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
 
       {/* Vue nationale : carte des départements (administrateurs). */}
       {can.nationalView(role) && (
-        <Link to="/national" className="card group flex items-center gap-3 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
+        <Link to="/national" className="card group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
             <Icon name="map" className="h-6 w-6" />
           </span>

@@ -36,7 +36,10 @@ export default function Players() {
     () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
     [all, view],
   )
-  const { filtered, ui, side, signature: filterSig, group } = usePlayerFilter(players, 'joueurs', DOCK)
+  // Ordinateur : joueur ouvert dans le panneau de droite (surligné). La colonne de filtres se replie alors
+  // (bouton « Filtres » au-dessus de la liste) pour laisser la place à la liste et à la fiche.
+  const selected = useSelected('/joueurs')
+  const { filtered, ui, side, signature: filterSig, group } = usePlayerFilter(players, 'joueurs', selected ? FOLDED : DOCK)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -63,8 +66,6 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
-  // Ordinateur : joueur ouvert dans le panneau de droite (surligné).
-  const selected = useSelected('/joueurs')
   // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -208,8 +209,9 @@ export default function Players() {
 
 /** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
 const PAGE = 60
-/** Grand écran : filtres dans une colonne toujours ouverte, à gauche de la liste. */
+/** Grand écran : filtres dans une colonne toujours ouverte, à gauche de la liste (repliés quand une fiche est ouverte). */
 const DOCK = { dock: true }
+const FOLDED = { dock: false }
 const SCROLL_KEY = 'handbase.joueurs.scroll'
 
 export { fold }
