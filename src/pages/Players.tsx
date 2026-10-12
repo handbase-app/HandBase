@@ -127,7 +127,7 @@ export default function Players() {
       <div className={side ? 'grid grid-cols-[21rem_minmax(0,1fr)] items-start gap-5' : ''}>
       {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
       <div className="md-box">
-      <div className="mb-3">{ui}</div>
+      {ui && <div className="mb-3">{ui}</div>}
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
           {plural(filtered.length, 'joueur')}

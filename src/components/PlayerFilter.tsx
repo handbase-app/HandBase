@@ -440,10 +440,12 @@ export function usePlayerFilter(
   // Grand écran (opts.dock) : le panneau est toujours ouvert, dans une colonne à côté de la liste (`side`).
   // Sans `dock` (fiche ouverte à droite), il redevient repliable au-dessus de la liste.
   const docked = !!opts.dock && wideScreen
-  const ui = (
+  const search = <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+  // Panneau ancré : la recherche passe en tête de la colonne de filtres, rien au-dessus de la liste.
+  const ui = docked ? null : (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
-        <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+        {search}
         {!docked && (
           <button
             onClick={() => setOpen(!open)}
@@ -477,6 +479,7 @@ export function usePlayerFilter(
   )
   const side = docked ? (
     <div className="flex flex-col gap-2">
+      <div className="flex">{search}</div>
       <div className="flex items-center justify-between gap-2">
         <span className="section-title mb-0">Filtres{chips.length > 0 && ` (${chips.length})`}</span>
         {active && (
