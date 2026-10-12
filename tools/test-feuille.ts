@@ -9,12 +9,14 @@ import {
   actionKeys,
   breakBefore,
   CLIP_LEAD,
+  END2,
   countKinds,
   guessHalfMin,
   isGenerated,
   lateIndexes,
   mapTime,
   matchPlayer,
+  periodStart,
   momentAction,
   momentNote,
   planPlayerMoments,
@@ -22,6 +24,7 @@ import {
   splitName,
   timeline,
   toStored,
+  TWO_MIN,
   type PdfItem,
 } from '../src/matchSheet'
 
@@ -261,6 +264,48 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   const r = timeline({ actions: d.actions, halfMin: 30, sync: { marks: { s1: 100, e1: 100 + 1800 * 1.2 } } })
   assert.ok(Math.abs(r.spanEnd(two, 120)! - (r.at(two)! + 144)) < 1e-6, 'bande 2 min au rythme du match')
   assert.equal(r.videoAt(1, 0), 100)
+}
+
+// Fin des 2 minutes : repère à l'exclusion + 120 s de jeu ; les estimations voisines bougent, le retirer (Annuler) les rétablit.
+{
+  const dl = lateIndexes(d.actions)
+  const base = { actions: d.actions, halfMin: 30, sync: { marks: { s1: 100 } as Record<string, number>, fix: {} as Record<string, number> } }
+  const t0 = timeline(base)
+  const two = d.actions.findIndex((a, i) => a.k === '2mn' && !dl.has(i) && t0.end2(i))
+  assert.ok(two >= 0, 'exclusion fiable dans la démo')
+  const e0 = t0.end2(two)!
+  assert.equal(e0.fixed, false)
+  assert.ok(Math.abs(e0.v - (t0.at(two)! + TWO_MIN)) < 1e-6, 'fin estimée 2 min après (un seul repère : temps réel)')
+  assert.ok(t0.endKey(two).endsWith(END2))
+  // Voisine : une action fiable de la même période après la fin des 2 minutes.
+  const nb = d.actions.findIndex((a, i) => i > two && a.p === d.actions[two].p && !dl.has(i) && a.t > d.actions[two].t + TWO_MIN)
+  const before = d.actions.map((_, i) => t0.at(i))
+  const moved = { ...base, sync: { ...base.sync, fix: { [t0.endKey(two)]: e0.v + 30 } } }
+  const t1 = timeline(moved)
+  assert.deepEqual(t1.end2(two), { v: e0.v + 30, fixed: true })
+  assert.ok(t1.anchors(d.actions[two].p).some((a) => a.key === t0.endKey(two)), 'repère de la période')
+  // Après le dernier repère : pente observée entre le coup d'envoi et la fin des 2 minutes.
+  const g2 = d.actions[two].t + TWO_MIN
+  const slope = (e0.v + 30 - 100) / g2
+  assert.ok(Math.abs(t1.at(nb)! - (e0.v + 30 + (d.actions[nb].t - g2) * slope)) < 1e-6, 'voisine décalée')
+  assert.ok(t1.at(nb)! > before[nb]! + 30)
+  assert.ok(Math.abs(t1.at(two)! - (100 + d.actions[two].t * slope)) < 1e-6, 'l’exclusion, entre coup d’envoi et fin des 2 minutes, est interpolée')
+  assert.ok(Math.abs(t1.end2(two)!.v - t1.at(two)! - TWO_MIN * slope) < 1e-6, '2 minutes de jeu au rythme du calage')
+  // Annuler : le repère retiré, toutes les estimations reviennent.
+  const t2 = timeline({ ...base, sync: { ...base.sync, fix: {} } })
+  assert.deepEqual(d.actions.map((_, i) => t2.at(i)), before)
+  // Exclusion saisie en retard : sa fin calée la place (2 minutes avant) et recale ses voisines en retard, pas le reste.
+  const lateTwo = d.actions.findIndex((a, i) => a.k === '2mn' && dl.has(i) && t0.end2(i))
+  assert.ok(lateTwo >= 0, "exclusion saisie en retard dans la démo")
+  {
+    const tl3 = timeline({ ...base, sync: { ...base.sync, fix: { [t0.endKey(lateTwo)]: t0.end2(lateTwo)!.v + 40 } } })
+    assert.ok(Math.abs(tl3.at(lateTwo)! - (t0.at(lateTwo)! + 40)) < 1e-6, 'exclusion en retard déduite de sa fin')
+    assert.ok(!tl3.anchors(d.actions[lateTwo].p).some((a) => a.key === t0.endKey(lateTwo)), 'pas un repère du match')
+    assert.equal(tl3.at(nb), before[nb], 'actions fiables inchangées')
+  }
+  // Fin au-delà de la période : pas de repère de fin.
+  const lastTwo = { ...d.actions[two], t: periodStart(d.actions[two].p, 30) + 30 * 60 - 30 }
+  assert.equal(timeline({ ...base, actions: [lastTwo] }).end2(0), undefined)
 }
 
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

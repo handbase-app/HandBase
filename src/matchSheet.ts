@@ -569,6 +569,14 @@ export function mapTime(anchors: Anchor[], g: number): number | undefined {
  */
 export const breakBefore = (p: number) => (p === 2 ? 600 : 300)
 
+/**
+ * Fin d'une exclusion de 2 minutes : repère supplémentaire au temps de jeu de l'exclusion + 120 s (le retour du joueur se
+ * voit sur la vidéo). Rangé dans sync.fix sous la clé de l'exclusion suivie de END2 (« 1:640:5-6:2mn:0:fin2 ») : il suit
+ * l'exclusion d'un réimport à l'autre, comme les autres actions calées.
+ */
+export const END2 = ':fin2'
+export const TWO_MIN = 120
+
 /** État du placement d'une action : « calée » (posée à l'œil sur la vidéo) ou « estimée » (calculée). */
 export type PlaceStatus = 'fixed' | 'estimated'
 
@@ -591,6 +599,12 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
   const marks = sheet.sync?.marks ?? {}
   const fix = sheet.sync?.fix ?? {}
   const periods = [...new Set([1, ...sheet.actions.map((a) => a.p)])].sort((a, b) => a - b)
+  // Fin des 2 minutes : seulement si elle tombe dans la même période (sinon pas de repère de fin, plus simple et sans ambiguïté).
+  const hasEnd = (i: number) => {
+    const a = sheet.actions[i]
+    return a.k === '2mn' && a.t + TWO_MIN <= periodStart(a.p, sheet.halfMin) + periodLength(a.p, sheet.halfMin)
+  }
+  const endKey = (i: number) => keys[i] + END2
   const own = new Map<number, Anchor[]>()
   const anchors = (p: number): Anchor[] => {
     let list = own.get(p)
@@ -601,6 +615,8 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
     if (marks[`e${p}`] !== undefined) raw.push({ g: start + periodLength(p, sheet.halfMin), v: marks[`e${p}`], key: `e${p}` })
     sheet.actions.forEach((a, i) => {
       if (a.p === p && !late.has(i) && fix[keys[i]] !== undefined) raw.push({ g: a.t, v: fix[keys[i]], key: keys[i] })
+      // Fin des 2 minutes calée : repère à l'exclusion + 120 s de jeu (temps fiable seulement hors saisie en retard).
+      if (a.p === p && !late.has(i) && hasEnd(i) && fix[endKey(i)] !== undefined) raw.push({ g: a.t + TWO_MIN, v: fix[endKey(i)], key: endKey(i) })
     })
     raw.sort((a, b) => a.g - b.g || a.v - b.v)
     // Repères incohérents (vidéo qui recule quand le jeu avance, même temps de jeu) : le dernier posé dans l'ordre est ignoré.
@@ -632,6 +648,13 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
     const v = mapTime(eff.get(p) ?? [], g)
     return v === undefined ? undefined : Math.max(0, v)
   }
+  /** Durée vidéo de 2 minutes de jeu à partir de l'action i (arrêts de jeu compris, au rythme du calage). */
+  const twoMinVideo = (i: number) => {
+    const a = sheet.actions[i]
+    const g0 = mapped(a.p, a.t)
+    const g1 = mapped(a.p, a.t + TWO_MIN)
+    return g0 === undefined || g1 === undefined ? TWO_MIN : Math.max(TWO_MIN * SLOPE_MIN, g1 - g0)
+  }
   const reliableAt = (i: number) => {
     const f = fix[keys[i]]
     return f !== undefined ? f : mapped(sheet.actions[i].p, sheet.actions[i].t)
@@ -652,12 +675,16 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
     // Points connus : les deux bornes (positions -1 et n) et les actions de la suite posées à la main.
     const known: { k: number; v: number }[] = []
     if (v0 !== undefined) known.push({ k: -1, v: v0 })
+    // Exclusion en retard dont seule la fin est calée : elle se déduit de sa fin (2 minutes avant) et sert à ses voisines.
+    const fromEnd = (j: number) => (fix[keys[j]] === undefined && hasEnd(j) && fix[endKey(j)] !== undefined ? fix[endKey(j)] - twoMinVideo(j) : undefined)
     run.forEach((j, k) => {
-      if (fix[keys[j]] !== undefined) known.push({ k, v: fix[keys[j]] })
+      const v = fix[keys[j]] ?? fromEnd(j)
+      if (v !== undefined) known.push({ k, v })
     })
     if (v1 !== undefined) known.push({ k: run.length, v: v1 })
     run.forEach((j, k) => {
-      if (fix[keys[j]] !== undefined) return void lateAt.set(j, fix[keys[j]])
+      const own = fix[keys[j]] ?? fromEnd(j)
+      if (own !== undefined) return void lateAt.set(j, own)
       const l = known.filter((x) => x.k < k).at(-1)
       const r = known.find((x) => x.k > k)
       if (l && r) lateAt.set(j, r.v > l.v ? l.v + ((r.v - l.v) * (k - l.k)) / (r.k - l.k) : l.v)
@@ -696,8 +723,23 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
       const g1 = mapped(a.p, a.t + gameSec)
       return v === undefined || g0 === undefined || g1 === undefined ? undefined : v + Math.max(gameSec * SLOPE_MIN, g1 - g0)
     },
+    /** Clé (sync.fix) de la fin des 2 minutes de l'exclusion i. */
+    endKey,
+    /**
+     * Fin des 2 minutes de l'exclusion i : temps vidéo et calée ou non ; undefined si ce n'est pas une exclusion, si la fin
+     * tombe après la fin de la période, ou sans repère.
+     */
+    end2(i: number): { v: number; fixed: boolean } | undefined {
+      if (!hasEnd(i)) return undefined
+      const f = fix[endKey(i)]
+      if (f !== undefined) return { v: f, fixed: true }
+      const v = at(i)
+      return v === undefined ? undefined : { v: v + twoMinVideo(i), fixed: false }
+    },
     /** Nombre d'actions calées à la main. */
     fixedCount: keys.filter((k) => fix[k] !== undefined).length,
+    /** Nombre de fins de 2 minutes calées à la main. */
+    endFixedCount: sheet.actions.filter((_, i) => hasEnd(i) && fix[endKey(i)] !== undefined).length,
     /** Arrêts cumulés d'une période (s) : durée vidéo entre début et fin moins la durée de jeu ; undefined sans les deux repères. */
     stoppage(p: number): number | undefined {
       const s = marks[`s${p}`]

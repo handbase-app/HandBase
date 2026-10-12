@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { db, type Video } from '../db'
-import { momentAction, timelineOf, type ActionKind, type Side } from '../matchSheet'
+import { momentAction, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
 import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync } from '../matchSync'
 import { can, useRole } from '../roles'
 import { fmtMoment } from '../videos'
@@ -14,7 +14,8 @@ import { PlaceMark } from './Videos'
  * Frise du match sous la vidéo : un repère par action de la feuille de match, à son temps vidéo (toutes les actions du
  * match, pas seulement celles d'un joueur). Couleur de l'équipe (locaux bleu, visiteurs orange) ; plein = calée à l'œil
  * (✓), contour pointillé = estimée (~) ; forme selon le type (Glyph) ; repères de période sombres numérotés « 1 », « 2 »
- * (barrés en fin de période), « P1 », « P2 » en prolongation ; bande translucide pendant une exclusion de 2 minutes ;
+ * (barrés en fin de période), « P1 », « P2 » en prolongation ; bande translucide pendant une exclusion de 2 minutes, et à
+ * sa fin un « 2' » barré qui se cale comme une action (le retour du joueur se voit : bon repère, matchSheet.ts END2) ;
  * trait rouge = temps courant. Puces de filtre (Tous, Buts, 2', Cartons, Temps morts). Fenêtre d'environ 5 min autour du
  * temps courant, et en dessous la vidéo entière (toucher pour y aller). Des repères trop proches se regroupent en une
  * pastille « n » (couleur de l'équipe majoritaire, sinon neutre).
@@ -101,9 +102,11 @@ const readFilter = (): Filter => {
 }
 
 /** Un repère de la frise : action de la feuille (i, type, équipe) ou repère de période (key). */
-type Mk = { id: string; v: number; i?: number; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
-type Sel = { i: number } | { key: string }
-const selId = (s?: Sel) => (!s ? '' : 'i' in s ? `a${s.i}` : `m${s.key}`)
+type Mk = { id: string; v: number; i?: number; end?: boolean; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
+/** Repère choisi : action i (ou la fin de ses 2 minutes, end), ou repère de période. */
+type Sel = { i: number; end?: boolean } | { key: string }
+const selId = (s?: Sel) => (!s ? '' : 'i' in s ? `${s.end ? 'f' : 'a'}${s.i}` : `m${s.key}`)
+const selOf = (m: Mk): Sel => (m.i !== undefined ? { i: m.i, ...(m.end && { end: true }) } : { key: m.key! })
 
 /**
  * Forme d'un repère, selon son type ; pointe ou trait en bas, sur son temps. Calé = plein, estimé = contour pointillé, dans
@@ -145,6 +148,8 @@ function Glyph({ mk, big }: { mk: Mk; big?: boolean }) {
         {stem}
         <rect x="0.5" y="1" width="13" height="10" rx="2" style={{ fill }} {...line} />
         {text(mk.k === 'tm' ? 'T' : '2’', 7.5, 9)}
+        {/* Fin des 2 minutes : « 2' » barré. */}
+        {mk.end && <line x1="1.5" y1="9.5" x2="12.5" y2="2.5" style={{ stroke: mk.fixed ? '#fff' : color }} strokeWidth={1.4} />}
       </>
     )
   } else if (mk.k && CARD_COLOR[mk.k]) {
@@ -292,8 +297,10 @@ export default function MatchTimeline({
     const v = tl.at(i)
     if (v === undefined) return
     // Filtre : l'action choisie reste affichée.
-    if (kinds && !kinds.includes(a.k) && selId(sel) !== `a${i}`) return
+    if (kinds && !kinds.includes(a.k) && selId(sel) !== `a${i}` && selId(sel) !== `f${i}`) return
     mks.push({ id: `a${i}`, v, i, k: a.k, side: a.side, fixed: fix[tl.keys[i]] !== undefined, mine: a.pl !== undefined && pls.includes(a.pl) })
+    const e = tl.end2(i)
+    if (e) mks.push({ id: `f${i}`, v: e.v, i, end: true, k: a.k, side: a.side, fixed: e.fixed, mine: a.pl !== undefined && pls.includes(a.pl) })
   })
   mks.sort((a, b) => a.v - b.v)
   // Exclusions de 2 minutes : bande de la couleur de l'équipe, 2 min de jeu à partir de l'action (infériorité numérique).
@@ -302,7 +309,7 @@ export default function MatchTimeline({
       ? ms.actions.flatMap((a, i) => {
           if (a.k !== '2mn') return []
           const v0 = tl.at(i)
-          const v1 = tl.spanEnd(i, 120)
+          const v1 = tl.end2(i)?.v ?? tl.spanEnd(i, 120)
           return v0 === undefined || v1 === undefined ? [] : [{ i, v0, v1, side: a.side }]
         })
       : []
@@ -327,7 +334,7 @@ export default function MatchTimeline({
 
   const seek = (v: number) => api.seek(Math.max(0, v - 3))
   const choose = (m: Mk) => {
-    setSel(m.i !== undefined ? { i: m.i } : { key: m.key! })
+    setSel(selOf(m))
     setGroup(undefined)
     setMsg('')
     seek(m.v)
@@ -345,14 +352,18 @@ export default function MatchTimeline({
     if ('key' in s) return PERIOD_MARK[s.key]
     const a = ms.actions[s.i]
     const num = a.pl !== undefined ? ms.players[a.pl]?.num : undefined
+    if (s.end) return `Fin des 2’${num ? ` n°${num}` : ''} · ${minuteOf(a.t + TWO_MIN)}`
     return `${actionLabel(a)}${num ? ` n°${num}` : ''} · ${minuteOf(a.t)}`
   }
-  const undoLabel = (s: Sel) => ('key' in s ? PERIOD_MARK[s.key] : `${actionLabel(ms.actions[s.i])} ${ms.actions[s.i].s[0]}-${ms.actions[s.i].s[1]}`)
+  const undoLabel = (s: Sel) =>
+    'key' in s ? PERIOD_MARK[s.key] : `${s.end ? 'Fin des 2’' : actionLabel(ms.actions[s.i])} ${ms.actions[s.i].s[0]}-${ms.actions[s.i].s[1]}`
+  /** Clé de calage (sync.fix) d'une action ou de la fin de ses 2 minutes. */
+  const fixKey = (s: { i: number; end?: boolean }) => (s.end ? tl.endKey(s.i) : tl.keys[s.i])
   /** Pose le repère choisi à v (s), ou le retire (v absent). */
   const place = (s: Sel, v?: number) => {
     const val = v === undefined ? undefined : Math.max(0, Math.round(v * 10) / 10)
     const label = val === undefined ? `retrait ${undoLabel(s)}` : undoLabel(s)
-    return 'key' in s ? write({ kind: 'mark', key: s.key, v: val }, label, val) : write({ kind: 'fix', key: tl.keys[s.i], v: val }, label, val)
+    return 'key' in s ? write({ kind: 'mark', key: s.key, v: val }, label, val) : write({ kind: 'fix', key: fixKey(s), v: val }, label, val)
   }
   const here = (s: Sel) => {
     const t = api.time()
@@ -387,7 +398,7 @@ export default function MatchTimeline({
       const x = Math.min(Math.max(0, ev.clientX - rect.left), rect.width)
       const v = frozen + (x / width) * win
       setDrag(undefined)
-      const s: Sel = m.i !== undefined ? { i: m.i } : { key: m.key! }
+      const s = selOf(m)
       setSel(s)
       if (ev.type === 'pointerup') void place(s, v)
     }
@@ -402,7 +413,7 @@ export default function MatchTimeline({
     const m = mks[selIdx + d]
     if (m) choose(m)
   }
-  const fixedSel = sel ? ('key' in sel ? marks[sel.key] !== undefined : fix[tl.keys[sel.i]] !== undefined) : false
+  const fixedSel = sel ? ('key' in sel ? marks[sel.key] !== undefined : fix[fixKey(sel)] !== undefined) : false
   const small = 'flex h-8 min-w-8 items-center justify-center rounded border border-line bg-panel px-2 text-[11px] font-bold hover:border-accent disabled:opacity-40'
 
   return (
@@ -411,6 +422,7 @@ export default function MatchTimeline({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-bold text-emerald-300 tabular-nums">
           {plural(tl.fixedCount, 'action calée', 'actions calées')} sur {ms.actions.length}
+          {tl.endFixedCount > 0 && ` · ${plural(tl.endFixedCount, 'fin de 2’ calée', 'fins de 2’ calées')}`}
         </span>
         {marks.s1 === undefined && calib && (
           <button className="btn-primary h-8 px-3 text-xs" disabled={!api.ready || busy} title="Mets la vidéo sur le coup d’envoi, puis touche ce bouton" onClick={() => here({ key: 's1' })}>
@@ -491,8 +503,8 @@ export default function MatchTimeline({
               key={g[0].id}
               className="absolute top-0 flex h-9 w-8 -translate-x-1/2 items-start justify-center pt-1"
               style={{ left: xOf(g[0].v) }}
-              title={`${g[0].i !== undefined ? labelOf({ i: g[0].i }) : PERIOD_MARK[g[0].key!]} — ${g[0].fixed ? 'calé' : 'estimé'} à ${fmtMoment(Math.round(g[0].v))}`}
-              aria-label={`${g[0].i !== undefined ? labelOf({ i: g[0].i }) : PERIOD_MARK[g[0].key!]}, ${g[0].fixed ? 'calé' : 'estimé'}`}
+              title={`${g[0].i !== undefined ? labelOf(selOf(g[0])) : PERIOD_MARK[g[0].key!]} — ${g[0].fixed ? 'calé' : 'estimé'} à ${fmtMoment(Math.round(g[0].v))}`}
+              aria-label={`${g[0].i !== undefined ? labelOf(selOf(g[0])) : PERIOD_MARK[g[0].key!]}, ${g[0].fixed ? 'calé' : 'estimé'}`}
               aria-pressed={g[0].id === selId(sel)}
               onPointerDown={onDown(g[0])}
               onClick={() => !drag && choose(g[0])}
@@ -534,7 +546,7 @@ export default function MatchTimeline({
                 {m.fixed ? '✓' : '~'} {fmtMoment(Math.round(m.v))}
               </span>
               <span className="min-w-0 flex-1 truncate">
-                {m.i !== undefined ? labelOf({ i: m.i }) : PERIOD_MARK[m.key!]} {m.i !== undefined && <span className="text-muted">{who(ms.actions[m.i])}</span>}
+                {m.i !== undefined ? labelOf(selOf(m)) : PERIOD_MARK[m.key!]} {m.i !== undefined && <span className="text-muted">{who(ms.actions[m.i])}</span>}
               </span>
             </button>
           ))}
