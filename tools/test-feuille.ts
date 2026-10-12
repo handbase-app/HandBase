@@ -21,6 +21,8 @@ import {
   momentNote,
   planPlayerMoments,
   sheetPlayersOf,
+  simultaneous,
+  stepIn,
   splitName,
   timeline,
   toStored,
@@ -306,6 +308,28 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   // Fin au-delà de la période : pas de repère de fin.
   const lastTwo = { ...d.actions[two], t: periodStart(d.actions[two].p, 30) + 30 * 60 - 30 }
   assert.equal(timeline({ ...base, actions: [lastTwo] }).end2(0), undefined)
+}
+
+// Actions simultanées : même période et même temps (hors saisies en retard) ; calées d'un coup, elles bougent ensemble.
+{
+  const dl = lateIndexes(d.actions)
+  const groups = simultaneous(d.actions, dl)
+  const multi = [...new Set(groups.filter((g) => g.length > 1))]
+  assert.ok(multi.length > 0, 'groupes d’actions simultanées dans la démo')
+  for (const g of multi) assert.ok(g.every((i) => !dl.has(i) && d.actions[i].t === d.actions[g[0]].t && d.actions[i].p === d.actions[g[0]].p))
+  assert.ok([...dl].every((i) => groups[i].length === 1), 'saisies en retard jamais groupées')
+  const g = multi[0]
+  const t0 = timeline({ actions: d.actions, halfMin: 30, sync: { marks: { s1: 100 } } })
+  const fix = Object.fromEntries(g.map((i) => [t0.keys[i], t0.at(i)! + 12]))
+  const t1 = timeline({ actions: d.actions, halfMin: 30, sync: { marks: { s1: 100 }, fix } })
+  assert.ok(g.every((i) => t1.at(i) === t0.at(g[0])! + 12 && t1.status(i) === 'fixed'), 'groupe calé au même temps')
+  // Calage à la chaîne : avec le filtre « Buts », le suivant est le but suivant dans l'ordre de la vidéo.
+  const goals = d.actions.flatMap((a, i) => ((a.k === 'but' || a.k === 'but7') && groups[i][0] === i ? [{ id: `a${i}`, v: t0.at(i)!, i }] : []))
+  const sorted = [...goals].sort((a, b) => a.v - b.v)
+  assert.equal(stepIn(goals, sorted[0].id, 1)?.id, sorted[1].id)
+  assert.equal(stepIn(goals, sorted[1].id, -1)?.id, sorted[0].id)
+  assert.equal(stepIn(goals, sorted.at(-1)!.id, 1), undefined, 'au bout')
+  assert.ok(stepIn(goals, sorted[0].id, 1)!.i !== undefined && ['but', 'but7'].includes(d.actions[stepIn(goals, sorted[0].id, 1)!.i].k))
 }
 
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

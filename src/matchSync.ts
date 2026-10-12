@@ -24,7 +24,11 @@ export async function updateSync(eventId: string, fn: (s: MatchSync, ms: MatchSh
 
 /** Un repère de période (marks : s1, e1…) ou une action calée (fix : clé actionKeys) ; v absent = retiré. */
 export type SyncChange = { kind: 'mark' | 'fix'; key: string; v?: number }
-export type UndoEntry = { eventId: string; kind: SyncChange['kind']; key: string; prev?: number; label: string; v?: number }
+/**
+ * Un calage annulable : toutes ses écritures (un groupe d'actions simultanées se cale d'un coup), avec la valeur d'avant ;
+ * ctx : ce que l'écran veut retrouver en annulant (le repère choisi à ce moment-là).
+ */
+export type UndoEntry = { eventId: string; changes: { kind: SyncChange['kind']; key: string; prev?: number }[]; label: string; ctx?: string }
 
 /**
  * Calages annulables de la session (tous écrans confondus : un « C'est ici » posé depuis la fiche d'un joueur s'annule aussi
@@ -135,34 +139,49 @@ export function refreshMoments(eventId: string): Promise<GenerateResult> {
 }
 
 /**
- * Pose ou retire un repère (calage de la feuille) puis recale aussitôt les moments de tous les joueurs du match.
+ * Pose ou retire un ou plusieurs repères (un groupe d'actions simultanées se cale d'un coup, au même temps vidéo), puis
+ * recale aussitôt les moments de tous les joueurs du match.
  * video : vidéo de l'événement sur laquelle on cale (première écriture) ; absente depuis la fiche d'un joueur (même adresse).
  * label : affiché pour « Annuler » ; sans label, pas d'annulation (c'est déjà une annulation).
  */
-export async function applyCalibration(eventId: string, ch: SyncChange, label?: string, video?: Pick<Video, 'id' | 'url'>) {
-  let prev: number | undefined
+export async function applyCalibration(
+  eventId: string,
+  ch: SyncChange | SyncChange[],
+  label?: string,
+  video?: Pick<Video, 'id' | 'url'>,
+  ctx?: string,
+) {
+  const list = Array.isArray(ch) ? ch : [ch]
+  const prev: UndoEntry['changes'] = []
   await updateSync(eventId, (s) => {
-    const field = ch.kind === 'mark' ? 'marks' : 'fix'
-    const obj = { ...s[field] }
-    prev = obj[ch.key]
-    if (ch.v === undefined) delete obj[ch.key]
-    else obj[ch.key] = ch.v
-    return { ...s, ...(video && { videoId: video.id, url: video.url }), [field]: obj }
+    const marks = { ...s.marks }
+    const fix = { ...s.fix }
+    for (const c of list) {
+      const obj = c.kind === 'mark' ? marks : fix
+      prev.push({ kind: c.kind, key: c.key, prev: obj[c.key] })
+      if (c.v === undefined) delete obj[c.key]
+      else obj[c.key] = c.v
+    }
+    return { ...s, ...(video && { videoId: video.id, url: video.url }), marks, fix }
   })
   if (label) {
-    undoStack.push({ eventId, kind: ch.kind, key: ch.key, prev, label, v: ch.v })
+    undoStack.push({ eventId, changes: prev, label, ctx })
     if (undoStack.length > 50) undoStack.shift()
     undoChanged()
   }
   return refreshMoments(eventId)
 }
 
-/** Annule le dernier calage de cet événement (la valeur d'avant revient, ou le repère disparaît). */
-export async function undoLast(eventId: string) {
+/** Annule le dernier calage de cet événement (les valeurs d'avant reviennent, ou les repères disparaissent) ; rend ce calage. */
+export async function undoLast(eventId: string): Promise<UndoEntry | undefined> {
   const i = undoStack.map((e) => e.eventId).lastIndexOf(eventId)
-  if (i < 0) return
+  if (i < 0) return undefined
   const [e] = undoStack.splice(i, 1)
   undoChanged()
-  await applyCalibration(eventId, { kind: e.kind, key: e.key, v: e.prev })
+  await applyCalibration(
+    eventId,
+    e.changes.map((c) => ({ kind: c.kind, key: c.key, v: c.prev })),
+  )
+  return e
 }
 

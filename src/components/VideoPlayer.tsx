@@ -278,6 +278,19 @@ function useOnline() {
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
 const SKIP = 2
 
+/**
+ * Avancer ou reculer de d secondes. Juste après un saut, le lecteur (YouTube) rend encore l'ancien temps : des appuis
+ * rapprochés partent donc du dernier temps demandé (gardé 1,5 s), pour que trois appuis fassent bien trois sauts.
+ */
+const lastSeek = new WeakMap<Ctl, { t: number; at: number }>()
+function nudge(c: Ctl, d: number) {
+  const prev = lastSeek.get(c)
+  const base = prev && Date.now() - prev.at < 1500 ? prev.t : (c.time() ?? 0)
+  const t = Math.max(0, base + d)
+  lastSeek.set(c, { t, at: Date.now() })
+  c.seek(t)
+}
+
 /** « 12:05 » / « 1:02:05 ». */
 const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' : fmtMoment(Math.floor(t)))
 
@@ -300,10 +313,10 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
       <button className={btn} title={playing ? 'Pause (espace)' : 'Lire (espace)'} aria-label={playing ? 'Pause' : 'Lire'} onClick={() => (playing ? ctl.pause() : ctl.play())}>
         <Icon name={playing ? 'pause' : 'play'} className="h-4 w-4" filled />
       </button>
-      <button className={btn} title={`Reculer de ${SKIP} s (←)`} aria-label={`Reculer de ${SKIP} s`} onClick={() => ctl.seek(Math.max(0, (ctl.time() ?? 0) - SKIP))}>
+      <button className={btn} title={`Reculer de ${SKIP} s (←)`} aria-label={`Reculer de ${SKIP} s`} onClick={() => nudge(ctl, -SKIP)}>
         −{SKIP} s
       </button>
-      <button className={btn} title={`Avancer de ${SKIP} s (→)`} aria-label={`Avancer de ${SKIP} s`} onClick={() => ctl.seek((ctl.time() ?? 0) + SKIP)}>
+      <button className={btn} title={`Avancer de ${SKIP} s (→)`} aria-label={`Avancer de ${SKIP} s`} onClick={() => nudge(ctl, SKIP)}>
         +{SKIP} s
       </button>
       <span className="ml-1 min-w-0 truncate tabular-nums">
@@ -339,8 +352,10 @@ export interface PlayerTools {
   ready: boolean
   /** Temps courant de la vidéo (s). */
   time(): number | undefined
-  /** Aller à ce temps et lire. */
-  seek(t: number): void
+  /** Aller à ce temps et lire (play false : sans changer lecture / pause). */
+  seek(t: number, play?: boolean): void
+  /** En lecture. */
+  playing(): boolean
   /** Moment en cours, ou le dernier lancé (gardé quand son passage est fini) ; undefined si aucun. */
   moment?: VideoMoment
   /** Durée de la vidéo (s), undefined tant qu'elle n'est pas connue. */
@@ -410,32 +425,49 @@ export default function VideoPlayer({
     else setFs(true)
   }
 
-  // Échap ferme (ou quitte le plein écran) ; espace lit / met en pause ; flèches : ±2 s. La page derrière ne défile plus.
+  // Clavier, quel que soit l'élément qui a le focus (frise, repère, bouton…), sauf dans un champ de saisie : Échap ferme (ou
+  // quitte le plein écran) ; espace lit / met en pause ; flèches : ±2 s, avec Maj ±0,5 s. Écouté en phase de capture et
+  // sans action par défaut : un bouton qui a le focus ne se déclenche pas, la page ne défile pas. La page derrière ne
+  // défile plus. (Entrée et N, propres au calage, sont écoutés par la frise : MatchTimeline.)
   useEffect(() => {
+    const typing = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null
+      return !!el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)
+    }
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
       if (e.key === 'Escape') {
         if (document.fullscreenElement) return
         if (fs) return setFs(false)
         return onClose()
       }
       const c = ctlRef.current
-      if (!c || e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(tag ?? '')) return
+      if (!c || e.altKey || e.ctrlKey || e.metaKey || typing(e.target)) return
       if (e.key === ' ') {
         e.preventDefault()
-        if (c.playing()) c.pause()
-        else c.play()
+        e.stopPropagation()
+        if (!e.repeat) {
+          if (c.playing()) c.pause()
+          else c.play()
+        }
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
-        c.seek(Math.max(0, (c.time() ?? 0) + (e.key === 'ArrowLeft' ? -SKIP : SKIP)))
+        e.stopPropagation()
+        const d = e.shiftKey ? 0.5 : SKIP
+        nudge(c, e.key === 'ArrowLeft' ? -d : d)
       }
     }
-    window.addEventListener('keydown', onKey)
+    // Espace relâché sur un bouton : pas de clic (le bouton aurait été déclenché en plus de lecture / pause).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ' && !typing(e.target)) e.preventDefault()
+    }
+    window.addEventListener('keyup', onKeyUp, true)
+    window.addEventListener('keydown', onKey, true)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     closeBtn.current?.focus()
     return () => {
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('keyup', onKeyUp, true)
       document.body.style.overflow = overflow
     }
   }, [onClose, fs])
@@ -526,12 +558,13 @@ export default function VideoPlayer({
   const api: PlayerTools = {
     ready: !!ctl && canPlay,
     time: () => ctl?.time(),
-    seek: (t) => {
+    seek: (t, play = true) => {
       if (!ctl) return
       setRun(null)
       ctl.seek(Math.max(0, t))
-      ctl.play()
+      if (play) ctl.play()
     },
+    playing: () => !!ctl?.playing(),
     moment: last !== undefined ? moments[last] : undefined,
     duration: () => ctl?.duration(),
   }

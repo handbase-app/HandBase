@@ -759,6 +759,37 @@ export function timelineOf(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync
   return tl
 }
 
+/**
+ * Actions simultanées : même période et même temps de jeu sur la feuille (une exclusion et le 7 m ou le tir qui l'a
+ * provoquée…). Elles se calent ensemble, au même temps vidéo. Les saisies en retard ne sont jamais groupées (leur temps
+ * est faux : chacune est répartie et se cale seule). Rend, pour chaque action, les indices de son groupe (dans l'ordre du
+ * déroulé ; une action seule forme un groupe d'une action).
+ */
+export function simultaneous(actions: Pick<StoredAction, 'p' | 't'>[], late = lateIndexes(actions)): number[][] {
+  const byTime = new Map<string, number[]>()
+  const out: number[][] = []
+  actions.forEach((a, i) => {
+    if (late.has(i)) return void (out[i] = [i])
+    const k = `${a.p}:${a.t}`
+    const g = byTime.get(k) ?? []
+    g.push(i)
+    byTime.set(k, g)
+    out[i] = g
+  })
+  return out
+}
+
+/**
+ * Calage à la chaîne : repère suivant (dir 1) ou précédent (-1) après l'élément id, parmi ceux affichés (filtre appliqué),
+ * dans l'ordre de la vidéo (à temps égal, l'ordre de la liste). undefined au bout.
+ */
+export function stepIn<T extends { id: string; v: number }>(list: T[], id: string, dir: 1 | -1): T | undefined {
+  const sorted = list.map((x, k) => ({ x, k })).sort((a, b) => a.x.v - b.x.v || a.k - b.k)
+  const j = sorted.findIndex((e) => e.x.id === id)
+  if (j < 0) return dir === 1 ? sorted[0]?.x : sorted.at(-1)?.x
+  return sorted[j + dir]?.x
+}
+
 /** Temps vidéo d'une action (s), undefined si non calée. */
 export const videoTimeOf = (sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>, i: number) => timeline(sheet).at(i)
 

@@ -1,8 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { db, type Video } from '../db'
-import { momentAction, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
-import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync } from '../matchSync'
+import { momentAction, simultaneous, stepIn, timeline, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
+import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync, type SyncChange, type UndoEntry } from '../matchSync'
 import { can, useRole } from '../roles'
 import { fmtMoment } from '../videos'
 import { actionLabel, calibrated, plural, useActionWho } from './matchLabels'
@@ -21,7 +21,13 @@ import { PlaceMark } from './Videos'
  * pastille « n » (couleur de l'équipe majoritaire, sinon neutre).
  *
  * Toucher un repère : la vidéo y va et il est choisi ; la carte en dessous donne l'action, son statut et son temps, avec
- * −2 s / +2 s, « C'est ici ! », retirer le repère et « Annuler ». Un repère se fait aussi glisser. Tout le calcul est dans
+ * −2 s / +2 s, « C'est ici ! », retirer le repère et « Annuler ». Un repère se fait aussi glisser.
+ *
+ * Calage à la chaîne : après « C'est ici ! », le repère suivant affiché (filtre compris : avec « Buts », de but en but) est
+ * choisi et la vidéo va à son estimation, 3 s avant, en lecture si elle l'était ; « Passer » y va sans caler ; « Annuler »
+ * revient aussi au repère d'avant. Actions simultanées (même temps sur la feuille, matchSheet.ts simultaneous) : un seul
+ * repère, toutes listées sur la carte, calées, retirées et annulées ensemble. Clavier (ordinateur) : Entrée = « C'est ici ! »,
+ * N = passer ; espace et flèches sont gérés par le lecteur (VideoPlayer). Tout le calcul est dans
  * matchSheet.ts, les écritures dans matchSync.ts : ce fichier n'est que l'écran (il peut être remplacé sans y toucher).
  * Calage réservé à can.calibrateMatch ; les autres voient la frise et le statut.
  */
@@ -34,7 +40,7 @@ function useLastUndo(eventId: string) {
 }
 
 /** Bouton « Annuler » du dernier calage de l'événement. */
-export function UndoButton({ eventId, onDone }: { eventId: string; onDone?: () => void }) {
+export function UndoButton({ eventId, onDone }: { eventId: string; onDone?: (e?: UndoEntry) => void }) {
   const last = useLastUndo(eventId)
   if (!last) return null
   return (
@@ -102,11 +108,17 @@ const readFilter = (): Filter => {
 }
 
 /** Un repère de la frise : action de la feuille (i, type, équipe) ou repère de période (key). */
-type Mk = { id: string; v: number; i?: number; end?: boolean; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
+type Mk = { id: string; v: number; i?: number; is?: number[]; end?: boolean; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
 /** Repère choisi : action i (ou la fin de ses 2 minutes, end), ou repère de période. */
 type Sel = { i: number; end?: boolean } | { key: string }
 const selId = (s?: Sel) => (!s ? '' : 'i' in s ? `${s.end ? 'f' : 'a'}${s.i}` : `m${s.key}`)
 const selOf = (m: Mk): Sel => (m.i !== undefined ? { i: m.i, ...(m.end && { end: true }) } : { key: m.key! })
+/** Repère choisi retrouvé depuis son identifiant (« a12 », « f12 », « ms1 ») : pour revenir en arrière après « Annuler ». */
+const selFromId = (id?: string): Sel | undefined =>
+  !id ? undefined : id[0] === 'm' ? { key: id.slice(1) } : { i: Number(id.slice(1)), ...(id[0] === 'f' && { end: true }) }
+/** Type montré pour un groupe d'actions simultanées : but d'abord, puis exclusion, carton, temps mort, le reste. */
+const KIND_RANK: Partial<Record<ActionKind, number>> = { but: 0, but7: 0, '2mn': 1, disq: 2, avert: 2, bleu: 2, tm: 3 }
+const rank = (k: ActionKind) => KIND_RANK[k] ?? 4
 
 /**
  * Forme d'un repère, selon son type ; pointe ou trait en bas, sur son temps. Calé = plein, estimé = contour pointillé, dans
@@ -171,6 +183,15 @@ function Glyph({ mk, big }: { mk: Mk; big?: boolean }) {
   return (
     <svg width={16 * scale} height={24 * scale} viewBox="-1 -1 16 24" aria-hidden className="pointer-events-none overflow-visible drop-shadow">
       {body}
+      {/* Actions simultanées : nombre d'actions du groupe. */}
+      {(mk.is?.length ?? 0) > 1 && !mk.end && (
+        <>
+          <circle cx="14" cy="0" r="4.2" style={{ fill: INK }} />
+          <text x="14" y="2.6" textAnchor="middle" fontSize="6.5" fontWeight={800} style={{ fill: PAPER }}>
+            {mk.is!.length}
+          </text>
+        </>
+      )}
       {/* Action du joueur de la fiche ouverte : point sous le repère. */}
       {mk.mine && <circle cx="7" cy="21.5" r="1.8" style={{ fill: INK }} />}
     </svg>
@@ -231,6 +252,21 @@ export default function MatchTimeline({
   const [busy, setBusy] = useState(false)
   const track = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(320)
+  // Entrée = « C'est ici ! », N = passer : écoutés tant que la frise est ouverte, quel que soit le focus (sauf champ de saisie).
+  const keys = useRef<{ enter?: () => void; next?: () => void }>({})
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (e.altKey || e.ctrlKey || e.metaKey || (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable))) return
+      const fn = e.key === 'Enter' ? keys.current.enter : e.key === 'n' || e.key === 'N' ? keys.current.next : undefined
+      if (!fn) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (!e.repeat) fn()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
   const hasMs = !!ms
 
   // Temps courant et durée, relus 5 fois par seconde.
@@ -258,7 +294,7 @@ export default function MatchTimeline({
   useEffect(() => {
     if (!ms || !api.moment || !pls.length) return
     const i = momentAction(ms, pls, api.moment)
-    if (i !== undefined) setSel({ i })
+    if (i !== undefined) setSel({ i: simultaneous(ms.actions, timelineOf(ms).late)[i][0] })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mNote, mAt, hasMs])
 
@@ -293,14 +329,30 @@ export default function MatchTimeline({
   const mks: Mk[] = []
   for (const [key, v] of Object.entries(marks)) if (PERIOD_MARK[key]) mks.push({ id: `m${key}`, v, key, fixed: true, mine: false })
   const kinds = FILTERS.find((f) => f.k === filter)?.kinds
+  const sim = simultaneous(ms.actions, tl.late)
+  const isMine = (i: number) => ms.actions[i].pl !== undefined && pls.includes(ms.actions[i].pl!)
   ms.actions.forEach((a, i) => {
+    const g = sim[i]
+    // Fin des 2 minutes : repère à part (autre temps), même pour une exclusion d'un groupe.
+    const e = tl.end2(i)
+    if (e && (!kinds || kinds.includes('2mn') || selId(sel) === `f${i}`))
+      mks.push({ id: `f${i}`, v: e.v, i, end: true, k: a.k, side: a.side, fixed: e.fixed, mine: isMine(i) })
+    if (g[0] !== i) return // groupe : un seul repère, au nom de sa première action
     const v = tl.at(i)
     if (v === undefined) return
-    // Filtre : l'action choisie reste affichée.
-    if (kinds && !kinds.includes(a.k) && selId(sel) !== `a${i}` && selId(sel) !== `f${i}`) return
-    mks.push({ id: `a${i}`, v, i, k: a.k, side: a.side, fixed: fix[tl.keys[i]] !== undefined, mine: a.pl !== undefined && pls.includes(a.pl) })
-    const e = tl.end2(i)
-    if (e) mks.push({ id: `f${i}`, v: e.v, i, end: true, k: a.k, side: a.side, fixed: e.fixed, mine: a.pl !== undefined && pls.includes(a.pl) })
+    // Filtre : un groupe s'affiche si l'une de ses actions correspond ; le repère choisi reste affiché.
+    if (kinds && !g.some((j) => kinds.includes(ms.actions[j].k)) && selId(sel) !== `a${i}`) return
+    const lead = [...g].sort((x, y) => rank(ms.actions[x].k) - rank(ms.actions[y].k))[0]
+    mks.push({
+      id: `a${i}`,
+      v,
+      i,
+      is: g,
+      k: ms.actions[lead].k,
+      side: ms.actions[lead].side,
+      fixed: g.every((j) => fix[tl.keys[j]] !== undefined),
+      mine: g.some(isMine),
+    })
   })
   mks.sort((a, b) => a.v - b.v)
   // Exclusions de 2 minutes : bande de la couleur de l'équipe, 2 min de jeu à partir de l'action (infériorité numérique).
@@ -332,43 +384,87 @@ export default function MatchTimeline({
     else groups.push([m])
   }
 
-  const seek = (v: number) => api.seek(Math.max(0, v - 3))
-  const choose = (m: Mk) => {
+  /** Aller 3 s avant v ; play false : sans changer lecture / pause (calage à la chaîne). */
+  const seek = (v: number, play = true) => api.seek(Math.max(0, v - 3), play)
+  const choose = (m: Mk, play = true) => {
     setSel(selOf(m))
     setGroup(undefined)
     setMsg('')
-    seek(m.v)
+    seek(m.v, play)
   }
-  async function write(ch: Parameters<typeof applyCalibration>[1], label: string, v?: number) {
+  async function write(ch: SyncChange[], label: string, v: number | undefined, ctx: string) {
     setBusy(true)
     try {
-      const r = await applyCalibration(eventId, ch, label, eventVideo ? video : undefined)
+      const r = await applyCalibration(eventId, ch, label, eventVideo ? video : undefined, ctx)
       setMsg(v === undefined ? 'Repère retiré : l’action est de nouveau estimée.' : calibrated(v, r))
     } finally {
       setBusy(false)
     }
+  }
+  /** Actions d'un repère choisi : le groupe d'actions simultanées, ou l'exclusion seule pour la fin de ses 2 minutes. */
+  const membersOf = (s: { i: number; end?: boolean }) => (s.end ? [s.i] : sim[s.i])
+  const nameOf = (i: number) => {
+    const a = ms.actions[i]
+    const num = a.pl !== undefined ? ms.players[a.pl]?.num : undefined
+    return `${actionLabel(a)}${num ? ` n°${num}` : ''}`
   }
   const labelOf = (s: Sel) => {
     if ('key' in s) return PERIOD_MARK[s.key]
     const a = ms.actions[s.i]
     const num = a.pl !== undefined ? ms.players[a.pl]?.num : undefined
     if (s.end) return `Fin des 2’${num ? ` n°${num}` : ''} · ${minuteOf(a.t + TWO_MIN)}`
-    return `${actionLabel(a)}${num ? ` n°${num}` : ''} · ${minuteOf(a.t)}`
+    return `${membersOf(s).map(nameOf).join(' + ')} · ${minuteOf(a.t)}`
   }
   const undoLabel = (s: Sel) =>
-    'key' in s ? PERIOD_MARK[s.key] : `${s.end ? 'Fin des 2’' : actionLabel(ms.actions[s.i])} ${ms.actions[s.i].s[0]}-${ms.actions[s.i].s[1]}`
-  /** Clé de calage (sync.fix) d'une action ou de la fin de ses 2 minutes. */
-  const fixKey = (s: { i: number; end?: boolean }) => (s.end ? tl.endKey(s.i) : tl.keys[s.i])
-  /** Pose le repère choisi à v (s), ou le retire (v absent). */
+    'key' in s
+      ? PERIOD_MARK[s.key]
+      : `${s.end ? 'Fin des 2’' : membersOf(s).map((i) => actionLabel(ms.actions[i])).join(' + ')} ${ms.actions[s.i].s[0]}-${ms.actions[s.i].s[1]}`
+  /** Clés de calage (sync.fix) d'un repère : toutes les actions du groupe, ou la fin des 2 minutes. */
+  const fixKeys = (s: { i: number; end?: boolean }) => (s.end ? [tl.endKey(s.i)] : membersOf(s).map((i) => tl.keys[i]))
+  /** Pose le repère choisi à v (s), ou le retire (v absent) ; un groupe, d'un coup. */
   const place = (s: Sel, v?: number) => {
     const val = v === undefined ? undefined : Math.max(0, Math.round(v * 10) / 10)
     const label = val === undefined ? `retrait ${undoLabel(s)}` : undoLabel(s)
-    return 'key' in s ? write({ kind: 'mark', key: s.key, v: val }, label, val) : write({ kind: 'fix', key: fixKey(s), v: val }, label, val)
+    const ch: SyncChange[] = 'key' in s ? [{ kind: 'mark', key: s.key, v: val }] : fixKeys(s).map((key) => ({ kind: 'fix', key, v: val }))
+    return write(ch, label, val, selId(s))
   }
-  const here = (s: Sel) => {
+  /** Temps vidéo d'un repère d'après la feuille relue (après un calage, avant que l'écran soit à jour). */
+  async function freshV(s: Sel): Promise<number | undefined> {
+    const m = (await db.events.get(eventId))?.matchSheet
+    if (!m) return undefined
+    if ('key' in s) return m.sync?.marks?.[s.key]
+    const t = timeline(m)
+    return s.end ? t.end2(s.i)?.v : t.at(s.i)
+  }
+  /** Calage à la chaîne : choisir le repère suivant affiché et y aller, en gardant lecture ou pause. */
+  async function goNext(from: Sel, anchoredNow: boolean) {
+    const next = stepIn(mks, selId(from), 1)
+    if (!next) return setMsg((m) => `${m ? `${m} ` : ''}Dernier repère : fin de la chaîne.`)
+    const s = selOf(next)
+    setSel(s)
+    setGroup(undefined)
+    const v = anchoredNow ? await freshV(s) : next.v
+    if (v !== undefined) seek(v, api.playing())
+  }
+  const here = async (s: Sel) => {
     const t = api.time()
     if (t === undefined) return setMsg('Lance la vidéo d’abord (le lecteur n’est pas encore prêt).')
-    void place(s, t)
+    await place(s, t)
+    await goNext(s, true)
+  }
+  const pass = () => {
+    if (!sel) return
+    setMsg('')
+    void goNext(sel, false)
+  }
+  /** Après « Annuler » : retour au repère qui avait été calé, à son temps rétabli. */
+  async function backTo(e?: UndoEntry) {
+    setMsg('Calage annulé.')
+    const s = selFromId(e?.ctx)
+    if (!s) return
+    setSel(s)
+    const v = await freshV(s)
+    if (v !== undefined) seek(v, api.playing())
   }
 
   // Glisser un repère (calage) ; un simple toucher le choisit.
@@ -408,12 +504,14 @@ export default function MatchTimeline({
   }
 
   const selMk = mks.find((m) => m.id === selId(sel))
-  const selIdx = selMk ? mks.indexOf(selMk) : -1
-  const step = (d: number) => {
-    const m = mks[selIdx + d]
-    if (m) choose(m)
+  const step = (d: 1 | -1) => {
+    const m = stepIn(mks, selId(sel), d)
+    if (m) choose(m, api.playing())
   }
-  const fixedSel = sel ? ('key' in sel ? marks[sel.key] !== undefined : fix[fixKey(sel)] !== undefined) : false
+  const selFixed = (s: Sel) => ('key' in s ? marks[s.key] !== undefined : fixKeys(s).every((k) => fix[k] !== undefined))
+  const fixedSel = sel ? selFixed(sel) : false
+  const anyFixedSel = sel ? ('key' in sel ? fixedSel : fixKeys(sel).some((k) => fix[k] !== undefined)) : false
+  keys.current = calib && sel && !busy ? { enter: () => void here(sel), next: pass } : { next: sel ? pass : undefined }
   const small = 'flex h-8 min-w-8 items-center justify-center rounded border border-line bg-panel px-2 text-[11px] font-bold hover:border-accent disabled:opacity-40'
 
   return (
@@ -579,7 +677,7 @@ export default function MatchTimeline({
       {sel && selMk ? (
         <div className="flex flex-col gap-1.5 rounded-md border border-accent/50 bg-panel-2 p-2">
           <div className="flex items-center gap-1.5">
-            <button className={small} title="Action précédente" aria-label="Action précédente" disabled={selIdx <= 0} onClick={() => step(-1)}>
+            <button className={small} title="Action précédente" aria-label="Action précédente" disabled={!stepIn(mks, selId(sel), -1)} onClick={() => step(-1)}>
               <Icon name="prev" className="h-3.5 w-3.5" />
             </button>
             <div className="min-w-0 flex-1">
@@ -587,7 +685,7 @@ export default function MatchTimeline({
               <div className="flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted">
                 {'i' in sel && (
                   <span className="truncate">
-                    {ms.actions[sel.i].s[0]}-{ms.actions[sel.i].s[1]} · {who(ms.actions[sel.i])}
+                    {ms.actions[sel.i].s[0]}-{ms.actions[sel.i].s[1]} · {[...new Set(membersOf(sel).map((i) => who(ms.actions[i])))].join(', ')}
                     {tl.late.has(sel.i) ? ' · saisie en retard' : ''}
                   </span>
                 )}
@@ -595,7 +693,7 @@ export default function MatchTimeline({
                 <span className="tabular-nums">à {fmtMoment(Math.round(selMk.v))}</span>
               </div>
             </div>
-            <button className={small} title="Action suivante" aria-label="Action suivante" disabled={selIdx < 0 || selIdx >= mks.length - 1} onClick={() => step(1)}>
+            <button className={small} title="Action suivante" aria-label="Action suivante" disabled={!stepIn(mks, selId(sel), 1)} onClick={() => step(1)}>
               <Icon name="next" className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -611,11 +709,14 @@ export default function MatchTimeline({
                 className="h-9 rounded-md bg-yellow-400 px-4 text-sm font-extrabold text-black hover:bg-yellow-300 disabled:opacity-50"
                 disabled={!api.ready || busy}
                 title="L’action est à ce moment de la vidéo"
-                onClick={() => here(sel)}
+                onClick={() => void here(sel)}
               >
                 C’est ici !
               </button>
-              {fixedSel && (
+              <button className={small} disabled={busy || !stepIn(mks, selId(sel), 1)} title="Passer au repère suivant sans caler celui-ci (N)" onClick={pass}>
+                Passer
+              </button>
+              {anyFixedSel && (
                 <button className={`${small} text-muted hover:text-red-400`} disabled={busy} title="Retirer ce repère (l’action redevient estimée)" onClick={() => void place(sel)}>
                   <Icon name="close" className="h-3.5 w-3.5" />
                   <span className="ml-1">Retirer</span>
@@ -630,9 +731,13 @@ export default function MatchTimeline({
       {calib && (msg || lastUndo(eventId)) && (
         <div className="flex flex-wrap items-center gap-2">
           {msg && <span className="min-w-0 flex-1 text-[10px] text-emerald-300">{msg}</span>}
-          <UndoButton eventId={eventId} onDone={() => setMsg('Calage annulé.')} />
+          <UndoButton eventId={eventId} onDone={(e) => void backTo(e)} />
         </div>
       )}
+      {/* Raccourcis : ordinateur (pointeur précis) seulement. */}
+      <p className="hidden text-[10px] text-muted [@media(hover:hover)_and_(pointer:fine)]:block">
+        Espace : lecture · ← → 2 s · Maj 0,5 s{calib ? ' · Entrée : c’est ici' : ''} · N : passer
+      </p>
     </div>
   )
 }
