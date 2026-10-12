@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useSessionState } from './components/PlayerFilter'
 import { getMe } from './components/ui'
-import { POSITIONS, type Evaluation, type Player, type Position } from './db'
+import { POSITIONS, type Evaluation, type HBEvent, type Player, type Position } from './db'
+import { byNumber, myTournamentTeams, teamOf, tournamentTeams } from './scouting'
 import { currentUserId } from './roles'
 
 /*
  * Ordre de la liste des joueurs d'un événement : toujours regroupée par poste (ordre du terrain), et dans
  * chaque poste l'ordre choisi sur l'appareil pour cet événement (alphabétique par défaut).
+ * Événement réparti en équipes : d'abord par équipe (voir RosterGroup plus bas).
  * La notation (flèches, glisser, « joueur suivant à noter ») suit le même ordre que la page de l'événement.
  */
 
@@ -109,4 +111,46 @@ export function useRosterFilter(eventId?: string) {
  */
 export function filterRoster(roster: Player[], f: { pos: Position | ''; hideNoted: boolean }, notedByMe: Set<string>, keep?: string) {
   return roster.filter((p) => p.id === keep || ((!f.hideNoted || !notedByMe.has(p.id)) && (!f.pos || p.position === f.pos)))
+}
+
+/**
+ * Événement réparti en équipes (tournoi, match importé d'une feuille) : liste par équipe et poste (par défaut), par
+ * équipe et numéro, ou par poste seulement. Gardé pendant la session pour cet événement, repris par la notation.
+ */
+export type RosterGroup = 'equipe-poste' | 'equipe' | 'poste'
+
+export const ROSTER_GROUPS: { value: RosterGroup; label: string }[] = [
+  { value: 'equipe-poste', label: 'Par équipe et poste' },
+  { value: 'equipe', label: 'Par équipe et numéro' },
+  { value: 'poste', label: 'Par poste' },
+]
+
+export function useRosterGroup(eventId?: string) {
+  const [v, set] = useSessionState<RosterGroup>(`handbase.tournoi.${eventId ?? '-'}.par`, 'equipe-poste')
+  return [ROSTER_GROUPS.some((g) => g.value === v) ? v : 'equipe-poste', set] as const
+}
+
+/**
+ * Équipes dans l'ordre d'affichage : mes équipes d'abord, puis les autres, puis « Sans équipe » (id vide), chacune
+ * avec ses joueurs : par poste (ordre du terrain) puis numéro, ou par numéro seulement. Équipes vides omises.
+ */
+export function teamGroups(list: Player[], ev: Pick<HBEvent, 'tournament'>, byPosition: boolean) {
+  const mine = myTournamentTeams(ev)
+  const teams = [...tournamentTeams(ev)].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)))
+  const known = new Set(teams.map((t) => t.id))
+  const num = byNumber(ev)
+  const order = byPosition ? (a: Player, b: Player) => positionRank(a) - positionRank(b) || num(a, b) : num
+  return [...teams, { id: '', name: 'Sans équipe' }]
+    .map((team) => ({
+      team,
+      mine: mine.has(team.id),
+      players: list.filter((p) => (team.id ? teamOf(ev, p.id) === team.id : !known.has(teamOf(ev, p.id) ?? ''))).sort(order),
+    }))
+    .filter((g) => g.players.length)
+}
+
+/** Liste dans l'ordre affiché sur la page de l'événement (`list` déjà triée par sortRoster). */
+export function groupRoster(list: Player[], ev: Pick<HBEvent, 'tournament'> | undefined, group: RosterGroup) {
+  if (!ev || group === 'poste' || !tournamentTeams(ev).length) return list
+  return teamGroups(list, ev, group === 'equipe-poste').flatMap((g) => g.players)
 }

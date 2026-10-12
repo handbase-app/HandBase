@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
@@ -14,13 +14,13 @@ import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
-import { filterRoster, isMine, ROSTER_SORTS, sortRoster, useRosterFilter, useRosterSort, type RosterSort } from '../rosterOrder'
+import { filterRoster, isMine, ROSTER_GROUPS, ROSTER_SORTS, sortRoster, teamGroups, useRosterFilter, useRosterGroup, useRosterSort, type RosterSort } from '../rosterOrder'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
 import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
-import { byNumber, myTournamentTeams, numOf, personName, sightings, teamObservers, teamOf, tournamentTeams, type Sighting } from '../scouting'
+import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
 const loadSheet = () => import('../components/MatchSheet')
@@ -239,8 +239,11 @@ export default function Events() {
   )
 }
 
-/** Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs. */
-type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean }
+/**
+ * Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs.
+ * `sub` : poste à l'intérieur d'une équipe (liste « Par équipe et poste »).
+ */
+type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string }
 
 /** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
 function rosterSections(list: Player[], withHeadings: boolean) {
@@ -255,27 +258,25 @@ function rosterSections(list: Player[], withHeadings: boolean) {
 
 /**
  * Tournoi réparti (supabase/041) : liste découpée par équipe, mes équipes d'abord, puis les autres, puis « Sans équipe » ;
- * dans chaque équipe, par numéro de maillot. Titre : progression (vus / total) et observateurs qui en ont la charge.
+ * dans chaque équipe, par poste (sous-titres, ordre du terrain) puis numéro de maillot, ou par numéro seulement.
+ * Titre : progression (vus / total) et observateurs qui en ont la charge. Même ordre que la notation (groupRoster).
  */
-function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]>, name: (uid: string) => string) {
-  const mine = myTournamentTeams(ev)
-  const teams = [...tournamentTeams(ev)].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)))
-  const known = new Set(teams.map((t) => t.id))
-  const order = byNumber(ev)
+function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]>, name: (uid: string) => string, byPosition: boolean) {
   const out: RosterSection[] = []
   let start = 0
-  for (const t of [...teams, { id: '', name: 'Sans équipe' }]) {
-    const players = list.filter((p) => (t.id ? teamOf(ev, p.id) === t.id : !known.has(teamOf(ev, p.id) ?? ''))).sort(order)
-    if (!players.length) continue
+  for (const { team: t, mine, players } of teamGroups(list, ev, byPosition)) {
     const seen = players.filter((p) => (sight.get(p.id) ?? []).length).length
     const obs = t.id ? teamObservers(ev, t.id) : []
-    out.push({
+    const head = {
       heading: t.name,
-      start,
-      players,
-      mine: mine.has(t.id),
+      mine,
       info: [`${seen} sur ${players.length} vus`, obs.length ? `suivie par ${obs.map(name).join(', ')}` : ''].filter(Boolean).join(' · '),
-    })
+    }
+    if (byPosition)
+      rosterSections(players, true).forEach((s, k) =>
+        out.push({ ...(k === 0 ? head : { heading: null }), sub: s.heading ?? undefined, start: start + s.start, players: s.players }),
+      )
+    else out.push({ ...head, start, players })
     start += players.length
   }
   return out
@@ -357,9 +358,9 @@ export function EventDetail() {
   // Filtres partagés avec la notation : elle ne propose que les joueurs affichés ici.
   const { pos: posFilter, setPos: setPosFilter, hideNoted, setHideNoted } = useRosterFilter(id)
   // Couverture de l'équipe d'observateurs (supabase/041) : filtre de la liste (gardé pendant la session) ;
-  // tournoi réparti : liste par équipe (par défaut) ou par poste.
+  // événement réparti en équipes : liste par équipe et poste (par défaut), par équipe et numéro, ou par poste.
   const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
-  const [groupBy, setGroupBy] = useSessionState<'equipe' | 'poste'>(`handbase.tournoi.${id}.par`, 'equipe')
+  const [groupBy, setGroupBy] = useRosterGroup(id)
   // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
   const [openAvis, setOpenAvis] = useState<string | null>(null)
   const toggleAvis = (pid: string) => setOpenAvis((o) => (o === pid ? null : pid))
@@ -387,6 +388,24 @@ export function EventDetail() {
     return { ev, evals, players, criteria, seen, rewatch, extra, origins }
   }, [id])
 
+  // Match importé d'une feuille avant la répartition en équipes : l'organisateur ou un participant qui l'ouvre
+  // range une fois (par appareil) les joueurs dans les deux équipes de la feuille. Retirer ces équipes ensuite ne les
+  // fait pas revenir ; « Reprendre les deux équipes de la feuille de match » reste dans la répartition.
+  const autoEv = data?.ev
+  const autoEdit = !!autoEv && (can.editEvent(role, autoEv) || can.contributeEvent(role, autoEv))
+  useEffect(() => {
+    if (!autoEv || !autoEdit || !autoEv.matchSheet || autoEv.tournament || autoEv.deleted) return
+    if (!sheetPlayersWithoutTeam(undefined, autoEv.matchSheet, autoEv.playerIds ?? [])) return
+    const k = `handbase.equipesFeuille.${autoEv.id}`
+    try {
+      if (localStorage.getItem(k)) return
+      localStorage.setItem(k, '1')
+    } catch {
+      return
+    }
+    void saveTournament(autoEv, (t) => (t.teams.length ? t : teamsFromSheet(t, autoEv.matchSheet!, autoEv.playerIds ?? [])))
+  }, [autoEv, autoEdit])
+
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { ev, evals, players, criteria, seen, rewatch, extra, origins } = data
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
@@ -412,7 +431,7 @@ export function EventDetail() {
   // Tournoi réparti : équipes, mes équipes et leur progression.
   const tTeams = tournamentTeams(ev)
   const myTeams = myTournamentTeams(ev)
-  const byTeam = tTeams.length > 0 && groupBy === 'equipe'
+  const byTeam = tTeams.length > 0 && groupBy !== 'poste'
   const teamName = (pid: string) => tTeams.find((t) => t.id === teamOf(ev, pid))?.name
   const myRoster = roster.filter((p) => myTeams.has(teamOf(ev, p.id) ?? ''))
   const nameOf = (uid: string) => personName(uid, ev, teams)
@@ -461,7 +480,7 @@ export function EventDetail() {
       ))}
     </div>
   )
-  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf) : rosterSections(displayed, withHeadings)
+  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
   const avisPlayer = duo && openAvis ? players.find((p) => p.id === openAvis) : undefined
 
@@ -581,7 +600,7 @@ export function EventDetail() {
           <MatchImport event={ev} onClose={() => setImporting(false)} />
         </Suspense>
       )}
-      {!editing && (ev.type === 'tournoi' || tTeams.length > 0) && (
+      {!editing && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
         <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
       )}
 
@@ -710,13 +729,13 @@ export function EventDetail() {
                   <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
                     {tTeams.length > 0 && (
                       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-                        {(
-                          [
-                            ['equipe', 'Par équipe et numéro'],
-                            ['poste', 'Par poste'],
-                          ] as const
-                        ).map(([v, label]) => (
-                          <button key={v} onClick={() => setGroupBy(v)} className={`flex-1 py-1.5 ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}>
+                        {ROSTER_GROUPS.map(({ value: v, label }) => (
+                          <button
+                            key={v}
+                            onClick={() => setGroupBy(v)}
+                            aria-pressed={groupBy === v}
+                            className={`min-h-8 flex-1 px-1 py-1 leading-tight ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}
+                          >
                             {label}
                           </button>
                         ))}
@@ -770,6 +789,7 @@ export function EventDetail() {
                       {sec.info && <span className="text-[10px] font-normal text-muted normal-case">{sec.info}</span>}
                     </div>
                   )}
+                  {sec.sub && <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
                   <div className="cols flex flex-col gap-2">
                 {sec.players.map((p, j) => {
                   const i = sec.start + j

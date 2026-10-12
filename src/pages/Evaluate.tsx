@@ -6,7 +6,7 @@ import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { filterRoster, sortRoster, useRosterFilter, useRosterSort } from '../rosterOrder'
+import { filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
@@ -144,6 +144,7 @@ export default function Evaluate() {
 
   // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
   const [rosterSort] = useRosterSort(eventId || undefined)
+  const [rosterGroup] = useRosterGroup(eventId || undefined)
   // Filtres posés sur la page de l'événement (un poste, masquer ceux que j'ai notés) : on ne note que ces joueurs-là.
   const rosterFilter = useRosterFilter(eventId || undefined)
   useEffect(() => {
@@ -267,9 +268,14 @@ export default function Evaluate() {
   const evaluatedHere = new Set(spontaneous ? [] : mine.filter((e) => (e.eventId ?? '') === eventId).map((e) => e.playerId))
   // Liste de l'événement : on passe d'un joueur à l'autre sans recherche.
   const byId = new Map(players.map((p) => [p.id, p]))
-  const fullRoster = sortRoster(
-    (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
-    rosterSort,
+  // Événement réparti en équipes : l'ordre par équipe choisi sur la page de l'événement.
+  const fullRoster = groupRoster(
+    sortRoster(
+      (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
+      rosterSort,
+    ),
+    event,
+    rosterGroup,
   )
   // Le joueur en cours reste dans la liste même s'il vient d'être noté (sinon « → » ne saurait plus où il en est).
   const roster = filterRoster(fullRoster, rosterFilter, evaluatedHere, playerId)

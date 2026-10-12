@@ -19,6 +19,7 @@ import {
   type StoredAction,
 } from '../matchSheet'
 import { can, currentUserId, useRole } from '../roles'
+import { teamsFromSheet } from '../scouting'
 import { fmtMoment } from '../videos'
 import { ask } from './Confirm'
 import { actionLabel, calibrated, plural, sideName, useActionWho } from './matchLabels'
@@ -168,6 +169,8 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
           time: cur.time ?? sheet.time,
           place: cur.place || sheet.place,
           playerIds: ids,
+          // Les deux équipes de la feuille (sans toucher aux équipes choisies à la main).
+          tournament: teamsFromSheet(cur.tournament, stored, ids),
           ...(me && added.length && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
         })
         onClose(cur.id)
@@ -180,6 +183,7 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
           time: sheet.time,
           place: sheet.place,
           playerIds: add,
+          tournament: teamsFromSheet(undefined, stored, add),
           editors: [],
           matchSheet: stored,
         })

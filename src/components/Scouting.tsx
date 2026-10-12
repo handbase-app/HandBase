@@ -22,10 +22,12 @@ import {
   scoutId,
   setRevisited,
   setSeen,
+  sheetPlayersWithoutTeam,
   sightingNames,
   stamp,
   teamObservers,
   teamOf,
+  teamsFromSheet,
   tournamentTeams,
   type Sighting,
 } from '../scouting'
@@ -534,6 +536,8 @@ export function TournamentPanel({
   }
   const mineStat = [...mine].reduce((a, t) => ({ total: a.total + stat(t).total, seen: a.seen + stat(t).seen }), { total: 0, seen: 0 })
   const loose = stat(undefined)
+  // Match importé d'une feuille : joueurs reliés encore sans équipe (« Reprendre les deux équipes de la feuille »).
+  const fromSheet = ev.matchSheet ? sheetPlayersWithoutTeam(ev.tournament, ev.matchSheet, ev.playerIds ?? []) : 0
   const summary = ts.length
     ? `${plural(ts.length, 'équipe')}${mine.size ? ` · mes équipes : ${mineStat.seen} sur ${mineStat.total} vus` : ''}${loose.total ? ` · ${loose.total} sans équipe` : ''}`
     : 'Pas de répartition : tout le monde voit tout.'
@@ -556,6 +560,7 @@ export function TournamentPanel({
             <p className="text-[11px] text-muted">
               Déclare les équipes engagées, rattache chaque joueur à son équipe et confie une ou plusieurs équipes à chaque observateur : chacun voit
               « Mes équipes » en premier, l’événement montre la couverture par équipe. Sans répartition, tout le monde voit tout.
+              {edit && fromSheet > 0 && ' Match importé d’une feuille : « Équipes », puis « Reprendre les deux équipes de la feuille de match ».'}
             </p>
           )}
           {ts.length > 0 && (
@@ -610,6 +615,15 @@ export function TournamentPanel({
               </div>
               {part === 'equipes' && (
                 <div className="flex flex-col gap-1.5">
+                  {fromSheet > 0 && (
+                    <button
+                      className="btn-ghost min-h-8 justify-center px-3 py-1 text-xs"
+                      title={`${plural(fromSheet, 'joueur')} de la feuille de match encore sans équipe : rangés dans leur équipe, avec leur numéro`}
+                      onClick={() => void saveTournament(ev, (x) => teamsFromSheet(x, ev.matchSheet!, ev.playerIds ?? []))}
+                    >
+                      Reprendre les deux équipes de la feuille de match
+                    </button>
+                  )}
                   {ts.map((t) => (
                     <div key={`${t.id}:${t.name}`} className="flex items-center gap-2">
                       <input

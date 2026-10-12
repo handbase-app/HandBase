@@ -1,5 +1,7 @@
 import { alive, db, newId, remove, save, type Evaluation, type HBEvent, type Rewatch, type Seen, type Team, type Tournament } from './db'
 import { getMe } from './components/ui'
+import type { MatchSheet } from './matchSheet'
+import { teamsFromSheet as sheetTeams } from './sheetTeams'
 import { currentUserId, participants } from './roles'
 import { loadTeams } from './teams'
 import { supabase } from './sync'
@@ -196,6 +198,13 @@ export const teamObservers = (ev: Pick<HBEvent, 'tournament'>, teamId: string) =
 
 /** Identifiant court d'une nouvelle équipe (propre à l'événement). */
 export const newTeamId = () => 't' + Math.random().toString(36).slice(2, 8)
+
+/**
+ * Match importé d'une feuille FFHB : les deux équipes de la feuille (locaux, visiteurs), chaque joueur relié dans la
+ * sienne avec son numéro ; jamais par-dessus une équipe choisie à la main (src/sheetTeams.ts).
+ */
+export const teamsFromSheet = (t: Tournament | undefined, ms: MatchSheet, playerIds: string[]): Tournament => sheetTeams(t, ms, playerIds, newTeamId)
+export { sheetPlayersWithoutTeam } from './sheetTeams'
 
 /** Ordre dans une équipe : numéro de maillot (numérique d'abord), puis nom. */
 export function byNumber(ev: Pick<HBEvent, 'tournament'>) {
