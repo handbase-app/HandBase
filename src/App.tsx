@@ -177,7 +177,7 @@ function useHeaderHeight() {
   return ref
 }
 
-/** Colonne de la liste des joueurs, fiche ouverte (filtres repliés) : une carte de large, deux sur très grand écran (--players-col). */
+/** Colonne de la liste des joueurs, fiche ouverte (filtres repliés) : un tiers de la largeur, une carte de large (--players-col). */
 const PLAYERS_COL = 'minmax(0, var(--players-col))'
 
 /** Nouvelle version prête : un appui pour la prendre, sans fermer l'appli. */

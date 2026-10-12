@@ -63,16 +63,10 @@ html, body, #root { min-height: 100%; }
 }
 
 /* Maître-détail (ordinateur, components/MasterDetail.tsx) : liste à gauche, élément ouvert dans un panneau à droite.
-   La liste passe sur une colonne (deux si elle en a la place) ; dans le panneau, les listes suivent la largeur
+   La liste passe sur une seule colonne ; dans le panneau, les listes suivent la largeur
    du panneau, pas celle de l'écran. --hdr : hauteur de l'en-tête (mesurée dans App.tsx). */
-:root { --hdr: 53px; --players-col: clamp(19rem, 28vw, 22rem); --md-col: clamp(19rem, 28vw, 24rem); }
-/* Fiche ouverte, les filtres des joueurs se replient : liste d'une carte de large, deux sur très grand écran. */
-@media (min-width: 1280px) and (min-height: 521px) {
-  :root { --players-col: 25rem; }
-}
-@media (min-width: 1700px) and (min-height: 521px) {
-  :root { --players-col: 44rem; }
-}
+:root { --hdr: 53px; --players-col: clamp(19rem, 33%, 34rem); --md-col: clamp(19rem, 33%, 34rem); }
+/* Fiche ouverte : la liste prend un tiers de la largeur (une seule colonne de cartes), l'élément ouvert les deux tiers. */
 /* Téléphone couché : liste étroite (un tiers de l'écran) à gauche, fiche à droite ; panneau plus serré. */
 @media (orientation: landscape) and (max-height: 520px) {
   :root { --players-col: 34vw; --md-col: 34vw; }
@@ -84,7 +78,7 @@ html, body, #root { min-height: 100%; }
 .md-list, .md-panel, .md-box { container-type: inline-size; }
 .md-list .cols, .md-panel .cols { display: flex; }
 @container (min-width: 40rem) {
-  .md-list .cols, .md-panel .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md-panel .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* Trois colonnes seulement sur un panneau très large : en dessous, nom, poste et club seraient coupés. */
 @container (min-width: 100rem) {
