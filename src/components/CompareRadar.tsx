@@ -3,26 +3,19 @@ import { themeColor } from '../theme'
 import { useWidth } from '../layout'
 
 /*
- * Radar de la comparaison de deux joueurs : deux formes translucides superposées. Chargé à la demande
- * (recharts), comme le radar des avis. `focus` met un joueur en avant et estompe l'autre.
+ * Radar de la comparaison de deux ou trois joueurs : une forme translucide par joueur, superposées.
+ * Chargé à la demande (recharts), comme le radar des avis. `focus` (indice d'un joueur) le met en avant
+ * et estompe les autres. Chaque point porte une valeur par joueur : v0, v1, v2.
  */
-export default function CompareRadar({
-  data,
-  colors,
-  focus,
-}: {
-  data: { label: string; a: number; b: number }[]
-  colors: [string, string]
-  focus: 'a' | 'b' | null
-}) {
-  const style = (k: 'a' | 'b') =>
+export default function CompareRadar({ data, colors, focus }: { data: ({ label: string } & Record<string, number | string>)[]; colors: string[]; focus: number | null }) {
+  const style = (k: number) =>
     focus === null
-      ? { fillOpacity: 0.22, strokeOpacity: 1, strokeWidth: 2 }
+      ? { fillOpacity: colors.length > 2 ? 0.16 : 0.22, strokeOpacity: 1, strokeWidth: 2 }
       : focus === k
         ? { fillOpacity: 0.38, strokeOpacity: 1, strokeWidth: 2.5 }
         : { fillOpacity: 0.03, strokeOpacity: 0.25, strokeWidth: 1 }
   // Joueur mis en avant dessiné en dernier (au-dessus).
-  const order: ('a' | 'b')[] = focus === 'a' ? ['b', 'a'] : ['a', 'b']
+  const order = colors.map((_, i) => i).sort((x, y) => Number(x === focus) - Number(y === focus))
   // Libellés raccourcis s'ils sortiraient du cadre (le tableau les donne en entier).
   const [ref, w] = useWidth<HTMLDivElement>()
   const narrow = w > 0 && w < 520
@@ -46,7 +39,7 @@ export default function CompareRadar({
           <PolarAngleAxis dataKey="label" tick={w ? tick : false} />
           <PolarRadiusAxis domain={[0, 5]} tickCount={6} tick={false} axisLine={false} />
           {order.map((k) => (
-            <Radar key={k} dataKey={k} stroke={colors[k === 'a' ? 0 : 1]} fill={colors[k === 'a' ? 0 : 1]} isAnimationActive={false} {...style(k)} />
+            <Radar key={k} dataKey={`v${k}`} stroke={colors[k]} fill={colors[k]} isAnimationActive={false} {...style(k)} />
           ))}
         </RadarChart>
       </ResponsiveContainer>

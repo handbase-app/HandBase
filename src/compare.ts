@@ -1,7 +1,7 @@
 import type { Criterion, Evaluation } from './db'
 
 /*
- * Calculs de la comparaison de deux joueurs (écran /comparer) et de la note du classement d'un événement.
+ * Calculs de la comparaison de deux ou trois joueurs (écran /comparer) et de la note du classement d'un événement.
  */
 
 const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)
