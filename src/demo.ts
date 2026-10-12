@@ -1,5 +1,6 @@
 import { loadDemoCriteria } from './criteriaImport'
-import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position, type Team, type Video } from './db'
+import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Position, type Rewatch, type Seen, type Team, type Video } from './db'
+import { scoutId } from './scouting'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -247,24 +248,127 @@ export async function loadDemo() {
     { id: `${PREFIX}v-3`, targetKind: 'event', targetId: `${PREFIX}ev-2`, url: 'https://www.handballtv.fr/', title: 'Match complet', createdByName: 'Coach Paul', createdAtServer: ago(2), updatedAt: now },
   ]
 
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos], async () => {
+  // ----- Repérage en tournoi (supabase/041) : « Tournoi de l'Espenon » réparti en 4 équipes, « vu », « à revoir » -----
+  const scout = buildScouting(players, now)
+  evaluations.push(...scout.evaluations)
+
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
     await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
+    await db.events.bulkPut(scout.events)
+    await db.seen.bulkPut(scout.seen)
+    await db.rewatch.bulkPut(scout.rewatch)
+    await db.groups.bulkPut(scout.groups)
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
     await db.evaluations.bulkPut(evaluations)
     await db.videos.bulkPut(videos)
   })
-  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length, evaluations: evaluations.length, videos: videos.length }
+  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+}
+
+/**
+ * Tournoi de démonstration (noms et joueurs fictifs) : 4 équipes de 6 avec leurs numéros, observateurs répartis (dont
+ * moi : 2 équipes), « vu » de l'équipe d'observateurs (environ 3 joueurs sur 4), quelques avis, des « à revoir » vers un
+ * stage à venir, un groupe et la liste générale, et un « à revoir » déjà revu au tournoi.
+ */
+function buildScouting(players: Player[], now: number) {
+  const day = (n: number) => localDay(now + n * 24 * 3600 * 1000)
+  const me = scoutId() ?? 'local'
+  const T = PREFIX + 'ev-espenon'
+  const STAGE = PREFIX + 'ev-stage'
+  const teams = [
+    { id: 'ta', name: 'HBC Rhône Sud' },
+    { id: 'tb', name: 'Entente Drôme-Ardèche' },
+    { id: 'tc', name: 'AS Vallée Bleue' },
+    { id: 'td', name: 'Handball Collines' },
+  ]
+  // Joueurs fictifs répartis par club (6 par équipe), numéros de maillot.
+  const tPlayers: Record<string, { team: string; num: string }> = {}
+  players.forEach((p, i) => (tPlayers[p.id] = { team: teams[i % 4].id, num: String(2 + Math.floor(i / 4) * 3 + (i % 3)) }))
+  const names = Object.fromEntries([0, 1, 2].map((i) => [staffId(i), STAFF_NAMES[i]]))
+  const events: HBEvent[] = [
+    {
+      id: T,
+      name: 'Tournoi de l’Espenon',
+      type: 'tournoi',
+      date: day(-3),
+      place: 'Salle de l’Espenon',
+      playerIds: players.map((p) => p.id),
+      teams: [PREFIX + 'staff-1'],
+      names,
+      tournament: { teams, players: tPlayers, assign: { [me]: ['ta', 'tb'], [staffId(0)]: ['tc'], [staffId(1)]: ['td'], [staffId(2)]: ['tb'] } },
+      updatedAt: now,
+    },
+    { id: STAGE, name: 'Stage de Toussaint', type: 'entrainement', date: day(14), place: 'Valence', playerIds: [], names, updatedAt: now },
+  ]
+  // « Vu » : chaque observateur du staff voit surtout ses équipes, un peu les autres ; moi, quelques joueurs.
+  const ago = (h: number) => new Date(now - h * 3600 * 1000).toISOString()
+  const seen: Seen[] = []
+  const assign = events[0].tournament!.assign!
+  players.forEach((p, i) => {
+    const team = tPlayers[p.id].team
+    for (const u of [staffId(0), staffId(1), staffId(2)]) {
+      const mine = assign[u]?.includes(team)
+      if (rand() < (mine ? 0.6 : 0.1))
+        seen.push({ id: `${u}:${T}:${p.id}`, eventId: T, playerId: p.id, at: ago(70 - i), createdBy: u, createdByName: STAFF_NAMES[Number(u.split('-').pop()) - 1], createdAtServer: ago(70 - i), updatedAt: now })
+    }
+    if (assign[me].includes(team) && rand() < 0.35) seen.push({ id: `${me}:${T}:${p.id}`, eventId: T, playerId: p.id, at: ago(60 - i), updatedAt: now })
+  })
+  // Quelques avis au tournoi (le joueur compte alors comme vu par l'auteur).
+  const evaluations: Evaluation[] = players
+    .filter((_, i) => i % 5 === 1)
+    .map((p, k) => ({
+      id: `${PREFIX}e-espenon-${p.id}`,
+      playerId: p.id,
+      eventId: T,
+      observer: STAFF_NAMES[k % 3],
+      observerId: staffId(k % 3),
+      createdBy: staffId(k % 3),
+      createdByName: STAFF_NAMES[k % 3],
+      createdAtServer: ago(66),
+      date: day(-3),
+      scores: (p.position === 'GB' ? { gb_placement: 4, gb_reflexes: 4 } : { vision: 4, decision: 3, engagement: 4 }) as Record<string, number>,
+      minutesObserved: 10,
+      strengths: p.position === 'GB' ? 'Très bon placement sur les tirs à 9 m' : 'Excellent sur le premier pas',
+      updatedAt: now,
+    }))
+  // Groupe du staff qui reçoit les joueurs à revoir (sans créateur : visible et modifiable sur l'appareil de démonstration).
+  const group: PlayerGroup = { id: PREFIX + 'g-reperes', name: 'Repérés en tournoi', description: 'Joueurs à revoir (démonstration)', playerIds: [players[8].id], updatedAt: now }
+  const rw = (n: number, u: number, r: Omit<Rewatch, 'id' | 'updatedAt'>): Rewatch => ({
+    id: `${PREFIX}rw-${n}`,
+    createdBy: staffId(u),
+    createdByName: STAFF_NAMES[u],
+    createdAtServer: ago(60 - n),
+    updatedAt: now,
+    ...r,
+  })
+  const rewatch: Rewatch[] = [
+    rw(1, 2, { playerId: players[4].id, originEventId: T, events: [STAGE], note: 'Gros volume de course, à voir sur un match entier' }),
+    rw(2, 0, { playerId: players[4].id, originEventId: T, events: [STAGE], note: 'Bon jeu à deux avec le pivot' }),
+    rw(3, 0, { playerId: players[8].id, originEventId: T, groups: [group.id], note: 'Gaucher, à suivre en club' }),
+    rw(4, 1, { playerId: players[13].id, originEventId: T, note: 'Revoir en défense' }),
+    // Repéré au Tournoi de la Drôme, revu à l'Espenon (vu là-bas) : « revu ✓ ».
+    rw(5, 2, { playerId: players[1].id, originEventId: PREFIX + 'ev-3', events: [T], note: 'Lecture du jeu' }),
+  ]
+  // Repéré au tournoi : vu là-bas par son auteur.
+  for (const r of rewatch)
+    if (r.originEventId === T && !seen.some((s) => s.id === `${r.createdBy}:${T}:${r.playerId}`))
+      seen.push({ id: `${r.createdBy}:${T}:${r.playerId}`, eventId: T, playerId: r.playerId, createdBy: r.createdBy, createdByName: r.createdByName, createdAtServer: ago(62), updatedAt: now })
+  if (!seen.some((s) => s.playerId === players[1].id)) seen.push({ id: `${staffId(2)}:${T}:${players[1].id}`, eventId: T, playerId: players[1].id, createdBy: staffId(2), createdByName: STAFF_NAMES[2], createdAtServer: ago(50), updatedAt: now })
+  return { events, seen, evaluations, rewatch, groups: [group] }
 }
 
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
-  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.outbox], async () => {
-    for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos] as const) {
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups, db.seen, db.outbox], async () => {
+    for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)
       await t.bulkDelete(ids)
     }
-    await db.outbox.filter((o) => o.rowId.startsWith(PREFIX)).delete()
+    // « Vu » : identifiant « <compte>:<événement>:<joueur> » ; ceux d'un événement de démonstration.
+    const seen = (await db.seen.toArray()).filter((s) => s.eventId.startsWith(PREFIX)).map((s) => s.id)
+    await db.seen.bulkDelete(seen)
+    await db.outbox.filter((o) => o.rowId.startsWith(PREFIX) || seen.includes(o.rowId)).delete()
   })
 }

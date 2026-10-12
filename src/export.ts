@@ -105,6 +105,8 @@ export async function exportBackup() {
     lists: await db.lists.toArray(),
     alerts: await db.alerts.toArray(),
     videos: await db.videos.toArray(),
+    seen: await db.seen.toArray(),
+    rewatch: await db.rewatch.toArray(),
   }
   download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
@@ -112,7 +114,7 @@ export async function exportBackup() {
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos', 'seen', 'rewatch'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []
@@ -140,13 +142,15 @@ const h = (v: unknown) =>
 export async function exportPlayer(id: string) {
   const p = await db.players.get(id)
   if (!p) return
-  const [criteria, measurements, evaluations, events, groups, videos] = await Promise.all([
+  const [criteria, measurements, evaluations, events, groups, videos, seen, rewatch] = await Promise.all([
     db.criteria.toArray(),
     db.measurements.where('playerId').equals(id).toArray().then(alive),
     db.evaluations.where('playerId').equals(id).toArray().then(alive),
     db.events.toArray(),
     db.groups.toArray().then(alive),
     db.videos.where('targetId').equals(id).toArray().then((vs) => alive(vs).filter((v) => v.targetKind === 'player')),
+    db.seen.where('playerId').equals(id).toArray().then(alive),
+    db.rewatch.where('playerId').equals(id).toArray().then(alive),
   ])
   const crit = new Map(criteria.map((c) => [c.id, c]))
   const ev = new Map(events.map((e) => [e.id, e]))
@@ -194,6 +198,19 @@ export async function exportPlayer(id: string) {
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((e) => [fmtDate(e.date), e.name, e.place])
   const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
+  // Repérage (supabase/041) : événements où il a été vu, « à revoir » (destinations, commentaire).
+  const sights = seen
+    .map((s) => [ev.get(s.eventId)?.date ? fmtDate(ev.get(s.eventId)!.date) : '', ev.get(s.eventId)?.name ?? 'Événement', s.createdByName])
+    .sort((a, b) => String(b[0]).localeCompare(String(a[0])))
+  const grpName = new Map(groups.map((g) => [g.id, g.name]))
+  const revisits = rewatch.map((r) => [
+    r.createdAtServer ? fmtDate(dayOf(r.createdAtServer)) : '',
+    r.originEventId ? (ev.get(r.originEventId)?.name ?? '') : '',
+    [...(r.events ?? []).map((e) => ev.get(e)?.name), ...(r.groups ?? []).map((g) => grpName.get(g))].filter(Boolean).join(', ') || 'liste générale',
+    r.note,
+    r.createdByName,
+    r.done ? 'oui' : '',
+  ])
   const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, momentsOf(v).map(momentLabel).join(' ; '), v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
@@ -210,6 +227,8 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
 <h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
 <h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
+<h2>Vu par les observateurs (${sights.length})</h2>${table(['Date', 'Événement', 'Observateur'], sights)}
+<h2>À revoir (${revisits.length})</h2>${table(['Le', 'Repéré à', 'À revoir à', 'Commentaire', 'Par', 'Revu'], revisits)}
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')

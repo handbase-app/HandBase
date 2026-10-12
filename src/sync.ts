@@ -181,7 +181,7 @@ async function run() {
 const PUSH_CHUNK = 400
 
 /** Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. */
-const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos']
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch']
 
 let rejectedCount = 0
 
@@ -333,9 +333,14 @@ async function pull(uid: string) {
   try {
     const teamsBefore = await myTeams(uid)
     for (const table of SYNC_TABLES) {
+      // Staffs changés : les groupes « Mon staff » et les « à revoir » (041, visibles par le staff de leur auteur) qu'ils
+      // ouvrent sont relus en entier.
       if (table === 'groups') {
         const after = await myTeams(uid)
-        if ([...after].some(([id, v]) => teamsBefore.get(id) !== v)) localStorage.removeItem(PULL_KEY('groups'))
+        if ([...after].some(([id, v]) => teamsBefore.get(id) !== v)) {
+          localStorage.removeItem(PULL_KEY('groups'))
+          localStorage.removeItem(PULL_KEY('rewatch'))
+        }
       }
       await pullTable(table, per, first)
     }
@@ -353,6 +358,7 @@ async function pull(uid: string) {
  *  - staffs dont il a été retiré (supabase/034_equipes_encadrants.sql) : sa copie le dirait encore membre ;
  *  - groupes « Mon staff » dont il a été retiré (ou dont il s'est retiré, supabase/031_groupes_equipe.sql), ou
  *    ouverts par un staff dont il est sorti (034).
+ *  - « à revoir » (041) d'un staff dont il est sorti (ou dont l'auteur est sorti).
  * (Les événements sont visibles par tout le staff : rien à oublier ; les droits de participant suivent les staffs.)
  * Au lancement puis toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs
  * identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une
@@ -362,8 +368,10 @@ async function pull(uid: string) {
 const FORGET_EVERY_MS = 10 * 60_000
 let lastForget = 0
 
+type ForgetTable = 'groups' | 'teams' | 'rewatch'
+
 /** Identifiants visibles d'une table (null : erreur, ou table inconnue du serveur). */
-async function visibleIds(table: 'groups' | 'teams') {
+async function visibleIds(table: ForgetTable) {
   const visible = new Set<string>()
   // Pagination par identifiant (et non par position) : aucune ligne sautée si le serveur change entre deux pages.
   for (let after = ''; ; ) {
@@ -377,7 +385,7 @@ async function visibleIds(table: 'groups' | 'teams') {
 }
 
 /** Retire de l'appareil les lignes de `table` absentes de `visible` (sauf celles qui attendent d'être envoyées). */
-async function forgetRows(table: 'groups' | 'teams', visible: Set<string>) {
+async function forgetRows(table: ForgetTable, visible: Set<string>) {
   // Une seule transaction : une ligne créée sur l'appareil pendant ce temps est forcément dans la file d'envoi.
   await db.transaction('rw', db.table(table), db.outbox, async () => {
     const pending = new Set((await db.outbox.where('table').equals(table).toArray()).map((i) => i.rowId))
@@ -397,13 +405,15 @@ export function syncAndForgetHidden() {
 
 async function forgetHidden() {
   if (Date.now() - lastForget < FORGET_EVERY_MS) return
-  const [teams, groups] = await Promise.all([visibleIds('teams'), visibleIds('groups')])
+  const [teams, groups, rewatch] = await Promise.all([visibleIds('teams'), visibleIds('groups'), visibleIds('rewatch')])
   if (!groups) return
   lastForget = Date.now()
   // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence. Aucun staff
   // visible, en revanche, est courant (personne n'en a encore créé) ; table absente du serveur (null) : rien.
   if (!groups.size) return
   if (teams) await forgetRows('teams', teams)
+  // « À revoir » d'un staff dont je suis sorti (041) : aucun visible est courant (personne n'en a encore mis).
+  if (rewatch) await forgetRows('rewatch', rewatch)
   await forgetRows('groups', groups)
 }
 

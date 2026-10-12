@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
 import { FollowStar } from '../components/Follow'
-import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position } from '../db'
+import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, useRole } from '../roles'
@@ -19,6 +19,8 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
+import { CoverageBar, RewatchButton, RewatchInEvent, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
+import { byNumber, myTournamentTeams, numOf, personName, sightings, teamObservers, teamOf, tournamentTeams, type Sighting } from '../scouting'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
 const loadSheet = () => import('../components/MatchSheet')
@@ -235,14 +237,45 @@ export default function Events() {
   )
 }
 
+/** Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs. */
+type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean }
+
 /** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
 function rosterSections(list: Player[], withHeadings: boolean) {
-  const out: { heading: string | null; start: number; players: Player[] }[] = []
+  const out: RosterSection[] = []
   list.forEach((p, i) => {
     if (i === 0 || (withHeadings && list[i - 1].position !== p.position))
       out.push({ heading: withHeadings ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste') : null, start: i, players: [] })
     out[out.length - 1].players.push(p)
   })
+  return out
+}
+
+/**
+ * Tournoi réparti (supabase/041) : liste découpée par équipe, mes équipes d'abord, puis les autres, puis « Sans équipe » ;
+ * dans chaque équipe, par numéro de maillot. Titre : progression (vus / total) et observateurs qui en ont la charge.
+ */
+function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]>, name: (uid: string) => string) {
+  const mine = myTournamentTeams(ev)
+  const teams = [...tournamentTeams(ev)].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)))
+  const known = new Set(teams.map((t) => t.id))
+  const order = byNumber(ev)
+  const out: RosterSection[] = []
+  let start = 0
+  for (const t of [...teams, { id: '', name: 'Sans équipe' }]) {
+    const players = list.filter((p) => (t.id ? teamOf(ev, p.id) === t.id : !known.has(teamOf(ev, p.id) ?? ''))).sort(order)
+    if (!players.length) continue
+    const seen = players.filter((p) => (sight.get(p.id) ?? []).length).length
+    const obs = t.id ? teamObservers(ev, t.id) : []
+    out.push({
+      heading: t.name,
+      start,
+      players,
+      mine: mine.has(t.id),
+      info: [`${seen} sur ${players.length} vus`, obs.length ? `suivie par ${obs.map(name).join(', ')}` : ''].filter(Boolean).join(' · '),
+    })
+    start += players.length
+  }
   return out
 }
 
@@ -321,6 +354,10 @@ export function EventDetail() {
   const [sort, setSort] = useRosterSort(id)
   // Filtres partagés avec la notation : elle ne propose que les joueurs affichés ici.
   const { pos: posFilter, setPos: setPosFilter, hideNoted, setHideNoted } = useRosterFilter(id)
+  // Couverture de l'équipe d'observateurs (supabase/041) : filtre de la liste (gardé pendant la session) ;
+  // tournoi réparti : liste par équipe (par défaut) ou par poste.
+  const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
+  const [groupBy, setGroupBy] = useSessionState<'equipe' | 'poste'>(`handbase.tournoi.${id}.par`, 'equipe')
   // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
   const [openAvis, setOpenAvis] = useState<string | null>(null)
   const toggleAvis = (pid: string) => setOpenAvis((o) => (o === pid ? null : pid))
@@ -339,11 +376,17 @@ export function EventDetail() {
     const players = alive((await db.players.bulkGet(ids)).filter((p): p is Player => !!p))
     // Critères (libellés à jour) pour détailler les notes des avis.
     const criteria = alive(await db.criteria.orderBy('order').toArray())
-    return { ev, evals, players, criteria }
+    // Repérage (supabase/041) : « vu » de l'équipe ; « à revoir » repérés ici (origine) ou qui visent cet événement.
+    const seen = alive(await db.seen.where('eventId').equals(id!).toArray())
+    const rewatch = alive(await db.rewatch.toArray()).filter((r) => r.originEventId === id || r.events?.includes(id!))
+    const known = new Set(players.map((p) => p.id))
+    const extra = alive((await db.players.bulkGet([...new Set(rewatch.map((r) => r.playerId))].filter((x) => !known.has(x)))).filter((p): p is Player => !!p))
+    const origins = (await db.events.bulkGet([...new Set(rewatch.map((r) => r.originEventId).filter((x): x is string => !!x))])).filter((e): e is HBEvent => !!e)
+    return { ev, evals, players, criteria, seen, rewatch, extra, origins }
   }, [id])
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { ev, evals, players, criteria } = data
+  const { ev, evals, players, criteria, seen, rewatch, extra, origins } = data
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
 
   const byId = new Map(players.map((p) => [p.id, p]))
@@ -355,6 +398,22 @@ export function EventDetail() {
   )
   const shownRoster = filterRoster(roster, { pos: posFilter, hideNoted }, notedByMe)
   const filtered = shownRoster.length < roster.length
+  // Couverture de l'équipe : vu (« vu » ou avis), noté, à revoir (repéré ici). Uniquement des marques positives.
+  const sight = sightings(seen, evals)
+  const notedSet = new Set(evals.map((e) => e.playerId))
+  const rewatchFrom = new Map<string, Rewatch[]>()
+  for (const r of rewatch) if (r.originEventId === ev.id) rewatchFrom.set(r.playerId, [...(rewatchFrom.get(r.playerId) ?? []), r])
+  const isSeen = (p: Player) => (sight.get(p.id) ?? []).length > 0
+  const coverOk = (p: Player) =>
+    cover === 'pasvus' ? !isSeen(p) : cover === 'vus' ? isSeen(p) : cover === 'notes' ? notedSet.has(p.id) : cover === 'arevoir' ? rewatchFrom.has(p.id) : true
+  const displayed = shownRoster.filter(coverOk)
+  // Tournoi réparti : équipes, mes équipes et leur progression.
+  const tTeams = tournamentTeams(ev)
+  const myTeams = myTournamentTeams(ev)
+  const byTeam = tTeams.length > 0 && groupBy === 'equipe'
+  const teamName = (pid: string) => tTeams.find((t) => t.id === teamOf(ev, pid))?.name
+  const myRoster = roster.filter((p) => myTeams.has(teamOf(ev, p.id) ?? ''))
+  const nameOf = (uid: string) => personName(uid, ev, teams)
   // Titres de poste, sauf si aucun joueur n'a de poste (un seul titre « Sans poste » n'apporterait rien).
   const withHeadings = roster.some((p) => p.position)
   const nNotedInRoster = roster.filter((p) => notedByMe.has(p.id)).length
@@ -400,6 +459,7 @@ export function EventDetail() {
       ))}
     </div>
   )
+  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
   const avisPlayer = duo && openAvis ? players.find((p) => p.id === openAvis) : undefined
 
@@ -510,6 +570,9 @@ export function EventDetail() {
           <MatchImport event={ev} onClose={() => setImporting(false)} />
         </Suspense>
       )}
+      {!editing && (ev.type === 'tournoi' || tTeams.length > 0) && (
+        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
+      )}
 
       {/* Téléphone : boutons pleine largeur, l'un sous l'autre ; ordinateur : une barre d'actions compacte. */}
       <div className={bar ? 'flex flex-wrap items-center gap-2' : 'contents'}>
@@ -545,6 +608,15 @@ export function EventDetail() {
                 + Ajouter des joueurs (par groupe ou un par un)
               </button>
             )}
+            <RewatchInEvent
+              ev={ev}
+              rows={rewatch.filter((r) => r.events?.includes(ev.id))}
+              players={new Map([...players, ...extra].map((p) => [p.id, p]))}
+              events={new Map(origins.map((e) => [e.id, e]))}
+              sight={sight}
+              canAdd={manage || contribute}
+              onAdd={(ids) => void setRoster([...(ev.playerIds ?? []), ...ids.filter((x) => !inRoster.has(x))])}
+            />
             {offList.length > 0 && (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -593,6 +665,15 @@ export function EventDetail() {
               offList.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
             ) : (
               <>
+                <CoverageBar
+                  total={roster.length}
+                  seen={roster.filter(isSeen).length}
+                  noted={roster.filter((p) => notedSet.has(p.id)).length}
+                  rewatch={roster.filter((p) => rewatchFrom.has(p.id)).length}
+                  mine={myRoster.length ? { seen: myRoster.filter(isSeen).length, total: myRoster.length } : undefined}
+                  filter={cover}
+                  setFilter={setCover}
+                />
                 {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
                   <div className="flex items-center justify-end gap-3">
                     {roster.length > 1 && !removing && <CompareToggle pick={pick} className="mr-auto" />}
@@ -616,16 +697,32 @@ export function EventDetail() {
                 )}
                 {roster.length > 1 && (
                   <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
-                    <label className="flex items-center gap-2 text-xs">
-                      <span className="shrink-0 font-bold text-muted">Dans chaque poste, trier par</span>
-                      <select className="field flex-1 py-1 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
-                        {ROSTER_SORTS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
+                    {tTeams.length > 0 && (
+                      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                        {(
+                          [
+                            ['equipe', 'Par équipe et numéro'],
+                            ['poste', 'Par poste'],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <button key={v} onClick={() => setGroupBy(v)} className={`flex-1 py-1.5 ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}>
+                            {label}
+                          </button>
                         ))}
-                      </select>
-                    </label>
+                      </div>
+                    )}
+                    {!byTeam && (
+                      <label className="flex items-center gap-2 text-xs">
+                        <span className="shrink-0 font-bold text-muted">Dans chaque poste, trier par</span>
+                        <select className="field flex-1 py-1 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
+                          {ROSTER_SORTS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <div className="flex flex-wrap gap-1">
                       {nNotedInRoster > 0 && (
                         <Chip on={hideNoted} onClick={() => setHideNoted(!hideNoted)}>
@@ -647,10 +744,21 @@ export function EventDetail() {
                 {shownRoster.length === 0 && (
                   <Empty>{hideNoted ? 'Tu as noté tous les joueurs affichés.' : 'Aucun joueur à ce poste.'}</Empty>
                 )}
-                {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
-                {rosterSections(shownRoster, withHeadings).map((sec) => (
+                {shownRoster.length > 0 && displayed.length === 0 && (
+                  <Empty>{cover === 'pasvus' ? 'L’équipe a vu tous les joueurs affichés.' : 'Aucun joueur pour ce filtre.'}</Empty>
+                )}
+                {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
+                {sections.map((sec) => (
                   <Fragment key={sec.start}>
-                  {sec.heading && <div className="section-title mt-2 mb-0">{sec.heading}</div>}
+                  {sec.heading && (
+                    <div className={`section-title mt-2 mb-0 flex flex-wrap items-baseline gap-x-2 ${sec.mine ? 'text-accent' : ''}`}>
+                      <span>
+                        {sec.heading}
+                        {sec.mine && <span className="ml-1.5 rounded bg-accent px-1 align-middle text-[9px] text-white normal-case">mon équipe</span>}
+                      </span>
+                      {sec.info && <span className="text-[10px] font-normal text-muted normal-case">{sec.info}</span>}
+                    </div>
+                  )}
                   <div className="cols flex flex-col gap-2">
                 {sec.players.map((p, j) => {
                   const i = sec.start + j
@@ -660,7 +768,9 @@ export function EventDetail() {
                     <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
                     <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${selectedCls(duo && openAvis === p.id)} ${pick.picked.includes(p.id) ? 'border-accent' : ''}`}>
                       <PickBox pick={pick} p={p} />
-                      <span className="w-6 text-center text-[11px] text-muted">{i + 1}</span>
+                      <span className="w-6 text-center text-[11px] text-muted" title={byTeam ? 'Numéro de maillot' : undefined}>
+                        {byTeam ? (numOf(ev, p.id) ?? '–') : i + 1}
+                      </span>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <Avatar p={p} size={32} />
                         <div className="min-w-0">
@@ -668,15 +778,22 @@ export function EventDetail() {
                             {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
                           </div>
                           <div className="truncate text-[10px] text-muted">
-                            {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
+                            {[!byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id), p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
                           </div>
                           {!!ev.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
+                          {!removing && (
+                            <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                              <SeenBy list={sight.get(p.id) ?? []} />
+                              <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} />
+                            </div>
+                          )}
                         </div>
                       </Link>
                       <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
                         {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
                         {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
+                      {!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
                       {!removing && <FollowStar id={p.id} />}
                       {removing && can.removeFromEvent(role, ev, p.id) && (
                         <button

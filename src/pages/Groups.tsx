@@ -20,6 +20,7 @@ import { participantSummary, useTeams } from '../teams'
 import type { Team } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
+import { GroupRewatchLine, useGroupRewatch } from '../components/Scouting'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
@@ -613,6 +614,8 @@ export function GroupDetail() {
   useEffect(() => setTransferring(false), [id])
   // « Voir tous les groupes » (administrateurs, supabase/039) : un groupe absent de l'appareil se lit sur le serveur.
   const allGroups = useAllGroups(role).on
+  // « À revoir » qui visent ce groupe (supabase/041) : trace sur la ligne du joueur, « Revu » à la main.
+  const rewatch = useGroupRewatch(id)
   const data = useLiveQuery(async () => {
     const teams = await loadTeams()
     const g = await db.groups.get(id!)
@@ -826,6 +829,7 @@ export function GroupDetail() {
                 </div>
                 <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
                 {!!g.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
+                <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} />
               </div>
             </Link>
             {!removing && <FollowStar id={p.id} />}

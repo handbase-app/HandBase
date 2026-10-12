@@ -47,6 +47,7 @@ const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.N
 const Follows = lazy(() => import('./pages/Follows'))
 const Teams = lazy(() => import('./pages/Teams'))
 const Compare = lazy(() => import('./pages/Compare'))
+const RewatchPage = lazy(() => import('./pages/Rewatch'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -268,6 +269,7 @@ export default function App() {
           <Route path="/alertes/:id" element={<AlertDetail />} />
           <Route path="/national" element={<National />} />
           <Route path="/comparer" element={<Compare />} />
+          <Route path="/a-revoir" element={<RewatchPage />} />
         </Routes>
         </PageWidth>
         </Suspense>

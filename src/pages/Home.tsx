@@ -4,12 +4,15 @@ import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
 import { HomeFeed } from './Feed'
 import { Icon } from '../components/ui'
+import { countOpenRewatch } from '../scouting'
 
 // Actions rapides (le reste est dans la barre du bas ; « + Joueur » est sur la page Joueurs). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
 const ACTIONS = [
   { to: '/evenements', title: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
   { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
+  // Joueurs que mon staff veut revoir, pas encore revus (supabase/041).
+  { to: '/a-revoir', title: 'Mes à revoir', icon: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z' },
 ]
 
 /** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */
@@ -23,6 +26,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
     [],
     ['players', 'evaluations'],
   )
+  const rewatch = useThrottledQuery(countOpenRewatch, [], ['rewatch', 'seen', 'evaluations', 'teams'], undefined, 0)
   const actions: { to: string; title: string; icon: string; main?: boolean }[] = ACTIONS
   return (
     // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
@@ -56,6 +60,9 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
             <span className="text-xs font-bold">{t.title}</span>
             {t.to === '/avis-spontanes' && toReview > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-black">{toReview}</span>
+            )}
+            {t.to === '/a-revoir' && rewatch > 0 && (
+              <span className="absolute top-1.5 right-1.5 rounded-full bg-sky-500 px-1.5 text-[10px] font-bold text-white">{rewatch > 99 ? '99+' : rewatch}</span>
             )}
             {t.to === '/suivis' && followNews > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{followNews > 99 ? '99+' : followNews}</span>

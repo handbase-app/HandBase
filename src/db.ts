@@ -238,6 +238,25 @@ export interface HBEvent extends Syncable {
    * vidéo. Champ libre de l'événement, gardé tel quel par le serveur (hb_upsert, 037). Ni noms ni licences, ni le PDF.
    */
   matchSheet?: MatchSheet
+  /**
+   * Répartition d'un tournoi (supabase/041_reperage_tournoi.sql) : équipes engagées, équipe et numéro de chaque joueur
+   * de la liste, équipes confiées à chaque observateur. Facultative : sans elle, tout le monde voit tout.
+   */
+  tournament?: Tournament
+}
+
+/** Équipe engagée dans un tournoi (identifiant court, propre à l'événement). */
+export interface TournamentTeam {
+  id: string
+  name: string
+}
+
+export interface Tournament {
+  teams: TournamentTeam[]
+  /** Pour chaque joueur de la liste : son équipe et son numéro de maillot (comme sur une feuille de match). */
+  players?: Record<string, { team?: string; num?: string }>
+  /** Équipes confiées à chaque observateur (compte) ; réattribuables à tout moment. */
+  assign?: Record<string, string[]>
 }
 
 /** Contexte d'un avis spontané (joueur vu hors des événements prévus). */
@@ -375,6 +394,36 @@ export interface VideoMoment {
   note?: string
 }
 
+/**
+ * « Vu » (supabase/041_reperage_tournoi.sql) : un observateur a vu ce joueur pendant cet événement. Identifiant fixe
+ * « <compte>:<événement>:<joueur> » (même ligne d'un appareil à l'autre) ; le retirer = ligne supprimée, reprise si on
+ * le remet. Visible par tous ceux qui voient l'événement. Marque neutre : il n'existe aucun « vu, pas retenu ».
+ */
+export interface Seen extends Syncable {
+  eventId: string
+  playerId: string
+  /** Moment où il a été marqué vu (ISO), posé par le serveur. */
+  at?: string
+}
+
+/**
+ * « À revoir » (supabase/041) : un encadrant ou un observateur veut revoir ce joueur, à un ou plusieurs événements à
+ * venir, dans un ou plusieurs groupes, ou sans destination (liste « À revoir » générale). Visible par le staff de son
+ * auteur et par les administrateurs. Ce n'est pas une convocation : la liste des événements visés ne change pas.
+ */
+export interface Rewatch extends Syncable {
+  playerId: string
+  /** Événement où il a été repéré. */
+  originEventId?: string
+  /** Événements à venir visés. */
+  events?: string[]
+  /** Groupes visés (le joueur y est ajouté). */
+  groups?: string[]
+  note?: string
+  /** « Revu » coché à la main (groupes, sans destination) ; posé par le serveur : quand, par qui. */
+  done?: { at?: string; by?: string; byName?: string }
+}
+
 /** Conditions d'une alerte ; une condition absente ne filtre pas. */
 export interface AlertRules {
   sex?: 'M' | 'F'
@@ -431,8 +480,9 @@ export interface OutboxItem {
 }
 
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
-// Vidéos en dernier : le serveur vérifie que le joueur ou l'événement visé existe (envoyé juste avant).
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos'] as const
+// Vidéos, « vu » et « à revoir » en dernier : le serveur vérifie que le joueur, l'événement ou le groupe visé existe
+// (envoyé juste avant).
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -455,6 +505,8 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   follows: EntityTable<Follow, 'id'>
   teams: EntityTable<Team, 'id'>
   videos: EntityTable<Video, 'id'>
+  seen: EntityTable<Seen, 'id'>
+  rewatch: EntityTable<Rewatch, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -514,6 +566,9 @@ db.version(12).stores({ teams: 'id, name, updatedAt' })
 
 // v13 : liens vidéo (supabase/036_videos.sql).
 db.version(13).stores({ videos: 'id, targetId, updatedAt' })
+
+// v14 : « vu » et « à revoir » (supabase/041_reperage_tournoi.sql).
+db.version(14).stores({ seen: 'id, eventId, playerId, updatedAt', rewatch: 'id, playerId, *events, *groups, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

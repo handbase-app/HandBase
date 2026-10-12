@@ -24,6 +24,7 @@ import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
+import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 
 const TABS = [
   { id: 'profil', label: 'Profil' },
@@ -78,6 +79,8 @@ export default function PlayerDetail() {
   const tab = (TABS.find((t) => t.id === params.get('onglet'))?.id ?? 'profil') as TabId
   const setTab = (t: TabId) => setParams(t === 'profil' ? {} : { onglet: t }, { replace: true })
   const [merging, setMerging] = useState(false)
+  // « À revoir » de ce joueur visibles (mon staff) : bouton « à revoir ×2 » (supabase/041).
+  const rewatch = usePlayerRewatch(id!)
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
     if (!player) return null
@@ -189,6 +192,7 @@ export default function PlayerDetail() {
           </div>
           <StampLine row={p} />
           <FollowedVia playerId={p.id} />
+          <RewatchButton playerId={p.id} rows={rewatch.filter((r) => !r.done)} className="mt-1.5 px-2.5 py-1 text-[11px]" />
         </div>
       </div>
 
@@ -255,6 +259,7 @@ export default function PlayerDetail() {
       {tab === 'profil' && (
         <>
         <PlayerGroups playerId={p.id} />
+        <ScoutHistory playerId={p.id} />
 
         <div className="card divide-y divide-line">
           {info

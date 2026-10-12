@@ -35,6 +35,8 @@ const TABLES: Record<string, string> = {
   teams: `${cap(STAFF.one)} (privé)`,
   lists: 'Liste (région, département)',
   videos: 'Vidéo',
+  seen: 'Vu (repérage)',
+  rewatch: 'À revoir',
   profiles: 'Membre du staff',
 }
 
