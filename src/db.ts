@@ -607,8 +607,12 @@ export const today = () => localDay(Date.now())
 
 export const fmtDate = (d?: string) => (d ? new Date(d + 'T00:00:00').toLocaleDateString('fr-FR') : '—')
 
+/**
+ * Le critère concerne-t-il ce poste ? Joueur sans poste renseigné : on montre tous les critères de joueur de champ
+ * (seuls ceux réservés aux gardiens sont écartés), plutôt que de n'en garder que quelques-uns.
+ */
 export const criterionApplies = (c: Criterion, pos?: Position) =>
-  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : false)
+  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : c.positions.some((p) => p !== 'GB'))
 
 export function scaleMax(scale: CriterionScale) {
   return scale === 'score5' ? 5 : scale === 'score3' ? 3 : scale === 'score2' ? 2 : null

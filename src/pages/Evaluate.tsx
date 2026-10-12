@@ -610,7 +610,8 @@ export default function Evaluate() {
               <div className="section-title">{cat}</div>
               <div className="flex flex-col gap-3">
                 {cs.map((c) => (
-                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-2">
+                  // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
+                  <div key={c.id} className="flex flex-col items-start gap-1.5">
                     <div className="min-w-0">
                       <div className="text-xs font-bold">{c.label}</div>
                       {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
