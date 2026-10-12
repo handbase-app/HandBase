@@ -1,0 +1,1033 @@
+{
+  "format": "handbase-criteres",
+  "version": 1,
+  "exportedAt": "2026-10-12T12:47:09.206Z",
+  "criteria": [
+    {
+      "id": "taille",
+      "category": "Gabarit",
+      "label": "Taille",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 0
+    },
+    {
+      "id": "poids",
+      "category": "Gabarit",
+      "label": "Poids",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 1
+    },
+    {
+      "id": "explosivite",
+      "category": "Critères physiologiques",
+      "label": "Explosivité",
+      "kind": "factual",
+      "scale": "score5",
+      "active": true,
+      "order": 2
+    },
+    {
+      "id": "puissance",
+      "category": "Critères physiologiques",
+      "label": "Puissance",
+      "kind": "factual",
+      "scale": "score5",
+      "active": true,
+      "order": 3
+    },
+    {
+      "id": "vitesse",
+      "category": "Critères physiologiques",
+      "label": "Vitesse",
+      "kind": "factual",
+      "scale": "score5",
+      "active": true,
+      "order": 4
+    },
+    {
+      "id": "detente",
+      "category": "Critères physiologiques",
+      "label": "Détente",
+      "kind": "factual",
+      "scale": "score5",
+      "active": true,
+      "order": 5
+    },
+    {
+      "id": "tir",
+      "category": "Critères physiologiques",
+      "label": "Tir",
+      "kind": "factual",
+      "scale": "score5",
+      "active": true,
+      "order": 6
+    },
+    {
+      "id": "taille_assise",
+      "category": "Mensurations",
+      "label": "Taille assise",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 7
+    },
+    {
+      "id": "empan",
+      "category": "Mensurations",
+      "label": "Empan",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 8
+    },
+    {
+      "id": "envergure",
+      "category": "Mensurations",
+      "label": "Envergure",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 9
+    },
+    {
+      "id": "sprint_5",
+      "category": "Vitesse & endurance",
+      "label": "Sprint 5 m",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 10
+    },
+    {
+      "id": "sprint_10",
+      "category": "Vitesse & endurance",
+      "label": "Sprint 10 m",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 11
+    },
+    {
+      "id": "sprint_30",
+      "category": "Vitesse & endurance",
+      "label": "Sprint 30 m",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 12
+    },
+    {
+      "id": "t_test",
+      "category": "Vitesse & endurance",
+      "label": "T-Test",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 13
+    },
+    {
+      "id": "illinois",
+      "category": "Vitesse & endurance",
+      "label": "Illinois (agilité)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 14
+    },
+    {
+      "id": "vift",
+      "category": "Vitesse & endurance",
+      "label": "30-15 IFT (VIFT)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "km/h",
+      "description": "Vitesse maximale intermittente (VMI)",
+      "active": true,
+      "order": 15
+    },
+    {
+      "id": "vma",
+      "category": "Vitesse & endurance",
+      "label": "VMA",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "km/h",
+      "description": "Vitesse maximale aérobie",
+      "active": true,
+      "order": 16
+    },
+    {
+      "id": "saut_bilateral",
+      "category": "Puissance & détente",
+      "label": "Grand saut bilatéral",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "active": true,
+      "order": 17
+    },
+    {
+      "id": "saut_largeur_g",
+      "category": "Puissance & détente",
+      "label": "Saut à la largeur G",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "active": true,
+      "order": 18
+    },
+    {
+      "id": "saut_largeur_d",
+      "category": "Puissance & détente",
+      "label": "Saut à la largeur D",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "active": true,
+      "order": 19
+    },
+    {
+      "id": "medball_conc",
+      "category": "Puissance & détente",
+      "label": "Méd. ball concentrique",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "active": true,
+      "order": 20
+    },
+    {
+      "id": "medball_plio",
+      "category": "Puissance & détente",
+      "label": "Méd. ball pliométrique",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "active": true,
+      "order": 21
+    },
+    {
+      "id": "dorsi_g",
+      "category": "Mobilité",
+      "label": "Dorsiflexion cheville G",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 22
+    },
+    {
+      "id": "dorsi_d",
+      "category": "Mobilité",
+      "label": "Dorsiflexion cheville D",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 23
+    },
+    {
+      "id": "chaine_post_g",
+      "category": "Mobilité",
+      "label": "Chaîne post. G",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 24
+    },
+    {
+      "id": "chaine_post_d",
+      "category": "Mobilité",
+      "label": "Chaîne post. D",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 25
+    },
+    {
+      "id": "epaule_g",
+      "category": "Mobilité",
+      "label": "Épaule RE/RI G",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 26
+    },
+    {
+      "id": "epaule_d",
+      "category": "Mobilité",
+      "label": "Épaule RE/RI D",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 27
+    },
+    {
+      "id": "hanche_ri",
+      "category": "Mobilité",
+      "label": "Hanche RI",
+      "kind": "factual",
+      "scale": "score2",
+      "active": true,
+      "order": 28
+    },
+    {
+      "id": "hanche_re",
+      "category": "Mobilité",
+      "label": "Hanche RE",
+      "kind": "factual",
+      "scale": "score2",
+      "active": true,
+      "order": 29
+    },
+    {
+      "id": "ohs",
+      "category": "Mobilité",
+      "label": "Squat bras au-dessus de la tête",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 30
+    },
+    {
+      "id": "epaule_ri_d",
+      "category": "Mobilité",
+      "label": "Épaule RI D (degrés)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "°",
+      "active": true,
+      "order": 31
+    },
+    {
+      "id": "epaule_ri_g",
+      "category": "Mobilité",
+      "label": "Épaule RI G (degrés)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "°",
+      "active": true,
+      "order": 32
+    },
+    {
+      "id": "epaule_re_d",
+      "category": "Mobilité",
+      "label": "Épaule RE D (degrés)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "°",
+      "active": true,
+      "order": 33
+    },
+    {
+      "id": "epaule_re_g",
+      "category": "Mobilité",
+      "label": "Épaule RE G (degrés)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "°",
+      "active": true,
+      "order": 34
+    },
+    {
+      "id": "trunk_pu",
+      "category": "Stabilité & adducteurs",
+      "label": "Trunk Push-up",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 35
+    },
+    {
+      "id": "stab_rot",
+      "category": "Stabilité & adducteurs",
+      "label": "Stabilité rotative",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 36
+    },
+    {
+      "id": "adducteur",
+      "category": "Stabilité & adducteurs",
+      "label": "Adducteur au mur",
+      "kind": "factual",
+      "scale": "score3",
+      "active": true,
+      "order": 37
+    },
+    {
+      "id": "shirado",
+      "category": "Stabilité & adducteurs",
+      "label": "Shirado (gainage abdos)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 38
+    },
+    {
+      "id": "sorensen",
+      "category": "Stabilité & adducteurs",
+      "label": "Sorensen (gainage lombaires)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 39
+    },
+    {
+      "id": "sj_hauteur",
+      "category": "Sauts (plateforme)",
+      "label": "SJ – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Squat jump, sans contre-mouvement",
+      "active": true,
+      "order": 40
+    },
+    {
+      "id": "sj_puissance",
+      "category": "Sauts (plateforme)",
+      "label": "SJ – puissance relative",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "W/kg",
+      "active": true,
+      "order": 41
+    },
+    {
+      "id": "cmj_hauteur",
+      "category": "Sauts (plateforme)",
+      "label": "CMJ – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Saut avec contre-mouvement",
+      "active": true,
+      "order": 42
+    },
+    {
+      "id": "cmj_bras",
+      "category": "Sauts (plateforme)",
+      "label": "CMJ bras libres – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 43
+    },
+    {
+      "id": "cmj_puissance",
+      "category": "Sauts (plateforme)",
+      "label": "CMJ – puissance relative",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "W/kg",
+      "active": true,
+      "order": 44
+    },
+    {
+      "id": "cmj_rsi",
+      "category": "Sauts (plateforme)",
+      "label": "CMJ – RSI modifié",
+      "kind": "factual",
+      "scale": "number",
+      "description": "Hauteur ÷ temps de contact",
+      "active": true,
+      "order": 45
+    },
+    {
+      "id": "dj30",
+      "category": "Sauts (plateforme)",
+      "label": "Drop jump 30 cm – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 46
+    },
+    {
+      "id": "dj40",
+      "category": "Sauts (plateforme)",
+      "label": "Drop jump 40 cm – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 47
+    },
+    {
+      "id": "dj50",
+      "category": "Sauts (plateforme)",
+      "label": "Drop jump 50 cm – hauteur",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "active": true,
+      "order": 48
+    },
+    {
+      "id": "rsi_dj30",
+      "category": "Sauts (plateforme)",
+      "label": "RSI drop jump 30 cm",
+      "kind": "factual",
+      "scale": "number",
+      "description": "Hauteur ÷ temps de contact",
+      "active": true,
+      "order": 49
+    },
+    {
+      "id": "rsi_dj40",
+      "category": "Sauts (plateforme)",
+      "label": "RSI drop jump 40 cm",
+      "kind": "factual",
+      "scale": "number",
+      "description": "Hauteur ÷ temps de contact",
+      "active": true,
+      "order": 50
+    },
+    {
+      "id": "rsi_dj50",
+      "category": "Sauts (plateforme)",
+      "label": "RSI drop jump 50 cm",
+      "kind": "factual",
+      "scale": "number",
+      "description": "Hauteur ÷ temps de contact",
+      "active": true,
+      "order": 51
+    },
+    {
+      "id": "eur",
+      "category": "Sauts (plateforme)",
+      "label": "EUR (CMJ / SJ)",
+      "kind": "factual",
+      "scale": "number",
+      "description": "Utilisation de l’excentrique : 1,05–1,15 bon",
+      "active": true,
+      "order": 52
+    },
+    {
+      "id": "rm6_squat",
+      "category": "Force (6 RM)",
+      "label": "Squat",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 53
+    },
+    {
+      "id": "rm6_bench",
+      "category": "Force (6 RM)",
+      "label": "Développé couché",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 54
+    },
+    {
+      "id": "rm6_dl",
+      "category": "Force (6 RM)",
+      "label": "Soulevé de terre trap bar",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 55
+    },
+    {
+      "id": "rm1_clean",
+      "category": "Force (6 RM)",
+      "label": "Épaulé (1 RM)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 56
+    },
+    {
+      "id": "rm6_traction",
+      "category": "Force (6 RM)",
+      "label": "Traction lestée",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 57
+    },
+    {
+      "id": "rm6_hipthrust",
+      "category": "Force (6 RM)",
+      "label": "Hip thrust",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "active": true,
+      "order": 58
+    },
+    {
+      "id": "rsa_moyen",
+      "category": "Vitesse & endurance",
+      "label": "RSA (RAST 6×35 m) – temps moyen",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "active": true,
+      "order": 59
+    },
+    {
+      "id": "rsa_fatigue",
+      "category": "Vitesse & endurance",
+      "label": "RSA – indice de fatigue",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "%",
+      "active": true,
+      "order": 60
+    },
+    {
+      "id": "vision",
+      "category": "Intelligence de jeu",
+      "label": "Vision du jeu",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Voit les partenaires démarqués, anticipe les espaces",
+      "quick": true,
+      "active": true,
+      "order": 61
+    },
+    {
+      "id": "decision",
+      "category": "Intelligence de jeu",
+      "label": "Prise de décision",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Bon choix (tir / passe / fixation) au bon moment",
+      "quick": true,
+      "active": true,
+      "order": 62
+    },
+    {
+      "id": "lecture",
+      "category": "Intelligence de jeu",
+      "label": "Lecture du jeu adverse",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Anticipe les intentions de l’adversaire",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 63
+    },
+    {
+      "id": "sans_ballon",
+      "category": "Intelligence de jeu",
+      "label": "Jeu sans ballon",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Courses, appels, démarquage, création d’espaces",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 64
+    },
+    {
+      "id": "efficacite_tir",
+      "category": "Attaque",
+      "label": "Efficacité au tir",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Choix et qualité du tir, sang-froid face au gardien",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 65
+    },
+    {
+      "id": "duel",
+      "category": "Attaque",
+      "label": "Duel / 1 contre 1",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Capacité à déborder et à fixer son défenseur",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 66
+    },
+    {
+      "id": "passe",
+      "category": "Attaque",
+      "label": "Qualité de passe",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Précision, timing, variété",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 67
+    },
+    {
+      "id": "collectif",
+      "category": "Attaque",
+      "label": "Jeu collectif",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Respect du système, combinaisons, jeu à deux avec le pivot",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 68
+    },
+    {
+      "id": "agressivite",
+      "category": "Défense",
+      "label": "Agressivité défensive",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Engagement physique, sortie sur le porteur, contact",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 69
+    },
+    {
+      "id": "placement_def",
+      "category": "Défense",
+      "label": "Placement / replacement",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Position dans le système, retour défensif",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 70
+    },
+    {
+      "id": "comm_def",
+      "category": "Défense",
+      "label": "Communication défensive",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Annonces, prises en charge, aide aux partenaires",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 71
+    },
+    {
+      "id": "interceptions",
+      "category": "Défense",
+      "label": "Interceptions / contres",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Récupère ou gêne le ballon",
+      "positions": [
+        "AG",
+        "ARG",
+        "DC",
+        "ARD",
+        "AD",
+        "PIV"
+      ],
+      "active": true,
+      "order": 72
+    },
+    {
+      "id": "engagement",
+      "category": "Mental & attitude",
+      "label": "Engagement",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Intensité et investissement du début à la fin",
+      "quick": true,
+      "active": true,
+      "order": 73
+    },
+    {
+      "id": "pression",
+      "category": "Mental & attitude",
+      "label": "Gestion de la pression",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Réaction dans les moments décisifs et après une erreur",
+      "quick": true,
+      "active": true,
+      "order": 74
+    },
+    {
+      "id": "leadership",
+      "category": "Mental & attitude",
+      "label": "Leadership",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Entraîne les autres, prend des responsabilités",
+      "active": true,
+      "order": 75
+    },
+    {
+      "id": "attitude",
+      "category": "Mental & attitude",
+      "label": "Attitude / fair-play",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Comportement envers arbitres, adversaires et banc",
+      "active": true,
+      "order": 76
+    },
+    {
+      "id": "concentration",
+      "category": "Mental & attitude",
+      "label": "Concentration",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Constance, peu de pertes d’attention",
+      "active": true,
+      "order": 77
+    },
+    {
+      "id": "gb_placement",
+      "category": "Spécifique gardien",
+      "label": "Placement dans le but",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Angles, position face au tireur",
+      "positions": [
+        "GB"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 78
+    },
+    {
+      "id": "gb_reflexes",
+      "category": "Spécifique gardien",
+      "label": "Réflexes / réactivité",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Vitesse de réaction sur les tirs",
+      "positions": [
+        "GB"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 79
+    },
+    {
+      "id": "gb_lecture",
+      "category": "Spécifique gardien",
+      "label": "Lecture du tireur",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Anticipation du tir",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 80
+    },
+    {
+      "id": "gb_relance",
+      "category": "Spécifique gardien",
+      "label": "Relance",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Remise en jeu rapide et précise, relance longue de contre-attaque",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 81
+    },
+    {
+      "id": "gb_presence",
+      "category": "Spécifique gardien",
+      "label": "Présence / communication",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Organisation de la défense, voix",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 82
+    },
+    {
+      "id": "gb_sorties",
+      "category": "Spécifique gardien",
+      "label": "Sorties",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Sorties sur les ailiers, interceptions des passes longues",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 83
+    },
+    {
+      "id": "gb_appuis",
+      "category": "Spécifique gardien",
+      "label": "Déplacements & appuis",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Équilibre, déplacements latéraux, retour rapide en position",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 84
+    },
+    {
+      "id": "gb_rebond",
+      "category": "Spécifique gardien",
+      "label": "Réaction après un but",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Se remobilise vite après un but encaissé ou une erreur",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 85
+    },
+    {
+      "id": "gb_9m",
+      "category": "Gardien — arrêts par zone",
+      "label": "Tirs de loin (9 m)",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Efficacité sur les tirs extérieurs",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 86
+    },
+    {
+      "id": "gb_ailes",
+      "category": "Gardien — arrêts par zone",
+      "label": "Tirs des ailes",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Fermeture de l’angle, timing face aux ailiers",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 87
+    },
+    {
+      "id": "gb_pivot",
+      "category": "Gardien — arrêts par zone",
+      "label": "Tirs du pivot / à 6 m",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Face-à-face à courte distance",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 88
+    },
+    {
+      "id": "gb_7m",
+      "category": "Gardien — arrêts par zone",
+      "label": "Jets de 7 m",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Duel psychologique et arrêts sur penalty",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 89
+    },
+    {
+      "id": "gb_ca",
+      "category": "Gardien — arrêts par zone",
+      "label": "Contre-attaques / 1 contre 1",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Duels face au tireur lancé seul",
+      "positions": [
+        "GB"
+      ],
+      "active": true,
+      "order": 90
+    }
+  ]
+}

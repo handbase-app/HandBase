@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ask, inform, setLeaveGuard, useUnsaved } from '../components/Confirm'
-import { CriterionInput, fmtValue, getMe, groupBy, QuarterBadge } from '../components/ui'
+import { CriterionInput, fmtValue, getMe, groupBy, NoCriteria, QuarterBadge } from '../components/ui'
 import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
@@ -114,6 +114,7 @@ export default function MeasureSession() {
         <input type="date" required className="field w-40 shrink-0" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
 
+      {!sections.length && <NoCriteria kind="factual" />}
       {sections.map(([cat, cs]) => {
         const isOpen = open.includes(cat)
         const n = cs.filter((c) => values[c.id] !== undefined && values[c.id] !== '').length

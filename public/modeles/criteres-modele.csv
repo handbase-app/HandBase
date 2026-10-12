@@ -1,0 +1,4 @@
+﻿id;catégorie;libellé;type;échelle;unité;options;description;postes;mode rapide;actif;ordre
+taille;Gabarit;Taille;factuel;number;cm;;;;;oui;0
+poids;Gabarit;Poids;factuel;number;kg;;;;;oui;1
+exemple_observation;Exemple;Critère d’observation (exemple);subjectif;score5;;;"Ce que l’observateur regarde ; à remplacer par un critère validé";;oui;oui;2

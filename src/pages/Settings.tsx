@@ -5,6 +5,8 @@ import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconNam
 import { alive, db, newId, plural, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
+import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
+import type { ParsedFile } from '../criteriaFormat'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
@@ -114,6 +116,7 @@ export default function Settings() {
             </Fold>
           )}
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
+            {can.editCriteria(role) && <CriteriaTransfer />}
             <CriteriaEditor />
             <ListEditor kind="department" />
             <ListEditor kind="region" />
@@ -161,7 +164,7 @@ export default function Settings() {
                     className="btn-ghost flex-1 text-xs"
                     onClick={async () => {
                       const r = await loadDemo()
-                      setMsg(`Démo chargée : ${r.players} joueurs, ${r.measurements} mesures, ${r.events} événements, ${r.evaluations} avis.`)
+                      setMsg(`Démo chargée : ${r.criteria ? `${r.criteria} critères, ` : ''}${r.players} joueurs, ${r.measurements} mesures, ${r.events} événements, ${r.evaluations} avis.`)
                     }}
                   >
                     Charger la démo
@@ -690,6 +693,247 @@ function PasswordChange() {
   )
 }
 
+
+/**
+ * Import / export des critères (administrateurs) : les critères ne sont pas livrés avec l'appli, ils viennent de la base
+ * partagée et sont importés depuis un fichier Excel, CSV ou JSON (criteriaImport.ts). Aperçu avant validation.
+ */
+function CriteriaTransfer() {
+  const blocked = useImportBlock()
+  const [mode, setMode] = useState<CriteriaPlan['mode']>('fusion')
+  const [file, setFile] = useState<{ name: string; parsed: ParsedFile } | null>(null)
+  const [plan, setPlan] = useState<CriteriaPlan | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Version de la liste (nombre et dernière modification) : l'aperçu suit les changements de la base.
+  const version = useLiveQuery(async () => {
+    const cs = await db.criteria.toArray()
+    return `${cs.length}:${Math.max(0, ...cs.map((c) => c.updatedAt))}`
+  }, [], '')
+  const total = useLiveQuery(() => db.criteria.filter((c) => !c.deleted).count(), [], 0)
+  const unpublished = useLiveQuery(unpublishedCount, [], 0)
+  const base = import.meta.env.BASE_URL
+
+  // Aperçu recalculé si le mode change (ou si la base change pendant ce temps).
+  useEffect(() => {
+    if (!file) return
+    let live = true
+    void planCriteria(file.parsed, mode).then((p) => live && setPlan(p))
+    return () => {
+      live = false
+    }
+  }, [file, mode, version])
+
+  async function pick(f: File) {
+    if (blocked) return setMsg({ ok: false, text: blocked })
+    setMsg(null)
+    setFile(null)
+    setPlan(null)
+    setBusy(true)
+    try {
+      setFile({ name: f.name, parsed: await readCriteriaFile(f) })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'Fichier illisible.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function run() {
+    if (!plan || plan.errors.length) return
+    if (blocked) return setMsg({ ok: false, text: blocked })
+    const n = plan.added.length + plan.changed.length + plan.hidden.length
+    const lost = plan.dropped.filter((d) => d.values > 0).length
+    const text = [
+      `Importer ${plural(n, 'critère')} ?`,
+      supabase ? 'Ils seront partagés avec tout le staff.' : '',
+      lost
+        ? `${plural(lost, 'critère')} de cet appareil, absent${lost > 1 ? 's' : ''} du fichier et jamais partagé${lost > 1 ? 's' : ''}, ${lost > 1 ? 'ont' : 'a'} des valeurs enregistrées : ${lost > 1 ? 'ils disparaîtront' : 'il disparaîtra'} de l’écran.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    if (!(await ask(text, { ok: 'Importer', danger: lost > 0 }))) return
+    setBusy(true)
+    try {
+      const r = await applyCriteria(plan)
+      setFile(null)
+      setPlan(null)
+      setMsg({
+        ok: true,
+        text: `${plural(r.added, 'critère ajouté', 'critères ajoutés')}, ${plural(r.changed, 'modifié')}${r.hidden ? `, ${plural(r.hidden, 'masqué')}` : ''}.${supabase ? ' La synchronisation les envoie au serveur (garde l’appli ouverte et en ligne).' : ''}`,
+      })
+    } catch (e) {
+      setMsg({ ok: false, text: `Import interrompu : ${e instanceof Error ? e.message : e}` })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const writes = plan ? plan.added.length + plan.changed.length + plan.hidden.length : 0
+  const local = plan?.added.filter((a) => a.local).length ?? 0
+  return (
+    <section className="card flex flex-col gap-2 p-4">
+      <SectionTitle
+        info={
+          <>
+            <p>
+              Les critères ne sont pas livrés avec l’appli : ils viennent de la base partagée, la même pour tout le staff. Un administrateur les importe depuis un fichier Excel (.xlsx),
+              CSV ou JSON.
+            </p>
+            <p>
+              <b>Fusionner</b> ajoute et met à jour les critères du fichier (repérés par leur identifiant), sans rien retirer. <b>Remplacer</b> masque en plus les critères absents du
+              fichier (jamais supprimés : leur historique est gardé).
+            </p>
+            <p>
+              Colonnes obligatoires : id, catégorie, libellé, type, échelle. Une colonne facultative absente du fichier garde la valeur actuelle des critères existants ; une case vide
+              l’efface.
+            </p>
+            <p>L’identifiant d’un critère ne doit jamais changer : mesures et avis y sont rattachés. « Exporter » donne la liste actuelle dans le même format (modèle et sauvegarde).</p>
+          </>
+        }
+      >
+        Importer / exporter les critères
+      </SectionTitle>
+      {total === 0 && <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px]">Aucun critère pour l’instant : importe un fichier (pars du modèle).</p>}
+      {unpublished > 0 && (
+        <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-[11px]">
+          {plural(unpublished, 'critère de cet appareil n’a', 'critères de cet appareil n’ont')} jamais été partagé{unpublished > 1 ? 's' : ''} (anciens critères livrés avec l’appli). Pour
+          les publier tels quels : « Exporter », puis importer ce fichier.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted">Exporter</span>
+        {(['xlsx', 'csv', 'json'] as const).map((f) => (
+          <button key={f} className="btn-ghost px-2 py-1 text-xs" disabled={!total} onClick={() => void exportCriteria(f)}>
+            {f === 'xlsx' ? 'Excel' : f.toUpperCase()}
+          </button>
+        ))}
+        <span className="ml-auto text-[11px] text-muted">Modèle</span>
+        <a className="btn-ghost px-2 py-1 text-xs" href={`${base}modeles/criteres-modele.xlsx`} download>
+          Excel
+        </a>
+        <a className="btn-ghost px-2 py-1 text-xs" href={`${base}modeles/criteres-modele.csv`} download>
+          CSV
+        </a>
+      </div>
+      <Segmented
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: 'fusion', label: 'Fusionner' },
+          { value: 'remplacement', label: 'Remplacer (masque les absents)' },
+        ]}
+      />
+      {blocked && !busy && <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px]">{blocked}</p>}
+      <label className={`btn-ghost cursor-pointer text-xs ${busy || blocked ? 'pointer-events-none opacity-40' : ''}`}>
+        {busy && !file ? 'Lecture…' : 'Choisir le fichier (Excel, CSV ou JSON)'}
+        <input
+          type="file"
+          accept=".xlsx,.csv,.json,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (f) void pick(f)
+          }}
+        />
+      </label>
+
+      {file && plan && (
+        <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-3 text-xs">
+          <div className="truncate text-[11px] text-muted">{file.name}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <b className="text-base">{plan.added.length}</b> nouveau{plan.added.length > 1 ? 'x' : ''}
+            </div>
+            <div>
+              <b className="text-base">{plan.changed.length}</b> modifié{plan.changed.length > 1 ? 's' : ''}
+            </div>
+            <div className="text-muted">
+              {plan.unchanged} inchangé{plan.unchanged > 1 ? 's' : ''}
+            </div>
+            <div className={plan.errors.length ? 'font-bold text-red-300' : 'text-muted'}>
+              {plan.errors.length} erreur{plan.errors.length > 1 ? 's' : ''}
+            </div>
+            {mode === 'remplacement' && (
+              <div className="col-span-2">
+                {plural(plan.hidden.length, 'critère absent du fichier sera masqué', 'critères absents du fichier seront masqués')} (historique gardé)
+              </div>
+            )}
+          </div>
+          {local > 0 && (
+            <p className="text-[11px] text-muted">
+              Dont {plural(local, 'critère déjà sur cet appareil mais jamais partagé', 'critères déjà sur cet appareil mais jamais partagés')} : {local > 1 ? 'ils seront publiés' : 'il sera publié'}.
+            </p>
+          )}
+          {plan.errors.length > 0 && (
+            <div className="rounded-md border border-red-500/40 bg-red-500/10 p-2 text-[11px]">
+              <b>À corriger dans le fichier, puis le recharger :</b>
+              <ul className="mt-1 list-disc pl-4">
+                {plan.errors.slice(0, 30).map((e) => (
+                  <li key={e.line}>
+                    Ligne {e.line}
+                    {e.id ? ` (${e.id})` : ''} : {e.reason}
+                  </li>
+                ))}
+              </ul>
+              {plan.errors.length > 30 && <div>… et {plan.errors.length - 30} autres.</div>}
+            </div>
+          )}
+          {plan.changed.length > 0 && (
+            <details className="text-[11px]">
+              <summary className="cursor-pointer font-bold">Détail des modifications</summary>
+              <ul className="mt-1 flex flex-col gap-0.5 pl-1">
+                {plan.changed.map((x) => (
+                  <li key={x.c.id} className={x.risky ? 'text-amber-300' : ''}>
+                    <b>{x.c.label}</b> <span className="text-muted">({x.c.id})</span> : {x.fields.join(', ')}
+                    {x.risky ? ' — type ou échelle changé alors que des valeurs existent : elles seront difficiles à comparer' : ''}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {plan.added.length > 0 && (
+            <details className="text-[11px]">
+              <summary className="cursor-pointer font-bold">Nouveaux critères</summary>
+              <p className="mt-1">{plan.added.map((x) => x.c.label).join(', ')}</p>
+            </details>
+          )}
+          {mode === 'remplacement' && plan.hidden.length > 0 && (
+            <details className="text-[11px]">
+              <summary className="cursor-pointer font-bold">Critères masqués</summary>
+              <p className="mt-1">{plan.hidden.map((c) => c.label).join(', ')}</p>
+            </details>
+          )}
+          {plan.dropped.length > 0 && (
+            <p className={`rounded-md border p-2 text-[11px] ${plan.dropped.some((d) => d.values) ? 'border-amber-500/40 bg-amber-500/10' : 'border-line'}`}>
+              {plural(plan.dropped.length, 'critère de cet appareil, jamais partagé et absent du fichier, sera retiré', 'critères de cet appareil, jamais partagés et absents du fichier, seront retirés')} :{' '}
+              {plan.dropped.map((d) => `${d.c.label}${d.values ? ` (${plural(d.values, 'valeur')})` : ''}`).join(', ')}.
+              {plan.dropped.some((d) => d.values) && ' Les valeurs restent en base mais ne s’affichent plus : ajoute ces critères au fichier pour les garder.'}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              className="btn-ghost flex-1 text-xs"
+              disabled={busy}
+              onClick={() => {
+                setFile(null)
+                setPlan(null)
+              }}
+            >
+              Annuler
+            </button>
+            <button className="btn-primary flex-1 text-xs" disabled={busy || !!blocked || plan.errors.length > 0 || writes === 0} onClick={() => void run()}>
+              {writes === 0 && !plan.errors.length ? 'Rien à importer' : 'Importer'}
+            </button>
+          </div>
+        </div>
+      )}
+      {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
+    </section>
+  )
+}
 
 function CriteriaEditor() {
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then(alive), [], [])

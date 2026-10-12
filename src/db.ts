@@ -1,6 +1,5 @@
-import Dexie, { type EntityTable, type Transaction } from 'dexie'
+import Dexie, { type EntityTable } from 'dexie'
 import { guardWrite } from './spy'
-import { DEFAULT_CRITERIA } from './criteria'
 import type { MatchSheet } from './matchSheet'
 
 // ---------- Types ----------
@@ -195,6 +194,11 @@ export interface Criterion extends Syncable {
   quick?: boolean
   active: boolean
   order: number
+  /**
+   * Écrit par un import de fichier (criteriaImport.ts) : sa date. Sa présence sur un appareil signale que la base
+   * partagée tient la liste des critères (règle de transition : retireUnpublishedCriteria).
+   */
+  importedAt?: number
 }
 
 /** Valeur factuelle d'un critère pour un joueur à une date. */
@@ -463,26 +467,15 @@ db.version(1).stores({
   outbox: '++seq, table, rowId',
 })
 
-db.on('populate', (tx) => {
-  tx.table('criteria').bulkAdd(DEFAULT_CRITERIA.map((c, i) => ({ ...c, order: i, active: true, updatedAt: 0 })))
-})
-
-/**
- * Applique les critères par défaut aux appareils déjà installés : ajoute les nouveaux et met à jour
- * ceux que personne n'a modifiés (updatedAt = 0). Un critère modifié par un administrateur n'est pas touché.
- * À rappeler dans une nouvelle version de la base à chaque changement de DEFAULT_CRITERIA.
+/*
+ * Critères : plus aucune liste dans le code. Ils viennent tous de la base partagée (hb_criteria), importés par un
+ * administrateur depuis un fichier (Réglages > Critères et listes, criteriaImport.ts). Une base neuve démarre sans
+ * critère ; les anciennes versions 2, 7 et 10 (qui ajoutaient les critères livrés) restent déclarées, sans effet.
+ * Critères déjà sur l'appareil et jamais publiés : voir la règle de transition (retireUnpublishedCriteria).
  */
-async function applyDefaultCriteria(tx: Transaction) {
-  const table = tx.table('criteria')
-  for (const [i, c] of DEFAULT_CRITERIA.entries()) {
-    const cur = await table.get(c.id)
-    if (!cur) await table.add({ ...c, order: i, active: true, updatedAt: 0 })
-    else if (!cur.updatedAt) await table.put({ ...cur, ...c, positions: c.positions, quick: c.quick, order: i })
-  }
-}
 
-// v2 : critères de champ réservés aux joueurs de champ, nouveaux critères gardien.
-db.version(2).upgrade(applyDefaultCriteria)
+// v2 : ajoutait des critères livrés (critères de champ, gardien) ; sans effet désormais.
+db.version(2).stores({})
 
 // v3 : adultes référents des joueurs.
 db.version(3).stores({ referents: 'id, playerId, updatedAt' })
@@ -498,8 +491,8 @@ db.version(5)
 // v6 : listes modifiables (régions).
 db.version(6).stores({ lists: 'id, kind, updatedAt' })
 
-// v7 : nouveaux tests physiques (plateforme de force, 6 RM, RSA, Shirado-Sorensen, épaule en degrés).
-db.version(7).upgrade(applyDefaultCriteria)
+// v7 : ajoutait des tests physiques livrés ; sans effet désormais.
+db.version(7).stores({})
 
 // v8 : alertes.
 db.version(8).stores({ alerts: 'id, name, updatedAt' })
@@ -510,8 +503,8 @@ db.version(9).stores({
   evaluations: 'id, playerId, eventId, observer, date, updatedAt, review',
 })
 
-// v10 : tests du FabLab (VMA, sprint 5 m, Illinois, CMJ bras libres, drop jumps et leur RSI).
-db.version(10).upgrade(applyDefaultCriteria)
+// v10 : ajoutait les tests du FabLab livrés ; sans effet désormais.
+db.version(10).stores({})
 
 // v11 : suivis (joueurs et groupes suivis, supabase/032_suivis.sql).
 db.version(11).stores({ follows: 'id, updatedAt' })

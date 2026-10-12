@@ -1,9 +1,12 @@
+import { loadDemoCriteria } from './criteriaImport'
 import { db, type Evaluation, type HBEvent, type Measurement, type Player, type Position, type Team, type Video } from './db'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
  * Tous les identifiants commencent par « demo- » pour pouvoir les effacer proprement.
  * Les données ne sont pas mises dans la file de synchro : elles restent sur l'appareil.
+ * Critères : l'appli n'en livre aucun ; ceux qui manquent sont lus dans public/demo/criteres-demo.json (mêmes
+ * identifiants que les mesures et avis ci-dessous : taille, sprint_10, vision, gb_placement…).
  */
 
 const PREFIX = 'demo-'
@@ -77,6 +80,7 @@ const QUICK = new Set(['vision', 'decision', 'efficacite_tir', 'agressivite', 'e
 
 export async function loadDemo() {
   await clearDemo()
+  const criteria = await loadDemoCriteria()
   rand = rng(2026)
   const now = Date.now()
   const players: Player[] = []
@@ -251,7 +255,7 @@ export async function loadDemo() {
     await db.evaluations.bulkPut(evaluations)
     await db.videos.bulkPut(videos)
   })
-  return { players: players.length, measurements: measurements.length, events: EVENTS.length, evaluations: evaluations.length, videos: videos.length }
+  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length, evaluations: evaluations.length, videos: videos.length }
 }
 
 export async function clearDemo() {

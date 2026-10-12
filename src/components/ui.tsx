@@ -310,6 +310,15 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">{children}</div>
 }
 
+/** Aucun critère de ce type dans la base : ils ne sont pas livrés avec l'appli, un administrateur les importe. */
+export function NoCriteria({ kind }: { kind: 'factual' | 'subjective' }) {
+  return (
+    <Empty>
+      Aucun {kind === 'factual' ? 'test (critère factuel)' : 'critère d’observation'} pour l’instant : un administrateur doit importer les critères (Réglages → Critères et listes).
+    </Empty>
+  )
+}
+
 /** Regroupe une liste par catégorie en conservant l'ordre. */
 export function groupBy<T>(items: T[], key: (t: T) => string): [string, T[]][] {
   const m = new Map<string, T[]>()

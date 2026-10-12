@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -76,6 +76,8 @@ export default function Evaluate() {
     [],
     [],
   )
+  // Aucun critère d'observation dans la base (non livrés avec l'appli) : message plutôt qu'une fiche vide.
+  const noCriteria = useLiveQuery(() => db.criteria.filter((c) => !c.deleted && c.active && c.kind === 'subjective').count().then((n) => n === 0), [], false)
   // Mes avis : par compte une fois connecté (un nom peut changer ou être porté par deux personnes),
   // par nom seulement en mode local. Il suffit de ceux de l'événement (ou du joueur, hors événement).
   const uid = supabase ? currentUserId() : null
@@ -602,6 +604,7 @@ export default function Evaluate() {
           )}
           <div className="text-[11px] text-muted">1 = très insuffisant · 3 = niveau attendu · 5 = remarquable. Laisse vide ce que tu n'as pas vu.</div>
 
+          {noCriteria && <NoCriteria kind="subjective" />}
           {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
             <div key={cat} className="card p-3">
               <div className="section-title">{cat}</div>

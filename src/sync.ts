@@ -2,6 +2,7 @@ import { createClient, isAuthRetryableFetchError, type RealtimeChannel, type Sup
 import { useEffect, useState } from 'react'
 import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
 import { disablePush } from './push'
+import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
 
 /*
@@ -341,6 +342,8 @@ async function pull(uid: string) {
   } finally {
     if (progress) setProgress(null)
   }
+  // Critères jamais publiés de l'appareil : retirés dès que la base partagée tient la liste (criteriaImport.ts).
+  await retireUnpublishedCriteria()
   await forgetHidden()
 }
 

@@ -9,7 +9,7 @@ Webapp (PWA installable) de suivi des joueurs de handball :
 - **Maturité & croissance** (calculées, jamais saisies) : décalage par rapport au pic de croissance
   (Mirwald 2002 et Moore 2015), taille adulte prédite et % atteint (Khamis-Roche 1994, coefficients corrigés
   par l'erratum de 1995), avec correction des tailles parentales déclarées — voir `src/maturity.ts`.
-- **Critères paramétrables** dans *Réglages* : ajouter, renommer, masquer, passer de factuel à subjectif, mode rapide.
+- **Critères importés par les administrateurs** (Réglages → Critères et listes) depuis un fichier Excel, CSV ou JSON, partagés par tout le staff ; aucun critère n'est livré avec l'appli. Modifiables ensuite : renommer, masquer, mode rapide…
 - **Hors ligne d'abord** : tout est enregistré sur l'appareil, puis synchronisé avec le serveur au retour du réseau.
 - Export **CSV** (Excel) et sauvegarde / restauration **JSON**.
 
@@ -170,7 +170,7 @@ Sur téléphone : ouvrir l'adresse, se connecter, puis « Ajouter à l'écran d'
 | Fichier | Rôle |
 |---|---|
 | `src/db.ts` | Modèle de données et base locale (IndexedDB via Dexie). Toutes les écritures passent par `save()` / `remove()` qui alimentent la file de synchro. |
-| `src/criteria.ts` | Critères livrés par défaut (factuels et subjectifs). |
+| `src/criteriaImport.ts`, `src/criteriaFormat.ts` | Import / export des critères (format des fichiers, aperçu, règle de transition). Modèle : `public/modeles/`. |
 | `src/sync.ts` | Synchronisation hors ligne ↔ Supabase (file d'attente, « la plus récente gagne »). |
 | `src/pages/` | Écrans : accueil, joueurs, fiche, formulaire, évaluation, matchs, réglages. |
 | `src/components/Opinions.tsx` | Comparaison et cumul des avis des observateurs. |

@@ -1,5 +1,6 @@
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
-import { fmtDate, type Measurement, type Player } from '../db'
+import { db, fmtDate, type Measurement, type Player } from '../db'
 import { Icon, InfoButton } from './ui'
 import {
   correctedParentHeight,
@@ -85,6 +86,12 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
   const noParents = p.motherHeight === undefined || p.fatherHeight === undefined
   const noSitting = !measurements.some((m) => m.criterionId === 'taille_assise')
   const noWeight = !measurements.some((m) => m.criterionId === 'poids')
+  // Critères taille, poids, taille assise (identifiants fixes) absents de la base : on ne peut pas les saisir.
+  const absent = useLiveQuery(
+    () => db.criteria.bulkGet(['taille', 'poids', 'taille_assise']).then((cs) => cs.filter((c) => !c || c.deleted).length),
+    [],
+    0,
+  )
 
   return (
     <div className="card p-4">
@@ -111,6 +118,7 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
           <Link to={`/joueurs/${p.id}/modifier`} className="font-bold text-accent">
             Compléter la fiche →
           </Link>
+          {absent > 0 && <p className="mt-1">Les critères taille, poids et taille assise (identifiants taille, poids, taille_assise) sont à importer par un administrateur.</p>}
         </div>
       ) : (
         <div className="flex flex-col gap-4">

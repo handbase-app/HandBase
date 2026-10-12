@@ -112,6 +112,13 @@ export default function PlayerDetail() {
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, p.position))
   const a = age(p.birthDate)
 
+  // Taille, poids : dernière mesure, avec l'unité du critère (ou l'unité habituelle si le critère n'est pas dans la base).
+  const gauge = (id: string, unit: string) => {
+    const m = latest.get(id)
+    if (!m) return undefined
+    const c = factual.find((x) => x.id === id)
+    return c ? fmtValue(c, m.value) : `${fmtValue(undefined, m.value)} ${unit}`
+  }
   const info: [string, string | undefined][] = [
     ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : undefined],
     ['Club', p.club],
@@ -124,8 +131,8 @@ export default function PlayerDetail() {
     ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['Internat', p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : undefined],
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
-    ['Taille', latest.get('taille') && fmtValue(factual.find((c) => c.id === 'taille'), latest.get('taille')!.value)],
-    ['Poids', latest.get('poids') && fmtValue(factual.find((c) => c.id === 'poids'), latest.get('poids')!.value)],
+    ['Taille', gauge('taille', 'cm')],
+    ['Poids', gauge('poids', 'kg')],
     ['Latéralité', lateralityLabel(p.laterality, p.sex)],
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm (${p.motherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
     ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm (${p.fatherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
@@ -397,7 +404,11 @@ function Tracking({
       </div>
 
       {!current ? (
-        <div className="text-center text-xs text-muted">Aucune mesure enregistrée.</div>
+        <div className="text-center text-xs text-muted">
+          {measurements.some((m) => !criteria.some((c) => c.id === m.criterionId))
+            ? 'Mesures enregistrées, mais leurs critères ne sont pas dans la base : un administrateur doit les importer.'
+            : 'Aucune mesure enregistrée.'}
+        </div>
       ) : (
         <>
           <select className="field mb-3" value={current.id} onChange={(e) => setCid(e.target.value)}>
