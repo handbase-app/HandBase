@@ -683,6 +683,19 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
       if (fix[keys[i]] !== undefined) return 'fixed'
       return at(i) === undefined ? undefined : 'estimated'
     },
+    /** Temps vidéo d'un temps de jeu g (s depuis le début du match) de la période p, d'après les repères ; undefined sans repère. */
+    videoAt: (p: number, g: number) => mapped(p, g),
+    /**
+     * Fin dans la vidéo d'une durée de jeu commençant à l'action i (exclusion de 2 minutes : 120 s) : même écart que dans le
+     * calcul (arrêts de jeu compris), à partir du temps de l'action, calée ou estimée.
+     */
+    spanEnd(i: number, gameSec: number): number | undefined {
+      const a = sheet.actions[i]
+      const v = at(i)
+      const g0 = mapped(a.p, a.t)
+      const g1 = mapped(a.p, a.t + gameSec)
+      return v === undefined || g0 === undefined || g1 === undefined ? undefined : v + Math.max(gameSec * SLOPE_MIN, g1 - g0)
+    },
     /** Nombre d'actions calées à la main. */
     fixedCount: keys.filter((k) => fix[k] !== undefined).length,
     /** Arrêts cumulés d'une période (s) : durée vidéo entre début et fin moins la durée de jeu ; undefined sans les deux repères. */

@@ -253,4 +253,14 @@ assert.ok(gkHomonym >= 0 && fieldHomonym >= 0 && d.roster[gkHomonym].name === d.
 assert.ok(d.actions.filter((a) => a.k === 'arret' && d.roster[a.pl!]?.name === d.roster[gkHomonym].name).every((a) => a.pl === gkHomonym))
 assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.who).length, 0)
 
+// Bande d'une exclusion de 2 minutes : 120 s de jeu, au rythme constaté (repères s1 et e1 : arrêts de jeu répartis).
+{
+  const dl = lateIndexes(d.actions)
+  const two = d.actions.findIndex((a, i) => a.k === '2mn' && a.p === 1 && !dl.has(i))
+  assert.ok(two >= 0, 'exclusion de 2 min dans la démo')
+  const r = timeline({ actions: d.actions, halfMin: 30, sync: { marks: { s1: 100, e1: 100 + 1800 * 1.2 } } })
+  assert.ok(Math.abs(r.spanEnd(two, 120)! - (r.at(two)! + 144)) < 1e-6, 'bande 2 min au rythme du match')
+  assert.equal(r.videoAt(1, 0), 100)
+}
+
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

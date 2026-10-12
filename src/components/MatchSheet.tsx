@@ -649,6 +649,10 @@ const OPTIONAL_MARKS: { key: string; p: number; label: string }[] = [
   { key: 'e1', p: 1, label: 'Fin 1re mi-temps' },
   { key: 's2', p: 2, label: 'Début 2e mi-temps' },
   { key: 'e2', p: 2, label: 'Fin du match' },
+  { key: 's3', p: 3, label: 'Début prolongation 1' },
+  { key: 'e3', p: 3, label: 'Fin prolongation 1' },
+  { key: 's4', p: 4, label: 'Début prolongation 2' },
+  { key: 'e4', p: 4, label: 'Fin prolongation 2' },
 ]
 
 /**
@@ -706,7 +710,7 @@ export function MatchSyncTools({ eventId, video, api }: { eventId: string; video
             <div key={m.key} className="contents">
               <span className="truncate">{m.label}</span>
               {marks[m.key] !== undefined ? (
-                <button className="font-bold text-accent tabular-nums hover:underline" title="Aller à ce repère" onClick={() => api.seek(marks[m.key])}>
+                <button className="h-8 min-w-8 px-1 font-bold text-accent tabular-nums hover:underline" title="Aller à ce repère" onClick={() => api.seek(marks[m.key])}>
                   {fmtMoment(Math.round(marks[m.key]))}
                 </button>
               ) : (

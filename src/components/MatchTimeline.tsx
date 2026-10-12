@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { db, type Video } from '../db'
-import { momentAction, timelineOf } from '../matchSheet'
+import { momentAction, timelineOf, type ActionKind, type Side } from '../matchSheet'
 import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync } from '../matchSync'
 import { can, useRole } from '../roles'
 import { fmtMoment } from '../videos'
@@ -12,9 +12,12 @@ import { PlaceMark } from './Videos'
 
 /*
  * Frise du match sous la vidéo : un repère par action de la feuille de match, à son temps vidéo (toutes les actions du
- * match, pas seulement celles d'un joueur). Jaune plein = calée à l'œil (✓), jaune pointillé = estimée (~), vert = coup
- * d'envoi et repères de période ; trait rouge = temps courant. Fenêtre d'environ 5 min autour du temps courant, et en
- * dessous la vidéo entière (toucher pour y aller). Des repères trop proches se regroupent en une pastille « n ».
+ * match, pas seulement celles d'un joueur). Couleur de l'équipe (locaux bleu, visiteurs orange) ; plein = calée à l'œil
+ * (✓), contour pointillé = estimée (~) ; forme selon le type (Glyph) ; repères de période sombres numérotés « 1 », « 2 »
+ * (barrés en fin de période), « P1 », « P2 » en prolongation ; bande translucide pendant une exclusion de 2 minutes ;
+ * trait rouge = temps courant. Puces de filtre (Tous, Buts, 2', Cartons, Temps morts). Fenêtre d'environ 5 min autour du
+ * temps courant, et en dessous la vidéo entière (toucher pour y aller). Des repères trop proches se regroupent en une
+ * pastille « n » (couleur de l'équipe majoritaire, sinon neutre).
  *
  * Toucher un repère : la vidéo y va et il est choisi ; la carte en dessous donne l'action, son statut et son temps, avec
  * −2 s / +2 s, « C'est ici ! », retirer le repère et « Annuler ». Un repère se fait aussi glisser. Tout le calcul est dans
@@ -48,37 +51,131 @@ const minuteOf = (t: number) => {
 
 // ---------- Repères ----------
 
-const YELLOW = '#facc15'
-const GREEN = '#22c55e'
+/**
+ * Couleur d'équipe (feuille de match : recevant = « locaux », visiteur = « visiteurs ») : bleu et orange, lisibles sur
+ * les deux thèmes et distincts du trait rouge du temps courant. Action sans équipe connue : couleur du texte.
+ */
+const TEAM_COLOR: Record<Side, string> = { home: '#3b82f6', away: '#f97316' }
+const INK = 'var(--color-fg)'
+const PAPER = 'var(--color-panel)'
+const teamColor = (side?: Side) => (side ? TEAM_COLOR[side] : INK)
+const CARD_COLOR: Partial<Record<ActionKind, string>> = { avert: '#facc15', disq: '#dc2626', bleu: '#2563eb' }
+
 /** Écart minimal entre deux repères affichés séparément (px) ; en dessous, ils se regroupent. */
 const MIN_GAP = 26
 /** Largeurs de fenêtre proposées (s). */
 const SPANS = [60, 150, 300, 600, 1200]
-const PERIOD_MARK: Record<string, string> = { s1: 'Coup d’envoi', e1: 'Fin 1re mi-temps', s2: 'Début 2e mi-temps', e2: 'Fin du match' }
+/** Repères de période : nom, et chiffre affiché (barré pour une fin de période). Prolongations : « P1 », « P2 ». */
+const PERIOD_MARK: Record<string, string> = {
+  s1: 'Coup d’envoi',
+  e1: 'Fin 1re mi-temps',
+  s2: 'Début 2e mi-temps',
+  e2: 'Fin du match',
+  s3: 'Début prolongation 1',
+  e3: 'Fin prolongation 1',
+  s4: 'Début prolongation 2',
+  e4: 'Fin prolongation 2',
+}
+const periodBadge = (key: string) => {
+  const p = Number(key.slice(1))
+  return p <= 2 ? String(p) : `P${p - 2}`
+}
 
-/** Un repère de la frise : action de la feuille (i) ou repère de période (key). */
-type Mk = { id: string; v: number; i?: number; key?: string; fixed: boolean; green: boolean; mine: boolean }
+/** Filtres de la frise (gardés sur l'appareil). */
+type Filter = 'all' | 'goals' | 'two' | 'cards' | 'tm'
+const FILTERS: { k: Filter; label: string; kinds?: ActionKind[] }[] = [
+  { k: 'all', label: 'Tous' },
+  { k: 'goals', label: 'Buts', kinds: ['but', 'but7'] },
+  { k: 'two', label: '2’', kinds: ['2mn'] },
+  { k: 'cards', label: 'Cartons', kinds: ['avert', 'disq', 'bleu'] },
+  { k: 'tm', label: 'Temps morts', kinds: ['tm'] },
+]
+const FILTER_KEY = 'handbase.frise.filtre'
+const readFilter = (): Filter => {
+  try {
+    const v = localStorage.getItem(FILTER_KEY)
+    return FILTERS.some((f) => f.k === v) ? (v as Filter) : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+/** Un repère de la frise : action de la feuille (i, type, équipe) ou repère de période (key). */
+type Mk = { id: string; v: number; i?: number; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
 type Sel = { i: number } | { key: string }
 const selId = (s?: Sel) => (!s ? '' : 'i' in s ? `a${s.i}` : `m${s.key}`)
 
-/** Épingle pointue vers le bas : pleine (calée), pointillée (estimée), verte (repère de période). */
-function Pin({ mk, big }: { mk: Mk; big?: boolean }) {
-  const color = mk.green ? GREEN : YELLOW
-  const w = big ? 16 : 11
-  const h = big ? 22 : 15
+/**
+ * Forme d'un repère, selon son type ; pointe ou trait en bas, sur son temps. Calé = plein, estimé = contour pointillé, dans
+ * la couleur de l'équipe. But : épingle (la plus visible, les buts se calent le mieux) ; but sur 7 m : épingle « 7 » ;
+ * 2 minutes : étiquette « 2' » ; avertissement, disqualification, carton bleu : carton jaune, rouge, bleu ; temps mort :
+ * étiquette « T » ; le reste (tirs, arrêts…) : point. Période : épingle sombre avec son chiffre, barré pour une fin.
+ */
+function Glyph({ mk, big }: { mk: Mk; big?: boolean }) {
+  const scale = big ? 1.45 : 1
+  const color = mk.key ? INK : teamColor(mk.side)
+  const fill = mk.fixed ? color : `color-mix(in srgb, ${color} 22%, transparent)`
+  const line = { stroke: color, strokeWidth: mk.fixed ? 1 : 1.5, strokeDasharray: mk.fixed ? undefined : '2.2 1.6', strokeLinejoin: 'round' as const }
+  const text = (s: string, size: number, y: number) => (
+    <text x="7" y={y} textAnchor="middle" fontSize={size} fontWeight={800} style={{ fill: mk.fixed ? (mk.key ? PAPER : '#fff') : color }}>
+      {s}
+    </text>
+  )
+  const stem = <line x1="7" y1="12" x2="7" y2="18" stroke={color} strokeWidth={1.2} />
+  let body
+  if (mk.key) {
+    const badge = periodBadge(mk.key)
+    body = (
+      <>
+        <path d="M7 18 L0 10 V0 H14 V10 Z" style={{ fill: INK, stroke: INK }} strokeWidth={1} strokeLinejoin="round" />
+        {text(badge, badge.length > 1 ? 6.5 : 8.5, 8)}
+        {mk.key.startsWith('e') && <line x1="1.5" y1="9" x2="12.5" y2="2.5" style={{ stroke: PAPER }} strokeWidth={1.4} />}
+      </>
+    )
+  } else if (mk.k === 'but' || mk.k === 'but7') {
+    body = (
+      <>
+        <path d="M7 18 L0 10 V0 H14 V10 Z" style={{ fill }} {...line} />
+        {mk.k === 'but7' && text('7', 8.5, 8)}
+      </>
+    )
+  } else if (mk.k === '2mn' || mk.k === 'tm') {
+    body = (
+      <>
+        {stem}
+        <rect x="0.5" y="1" width="13" height="10" rx="2" style={{ fill }} {...line} />
+        {text(mk.k === 'tm' ? 'T' : '2’', 7.5, 9)}
+      </>
+    )
+  } else if (mk.k && CARD_COLOR[mk.k]) {
+    const card = CARD_COLOR[mk.k]!
+    body = (
+      <>
+        {stem}
+        <rect x="3" y="0.5" width="8" height="11.5" rx="1.2" style={{ fill: mk.fixed ? card : `color-mix(in srgb, ${card} 35%, transparent)` }} {...line} />
+      </>
+    )
+  } else {
+    body = (
+      <>
+        {stem}
+        <circle cx="7" cy="9" r="3.6" style={{ fill }} {...line} />
+      </>
+    )
+  }
   return (
-    <svg width={w} height={h} viewBox="-1 -1 14 18" aria-hidden className="pointer-events-none drop-shadow">
-      <path
-        d="M6 16 L0 8 V0 H12 V8 Z"
-        fill={mk.fixed ? color : mk.green ? 'rgba(34,197,94,0.25)' : 'rgba(250,204,21,0.28)'}
-        stroke={mk.fixed || mk.green ? color : '#eab308'}
-        strokeWidth={mk.fixed ? 1 : 1.6}
-        strokeDasharray={mk.fixed ? undefined : '2.2 1.6'}
-        strokeLinejoin="round"
-      />
-      {mk.mine && <circle cx="6" cy="5" r="2.2" fill={mk.fixed ? '#111' : color} />}
+    <svg width={16 * scale} height={24 * scale} viewBox="-1 -1 16 24" aria-hidden className="pointer-events-none overflow-visible drop-shadow">
+      {body}
+      {/* Action du joueur de la fiche ouverte : point sous le repère. */}
+      {mk.mine && <circle cx="7" cy="21.5" r="1.8" style={{ fill: INK }} />}
     </svg>
   )
+}
+
+/** Couleur d'une pastille de repères regroupés : celle de l'équipe largement majoritaire (3 sur 4), sinon neutre. */
+function clusterColor(g: Mk[]) {
+  for (const side of ['home', 'away'] as const) if (g.filter((m) => m.side === side).length >= g.length * 0.75) return TEAM_COLOR[side]
+  return INK
 }
 
 /**
@@ -114,6 +211,16 @@ export default function MatchTimeline({
   const [span, setSpan] = useState(300)
   const [sel, setSel] = useState<Sel>()
   const [group, setGroup] = useState<Mk[]>()
+  const [filter, setFilterState] = useState<Filter>(readFilter)
+  const setFilter = (f: Filter) => {
+    setFilterState(f)
+    setGroup(undefined)
+    try {
+      localStorage.setItem(FILTER_KEY, f)
+    } catch {
+      /* stockage indisponible */
+    }
+  }
   const [drag, setDrag] = useState<{ id: string; v: number; start: number }>()
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
@@ -179,12 +286,28 @@ export default function MatchTimeline({
 
   // Repères : actions placées et repères de période posés.
   const mks: Mk[] = []
-  for (const [key, v] of Object.entries(marks)) if (PERIOD_MARK[key]) mks.push({ id: `m${key}`, v, key, fixed: true, green: true, mine: false })
+  for (const [key, v] of Object.entries(marks)) if (PERIOD_MARK[key]) mks.push({ id: `m${key}`, v, key, fixed: true, mine: false })
+  const kinds = FILTERS.find((f) => f.k === filter)?.kinds
   ms.actions.forEach((a, i) => {
     const v = tl.at(i)
-    if (v !== undefined) mks.push({ id: `a${i}`, v, i, fixed: fix[tl.keys[i]] !== undefined, green: false, mine: a.pl !== undefined && pls.includes(a.pl) })
+    if (v === undefined) return
+    // Filtre : l'action choisie reste affichée.
+    if (kinds && !kinds.includes(a.k) && selId(sel) !== `a${i}`) return
+    mks.push({ id: `a${i}`, v, i, k: a.k, side: a.side, fixed: fix[tl.keys[i]] !== undefined, mine: a.pl !== undefined && pls.includes(a.pl) })
   })
   mks.sort((a, b) => a.v - b.v)
+  // Exclusions de 2 minutes : bande de la couleur de l'équipe, 2 min de jeu à partir de l'action (infériorité numérique).
+  const bands =
+    filter === 'all' || filter === 'two'
+      ? ms.actions.flatMap((a, i) => {
+          if (a.k !== '2mn') return []
+          const v0 = tl.at(i)
+          const v1 = tl.spanEnd(i, 120)
+          return v0 === undefined || v1 === undefined ? [] : [{ i, v0, v1, side: a.side }]
+        })
+      : []
+  // Nombre d'actions par filtre (puces), et équipes de la légende.
+  const count = (f: (typeof FILTERS)[number]) => (f.kinds ? ms.actions.filter((a) => f.kinds!.includes(a.k)).length : ms.actions.length)
   const total = Math.max(dur ?? 0, now + 60, (mks.at(-1)?.v ?? 0) + 60)
   const win = Math.min(span, total)
   // Fenêtre centrée sur le temps courant ; lecteur pas encore prêt : sur l'action choisie.
@@ -307,6 +430,31 @@ export default function MatchTimeline({
       </div>
       {marks.s1 === undefined && calib && <p className="text-[10px] text-muted">Mets la vidéo sur le coup d’envoi du match puis touche « Coup d’envoi ici » : toutes les actions seront estimées.</p>}
 
+      {/* Filtres et légende des équipes. */}
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Actions affichées">
+        {FILTERS.filter((f) => !f.kinds || count(f) > 0).map((f) => (
+          <button
+            key={f.k}
+            className={`h-8 shrink-0 rounded-full border px-2.5 text-[11px] font-bold ${filter === f.k ? 'border-accent bg-accent/15 text-accent' : 'border-line text-muted hover:text-fg'}`}
+            aria-pressed={filter === f.k}
+            onClick={() => setFilter(f.k)}
+          >
+            {f.label}
+            {f.kinds && <span className="ml-1 font-normal tabular-nums">{count(f)}</span>}
+          </button>
+        ))}
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+        {(['home', 'away'] as const).map((side) => (
+          <span key={side} className="flex min-w-0 max-w-full items-center gap-1">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: TEAM_COLOR[side] }} />
+            <span className="truncate">
+              <span className="text-muted">{side === 'home' ? 'Locaux' : 'Visiteurs'} :</span> {side === 'home' ? ms.home : ms.away}
+            </span>
+          </span>
+        ))}
+      </div>
+
       {/* Fenêtre autour du temps courant. */}
       <div
         ref={track}
@@ -327,6 +475,16 @@ export default function MatchTimeline({
               {win <= 600 && <span className="absolute bottom-1.5 left-0.5 text-[8px] text-muted tabular-nums">{fmtMoment(t)}</span>}
             </span>
           ))}
+        {bands
+          .filter((b) => b.v1 >= start && b.v0 <= start + win)
+          .map((b) => (
+            <span
+              key={`b${b.i}`}
+              className="pointer-events-none absolute top-0 bottom-0"
+              style={{ left: Math.max(0, xOf(b.v0)), width: Math.max(2, xOf(b.v1) - Math.max(0, xOf(b.v0))), background: teamColor(b.side), opacity: 0.16 }}
+              title="Exclusion de 2 minutes"
+            />
+          ))}
         {groups.map((g) =>
           g.length === 1 ? (
             <button
@@ -339,7 +497,7 @@ export default function MatchTimeline({
               onPointerDown={onDown(g[0])}
               onClick={() => !drag && choose(g[0])}
             >
-              <Pin mk={g[0]} big={g[0].id === selId(sel) || g[0].id === drag?.id} />
+              <Glyph mk={g[0]} big={g[0].id === selId(sel) || g[0].id === drag?.id} />
             </button>
           ) : (
             <button
@@ -350,7 +508,14 @@ export default function MatchTimeline({
               aria-label={`${g.length} actions rapprochées`}
               onClick={() => setGroup(group?.[0]?.id === g[0].id ? undefined : g)}
             >
-              <span className={`rounded-full border px-1.5 text-[10px] font-extrabold tabular-nums ${g.some((m) => m.fixed) ? 'border-yellow-400 bg-yellow-400 text-black' : 'border-dashed border-yellow-500 bg-yellow-400/25'}`}>
+              <span
+                className={`rounded-full border px-1.5 text-[10px] font-extrabold tabular-nums ${g.some((m) => m.fixed) ? '' : 'border-dashed'}`}
+                style={
+                  g.some((m) => m.fixed)
+                    ? { borderColor: clusterColor(g), background: clusterColor(g), color: clusterColor(g) === INK ? PAPER : '#fff' }
+                    : { borderColor: clusterColor(g), background: `color-mix(in srgb, ${clusterColor(g)} 20%, transparent)` }
+                }
+              >
                 {g.length}
               </span>
             </button>
@@ -390,10 +555,10 @@ export default function MatchTimeline({
             <span
               key={m.id}
               className="absolute top-0 h-2 w-px"
-              style={{ left: `${(m.v / total) * 100}%`, background: m.green ? GREEN : YELLOW, opacity: m.fixed ? 1 : 0.45 }}
+              style={{ left: `${(m.v / total) * 100}%`, background: m.key ? INK : teamColor(m.side), opacity: m.fixed ? 1 : 0.45 }}
             />
           ))}
-          <span className="absolute -top-0.5 h-3 rounded border border-white/60" style={{ left: `${(start / total) * 100}%`, width: `${Math.max(1, (win / total) * 100)}%` }} />
+          <span className="absolute -top-0.5 h-3 rounded border border-fg/60" style={{ left: `${(start / total) * 100}%`, width: `${Math.max(1, (win / total) * 100)}%` }} />
           <span className="absolute -top-1 h-4 w-0.5 bg-red-500" style={{ left: `${(now / total) * 100}%` }} />
         </div>
       </div>
