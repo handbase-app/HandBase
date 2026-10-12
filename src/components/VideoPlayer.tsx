@@ -27,6 +27,8 @@ interface Ctl {
   duration(): number | undefined
   /** Vitesse de lecture (0,25 à 2). */
   setRate(r: number): void
+  /** Couper ou remettre le son. */
+  setMuted(m: boolean): void
 }
 
 type AdapterProps = { embed: Embed; start: number; onCtl: (c: Ctl) => void; onFail: () => void }
@@ -54,6 +56,8 @@ interface YTPlayer {
   getPlayerState(): number
   getDuration(): number
   setPlaybackRate(r: number): void
+  mute(): void
+  unMute(): void
 }
 interface YTNamespace {
   Player: new (el: HTMLIFrameElement, opts: { events: { onReady?: () => void; onError?: (e: { data: number }) => void } }) => YTPlayer
@@ -118,6 +122,7 @@ function YouTubeAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
                 ended: () => p.getPlayerState() === 0,
                 duration: () => p.getDuration() || undefined,
                 setRate: (r) => p.setPlaybackRate(r),
+                setMuted: (m) => (m ? p.mute() : p.unMute()),
               }),
             // 100/101/150/153 : vidéo introuvable, privée ou intégration interdite par son auteur.
             onError: () => alive && onFail(),
@@ -189,6 +194,7 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
           ended: () => st.ended,
           duration: () => st.d,
           setRate: (r) => send('setPlaybackRate', r),
+          setMuted: (m) => send('setVolume', m ? 0 : 1),
         })
       } else if (d.event === 'timeupdate' && typeof d.data?.seconds === 'number') {
         st.t = d.data.seconds
@@ -239,6 +245,7 @@ function FileAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       ended: () => v.ended,
       duration: () => (Number.isFinite(v.duration) ? v.duration : undefined),
       setRate: (r) => (v.playbackRate = r),
+      setMuted: (m) => (v.muted = m),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -292,6 +299,7 @@ function nudge(c: Ctl, d: number) {
 }
 
 /** « 12:05 » / « 1:02:05 ». */
+const MUTE_KEY = 'handbase.video.muet'
 const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' : fmtMoment(Math.floor(t)))
 
 /**
@@ -301,6 +309,24 @@ const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' 
 function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }) {
   const [, tick] = useState(0)
   const [rate, setRate] = useState(1)
+  // Son coupé : retenu sur l'appareil et appliqué à chaque vidéo ouverte.
+  const [muted, setMuted] = useState(() => {
+    try {
+      return localStorage.getItem(MUTE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => ctl.setMuted(muted), [ctl, muted])
+  const toggleMute = () => {
+    const m = !muted
+    setMuted(m)
+    try {
+      localStorage.setItem(MUTE_KEY, m ? '1' : '0')
+    } catch {
+      /* stockage indisponible : réglage pour cette vidéo seulement */
+    }
+  }
   useEffect(() => {
     const timer = window.setInterval(() => tick((n) => n + 1), 250)
     return () => window.clearInterval(timer)
@@ -322,8 +348,11 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
       <span className="ml-1 min-w-0 truncate tabular-nums">
         {clock(t)} <span className="text-white/50">/ {clock(ctl.duration())}</span>
       </span>
+      <button className={`${btn} ml-auto`} title={muted ? 'Remettre le son' : 'Couper le son'} aria-label={muted ? 'Remettre le son' : 'Couper le son'} aria-pressed={muted} onClick={toggleMute}>
+        <Icon name={muted ? 'mute' : 'volume'} className="h-4 w-4" />
+      </button>
       <select
-        className="ml-auto h-8 rounded bg-white/10 px-1 text-[11px] text-white"
+        className="h-8 rounded bg-white/10 px-1 text-[11px] text-white"
         title="Vitesse de lecture"
         aria-label="Vitesse de lecture"
         value={rate}
