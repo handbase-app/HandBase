@@ -771,8 +771,11 @@ export function EventDetail() {
                       <span className="w-6 text-center text-[11px] text-muted" title={byTeam ? 'Numéro de maillot' : undefined}>
                         {byTeam ? (numOf(ev, p.id) ?? '–') : i + 1}
                       </span>
-                      <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                      {/* La photo (ou les initiales) ouvre la fiche du joueur ; le reste de la ligne mène à l'évaluation. */}
+                      <Link to={`/joueurs/${p.id}`} title="Voir la fiche" aria-label={`Fiche de ${p.firstName} ${p.lastName}`} className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60">
                         <Avatar p={p} size={32} />
+                      </Link>
+                      <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 truncate text-sm font-bold">
                             {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
