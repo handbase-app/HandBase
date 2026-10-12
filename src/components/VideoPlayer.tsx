@@ -317,7 +317,9 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
       return false
     }
   })
-  useEffect(() => ctl.setMuted(muted), [ctl, muted])
+  useEffect(() => {
+    ctl.setMuted(muted)
+  }, [ctl, muted])
   const toggleMute = () => {
     const m = !muted
     setMuted(m)
