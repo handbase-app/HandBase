@@ -47,7 +47,9 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
     return () => window.removeEventListener('resize', measure)
   }, [])
   return (
-    <div className="sticky z-10 -mx-4 border-b border-line bg-bg/95 px-4 backdrop-blur" style={{ top: inPanel ? 0 : top }}>
+    // Dans le panneau de droite (marge haute pt-3), les onglets collent au bord même du cadre : sinon une bande
+    // de 0,75 rem laisse voir le contenu qui défile au-dessus d'eux.
+    <div className={`sticky z-10 -mx-4 border-b border-line px-4 ${inPanel ? 'bg-bg' : 'bg-bg/95 backdrop-blur'}`} style={{ top: inPanel ? '-0.75rem' : top }}>
       <div className="flex">
         {TABS.map((t) => (
           <button
