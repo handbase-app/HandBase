@@ -27,6 +27,8 @@ const loadSheet = () => import('../components/MatchSheet')
 const MatchImport = lazy(() => loadSheet().then((m) => ({ default: m.MatchImport })))
 const MatchSheetCard = lazy(() => loadSheet().then((m) => ({ default: m.MatchSheetCard })))
 const MatchSyncTools = lazy(() => loadSheet().then((m) => ({ default: m.MatchSyncTools })))
+// Frise du match sous la vidéo (repères des actions, « C'est ici ! ») : chargée avec le lecteur.
+const MatchTimeline = lazy(() => import('../components/MatchTimeline'))
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
@@ -548,6 +550,15 @@ export function EventDetail() {
               ? (v, api) => (
                   <Suspense fallback={null}>
                     <MatchSyncTools eventId={ev.id} video={v} api={api} />
+                  </Suspense>
+                )
+              : undefined
+          }
+          bar={
+            ev.matchSheet
+              ? (v, api) => (
+                  <Suspense fallback={null}>
+                    <MatchTimeline eventId={ev.id} video={v} eventVideo api={api} />
                   </Suspense>
                 )
               : undefined

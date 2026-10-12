@@ -40,8 +40,8 @@ const VideoPlayer = lazy(() =>
   })),
 )
 
-/** « C'est ici ! » sous le lecteur d'une vidéo de fiche joueur (module de la feuille de match, chargé à la demande). */
-const MomentHereBar = lazy(() => import('./MatchSheet').then((m) => ({ default: m.MomentHereBar })))
+/** Frise du match sous la vidéo d'une fiche joueur (module chargé à la demande, seulement pour une vidéo de match calée). */
+const MatchTimeline = lazy(() => import('./MatchTimeline'))
 
 type SheetMod = typeof import('../matchSheet')
 
@@ -115,6 +115,7 @@ export function VideoSection({
   targetId,
   dept,
   tools,
+  bar,
   children,
 }: {
   kind: Video['targetKind']
@@ -122,6 +123,8 @@ export function VideoSection({
   dept?: string
   /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement). */
   tools?: (v: Video, api: PlayerTools) => ReactNode
+  /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement). */
+  bar?: (v: Video, api: PlayerTools) => ReactNode
   /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
   children?: ReactNode
 }) {
@@ -245,12 +248,13 @@ export function VideoSection({
             tools={tools && ((api) => tools(open!, api))}
             badge={badgeOf(open!)}
             bar={
-              openSheet &&
-              ((api) => (
-                <Suspense fallback={null}>
-                  <MomentHereBar eventId={openSheet.eventId} pls={openSheet.pls} playerId={targetId} api={api} />
-                </Suspense>
-              ))
+              openSheet
+                ? (api) => (
+                    <Suspense fallback={null}>
+                      <MatchTimeline eventId={openSheet.eventId} video={open!} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
+                    </Suspense>
+                  )
+                : bar && ((api) => bar(open!, api))
             }
           />
         </Suspense>

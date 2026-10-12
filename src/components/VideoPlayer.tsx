@@ -23,6 +23,10 @@ interface Ctl {
   /** En lecture (ou en chargement après un « lire »). */
   playing(): boolean
   ended(): boolean
+  /** Durée de la vidéo (s), undefined tant qu'elle n'est pas connue. */
+  duration(): number | undefined
+  /** Vitesse de lecture (0,25 à 2). */
+  setRate(r: number): void
 }
 
 type AdapterProps = { embed: Embed; start: number; onCtl: (c: Ctl) => void; onFail: () => void }
@@ -48,6 +52,8 @@ interface YTPlayer {
   pauseVideo(): void
   getCurrentTime(): number
   getPlayerState(): number
+  getDuration(): number
+  setPlaybackRate(r: number): void
 }
 interface YTNamespace {
   Player: new (el: HTMLIFrameElement, opts: { events: { onReady?: () => void; onError?: (e: { data: number }) => void } }) => YTPlayer
@@ -88,7 +94,9 @@ function YouTubeAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
   const id = embed.kind === 'youtube' ? embed.id : ''
   // Adresse figée au premier rendu (le cadre ne doit pas se recharger).
   const [src] = useState(() => {
-    const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, playsinline: '1', rel: '0' })
+    // controls=0 : les commandes sont les nôtres, sous la vidéo (rien n'est posé sur le cadre YouTube : son logo et ses
+    // écrans restent visibles, comme le demandent ses conditions).
+    const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, playsinline: '1', rel: '0', controls: '0' })
     if (start) q.set('start', String(Math.floor(start)))
     return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${q}`
   })
@@ -108,6 +116,8 @@ function YouTubeAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
                 time: () => p.getCurrentTime(),
                 playing: () => [1, 3].includes(p.getPlayerState()),
                 ended: () => p.getPlayerState() === 0,
+                duration: () => p.getDuration() || undefined,
+                setRate: (r) => p.setPlaybackRate(r),
               }),
             // 100/101/150/153 : vidéo introuvable, privée ou intégration interdite par son auteur.
             onError: () => alive && onFail(),
@@ -146,13 +156,13 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
     return `${VIMEO}/video/${encodeURIComponent(embed.id)}?${q}${start ? `#t=${Math.floor(start)}s` : ''}`
   })
   useEffect(() => {
-    const st = { t: undefined as number | undefined, playing: false, ended: false }
+    const st = { t: undefined as number | undefined, d: undefined as number | undefined, playing: false, ended: false }
     const send = (method: string, value?: unknown) => ref.current?.contentWindow?.postMessage(value === undefined ? { method } : { method, value }, VIMEO)
     let ready = false
     const failTimer = window.setTimeout(() => !ready && onFail(), 20000)
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== VIMEO || e.source !== ref.current?.contentWindow) return
-      let d: { event?: string; data?: { seconds?: number } } | undefined
+      let d: { event?: string; data?: { seconds?: number; duration?: number } } | undefined
       try {
         d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
       } catch {
@@ -177,8 +187,13 @@ function VimeoAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
           time: () => st.t,
           playing: () => st.playing,
           ended: () => st.ended,
+          duration: () => st.d,
+          setRate: (r) => send('setPlaybackRate', r),
         })
-      } else if (d.event === 'timeupdate' && typeof d.data?.seconds === 'number') st.t = d.data.seconds
+      } else if (d.event === 'timeupdate' && typeof d.data?.seconds === 'number') {
+        st.t = d.data.seconds
+        if (typeof d.data.duration === 'number') st.d = d.data.duration
+      }
       else if (d.event === 'play') st.playing = true
       else if (d.event === 'pause') st.playing = false
       else if (d.event === 'ended') {
@@ -222,6 +237,8 @@ function FileAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       time: () => v.currentTime,
       playing: () => !v.paused,
       ended: () => v.ended,
+      duration: () => (Number.isFinite(v.duration) ? v.duration : undefined),
+      setRate: (r) => (v.playbackRate = r),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -231,8 +248,8 @@ function FileAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
       // #t= : position de départ sans lecture automatique ; preload metadata : seul l'en-tête est chargé avant « lire ».
       src={start ? `${src}#t=${Math.floor(start)}` : src}
       className="h-full w-full bg-black"
-      controls
       playsInline
+      onClick={(e) => (e.currentTarget.paused ? void e.currentTarget.play().catch(() => {}) : e.currentTarget.pause())}
       preload="metadata"
       onError={onFail}
     />
@@ -258,6 +275,64 @@ function useOnline() {
   return on
 }
 
+const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
+const SKIP = 2
+
+/** « 12:05 » / « 1:02:05 ». */
+const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' : fmtMoment(Math.floor(t)))
+
+/**
+ * Nos commandes sous la vidéo (YouTube est intégré sans les siennes, controls=0 ; fichier vidéo : sans celles du
+ * navigateur) : lire / pause, −2 s / +2 s, vitesse, temps / durée, plein écran de notre bloc (vidéo, commandes, frise).
+ */
+function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }) {
+  const [, tick] = useState(0)
+  const [rate, setRate] = useState(1)
+  useEffect(() => {
+    const timer = window.setInterval(() => tick((n) => n + 1), 250)
+    return () => window.clearInterval(timer)
+  }, [])
+  const t = ctl.time()
+  const playing = ctl.playing()
+  const btn = 'flex h-8 min-w-8 items-center justify-center rounded px-1.5 text-white/90 hover:bg-white/10'
+  return (
+    <div className="flex shrink-0 items-center gap-1 bg-black px-2 py-1 text-[11px] text-white/90" role="toolbar" aria-label="Commandes de la vidéo">
+      <button className={btn} title={playing ? 'Pause (espace)' : 'Lire (espace)'} aria-label={playing ? 'Pause' : 'Lire'} onClick={() => (playing ? ctl.pause() : ctl.play())}>
+        <Icon name={playing ? 'pause' : 'play'} className="h-4 w-4" filled />
+      </button>
+      <button className={btn} title={`Reculer de ${SKIP} s (←)`} aria-label={`Reculer de ${SKIP} s`} onClick={() => ctl.seek(Math.max(0, (ctl.time() ?? 0) - SKIP))}>
+        −{SKIP} s
+      </button>
+      <button className={btn} title={`Avancer de ${SKIP} s (→)`} aria-label={`Avancer de ${SKIP} s`} onClick={() => ctl.seek((ctl.time() ?? 0) + SKIP)}>
+        +{SKIP} s
+      </button>
+      <span className="ml-1 min-w-0 truncate tabular-nums">
+        {clock(t)} <span className="text-white/50">/ {clock(ctl.duration())}</span>
+      </span>
+      <select
+        className="ml-auto h-8 rounded bg-white/10 px-1 text-[11px] text-white"
+        title="Vitesse de lecture"
+        aria-label="Vitesse de lecture"
+        value={rate}
+        onChange={(e) => {
+          const r = Number(e.target.value)
+          setRate(r)
+          ctl.setRate(r)
+        }}
+      >
+        {RATES.map((r) => (
+          <option key={r} value={r} className="text-black">
+            {String(r).replace('.', ',')}×
+          </option>
+        ))}
+      </select>
+      <button className={btn} title={fs ? 'Quitter le plein écran' : 'Plein écran'} aria-label={fs ? 'Quitter le plein écran' : 'Plein écran'} onClick={onFs}>
+        <Icon name={fs ? 'shrink' : 'expand'} className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
 /** Commandes offertes aux outils ajoutés sous les moments (calage d'une feuille de match…). */
 export interface PlayerTools {
   /** Le lecteur est prêt (sinon time() rend undefined et seek ne fait rien). */
@@ -268,6 +343,8 @@ export interface PlayerTools {
   seek(t: number): void
   /** Moment en cours, ou le dernier lancé (gardé quand son passage est fini) ; undefined si aucun. */
   moment?: VideoMoment
+  /** Durée de la vidéo (s), undefined tant qu'elle n'est pas connue. */
+  duration(): number | undefined
 }
 
 /** Passage en cours : moment i, seul ou dans l'enchaînement de tous les moments. */
@@ -290,7 +367,7 @@ export default function VideoPlayer({
   onClose: () => void
   /** Outils affichés sous les moments (ex. calage d'une feuille de match sur la vidéo de l'événement). */
   tools?: (api: PlayerTools) => ReactNode
-  /** Barre affichée juste sous la vidéo, avant les moments (ex. « C'est ici ! » pendant un moment généré). */
+  /** Bloc affiché sous les commandes de la vidéo, gardé en plein écran (frise du match et calage). */
   bar?: (api: PlayerTools) => ReactNode
   /** Marque ajoutée à la pastille d'un moment (ex. « ✓ calé » / « ~ estimé »). */
   badge?: (m: VideoMoment) => ReactNode
@@ -314,10 +391,45 @@ export default function VideoPlayer({
   const armed = useRef(false)
   const startedAt = useRef(0)
   const closeBtn = useRef<HTMLButtonElement>(null)
-
-  // Échap ferme ; la page derrière ne défile plus.
+  // Plein écran de notre bloc (vidéo, commandes, frise) ; sans l'API (iPhone) : bloc posé sur tout l'écran.
+  const stage = useRef<HTMLDivElement>(null)
+  const [fs, setFs] = useState(false)
+  const ctlRef = useRef<Ctl | undefined>(undefined)
+  ctlRef.current = ctl
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const on = () => setFs(document.fullscreenElement === stage.current && !!stage.current)
+    document.addEventListener('fullscreenchange', on)
+    return () => document.removeEventListener('fullscreenchange', on)
+  }, [])
+  function toggleFs() {
+    const el = stage.current
+    if (!el) return
+    if (document.fullscreenElement) return void document.exitFullscreen().catch(() => {})
+    if (fs) return setFs(false)
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => setFs(true))
+    else setFs(true)
+  }
+
+  // Échap ferme (ou quitte le plein écran) ; espace lit / met en pause ; flèches : ±2 s. La page derrière ne défile plus.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (e.key === 'Escape') {
+        if (document.fullscreenElement) return
+        if (fs) return setFs(false)
+        return onClose()
+      }
+      const c = ctlRef.current
+      if (!c || e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(tag ?? '')) return
+      if (e.key === ' ') {
+        e.preventDefault()
+        if (c.playing()) c.pause()
+        else c.play()
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        c.seek(Math.max(0, (c.time() ?? 0) + (e.key === 'ArrowLeft' ? -SKIP : SKIP)))
+      }
+    }
     window.addEventListener('keydown', onKey)
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -326,7 +438,7 @@ export default function VideoPlayer({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
     }
-  }, [onClose])
+  }, [onClose, fs])
 
   function start(r: Run, c = ctl) {
     if (!c) {
@@ -421,6 +533,7 @@ export default function VideoPlayer({
       ctl.play()
     },
     moment: last !== undefined ? moments[last] : undefined,
+    duration: () => ctl?.duration(),
   }
 
   return (
@@ -445,11 +558,20 @@ export default function VideoPlayer({
 
         {/* Portrait : vidéo puis moments. Paysage (téléphone couché, ordinateur) : vidéo à gauche, moments à droite. */}
         <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
-        <div className="flex shrink-0 items-center justify-center bg-black landscape:min-w-0 landscape:flex-1">
+        <div
+          ref={stage}
+          className={`flex shrink-0 flex-col bg-black landscape:min-w-0 landscape:flex-1 ${fs ? 'fixed inset-0 z-[60] h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]' : ''}`}
+        >
         {canPlay && embed ? (
-          <div className="aspect-video w-full bg-black landscape:h-full landscape:max-h-full landscape:w-auto landscape:max-w-full">
-            <Adapter embed={embed} start={moments[moment ?? 0]?.at ?? 0} onCtl={onCtl} onFail={() => (setFailed(true), setRun(null))} />
-          </div>
+          <>
+            <div className={`flex min-h-0 items-center justify-center bg-black ${fs ? 'flex-1' : 'landscape:flex-1'}`}>
+              <div className={`aspect-video max-h-full w-full bg-black ${fs ? 'h-full w-auto max-w-full' : 'landscape:h-full landscape:w-auto landscape:max-w-full'}`}>
+                <Adapter embed={embed} start={moments[moment ?? 0]?.at ?? 0} onCtl={onCtl} onFail={() => (setFailed(true), setRun(null))} />
+              </div>
+            </div>
+            {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} />}
+            {bar && <div className="shrink-0 bg-panel">{bar(api)}</div>}
+          </>
         ) : (
           <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center text-sm text-white/80 landscape:h-full landscape:w-auto landscape:max-w-full">
             <Icon name={online ? 'video' : 'alert'} className="h-8 w-8 text-white/50" />
@@ -466,7 +588,6 @@ export default function VideoPlayer({
         </div>
 
         <div className="flex flex-col gap-2 p-3 landscape:w-72 landscape:shrink-0 landscape:overflow-y-auto landscape:border-l landscape:border-line lg:landscape:w-80">
-          {canPlay && bar?.(api)}
           {blocked && run && (
             <p className="text-[11px] text-amber-200" role="status">
               Le navigateur a bloqué la lecture automatique : touche la vidéo pour lancer le passage.
