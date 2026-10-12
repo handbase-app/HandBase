@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
+import type { MatchSheet } from '../matchSheet'
 import { can, useRole } from '../roles'
 import { supabase } from '../sync'
 import {
@@ -38,6 +39,58 @@ const VideoPlayer = lazy(() =>
     ),
   })),
 )
+
+/** « C'est ici ! » sous le lecteur d'une vidéo de fiche joueur (module de la feuille de match, chargé à la demande). */
+const MomentHereBar = lazy(() => import('./MatchSheet').then((m) => ({ default: m.MomentHereBar })))
+
+type SheetMod = typeof import('../matchSheet')
+
+/** Feuille de match d'où viennent les moments générés d'un lien (même adresse que la vidéo calée de l'événement). */
+type SheetLink = { eventId: string; url: string; ms: MatchSheet; pls: number[] }
+
+/**
+ * Moment généré depuis une feuille de match : note terminée par « · feuille » (même test que isGenerated de matchSheet.ts,
+ * recopié ici pour ne pas charger ce module sur les fiches sans moments générés).
+ */
+const looksGenerated = (m: VideoMoment) => !!m.note?.endsWith('feuille') && m.note.includes('·')
+
+/**
+ * Fiche joueur : événements dont la feuille de match est calée sur l'adresse d'un de ces liens et où cette fiche est reliée
+ * à un joueur de la feuille (fiches fondues suivies). Le module de la feuille n'est chargé que s'il y a des moments générés.
+ */
+function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Video[]) {
+  const urls = kind === 'player' ? [...new Set((videos ?? []).filter((v) => momentsOf(v).some(looksGenerated)).map((v) => v.url))] : []
+  const need = urls.length > 0
+  const [mod, setMod] = useState<SheetMod>()
+  useEffect(() => {
+    if (need && !mod) import('../matchSheet').then((m) => setMod(m)).catch(() => {})
+  }, [need, mod])
+  const links = useLiveQuery(
+    async (): Promise<SheetLink[]> => {
+      if (!mod || !urls.length) return []
+      const evs = (await db.events.toArray()).filter((e) => !e.deleted && e.matchSheet?.sync?.url && urls.includes(e.matchSheet.sync.url))
+      if (!evs.length) return []
+      // Fiches fondues depuis l'import : on suit mergedInto (quelques niveaux au plus).
+      const into = new Map<string, string>()
+      let todo = [...new Set(evs.flatMap((e) => e.matchSheet!.players.flatMap((p) => (p.playerId ? [p.playerId] : []))))]
+      for (let n = 0; todo.length && n < 5; n++) {
+        const found = (await db.players.bulkGet(todo)).flatMap((p) => (p?.mergedInto ? [[p.id, p.mergedInto] as const] : []))
+        found.forEach(([a, b]) => into.set(a, b))
+        todo = found.map(([, b]) => b).filter((b) => !into.has(b))
+      }
+      const resolve = (id: string) => {
+        for (let n = 0; into.has(id) && n < 5; n++) id = into.get(id)!
+        return id
+      }
+      return evs
+        .map((e) => ({ eventId: e.id, url: e.matchSheet!.sync!.url!, ms: e.matchSheet!, pls: mod.sheetPlayersOf(e.matchSheet!, targetId, resolve) }))
+        .filter((l) => l.pls.length > 0)
+    },
+    [mod, targetId, urls.join('\n')],
+    [],
+  )
+  return { mod, links }
+}
 
 function useOnline() {
   const [on, setOn] = useState(navigator.onLine)
@@ -87,7 +140,22 @@ export function VideoSection({
   // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite).
   const [playing, setPlaying] = useState<{ v: Video; moment?: number } | null>(null)
   const closePlayer = useCallback(() => setPlaying(null), [])
+  const sheets = useSheetLinks(kind, targetId, videos)
   if (!videos) return null
+  // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
+  const open = playing && (videos.find((x) => x.id === playing.v.id) ?? playing.v)
+  const sheetOf = (v: Video) => sheets.links.find((l) => l.url === v.url)
+  /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main). */
+  const badgeOf = (v: Video) => {
+    const l = sheetOf(v)
+    const mod = sheets.mod
+    if (!l || !mod) return undefined
+    return (m: VideoMoment) => {
+      const i = mod.momentAction(l.ms, l.pls, m)
+      return <PlaceMark status={i === undefined ? undefined : mod.timelineOf(l.ms).status(i)} />
+    }
+  }
+  const openSheet = open ? sheetOf(open) : undefined
 
   const what = kind === 'player' ? 'ce joueur' : 'cet événement'
   return (
@@ -124,6 +192,7 @@ export function VideoSection({
                 online={online}
                 onOffline={() => setNote('Hors ligne : la vidéo pourra s’ouvrir une fois la connexion revenue.')}
                 onPlay={embedOf(v.url) ? (moment) => (setNote(''), setPlaying({ v, moment })) : undefined}
+                badge={badgeOf(v)}
                 onEdit={can.editVideo(v) ? () => setForm(v) : undefined}
                 onDelete={
                   can.deleteVideo(role, v, dept)
@@ -169,7 +238,21 @@ export function VideoSection({
             </div>
           }
         >
-          <VideoPlayer video={playing.v} moment={playing.moment} onClose={closePlayer} tools={tools && ((api) => tools(playing.v, api))} />
+          <VideoPlayer
+            video={open!}
+            moment={playing.moment}
+            onClose={closePlayer}
+            tools={tools && ((api) => tools(open!, api))}
+            badge={badgeOf(open!)}
+            bar={
+              openSheet &&
+              ((api) => (
+                <Suspense fallback={null}>
+                  <MomentHereBar eventId={openSheet.eventId} pls={openSheet.pls} playerId={targetId} api={api} />
+                </Suspense>
+              ))
+            }
+          />
         </Suspense>
       )}
     </div>
@@ -183,9 +266,12 @@ function VideoRow({
   onEdit,
   onDelete,
   onPlay,
+  badge,
 }: {
   v: Video
   online: boolean
+  /** Marque d'un moment (statut d'un moment généré depuis une feuille de match). */
+  badge?: (m: VideoMoment) => ReactNode
   onOffline: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -288,6 +374,7 @@ function VideoRow({
                   {m.dur ? ` · ${m.dur} s` : ''}
                   {m.note ? ` · ${m.note}` : ''}
                 </span>
+                {badge?.(m)}
               </>
             )
             if (onPlay)
@@ -319,6 +406,20 @@ function VideoRow({
         </div>
       )}
     </div>
+  )
+}
+
+/** « ✓ calé » (action confirmée à l'œil) ou « ~ estimé » (calculé depuis les repères de la feuille). */
+export function PlaceMark({ status }: { status?: 'fixed' | 'estimated' }) {
+  if (!status) return null
+  return status === 'fixed' ? (
+    <span className="shrink-0 font-bold text-emerald-300" title="Calé : action confirmée à l’œil sur la vidéo">
+      ✓ calé
+    </span>
+  ) : (
+    <span className="shrink-0 font-bold text-amber-200" title="Estimé : calculé depuis les repères de la feuille de match">
+      ~ estimé
+    </span>
   )
 }
 

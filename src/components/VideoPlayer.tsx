@@ -266,6 +266,8 @@ export interface PlayerTools {
   time(): number | undefined
   /** Aller à ce temps et lire. */
   seek(t: number): void
+  /** Moment en cours, ou le dernier lancé (gardé quand son passage est fini) ; undefined si aucun. */
+  moment?: VideoMoment
 }
 
 /** Passage en cours : moment i, seul ou dans l'enchaînement de tous les moments. */
@@ -280,12 +282,18 @@ export default function VideoPlayer({
   moment,
   onClose,
   tools,
+  bar,
+  badge,
 }: {
   video: Video
   moment?: number
   onClose: () => void
   /** Outils affichés sous les moments (ex. calage d'une feuille de match sur la vidéo de l'événement). */
   tools?: (api: PlayerTools) => ReactNode
+  /** Barre affichée juste sous la vidéo, avant les moments (ex. « C'est ici ! » pendant un moment généré). */
+  bar?: (api: PlayerTools) => ReactNode
+  /** Marque ajoutée à la pastille d'un moment (ex. « ✓ calé » / « ~ estimé »). */
+  badge?: (m: VideoMoment) => ReactNode
 }) {
   const embed = embedOf(video.url)
   const online = useOnline()
@@ -296,6 +304,10 @@ export default function VideoPlayer({
   const [failed, setFailed] = useState(false)
   const [run, setRun] = useState<Run | null>(null)
   const [blocked, setBlocked] = useState(false)
+  // Dernier moment lancé (pour les outils : il reste choisi quand son passage est fini).
+  const [last, setLast] = useState<number | undefined>(moment !== undefined && moments[moment] ? moment : undefined)
+  // Note du moment en cours : les moments peuvent être recalculés pendant la lecture (calage), et donc changer de place.
+  const runNote = useRef<string | undefined>(moment !== undefined ? moments[moment]?.note : undefined)
   // Moment demandé avant que le lecteur soit prêt.
   const pending = useRef<Run | null>(moment !== undefined && moments[moment] ? { i: moment, seq: false } : null)
   // Lecture du passage : « armé » une fois arrivé au début du passage (le saut prend un instant).
@@ -327,6 +339,8 @@ export default function VideoPlayer({
     c.seek(moments[r.i].at)
     c.play()
     setRun(r)
+    setLast(r.i)
+    runNote.current = moments[r.i].note
   }
 
   function stop(pause = true) {
@@ -340,6 +354,21 @@ export default function VideoPlayer({
     if (pending.current) start(pending.current, c)
     pending.current = null
   }
+
+  // Moments recalculés (nouveau début, nouvel ordre) : le moment en cours est retrouvé par sa note ; le suivi repart sur
+  // son nouveau passage, sans relancer la vidéo.
+  const sig = moments.map((m) => `${m.at}|${m.dur ?? ''}|${m.note ?? ''}`).join(';')
+  const firstSig = useRef(sig)
+  useEffect(() => {
+    if (sig === firstSig.current) return
+    firstSig.current = sig
+    const note = runNote.current
+    const j = note ? moments.findIndex((m) => m.note === note) : -1
+    if (j < 0) return
+    setLast(j)
+    setRun((r) => (r ? { ...r, i: j } : r))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig])
 
   // Suivi du passage : à la fin, moment suivant (enchaînement) ou pause.
   useEffect(() => {
@@ -382,6 +411,17 @@ export default function VideoPlayer({
     </a>
   )
   const cur = run ? moments[run.i] : undefined
+  const api: PlayerTools = {
+    ready: !!ctl && canPlay,
+    time: () => ctl?.time(),
+    seek: (t) => {
+      if (!ctl) return
+      setRun(null)
+      ctl.seek(Math.max(0, t))
+      ctl.play()
+    },
+    moment: last !== undefined ? moments[last] : undefined,
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/80 sm:items-center sm:p-4 [@media(max-height:520px)]:p-0" onClick={onClose}>
@@ -426,6 +466,7 @@ export default function VideoPlayer({
         </div>
 
         <div className="flex flex-col gap-2 p-3 landscape:w-72 landscape:shrink-0 landscape:overflow-y-auto landscape:border-l landscape:border-line lg:landscape:w-80">
+          {canPlay && bar?.(api)}
           {blocked && run && (
             <p className="text-[11px] text-amber-200" role="status">
               Le navigateur a bloqué la lecture automatique : touche la vidéo pour lancer le passage.
@@ -488,6 +529,7 @@ export default function VideoPlayer({
                         {m.dur ? ` · ${m.dur} s` : ''}
                         {m.note ? ` · ${m.note}` : ''}
                       </span>
+                      {badge?.(m)}
                     </>
                   )
                   if (canPlay)
@@ -511,16 +553,7 @@ export default function VideoPlayer({
               {canPlay && <p className="text-[10px] text-muted">Un moment sans durée est lu {DEFAULT_DUR} s (ou jusqu’au moment suivant).</p>}
             </>
           )}
-          {tools?.({
-            ready: !!ctl && canPlay,
-            time: () => ctl?.time(),
-            seek: (t) => {
-              if (!ctl) return
-              setRun(null)
-              ctl.seek(Math.max(0, t))
-              ctl.play()
-            },
-          })}
+          {tools?.(api)}
         </div>
         </div>
       </div>

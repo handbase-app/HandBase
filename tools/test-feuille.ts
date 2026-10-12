@@ -7,13 +7,18 @@ import { readFileSync } from 'node:fs'
 import { build } from './feuille-fictive.mjs'
 import {
   actionKeys,
+  breakBefore,
+  CLIP_LEAD,
   countKinds,
   guessHalfMin,
   isGenerated,
   lateIndexes,
   mapTime,
   matchPlayer,
+  momentAction,
+  momentNote,
   planPlayerMoments,
+  sheetPlayersOf,
   splitName,
   timeline,
   toStored,
@@ -144,7 +149,27 @@ const first = s.actions.findIndex((a) => a.p === 1)
 assert.equal(tl.at(first), 100 + s.actions[first].t)
 const p2i = s.actions.findIndex((a) => a.p === 2)
 assert.equal(tl.at(p2i), 3000 + s.actions[p2i].t - 1500)
-assert.equal(tl.at([...late][0]), undefined, 'saisie en retard non placée')
+// Saisies en retard : une suite d'actions consécutives, réparties à intervalles égaux entre les actions fiables voisines.
+const lateList = [...late].sort((a, b) => a - b)
+assert.ok(lateList.every((j, k) => j === lateList[0] + k), 'saisies en retard consécutives')
+const lb = lateList[0] - 1
+const la = lateList.at(-1)! + 1
+assert.ok(!late.has(lb) && !late.has(la) && s.actions[lb].p === 1 && s.actions[la].p === 1)
+{
+  const v0 = tl.at(lb)!
+  const v1 = tl.at(la)!
+  assert.equal(v0, 100 + s.actions[lb].t)
+  lateList.forEach((j, k) => assert.ok(Math.abs(tl.at(j)! - (v0 + ((v1 - v0) * (k + 1)) / (lateList.length + 1))) < 1e-6, `saisie en retard ${k} répartie`))
+  assert.equal(tl.status(lateList[0]), 'estimated')
+  assert.equal(tl.fixedCount, 0)
+}
+// Coup d'envoi seul : 2e mi-temps estimée (fin de la 1re + pause estimée), aucune action non placée.
+{
+  const only = timeline({ ...st, sync: { marks: { s1: 100 } } })
+  assert.equal(only.at(p2i), 100 + 1500 + breakBefore(2) + (s.actions[p2i].t - 1500))
+  assert.ok(s.actions.every((_, i) => only.at(i) !== undefined), 'toutes les actions placées avec le seul coup d’envoi')
+  assert.equal(timeline({ ...st, sync: { marks: {} } }).at(first), undefined, 'rien sans repère')
+}
 // Fin de période : interpolation, arrêts cumulés.
 st.sync.marks.e1 = 100 + 1500 + 120
 tl = timeline(st)
@@ -158,11 +183,25 @@ st.sync.fix = { [keys[mid]]: 1200 }
 tl = timeline(st)
 assert.equal(tl.at(mid), 1200)
 assert.ok(tl.anchors(1).some((a) => a.key === keys[mid]))
-// Action en retard posée à la main : placée, mais ne sert pas de repère.
-st.sync.fix[keys[[...late][0]]] = 600
+assert.equal(tl.status(mid), 'fixed')
+assert.equal(tl.fixedCount, 1)
+// Au-delà du dernier repère : pente observée entre le premier et le dernier (arrêts de jeu reportés sur la suite).
+{
+  const k = s.actions.findIndex((a, i) => a.p === 1 && a.t > s.actions[mid].t + 60 && !late.has(i))
+  const slow = timeline({ ...st, sync: { marks: { s1: 100 }, fix: { [keys[mid]]: 100 + s.actions[mid].t * 1.2 } } })
+  assert.ok(Math.abs(slow.at(k)! - (100 + s.actions[k].t * 1.2)) < 1e-6, 'pente prolongée')
+}
+// Action en retard posée à la main : placée, ne sert pas de repère au match, mais ses voisines en retard se recalculent.
+const vEnd = tl.at(la)!
+st.sync.fix[keys[lateList[0]]] = vEnd - 70
 tl = timeline(st)
-assert.equal(tl.at([...late][0]), 600)
-assert.ok(!tl.anchors(1).some((a) => a.key === keys[[...late][0]]))
+assert.equal(tl.at(lateList[0]), vEnd - 70)
+assert.equal(tl.status(lateList[0]), 'fixed')
+assert.ok(!tl.anchors(1).some((a) => a.key === keys[lateList[0]]))
+assert.equal(tl.at(la), vEnd, 'actions fiables inchangées')
+lateList.slice(1).forEach((j, k) =>
+  assert.ok(Math.abs(tl.at(j)! - (vEnd - 70 + (70 * (k + 1)) / lateList.length)) < 1e-6, `saisie en retard ${k + 1} recalculée`),
+)
 
 // Moments d'un joueur : buts, notes marquées ; relancer ne double pas ; les moments à la main restent.
 const pl = s.actions.find((a) => a.k === 'but' && a.pl !== undefined && !late.has(s.actions.indexOf(a)))!.pl!
@@ -173,6 +212,29 @@ assert.ok(plan1.moments.some((m) => /^But(?: 7m)? \d+-\d+ · feuille$/.test(m.no
 const plan2 = planPlayerMoments(st, pl, plan1.moments)
 assert.deepEqual(plan2.moments, plan1.moments)
 assert.ok(!isGenerated({ at: 1, note: 'But 3-2' }))
+// Moment généré → action de la feuille (note : type et score ; à note égale, le moment le plus proche).
+for (const m of plan1.moments.filter(isGenerated)) {
+  const i = momentAction(st, [pl], m)!
+  assert.ok(i !== undefined && s.actions[i].pl === pl && momentNote(st.actions[i]) === m.note)
+  assert.equal(Math.max(0, Math.round(timeline(st).at(i)! - CLIP_LEAD)), m.at)
+}
+assert.equal(momentAction(st, [pl], { at: 5, note: 'à revoir' }), undefined)
+assert.deepEqual(sheetPlayersOf(st, 'a'), [1])
+assert.deepEqual(sheetPlayersOf(st, 'z', (id) => (id === 'a' ? 'z' : id)), [1], 'fiche fondue suivie')
+// « C'est ici » sur un but : il devient repère, les moments des autres joueurs bougent, le sien est « calé ».
+{
+  const goals = s.actions.flatMap((a, i) => ((a.k === 'but' || a.k === 'but7') && a.pl !== undefined && !late.has(i) && a.p === 1 ? [i] : []))
+  const g = goals[Math.floor(goals.length / 2)]
+  const other = goals.find((i) => s.actions[i].pl !== s.actions[g].pl && s.actions[i].t > s.actions[g].t)!
+  const before = planPlayerMoments(st, s.actions[other].pl!).moments.find((m) => m.note === momentNote(st.actions[other]))!
+  const prev = timeline(st).at(g)!
+  const moved = { ...st, sync: { ...st.sync, fix: { ...st.sync.fix, [keys[g]]: prev + 30 } } }
+  const after = planPlayerMoments(moved, s.actions[other].pl!).moments.find((m) => m.note === momentNote(st.actions[other]))!
+  assert.ok(after.at > before.at, 'moment d’un autre joueur recalé')
+  const mine = planPlayerMoments(moved, s.actions[g].pl!).moments.find((m) => m.note === momentNote(st.actions[g]))!
+  assert.equal(mine.at, Math.round(prev + 30 - CLIP_LEAD))
+  assert.equal(timeline(moved).status(momentAction(moved, [s.actions[g].pl!], mine)!), 'fixed')
+}
 // Gardien : arrêts en option.
 st.sync.opts = { saves: true }
 const gk = planPlayerMoments(st, 0)

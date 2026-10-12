@@ -215,6 +215,14 @@ export const can = {
   /** Supprimer un lien vidéo : son auteur, l'admin, l'encadrant (lien sur un joueur : dans son secteur ; sur un événement : tous). */
   deleteVideo: (r: Role, v: { createdBy?: string; createdAtServer?: string; targetKind: string }, dept?: string) =>
     can.editVideo(v) || r === 'admin' || (r === 'preparateur' && (v.targetKind === 'event' || can.reviewDept(r, dept))),
+  /**
+   * Caler la feuille de match d'un événement sur sa vidéo : « C'est ici » (depuis l'événement ou la fiche d'un joueur),
+   * « Annuler », retirer un repère, repères de période (coup d'envoi…), décalages. POINT UNIQUE de décision : tous les écrans
+   * de calage passent par ici. Chaque calage recale aussi les moments de tous les joueurs du match.
+   * Pour l'instant : administrateurs seulement. Plus tard (compte joueur) : ouvrir au joueur lui-même pour ses propres
+   * actions, d'après ctx.playerId (fiche dont on regarde les moments) — et autoriser l'écriture côté serveur en même temps.
+   */
+  calibrateMatch: (r: Role, _ctx?: { eventId?: string; playerId?: string }) => r === 'admin',
   editCriteria: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',

@@ -1,8 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
-import { alive, db, DEMO, fmtDate, newId, save, saveMany, today, TRIAL, type HBEvent, type Player, type Video } from '../db'
+import { alive, db, DEMO, fmtDate, newId, save, today, TRIAL, type HBEvent, type Player, type Video } from '../db'
 import {
-  actionKeys,
   CLIP_LEAD,
   countKinds,
   guessHalfMin,
@@ -11,29 +10,31 @@ import {
   KIND_LABEL,
   LATE_MIN,
   matchPlayer,
+  momentAction,
   parseSheet,
   periodStart,
-  planPlayerMoments,
-  timeline,
+  timelineOf,
   toStored,
-  videoTitle,
   type ActionKind,
   type LinkMatch,
   type MatchSheet,
-  type MatchSync,
   type ParsedSheet,
   type StoredAction,
 } from '../matchSheet'
 import { can, currentUserId, useRole } from '../roles'
-import { fmtMoment, momentsOf, withMoments } from '../videos'
+import { fmtMoment } from '../videos'
 import { ask } from './Confirm'
+import { PlaceMark } from './Videos'
 import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
+import { applyCalibration, forgetUndo, lastUndo, onUndoChange, refreshMoments, undoLast, updateSync, type GenerateResult } from '../matchSync'
 
 /*
  * Feuille de match FFHB (src/matchSheet.ts) : import dans un événement (ou création d'un match), vérification avant
  * d'enregistrer, calage sur la vidéo du match (outils sous le lecteur) et moments vidéo générés sur les fiches des joueurs.
  * Module chargé à la demande depuis Events.tsx ; pdf.js n'est chargé qu'à la lecture d'un fichier (matchSheetPdf.ts).
+ * Interface seulement : calcul du calage dans matchSheet.ts, écritures (« C'est ici », annuler, recalage des moments) dans
+ * matchSync.ts.
  */
 
 const PERIOD_LABEL = (p: number) => (p === 1 ? '1re mi-temps' : p === 2 ? '2e mi-temps' : `Prolongation ${p - 2}`)
@@ -312,8 +313,8 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
           </p>
           {late.size > 0 && (
             <p className="mt-1 text-xs text-amber-200">
-              {plural(late.size, 'action saisie', 'actions saisies')} en retard ({LATE_MIN} et plus au même temps de jeu) : leur temps est faux, elles seront à caler à
-              la main sur la vidéo.
+              {plural(late.size, 'action saisie', 'actions saisies')} en retard ({LATE_MIN} et plus au même temps de jeu) : leur temps est faux ; elles seront réparties
+              entre les actions voisines (« ~ estimé ») en attendant d’être calées à l’œil sur la vidéo.
             </p>
           )}
           <label className="mt-2 flex items-center gap-2 text-xs">
@@ -414,76 +415,92 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
   )
 }
 
-/* ---------- Écritures du calage ---------- */
-
-/** Modifie le calage de la feuille (relue au moment d'écrire). */
-async function updateSync(eventId: string, fn: (s: MatchSync, ms: MatchSheet) => MatchSync) {
-  const ev = await db.events.get(eventId)
-  if (!ev?.matchSheet) return
-  const ms = ev.matchSheet
-  await save<HBEvent>('events', { ...ev, matchSheet: { ...ms, sync: fn({ marks: {}, ...ms.sync }, ms) } })
+/** Dernier calage annulable de cet événement (l'écran se met à jour quand la pile change). */
+function useLastUndo(eventId: string) {
+  const [, force] = useState(0)
+  useEffect(() => onUndoChange(() => force((n) => n + 1)), [])
+  return lastUndo(eventId)
 }
 
-const sameMoments = (a: { at: number; dur?: number; note?: string }[], b: { at: number; dur?: number; note?: string }[]) =>
-  a.length === b.length && a.every((m, i) => m.at === b[i].at && (m.dur ?? 0) === (b[i].dur ?? 0) && (m.note ?? '') === (b[i].note ?? ''))
+/** Note d'un moment généré sans la marque « · feuille » : « But 13-19 ». */
+const shortNote = (note?: string) => (note ?? '').replace(/\s*·\s*feuille$/, '')
 
-export interface GenerateResult {
-  created: number
-  updated: number
-  moments: number
-  unplaced: number
-  dropped: number
-  foreign: number
+/** Résumé après un calage : « Calé à 12:34 · 14 liens recalés ». */
+function calibrated(t: number, r: GenerateResult) {
+  const n = r.created + r.updated
+  return `Calé à ${fmtMoment(t)}${n ? ` · ${plural(n, 'fiche recalée', 'fiches recalées')}` : ''}${r.foreign ? ` · ${plural(r.foreign, 'lien', 'liens')} d’un autre compte non modifié${r.foreign > 1 ? 's' : ''}` : ''}.`
+}
+
+/** Bouton « Annuler » du dernier calage de l'événement. */
+function UndoButton({ eventId, onDone }: { eventId: string; onDone?: () => void }) {
+  const last = useLastUndo(eventId)
+  if (!last) return null
+  return (
+    <button
+      className="btn-ghost inline-flex items-center gap-1 px-2 py-1 text-[11px]"
+      title={`Annuler le dernier calage (${last.label})`}
+      onClick={() => void undoLast(eventId).then(onDone)}
+    >
+      <Icon name="undo" className="h-3.5 w-3.5" />
+      Annuler <span className="max-w-[10rem] truncate text-muted">({last.label})</span>
+    </button>
+  )
+}
+
+/** Gros bouton « C'est ici ! » : temps courant de la vidéo pour l'action regardée. */
+function HereButton({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
+  return (
+    <button className="btn-primary min-h-11 px-4 py-2 text-sm font-extrabold" disabled={disabled} title="L’action est à ce moment de la vidéo" onClick={onClick}>
+      C’est ici !
+    </button>
+  )
 }
 
 /**
- * Moments sur les fiches : pour chaque joueur relié, un lien vidéo (même adresse que la vidéo du match) avec un moment
- * par but (et, en option, par arrêt et par tir). Relancer met à jour les moments générés (note « … · feuille ») et garde
- * ceux ajoutés à la main. Un lien du même match ajouté par un autre compte n'est pas modifié (seul son auteur le peut).
+ * Sous le lecteur d'une vidéo de fiche joueur : pendant un moment généré depuis la feuille, son statut (✓ calé / ~ estimé)
+ * et, pour qui peut caler (can.calibrateMatch), « C'est ici ! » puis « Annuler ».
  */
-export async function generateMoments(eventId: string): Promise<GenerateResult> {
-  const ev = await db.events.get(eventId)
+export function MomentHereBar({ eventId, pls, playerId, api }: { eventId: string; pls: number[]; playerId: string; api: PlayerTools }) {
+  const role = useRole()
+  const ev = useLiveQuery(() => db.events.get(eventId), [eventId])
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
   const ms = ev?.matchSheet
-  const url = ms?.sync?.url
-  const res: GenerateResult = { created: 0, updated: 0, moments: 0, unplaced: 0, dropped: 0, foreign: 0 }
-  if (!ev || !ms || !url) return res
-  const tl = timeline(ms)
-  const title = videoTitle(ms, ev.date)
-  const rows: Video[] = []
-  const done = new Set<string>()
-  for (const [pl, sp] of ms.players.entries()) {
-    if (!sp.playerId) continue
-    // Fiche fondue dans une autre depuis l'import : on suit la fusion.
-    let p = await db.players.get(sp.playerId)
-    for (let n = 0; p?.mergedInto && n < 5; n++) p = await db.players.get(p.mergedInto)
-    if (!p || p.deleted || done.has(p.id)) continue
-    done.add(p.id)
-    const vids = (await db.videos.where('targetId').equals(p.id).toArray()).filter((v) => !v.deleted && v.targetKind === 'player' && v.url === url)
-    const mine = vids.find((v) => can.editVideo(v) && (v.title === title || momentsOf(v).some(isGenerated))) ?? vids.find((v) => can.editVideo(v))
-    const plan = planPlayerMoments(ms, pl, mine ? momentsOf(mine) : [], tl)
-    res.unplaced += plan.unplaced
-    res.dropped += plan.dropped
-    if (!mine) {
-      if (!plan.generated) continue
-      if (vids.some((v) => momentsOf(v).some(isGenerated))) {
-        res.foreign++
-        continue
-      }
-      rows.push({ id: newId(), targetKind: 'player', targetId: p.id, url, title, ...withMoments(plan.moments), updatedAt: 0 })
-      res.created++
-    } else {
-      const next = withMoments(plan.moments)
-      if (sameMoments(momentsOf(mine), next.moments ?? [])) {
-        res.moments += plan.generated
-        continue
-      }
-      rows.push({ ...mine, ...next })
-      res.updated++
-    }
-    res.moments += plan.generated
-  }
-  await saveMany<Video>('videos', rows)
-  return res
+  const m = api.moment
+  if (!ms || !m || !isGenerated(m)) return null
+  const tl = timelineOf(ms)
+  const i = momentAction(ms, pls, m, tl)
+  const calib = can.calibrateMatch(role, { eventId, playerId })
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-accent/50 bg-panel-2 p-2" role="group" aria-label="Calage de l’action">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="min-w-0 flex-1 truncate font-bold">{shortNote(m.note)}</span>
+        {i === undefined ? <span className="text-[10px] text-muted">introuvable sur la feuille</span> : <PlaceMark status={tl.status(i)} />}
+      </div>
+      {calib && i !== undefined && (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <HereButton
+              disabled={!api.ready || busy}
+              onClick={async () => {
+                const t = api.time()
+                if (t === undefined) return setMsg('Lance la vidéo d’abord (le lecteur n’est pas encore prêt).')
+                const v = Math.round(t * 10) / 10
+                setBusy(true)
+                try {
+                  setMsg(calibrated(v, await applyCalibration(eventId, { kind: 'fix', key: tl.keys[i], v }, shortNote(m.note))))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            />
+            <UndoButton eventId={eventId} onDone={() => setMsg('Calage annulé.')} />
+          </div>
+          <p className="text-[10px] text-muted">{msg || 'Laisse défiler et touche « C’est ici ! » au moment exact de l’action : tout le match se recale.'}</p>
+        </>
+      )}
+    </div>
+  )
 }
 
 function resultText(r: GenerateResult) {
@@ -526,7 +543,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
   const [result, setResult] = useState('')
   const [showFlow, setShowFlow] = useState(false)
   const video = useLiveQuery(() => (ms.sync?.videoId ? db.videos.get(ms.sync.videoId) : undefined), [ms.sync?.videoId])
-  const tl = timeline(ms)
+  const tl = timelineOf(ms)
   const placed = ms.actions.filter((_, i) => tl.at(i) !== undefined).length
   const linked = ms.players.filter((p) => p.playerId).length
   const marks = ms.sync?.marks ?? {}
@@ -542,17 +559,25 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         <InfoButton title="Feuille de match">
           <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, joueurs reliés aux fiches et déroulé.</p>
           <p>
-            Calage : ouvre la vidéo du match dans « Vidéos » ; sous le lecteur, pose les repères (début et fin de chaque mi-temps) au bon moment de la vidéo.
-            Entre deux repères, les actions sont placées en proportion (les arrêts de jeu se répartissent). « Cette action est ici » sur une action ajoute un
-            repère et recale ses voisines.
+            Calage en regardant : ouvre la vidéo du match dans « Vidéos » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action
+            est alors estimée (« ~ estimé ») : regarde un moment, depuis l’événement ou la fiche d’un joueur, et touche « C’est ici ! » au moment exact de
+            l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale aussitôt, moments des fiches compris. « Annuler » reprend le dernier
+            calage ; un repère se retire aussi depuis la liste des actions de l’événement.
           </p>
           <p>
-            Saisie en retard : quand la table de marque enregistre plusieurs actions d’un coup ({LATE_MIN} et plus au même temps), leur temps est faux ; elles ne
-            sont pas placées tant qu’on ne les a pas posées à la main.
+            Entre deux repères, les actions sont placées en proportion (les arrêts de jeu se répartissent) ; après le dernier, au rythme constaté. Fins de
+            mi-temps et début de la 2e : facultatifs (sans repère, la 2e mi-temps est estimée avec une pause de 10 min).
           </p>
+          <p>
+            Saisie en retard : quand la table de marque enregistre plusieurs actions d’un coup ({LATE_MIN} et plus au même temps), leur temps est faux ; elles
+            sont réparties à intervalles égaux, dans l’ordre du déroulé, entre l’action fiable qui précède et la suivante (ou la fin de la période). Une action
+            calée à l’œil recale les autres du paquet.
+          </p>
+          <p>Calage réservé aux administrateurs pour l’instant ; tout le monde voit les moments et leur statut.</p>
           <p>
             « Moments sur les fiches » : chaque joueur relié reçoit un lien vers la vidéo du match avec un moment par but (et, en option, arrêts et tirs), de{' '}
-            {CLIP_LEAD} s avant l’action à quelques secondes après. Relancer met à jour ces moments (marqués « feuille ») et garde ceux ajoutés à la main.
+            {CLIP_LEAD} s avant l’action à quelques secondes après. Ils sont créés au coup d’envoi et recalés à chaque calage (et par le bouton) ; ceux ajoutés à
+            la main restent. Seuls les liens créés par ton compte sont modifiés (règle du serveur : un lien n’est modifié que par son auteur).
           </p>
         </InfoButton>
       </div>
@@ -567,13 +592,22 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
       <p className="mt-2 text-xs">
         {plural(ms.actions.length, 'action')} : {kindSummary(ms.actions)}. {linked}/{ms.players.length} joueurs reliés à une fiche. Mi-temps de {ms.halfMin} min.
       </p>
-      {tl.late.size > 0 && <p className="mt-1 text-xs text-amber-200">{plural(tl.late.size, 'action saisie', 'actions saisies')} en retard : à caler à la main.</p>}
+      {tl.late.size > 0 && (
+        <p className="mt-1 text-xs text-amber-200">
+          {plural(tl.late.size, 'action saisie', 'actions saisies')} en retard : réparties entre leurs voisines, à confirmer avec « C’est ici ».
+        </p>
+      )}
 
       <div className="mt-3 rounded-md border border-line bg-panel-2 p-2.5 text-xs">
         {synced ? (
           <>
             <div>
-              Calée sur <b>{video?.title || 'la vidéo du match'}</b> : {placed}/{ms.actions.length} actions placées.
+              Calée sur <b>{video?.title || 'la vidéo du match'}</b> :{' '}
+              <b className="text-emerald-300">
+                {tl.fixedCount} action{tl.fixedCount > 1 ? 's' : ''} calée{tl.fixedCount > 1 ? 's' : ''} sur {ms.actions.length}
+              </b>
+              {placed > tl.fixedCount ? `, ${placed - tl.fixedCount} estimée${placed - tl.fixedCount > 1 ? 's' : ''}` : ''}
+              {placed < ms.actions.length ? `, ${ms.actions.length - placed} sans repère` : ''}.
             </div>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
               {periods.map((p) => {
@@ -589,7 +623,8 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
           </>
         ) : (
           <span className="text-muted">
-            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : les repères se posent sous le lecteur.
+            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : pose le coup d’envoi sous le lecteur,
+            puis « C’est ici ! » en regardant les actions.
           </span>
         )}
       </div>
@@ -616,7 +651,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
               setBusy(true)
               setResult('')
               try {
-                setResult(resultText(await generateMoments(ev.id)))
+                setResult(resultText(await refreshMoments(ev.id)))
               } finally {
                 setBusy(false)
               }
@@ -672,8 +707,21 @@ function fmtDur(s: number) {
 }
 
 /** Liste du déroulé, par période ; `row` ajoute des commandes à droite de chaque ligne (outils du lecteur). */
-function FlowList({ ms, who, filter, row }: { ms: MatchSheet; who: (a: StoredAction) => string; filter?: (i: number) => boolean; row?: (i: number) => ReactNode }) {
-  const tl = timeline(ms)
+function FlowList({
+  ms,
+  who,
+  filter,
+  row,
+  active,
+}: {
+  ms: MatchSheet
+  who: (a: StoredAction) => string
+  filter?: (i: number) => boolean
+  row?: (i: number) => ReactNode
+  /** Action mise en avant (celle que l'on regarde). */
+  active?: number
+}) {
+  const tl = timelineOf(ms)
   let last = 0
   const out: ReactNode[] = []
   ms.actions.forEach((a, i) => {
@@ -681,14 +729,14 @@ function FlowList({ ms, who, filter, row }: { ms: MatchSheet; who: (a: StoredAct
     if (a.p !== last) {
       last = a.p
       out.push(
-        <li key={`p${a.p}`} className="sticky top-0 bg-panel px-2 py-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">
+        <li key={`p${a.p}`} className="sticky top-0 z-[1] bg-panel px-2 py-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">
           {PERIOD_LABEL(a.p)}
         </li>,
       )
     }
     const goal = a.k === 'but' || a.k === 'but7'
     out.push(
-      <li key={i} className={`flex items-center gap-2 px-2 py-1 text-[11px] ${tl.late.has(i) ? 'bg-amber-500/10' : ''}`}>
+      <li key={i} className={`flex items-center gap-2 px-2 py-1 text-[11px] ${i === active ? 'bg-accent/15' : tl.late.has(i) ? 'bg-amber-500/10' : ''}`}>
         <span className="w-9 shrink-0 text-muted tabular-nums">{gameClock(a.t)}</span>
         <span className="w-10 shrink-0 text-muted tabular-nums">
           {a.s[0]}-{a.s[1]}
@@ -705,232 +753,328 @@ function FlowList({ ms, who, filter, row }: { ms: MatchSheet; who: (a: StoredAct
 
 /* ---------- Outils de calage sous le lecteur ---------- */
 
-const MARKS: { key: string; p: number; label: string }[] = [
-  { key: 's1', p: 1, label: 'Début 1re mi-temps' },
+/** Repères de période facultatifs (le coup d'envoi, s1, est le seul nécessaire). */
+const OPTIONAL_MARKS: { key: string; p: number; label: string }[] = [
   { key: 'e1', p: 1, label: 'Fin 1re mi-temps' },
   { key: 's2', p: 2, label: 'Début 2e mi-temps' },
   { key: 'e2', p: 2, label: 'Fin du match' },
 ]
 
-/** Calage de la feuille de l'événement sur la vidéo ouverte : repères, décalage d'une période, actions posées à la main. */
+/**
+ * Calage de la feuille de l'événement sur la vidéo ouverte. Parcours principal : coup d'envoi, puis on choisit une action
+ * dans la liste (la vidéo y va), on la regarde et « C'est ici ! » au bon moment ; tout le match et les moments des fiches
+ * se recalent. Pour qui veut : repères de fin de mi-temps et de reprise, décalage d'une période, « Ici » ligne par ligne.
+ */
 export function MatchSyncTools({ eventId, video, api }: { eventId: string; video: Video; api: PlayerTools }) {
   const role = useRole()
   const ev = useLiveQuery(() => db.events.get(eventId), [eventId])
   const ms = ev?.matchSheet
   const who = useActionWho(ms)
-  const [filter, setFilter] = useState<'all' | 'goals' | 'late'>('all')
+  const [filter, setFilter] = useState<'all' | 'goals' | 'fixed' | 'late'>('all')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  // Action regardée : la dernière choisie dans la liste ; « C'est ici ! » la cale.
+  const [cur, setCur] = useState<number>()
   if (!ev || !ms) return null
-  const edit = can.editEvent(role, ev)
+  const calib = can.calibrateMatch(role, { eventId })
   const sync = ms.sync
   const other = !!sync?.videoId && sync.videoId !== video.id && Object.keys(sync.marks ?? {}).length + Object.keys(sync.fix ?? {}).length > 0
-  const tl = timeline(ms)
-  const keys = actionKeys(ms.actions)
+  const tl = timelineOf(ms)
+  const keys = tl.keys
+  const marks = sync?.marks ?? {}
+  const fix = sync?.fix ?? {}
+  const periods = [...new Set(ms.actions.map((a) => a.p))]
+  const nLate = [...tl.late].filter((i) => fix[keys[i]] === undefined).length
+  const small = 'rounded border border-line bg-panel px-1.5 py-0.5 text-[10px] font-bold hover:border-accent disabled:opacity-40'
+  const actionText = (i: number) => `${actionLabel(ms.actions[i])} ${ms.actions[i].s[0]}-${ms.actions[i].s[1]}`
+
   const now = () => {
     const t = api.time()
     if (t === undefined) {
       setMsg('Lance la vidéo d’abord (le lecteur n’est pas encore prêt).')
       return undefined
     }
-    setMsg('')
     return Math.round(t * 10) / 10
   }
-  // Première écriture : la feuille est calée sur cette vidéo.
-  const write = (fn: (s: MatchSync) => MatchSync) => void updateSync(eventId, (s) => fn({ ...s, videoId: video.id, url: video.url }))
-  const setMark = (key: string, v?: number) =>
-    write((s) => {
-      const marks = { ...s.marks }
-      if (v === undefined) delete marks[key]
-      else marks[key] = v
-      return { ...s, marks }
-    })
+  async function run(p: Promise<GenerateResult>, done: (r: GenerateResult) => string) {
+    setBusy(true)
+    try {
+      setMsg(done(await p))
+    } finally {
+      setBusy(false)
+    }
+  }
+  // Toute écriture cale la feuille sur cette vidéo (videoId, url) et recale les moments des fiches.
+  const setMark = (key: string, label: string, v?: number) =>
+    run(applyCalibration(eventId, { kind: 'mark', key, v }, v === undefined ? `retrait ${label}` : label, video), (r) =>
+      v === undefined ? 'Repère retiré.' : calibrated(v, r),
+    )
   const setFix = (i: number, v?: number) =>
-    write((s) => {
-      const fix = { ...s.fix }
-      if (v === undefined) delete fix[keys[i]]
-      else fix[keys[i]] = v
-      return { ...s, fix }
-    })
-  // Décaler toute une période : ses repères et ses actions posées à la main.
+    run(applyCalibration(eventId, { kind: 'fix', key: keys[i], v }, v === undefined ? `retrait ${actionText(i)}` : actionText(i), video), (r) =>
+      v === undefined ? 'Repère retiré : l’action est de nouveau estimée.' : calibrated(v, r),
+    )
+  // Décaler toute une période : ses repères et ses actions calées.
   const shift = (p: number, d: number) =>
-    write((s) => {
-      const marks = { ...s.marks }
-      for (const k of [`s${p}`, `e${p}`]) if (marks[k] !== undefined) marks[k] = Math.max(0, marks[k] + d)
-      const fix = { ...s.fix }
-      ms.actions.forEach((a, i) => {
-        if (a.p === p && fix[keys[i]] !== undefined) fix[keys[i]] = Math.max(0, fix[keys[i]] + d)
-      })
-      return { ...s, marks, fix }
-    })
-  const periods = [...new Set(ms.actions.map((a) => a.p))]
-  const marks = sync?.marks ?? {}
-  const fix = sync?.fix ?? {}
-  const nLate = [...tl.late].filter((i) => fix[keys[i]] === undefined).length
-  const small = 'rounded border border-line bg-panel px-1.5 py-0.5 text-[10px] font-bold hover:border-accent disabled:opacity-40'
+    run(
+      updateSync(eventId, (s) => {
+        const m = { ...s.marks }
+        for (const k of [`s${p}`, `e${p}`]) if (m[k] !== undefined) m[k] = Math.max(0, m[k] + d)
+        const f = { ...s.fix }
+        ms.actions.forEach((a, i) => {
+          if (a.p === p && f[keys[i]] !== undefined) f[keys[i]] = Math.max(0, f[keys[i]] + d)
+        })
+        return { ...s, videoId: video.id, url: video.url, marks: m, fix: f }
+      }).then(() => refreshMoments(eventId)),
+      () => `${PERIOD_LABEL(p)} décalée de ${d > 0 ? '+' : '−'}${Math.abs(d)} s.`,
+    )
+  const goTo = (i: number) => {
+    const vt = tl.at(i)
+    setCur(i)
+    setMsg('')
+    if (vt !== undefined) api.seek(vt - CLIP_LEAD)
+  }
+  const kickoff = marks.s1
+  const curStatus = cur !== undefined ? tl.status(cur) : undefined
+
+  if (other)
+    return (
+      <div className="flex flex-col gap-1.5 border-t border-line pt-2 text-[11px]">
+        <div className="text-[11px] font-bold text-muted">Calage de la feuille de match</div>
+        <p className="text-amber-200">La feuille est calée sur une autre vidéo de l’événement.</p>
+        {calib && (
+          <button
+            className="btn-ghost self-start px-2 py-1 text-[11px]"
+            onClick={async () => {
+              if (!(await ask('Caler la feuille sur cette vidéo ? Les repères posés sur l’autre vidéo sont effacés.', { ok: 'Caler ici' }))) return
+              await updateSync(eventId, (s) => ({ marks: {}, opts: s.opts, videoId: video.id, url: video.url }))
+              forgetUndo(eventId)
+            }}
+          >
+            Caler sur cette vidéo
+          </button>
+        )}
+      </div>
+    )
 
   return (
     <div className="flex flex-col gap-2 border-t border-line pt-2">
-      <div className="text-[11px] font-bold text-muted">Calage de la feuille de match</div>
-      {other ? (
-        <div className="flex flex-col gap-1.5 text-[11px]">
-          <p className="text-amber-200">La feuille est calée sur une autre vidéo de l’événement.</p>
-          {edit && (
-            <button
-              className="btn-ghost self-start px-2 py-1 text-[11px]"
-              onClick={async () =>
-                (await ask('Caler la feuille sur cette vidéo ? Les repères posés sur l’autre vidéo sont effacés.', { ok: 'Caler ici' })) &&
-                void updateSync(eventId, (s) => ({ marks: {}, opts: s.opts, videoId: video.id, url: video.url }))
-              }
-            >
-              Caler sur cette vidéo
-            </button>
+      <div className="flex items-baseline gap-2 text-[11px]">
+        <span className="font-bold text-muted">Calage de la feuille de match</span>
+        <span className="ml-auto text-[10px] text-emerald-300 tabular-nums">
+          {tl.fixedCount} action{tl.fixedCount > 1 ? 's' : ''} calée{tl.fixedCount > 1 ? 's' : ''} sur {ms.actions.length}
+        </span>
+      </div>
+      {!calib && <p className="text-[10px] text-muted">Calage réservé aux administrateurs ; tu peux parcourir les actions et voir leur statut.</p>}
+
+      {calib && (
+        <div className="flex flex-col gap-2 rounded-md border border-accent/50 bg-panel-2 p-2 text-[11px]">
+          {/* 1. Coup d'envoi : le seul repère nécessaire. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-bold">1. Coup d’envoi</span>
+            {kickoff !== undefined ? (
+              <>
+                <button className="font-bold text-accent tabular-nums hover:underline" title="Aller au coup d’envoi" onClick={() => api.seek(kickoff)}>
+                  {fmtMoment(kickoff)}
+                </button>
+                <button className={small} disabled={!api.ready || busy} title="Coup d’envoi : temps actuel de la vidéo" onClick={() => {
+                  const t = now()
+                  if (t !== undefined) void setMark('s1', 'Coup d’envoi', t)
+                }}>
+                  Ici
+                </button>
+                <button className="text-muted hover:text-red-400" title="Retirer le coup d’envoi" aria-label="Retirer le coup d’envoi" disabled={busy} onClick={() => void setMark('s1', 'Coup d’envoi')}>
+                  <Icon name="close" className="h-3 w-3" />
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn-primary px-3 py-1.5 text-xs"
+                disabled={!api.ready || busy}
+                title="Mets la vidéo sur le coup d’envoi, puis touche ce bouton"
+                onClick={() => {
+                  const t = now()
+                  if (t !== undefined) void setMark('s1', 'Coup d’envoi', t)
+                }}
+              >
+                Coup d’envoi ici
+              </button>
+            )}
+          </div>
+          {kickoff === undefined && <p className="text-[10px] text-muted">Mets la vidéo sur le coup d’envoi du match, puis touche « Coup d’envoi ici ».</p>}
+
+          {/* 2. Regarder, puis « C'est ici ! ». */}
+          {(kickoff !== undefined || tl.fixedCount > 0) &&
+            (cur !== undefined ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-bold">{actionText(cur)}</span> <span className="text-muted">{who(ms.actions[cur])}</span>
+                </span>
+                <PlaceMark status={curStatus} />
+                <HereButton
+                  disabled={!api.ready || busy}
+                  onClick={() => {
+                    const t = now()
+                    if (t !== undefined) void setFix(cur, t)
+                  }}
+                />
+              </div>
+            ) : (
+              <p className="text-[10px] text-muted">
+                2. Touche le temps d’une action dans la liste : la vidéo y va. Laisse défiler et touche « C’est ici ! » au moment exact de l’action.
+              </p>
+            ))}
+          {(msg || lastUndo(eventId)) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {msg && <span className="min-w-0 flex-1 text-[10px] text-emerald-300">{msg}</span>}
+              <UndoButton eventId={eventId} onDone={() => setMsg('Calage annulé.')} />
+            </div>
           )}
         </div>
-      ) : (
-        <>
-          {!edit && <p className="text-[10px] text-muted">Calage réservé à l’organisateur de l’événement (et aux administrateurs) ; tu peux parcourir les actions.</p>}
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1.5 gap-y-1 text-[11px]">
-            {MARKS.filter((m) => periods.includes(m.p)).map((m) => (
-              <div key={m.key} className="contents">
-                <span className="truncate">{m.label}</span>
-                {marks[m.key] !== undefined ? (
-                  <button className="font-bold text-accent tabular-nums hover:underline" title="Aller à ce repère" onClick={() => api.seek(marks[m.key])}>
-                    {fmtMoment(marks[m.key])}
+      )}
+      {!calib && msg && <p className="text-[10px] text-amber-200">{msg}</p>}
+
+      {/* Repères facultatifs, décalage d'une période. */}
+      <details className="text-[11px]">
+        <summary className="cursor-pointer font-bold text-muted">Autres repères (facultatifs)</summary>
+        <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1.5 gap-y-1">
+          {OPTIONAL_MARKS.filter((m) => periods.includes(m.p)).map((m) => (
+            <div key={m.key} className="contents">
+              <span className="truncate">{m.label}</span>
+              {marks[m.key] !== undefined ? (
+                <button className="font-bold text-accent tabular-nums hover:underline" title="Aller à ce repère" onClick={() => api.seek(marks[m.key])}>
+                  {fmtMoment(marks[m.key])}
+                </button>
+              ) : (
+                <span className="text-muted">—</span>
+              )}
+              {calib ? (
+                <span className="flex gap-1">
+                  <button
+                    className={small}
+                    disabled={!api.ready || busy}
+                    title={`${m.label} : temps actuel de la vidéo`}
+                    onClick={() => {
+                      const t = now()
+                      if (t !== undefined) void setMark(m.key, m.label, t)
+                    }}
+                  >
+                    Ici
+                  </button>
+                  {marks[m.key] !== undefined && (
+                    <button className="text-muted hover:text-red-400" title="Retirer ce repère" aria-label={`Retirer le repère ${m.label}`} onClick={() => void setMark(m.key, m.label)}>
+                      <Icon name="close" className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              ) : (
+                <span />
+              )}
+            </div>
+          ))}
+        </div>
+        {periods.map((p) => {
+          const st = tl.stoppage(p)
+          const anchored = tl.anchors(p).length > 0
+          return (
+            <div key={p} className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-muted">
+              <span className="mr-auto">
+                {PERIOD_LABEL(p)}
+                {st !== undefined ? ` · arrêts cumulés ${fmtDur(st)}` : anchored ? '' : ' · estimée (aucun repère)'}
+              </span>
+              {calib && anchored && (
+                <>
+                  <span>décaler</span>
+                  {[-5, -1, 1, 5].map((d) => (
+                    <button key={d} className={small} disabled={busy} title={`Décaler toute la période de ${d > 0 ? '+' : ''}${d} s`} onClick={() => void shift(p, d)}>
+                      {d > 0 ? '+' : '−'}
+                      {Math.abs(d)} s
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )
+        })}
+        <p className="mt-1 text-[10px] text-muted">
+          Entre deux repères, les actions sont placées en proportion ({periodStart(2, ms.halfMin) / 60} min par mi-temps) ; sans repère, la 2e mi-temps est
+          estimée après une pause de 10 min.
+        </p>
+      </details>
+
+      <div className="flex flex-wrap gap-1 text-[10px]">
+        {(
+          [
+            ['all', `Toutes (${ms.actions.length})`],
+            ['goals', 'Buts'],
+            ['fixed', `Calées (${tl.fixedCount})`],
+            ['late', `Saisies en retard (${nLate})`],
+          ] as const
+        ).map(([k, label]) => (
+          <button key={k} className={`rounded-full border px-2 py-0.5 font-bold ${filter === k ? 'border-accent bg-accent/15 text-accent' : 'border-line text-muted'}`} onClick={() => setFilter(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-72 overflow-y-auto rounded-md border border-line landscape:max-h-none">
+        <FlowList
+          ms={ms}
+          who={who}
+          active={cur}
+          filter={(i) =>
+            filter === 'all'
+              ? true
+              : filter === 'goals'
+                ? ms.actions[i].k === 'but' || ms.actions[i].k === 'but7'
+                : filter === 'fixed'
+                  ? fix[keys[i]] !== undefined
+                  : tl.late.has(i) && fix[keys[i]] === undefined
+          }
+          row={(i) => {
+            const vt = tl.at(i)
+            const fixed = fix[keys[i]] !== undefined
+            return (
+              <span className="flex shrink-0 items-center gap-1">
+                {vt !== undefined ? (
+                  <button
+                    className={`tabular-nums hover:underline ${fixed ? 'font-bold text-emerald-300' : 'text-accent'}`}
+                    title={fixed ? 'Calée à l’œil — aller à l’action' : 'Estimée — aller à l’action (quelques secondes avant)'}
+                    onClick={() => goTo(i)}
+                  >
+                    {fixed ? '✓' : '~'} {fmtMoment(vt)}
                   </button>
                 ) : (
-                  <span className="text-muted">—</span>
+                  <span className="text-[10px] text-muted">—</span>
                 )}
-                {edit ? (
-                  <span className="flex gap-1">
-                    <button
-                      className={small}
-                      disabled={!api.ready}
-                      title={`${m.label} : temps actuel de la vidéo`}
-                      onClick={() => {
-                        const t = now()
-                        if (t !== undefined) setMark(m.key, t)
-                      }}
-                    >
-                      Ici
-                    </button>
-                    {marks[m.key] !== undefined && (
-                      <button className="text-muted hover:text-red-400" title="Effacer ce repère" aria-label={`Effacer le repère ${m.label}`} onClick={() => setMark(m.key)}>
-                        <Icon name="close" className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
-                ) : (
-                  <span />
+                {calib && (
+                  <button
+                    className={small}
+                    disabled={!api.ready || busy}
+                    title="Cette action est ici : temps actuel de la vidéo"
+                    onClick={() => {
+                      const t = now()
+                      if (t !== undefined) {
+                        setCur(i)
+                        void setFix(i, t)
+                      }
+                    }}
+                  >
+                    Ici
+                  </button>
                 )}
-              </div>
-            ))}
-          </div>
-          {periods.map((p) => {
-            const st = tl.stoppage(p)
-            const anchored = tl.anchors(p).length > 0
-            return (
-              <div key={p} className="flex flex-wrap items-center gap-1 text-[10px] text-muted">
-                <span className="mr-auto">
-                  {PERIOD_LABEL(p)}
-                  {st !== undefined ? ` · arrêts cumulés ${fmtDur(st)}` : ''}
-                </span>
-                {edit && anchored && (
-                  <>
-                    <span>décaler</span>
-                    {[-5, -1, 1, 5].map((d) => (
-                      <button key={d} className={small} title={`Décaler toute la période de ${d > 0 ? '+' : ''}${d} s`} onClick={() => shift(p, d)}>
-                        {d > 0 ? '+' : '−'}
-                        {Math.abs(d)} s
-                      </button>
-                    ))}
-                  </>
+                {calib && fixed && (
+                  <button className="text-muted hover:text-red-400" title="Retirer ce repère (l’action redevient estimée)" aria-label="Retirer ce repère" disabled={busy} onClick={() => void setFix(i)}>
+                    <Icon name="close" className="h-3 w-3" />
+                  </button>
                 )}
-              </div>
+              </span>
             )
-          })}
-          {msg && <p className="text-[10px] text-amber-200">{msg}</p>}
-
-          <div className="flex flex-wrap gap-1 text-[10px]">
-            {(
-              [
-                ['all', `Toutes (${ms.actions.length})`],
-                ['goals', 'Buts'],
-                ['late', `À caler (${nLate})`],
-              ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={`rounded-full border px-2 py-0.5 font-bold ${filter === k ? 'border-accent bg-accent/15 text-accent' : 'border-line text-muted'}`} onClick={() => setFilter(k)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="max-h-72 overflow-y-auto rounded-md border border-line landscape:max-h-none">
-            <FlowList
-              ms={ms}
-              who={who}
-              filter={(i) =>
-                filter === 'all' ? true : filter === 'goals' ? ms.actions[i].k === 'but' || ms.actions[i].k === 'but7' : tl.late.has(i) && fix[keys[i]] === undefined
-              }
-              row={(i) => {
-                const vt = tl.at(i)
-                const fixed = fix[keys[i]] !== undefined
-                return (
-                  <span className="flex shrink-0 items-center gap-1">
-                    {vt !== undefined ? (
-                      <button
-                        className={`tabular-nums hover:underline ${fixed ? 'font-bold text-emerald-300' : 'text-accent'}`}
-                        title={fixed ? 'Posée à la main — aller à l’action' : 'Aller à l’action (quelques secondes avant)'}
-                        onClick={() => api.seek(vt - CLIP_LEAD)}
-                      >
-                        {fmtMoment(vt)}
-                      </button>
-                    ) : (
-                      <span className="text-[10px] text-amber-200">{tl.late.has(i) ? 'à caler' : '—'}</span>
-                    )}
-                    {edit && (
-                      <button
-                        className={small}
-                        disabled={!api.ready}
-                        title="Cette action est ici : temps actuel de la vidéo"
-                        onClick={() => {
-                          const t = now()
-                          if (t !== undefined) setFix(i, t)
-                        }}
-                      >
-                        Ici
-                      </button>
-                    )}
-                    {edit && fixed && (
-                      <button className="text-muted hover:text-red-400" title="Retirer ce repère" aria-label="Retirer ce repère" onClick={() => setFix(i)}>
-                        <Icon name="close" className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
-                )
-              }}
-            />
-          </div>
-          <p className="text-[10px] text-muted">
-            Temps vidéo = repères de la période ({periodStart(2, ms.halfMin) / 60} min par mi-temps) ; entre deux repères, en proportion. « Ici » sur une action
-            l’ajoute comme repère.
-          </p>
-          {can.manageEvents(role) && (
-            <button
-              className="btn-primary px-3 py-1.5 text-xs"
-              disabled={busy || !sync?.url}
-              onClick={async () => {
-                setBusy(true)
-                try {
-                  setMsg(resultText(await generateMoments(eventId)))
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              {busy ? 'Création des moments…' : 'Créer ou mettre à jour les moments sur les fiches'}
-            </button>
-          )}
-        </>
+          }}
+        />
+      </div>
+      {can.manageEvents(role) && (
+        <button className="btn-ghost px-3 py-1.5 text-xs" disabled={busy || !sync?.url} onClick={() => void run(refreshMoments(eventId), resultText)}>
+          {busy ? 'Mise à jour des moments…' : 'Créer ou mettre à jour les moments sur les fiches'}
+        </button>
       )}
     </div>
   )

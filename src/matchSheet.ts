@@ -400,7 +400,8 @@ export const LATE_MIN = 5
 
 /**
  * Saisie en retard : la table de marque a rattrapé plusieurs actions d'un coup (5 et plus à la même seconde). Leur temps
- * de jeu est faux : elles ne sont pas placées automatiquement (à caler à la main dans le lecteur).
+ * de jeu est faux : elles ne servent jamais de repère et sont réparties entre leurs voisines fiables (timeline), en attendant
+ * d'être calées à la main.
  */
 export function lateIndexes(actions: Pick<SheetAction, 't' | 'p'>[], min = LATE_MIN): Set<number> {
   const count = new Map<string, number>()
@@ -439,9 +440,15 @@ export interface MatchSync {
   /** Lien vidéo de l'événement utilisé, et son adresse (reprise par les liens générés sur les fiches). */
   videoId?: string
   url?: string
-  /** Repères de période, temps vidéo (s) : s1 début 1re mi-temps, e1 fin 1re mi-temps, s2 début 2e, e2 fin du match. */
+  /**
+   * Repères de période, temps vidéo (s) : s1 coup d'envoi (le seul nécessaire), e1 fin 1re mi-temps, s2 début 2e, e2 fin du
+   * match (facultatifs).
+   */
   marks: Record<string, number>
-  /** « Cette action est ici » : temps vidéo posé pour une action (clé actionKeys) ; repère supplémentaire si son temps de jeu est fiable. */
+  /**
+   * Actions calées à l'œil (« C'est ici », « Cette action est ici ») : temps vidéo posé pour une action (clé actionKeys) ;
+   * repère supplémentaire si son temps de jeu est fiable, repère de ses voisines en retard sinon.
+   */
   fix?: Record<string, number>
   /** Moments générés en plus des buts : arrêts (gardiens), tirs. */
   opts?: { saves?: boolean; shots?: boolean }
@@ -532,13 +539,22 @@ export const periodLength = (p: number, halfMin: number) => (p <= 2 ? halfMin * 
 /** Repère : temps de jeu g (s depuis le début du match) ↔ temps vidéo v (s). */
 export type Anchor = { g: number; v: number; key: string }
 
-/** Temps vidéo d'un temps de jeu : interpolation linéaire entre deux repères ; avant le premier ou après le dernier, temps réel (pente 1). */
+/** Pente gardée pour prolonger au-delà des repères (temps vidéo par seconde de jeu) : pas moins de 0,5, pas plus de 3. */
+const SLOPE_MIN = 0.5
+const SLOPE_MAX = 3
+
+/**
+ * Temps vidéo d'un temps de jeu : interpolation linéaire entre deux repères. Avant le premier ou après le dernier : avec un
+ * seul repère, temps réel (pente 1) ; avec plusieurs, la pente moyenne observée entre le premier et le dernier (les arrêts de
+ * jeu déjà constatés se reportent sur la suite).
+ */
 export function mapTime(anchors: Anchor[], g: number): number | undefined {
   if (!anchors.length) return undefined
   const first = anchors[0]
   const last = anchors[anchors.length - 1]
-  if (g <= first.g) return first.v - (first.g - g)
-  if (g >= last.g) return last.v + (g - last.g)
+  const slope = anchors.length > 1 ? Math.min(SLOPE_MAX, Math.max(SLOPE_MIN, (last.v - first.v) / (last.g - first.g))) : 1
+  if (g <= first.g) return first.v - (first.g - g) * slope
+  if (g >= last.g) return last.v + (g - last.g) * slope
   for (let j = 1; j < anchors.length; j++) {
     const a = anchors[j - 1]
     const b = anchors[j]
@@ -548,19 +564,36 @@ export function mapTime(anchors: Anchor[], g: number): number | undefined {
 }
 
 /**
- * Correspondance temps de jeu → temps vidéo d'une feuille calée. Par période : repères de début et de fin (facultatifs un
- * à un) et actions posées à la main dont le temps de jeu est fiable (pas une saisie en retard) ; interpolation linéaire par
- * morceaux entre repères (les arrêts de jeu se répartissent entre deux repères). Avec seulement le début : simple décalage.
- * Une action saisie en retard n'est placée que si on l'a posée elle-même.
+ * Pause estimée dans la vidéo avant une période sans aucun repère (s) : 10 min avant la 2e mi-temps, 5 min avant une
+ * prolongation. Simple estimation pour proposer un moment : le premier « C'est ici » de la période la remplace.
+ */
+export const breakBefore = (p: number) => (p === 2 ? 600 : 300)
+
+/** État du placement d'une action : « calée » (posée à l'œil sur la vidéo) ou « estimée » (calculée). */
+export type PlaceStatus = 'fixed' | 'estimated'
+
+/**
+ * Correspondance temps de jeu → temps vidéo d'une feuille calée.
+ *
+ * Repères d'une période : début et fin (facultatifs un à un) et actions posées à la main (« C'est ici », « Cette action est
+ * ici ») dont le temps de jeu est fiable ; interpolation linéaire par morceaux entre repères (les arrêts de jeu se répartissent
+ * entre deux repères). Un seul repère obligatoire pour tout le match : le coup d'envoi (s1). Une période sans aucun repère
+ * est estimée depuis la période voisine (fin prolongée + pause estimée, breakBefore).
+ *
+ * Saisies en retard (paquets de LATE_MIN actions et plus au même temps de jeu, temps faux) : chaque suite d'actions en retard
+ * est répartie à intervalles égaux, dans l'ordre du déroulé, entre l'action fiable qui précède (ou le début de la période) et
+ * l'action fiable qui suit (ou la fin de la période). Une action en retard posée à la main sert de repère à ses voisines en
+ * retard (les autres se recalculent autour d'elle), mais pas au reste du match : son temps de jeu reste faux.
  */
 export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>) {
   const keys = actionKeys(sheet.actions)
   const late = lateIndexes(sheet.actions)
   const marks = sheet.sync?.marks ?? {}
   const fix = sheet.sync?.fix ?? {}
-  const cache = new Map<number, Anchor[]>()
+  const periods = [...new Set([1, ...sheet.actions.map((a) => a.p)])].sort((a, b) => a - b)
+  const own = new Map<number, Anchor[]>()
   const anchors = (p: number): Anchor[] => {
-    let list = cache.get(p)
+    let list = own.get(p)
     if (list) return list
     const start = periodStart(p, sheet.halfMin)
     const raw: Anchor[] = []
@@ -576,22 +609,82 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
       const prev = list[list.length - 1]
       if (!prev || (r.g > prev.g && r.v > prev.v)) list.push(r)
     }
-    cache.set(p, list)
+    own.set(p, list)
     return list
+  }
+  // Repères utilisés : ceux de la période, sinon un début (ou une fin) estimé depuis la période voisine.
+  const eff = new Map<number, Anchor[]>()
+  for (const p of periods) {
+    if (anchors(p).length) eff.set(p, anchors(p))
+    else {
+      const prev = eff.get(p - 1)
+      const end = prev?.length ? mapTime(prev, periodStart(p - 1, sheet.halfMin) + periodLength(p - 1, sheet.halfMin)) : undefined
+      eff.set(p, end === undefined ? [] : [{ g: periodStart(p, sheet.halfMin), v: end + breakBefore(p), key: `~s${p}` }])
+    }
+  }
+  for (const p of [...periods].reverse()) {
+    if (eff.get(p)?.length) continue
+    const next = eff.get(p + 1)
+    const st = next?.length ? mapTime(next, periodStart(p + 1, sheet.halfMin)) : undefined
+    if (st !== undefined) eff.set(p, [{ g: periodStart(p, sheet.halfMin) + periodLength(p, sheet.halfMin), v: st - breakBefore(p + 1), key: `~e${p}` }])
+  }
+  const mapped = (p: number, g: number) => {
+    const v = mapTime(eff.get(p) ?? [], g)
+    return v === undefined ? undefined : Math.max(0, v)
+  }
+  const reliableAt = (i: number) => {
+    const f = fix[keys[i]]
+    return f !== undefined ? f : mapped(sheet.actions[i].p, sheet.actions[i].t)
+  }
+
+  // Saisies en retard : suites consécutives (même période), réparties entre leurs voisines fiables.
+  const lateAt = new Map<number, number>()
+  for (let i = 0; i < sheet.actions.length; i++) {
+    if (!late.has(i) || lateAt.has(i)) continue
+    const p = sheet.actions[i].p
+    const run: number[] = []
+    for (let j = i; j < sheet.actions.length && late.has(j) && sheet.actions[j].p === p; j++) run.push(j)
+    const before = i > 0 && sheet.actions[i - 1].p === p ? i - 1 : undefined
+    const next = run[run.length - 1] + 1
+    const after = next < sheet.actions.length && sheet.actions[next].p === p ? next : undefined
+    const v0 = before !== undefined ? reliableAt(before) : mapped(p, periodStart(p, sheet.halfMin))
+    const v1 = after !== undefined ? reliableAt(after) : mapped(p, periodStart(p, sheet.halfMin) + periodLength(p, sheet.halfMin))
+    // Points connus : les deux bornes (positions -1 et n) et les actions de la suite posées à la main.
+    const known: { k: number; v: number }[] = []
+    if (v0 !== undefined) known.push({ k: -1, v: v0 })
+    run.forEach((j, k) => {
+      if (fix[keys[j]] !== undefined) known.push({ k, v: fix[keys[j]] })
+    })
+    if (v1 !== undefined) known.push({ k: run.length, v: v1 })
+    run.forEach((j, k) => {
+      if (fix[keys[j]] !== undefined) return void lateAt.set(j, fix[keys[j]])
+      const l = known.filter((x) => x.k < k).at(-1)
+      const r = known.find((x) => x.k > k)
+      if (l && r) lateAt.set(j, r.v > l.v ? l.v + ((r.v - l.v) * (k - l.k)) / (r.k - l.k) : l.v)
+      else if (l || r) lateAt.set(j, (l ?? r)!.v)
+    })
+  }
+
+  const at = (i: number): number | undefined => {
+    const f = fix[keys[i]]
+    if (f !== undefined) return f
+    if (late.has(i)) return lateAt.get(i)
+    return mapped(sheet.actions[i].p, sheet.actions[i].t)
   }
   return {
     keys,
     late,
+    /** Repères posés d'une période (sans les estimations venues d'une période voisine). */
     anchors,
-    /** Temps vidéo de l'action i (s), undefined si elle ne peut pas être placée. */
-    at(i: number): number | undefined {
-      const a = sheet.actions[i]
-      const f = fix[keys[i]]
-      if (f !== undefined) return f
-      if (late.has(i)) return undefined
-      const v = mapTime(anchors(a.p), a.t)
-      return v === undefined ? undefined : Math.max(0, v)
+    /** Temps vidéo de l'action i (s), undefined si elle ne peut pas être placée (aucun repère). */
+    at,
+    /** Calée (posée à la main), estimée (calculée), ou undefined si elle ne peut pas être placée. */
+    status(i: number): PlaceStatus | undefined {
+      if (fix[keys[i]] !== undefined) return 'fixed'
+      return at(i) === undefined ? undefined : 'estimated'
     },
+    /** Nombre d'actions calées à la main. */
+    fixedCount: keys.filter((k) => fix[k] !== undefined).length,
     /** Arrêts cumulés d'une période (s) : durée vidéo entre début et fin moins la durée de jeu ; undefined sans les deux repères. */
     stoppage(p: number): number | undefined {
       const s = marks[`s${p}`]
@@ -599,6 +692,16 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
       return s !== undefined && e !== undefined ? e - s - periodLength(p, sheet.halfMin) : undefined
     },
   }
+}
+
+export type Timeline = ReturnType<typeof timeline>
+
+/** Correspondances déjà calculées, par feuille (objet relu de la base : une nouvelle version = un nouveau calcul). */
+const tlCache = new WeakMap<object, Timeline>()
+export function timelineOf(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>): Timeline {
+  let tl = tlCache.get(sheet)
+  if (!tl) tlCache.set(sheet, (tl = timeline(sheet)))
+  return tl
 }
 
 /** Temps vidéo d'une action (s), undefined si non calée. */
@@ -639,6 +742,32 @@ export function planPlayerMoments(sheet: Pick<MatchSheet, 'actions' | 'halfMin' 
   const room = Math.max(0, MAX_MOMENTS - manual.length)
   const kept = placed.slice(0, room).map((x) => x.m)
   return { moments: [...manual, ...kept].sort((a, b) => a.at - b.at), unplaced, dropped: placed.length - kept.length, generated: kept.length }
+}
+
+/**
+ * Action de la feuille d'un moment généré, sur la fiche d'un joueur (indices pls dans players : la fiche peut y être reliée
+ * plus d'une fois).
+ *
+ * Référence : le serveur ne garde d'un moment que at, dur et note (036, 037) ; rien d'autre ne peut y être rangé. La note
+ * générée (« But 13-19 · feuille », momentNote) donne le type et le score après l'action : pour un but, le score change à
+ * chaque but, la note désigne donc une seule action du match. Pour un arrêt ou un tir (même score possible plusieurs fois),
+ * on garde les actions du joueur ayant exactement cette note, puis celle dont le moment calculé est le plus proche de at.
+ * Aucune table de correspondance à tenir à jour : la feuille (clés actionKeys) et la note suffisent, même après un réimport.
+ */
+export function momentAction(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>, pls: number[], m: VideoMoment, tl = timelineOf(sheet)): number | undefined {
+  if (!isGenerated(m)) return undefined
+  const cands = sheet.actions.flatMap((a, i) => (a.pl !== undefined && pls.includes(a.pl) && momentNote(a) === m.note ? [i] : []))
+  if (cands.length <= 1) return cands[0]
+  const dist = (i: number) => {
+    const v = tl.at(i)
+    return v === undefined ? Infinity : Math.abs(Math.max(0, Math.round(v - CLIP_LEAD)) - m.at)
+  }
+  return cands.reduce((a, b) => (dist(b) < dist(a) ? b : a))
+}
+
+/** Indices des joueurs de la feuille reliés à cette fiche (fiches fondues suivies : resolve rend la fiche actuelle). */
+export function sheetPlayersOf(sheet: Pick<MatchSheet, 'players'>, playerId: string, resolve: (id: string) => string = (id) => id) {
+  return sheet.players.flatMap((sp, i) => (sp.playerId && resolve(sp.playerId) === playerId ? [i] : []))
 }
 
 /** Titre des liens générés sur les fiches : « U18 MASCULINS … – Équipe A / Équipe B (03/10/2026) ». */
