@@ -773,7 +773,7 @@ export function EventDetail() {
                       </span>
                       {/* La photo (ou les initiales) ouvre la fiche du joueur ; le reste de la ligne mène à l'évaluation. */}
                       <Link to={`/joueurs/${p.id}`} title="Voir la fiche" aria-label={`Fiche de ${p.firstName} ${p.lastName}`} className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60">
-                        <Avatar p={p} size={32} />
+                        <Avatar p={p} size={44} />
                       </Link>
                       <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                         <div className="min-w-0">
