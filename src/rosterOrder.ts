@@ -69,6 +69,9 @@ export const positionRank = (p: Pick<Player, 'position'>) => {
 const byName = (a: Player, b: Player) =>
   a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr', { sensitivity: 'base' })
 
+/** Ordre alphabétique (NOM, puis prénom) : liste d'un groupe, et sa fiche dans le groupe (même ordre). */
+export const sortByName = (list: Player[]) => [...list].sort(byName)
+
 /** Valeur absente : toujours en fin de poste. */
 const last = (v: string | undefined) => (v ? `0${v}` : '1')
 

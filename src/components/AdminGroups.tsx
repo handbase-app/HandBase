@@ -12,7 +12,9 @@ import { StampLine } from './ActivityLog'
 import { ask, inform } from './Confirm'
 import { PanelClose, selectedCls, usePanel, useSelected } from './MasterDetail'
 import { TransferGroup, useOnline } from './TransferGroup'
-import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from './ui'
+import { Empty, Icon } from './ui'
+import { PlayerRow } from './PlayerRow'
+import { FollowStar } from './Follow'
 
 /*
  * « Voir tous les groupes » (administrateurs, supabase/039_admin_groupes.sql) : les groupes privés et « Mon staff » des
@@ -329,18 +331,15 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
         {missing > 0 && ` (dont ${missing} absent${missing > 1 ? 's' : ''} de cet appareil)`}
       </div>
       {!g.playerIds.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
-      <div className="cols flex flex-col gap-1.5">
+      <div className="cols flex flex-col gap-2">
         {sorted.map((p) => (
-          <Link key={p.id} to={`/joueurs/${p.id}`} className={`card flex items-center gap-3 p-2.5 outline-none hover:border-accent focus:border-accent ${poleEdge(p)}`}>
-            <Avatar p={p} size={32} />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 truncate text-sm font-bold">
-                {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
-              </div>
-              <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
-              {g.editors.length > 0 && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
-            </div>
-          </Link>
+          <PlayerRow
+            key={p.id}
+            p={p}
+            link={{ to: `/joueurs/${p.id}` }}
+            lines={g.editors.length > 0 && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
+            follow={<FollowStar id={p.id} />}
+          />
         ))}
       </div>
     </div>

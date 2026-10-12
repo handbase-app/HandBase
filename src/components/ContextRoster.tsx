@@ -1,8 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
+import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { canLeave } from './Confirm'
-import { selectedCls, useSelected } from './MasterDetail'
-import { Avatar, PosBadges } from './ui'
+import { useSelected } from './MasterDetail'
+import { CompactPlayerRow } from './PlayerRow'
 import type { Player } from '../db'
 
 /*
@@ -13,6 +13,9 @@ import type { Player } from '../db'
  */
 
 /** Morceau de la liste : titre (équipe, poste…), sous-titre (poste dans une équipe), joueurs. */
+/** Icônes au bout d'une ligne (mêmes emplacements que les lignes pleines). */
+export type ContextIcons = { seen?: ReactNode; rewatch?: ReactNode; follow?: ReactNode }
+
 export type ContextSection = { heading?: string | null; sub?: string; mine?: boolean; players: Player[] }
 
 /** Revient à la liste d'origine : par l'historique si l'on en vient (même position), sinon en la rouvrant. */
@@ -95,7 +98,7 @@ export function ContextRoster({
   sections: ContextSection[]
   number?: (p: Player) => string | undefined
   detail?: (p: Player) => string
-  actions?: (p: Player) => ReactNode
+  actions?: (p: Player) => ContextIcons
 }) {
   const selected = useSelected(base)
   const box = useRef<HTMLDivElement>(null)
@@ -123,32 +126,24 @@ export function ContextRoster({
           )}
           {sec.sub && <div className="mt-0.5 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
           {sec.players.map((p) => (
-            <div
+            <CompactPlayerRow
               key={p.id}
-              data-row={p.id}
-              className={`card flex scroll-mt-[calc(var(--hdr)+0.75rem)] scroll-mb-4 items-center gap-1 py-0.5 pr-0.5 pl-1.5 ${selectedCls(selected === p.id)}`}
-            >
-              <Link
-                to={`${base}/${p.id}`}
-                replace
-                data-md={p.id}
-                aria-current={selected === p.id ? 'page' : undefined}
-                className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md py-1"
-              >
-                {withNumber && <span className="w-5 shrink-0 text-center text-[11px] text-muted" title="Numéro de maillot">{number!(p) ?? '–'}</span>}
-                <Avatar p={p} size={34} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 items-center gap-1.5 text-xs font-bold">
-                    <span className="truncate">
-                      {p.lastName.toUpperCase()} {p.firstName}
-                    </span>
-                    <PosBadges p={p} />
+              p={p}
+              cardProps={{ 'data-row': p.id }}
+              className="scroll-mt-[calc(var(--hdr)+0.75rem)] scroll-mb-4"
+              selected={selected === p.id}
+              link={{ to: `${base}/${p.id}`, replace: true }}
+              linkProps={{ 'data-md': p.id, 'aria-current': selected === p.id ? 'page' : undefined }}
+              lead={
+                withNumber && (
+                  <span className="w-5 shrink-0 text-center text-[11px] text-muted" title="Numéro de maillot">
+                    {number!(p) ?? '–'}
                   </span>
-                  {detail && <span className="block truncate text-[10px] text-muted">{detail(p)}</span>}
-                </span>
-              </Link>
-              {actions && <span className="flex shrink-0 items-center">{actions(p)}</span>}
-            </div>
+                )
+              }
+              sub={detail ? detail(p) : ''}
+              {...actions?.(p)}
+            />
           ))}
         </div>
       ))}

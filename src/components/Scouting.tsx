@@ -211,7 +211,18 @@ export function RewatchButton({
  *   « Retirer mon « à revoir » ») : on ne perd pas d'un toucher ce qui a été précisé.
  * Contour bleu : à revoir pour un autre observateur seulement.
  */
-export function RewatchToggle({ playerId, originEventId, rows = [] }: { playerId: string; originEventId?: string; rows?: Rewatch[] }) {
+export function RewatchToggle({
+  playerId,
+  originEventId,
+  groupId,
+  rows = [],
+}: {
+  playerId: string
+  originEventId?: string
+  /** Ligne d'un groupe : le « à revoir » posé d'un toucher vise ce groupe (« à revoir dans ce groupe »). */
+  groupId?: string
+  rows?: Rewatch[]
+}) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   if (!scoutId()) return null
@@ -224,12 +235,12 @@ export function RewatchToggle({ playerId, originEventId, rows = [] }: { playerId
     setBusy(true)
     try {
       if (await myOpenRewatch(playerId)) return setOpen(true)
-      await saveRewatch({ playerId, originEventId })
+      await saveRewatch({ playerId, originEventId, ...(groupId ? { groups: [groupId] } : {}) })
     } finally {
       setBusy(false)
     }
   }
-  const label = mine ? 'À revoir par toi — toucher pour préciser ou retirer' : 'Mettre à revoir (liste « À revoir » générale)'
+  const label = mine ? 'À revoir par toi — toucher pour préciser ou retirer' : groupId ? 'Mettre à revoir dans ce groupe' : 'Mettre à revoir (liste « À revoir » générale)'
   return (
     <>
       <button

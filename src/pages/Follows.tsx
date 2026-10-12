@@ -1,10 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { alive, db, fmtDate, localDay, plural, positionLabel, type Player } from '../db'
+import { alive, db, fmtDate, localDay, plural, type Player } from '../db'
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews } from '../follows'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { FollowStar } from '../components/Follow'
 import { TEAM_FOLLOW } from '../staffLabels'
 
 function dayLabel(day: string) {
@@ -171,17 +173,10 @@ export default function Follows() {
       <section className="flex flex-col gap-1">
         <div className="section-title mb-0">Joueurs suivis ({direct.length})</div>
         {direct.length ? (
-          <div className="card divide-y divide-line px-3">
+          <div className="flex flex-col gap-2">
+            {/* Même ligne que les autres listes ; l'étoile pleine retire le suivi d'un toucher. */}
             {direct.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 py-2 text-xs">
-                <Link to={`/joueurs/${p.id}`} className="min-w-0 flex-1 truncate hover:text-accent">
-                  <b>{nameOf(p)}</b>
-                  <span className="text-muted">{[p.position && positionLabel(p.position), p.birthDate?.slice(0, 4)].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
-                </Link>
-                <button className="shrink-0 text-[11px] font-bold text-muted hover:text-red-400" onClick={() => void setFollow('player', p.id, false)}>
-                  Ne plus suivre
-                </button>
-              </div>
+              <PlayerRow key={p.id} p={p} link={{ to: `/joueurs/${p.id}` }} follow={<FollowStar id={p.id} />} />
             ))}
           </div>
         ) : (

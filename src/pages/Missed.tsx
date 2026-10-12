@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Link } from 'react-router-dom'
-import { Empty, QuarterBadge } from '../components/ui'
+import { Empty } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { FollowStar } from '../components/Follow'
 import { alive, counts, db, fmtDate, type Evaluation, type Player, dayOf } from '../db'
 
 /**
@@ -54,31 +55,34 @@ export default function Missed() {
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map(({ p, refusal, signals }) => (
-            <Link key={p.id} to={`/joueurs/${p.id}`} className="card flex flex-col gap-1 p-3 text-xs transition hover:border-accent">
-              <div className="flex items-center justify-between gap-2">
-                <b className="text-sm">
-                  {p.lastName.toUpperCase()} {p.firstName} <QuarterBadge birthDate={p.birthDate} />
-                </b>
-                <span className="text-[10px] text-muted">{p.review === 'refused' ? 'toujours hors cadre' : 'fiche reprise'}</span>
-              </div>
-              <div className="text-[10px] text-muted">
-                {refusal.proposedBy && <>Proposé par {refusal.proposedBy}. </>}
-                Mis hors cadre{refusal.by && <> par {refusal.by}</>}
-                {refusal.at && <> le {fmtDate(dayOf(refusal.at))}</>}
-                {refusal.note && <> : « {refusal.note} »</>}.
-              </div>
-              {signals.length > 0 ? (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {signals.map((s) => (
-                    <span key={s} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-[10px] text-muted">Rien de nouveau depuis.</div>
-              )}
-            </Link>
+            <PlayerRow
+              key={p.id}
+              p={p}
+              link={{ to: `/joueurs/${p.id}` }}
+              aside={<span className="shrink-0 text-right text-[10px] text-muted">{p.review === 'refused' ? 'toujours hors cadre' : 'fiche reprise'}</span>}
+              follow={<FollowStar id={p.id} />}
+              below={
+                <>
+                  <div className="text-[10px] text-muted">
+                    {refusal.proposedBy && <>Proposé par {refusal.proposedBy}. </>}
+                    Mis hors cadre{refusal.by && <> par {refusal.by}</>}
+                    {refusal.at && <> le {fmtDate(dayOf(refusal.at))}</>}
+                    {refusal.note && <> : « {refusal.note} »</>}.
+                  </div>
+                  {signals.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {signals.map((s) => (
+                        <span key={s} className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-muted">Rien de nouveau depuis.</div>
+                  )}
+                </>
+              }
+            />
           ))}
         </div>
       )}

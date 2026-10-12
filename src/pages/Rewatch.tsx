@@ -6,7 +6,9 @@ import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
 import { loadRewatchEntries, revisitedAt, setRevisited, stamp, type RewatchEntry } from '../scouting'
 import { RewatchButton, RewatchOrigins } from '../components/Scouting'
-import { Avatar, Empty, GroupMark, PosBadges } from '../components/ui'
+import { Empty, GroupMark } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { FollowStar } from '../components/Follow'
 
 /**
  * « Mes à revoir » (supabase/041_reperage_tournoi.sql) : joueurs que mon staff veut revoir, une ligne par joueur avec
@@ -88,18 +90,12 @@ export default function RewatchPage() {
           const manual = e.rows.filter((r) => r.done)
           const via = e.rows.map((r) => revisitedAt(r, keys)).find(Boolean)
           return (
-            <div key={e.playerId} className="card flex flex-col gap-1.5 p-3">
-              <div className="flex items-center gap-3">
-                <Link to={`/joueurs/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
-                  <Avatar p={p} size={32} />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2 truncate text-sm font-bold">
-                      {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} />
-                    </span>
-                    <span className="block truncate text-[10px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
-                  </span>
-                </Link>
-                {tab === 'open' ? (
+            <PlayerRow
+              key={e.playerId}
+              p={p}
+              link={{ to: `/joueurs/${p.id}` }}
+              aside={
+                tab === 'open' ? (
                   <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" title="Marquer revu (pour tous les « à revoir » ouverts de ce joueur)" onClick={() => void setRevisited(e.open, true)}>
                     Revu
                   </button>
@@ -110,36 +106,41 @@ export default function RewatchPage() {
                       {via && events.get(via) ? events.get(via)!.name : manual.map((r) => r.done?.byName).filter(Boolean).join(', ')}
                     </span>
                   </span>
-                )}
-              </div>
-              <RewatchOrigins rows={rows} events={events} />
-              <div className="flex flex-wrap items-center gap-1 text-[10px]">
-                {evIds.map((id) => {
-                  const ev = events.get(id)
-                  return ev ? (
-                    <Link key={id} to={`/evenements/${id}`} className="rounded-full border border-sky-500/50 bg-sky-500/10 px-2 py-0.5 font-bold">
-                      {ev.name} · {fmtDate(ev.date)}
-                    </Link>
-                  ) : null
-                })}
-                {grIds.map((id) => {
-                  const g = groups.get(id)
-                  return g ? (
-                    <Link key={id} to={`/groupes/${id}`} className="rounded-full border border-accent/50 bg-accent-soft px-2 py-0.5 font-bold">
-                      <GroupMark g={g} />
-                      {g.name}
-                    </Link>
-                  ) : null
-                })}
-                {!evIds.length && !grIds.length && <span className="text-muted">liste générale</span>}
-                {tab === 'open' && <RewatchButton playerId={p.id} rows={e.open} className="ml-auto" />}
-                {tab === 'done' && manual.length > 0 && (
-                  <button className="ml-auto text-[10px] font-bold text-muted underline" onClick={() => void setRevisited(manual, false)}>
-                    Remettre à revoir
-                  </button>
-                )}
-              </div>
-            </div>
+                )
+              }
+              follow={<FollowStar id={p.id} />}
+              below={
+                <>
+                  <RewatchOrigins rows={rows} events={events} />
+                  <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                    {evIds.map((id) => {
+                      const ev = events.get(id)
+                      return ev ? (
+                        <Link key={id} to={`/evenements/${id}`} className="rounded-full border border-sky-500/50 bg-sky-500/10 px-2 py-0.5 font-bold">
+                          {ev.name} · {fmtDate(ev.date)}
+                        </Link>
+                      ) : null
+                    })}
+                    {grIds.map((id) => {
+                      const g = groups.get(id)
+                      return g ? (
+                        <Link key={id} to={`/groupes/${id}`} className="rounded-full border border-accent/50 bg-accent-soft px-2 py-0.5 font-bold">
+                          <GroupMark g={g} />
+                          {g.name}
+                        </Link>
+                      ) : null
+                    })}
+                    {!evIds.length && !grIds.length && <span className="text-muted">liste générale</span>}
+                    {tab === 'open' && <RewatchButton playerId={p.id} rows={e.open} className="ml-auto" />}
+                    {tab === 'done' && manual.length > 0 && (
+                      <button className="ml-auto text-[10px] font-bold text-muted underline" onClick={() => void setRevisited(manual, false)}>
+                        Remettre à revoir
+                      </button>
+                    )}
+                  </div>
+                </>
+              }
+            />
           )
         })}
       </div>

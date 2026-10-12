@@ -871,8 +871,8 @@ function RosterList({
                     ) : (
                       <span className="m-px h-3.5 w-3.5 shrink-0 rounded-full border border-muted/60" />
                     )}
-                    <span className={`min-w-0 flex-1 truncate ${ok && !on ? 'text-muted' : ''}`}>
-                      <b>{p.lastName.toUpperCase()}</b> {p.firstName}
+                    <span className={`min-w-0 flex-1 truncate font-bold ${ok && !on ? 'text-muted' : ''}`}>
+                      {p.lastName.toUpperCase()} {p.firstName}
                       {on && dirty && <span className="text-amber-300" title="Saisie non enregistrée"> •</span>}
                     </span>
                     <span className="flex shrink-0 items-center gap-1">

@@ -41,6 +41,8 @@ const EventPlayers = lazy(() => import('./pages/EventPlayers'))
 const EventPlayer = lazy(() => import('./pages/EventPlayers').then((m) => ({ default: m.EventPlayer })))
 const Groups = lazy(() => import('./pages/Groups'))
 const GroupDetail = lazy(() => import('./pages/Groups').then((m) => ({ default: m.GroupDetail })))
+const GroupPlayers = lazy(() => import('./pages/GroupPlayers'))
+const GroupPlayer = lazy(() => import('./pages/GroupPlayers').then((m) => ({ default: m.GroupPlayer })))
 const NewGroup = lazy(() => import('./pages/Groups').then((m) => ({ default: m.NewGroup })))
 const Alerts = lazy(() => import('./pages/Alerts'))
 const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertDetail })))
@@ -146,7 +148,7 @@ const PAGE_W: [RegExp, string][] = [
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
-  [/^\/(joueurs|evenements\/[^/]+\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
+  [/^\/(joueurs|(evenements|groupes)\/[^/]+\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
@@ -156,7 +158,7 @@ const PAGE_W: [RegExp, string][] = [
 ]
 
 /** Listes en maître-détail (liste + panneau sur ordinateur) : même largeur, liste seule ou fiche ouverte. */
-const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|evenements\/[^/]+\/joueurs\/[^/]+)$/
+const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|(evenements|groupes)\/[^/]+\/joueurs\/[^/]+)$/
 
 function PageWidth({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -268,6 +270,10 @@ export default function App() {
           <Route path="/groupes" element={<MasterDetail base="/groupes" list={<Groups />} listCol="minmax(0, var(--md-col))" />}>
             <Route index element={null} />
             <Route path=":id" element={<GroupDetail />} />
+          </Route>
+          {/* Fiche ouverte depuis un groupe : ses joueurs à gauche (ordinateur), ‹ › sur téléphone (GroupPlayers.tsx). */}
+          <Route path="/groupes/:id/joueurs" element={<GroupPlayers />}>
+            <Route path=":pid" element={<GroupPlayer />} />
           </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path={STAFF.route} element={<Teams />} />

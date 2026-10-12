@@ -25,7 +25,9 @@ import { scoutId } from '../scouting'
 import { loadTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
-import { Avatar, Empty, Icon, PosBadges, Segmented, SectionTitle } from '../components/ui'
+import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { FollowStar } from '../components/Follow'
 
 /*
  * Bilan du repérage : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
@@ -246,7 +248,7 @@ export default function Coverage() {
           </section>
 
           {gen && (
-            <div ref={whereRef} className="grid scroll-mt-20 items-start gap-4 side:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+            <div ref={whereRef} className="grid scroll-mt-20 grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
               <section>
                 <SectionTitle info="Clubs de cette génération, du plus grand nombre de joueurs à voir au plus petit. Touche un club pour la liste des joueurs.">
                   Où aller ? · {yearLabel(gen.year)}
@@ -319,30 +321,25 @@ function Who({ club, year, last, rewatch }: { club: ClubCoverage<Player>; year: 
       </div>
 
       {toSee.length > 0 && (
-        <ul className="flex flex-col divide-y divide-line">
+        <div className="flex flex-col gap-2">
           {toSee.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 py-1.5">
-              <Link to={`/joueurs/${p.id}`} className="flex min-h-9 min-w-0 flex-1 items-center gap-2.5">
-                <Avatar p={p} size={32} />
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-bold">
-                    {p.lastName.toUpperCase()} {p.firstName}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-[10px] text-muted">
-                    <PosBadges p={p} />
-                    {p.birthDate?.slice(0, 4)}
-                  </span>
-                </span>
-              </Link>
-              <RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />
-              {addEvents && (
-                <button type="button" className="-my-1 shrink-0 p-2 text-muted hover:text-accent" title="Ajouter à un événement" aria-label="Ajouter à un événement" onClick={() => setAdding([p.id])}>
-                  <Icon name="calendar" className="h-4 w-4" />
-                </button>
-              )}
-            </li>
+            <PlayerRow
+              key={p.id}
+              p={p}
+              link={{ to: `/joueurs/${p.id}` }}
+              sub={p.birthDate?.slice(0, 4) ?? ''}
+              rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
+              follow={<FollowStar id={p.id} />}
+              actions={
+                addEvents && (
+                  <button type="button" className="-my-2 shrink-0 p-2 text-muted hover:text-accent" title="Ajouter à un événement" aria-label="Ajouter à un événement" onClick={() => setAdding([p.id])}>
+                    <Icon name="calendar" className="h-4 w-4" />
+                  </button>
+                )
+              }
+            />
           ))}
-        </ul>
+        </div>
       )}
 
       {seenP.length > 0 && (
@@ -353,26 +350,20 @@ function Who({ club, year, last, rewatch }: { club: ClubCoverage<Player>; year: 
             <span className={`text-muted transition ${showSeen ? 'rotate-90' : ''}`}>›</span>
           </button>
           {showSeen && (
-            <ul className="flex flex-col">
+            <div className="mt-1 flex flex-col gap-2">
               {seenP.map((p) => {
                 const s = last.get(p.id)
                 return (
-                  <li key={p.id}>
-                    <Link to={`/joueurs/${p.id}`} className="flex min-h-8 items-center gap-2 py-1 text-[12px]">
-                      <span className="min-w-0 flex-1 truncate">
-                        <b>{p.lastName.toUpperCase()}</b> {p.firstName}
-                      </span>
-                      {s && (
-                        <span className="shrink-0 text-[10px] text-muted">
-                          vu le {fmtDate(s.day)}
-                          {s.by ? `, par ${s.by}` : ''}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
+                  <PlayerRow
+                    key={p.id}
+                    p={p}
+                    link={{ to: `/joueurs/${p.id}` }}
+                    sub={[p.birthDate?.slice(0, 4), s && `vu le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}`].filter(Boolean).join(' · ')}
+                    follow={<FollowStar id={p.id} />}
+                  />
                 )
               })}
-            </ul>
+            </div>
           )}
         </div>
       )}

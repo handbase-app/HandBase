@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
-import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
+import { Empty, Icon, QuarterBadge } from '../components/ui'
+import { PlayerRow, playerSub } from '../components/PlayerRow'
 import { FollowStar } from '../components/Follow'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -784,62 +785,65 @@ export function EventDetail() {
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
                     <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
-                    <div className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${selectedCls(duo && openAvis === p.id)} ${pick.picked.includes(p.id) ? 'border-accent' : ''}`}>
-                      <PickBox pick={pick} p={p} />
-                      <span className="w-6 text-center text-[11px] text-muted" title={byTeam ? 'Numéro de maillot' : undefined}>
-                        {byTeam ? (numOf(ev, p.id) ?? '–') : i + 1}
-                      </span>
-                      {/* La photo (ou les initiales) ouvre la fiche du joueur ; le reste de la ligne mène à l'évaluation. */}
-                      {/* Fiche dans l'événement : ses joueurs seulement autour (EventPlayers.tsx) ; le retour revient ici, à la même position. */}
-                      <Link
-                        to={`/evenements/${ev.id}/joueurs/${p.id}`}
-                        state={{ md: true }}
-                        onClick={() => rememberScroll(`evenement.${ev.id}`)}
-                        title="Voir la fiche"
-                        aria-label={`Fiche de ${p.firstName} ${p.lastName}`}
-                        className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60"
-                      >
-                        <Avatar p={p} size={44} />
-                      </Link>
-                      <Link to={`/evaluer?evenement=${ev.id}&joueur=${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 truncate text-sm font-bold">
-                            {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
-                          </div>
-                          <div className="truncate text-[10px] text-muted">
-                            {[!byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id), p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
-                          </div>
-                          {!!ev.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
+                    {/* La photo ouvre la fiche dans l'événement (ses joueurs seulement autour, EventPlayers.tsx ; le retour revient
+                        ici, à la même position) ; le reste de la ligne mène à l'évaluation. */}
+                    <PlayerRow
+                      p={p}
+                      selected={duo && openAvis === p.id}
+                      className={pick.picked.includes(p.id) ? 'border-accent' : ''}
+                      lead={
+                        <>
+                          <PickBox pick={pick} p={p} />
+                          <span className="w-6 shrink-0 text-center text-[11px] text-muted" title={byTeam ? 'Numéro de maillot' : undefined}>
+                            {byTeam ? (numOf(ev, p.id) ?? '–') : i + 1}
+                          </span>
+                        </>
+                      }
+                      avatarLink={{ to: `/evenements/${ev.id}/joueurs/${p.id}`, state: { md: true }, onClick: () => rememberScroll(`evenement.${ev.id}`) }}
+                      link={{ to: `/evaluer?evenement=${ev.id}&joueur=${p.id}` }}
+                      sub={playerSub(p, !byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id))}
+                      lines={
+                        <>
+                          {!!ev.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
                           {!removing && (
-                            <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                            <span className="mt-0.5 flex min-w-0 items-center gap-2 empty:hidden">
                               <SeenBy list={sight.get(p.id) ?? []} />
                               <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} hideEmpty />
-                            </div>
+                            </span>
                           )}
-                        </div>
-                      </Link>
-                      <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
-                        {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
-                        {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
-                      </span>
-                      {/* Vu, à revoir, suivre : trois petites icônes de même taille, côte à côte. */}
-                      {!removing && (
-                        <span className="flex shrink-0 items-center">
-                          <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />
-                          <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />
-                          <FollowStar id={p.id} />
-                        </span>
-                      )}
-                      {removing && can.removeFromEvent(role, ev, p.id) && (
-                        <button
-                          className="shrink-0 px-1 text-muted hover:text-red-400"
-                          title="Retirer de la liste"
-                          onClick={() => void setRoster((ev.playerIds ?? []).filter((x) => x !== p.id))}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
+                          {!bar && (n > 0 || notedByMe.has(p.id)) && (
+                            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] font-bold">
+                              {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
+                              {notedByMe.has(p.id) && <span className="text-[9px] text-emerald-300">✓ noté par moi</span>}
+                            </span>
+                          )}
+                        </>
+                      }
+                      aside={
+                        // Téléphone : sous le nom (la ligne garde la place du nom et des pastilles) ; ordinateur : au bout.
+                        bar && (n > 0 || notedByMe.has(p.id)) && (
+                          <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
+                            {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
+                            {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
+                          </span>
+                        )
+                      }
+                      seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
+                      rewatch={!removing && <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />}
+                      follow={!removing && <FollowStar id={p.id} />}
+                      actions={
+                        removing &&
+                        can.removeFromEvent(role, ev, p.id) && (
+                          <button
+                            className="flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400"
+                            title="Retirer de la liste"
+                            onClick={() => void setRoster((ev.playerIds ?? []).filter((x) => x !== p.id))}
+                          >
+                            ✕
+                          </button>
+                        )
+                      }
+                    />
                     {openAvis === p.id && !duo && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
                     </div>
                   )
@@ -987,15 +991,24 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 
 /** Bouton « N avis » : déplie ou replie les avis du joueur sous sa ligne. */
 function AvisToggle({ n, open, side = false, onClick }: { n: number; open: boolean; side?: boolean; onClick: () => void }) {
+  // Peut se trouver dans le lien de la ligne (téléphone) : n'ouvre pas l'évaluation.
+  const tap = (e: { preventDefault(): void; stopPropagation(): void }) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onClick()
+  }
   return (
-    <button
-      onClick={onClick}
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={tap}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && tap(e)}
       aria-expanded={open}
-      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-emerald-300 ${open ? 'border-accent bg-accent/15' : 'border-emerald-500/40'}`}
+      className={`inline-flex shrink-0 cursor-pointer items-center rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-emerald-300 ${open ? 'border-accent bg-accent/15' : 'border-emerald-500/40'}`}
       title={open ? 'Masquer les avis' : 'Lire les avis'}
     >
       {n} avis {side ? '›' : open ? '▴' : '▾'}
-    </button>
+    </span>
   )
 }
 

@@ -1,8 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { age, alive, db, lateralityLabel, plural, type Measurement } from '../db'
-import { Avatar, Empty, fmtValue, poleEdge, PosBadges, QuarterBadge } from '../components/ui'
+import { age, alive, db, lateralityLabel, plural, type Measurement, type Rewatch } from '../db'
+import { Empty, fmtValue } from '../components/ui'
+import { PlayerRow, playerSub } from '../components/PlayerRow'
+import { RewatchToggle } from '../components/Scouting'
 import { FollowStar } from '../components/Follow'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
@@ -10,7 +12,7 @@ import { exportCsv } from '../export'
 import { TabBackButton } from '../backNav'
 import { AddToGroupDialog, GroupNotice } from '../components/Groups'
 import { can, useRole } from '../roles'
-import { selectedCls, useSelected } from '../components/MasterDetail'
+import { useSelected } from '../components/MasterDetail'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -66,6 +68,13 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
+  // « À revoir » de chaque joueur (horloge au bout de la ligne, comme dans un événement ou un groupe).
+  const rewatchRows = useLiveQuery(() => db.rewatch.toArray().then(alive), [], [] as Rewatch[])
+  const rewatch = useMemo(() => {
+    const m = new Map<string, Rewatch[]>()
+    for (const r of rewatchRows) m.set(r.playerId, [...(m.get(r.playerId) ?? []), r])
+    return m
+  }, [rewatchRows])
   // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -157,41 +166,30 @@ export default function Players() {
             const l = latest.get(p.id)
             const a = age(p.birthDate)
             return (
-              <Link
+              <PlayerRow
                 key={p.id}
-                data-player
-                data-md={p.id}
-                aria-current={selected === p.id || undefined}
-                to={`/joueurs/${p.id}`}
-                className={`card flex items-center gap-3 p-3 transition outline-none hover:border-accent focus:border-accent focus:bg-panel-2 ${poleEdge(p)} ${selectedCls(selected === p.id)}`}
-              >
-                <Avatar p={p} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-bold">
-                      {p.lastName.toUpperCase()} {p.firstName}
+                p={p}
+                selected={selected === p.id}
+                link={{ to: `/joueurs/${p.id}` }}
+                linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
+                badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
+                sub={playerSub(p, a !== null && `${a} ans`)}
+                lines={
+                  (l?.get('taille') || l?.get('poids') || p.laterality) && (
+                    <span className="truncate text-[10px] text-muted">
+                      {[
+                        l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
+                        l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
+                        lateralityLabel(p.laterality, p.sex),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
-                    {p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                    <PosBadges p={p} />
-                    {a !== null && <span>{a} ans</span>}
-                    <QuarterBadge birthDate={p.birthDate} />
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-muted">
-                    {[
-                      l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
-                      l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
-                      lateralityLabel(p.laterality, p.sex),
-                      p.club,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                </div>
-                {/* Suivre sans ouvrir la fiche ; l'étoile remplace la flèche « › » (toute la ligne ouvre la fiche). */}
-                <FollowStar id={p.id} />
-              </Link>
+                  )
+                }
+                rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
+                follow={<FollowStar id={p.id} />}
+              />
             )
           })}
           {filtered.length > shown.length && (

@@ -7,7 +7,7 @@ import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
-import { Avatar, Empty, Icon, poleEdge, PosBadges, QuarterBadge, Segmented } from '../components/ui'
+import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -20,7 +20,10 @@ import { participantSummary, useTeams } from '../teams'
 import type { Team } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
-import { GroupRewatchLine, useGroupRewatch } from '../components/Scouting'
+import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
+import { PlayerRow } from '../components/PlayerRow'
+import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
+import { sortByName } from '../rosterOrder'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
@@ -345,6 +348,12 @@ export function groupInfo(g: Pick<PlayerGroup, 'sex' | 'department' | 'years' | 
   return [scope, SEXES.find((x) => x.value === g.sex)?.label, place, years, g.scope ? '' : region].filter(Boolean).join(' · ')
 }
 
+/** Qui a ajouté ce joueur au groupe (son créateur par défaut). */
+export function groupAddedBy(g: PlayerGroup, pid: string) {
+  const uid = g.addedBy?.[pid] ?? g.createdBy
+  return uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined
+}
+
 const VIS_HELP: Record<GroupVisibility, string> = GROUP_VIS.help
 /** Du moins visible au plus visible. */
 const VIS_RANK: Record<GroupVisibility, number> = { private: 0, team: 1, staff: 2 }
@@ -623,6 +632,9 @@ export function GroupDetail() {
     return { g, players, teams }
   }, [id])
 
+  // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
+  useRestoreScroll(`groupe.${id}`, !!data && data.g?.id === id)
+
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
   if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { g, players, teams } = data
@@ -634,9 +646,9 @@ export function GroupDetail() {
   // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe.
   const contribute = can.contributeGroup(role, g)
   const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
-  const addedByOf = (pid: string) => who(g.addedBy?.[pid] ?? g.createdBy)
+  const addedByOf = (pid: string) => groupAddedBy(g, pid)
   const info = groupInfo(g, regionName(g.regionId))
-  const sorted = [...players].sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr') || a.firstName.localeCompare(b.firstName, 'fr'))
+  const sorted = sortByName(players)
 
   if (adding)
     return (
@@ -817,28 +829,34 @@ export function GroupDetail() {
         )}
       </div>
       {!players.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
-      <div className="cols flex flex-col gap-1.5" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
+      <div className="cols flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         {sorted.map((p) => (
-          <div key={p.id} className={`card flex items-center gap-3 p-2.5 ${poleEdge(p)} ${pick.picked.includes(p.id) ? 'border-accent' : ''}`}>
-            <PickBox pick={pick} p={p} />
-            <Link to={`/joueurs/${p.id}`} data-player className="flex min-w-0 flex-1 items-center gap-3 outline-none focus:text-accent">
-              <Avatar p={p} size={32} />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 truncate text-sm font-bold">
-                  {p.lastName.toUpperCase()} {p.firstName} <PosBadges p={p} /> <QuarterBadge birthDate={p.birthDate} />
-                </div>
-                <div className="truncate text-[11px] text-muted">{[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</div>
-                {!!g.editors?.length && addedByOf(p.id) && <div className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</div>}
+          // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;
+          // le retour revient ici, à la même position.
+          <PlayerRow
+            key={p.id}
+            p={p}
+            className={pick.picked.includes(p.id) ? 'border-accent' : ''}
+            lead={<PickBox pick={pick} p={p} />}
+            link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
+            linkProps={{ 'data-player': true }}
+            lines={
+              <>
+                {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
                 <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} />
-              </div>
-            </Link>
-            {!removing && <FollowStar id={p.id} />}
-            {removing && can.removeFromGroup(role, g, p.id) && (
-              <button className="px-1 text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
-                ✕
-              </button>
-            )}
-          </div>
+              </>
+            }
+            rewatch={!removing && <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
+            follow={!removing && <FollowStar id={p.id} />}
+            actions={
+              removing &&
+              can.removeFromGroup(role, g, p.id) && (
+                <button className="flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
+                  ✕
+                </button>
+              )
+            }
+          />
         ))}
       </div>
       <CompareBar pick={pick} players={players} />

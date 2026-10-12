@@ -3,6 +3,7 @@ import { Link, Navigate, Outlet, useParams } from 'react-router-dom'
 import MasterDetail from '../components/MasterDetail'
 import { ContextBar, ContextRoster, useLeaveTo } from '../components/ContextRoster'
 import { RewatchToggle, SeenEye } from '../components/Scouting'
+import { playerSub } from '../components/PlayerRow'
 import { Icon } from '../components/ui'
 import { alive, db, type Player, type Rewatch } from '../db'
 import { MQ, useMedia } from '../layout'
@@ -74,13 +75,11 @@ export default function EventPlayers() {
           count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
           sections={sections}
           number={(p) => numOf(ev, p.id)}
-          detail={(p) => [p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}
-          actions={(p) => (
-            <>
-              <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />
-              <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />
-            </>
-          )}
+          detail={(p) => playerSub(p)}
+          actions={(p) => ({
+            seen: <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />,
+            rewatch: <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />,
+          })}
         />
       }
     />

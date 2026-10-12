@@ -4,7 +4,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
-import { Empty, Icon, PosBadges, QuarterBadge, Segmented } from '../components/ui'
+import { Empty, Icon, Segmented } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { FollowStar } from '../components/Follow'
 import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
@@ -143,45 +145,39 @@ export function AlertDetail() {
       </div>
       {!players.length && <Empty>Aucun joueur ne correspond pour l’instant : tu seras prévenu dès qu’un joueur y entrera.</Empty>}
       {sorted.map((p) => (
-        <PlayerRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
+        <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
       ))}
     </div>
   )
 }
 
-function PlayerRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules; missing: string[] }) {
+function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules; missing: string[] }) {
   const h = ctx.latest.get(p.id)?.get('taille')?.value
   const ph = rules.minPredicted ? predictedHeight(p, ctx) : undefined
+  const more = [p.laterality, typeof h === 'number' && `${h.toLocaleString('fr-FR')} cm`, ph !== undefined && `prédit ${Math.round(ph)} cm`].filter(Boolean).join(' · ')
   return (
-    <Link to={`/joueurs/${p.id}`} className={`card flex items-center gap-3 p-3 hover:border-accent ${fresh ? 'border-accent/70' : ''}`}>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <span className="truncate">
-            {p.lastName.toUpperCase()} {p.firstName}
-          </span>
-          {fresh && <span className="rounded bg-accent px-1.5 py-px text-[9px] text-white">NOUVEAU</span>}
-        </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-          <PosBadges p={p} />
-          {p.birthDate?.slice(0, 4)}
-          <QuarterBadge birthDate={p.birthDate} />
-          {p.laterality && <span>· {p.laterality}</span>}
-          {typeof h === 'number' && <span>· {h.toLocaleString('fr-FR')} cm</span>}
-          {ph !== undefined && <span>· prédit {Math.round(ph)} cm</span>}
-          {p.club && <span className="truncate">· {p.club}</span>}
-        </div>
-        {/* Gardé faute de valeur : à vérifier. */}
-        {missing.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {missing.map((m) => (
-              <span key={m} className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-200">
-                {m} ?
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </Link>
+    <PlayerRow
+      p={p}
+      className={fresh ? 'border-accent/70' : ''}
+      link={{ to: `/joueurs/${p.id}` }}
+      badges={fresh && <span className="rounded bg-accent px-1.5 py-px text-[9px] text-white">NOUVEAU</span>}
+      lines={
+        <>
+          {more && <span className="truncate text-[10px] text-muted">{more}</span>}
+          {/* Gardé faute de valeur : à vérifier. */}
+          {missing.length > 0 && (
+            <span className="mt-1 flex flex-wrap gap-1">
+              {missing.map((m) => (
+                <span key={m} className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[10px] text-amber-200">
+                  {m} ?
+                </span>
+              ))}
+            </span>
+          )}
+        </>
+      }
+      follow={<FollowStar id={p.id} />}
+    />
   )
 }
 
