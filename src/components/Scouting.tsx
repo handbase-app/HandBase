@@ -48,8 +48,9 @@ const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
 // ---------- « Vu » ----------
 
 /**
- * Bouton œil d'une ligne de joueur, à un toucher : mon « vu » (plein) ; le chiffre = observateurs de l'équipe qui l'ont vu.
- * Noté par moi : vu d'office (l'avis compte), le bouton reste allumé.
+ * Œil d'une ligne de joueur, à un toucher, même allure que l'étoile « Suivre » (icône 16 px, zone de toucher 32 px) :
+ * plein = mon « vu » ; contour coloré = vu par d'autres observateurs de l'équipe (les noms au survol et dans « vu par… ») ;
+ * gris = pas encore vu. Noté par moi : vu d'office (l'avis compte), l'œil reste plein.
  */
 export function SeenEye({ eventId, playerId, list = [] }: { eventId: string; playerId: string; list?: Sighting[] }) {
   if (!scoutId()) return null
@@ -68,14 +69,9 @@ export function SeenEye({ eventId, playerId, list = [] }: { eventId: string; pla
       aria-pressed={!!mine}
       title={`${label}${n ? ` · vu par ${sightingNames(list)}` : ''}`}
       aria-label={label}
-      className={`relative -my-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition ${
-        mine ? 'border-accent bg-accent text-white' : n ? 'border-accent/50 text-accent' : 'border-line text-muted hover:border-accent hover:text-fg'
-      }`}
+      className="-my-2 shrink-0 p-2"
     >
-      <Icon name="eye" className="h-5 w-5" />
-      {n > 0 && (
-        <span className={`absolute -top-1 -right-1 min-w-4 rounded-full px-1 text-center text-[9px] leading-4 font-bold ${mine ? 'bg-fg text-bg' : 'bg-accent text-white'}`}>{n}</span>
-      )}
+      <Icon name="eye" filled={!!mine} className={`h-4 w-4 ${mine ? 'text-accent' : n ? 'text-accent/70' : 'text-muted/60 hover:text-accent'}`} />
     </button>
   )
 }
@@ -167,6 +163,7 @@ export function RewatchButton({
   originEventId,
   rows = [],
   compact = false,
+  hideEmpty = false,
   className = '',
 }: {
   playerId: string
@@ -174,10 +171,12 @@ export function RewatchButton({
   rows?: Rewatch[]
   /** Ligne de liste étroite : sans « à revoir » posé, l'icône seule (le nom au survol et pour les lecteurs d'écran). */
   compact?: boolean
+  /** Rien sans « à revoir » posé (la ligne a déjà son bouton rapide, RewatchToggle). */
+  hideEmpty?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  if (!scoutId()) return null
+  if (!scoutId() || (hideEmpty && !rows.length)) return null
   const mine = rows.some(isMyRewatch)
   const others = [...new Set(rows.filter((r) => !isMyRewatch(r)).map((r) => r.createdByName ?? '?'))]
   return (
@@ -196,6 +195,57 @@ export function RewatchButton({
         {rows.length ? `à revoir${rows.length > 1 ? ` ×${rows.length}` : ''}` : compact ? <span className="sr-only">À revoir…</span> : 'À revoir…'}
         {!rows.length && compact && <span aria-hidden>…</span>}
       </span>
+      {open && <RewatchDialog playerId={playerId} originEventId={originEventId} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/**
+ * Horloge « à revoir » d'une ligne de joueur, à côté de l'œil « vu » et de la même taille (icône 16 px, zone 32 px).
+ * - pas encore à revoir par moi : un toucher le met à revoir tout de suite, comme la fenêtre sans rien cocher (liste
+ *   « À revoir » générale, repéré ici) ; si j'en ai déjà un ouvert ailleurs sur ce joueur, la fenêtre s'ouvre pour le compléter
+ *   (comme « À revoir… », pas de doublon) ;
+ * - déjà à revoir par moi (pastille pleine) : un toucher ouvre la fenêtre « À revoir… » (événements, groupes, commentaire,
+ *   « Retirer mon « à revoir » ») : on ne perd pas d'un toucher ce qui a été précisé.
+ * Contour bleu : à revoir pour un autre observateur seulement.
+ */
+export function RewatchToggle({ playerId, originEventId, rows = [] }: { playerId: string; originEventId?: string; rows?: Rewatch[] }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  if (!scoutId()) return null
+  const mine = rows.some((r) => isMyRewatch(r) && !r.done)
+  const others = [...new Set(rows.filter((r) => !isMyRewatch(r)).map((r) => r.createdByName ?? '?'))]
+  const tap = async (e: { preventDefault(): void; stopPropagation(): void }) => {
+    stop(e)
+    if (busy) return
+    if (mine) return setOpen(true)
+    setBusy(true)
+    try {
+      if (await myOpenRewatch(playerId)) return setOpen(true)
+      await saveRewatch({ playerId, originEventId })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const label = mine ? 'À revoir par toi — toucher pour préciser ou retirer' : 'Mettre à revoir (liste « À revoir » générale)'
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => void tap(e)}
+        aria-pressed={mine}
+        aria-label={label}
+        title={`${label}${others.length ? ` · à revoir aussi pour ${others.join(', ')}` : ''}`}
+        className="-my-2 shrink-0 p-2"
+      >
+        {mine ? (
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-sky-400 text-bg">
+            <Icon name="clock" className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <Icon name="clock" className={`h-4 w-4 ${others.length ? 'text-sky-300' : 'text-muted/60 hover:text-sky-300'}`} />
+        )}
+      </button>
       {open && <RewatchDialog playerId={playerId} originEventId={originEventId} onClose={() => setOpen(false)} />}
     </>
   )

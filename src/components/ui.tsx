@@ -384,10 +384,10 @@ export const ICONS = {
 } as const
 export type IconName = keyof typeof ICONS
 
-/** `filled` : forme pleine (étoile d'un joueur ou groupe suivi). */
+/** `filled` : forme pleine (étoile d'un joueur ou groupe suivi, œil « vu ») ; une forme intérieure reste évidée (pupille). */
 export function Icon({ name, className = 'h-4 w-4', filled = false }: { name: IconName; className?: string; filled?: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className={className} fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className={className} fill={filled ? 'currentColor' : 'none'} fillRule="evenodd" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d={ICONS[name]} />
     </svg>
   )

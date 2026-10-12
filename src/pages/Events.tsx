@@ -19,7 +19,7 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
-import { CoverageBar, RewatchButton, RewatchInEvent, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
+import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
 import { byNumber, myTournamentTeams, numOf, personName, sightings, teamObservers, teamOf, tournamentTeams, type Sighting } from '../scouting'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
@@ -787,7 +787,7 @@ export function EventDetail() {
                           {!removing && (
                             <div className="mt-0.5 flex min-w-0 items-center gap-2">
                               <SeenBy list={sight.get(p.id) ?? []} />
-                              <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} />
+                              <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} hideEmpty />
                             </div>
                           )}
                         </div>
@@ -796,8 +796,14 @@ export function EventDetail() {
                         {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
                         {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
                       </span>
-                      {!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
-                      {!removing && <FollowStar id={p.id} />}
+                      {/* Vu, à revoir, suivre : trois petites icônes de même taille, côte à côte. */}
+                      {!removing && (
+                        <span className="flex shrink-0 items-center">
+                          <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />
+                          <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />
+                          <FollowStar id={p.id} />
+                        </span>
+                      )}
                       {removing && can.removeFromEvent(role, ev, p.id) && (
                         <button
                           className="shrink-0 px-1 text-muted hover:text-red-400"
