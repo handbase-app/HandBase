@@ -4,11 +4,14 @@
 // Voxtral, en lecture seule) ; rien d'autre n'est lu ni écrit.
 
 import { nettoyer, nettoyerDetail } from './nettoyage.js'
-import { promptWhisper, motsVoxtral } from './vocabulaire.js'
+import { promptWhisper, motsVoxtral, motsCles } from './vocabulaire.js'
+import { aligner, analyser, cle, contexte, tauxErreur, texteSuggestions } from './alignement.js'
+import { paragraphes as CALIB, termes as CALIB_TERMES } from './calibration.js'
 
 const $ = (id) => document.getElementById(id)
 const KEY_PREFS = 'handbase.essai-dictee.prefs'
 const KEY_RESULTS = 'handbase.essai-dictee.results'
+const KEY_CALIB = 'handbase.essai-dictee.calib'
 
 // Modèles multilingues ONNX (Hugging Face, onnx-community), révisions figées.
 // Tailles en Mo : encodeur + décodeur de la variante, sans les petits fichiers (≈ 3 Mo de plus).
@@ -55,7 +58,7 @@ function writeStore(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* stockage indisponible : sans importance */ }
 }
 
-const prefs = Object.assign({ engine: 'whisper', model: '', variant: '', device: 'auto', amb: 'calme', mode: 'hold', phrase: 1, threads: 'auto', vocab: true }, readStore(KEY_PREFS, {}))
+const prefs = Object.assign({ engine: 'whisper', model: '', variant: '', device: 'auto', amb: 'calme', mode: 'hold', phrase: 1, threads: 'auto', vocab: true, tab: 'phrases', calEngine: 'voxtral' }, readStore(KEY_PREFS, {}))
 let results = readStore(KEY_RESULTS, [])
 if (!Array.isArray(results)) results = []
 const savePrefs = () => writeStore(KEY_PREFS, prefs)
@@ -376,6 +379,7 @@ function setVx(state) {
   const input = document.querySelector('input[name="engine"][value="voxtral"]')
   input.disabled = state !== 'ok'
   if (input.disabled && input.checked) { setRadio('engine', 'whisper'); updateEngineUi() }
+  updateCalEngine()
   let t = VX_TEXTE[state] || ''
   if (state === 'ok' && vx.restantMois != null) t += ' Restant : ' + vx.restantMois + ' dictées ce mois-ci, ' + vx.restantJour + " aujourd'hui pour vous."
   $('vxState').textContent = t
@@ -483,8 +487,13 @@ function updateButtons() {
   $('againBtn').disabled = busy || !lastAudio || engine() === 'webspeech' || (engine() === 'voxtral' && !lastBlob)
   $('aptBtn').disabled = busy || !lastAudio || engine() !== 'whisper'
   $('loadBtn').disabled = busy
-  $('talk').disabled = busy && !recording
-  $('talk').classList.toggle('busy', busy && !recording)
+  for (const id of ['talk', 'calTalk']) {
+    $(id).disabled = busy && !recording
+    $(id).classList.toggle('busy', busy && !recording)
+  }
+  $('calAgain').disabled = busy || recording
+  $('calPrev').disabled = busy || recording || calib.para <= 0
+  $('calNext').disabled = busy || recording || calib.para >= CALIB.length - 1
 }
 
 function explainError(text) {
@@ -613,27 +622,8 @@ async function runWhisper(audio, tick) {
   }
 }
 
-// ---------- taux d'erreur ----------
-const NUMBERS = { zero: '0', un: '1', une: '1', deux: '2', trois: '3', quatre: '4', cinq: '5', six: '6', sept: '7', huit: '8', neuf: '9', dix: '10', onze: '11', douze: '12', treize: '13', quatorze: '14', quinze: '15', seize: '16', vingt: '20' }
-function words(s) {
-  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[’'`\-–—]/g, ' ').replace(/[^a-z0-9 ]+/g, ' ')
-    .split(/\s+/).filter(Boolean).map((w) => NUMBERS[w] || w)
-}
-function wer(ref, hyp) {
-  const r = words(ref)
-  const h = words(hyp)
-  if (!r.length) return null
-  let prev = Array.from({ length: h.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= r.length; i++) {
-    const cur = [i]
-    for (let j = 1; j <= h.length; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (r[i - 1] === h[j - 1] ? 0 : 1))
-    }
-    prev = cur
-  }
-  return prev[h.length] / r.length
-}
+// ---------- taux d'erreur (alignement.js : sans majuscules, accents ni ponctuation) ----------
+const wer = tauxErreur
 
 // ---------- résultats ----------
 function addResult(r) {
@@ -734,6 +724,12 @@ function resultsText() {
       if (r.ai) L.push('   reformulé (' + r.aiApi + ', ' + fmt(r.aiS, 1) + ' s, ouverture ' + fmt(r.aiCreateS, 1) + ' s) : ' + r.ai.replace(/\s*\n\s*/g, ' / '))
     }
   }
+  if (calib.lectures.length) {
+    L.push('', 'Texte de calibration :')
+    L.push(...calibText(false), ...calibDetail())
+    const sugg = calSuggestions()
+    L.push('', texteSuggestions(sugg, new Set(sugg.filter(estChoisie).map(cle))).trim())
+  }
   return L.join('\n')
 }
 
@@ -763,15 +759,22 @@ function micErrorText(e) {
 
 let recording = false
 let stopWanted = false
+// Bouton qui a lancé l'enregistrement : « Dicter » (phrases) ou « Texte de calibration ».
+let target = 'phrase'
+const talkEl = () => $(target === 'calib' ? 'calTalk' : 'talk')
+const captureEngine = () => (target === 'calib' ? calEngine() : engine())
+const setAnyStatus = (text, err) => (target === 'calib' ? setCalStatus(text, err) : setStatus(text, err))
 let rec = null // { stream, recorder, chunks, t0 } ou { speech, t0, ... }
 
 async function startCapture() {
   if (recording || busy) return
+  if (target === 'calib' && !calEngineReady()) { setCalStatus(calEngineProblem(), true); return }
   recording = true
   stopWanted = false
-  $('talk').classList.add('rec')
-  $('talk').textContent = 'Ouverture du micro…'
-  if (engine() === 'webspeech') return startSpeech()
+  updateButtons()
+  talkEl().classList.add('rec')
+  talkEl().textContent = 'Ouverture du micro…'
+  if (captureEngine() === 'webspeech') return startSpeech()
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('API absente'), { name: 'NotSupportedError' })
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -781,13 +784,14 @@ async function startCapture() {
     rec = { stream, recorder, chunks, t0: performance.now() }
     recorder.onstop = () => onRecorded(rec)
     recorder.start()
-    $('talk').textContent = modeHold() ? 'Parlez… relâchez pour finir' : 'Parlez… touchez pour finir'
-    setStatus('Enregistrement en cours')
+    talkEl().textContent = target === 'calib' ? (modeHold() ? 'Lisez… relâchez à la fin' : 'Lisez… touchez à la fin') : modeHold() ? 'Parlez… relâchez pour finir' : 'Parlez… touchez pour finir'
+    setAnyStatus('Enregistrement en cours')
     if (stopWanted) stopCapture()
   } catch (e) {
     recording = false
     resetTalk()
-    setStatus(micErrorText(e), true)
+    updateButtons()
+    setAnyStatus(micErrorText(e), true)
   }
 }
 function stopCapture() {
@@ -800,6 +804,8 @@ const modeHold = () => radio('mode') === 'hold'
 function resetTalk() {
   $('talk').classList.remove('rec')
   $('talk').textContent = modeHold() ? 'Maintenir pour parler' : 'Toucher pour parler'
+  $('calTalk').classList.remove('rec')
+  $('calTalk').textContent = modeHold() ? 'Maintenir pour lire' : 'Toucher pour lire'
 }
 
 async function onRecorded(r) {
@@ -807,15 +813,17 @@ async function onRecorded(r) {
   rec = null
   recording = false
   resetTalk()
+  updateButtons()
   const blob = new Blob(r.chunks, { type: r.recorder.mimeType || 'audio/webm' })
   let audio
   try {
     audio = await toMono16k(await blob.arrayBuffer())
   } catch (e) {
-    setStatus('Son illisible : ' + (e.message || e), true)
+    setAnyStatus('Son illisible : ' + (e.message || e), true)
     return
   }
-  if (audio.length < 0.3 * 16000) { setStatus(modeHold() ? 'Trop court : maintenez le bouton pendant que vous parlez.' : 'Trop court.', true); return }
+  if (audio.length < 0.3 * 16000) { setAnyStatus(modeHold() ? 'Trop court : maintenez le bouton pendant que vous parlez.' : 'Trop court.', true); return }
+  if (target === 'calib') return calibTranscribe(blob, audio)
   lastAudio = audio
   lastBlob = blob
   lastAudioSource = 'micro'
@@ -970,29 +978,351 @@ async function aptitude() {
   }
 }
 
+// ---------- texte de calibration ----------
+// Lectures gardées sur l'appareil seulement (clé handbase.essai-dictee.calib) ; rien n'est écrit ailleurs.
+const calib = Object.assign({ para: 0, lectures: [], choix: {} }, readStore(KEY_CALIB, {}))
+if (!Array.isArray(calib.lectures)) calib.lectures = []
+if (!calib.choix || typeof calib.choix !== 'object') calib.choix = {}
+calib.para = Math.min(Math.max(0, Number(calib.para) || 0), CALIB.length - 1)
+const saveCalib = () => writeStore(KEY_CALIB, calib)
+let calHideLast = false // « Relire ce paragraphe » : on cache la dernière lecture en attendant la nouvelle
+let calCtx = null
+const calContexte = () => (calCtx ??= contexte({ motsVoxtral, jargon: [...motsCles, ...CALIB_TERMES], references: [...CALIB, ...PHRASES] }))
+
+const calEngine = () => radio('calEngine') || 'voxtral'
+const calEngineReady = () => calEngine() !== 'voxtral' || vx.state === 'ok'
+const calEngineProblem = () => (VX_TEXTE[vx.state] || 'Voxtral indisponible.') + ' Choisissez Whisper, ou revenez une fois connecté.'
+function updateCalEngine() {
+  const vxInput = document.querySelector('input[name="calEngine"][value="voxtral"]')
+  if (!vxInput) return
+  vxInput.disabled = vx.state !== 'ok' && vx.state !== 'inconnu'
+  if (vxInput.disabled && vxInput.checked) setRadio('calEngine', 'whisper')
+  const e = calEngine()
+  $('calEngineNote').textContent = e === 'voxtral'
+    ? (vx.state === 'ok' ? 'Voxtral : prêt.' + (vx.restantMois != null ? ' Restant : ' + vx.restantMois + ' dictées ce mois-ci.' : '') + ' Un paragraphe = une dictée.' : VX_TEXTE[vx.state] || '')
+    : 'Whisper : modèle choisi dans « Réglages », chargé à la première lecture.' + (vx.state !== 'ok' && vx.state !== 'inconnu' ? ' ' + (VX_TEXTE[vx.state] || '') : '')
+}
+function setCalStatus(text, err) {
+  $('calStatus').textContent = text || ''
+  $('calStatus').classList.toggle('err', !!err)
+}
+
+async function calibTranscribe(blob, audio) {
+  const para = calib.para
+  const audioS = audio.length / 16000
+  const eng = calEngine()
+  busy = true
+  updateButtons()
+  try {
+    let text, transS, meta
+    if (eng === 'voxtral') {
+      setCalStatus('Envoi à Voxtral…')
+      const r = await runVoxtral(blob, audioS)
+      text = r.text
+      transS = r.ms / 1000
+      meta = { engine: 'Voxtral', model: r.model || 'voxtral', vocab: r.biais }
+    } else {
+      const t0 = performance.now()
+      let timer
+      const r = await runWhisper(audio, () => {
+        timer = setInterval(() => setCalStatus('Transcription… ' + fmt((performance.now() - t0) / 1000) + ' s'), 250)
+        setCalStatus('Transcription…')
+      }).finally(() => clearInterval(timer))
+      r.mdl.loadReported = true
+      text = r.text
+      transS = r.ms / 1000
+      meta = { engine: 'Whisper', model: r.mdl.model + ' ' + r.mdl.variant, vocab: !!r.prompted }
+    }
+    addLecture(para, text, { ...meta, audioS, transS })
+    setCalStatus('Lu : ' + fmt(audioS) + ' s de son, ' + fmt(transS, 2) + ' s de transcription.')
+  } catch (e) {
+    setCalStatus(e.message, true)
+  } finally {
+    busy = false
+    updateButtons()
+  }
+}
+
+function addLecture(para, text, meta = {}) {
+  const ref = CALIB[para]
+  const det = nettoyerDetail(text || '')
+  calib.lectures.push({
+    para, ...meta, text: text || '', clean: det.texte, fixes: det.corrections.map((c) => c.de + ' → ' + c.vers),
+    wer: tauxErreur(ref, text || ''), cleanWer: tauxErreur(ref, det.texte), at: new Date().toISOString(),
+  })
+  calHideLast = false
+  saveCalib()
+  renderCalib()
+}
+
+// Dernière lecture de chaque paragraphe, et TEM global (erreurs / mots du texte).
+const derniere = (p) => calib.lectures.findLast((l) => l.para === p)
+function temGlobal(lectures) {
+  let n = 0, eBrut = 0, eNet = 0
+  for (const l of lectures) {
+    const a = aligner(CALIB[l.para], l.text)
+    const b = aligner(CALIB[l.para], l.clean)
+    n += a.n
+    eBrut += a.s + a.d + a.i
+    eNet += b.s + b.d + b.i
+  }
+  return n ? { brut: eBrut / n, net: eNet / n, mots: n } : null
+}
+function calStats() {
+  const last = CALIB.map((_, p) => derniere(p)).filter(Boolean)
+  return { lus: last.length, last: temGlobal(last), toutes: temGlobal(calib.lectures) }
+}
+
+// Alignement affiché : mots justes tels quels, texte manqué barré, texte écrit à la place souligné.
+function renderAlign(ref, hyp) {
+  const box = document.createElement('div')
+  box.className = 'align'
+  const ops = aligner(ref, hyp).ops
+  let prev = null
+  const put = (m, tag) => {
+    const glue = prev && (/[-–'’+]$/.test(prev.t) || m.t === '+')
+    if (prev && !glue) box.append(' ')
+    if (tag) { const el = document.createElement(tag); el.textContent = m.t; box.append(el) } else box.append(m.t)
+    prev = m
+  }
+  for (let k = 0; k < ops.length;) {
+    if (ops[k].op === 'ok') { put(ops[k].r); k++; continue }
+    let e = k
+    while (e < ops.length && ops[e].op !== 'ok') e++
+    for (let x = k; x < e; x++) if (ops[x].r) put(ops[x].r, 'del')
+    for (let x = k; x < e; x++) if (ops[x].h) put(ops[x].h, 'ins')
+    k = e
+  }
+  if (!ops.length) box.textContent = '(rien de reconnu)'
+  return box
+}
+
+function calSuggestions() {
+  const lectures = calib.lectures.map((l) => ({ ref: CALIB[l.para], texte: l.clean }))
+  return analyser(lectures, calContexte())
+}
+// Cochée d'office : mot de contexte (b), ou correction (a) vue au moins 2 fois et sans mise en garde.
+const parDefaut = (s) => s.classe === 'b' || (s.classe === 'a' && s.stable && !s.prudence)
+const estChoisie = (s) => calib.choix[cle(s)] ?? parDefaut(s)
+
+function renderCalib() {
+  const p = calib.para
+  const N = CALIB.length
+  const st = calStats()
+  $('calN').textContent = 'Paragraphe ' + (p + 1) + ' / ' + N
+  $('calDone').textContent = st.lus + ' / ' + N + ' lus' + (calib.lectures.length > st.lus ? ', ' + calib.lectures.length + ' lectures' : '')
+  $('calProg').style.width = Math.round((st.lus / N) * 100) + '%'
+  $('calText').textContent = CALIB[p]
+
+  const box = $('calResult')
+  box.innerHTML = ''
+  const l = derniere(p)
+  const n = calib.lectures.filter((x) => x.para === p).length
+  if (l && !calHideLast) {
+    const h = document.createElement('h3'); h.style.margin = '0 0 4px'; h.style.fontSize = '1rem'
+    h.textContent = 'Ce que le moteur a compris' + (n > 1 ? ' (lecture ' + n + ')' : '') + ' · ' + l.engine
+    const w = document.createElement('div'); w.className = 'wer-line'
+    const a = document.createElement('span'); a.textContent = 'TEM brut ' + pct(l.wer)
+    const b = document.createElement('span'); b.textContent = 'TEM nettoyé ' + pct(l.cleanWer)
+    b.className = l.cleanWer <= 0.05 ? 'v-ok' : l.cleanWer <= 0.15 ? 'v-warn' : 'v-bad'
+    w.append(a, b)
+    const leg = document.createElement('p'); leg.className = 'legend'
+    leg.textContent = 'Barré : texte manqué ou mal entendu. Souligné : ce que le moteur a écrit à la place. Comparaison sans majuscules, accents ni ponctuation.'
+    box.append(h, w, renderAlign(CALIB[p], l.clean), leg)
+    if (l.fixes?.length) { const f = document.createElement('p'); f.className = 'legend'; f.textContent = 'Corrigé par le nettoyage : ' + l.fixes.join(' ; '); box.append(f) }
+    const d = document.createElement('details'); d.className = 'raw'
+    const s = document.createElement('summary'); s.textContent = 'Texte brut, avant nettoyage'
+    d.append(s, renderAlign(CALIB[p], l.text))
+    box.append(d)
+  } else if (calHideLast) {
+    const m = document.createElement('p'); m.className = 'muted'; m.textContent = 'Relisez le paragraphe avec le bouton ci-dessus ; la nouvelle lecture s\'ajoutera aux précédentes.'
+    box.append(m)
+  }
+
+  const g = $('calGlobal')
+  g.innerHTML = ''
+  if (st.last) {
+    const fin = st.lus === N
+    const t = document.createElement('div'); t.className = 'verdict'
+    t.textContent = (fin ? 'TEM global' : 'TEM sur les ' + st.lus + ' paragraphes lus') + ' : brut ' + pct(st.last.brut) + ', nettoyé ' + pct(st.last.net) +
+      ' (dernière lecture de chaque paragraphe, ' + st.last.mots + ' mots)'
+    g.append(t)
+    if (calib.lectures.length > st.lus) {
+      const m = document.createElement('p'); m.className = 'muted'
+      m.textContent = 'Toutes les lectures (' + calib.lectures.length + ') : brut ' + pct(st.toutes.brut) + ', nettoyé ' + pct(st.toutes.net) + '.'
+      g.append(m)
+    }
+    if (!fin) { const m = document.createElement('p'); m.className = 'muted'; m.textContent = 'Lisez les ' + (N - st.lus) + ' autres paragraphes pour le TEM global.'; g.append(m) }
+  }
+  renderSuggestions()
+}
+
+function renderSuggestions() {
+  const box = $('calSugg')
+  box.innerHTML = ''
+  const h = document.createElement('h2'); h.textContent = 'Erreurs et suggestions'
+  box.append(h)
+  if (!calib.lectures.length) { const m = document.createElement('p'); m.className = 'muted'; m.textContent = 'Les erreurs du moteur apparaîtront ici après la première lecture.'; box.append(m); $('calCopy').disabled = true; return }
+  $('calCopy').disabled = false
+  const sugg = calSuggestions()
+  if (!sugg.length) { const m = document.createElement('p'); m.className = 'v-ok'; m.textContent = 'Aucune erreur après nettoyage : rien à proposer.'; box.append(m); return }
+  const groupes = [
+    ['a', '(a) Corrections possibles', 'Erreur nette sur un mot peu courant : règle « entendu → juste ».'],
+    ['b', '(b) Mots de contexte à ajouter', 'Terme du hand absent des mots de contexte de Voxtral.'],
+    ['c', '(c) Ambiguës, sans règle', 'Homophone, accord, mot courant, nombre, mot oublié ou ajouté : une règle serait risquée.'],
+  ]
+  for (const [k, titre, aide] of groupes) {
+    const list = sugg.filter((s) => s.classe === k)
+    if (!list.length) continue
+    const sec = document.createElement('div'); sec.className = 'sugg-group'
+    const t = document.createElement('h3'); t.textContent = titre + ' · ' + list.length
+    const a = document.createElement('p'); a.className = 'legend'; a.textContent = aide
+    sec.append(t, a)
+    for (const s of list) {
+      const row = document.createElement(k === 'c' ? 'div' : 'label'); row.className = 'sugg'
+      if (k !== 'c') {
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = estChoisie(s)
+        cb.addEventListener('change', () => { calib.choix[cle(s)] = cb.checked; saveCalib() })
+        row.append(cb)
+      }
+      const txt = document.createElement('span')
+      const main = k === 'a' ? '« ' + s.regle.faux + ' » → « ' + s.regle.juste + ' »'
+        : k === 'b' ? 'Ajouter « ' + s.mot + ' »'
+        : '« ' + s.ref + ' » entendu « ' + (s.hyp || '…') + ' »'
+      txt.append(main)
+      const why = document.createElement('span'); why.className = 'why'
+      why.textContent = [
+        s.fois + ' fois' + (k === 'a' && !s.stable ? ', à confirmer' : ''),
+        k === 'b' ? '« ' + s.ref + ' » entendu « ' + (s.hyp || '…') + ' »' : '',
+        k === 'a' && s.variantes > 1 ? 'entendu de ' + s.variantes + ' façons' : '',
+        s.prudence || '',
+        k === 'c' ? s.raison : '',
+      ].filter(Boolean).join(' · ')
+      txt.append(why)
+      row.append(txt)
+      sec.append(row)
+    }
+    box.append(sec)
+  }
+}
+
+function calibText(entete = true) {
+  const st = calStats()
+  const L = []
+  if (entete) L.push('Calibration de la dictée HandBase, ' + new Date().toLocaleString('fr-FR'))
+  const moteurs = [...new Set(calib.lectures.map((l) => l.engine + (l.model ? ' (' + l.model + ')' : '') + (l.vocab == null ? '' : ', vocabulaire ' + (l.vocab ? 'oui' : 'non'))))]
+  L.push('Moteur : ' + (moteurs.join(' ; ') || '—') + '. Paragraphes lus : ' + st.lus + ' / ' + CALIB.length + ', lectures : ' + calib.lectures.length + '.')
+  if (st.last) L.push('TEM ' + (st.lus === CALIB.length ? 'global' : 'partiel') + ' (dernière lecture de chaque paragraphe) : brut ' + pct(st.last.brut) + ', nettoyé ' + pct(st.last.net) + ' sur ' + st.last.mots + ' mots.')
+  if (st.toutes && calib.lectures.length > st.lus) L.push('Toutes les lectures : brut ' + pct(st.toutes.brut) + ', nettoyé ' + pct(st.toutes.net) + '.')
+  return L
+}
+function calibDetail() {
+  const L = ['', 'Lectures (paragraphe | moteur | son (s) | transcription (s) | TEM brut | TEM nettoyé | texte nettoyé) :']
+  for (const l of calib.lectures) {
+    L.push('  ' + [l.para + 1, l.engine, fmt(l.audioS), fmt(l.transS, 2), pct(l.wer), pct(l.cleanWer), l.clean].join(' | '))
+    if (l.fixes?.length) L.push('     [corrigé : ' + l.fixes.join(' ; ') + ']')
+  }
+  return L
+}
+function suggestionsText() {
+  const sugg = calSuggestions()
+  const choix = new Set(sugg.filter(estChoisie).map(cle))
+  return texteSuggestions(sugg, choix, calibText())
+}
+
+async function copier(text) {
+  let ok = false
+  try { await navigator.clipboard.writeText(text); ok = true } catch { /* repli ci-dessous */ }
+  if (!ok) {
+    const ta = document.createElement('textarea')
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+    document.body.append(ta); ta.select()
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    ta.remove()
+  }
+  return ok
+}
+
+function showTab(tab) {
+  prefs.tab = tab === 'calib' ? 'calib' : 'phrases'
+  const cal = prefs.tab === 'calib'
+  $('tabPhrases').setAttribute('aria-selected', String(!cal))
+  $('tabCalib').setAttribute('aria-selected', String(cal))
+  $('speak').classList.toggle('hidden', cal)
+  $('aptitude').classList.toggle('hidden', cal)
+  $('calib').classList.toggle('hidden', !cal)
+}
+
+function bindCalib() {
+  $('tabPhrases').addEventListener('click', () => { showTab('phrases'); savePrefs() })
+  $('tabCalib').addEventListener('click', () => { showTab('calib'); savePrefs() })
+  for (const el of document.querySelectorAll('input[name="calEngine"]')) el.addEventListener('change', () => { prefs.calEngine = calEngine(); savePrefs(); updateCalEngine() })
+  const go = (d) => {
+    calib.para = Math.min(Math.max(0, calib.para + d), CALIB.length - 1)
+    calHideLast = false
+    saveCalib()
+    setCalStatus('')
+    renderCalib()
+    updateButtons()
+    $('calText').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }
+  $('calPrev').addEventListener('click', () => go(-1))
+  $('calNext').addEventListener('click', () => go(1))
+  $('calAgain').addEventListener('click', () => {
+    calHideLast = true
+    renderCalib()
+    setCalStatus(modeHold() ? 'Maintenez le bouton et relisez le paragraphe.' : 'Touchez le bouton et relisez le paragraphe.')
+    $('calTalk').focus()
+  })
+  $('calCopy').addEventListener('click', async () => {
+    const ok = await copier(suggestionsText())
+    $('calCopyMsg').textContent = ok ? 'Suggestions copiées : collez-les dans la conversation.' : 'Copie impossible sur ce navigateur.'
+  })
+  $('calClear').addEventListener('click', () => {
+    if (!confirm('Effacer toutes les lectures du texte de calibration ?')) return
+    calib.lectures = []
+    calib.choix = {}
+    calib.para = 0
+    calHideLast = false
+    saveCalib()
+    setCalStatus('')
+    $('calCopyMsg').textContent = ''
+    renderCalib()
+    updateButtons()
+  })
+}
+
 // ---------- branchements ----------
-function bind() {
-  const talk = $('talk')
+function bindTalk(talk, tgt) {
+  const start = () => { if (recording) return; target = tgt; startCapture() }
+  // Seul le bouton qui enregistre peut l'arrêter.
+  const stop = () => { if (recording && target === tgt) stopCapture() }
   talk.addEventListener('contextmenu', (e) => e.preventDefault())
   talk.addEventListener('pointerdown', (e) => {
     if (e.button && e.button !== 0) return
     e.preventDefault()
     if (modeHold()) {
       try { talk.setPointerCapture(e.pointerId) } catch { /* sans importance */ }
-      startCapture()
-    } else if (recording) stopCapture()
-    else startCapture()
+      start()
+    } else if (recording) stop()
+    else start()
   })
-  const release = () => { if (modeHold() && recording) stopCapture() }
+  const release = () => { if (modeHold()) stop() }
   talk.addEventListener('pointerup', release)
   talk.addEventListener('pointercancel', release)
   talk.addEventListener('keydown', (e) => {
     if ((e.key !== ' ' && e.key !== 'Enter') || e.repeat) return
     e.preventDefault()
-    if (modeHold() || !recording) startCapture()
-    else stopCapture()
+    if (modeHold() || !recording) start()
+    else stop()
   })
   talk.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') release() })
+}
+
+function bind() {
+  bindTalk($('talk'), 'phrase')
+  bindTalk($('calTalk'), 'calib')
+  bindCalib()
 
   $('model').addEventListener('change', () => { prefs.model = $('model').value; fillVariants(false); prefs.variant = $('variant').value; savePrefs() })
   $('variant').addEventListener('change', () => { prefs.variant = $('variant').value; updateSizeNote(); savePrefs() })
@@ -1046,16 +1376,7 @@ function bind() {
     }
   })
   $('copyBtn').addEventListener('click', async () => {
-    const text = resultsText()
-    let ok = false
-    try { await navigator.clipboard.writeText(text); ok = true } catch { /* repli ci-dessous */ }
-    if (!ok) {
-      const ta = document.createElement('textarea')
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
-      document.body.append(ta); ta.select()
-      try { ok = document.execCommand('copy') } catch { ok = false }
-      ta.remove()
-    }
+    const ok = await copier(resultsText())
     $('copyMsg').textContent = ok ? 'Résultats copiés : collez-les dans la conversation.' : 'Copie impossible sur ce navigateur.'
   })
   $('clearBtn').addEventListener('click', () => {
@@ -1073,10 +1394,15 @@ async function init() {
   setRadio('device', prefs.device)
   setRadio('amb', prefs.amb)
   setRadio('mode', prefs.mode)
+  setRadio('calEngine', prefs.calEngine === 'whisper' ? 'whisper' : 'voxtral')
   $('vocab').checked = prefs.vocab !== false
+  showTab(prefs.tab)
   resetTalk()
   bind()
   renderResults()
+  renderCalib()
+  updateCalEngine()
+  updateButtons()
   await detectDevice()
   renderResults() // avec le bouton « Reformuler » si l'IA de Chrome est là
   detectVoxtral()
@@ -1101,6 +1427,9 @@ window.essaiDictee = {
   // Essai de l'interface Voxtral contre un faux serveur local (console seulement).
   voxtralLocal: async (url) => { const s = readSession(); vx.url = url; vx.token = s?.token || 'essai'; const r = await fetch(url, { headers: { Authorization: 'Bearer ' + vx.token } }); const d = await r.json(); vx.restantMois = d.restant_mois; vx.restantJour = d.restant_jour; setVx('ok') },
   voxtral: (samples, blob) => { lastAudio = samples; lastBlob = blob; return voxtralAndRecord(blob, samples.length / 16000, 'son de test') },
+  // Texte de calibration : lecture fabriquée (texte « reconnu » donné), pour essayer l'alignement et les suggestions.
+  calibration: (texte, para = calib.para) => { calib.para = para; addLecture(para, texte, { engine: 'essai', audioS: null, transS: null }) },
+  suggestions: () => suggestionsText(),
 }
 
 init()
