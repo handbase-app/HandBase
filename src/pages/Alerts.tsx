@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton } from '../backNav'
+import { BackButton, useGoBack } from '../backNav'
 import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
 import { Empty, Icon, Segmented } from '../components/ui'
@@ -184,7 +184,9 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
 /** Nouvelle alerte (page « /alertes/nouvelle »). */
 export function NewAlert() {
   const nav = useNavigate()
-  return <AlertForm onDone={(a) => nav(a ? `/alertes/${a.id}` : '/alertes', { replace: true })} />
+  // Annuler : retour d'où l'on vient (liste des profils, accueil…).
+  const goBack = useGoBack('/alertes')
+  return <AlertForm onDone={(a) => (a ? nav(`/alertes/${a.id}`, { replace: true }) : goBack())} />
 }
 
 /** Formulaire d'alerte, avec le nombre de joueurs qui correspondent en direct. */

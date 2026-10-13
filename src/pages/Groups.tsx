@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton } from '../backNav'
+import { BackButton, useGoBack } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
@@ -36,7 +36,8 @@ export default function Groups() {
   const role = useRole()
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup))))
   const teams = useTeams() ?? []
-  const [showArchived, setShowArchived] = useState(false)
+  // Archivés affichés : retrouvé au retour (pendant la session), comme les filtres.
+  const [showArchived, setShowArchived] = useSessionState('handbase.groupes.archived', false)
   const regionName = useRegionName()
   // Filtres de la liste (gardés pendant la session).
   const [q, setQ] = useSessionState('handbase.groupes.q', '')
@@ -575,10 +576,11 @@ export function NewGroup() {
   const role = useRole()
   const location = useLocation()
   const playerIds: string[] = (location.state as { playerIds?: string[] } | null)?.playerIds ?? []
+  const goBack = useGoBack('/groupes')
   if (!can.manageGroups(role)) return <div className="py-20 text-center text-sm text-muted">Ton rôle ne permet pas de créer des groupes.</div>
   return (
     <div className="flex flex-col gap-4">
-      <button onClick={() => nav(-1)} className="self-start text-xs font-bold text-muted">
+      <button onClick={goBack} className="self-start text-xs font-bold text-muted">
         ← NOUVEAU GROUPE
       </button>
       <div className="card flex flex-col gap-3 p-4">
@@ -589,7 +591,7 @@ export function NewGroup() {
         </p>
         <GroupForm
           playerIds={playerIds}
-          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : nav(-1))}
+          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : goBack())}
         />
       </div>
     </div>

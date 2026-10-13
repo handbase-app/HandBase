@@ -55,8 +55,9 @@ export default function Events() {
   const [creating, setCreating] = useState(!!fromGroup)
   const [fromSheet, setFromSheet] = useState(false)
   const nav = useNavigate()
-  const [showAll, setShowAll] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
+  // Tout afficher, archivés : retrouvés au retour (pendant la session), comme les filtres.
+  const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
+  const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
   // Recherche et filtres (gardés pendant la session), sur le modèle des joueurs et des groupes.
   const [q, setQ] = useSessionState('handbase.evenements.q', '')
   const [type, setType] = useSessionState('handbase.evenements.type', '')
@@ -331,7 +332,8 @@ export function EventDetail() {
   const nav = useNavigate()
   const role = useRole()
   const teams = useTeams() ?? []
-  const [tab, setTab] = useState<'joueurs' | 'classement'>('joueurs')
+  // Onglet et avis dépliés : retrouvés au retour d'une fiche (pendant la session).
+  const [tab, setTab] = useSessionState<'joueurs' | 'classement'>('handbase.evenement.onglet', 'joueurs')
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(false)
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
@@ -347,8 +349,9 @@ export function EventDetail() {
   const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
   const [groupBy, setGroupBy] = useRosterGroup(id)
   // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
-  const [openAvis, setOpenAvis] = useState<string | null>(null)
-  const toggleAvis = (pid: string) => setOpenAvis((o) => (o === pid ? null : pid))
+  const [avis, setAvis] = useSessionState<{ ev?: string; pid: string } | null>('handbase.evenement.avis', null)
+  const openAvis = avis && avis.ev === id ? avis.pid : null
+  const toggleAvis = (pid: string) => setAvis(openAvis === pid ? null : { ev: id, pid })
   const panel = usePanel()
   // Ordinateur : boutons en barre d'actions compacte ; et, s'il y a la place, liste des joueurs à gauche
   // et avis du joueur choisi à droite (sur téléphone, les avis se déplient sous la ligne).
@@ -861,7 +864,7 @@ export function EventDetail() {
                 <span className="min-w-0 truncate text-sm font-bold">
                   {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
                 </span>
-                <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setOpenAvis(null)}>
+                <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setAvis(null)}>
                   <Icon name="close" className="h-4 w-4" />
                 </button>
               </div>

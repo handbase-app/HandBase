@@ -36,8 +36,8 @@ export default function GroupPlayers() {
   const { id = '', pid } = useParams()
   const split = useMedia(MQ.split)
   const base = `/groupes/${id}/joueurs`
-  const leave = useLeaveTo(`/groupes/${id}`)
   const data = useGroupRoster(id)
+  const leave = useLeaveTo(`/groupes/${id}`, data?.g?.name ?? '')
   const rewatch = useGroupRewatch(id)
 
   if (!pid) return <Navigate to={`/groupes/${id}`} replace />
@@ -48,7 +48,7 @@ export default function GroupPlayers() {
   if (!split)
     return (
       <>
-        <ContextBar title={g.name} ids={ids} current={pid} base={base} back={() => void leave()} />
+        <ContextBar title={g.name} ids={ids} current={pid} base={base} back={() => void leave.go()} />
         <Outlet />
       </>
     )
@@ -60,7 +60,7 @@ export default function GroupPlayers() {
       list={
         <ContextRoster
           base={base}
-          back={{ label: g.name, go: () => void leave() }}
+          back={leave}
           count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
           sections={[{ players }]}
           detail={(p) => playerSub(p)}

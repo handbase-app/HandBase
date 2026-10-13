@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useGoBack } from '../backNav'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { poleSites } from '../poles'
@@ -21,6 +22,8 @@ export default function PlayerForm() {
   const listedRegions = useRegions()
   const regions = listedRegions.length ? listedRegions : officialRegions()
   // Ouvert depuis la notation : on y revient après l'enregistrement (adresse interne à l'appli uniquement).
+  // Annuler : retour d'où l'on vient (fiche, liste…) ; ouvert directement : la fiche ou la liste.
+  const goBack = useGoBack(id ? `/joueurs/${id}` : '/joueurs')
   const [params] = useSearchParams()
   const retour = params.get('retour')
   const back = retour && retour.startsWith('/') && !retour.startsWith('//') ? retour : null
@@ -79,10 +82,10 @@ export default function PlayerForm() {
       return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier cette fiche.</div>
     return (
       <div className="flex flex-col gap-4">
-        <button onClick={() => nav(-1)} className="self-start text-xs font-bold text-muted">
+        <button onClick={() => goBack()} className="self-start text-xs font-bold text-muted">
           ← {editing ? 'MODIFIER MA PROPOSITION' : 'PROPOSER UN JOUEUR'}
         </button>
-        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : nav(-1))} />
+        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : goBack())} />
       </div>
     )
   }
@@ -95,7 +98,7 @@ export default function PlayerForm() {
   return (
     <div className="flex flex-col gap-3 pb-16">
       <div className="flex items-center justify-between">
-        <button onClick={() => nav(-1)} className="text-xs font-bold text-muted">
+        <button onClick={() => goBack()} className="text-xs font-bold text-muted">
           ← {editing ? 'MODIFIER LA FICHE' : 'NOUVEAU JOUEUR'}
         </button>
       </div>
@@ -392,7 +395,7 @@ export default function PlayerForm() {
         <button className="btn-primary flex-1" onClick={() => void submit()}>
           Enregistrer
         </button>
-        <button className="btn text-muted" onClick={() => nav(-1)}>
+        <button className="btn text-muted" onClick={() => goBack()}>
           Annuler
         </button>
       </div>

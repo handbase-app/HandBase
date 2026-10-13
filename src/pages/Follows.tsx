@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
+import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
 import { alive, db, fmtDate, localDay, plural, type Player } from '../db'
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews } from '../follows'
@@ -60,7 +61,8 @@ export default function Follows() {
   // Ce qui est arrivé depuis la visite précédente est marqué ; la visite compte dès l'ouverture.
   const [seen] = useState(followsSeen)
   useEffect(() => markFollowsSeen(), [])
-  const [days, setDays] = useState(30)
+  // Période affichée : retrouvée au retour d'une fiche (pendant la session).
+  const [days, setDays] = useSessionState('handbase.suivis.days', 30)
   const follows = useFollows()
   const news = useThrottledQuery(() => (follows ? buildFollowNews(days, follows) : Promise.resolve(undefined)), [days, follows], NEWS_TABLES.filter((t) => t !== 'follows' && t !== 'groups' && t !== 'teams'))
   // Joueurs cités (nouveautés et suivis directs), lus un par un : jamais toute la base.

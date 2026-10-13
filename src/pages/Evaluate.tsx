@@ -9,6 +9,7 @@ import { ProposePlayer } from '../components/ProposePlayer'
 import { filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
+import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { supabase } from '../sync'
 import { MQ, useMedia } from '../layout'
@@ -360,18 +361,13 @@ export default function Evaluate() {
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
       {!listMode && (
       <div className="flex items-center justify-between gap-2">
+        {/* Retour d'où l'on vient (événement, fiche dans l'événement, fiche, propositions…) ; sans historique : le parent. */}
         {event && !spontaneous ? (
-          <Link to={`/evenements/${event.id}`} className="min-w-0 truncate text-xs font-bold text-muted">
-            ← {event.name.toUpperCase()}
-          </Link>
+          <BackButton fallback={`/evenements/${event.id}`} label={event.name.toUpperCase()} />
         ) : spontaneous && playerId ? (
-          <Link to={`/joueurs/${playerId}?onglet=avis`} className="text-xs font-bold text-muted">
-            ← FICHE DU JOUEUR
-          </Link>
+          <BackButton fallback={`/joueurs/${playerId}?onglet=avis`} label="FICHE DU JOUEUR" />
         ) : (
-          <Link to="/avis-spontanes" className="text-xs font-bold text-muted">
-            ← PROPOSITIONS
-          </Link>
+          <BackButton fallback="/avis-spontanes" label="PROPOSITIONS" />
         )}
         <span className="shrink-0 text-[11px] text-muted">
           Observateur : <b className="text-fg">{me}</b>
@@ -791,9 +787,7 @@ function RosterList({
       className="sticky top-[calc(var(--hdr)+1.25rem)] flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] min-w-0 flex-col gap-2 rounded-xl border border-line bg-panel p-2.5 rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] rail:gap-1.5 rail:p-1.5"
     >
       <div className="min-w-0">
-        <Link to={`/evenements/${event.id}`} className="block truncate text-xs font-extrabold hover:text-accent" title={event.name}>
-          ← {event.name}
-        </Link>
+        <BackButton fallback={`/evenements/${event.id}`} label={event.name} className="block w-full hover:text-fg" />
         <div className="truncate text-[10px] text-muted rail:hidden">
           {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
           {event.place ? ` · ${event.place}` : ''} · Observateur : <b className="text-fg">{me}</b>

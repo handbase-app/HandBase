@@ -1,5 +1,6 @@
 import { createContext, Suspense, useContext, useEffect, useRef, type ReactNode } from 'react'
 import { useLocation, useMatch, useNavigate, useOutlet } from 'react-router-dom'
+import { useBack } from '../backNav'
 import { ask, canLeave, releaseLeaveGuard, setLeaveGuard } from './Confirm'
 import { MQ, useMedia } from '../layout'
 import { Icon } from './ui'
@@ -41,15 +42,30 @@ export function PanelClose() {
 const TYPED = 'textarea, input:not([type]), input[type=text], input[type=number], input[type=email], input[type=tel], input[type=url], input[type=date]'
 
 /**
- * `closeTo` : écran où mène « Fermer » (Échap) quand on n'y revient pas par l'historique (adresse partagée…) ;
- * par défaut la liste seule (`base`). Fiche ouverte depuis un événement : l'événement.
+ * « Fermer » (Échap) revient d'où l'on vient, par l'historique (la liste, à la même position ; ou l'écran d'où l'on a
+ * ouvert la fiche). `closeTo` : où il mène sans historique dans l'appli (adresse partagée…) ; par défaut la liste
+ * seule (`base`). Fiche ouverte depuis un événement : l'événement. `search` : gardé d'un élément à l'autre (état de la
+ * liste d'origine, ex. filtres du bilan).
  */
-export default function MasterDetail({ base, list, listCol, closeTo }: { base: string; list: ReactNode; listCol: string; closeTo?: string }) {
+export default function MasterDetail({
+  base,
+  list,
+  listCol,
+  closeTo,
+  search = '',
+}: {
+  base: string
+  list: ReactNode
+  listCol: string
+  closeTo?: string
+  search?: string
+}) {
   const split = useMedia(MQ.split)
   const outlet = useOutlet()
   const id = useMatch(`${base}/:id`)?.params.id
   const nav = useNavigate()
   const loc = useLocation()
+  const back = useBack(closeTo ?? base, '', { replace: true })
   const listRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   // Champs du panneau où l'on a tapé quelque chose (remis à zéro à chaque élément ouvert).
@@ -62,13 +78,11 @@ export default function MasterDetail({ base, list, listCol, closeTo }: { base: s
     if (!(await canLeave())) return
     // Premier élément ouvert : nouvelle entrée d'historique (le retour du navigateur ferme le panneau) ;
     // d'un élément à l'autre : on remplace, pour ne pas empiler chaque joueur parcouru.
-    nav(`${base}/${next}`, id ? { replace: true, state: loc.state } : { state: { md: true } })
+    nav(`${base}/${next}${search}`, id ? { replace: true, state: loc.state } : { state: { md: true } })
   }
 
-  async function close() {
-    if (!(await canLeave())) return
-    if ((loc.state as { md?: boolean } | null)?.md) nav(-1)
-    else nav(closeTo ?? base, { replace: true })
+  function close() {
+    back.go()
   }
   const closeRef = useRef(close)
   closeRef.current = close
@@ -155,6 +169,8 @@ export default function MasterDetail({ base, list, listCol, closeTo }: { base: s
       {open && (
         <section
           ref={panelRef}
+          // Position du panneau retrouvée en y revenant par l'historique (backNav.tsx).
+          data-keep-scroll="md-panel"
           aria-label="Détail"
           // z-30 : au-dessus de l'en-tête et du menu, pour que les fenêtres ouvertes depuis le panneau (lecteur vidéo…) les couvrent.
           className="md-panel sticky top-[calc(var(--hdr)+1.25rem)] z-30 max-h-[calc(100dvh-var(--hdr)-2.5rem)] rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-line bg-bg px-4 pt-3 pb-6"

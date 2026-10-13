@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
+import { useSessionState } from '../components/PlayerFilter'
 import { BackButton } from '../backNav'
 import { ask } from '../components/Confirm'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
@@ -18,7 +19,8 @@ export default function Teams() {
   const role = useRole()
   const teams = useTeams()
   const [editing, setEditing] = useState<string | null>(null)
-  const [open, setOpen] = useState<string | null>(null)
+  // Staff déplié : retrouvé au retour (pendant la session).
+  const [open, setOpen] = useSessionState<string | null>('handbase.staffs.open', null)
   // Où chaque staff sert : groupes et événements (non archivés) qui le citent, sur l'appareil.
   const uses = useLiveQuery(async () => {
     const [groups, events] = await Promise.all([db.groups.toArray(), db.events.toArray()])

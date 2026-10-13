@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
+import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
 import { buildFeed, FEED_KINDS, FEED_TABLES, feedSeen, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
@@ -141,7 +142,8 @@ export default function Feed() {
   // La pastille compte ce qui est arrivé depuis la visite précédente.
   const [seen] = useState(feedSeen)
   useEffect(() => markFeedSeen(), [])
-  const [days, setDays] = useState(30)
+  // Période affichée : retrouvée au retour d'une fiche (pendant la session).
+  const [days, setDays] = useSessionState('handbase.actualite.days', 30)
   const [prefs, setPrefs] = useState(readPrefs)
   useEffect(() => {
     try {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, db, fmtDate, type HBEvent, type Player, type PlayerGroup } from '../db'
@@ -17,8 +17,9 @@ import { FollowStar } from '../components/Follow'
  */
 export default function RewatchPage() {
   const role = useRole()
-  const [tab, setTab] = useState<'open' | 'done'>('open')
-  const [all, setAll] = useState(false)
+  // Onglet et « tous les staffs » : retrouvés au retour d'une fiche (pendant la session).
+  const [tab, setTab] = useSessionState<'open' | 'done'>('handbase.arevoir.tab', 'open')
+  const [all, setAll] = useSessionState('handbase.arevoir.all', false)
   const data = useThrottledQuery(
     async () => {
       const { entries, keys } = await loadRewatchEntries({ mine: !all })

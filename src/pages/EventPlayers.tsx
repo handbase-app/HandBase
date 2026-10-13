@@ -47,8 +47,8 @@ export default function EventPlayers() {
   const { id = '', pid } = useParams()
   const split = useMedia(MQ.split)
   const base = `/evenements/${id}/joueurs`
-  const leave = useLeaveTo(`/evenements/${id}`)
   const data = useEventRoster(id)
+  const leave = useLeaveTo(`/evenements/${id}`, data?.ev?.name ?? '')
 
   // Sans joueur choisi : l'événement lui-même.
   if (!pid) return <Navigate to={`/evenements/${id}`} replace />
@@ -59,7 +59,7 @@ export default function EventPlayers() {
   if (!split)
     return (
       <>
-        <ContextBar title={ev.name} ids={ids} current={pid} base={base} back={() => void leave()} />
+        <ContextBar title={ev.name} ids={ids} current={pid} base={base} back={() => void leave.go()} />
         <Outlet />
       </>
     )
@@ -71,7 +71,7 @@ export default function EventPlayers() {
       list={
         <ContextRoster
           base={base}
-          back={{ label: ev.name, go: () => void leave() }}
+          back={leave}
           count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
           sections={sections}
           number={(p) => numOf(ev, p.id)}

@@ -1,15 +1,16 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
+import { useBack } from '../backNav'
 import { canLeave } from './Confirm'
 import { useSelected } from './MasterDetail'
 import { CompactPlayerRow } from './PlayerRow'
 import type { Player } from '../db'
 
 /*
- * Fiche d'un joueur ouverte depuis une liste (événement ; plus tard groupe, « À revoir », bilan) : on reste dans
+ * Fiche d'un joueur ouverte depuis une liste (événement, groupe, bilan de détection) : on reste dans
  * cette liste. Ordinateur : ses joueurs seulement dans la colonne de gauche (ContextRoster, dans MasterDetail),
  * la fiche à droite. Téléphone : la fiche en plein écran sous une barre « liste · 5 / 23 » avec ‹ › (ContextBar).
- * Les adresses restent partageables : `${base}/${id du joueur}`.
+ * Les adresses restent partageables : `${base}/${id du joueur}${search}` (`search` : l'état de la liste, ex. filtres du bilan).
  */
 
 /** Morceau de la liste : titre (équipe, poste…), sous-titre (poste dans une équipe), joueurs. */
@@ -18,24 +19,21 @@ export type ContextIcons = { seen?: ReactNode; rewatch?: ReactNode; follow?: Rea
 
 export type ContextSection = { heading?: string | null; sub?: string; mine?: boolean; players: Player[] }
 
-/** Revient à la liste d'origine : par l'historique si l'on en vient (même position), sinon en la rouvrant. */
-export function useLeaveTo(to: string) {
-  const nav = useNavigate()
-  const loc = useLocation()
-  return async () => {
-    if (!(await canLeave())) return
-    if ((loc.state as { md?: boolean } | null)?.md) nav(-1)
-    else nav(to, { replace: true })
-  }
+/**
+ * Revient d'où l'on vient (la liste d'origine, en général) : par l'historique, donc à la même position et dans le même
+ * état ; sinon (adresse partagée, rechargement sans historique) en rouvrant `to`. `label` : nom de la liste.
+ */
+export function useLeaveTo(to: string, label: string) {
+  return useBack(to, label, { replace: true })
 }
 
 /** Passe à un autre joueur de la liste : l'historique ne garde pas chaque fiche parcourue (comme MasterDetail). */
-export function useShowInContext(base: string) {
+export function useShowInContext(base: string, search = '') {
   const nav = useNavigate()
   const loc = useLocation()
   return async (pid: string) => {
     if (!(await canLeave())) return
-    nav(`${base}/${pid}`, { replace: true, state: loc.state })
+    nav(`${base}/${pid}${search}`, { replace: true, state: loc.state })
   }
 }
 
@@ -91,8 +89,11 @@ export function ContextRoster({
   number,
   detail,
   actions,
+  search = '',
 }: {
   base: string
+  /** Gardé d'un joueur à l'autre (état de la liste d'origine). */
+  search?: string
   back: { label: string; go: () => void }
   count: string
   sections: ContextSection[]
@@ -132,7 +133,7 @@ export function ContextRoster({
               cardProps={{ 'data-row': p.id }}
               className="scroll-mt-[calc(var(--hdr)+0.75rem)] scroll-mb-4"
               selected={selected === p.id}
-              link={{ to: `${base}/${p.id}`, replace: true }}
+              link={{ to: `${base}/${p.id}${search}`, replace: true }}
               linkProps={{ 'data-md': p.id, 'aria-current': selected === p.id ? 'page' : undefined }}
               lead={
                 withNumber && (
@@ -154,8 +155,22 @@ export function ContextRoster({
 // ---------- Téléphone : barre au-dessus de la fiche ----------
 
 /** « liste · 5 / 23 », ‹ › (joueur précédent / suivant, même ordre) et retour à la liste ; collée sous l'en-tête. */
-export function ContextBar({ title, ids, current, base, back }: { title: string; ids: string[]; current?: string; base: string; back: () => void }) {
-  const show = useShowInContext(base)
+export function ContextBar({
+  title,
+  ids,
+  current,
+  base,
+  back,
+  search = '',
+}: {
+  title: string
+  ids: string[]
+  current?: string
+  base: string
+  back: () => void
+  search?: string
+}) {
+  const show = useShowInContext(base, search)
   const i = current ? ids.indexOf(current) : -1
   const prev = i > 0 ? ids[i - 1] : undefined
   const next = i >= 0 && i < ids.length - 1 ? ids[i + 1] : undefined
