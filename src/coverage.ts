@@ -114,36 +114,116 @@ function clubName(names: Map<string, number>) {
 }
 
 /**
- * Couverture par génération puis par club. Générations : de la plus récente à la plus ancienne, « année inconnue » à la
- * fin. Clubs : du plus grand nombre de joueurs à voir au plus petit (puis le plus de joueurs, puis le nom), « club non
- * renseigné » à la fin. `sex` : seulement les garçons ou les filles (un joueur sans sexe renseigné n'est alors pas compté).
+ * Couverture par club d'une liste de joueurs (déjà filtrés : `filterPlayers`) : du plus grand nombre de joueurs à voir
+ * au plus petit (puis le plus de joueurs, puis le nom), « club non renseigné » à la fin.
  */
-export function coverageByYear<P extends CovPlayer>(players: P[], seen: { has(id: string): boolean }, sex: CoverageSex = 'all'): YearCoverage<P>[] {
-  const years = new Map<string, { t: Tally; clubs: Map<string, { t: Tally; names: Map<string, number>; toSee: P[]; seen: P[] }> }>()
-  for (const p of livePlayers(players)) {
-    if (sex !== 'all' && p.sex !== sex) continue
-    const y = birthYear(p)
-    let yr = years.get(y)
-    if (!yr) years.set(y, (yr = { t: empty(), clubs: new Map() }))
+export function coverageByClub<P extends CovPlayer>(players: P[], seen: { has(id: string): boolean }): ClubCoverage<P>[] {
+  const clubs = new Map<string, { t: Tally; names: Map<string, number>; toSee: P[]; seen: P[] }>()
+  for (const p of players) {
     const k = clubKey(p.club)
-    let c = yr.clubs.get(k)
-    if (!c) yr.clubs.set(k, (c = { t: empty(), names: new Map(), toSee: [], seen: [] }))
+    let c = clubs.get(k)
+    if (!c) clubs.set(k, (c = { t: empty(), names: new Map(), toSee: [], seen: [] }))
     const isSeen = seen.has(p.id)
-    add(yr.t, isSeen)
     add(c.t, isSeen)
     if (k) c.names.set(p.club!.trim(), (c.names.get(p.club!.trim()) ?? 0) + 1)
     ;(isSeen ? c.seen : c.toSee).push(p)
   }
+  return [...clubs]
+    .map(([key, c]) => ({ key, name: clubName(c.names), ...c.t, toSee: c.toSee, seenPlayers: c.seen }))
+    .sort((a, b) => (!a.key ? 1 : !b.key ? -1 : b.total - b.seen - (a.total - a.seen) || b.total - a.total || a.name.localeCompare(b.name, 'fr')))
+}
+
+/**
+ * Couverture par génération puis par club. Générations : de la plus récente à la plus ancienne, « année inconnue » à la
+ * fin. Clubs : comme `coverageByClub`. `sex` : seulement les garçons ou les filles (un joueur sans sexe renseigné n'est
+ * alors pas compté).
+ */
+export function coverageByYear<P extends CovPlayer>(players: P[], seen: { has(id: string): boolean }, sex: CoverageSex = 'all'): YearCoverage<P>[] {
+  const years = new Map<string, P[]>()
+  for (const p of livePlayers(players)) {
+    if (sex !== 'all' && p.sex !== sex) continue
+    const y = birthYear(p)
+    const list = years.get(y)
+    if (list) list.push(p)
+    else years.set(y, [p])
+  }
   return [...years]
     .sort((a, b) => (!a[0] ? 1 : !b[0] ? -1 : b[0].localeCompare(a[0])))
-    .map(([year, yr]) => ({
-      year,
-      ...yr.t,
-      clubs: [...yr.clubs]
-        .map(([key, c]) => ({ key, name: clubName(c.names), ...c.t, toSee: c.toSee, seenPlayers: c.seen }))
-        .sort((a, b) => (!a.key ? 1 : !b.key ? -1 : b.total - b.seen - (a.total - a.seen) || b.total - a.total || a.name.localeCompare(b.name, 'fr'))),
-    }))
+    .map(([year, ps]) => {
+      const clubs = coverageByClub(ps, seen)
+      return { year, ...totalOf(clubs), clubs }
+    })
 }
+
+// ---------- Par lieu : régions et départements (carte du bilan) ----------
+
+/** Département d'un joueur (numéro, « 83 ») et région d'un département : donnés par l'appelant (listes, n° de club…). */
+export interface PlaceOf<P> {
+  deptOf: (p: P) => string | undefined
+  regionOf: (dept: string) => string | undefined
+}
+
+/** Choix « département non renseigné » : ses joueurs restent à voir comme les autres. */
+export const NO_DEPT = '?'
+
+/**
+ * Filtres communs à la carte, aux générations et aux clubs. Année : `null` toutes, '' année inconnue. Région et
+ * département : vides pour toute la France ; `dept` peut valoir NO_DEPT (département non renseigné).
+ */
+export interface CoverageFilter {
+  sex?: CoverageSex
+  year?: string | null
+  region?: string
+  dept?: string
+}
+
+/** Joueurs de la base (`livePlayers`) qui passent les filtres. */
+export function filterPlayers<P extends CovPlayer>(players: P[], f: CoverageFilter, place?: PlaceOf<P>): P[] {
+  const sex = f.sex ?? 'all'
+  const year = f.year ?? null
+  return livePlayers(players).filter((p) => {
+    if (sex !== 'all' && p.sex !== sex) return false
+    if (year !== null && birthYear(p) !== year) return false
+    if (!place || (!f.dept && !f.region)) return true
+    const d = place.deptOf(p)
+    if (f.dept) return f.dept === NO_DEPT ? !d : d === f.dept
+    return !!d && place.regionOf(d) === f.region
+  })
+}
+
+export interface PlaceCoverage extends Tally {
+  byDept: Map<string, Tally>
+  byRegion: Map<string, Tally>
+  /** Joueurs sans département. */
+  noDept: Tally
+}
+
+/** Couverture par département et par région d'une liste de joueurs (déjà filtrés : `filterPlayers`). */
+export function coverageByPlace<P extends CovPlayer>(players: P[], seen: { has(id: string): boolean }, place: PlaceOf<P>): PlaceCoverage {
+  const out: PlaceCoverage = { ...empty(), byDept: new Map(), byRegion: new Map(), noDept: empty() }
+  const tally = (m: Map<string, Tally>, k: string) => {
+    let t = m.get(k)
+    if (!t) m.set(k, (t = empty()))
+    return t
+  }
+  for (const p of players) {
+    const isSeen = seen.has(p.id)
+    add(out, isSeen)
+    const d = place.deptOf(p)
+    if (!d) {
+      add(out.noDept, isSeen)
+      continue
+    }
+    add(tally(out.byDept, d), isSeen)
+    const r = place.regionOf(d)
+    if (r) add(tally(out.byRegion, r), isSeen)
+  }
+  return out
+}
+
+/** Lieux (régions ou départements) du plus grand nombre de joueurs à voir au plus petit, puis le plus de joueurs. */
+export const byLeftToSee = <T extends Tally>(rows: Iterable<[string, T]>) =>
+  [...rows].sort((a, b) => b[1].total - b[1].seen - (a[1].total - a[1].seen) || b[1].total - a[1].total || a[0].localeCompare(b[0]))
 
 /** Totaux (vus, total) d'une liste de générations. */
 export const totalOf = (ys: Tally[]): Tally => ys.reduce((t, y) => ({ seen: t.seen + y.seen, total: t.total + y.total }), empty())
@@ -164,7 +244,12 @@ export interface ReportYear extends ReportRow {
   clubs: ReportClub[]
 }
 
-const emptyRow = (): ReportRow => ({ M: empty(), F: empty(), all: empty() })
+export interface ReportRegion extends ReportRow {
+  /** Identifiant de la région ('' : inconnue) ; nom et ordre choisis à l'affichage. */
+  region: string
+}
+
+const emptyRow =(): ReportRow => ({ M: empty(), F: empty(), all: empty() })
 const addRow = (r: ReportRow, p: CovPlayer, isSeen: boolean) => {
   add(r.all, isSeen)
   if (p.sex === 'M' || p.sex === 'F') add(r[p.sex], isSeen)
@@ -172,10 +257,17 @@ const addRow = (r: ReportRow, p: CovPlayer, isSeen: boolean) => {
 
 /**
  * Rapport pour la fédération : seulement des nombres, par génération, sexe et club, et les totaux. Aucun identifiant ni
- * nom de joueur n'en sort. Clubs par ordre alphabétique (« club non renseigné » à la fin).
+ * nom de joueur n'en sort. Clubs par ordre alphabétique (« club non renseigné » à la fin). Avec `place` : aussi
+ * par région.
  */
-export function fedReport(players: CovPlayer[], seen: { has(id: string): boolean }): { years: ReportYear[]; total: ReportRow } {
+export function fedReport<P extends CovPlayer>(
+  players: P[],
+  seen: { has(id: string): boolean },
+  place?: PlaceOf<P>,
+): { years: ReportYear[]; total: ReportRow; regions: ReportRegion[] } {
   const total = emptyRow()
+  // Par région, si l'appelant sait situer les joueurs ; '' : région inconnue (département absent ou hors découpage).
+  const regions = new Map<string, ReportRow>()
   const years = new Map<string, { row: ReportRow; clubs: Map<string, { row: ReportRow; names: Map<string, number> }> }>()
   for (const p of livePlayers(players)) {
     const isSeen = seen.has(p.id)
@@ -189,9 +281,17 @@ export function fedReport(players: CovPlayer[], seen: { has(id: string): boolean
     addRow(total, p, isSeen)
     addRow(yr.row, p, isSeen)
     addRow(c.row, p, isSeen)
+    if (place) {
+      const d = place.deptOf(p)
+      const r = (d && place.regionOf(d)) || ''
+      let row = regions.get(r)
+      if (!row) regions.set(r, (row = emptyRow()))
+      addRow(row, p, isSeen)
+    }
   }
   return {
     total,
+    regions: [...regions].map(([region, row]) => ({ region, ...row })),
     years: [...years]
       .sort((a, b) => (!a[0] ? 1 : !b[0] ? -1 : b[0].localeCompare(a[0])))
       .map(([year, yr]) => ({

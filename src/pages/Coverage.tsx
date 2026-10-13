@@ -5,9 +5,16 @@ import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, db, fmtDate, plural, save, today, type HBEvent, type Player, type Rewatch } from '../db'
 import {
+  birthYear,
+  byLeftToSee,
+  coverageByClub,
+  coverageByPlace,
   coverageByYear,
   fedReport,
+  filterPlayers,
   lastSights,
+  livePlayers,
+  NO_DEPT,
   percent,
   seasonOf,
   toSights,
@@ -15,15 +22,18 @@ import {
   type ClubCoverage,
   type CoveragePeriod,
   type CoverageSex,
+  type PlaceOf,
   type Sight,
   type Tally,
 } from '../coverage'
+import { regionOfDept, useDepartments, useRegionLabel } from '../lists'
 import { useThrottledQuery } from '../live'
 import { MQ, useMedia } from '../layout'
 import { can, currentUserId, useRole } from '../roles'
 import { scoutId } from '../scouting'
 import { loadTeams } from '../teams'
-import { useSessionState } from '../components/PlayerFilter'
+import { FranceMap, useDeptName } from '../components/FranceMap'
+import { department, useSessionState } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
@@ -31,7 +41,8 @@ import { FollowStar } from '../components/Follow'
 
 /*
  * Bilan de détection : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
- * ces joueurs. Un joueur est « vu » dès qu'un membre du staff l'a marqué vu ou a donné un avis (src/coverage.ts).
+ * ces joueurs ; carte de France (src/components/FranceMap.tsx) de la part des joueurs vus par région puis par
+ * département, jusqu'aux clubs d'un département. Mêmes filtres partout : sexe, période, année, lieu. Un joueur est « vu » dès qu'un membre du staff l'a marqué vu ou a donné un avis (src/coverage.ts).
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », jamais autre chose.
  */
 
@@ -129,10 +140,29 @@ function LeftBadge({ t }: { t: Tally }) {
 
 const vusSur = (t: Tally) => `${t.seen.toLocaleString('fr-FR')} vu${t.seen > 1 ? 's' : ''} sur ${t.total.toLocaleString('fr-FR')}`
 
-function Filters({ sex, setSex, period, setPeriod, showSex = true }: { sex: CoverageSex; setSex: (v: CoverageSex) => void; period: CoveragePeriod; setPeriod: (v: CoveragePeriod) => void; showSex?: boolean }) {
+function Filters({
+  sex,
+  setSex,
+  period,
+  setPeriod,
+  showSex = true,
+  years,
+  year = null,
+  setYear,
+}: {
+  sex: CoverageSex
+  setSex: (v: CoverageSex) => void
+  period: CoveragePeriod
+  setPeriod: (v: CoveragePeriod) => void
+  showSex?: boolean
+  /** Années proposées (sinon pas de choix d'année) ; null : toutes. */
+  years?: string[]
+  year?: string | null
+  setYear?: (v: string | null) => void
+}) {
   const season = seasonOf(today())
   return (
-    <div className="flex flex-col gap-2 sm:flex-row [&_button]:min-h-8">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap [&_button]:min-h-8">
       {showSex && (
         <div className="sm:w-72">
           <Segmented<CoverageSex>
@@ -156,38 +186,238 @@ function Filters({ sex, setSex, period, setPeriod, showSex = true }: { sex: Cove
           ]}
         />
       </div>
+      {years && setYear && (
+        // Année : '*' pour toutes ('' est l'année inconnue).
+        <select
+          className={`field min-h-8 py-1 text-xs sm:w-48 ${year !== null ? 'border-accent font-bold' : ''}`}
+          aria-label="Année de naissance"
+          value={year ?? '*'}
+          onChange={(e) => setYear(e.target.value === '*' ? null : e.target.value)}
+        >
+          <option value="*">Toutes les années</option>
+          {years.map((y) => (
+            <option key={y || 'inconnue'} value={y}>
+              {yearLabel(y)}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
+  )
+}
+
+// ---------- Carte ----------
+
+/**
+ * Part des joueurs vus : une seule teinte (sarcelle), du plus clair (0 %) au plus soutenu (100 %). Jamais de rouge : un
+ * lieu peu vu n'est pas « mauvais », il reste simplement des joueurs à voir. Gris : aucun joueur avec ces filtres.
+ */
+const TEAL = '#14b8a6'
+const NO_PLAYER = 'var(--color-panel-2)'
+const fillOf = (t?: Tally) => (!t?.total ? NO_PLAYER : `color-mix(in srgb, ${TEAL} ${Math.round(14 + (80 * t.seen) / t.total)}%, var(--color-panel))`)
+
+function MapLegend() {
+  return (
+    <div className="flex items-start gap-3 text-[10px] text-muted">
+      <span className="flex shrink-0 items-center gap-1">
+        <span className="h-3 w-4 rounded-sm border border-line" style={{ background: NO_PLAYER }} />
+        aucun joueur
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="h-3 rounded-sm" style={{ background: `linear-gradient(to right, ${fillOf({ seen: 0, total: 1 })}, ${fillOf({ seen: 1, total: 1 })})` }} />
+        <div className="mt-0.5 flex justify-between tabular-nums">
+          {[0, 25, 50, 75, 100].map((v) => (
+            <span key={v}>{v} %</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Fil d'Ariane du lieu : « France › Région Sud › Var (83) » ; chaque étape avant la dernière ramène à elle. */
+function Crumbs({ steps }: { steps: { label: string; go?: () => void }[] }) {
+  return (
+    <nav aria-label="Lieu" className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs">
+      {steps.map((s, i) => {
+        const last = i === steps.length - 1
+        return (
+          <span key={i} className="flex min-w-0 items-center gap-x-1">
+            {i > 0 && <span className="text-muted">›</span>}
+            {last || !s.go ? (
+              <span className="min-h-8 truncate py-1.5 font-extrabold" aria-current={last ? 'location' : undefined}>
+                {s.label}
+              </span>
+            ) : (
+              <button className="min-h-8 truncate rounded px-1 py-1.5 font-bold text-muted underline decoration-dotted underline-offset-2 hover:text-fg" onClick={s.go}>
+                {s.label}
+              </button>
+            )}
+          </span>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** Ligne d'une région ou d'un département : vus sur total, barre, joueurs à voir ; un toucher l'ouvre. */
+function PlaceRow({ label, t, onClick }: { label: string; t: Tally; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent">
+      <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: fillOf(t) }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-bold">{label}</span>
+        <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
+          <span className="shrink-0">
+            <b className="text-fg">{percent(t.seen, t.total)} %</b> · {vusSur(t)}
+          </span>
+          <Bar t={t} className="w-12 sm:w-20" />
+        </span>
+      </span>
+      <LeftBadge t={t} />
+      <span className="shrink-0 text-muted">›</span>
+    </button>
   )
 }
 
 // ---------- Page ----------
 
+type View = 'map' | 'years'
+const VIEW_KEY = 'handbase.bilan.view'
+/** Vue France : couleur par région (celle qu'on touche) ou par département. */
+const MAP_BY_KEY = 'handbase.bilan.mapBy'
+
 export default function Coverage() {
   const role = useRole()
   const data = useCoverageData()
+  const lists = useDepartments()
+  const regionLabel = useRegionLabel()
+  const deptName = useDeptName()
   const [sex, setSex] = useStored<CoverageSex>(SEX_KEY, ['all', 'M', 'F'], 'all')
   const [period, setPeriod] = usePeriod()
-  // Génération et club ouverts : retrouvés au retour d'une fiche joueur.
-  const [yearSel, setYear] = useSessionState<string | null>('handbase.bilan.year', null)
+  const [view, setView] = useStored<View>(VIEW_KEY, ['map', 'years'], 'map')
+  const [mapBy, setMapBy] = useStored<'region' | 'dept'>(MAP_BY_KEY, ['region', 'dept'], 'region')
+  // Filtres communs à la carte, aux générations et aux clubs ; retrouvés au retour d'une fiche joueur.
+  // Année : null toutes, '' année inconnue. Lieu : '' toute la France ; NO_DEPT : département non renseigné.
+  const [year, setYear] = useSessionState<string | null>('handbase.bilan.year', null)
+  const [region, setRegion] = useSessionState('handbase.bilan.region', '')
+  const [dept, setDept] = useSessionState('handbase.bilan.dept', '')
   const [clubSel, setClub] = useSessionState<string | null>('handbase.bilan.club', null)
   const side = useMedia(MQ.side)
   const whereRef = useRef<HTMLDivElement>(null)
 
+  // Lieu d'un joueur : département du n° de club (ou de licence, ou saisi), région selon la liste des départements.
+  const place = useMemo<PlaceOf<Player>>(() => ({ deptOf: department, regionOf: (d) => regionOfDept(d) }), [lists]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Calculs refaits seulement quand les données ou un filtre changent (jamais à un survol) ; la base n'est pas relue.
   const last = useMemo(() => (data ? lastSights(data.sights, periodInfo(period).range) : new Map<string, Sight>()), [data, period])
-  const years = useMemo(() => (data ? coverageByYear(data.players, last, sex) : []), [data, last, sex])
+  // Carte : sexe et année (elle montre tous les lieux).
+  const forMap = useMemo(() => (data ? filterPlayers(data.players, { sex, year }, place) : []), [data, sex, year, place])
+  const byPlace = useMemo(() => coverageByPlace(forMap, last, place), [forMap, last, place])
+  // Générations : sexe et lieu (chaque carte est une année).
+  const inPlace = useMemo(() => (data ? filterPlayers(data.players, { sex, region, dept }, place) : []), [data, sex, region, dept, place])
+  const years = useMemo(() => coverageByYear(inPlace, last), [inPlace, last])
+  // Clubs : tous les filtres.
+  const clubs = useMemo(() => coverageByClub(year === null ? inPlace : inPlace.filter((p) => birthYear(p) === year), last), [inPlace, year, last])
+  // Années proposées : toutes celles de la base (quel que soit le lieu), la plus récente d'abord.
+  const allYears = useMemo(() => {
+    const ys = new Set(data ? livePlayers(data.players).map(birthYear) : [])
+    if (year !== null) ys.add(year)
+    return [...ys].sort((a, b) => (!a ? 1 : !b ? -1 : b.localeCompare(a)))
+  }, [data, year])
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
-  const total = totalOf(years)
-  const gen = years.find((y) => y.year === yearSel) ?? years.find((y) => y.total > y.seen) ?? years[0]
-  const club = gen?.clubs.find((c) => c.key === clubSel)
-  const pickYear = (y: string) => {
+  const total = totalOf(clubs)
+  const club = clubs.find((c) => c.key === clubSel)
+  const yearText = year === null ? 'Toutes les années' : yearLabel(year)
+  const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
+
+  const pickYear = (y: string | null) => {
     setYear(y)
     setClub(null)
-    if (!side) requestAnimationFrame(() => whereRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+  const goFrance = () => {
+    setRegion('')
+    setDept('')
+    setClub(null)
+  }
+  const pickRegion = (r: string) => {
+    setRegion(r)
+    setDept('')
+    setClub(null)
+  }
+  const pickDept = (d: string) => {
+    setRegion(d === NO_DEPT ? '' : (regionOfDept(d) ?? ''))
+    setDept(d)
+    setClub(null)
   }
   const pickClub = (k: string) => setClub(club?.key === k ? null : k)
+  // Générations : un toucher choisit l'année (un 2e toucher revient à toutes) ; au téléphone, on descend vers ses clubs.
+  const pickCard = (y: string | null) => {
+    pickYear(y === year ? null : y)
+    if (!side) requestAnimationFrame(() => whereRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  const crumbs = [
+    { label: 'France', go: goFrance },
+    ...(region ? [{ label: regionLabel(region), go: () => pickRegion(region) }] : []),
+    ...(dept ? [{ label: deptText(dept) }] : []),
+  ]
+  const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
+  const clubList = (inline: boolean) =>
+    clubs.length ? (
+      <ClubList key={`${sex}|${year}|${region}|${dept}|${period}`} clubs={clubs} inline={inline} selected={club?.key} onPick={pickClub} label={yearText} last={last} rewatch={data.rewatch} />
+    ) : (
+      <Empty>Aucun joueur ici avec ces filtres.</Empty>
+    )
+
+  // Carte : couleur d'un département (vue France « par région » : celle de sa région).
+  const fill = (code: string) => fillOf(!region && mapBy === 'region' ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
+  // À côté de la carte : les régions (France), les départements (région), les clubs (département).
+  const deptRows = byLeftToSee([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
+  const side2 = dept ? (
+    <section>
+      <SectionTitle info="Clubs du département, du plus grand nombre de joueurs à voir au plus petit. Touche un club pour la liste des joueurs.">
+        Où aller ? · {yearText}
+      </SectionTitle>
+      {clubList(true)}
+    </section>
+  ) : region ? (
+    <section>
+      <SectionTitle info="Départements de la région, du plus grand nombre de joueurs à voir au plus petit. Touche un département (ou la carte) pour ses clubs.">
+        Départements · {regionLabel(region)}
+      </SectionTitle>
+      {deptRows.length ? (
+        <div className="flex flex-col gap-2">
+          {deptRows.map(([d, t]) => (
+            <PlaceRow key={d} label={deptText(d)} t={t} onClick={() => pickDept(d)} />
+          ))}
+        </div>
+      ) : (
+        <Empty>Aucun joueur dans cette région avec ces filtres.</Empty>
+      )}
+    </section>
+  ) : (
+    <section>
+      <SectionTitle info="Régions, du plus grand nombre de joueurs à voir au plus petit. Touche une région (ou la carte) pour ses départements.">Régions</SectionTitle>
+      {byPlace.total ? (
+        <div className="flex flex-col gap-2">
+          {byLeftToSee(byPlace.byRegion).map(([r, t]) => (
+            <PlaceRow key={r} label={regionLabel(r)} t={t} onClick={() => pickRegion(r)} />
+          ))}
+          {/* Départements hors découpage (numéro inconnu) et joueurs sans département : choisis directement. */}
+          {deptRows.map(([d, t]) => (
+            <PlaceRow key={d} label={deptText(d)} t={t} onClick={() => pickDept(d)} />
+          ))}
+          {byPlace.noDept.total > 0 && <PlaceRow label={deptText(NO_DEPT)} t={byPlace.noDept} onClick={() => pickDept(NO_DEPT)} />}
+        </div>
+      ) : (
+        <Empty>{sex === 'all' ? 'Aucun joueur dans la base avec ces filtres.' : `Aucun${sex === 'F' ? 'e fille' : ' garçon'} avec ces filtres.`}</Empty>
+      )}
+    </section>
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -203,34 +433,106 @@ export default function Coverage() {
             Rapport Fédé
           </Link>
         </div>
-        <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} />
-        {total.total > 0 && (
-          <div className="flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
-            <span className="shrink-0">
-              <b className="text-sm">{percent(total.seen, total.total)} %</b> <span className="text-muted">· {vusSur(total)}</span>
-            </span>
-            <Bar t={total} className="min-w-0 flex-1" />
+        <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} years={allYears} year={year} setYear={pickYear} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Crumbs steps={crumbs} />
+          <div className="sm:w-64 [&_button]:min-h-8">
+            <Segmented<View>
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'map', label: 'Carte', icon: 'map' },
+                { value: 'years', label: 'Générations', icon: 'users' },
+              ]}
+            />
           </div>
-        )}
+        </div>
+        <div className="flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
+          <span className="min-w-0 shrink">
+            <b className="text-sm">{percent(total.seen, total.total)} %</b>{' '}
+            <span className="text-muted">
+              · {vusSur(total)}
+              {year !== null && ` · ${yearText}`}
+            </span>
+          </span>
+          <Bar t={total} className="min-w-12 flex-1" />
+        </div>
       </div>
 
-      {!years.length ? (
-        <Empty>{sex === 'all' ? 'Aucun joueur dans la base pour l’instant.' : `Aucun${sex === 'F' ? 'e fille' : ' garçon'} dans la base.`}</Empty>
+      {view === 'map' ? (
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <section className="card flex flex-col gap-2 p-3 side:sticky side:top-[calc(var(--hdr)+1rem)]">
+            {!region && (
+              <div className="[&_button]:min-h-8">
+                <Segmented<'region' | 'dept'>
+                  value={mapBy}
+                  onChange={setMapBy}
+                  options={[
+                    { value: 'region', label: 'Par région' },
+                    { value: 'dept', label: 'Par département' },
+                  ]}
+                />
+              </div>
+            )}
+            <FranceMap
+              region={region}
+              selected={dept}
+              fill={fill}
+              onRegion={pickRegion}
+              onDept={pickDept}
+              touch="select"
+              className="side:max-h-[calc(100dvh-var(--hdr)-15rem)]"
+              ariaLabel={`Part des joueurs vus${where ? ` : ${where}` : ' par région et par département'}`}
+              tip={({ code, isRegion }) => {
+                const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
+                return (
+                  <>
+                    <div className="font-bold">{isRegion ? regionLabel(code) : deptText(code)}</div>
+                    {t?.total ? (
+                      <>
+                        <div className="mt-1">
+                          <b className="text-base">{percent(t.seen, t.total)} %</b> <span className="text-muted">vus</span>
+                        </div>
+                        <div className="text-muted">{vusSur(t)}</div>
+                        <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>
+                          {t.total > t.seen ? `${(t.total - t.seen).toLocaleString('fr-FR')} à voir` : 'tous vus ✓'}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
+                    )}
+                    {isRegion && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses départements</div>}
+                  </>
+                )
+              }}
+            />
+            <MapLegend />
+            <p className="text-[10px] text-muted">
+              Part des joueurs vus ({periodInfo(period).label.toLowerCase()}, {year === null ? 'toutes les années' : year ? `nés en ${year}` : 'année de naissance inconnue'}).{' '}
+              {dept ? 'Toucher un autre département pour changer.' : region ? 'Toucher un département pour voir ses clubs.' : 'Toucher une région pour la voir de plus près.'}
+            </p>
+          </section>
+          <div ref={whereRef}>{side2}</div>
+        </div>
+      ) : !years.length ? (
+        <Empty>Aucun joueur ici avec ces filtres.</Empty>
       ) : (
         <>
           <section>
-            <SectionTitle info="Une carte par année de naissance. Touche une génération pour voir ses clubs et les joueurs qu’il reste à voir.">Par génération</SectionTitle>
+            <SectionTitle info="Une carte par année de naissance. Touche une génération pour ne voir qu’elle (carte, clubs et joueurs) ; touche-la encore pour revenir à toutes les années.">
+              Par génération{where ? ` · ${where}` : ''}
+            </SectionTitle>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 side:grid-cols-4 xl:grid-cols-6">
-              {years.map((y) => {
-                const on = y.year === gen?.year
+              {[{ year: null as string | null, ...totalOf(years) }, ...years].map((y) => {
+                const on = y.year === year
                 return (
                   <button
-                    key={y.year || 'inconnue'}
-                    onClick={() => pickYear(y.year)}
+                    key={y.year ?? 'toutes'}
+                    onClick={() => pickCard(y.year)}
                     aria-pressed={on}
                     className={`card flex min-w-0 flex-col gap-1.5 p-3 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
                   >
-                    <span className={`font-extrabold ${y.year ? 'text-lg' : 'text-sm leading-7'}`}>{yearLabel(y.year)}</span>
+                    <span className={`font-extrabold ${y.year ? 'text-lg' : 'text-sm leading-7'}`}>{y.year === null ? 'Toutes' : yearLabel(y.year)}</span>
                     <span className="text-[11px] text-muted">{vusSur(y)}</span>
                     <Bar t={y} />
                     <span className="text-[11px] font-bold">
@@ -247,47 +549,80 @@ export default function Coverage() {
             </div>
           </section>
 
-          {gen && (
-            <div ref={whereRef} className="grid scroll-mt-20 grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-              <section>
-                <SectionTitle info="Clubs de cette génération, du plus grand nombre de joueurs à voir au plus petit. Touche un club pour la liste des joueurs.">
-                  Où aller ? · {yearLabel(gen.year)}
-                </SectionTitle>
-                <div className="flex flex-col gap-2">
-                  {gen.clubs.map((c) => {
-                    const on = c.key === club?.key
-                    return (
-                      <div key={c.key || 'aucun'} className="flex flex-col gap-2">
-                        <button
-                          onClick={() => pickClub(c.key)}
-                          aria-expanded={on}
-                          className={`card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className={`block truncate text-sm font-bold ${c.key ? '' : 'text-muted italic'}`}>{clubLabel(c.name)}</span>
-                            <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
-                              <span className="shrink-0">{vusSur(c)}</span>
-                              <Bar t={c} className="w-16 sm:w-24" />
-                            </span>
-                          </span>
-                          <LeftBadge t={c} />
-                          {!side && <span className={`shrink-0 text-muted transition ${on ? 'rotate-90' : ''}`}>›</span>}
-                        </button>
-                        {on && !side && <Who club={c} year={gen.year} last={last} rewatch={data.rewatch} />}
-                      </div>
-                    )
-                  })}
-                </div>
+          <div ref={whereRef} className="grid scroll-mt-20 grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+            <section>
+              <SectionTitle info="Clubs, du plus grand nombre de joueurs à voir au plus petit. Touche un club pour la liste des joueurs.">
+                Où aller ? · {yearText}
+                {where ? ` · ${where}` : ''}
+              </SectionTitle>
+              {clubList(!side)}
+            </section>
+            {side && (
+              <section className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
+                <SectionTitle>Qui ?</SectionTitle>
+                {club ? <Who club={club} label={yearText} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir les joueurs qu’il reste à voir.</Empty>}
               </section>
-              {side && (
-                <section className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
-                  <SectionTitle>Qui ?</SectionTitle>
-                  {club ? <Who club={club} year={gen.year} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir les joueurs qu’il reste à voir.</Empty>}
-                </section>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </>
+      )}
+    </div>
+  )
+}
+
+// ---------- Où aller ? ----------
+
+/** Nombre de clubs montrés d'abord (toute la France, toutes les années : des centaines). */
+const CLUBS_STEP = 40
+
+/** Clubs, du plus grand nombre de joueurs à voir au plus petit ; `inline` : la liste « Qui ? » s'ouvre sous le club touché. */
+function ClubList({
+  clubs,
+  inline,
+  selected,
+  onPick,
+  label,
+  last,
+  rewatch,
+}: {
+  clubs: ClubCoverage<Player>[]
+  inline: boolean
+  selected?: string
+  onPick: (key: string) => void
+  label: string
+  last: Map<string, Sight>
+  rewatch: Map<string, Rewatch[]>
+}) {
+  const [limit, setLimit] = useState(() => Math.max(CLUBS_STEP, clubs.findIndex((c) => c.key === selected) + 1))
+  return (
+    <div className="flex flex-col gap-2">
+      {clubs.slice(0, limit).map((c) => {
+        const on = c.key === selected
+        return (
+          <div key={c.key || 'aucun'} className="flex flex-col gap-2">
+            <button
+              onClick={() => onPick(c.key)}
+              aria-expanded={on}
+              className={`card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className={`block truncate text-sm font-bold ${c.key ? '' : 'text-muted italic'}`}>{clubLabel(c.name)}</span>
+                <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
+                  <span className="shrink-0">{vusSur(c)}</span>
+                  <Bar t={c} className="w-16 sm:w-24" />
+                </span>
+              </span>
+              <LeftBadge t={c} />
+              {inline && <span className={`shrink-0 text-muted transition ${on ? 'rotate-90' : ''}`}>›</span>}
+            </button>
+            {on && inline && <Who club={c} label={label} last={last} rewatch={rewatch} />}
+          </div>
+        )
+      })}
+      {clubs.length > limit && (
+        <button className="btn-ghost min-h-8 py-1.5 text-xs" onClick={() => setLimit(limit + CLUBS_STEP * 2)}>
+          Afficher plus de clubs ({(clubs.length - limit).toLocaleString('fr-FR')} autres)
+        </button>
       )}
     </div>
   )
@@ -295,7 +630,7 @@ export default function Coverage() {
 
 // ---------- Qui ? ----------
 
-function Who({ club, year, last, rewatch }: { club: ClubCoverage<Player>; year: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
+function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
   const role = useRole()
   const [showSeen, setShowSeen] = useState(false)
   const [adding, setAdding] = useState<string[] | null>(null)
@@ -309,7 +644,7 @@ function Who({ club, year, last, rewatch }: { club: ClubCoverage<Player>; year: 
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-extrabold">{clubLabel(club.name)}</div>
           <div className="text-[11px] text-muted">
-            {yearLabel(year)} · {toSee.length ? `${plural(toSee.length, 'joueur')} à voir` : 'tous vus ✓'}
+            {label} · {toSee.length ? `${plural(toSee.length, 'joueur')} à voir` : 'tous vus ✓'}
           </div>
         </div>
         {addEvents && toSee.length > 1 && (
@@ -466,7 +801,17 @@ export function CoverageReport() {
   const data = useCoverageData()
   const [period, setPeriod] = usePeriod()
   const info = periodInfo(period)
-  const report = useMemo(() => (data ? fedReport(data.players, lastSights(data.sights, periodInfo(period).range)) : null), [data, period])
+  const lists = useDepartments()
+  const regionLabel = useRegionLabel()
+  const report = useMemo(
+    () => (data ? fedReport(data.players, lastSights(data.sights, periodInfo(period).range), { deptOf: department, regionOf: (d) => regionOfDept(d) }) : null),
+    [data, period, lists], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // Régions par ordre alphabétique, région inconnue à la fin.
+  const regions = useMemo(
+    () => (report ? [...report.regions].sort((a, b) => (!a.region ? 1 : !b.region ? -1 : regionLabel(a.region).localeCompare(regionLabel(b.region), 'fr'))) : []),
+    [report, regionLabel],
+  )
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!report) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -487,7 +832,7 @@ export function CoverageReport() {
             Imprimer / PDF
           </button>
         </div>
-        <p className="text-[11px] text-muted">Seulement des nombres, par génération, sexe et club : aucun nom de joueur.</p>
+        <p className="text-[11px] text-muted">Seulement des nombres, par génération, sexe, région et club : aucun nom de joueur.</p>
         <Filters sex="all" setSex={() => {}} period={period} setPeriod={setPeriod} showSex={false} />
       </div>
 
@@ -530,6 +875,31 @@ export function CoverageReport() {
             ))}
           </tbody>
         </table>
+
+        {regions.length > 1 && (
+          <table className="mb-4 w-full border-collapse">
+            <thead>
+              <tr>
+                <th className={`${th} ${name}`}>Région (club)</th>
+                <th className={`${th} ${num}`}>G.</th>
+                <th className={`${th} ${num}`}>F.</th>
+                <th className={`${th} ${num}`}>Ens.</th>
+                <th className={`${th} ${num}`}>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regions.map((r) => (
+                <tr key={r.region || 'inconnue'}>
+                  <td className={`${td} ${name} ${r.region ? '' : 'italic'}`}>{r.region ? regionLabel(r.region) : 'Région non renseignée'}</td>
+                  <td className={`${td} ${num}`}>{cell(r.M)}</td>
+                  <td className={`${td} ${num}`}>{cell(r.F)}</td>
+                  <td className={`${td} ${num}`}>{cell(r.all)}</td>
+                  <td className={`${td} ${num}`}>{pct(r.all)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
 
         {report.years.map((y) => (
           <section key={y.year || 'inconnue'} className="mb-4 break-inside-avoid">

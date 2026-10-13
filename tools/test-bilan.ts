@@ -2,7 +2,7 @@
 //
 //   npx jiti tools/test-bilan.ts
 import assert from 'node:assert/strict'
-import { coverageByYear, fedReport, lastSights, percent, seasonOf, toSights, totalOf } from '../src/coverage'
+import { byLeftToSee, coverageByClub, coverageByPlace, coverageByYear, fedReport, filterPlayers, lastSights, NO_DEPT, percent, seasonOf, toSights, totalOf } from '../src/coverage'
 
 // Saison : 1er septembre → 31 août.
 assert.deepEqual(seasonOf('2026-10-12'), { from: '2026-09-01', to: '2027-08-31', label: '2026-2027' })
@@ -90,5 +90,66 @@ assert.deepEqual(
 assert.deepEqual(r2011.clubs[1], { name: 'HBC Exemple', M: { seen: 2, total: 2 }, F: { seen: 0, total: 0 }, all: { seen: 2, total: 2 } })
 const text = JSON.stringify(rep)
 for (const id of ['"a"', '"b"', '"c"', 'playerId', 'toSee']) assert.ok(!text.includes(id), `le rapport ne doit pas contenir ${id}`)
+
+// ---------- Par lieu (carte) ----------
+type TP = (typeof players)[number] & { department?: string }
+const dept: Record<string, string> = { a: '83', b: '83', c: '13', e: '06', f: '75', g: '83' } // d : sans département
+const place = {
+  deptOf: (p: TP) => dept[p.id],
+  regionOf: (d: string) => ({ '83': 'region-sud', '13': 'region-sud', '06': 'region-sud', '75': 'region-idf' })[d],
+}
+const all = filterPlayers(players as TP[], {}, place)
+assert.equal(all.length, 7) // supprimés, hors cadre et fondus exclus
+const pc = coverageByPlace(all, inSeason, place)
+assert.deepEqual({ seen: pc.seen, total: pc.total }, { seen: 3, total: 7 })
+assert.deepEqual(pc.byDept.get('83'), { seen: 2, total: 3 }) // a, b vus ; g à voir
+assert.deepEqual(pc.byRegion.get('region-sud'), { seen: 2, total: 5 })
+assert.deepEqual(pc.byRegion.get('region-idf'), { seen: 1, total: 1 })
+assert.deepEqual(pc.noDept, { seen: 0, total: 1 })
+// Régions : le plus de joueurs à voir d'abord.
+assert.deepEqual(
+  byLeftToSee(pc.byRegion).map(([r]) => r),
+  ['region-sud', 'region-idf'],
+)
+// Filtres : année, sexe, région, département, département non renseigné.
+assert.deepEqual(
+  filterPlayers(players as TP[], { year: '2011' }, place).map((p) => p.id),
+  ['a', 'b', 'c', 'd'],
+)
+assert.deepEqual(
+  filterPlayers(players as TP[], { year: '' }, place).map((p) => p.id),
+  ['f'],
+)
+assert.deepEqual(
+  filterPlayers(players as TP[], { region: 'region-sud', sex: 'M' }, place).map((p) => p.id),
+  ['a', 'b', 'e'],
+)
+assert.deepEqual(
+  filterPlayers(players as TP[], { region: 'region-sud', dept: '83', year: '2011' }, place).map((p) => p.id),
+  ['a', 'b'],
+)
+assert.deepEqual(
+  filterPlayers(players as TP[], { dept: NO_DEPT }, place).map((p) => p.id),
+  ['d'],
+)
+// Clubs d'un département, toutes années : même tri que par génération.
+assert.deepEqual(
+  coverageByClub(filterPlayers(players as TP[], { dept: '83' }, place), inSeason).map((c) => [c.name, c.seen, c.total]),
+  [
+    ['AS Fictive', 0, 1],
+    ['HBC Exemple', 2, 2],
+  ],
+)
+// Rapport par région : des nombres seulement ; '' pour les joueurs sans région.
+const repPlace = fedReport(players as TP[], inSeason, place)
+assert.deepEqual(
+  repPlace.regions.map((r) => [r.region, r.all.seen, r.all.total]).sort(),
+  [
+    ['', 0, 1],
+    ['region-idf', 1, 1],
+    ['region-sud', 2, 5],
+  ],
+)
+assert.deepEqual(rep.regions, []) // sans `place` : pas de régions
 
 console.log('Bilan de détection : tous les tests passent.')

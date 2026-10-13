@@ -1,12 +1,11 @@
-import { geoConicConformal, geoPath } from 'd3-geo'
-import type { FeatureCollection, Geometry } from 'geojson'
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAlerts } from '../alerts'
+import { FranceMap, useDeptName } from '../components/FranceMap'
 import { department, showDeptInPlayers, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, type Measurement, type Player } from '../db'
-import { regionOfDept, useDepartments, useRegionLabel } from '../lists'
+import { regionOfDept, useRegionLabel } from '../lists'
 import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
 
@@ -15,10 +14,7 @@ import { can, useRole } from '../roles'
  * classement. Tout est calculé sur l'appareil, en une passe sur les joueurs et les mesures ; rien n'est écrit.
  * Mêmes filtres que la liste Joueurs (usePlayerFilter, portée « national »), sauf la région et le département,
  * absents du panneau : c'est la carte qui les choisit (une région, puis un de ses départements).
- *
- * Contours des départements : france-geojson de Grégoire David (departements-version-simplifiee.geojson,
- * https://github.com/gregoiredavid/france-geojson), issus d'Admin Express IGN — Licence Ouverte Etalab.
- * Coordonnées arrondies à 3 décimales (src/assets/departements.json, ~220 Ko), chargées à la demande.
+ * Carte : src/components/FranceMap.tsx (partagée avec le bilan de détection).
  */
 
 type Metric = 'players' | 'measured' | 'spotted'
@@ -96,86 +92,6 @@ interface Agg {
   spotted: number
 }
 
-// Carte : métropole + Corse, et une case pour l'outre-mer. Toucher une région la montre de plus près
-// (projection recalée sur ses départements) ; on y touche ensuite un département pour voir ses joueurs.
-// La largeur est fixée ; la hauteur suit celle du pays, et reste la même quand on zoome sur une région.
-const W = 600
-const DOM_W = 132
-const DOM_H = 62
-/** Territoires ultramarins (pas sur la carte) : une case chacun, dans l'encadré « Ultramarins ». */
-const DOM_CODES: [string, string][] = [
-  ['971', 'GP'],
-  ['972', 'MQ'],
-  ['973', 'GF'],
-  ['974', 'RE'],
-  ['976', 'YT'],
-  ['988', 'NC'],
-  // Ultramarin sans territoire précis (n° de club « 97… » : department() donne « 97 »).
-  ['97', 'OM'],
-]
-/** Corse : un seul département pour nous (n° de club « 20 »). */
-const codeOf = (c: string) => (c === '2A' || c === '2B' ? '20' : c)
-
-type Geo = FeatureCollection<Geometry, { code: string; nom: string }>
-type Feature = Geo['features'][number]
-
-interface Shape {
-  code: string
-  d: string
-}
-
-function useGeo() {
-  const [geo, setGeo] = useState<Geo | null>(null)
-  useEffect(() => {
-    let alive = true
-    // Fichier à part (pas dans le démarrage de l'appli) ; mis en cache par le service worker.
-    void import('../assets/departements.json?raw').then((m) => alive && setGeo(JSON.parse(m.default)))
-    return () => {
-      alive = false
-    }
-  }, [])
-  return geo
-}
-
-/** Anneaux (contours) d'un département, polygone simple ou multiple. */
-function rings(f: Feature): number[][][] {
-  const g = f.geometry
-  if (g.type === 'Polygon') return g.coordinates
-  if (g.type === 'MultiPolygon') return g.coordinates.flat()
-  return []
-}
-
-/**
- * Contour d'un ensemble de départements (une région) : les segments qu'un seul d'entre eux possède.
- * Les frontières communes ont les mêmes points dans le fichier : elles s'annulent deux à deux.
- */
-function outline(features: Feature[]): Geometry {
-  const key = (a: number[], b: number[]) => {
-    const x = `${a[0]},${a[1]}`
-    const y = `${b[0]},${b[1]}`
-    return x < y ? `${x}|${y}` : `${y}|${x}`
-  }
-  const count = new Map<string, number>()
-  for (const f of features)
-    for (const r of rings(f))
-      for (let i = 1; i < r.length; i++) {
-        const k = key(r[i - 1], r[i])
-        count.set(k, (count.get(k) ?? 0) + 1)
-      }
-  const lines: number[][][] = []
-  for (const f of features)
-    for (const r of rings(f)) {
-      let cur: number[][] | null = null
-      for (let i = 1; i < r.length; i++) {
-        if (count.get(key(r[i - 1], r[i])) === 1) {
-          if (!cur) lines.push((cur = [r[i - 1]]))
-          cur.push(r[i])
-        } else cur = null
-      }
-    }
-  return { type: 'MultiLineString', coordinates: lines }
-}
-
 /** Teinte de l'accent du thème, du plus clair (classe 0) au plus fort (classe 4) ; vide : fond de carte. */
 const SHADES = [14, 30, 48, 68, 92]
 const fillFor = (k: number | undefined) =>
@@ -195,13 +111,6 @@ const HIDE = { hide: ['dept' as const, 'region' as const] }
 const fmt = (n: number) => n.toLocaleString('fr-FR')
 const pct = (n: number) => `${n.toLocaleString('fr-FR', { maximumFractionDigits: n < 10 ? 1 : 0 })} %`
 
-/** Contour du département survolé, tracé par-dessus ses voisins. */
-function Outline({ shapes, code }: { shapes: Shape[]; code?: string }) {
-  return shapes
-    .filter((s) => s.code === code)
-    .map((s, i) => <path key={i} d={s.d} fill="none" stroke="var(--color-fg)" strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />)
-}
-
 export default function National() {
   const role = useRole()
   if (!can.nationalView(role)) return <Empty>Vue réservée aux administrateurs.</Empty>
@@ -214,8 +123,6 @@ function NationalView() {
   // Mêmes filtres que la liste Joueurs ; la région choisie sur la carte en fait partie (elle suit vers Joueurs).
   const { filtered, ui, region, setRegion, regionCounts } = usePlayerFilter(data?.players, 'national', HIDE)
   const alerts = useAlerts()
-  const geo = useGeo()
-  const lists = useDepartments()
   const regionLabel = useRegionLabel()
   const [metric, setMetric] = useSessionState<Metric>('handbase.national.metric', 'players')
 
@@ -281,88 +188,10 @@ function NationalView() {
     const v = values.get(code)
     return fillFor(v === undefined ? undefined : classOf(v, b))
   }
+  const nameOf = useDeptName()
 
-  // Noms : la liste des départements (Réglages), sinon celui de la carte.
-  const geoNames = useMemo(() => {
-    const m = new Map<string, string>([
-      ['20', 'Corse'],
-      ['97', 'Ultramarins (non précisé)'],
-      ['971', 'Guadeloupe'],
-      ['972', 'Martinique'],
-      ['973', 'Guyane'],
-      ['974', 'La Réunion'],
-      ['976', 'Mayotte'],
-      ['988', 'Nouvelle-Calédonie'],
-    ])
-    for (const f of geo?.features ?? []) if (!m.has(codeOf(f.properties.code))) m.set(codeOf(f.properties.code), f.properties.nom)
-    return m
-  }, [geo])
-  const nameOf = (code: string) => lists.find((d) => d.code === code)?.name ?? geoNames.get(code) ?? `Département ${code}`
-
-  // Départements de chaque région et contour des régions : une fois par fichier (et par liste des départements,
-  // qui peut changer la région d'un département).
-  const regionGeo = useMemo(() => {
-    if (!geo) return null
-    const by = new Map<string, Feature[]>()
-    for (const f of geo.features) {
-      const r = regionOfDept(codeOf(f.properties.code))
-      if (!r) continue
-      const g = by.get(r)
-      if (g) g.push(f)
-      else by.set(r, [f])
-    }
-    return { by, lines: new Map([...by].map(([r, fs]) => [r, outline(fs)])) }
-  }, [geo, lists]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Tracés : France entière, ou la région choisie à plein cadre (ses voisins estompés autour).
-  // Recalculés seulement quand la région change ; les couleurs changent seules.
-  const shapes = useMemo(() => {
-    if (!geo || !regionGeo) return null
-    const conic = () => geoConicConformal().parallels([44, 49]).rotate([-3, 0])
-    const france = conic().fitWidth(W - 16, geo)
-    france.translate([france.translate()[0] + 8, france.translate()[1] + 8])
-    const h = Math.ceil(geoPath(france).bounds(geo)[1][1]) + 8
-    const inRegion = region ? (regionGeo.by.get(region) ?? []) : []
-    const zoomed = inRegion.length > 0
-    const path = geoPath(
-      zoomed
-        ? conic().fitExtent(
-            [
-              [12, 12],
-              [W - 12, h - 12],
-            ],
-            { ...geo, features: inRegion },
-          )
-        : france,
-    )
-    return {
-      h,
-      zoomed,
-      main: geo.features.map((f): Shape & { inside: boolean } => {
-        const code = codeOf(f.properties.code)
-        return { code, d: path(f) ?? '', inside: !zoomed || regionOfDept(code) === region }
-      }),
-      // France : contour de chaque région (plus marqué que celui des départements). Région : son seul contour.
-      outlines: [...regionGeo.lines].filter(([r]) => !zoomed || r === region).map(([r, g]) => ({ region: r, d: path(g) ?? '' })),
-      dom: { x: 8, y: h - 8 - DOM_H, w: DOM_W, h: DOM_H },
-    }
-  }, [geo, regionGeo, region])
-  // Région sans contour sur la carte (outre-mer) : une grande case au centre.
-  const domOnly = !!region && !!shapes && !shapes.zoomed
-
-  // Survol (souris) ou appui (téléphone) : bulle d'info. France : un appui sur une région la montre de plus près.
-  // Région : au doigt, un 2e appui sur un département ouvre la liste des joueurs.
-  const box = useRef<HTMLDivElement>(null)
-  const pointer = useRef('mouse')
-  const [tip, setTip] = useState<{ code: string; x: number; y: number; w: number; h: number; pinned?: boolean } | null>(null)
-  const place = (e: ReactPointerEvent | React.MouseEvent, code: string, pinned?: boolean) => {
-    const r = box.current!.getBoundingClientRect()
-    setTip({ code, x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height, pinned })
-  }
-  const pickRegion = (r: string) => {
-    setRegion(r)
-    setTip(null)
-  }
+  const pickRegion = (r: string) => setRegion(r)
+  // Département touché (au doigt : 2e appui, après sa bulle) : liste des joueurs.
   const go = (code: string) => {
     // Liste Joueurs avec les filtres de cet écran (région comprise), plus le département touché.
     showDeptInPlayers('national', code)
@@ -373,31 +202,6 @@ function NationalView() {
     }
     navigate('/joueurs')
   }
-  // Département (vue d'une région, case outre-mer) : bulle, puis liste des joueurs.
-  const deptHandlers = (code: string) => ({
-    onPointerDown: (e: ReactPointerEvent) => (pointer.current = e.pointerType),
-    onPointerMove: (e: ReactPointerEvent) => e.pointerType === 'mouse' && place(e, code),
-    onPointerLeave: (e: ReactPointerEvent) => e.pointerType === 'mouse' && setTip(null),
-    onClick: (e: React.MouseEvent) => {
-      if (pointer.current === 'mouse' || (tip?.pinned && tip.code === code)) go(code)
-      else place(e, code, true)
-    },
-  })
-  // Vue France (ou voisin estompé d'une région) : bulle de la région au survol, un appui la choisit.
-  const regionHandlers = (r: string | undefined) => ({
-    onPointerMove: (e: ReactPointerEvent) => e.pointerType === 'mouse' && !!r && place(e, r),
-    onPointerLeave: (e: ReactPointerEvent) => e.pointerType === 'mouse' && setTip(null),
-    onClick: () => r && pickRegion(r),
-  })
-  const pathProps = (s: Shape & { inside: boolean }) =>
-    !shapes?.zoomed
-      ? { fill: shade(s.code), stroke: 'var(--color-bg)', strokeWidth: 0.5, className: 'cursor-pointer transition-[fill] duration-300', ...regionHandlers(regionOfDept(s.code)) }
-      : s.inside
-        ? // Région agrandie : limites des départements bien visibles.
-          { fill: shade(s.code), stroke: 'var(--color-muted)', strokeOpacity: 0.7, strokeWidth: 0.8, className: 'cursor-pointer transition-[fill] duration-300', ...deptHandlers(s.code) }
-        : // Voisins estompés : un appui passe à leur région.
-          { fill: 'var(--color-panel-2)', opacity: 0.5, stroke: 'var(--color-line)', strokeWidth: 0.8, className: 'cursor-pointer', ...regionHandlers(regionOfDept(s.code)) }
-
   const ranking = useMemo(
     () =>
       [...stats.by]
@@ -413,9 +217,6 @@ function NationalView() {
   if (!data) return <div className="py-20 text-center text-sm text-muted">Calcul de la vue nationale…</div>
 
   const t = stats.total
-  // Bulle : chiffres d'une région (vue France) ou d'un département (vue d'une région, outre-mer).
-  const tipIsRegion = !!tip?.code.startsWith('region-')
-  const tipAgg = !tip ? undefined : tipIsRegion ? stats.byRegion.get(tip.code) : stats.by.get(tip.code)
   // Classes de la légende ; une classe forcément vide (seuils égaux, peu de départements) n'y figure pas.
   const max = values.size ? Math.max(...values.values()) : 0
   const legend = b.length
@@ -435,7 +236,6 @@ function NationalView() {
   const regionChoices = [...regionCounts, ...(region && !regionCounts.some(([r]) => r === region) ? [[region, 0] as [string, number]] : [])].sort((x, y) =>
     regionLabel(x[0]).localeCompare(regionLabel(y[0]), 'fr'),
   )
-  const dom = domOnly ? { x: W / 2 - 120, y: (shapes?.h ?? 0) / 2 - 60, w: 240, h: 120 } : shapes?.dom
 
   return (
     // Écran large : carte et chiffres côte à côte (la page a toute la largeur en paysage / sur ordinateur ; sinon elle sort de la colonne).
@@ -482,118 +282,43 @@ function NationalView() {
               ))}
             </select>
           </div>
-          <Segmented value={metric} options={METRICS} onChange={(v) => (setMetric(v), setTip(null))} />
+          <Segmented value={metric} options={METRICS} onChange={setMetric} />
 
-          <div ref={box} className="relative" onPointerLeave={() => !tip?.pinned && setTip(null)}>
-            {!shapes ? (
-              <div className="flex aspect-square items-center justify-center text-xs text-muted">Chargement de la carte…</div>
-            ) : (
-              <svg
-                viewBox={`0 0 ${W} ${shapes.h}`}
-                className="block h-auto w-full select-none side:max-h-[max(28rem,calc(100dvh-15rem))]"
-                role="img"
-                aria-label={region ? `Carte des départements : ${regionLabel(region)}` : 'Carte des régions et des départements'}
-                // Appui hors d'un département : la bulle se ferme.
-                onClick={(e) => e.target === e.currentTarget && setTip(null)}
-              >
-                {!domOnly && (
-                  <>
-                    {shapes.main.map((s, i) => (
-                      <path key={i} d={s.d} {...pathProps(s)} />
-                    ))}
-                    {shapes.outlines.map((o) => (
-                      <path
-                        key={o.region}
-                        d={o.d}
-                        fill="none"
-                        stroke="var(--color-fg)"
-                        strokeOpacity={shapes.zoomed ? 0.6 : 0.45}
-                        strokeWidth={shapes.zoomed ? 1.6 : 1.1}
-                        strokeLinejoin="round"
-                        pointerEvents="none"
-                      />
-                    ))}
-                    {shapes.zoomed ? (
-                      <Outline shapes={shapes.main} code={tip?.code} />
-                    ) : (
-                      // Vue France : contour de la région survolée.
-                      shapes.outlines
-                        .filter((o) => o.region === tip?.code)
-                        .map((o) => <path key={o.region} d={o.d} fill="none" stroke="var(--color-fg)" strokeWidth={2.2} strokeLinejoin="round" pointerEvents="none" />)
-                    )}
-                  </>
-                )}
-                {/* Ultramarins : une case par territoire (Antilles = Guadeloupe + Martinique), ou seulement ceux de la ligue choisie. */}
-                {dom && (domOnly || !shapes.zoomed) && (() => {
-                  const cells = DOM_CODES.filter(([c]) => !domOnly || regionOfDept(c) === region)
-                  const cols = Math.min(4, cells.length)
-                  const rows = Math.ceil(cells.length / cols)
-                  const cw = (dom.w - 16 - (cols - 1) * 4) / cols
-                  const ch = (dom.h - 28 - (rows - 1) * 4) / rows
-                  return (
-                    <>
-                      <rect x={dom.x} y={dom.y} width={dom.w} height={dom.h} rx={8} fill="var(--color-panel)" stroke="var(--color-line)" />
-                      <text x={dom.x + 8} y={dom.y + 13} fontSize={10} fontWeight={700} fill="var(--color-muted)">
-                        Ultramarins
-                      </text>
-                      {cells.map(([code, abbr], i) => {
-                        const x = dom.x + 8 + (i % cols) * (cw + 4)
-                        const y = dom.y + 20 + Math.floor(i / cols) * (ch + 4)
-                        return (
-                          <g key={code}>
-                            <rect
-                              x={x}
-                              y={y}
-                              width={cw}
-                              height={ch}
-                              rx={4}
-                              fill={shade(code)}
-                              stroke={tip?.code === code ? 'var(--color-fg)' : 'var(--color-line)'}
-                              className="cursor-pointer transition-[fill] duration-300"
-                              {...deptHandlers(code)}
-                            />
-                            <text x={x + cw / 2} y={y + ch / 2 + 3} fontSize={8} fontWeight={700} textAnchor="middle" fill="var(--color-muted)" pointerEvents="none">
-                              {abbr}
-                            </text>
-                          </g>
-                        )
-                      })}
-                    </>
-                  )
-                })()}
-              </svg>
-            )}
-            {tip && (
-              <div
-                className={`absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl ${tip.pinned ? '' : 'pointer-events-none'}`}
-                style={{
-                  left: Math.min(Math.max(tip.x - 104, 0), tip.w - 208),
-                  top: tip.y > tip.h / 2 ? tip.y - 12 : tip.y + 16,
-                  transform: tip.y > tip.h / 2 ? 'translateY(-100%)' : undefined,
-                }}
-              >
-                <div className="font-bold">{tipIsRegion ? regionLabel(tip.code) : `${tip.code} · ${nameOf(tip.code)}`}</div>
-                {tipAgg ? (
-                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-2 text-muted">
-                    <span>Joueurs</span>
-                    <b className={`tabular-nums ${metric === 'players' ? 'text-accent' : 'text-fg'}`}>{fmt(tipAgg.n)}</b>
-                    <span>Mesurés par le staff</span>
-                    <b className={`tabular-nums ${metric === 'measured' ? 'text-accent' : 'text-fg'}`}>{pct((100 * tipAgg.staff) / tipAgg.n)}</b>
-                    <span>Profils repérés</span>
-                    <b className={`tabular-nums ${metric === 'spotted' ? 'text-accent' : 'text-fg'}`}>{fmt(tipAgg.spotted)}</b>
-                  </div>
-                ) : (
-                  <div className="mt-1 text-muted">Aucun joueur</div>
-                )}
-                {tipIsRegion && <div className="mt-1 text-[10px] text-muted">Cliquer pour voir la région</div>}
-                {tip.pinned && tipAgg && (
-                  <button className="btn-primary mt-2 w-full py-1.5 text-xs" onClick={() => go(tip.code)}>
-                    Voir les joueurs →
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <FranceMap
+            region={region}
+            fill={shade}
+            onRegion={pickRegion}
+            onDept={go}
+            className="side:max-h-[max(28rem,calc(100dvh-15rem))]"
+            ariaLabel={region ? `Carte des départements : ${regionLabel(region)}` : 'Carte des régions et des départements'}
+            tip={({ code, isRegion, pinned }) => {
+              // Bulle : chiffres d'une région (vue France) ou d'un département (vue d'une région, outre-mer).
+              const a = isRegion ? stats.byRegion.get(code) : stats.by.get(code)
+              return (
+                <>
+                  <div className="font-bold">{isRegion ? regionLabel(code) : `${code} · ${nameOf(code)}`}</div>
+                  {a ? (
+                    <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-2 text-muted">
+                      <span>Joueurs</span>
+                      <b className={`tabular-nums ${metric === 'players' ? 'text-accent' : 'text-fg'}`}>{fmt(a.n)}</b>
+                      <span>Mesurés par le staff</span>
+                      <b className={`tabular-nums ${metric === 'measured' ? 'text-accent' : 'text-fg'}`}>{pct((100 * a.staff) / a.n)}</b>
+                      <span>Profils repérés</span>
+                      <b className={`tabular-nums ${metric === 'spotted' ? 'text-accent' : 'text-fg'}`}>{fmt(a.spotted)}</b>
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-muted">Aucun joueur</div>
+                  )}
+                  {isRegion && <div className="mt-1 text-[10px] text-muted">Cliquer pour voir la région</div>}
+                  {pinned && a && (
+                    <button className="btn-primary mt-2 w-full py-1.5 text-xs" onClick={() => go(code)}>
+                      Voir les joueurs →
+                    </button>
+                  )}
+                </>
+              )
+            }}
+          />
 
           {legend.length > 0 && (
             <div className="flex items-center gap-2 text-[10px] text-muted">
@@ -632,7 +357,6 @@ function NationalView() {
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-panel-2"
                     onClick={() => go(code)}
-                    onMouseEnter={() => setTip(null)}
                   >
                     <span className={`w-5 shrink-0 text-center font-extrabold tabular-nums ${i < 3 ? 'text-accent' : 'text-muted'}`}>{i + 1}</span>
                     <span className="min-w-0 flex-1">
