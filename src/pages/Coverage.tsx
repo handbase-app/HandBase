@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, db, fmtDate, plural, save, today, type HBEvent, type Player, type Rewatch } from '../db'
 import {
@@ -33,7 +33,7 @@ import { can, currentUserId, useRole } from '../roles'
 import { scoutId } from '../scouting'
 import { loadTeams } from '../teams'
 import { FranceMap, useDeptName } from '../components/FranceMap'
-import { department, useSessionState } from '../components/PlayerFilter'
+import { department } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
@@ -307,36 +307,133 @@ function PlaceRow({ label, t, sc, onClick }: { label: string; t: Tally; sc?: Sca
   )
 }
 
-// ---------- Page ----------
+// ---------- État de la page, dans l'adresse ----------
 
 type View = 'map' | 'years'
 const VIEW_KEY = 'handbase.bilan.view'
 /** Vue France : couleur par région (celle qu'on touche) ou par département. */
 const MAP_BY_KEY = 'handbase.bilan.mapBy'
+/** Derniers choix de la session (adresse du bilan sans paramètre : menu, accueil). */
+const QUERY_KEY = 'handbase.bilan.q'
+const UNKNOWN_YEAR = 'inconnue'
 
-export default function Coverage() {
-  const role = useRole()
+/**
+ * Tout ce que l'on a choisi sur le bilan : filtres, vue, lieu, club, « Déjà vus » ouvert. Gardé dans l'adresse
+ * (/bilan?s=F&p=saison&v=carte&a=2008&r=93&d=83&c=<club>&vus=1) : le retour (de l'appli ou du navigateur) le retrouve
+ * tel quel, et l'adresse se partage. Année : null toutes, '' année inconnue. Lieu : '' toute la France ; NO_DEPT :
+ * département non renseigné. Club : null aucun, '' club non renseigné.
+ */
+export type BilanState = {
+  sex: CoverageSex
+  period: CoveragePeriod
+  view: View
+  mapBy: 'region' | 'dept'
+  year: string | null
+  region: string
+  dept: string
+  club: string | null
+  seenOpen: boolean
+}
+
+function parseBilan(q: URLSearchParams): BilanState {
+  const one = <T extends string>(v: string | null, allowed: readonly T[], key: string, fallback: T): T =>
+    v !== null && (allowed as readonly string[]).includes(v) ? (v as T) : readKey(key, allowed, fallback)
+  const p = q.get('p')
+  const v = q.get('v')
+  const a = q.get('a')
+  return {
+    // Absents de l'adresse : les choix gardés sur l'appareil.
+    sex: one(q.get('s'), ['all', 'M', 'F'] as const, SEX_KEY, 'all'),
+    period: p === 'saison' ? 'season' : p === 'tout' ? 'all' : readKey<CoveragePeriod>(PERIOD_KEY, ['season', 'all'], 'season'),
+    view: v === 'carte' ? 'map' : v === 'generations' ? 'years' : readKey<View>(VIEW_KEY, ['map', 'years'], 'map'),
+    mapBy: one(q.get('m'), ['region', 'dept'] as const, MAP_BY_KEY, 'region'),
+    year: a === null ? null : a === UNKNOWN_YEAR ? '' : a,
+    region: q.get('r') ?? '',
+    dept: q.get('d') ?? '',
+    club: q.get('c'),
+    seenOpen: q.get('vus') === '1',
+  }
+}
+
+/** Paramètres de l'adresse (sans « ? »). */
+function bilanQuery(st: BilanState): string {
+  const q = new URLSearchParams()
+  q.set('s', st.sex)
+  q.set('p', st.period === 'season' ? 'saison' : 'tout')
+  q.set('v', st.view === 'map' ? 'carte' : 'generations')
+  if (st.mapBy === 'dept') q.set('m', 'dept')
+  if (st.year !== null) q.set('a', st.year || UNKNOWN_YEAR)
+  if (st.region) q.set('r', st.region)
+  if (st.dept) q.set('d', st.dept)
+  if (st.club !== null) q.set('c', st.club)
+  if (st.seenOpen) q.set('vus', '1')
+  return q.toString()
+}
+
+function sessionQuery(): string | null {
+  try {
+    return sessionStorage.getItem(QUERY_KEY)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * État du bilan lu dans l'adresse ; `set` le change (sans nouvelle entrée d'historique) ; `search` : « ?… » à garder
+ * sur les fiches ouvertes depuis le bilan (/bilan/joueurs/:pid?…), pour y revenir à l'identique.
+ */
+export function useBilanState() {
+  const [params, setParams] = useSearchParams()
+  const raw = params.toString()
+  // Adresse sans paramètre (menu, accueil) : derniers choix de la session.
+  const saved = raw ? null : sessionQuery()
+  const query = saved ?? raw
+  const st = useMemo(() => parseBilan(new URLSearchParams(query)), [query])
+  useEffect(() => {
+    if (saved) setParams(new URLSearchParams(saved), { replace: true })
+  }, [saved, setParams])
+  useEffect(() => {
+    if (!raw) return
+    try {
+      sessionStorage.setItem(QUERY_KEY, raw)
+    } catch {
+      /* stockage indisponible */
+    }
+  }, [raw])
+  const set = (patch: Partial<BilanState>) => {
+    // Préférences de l'appareil : sexe (commun aux filtres de joueurs), période, vue, couleur de la carte.
+    const keep: [keyof BilanState, string][] = [
+      ['sex', SEX_KEY],
+      ['period', PERIOD_KEY],
+      ['view', VIEW_KEY],
+      ['mapBy', MAP_BY_KEY],
+    ]
+    for (const [k, key] of keep)
+      if (patch[k] !== undefined)
+        try {
+          localStorage.setItem(key, String(patch[k]))
+        } catch {
+          /* stockage indisponible */
+        }
+    setParams(new URLSearchParams(bilanQuery({ ...st, ...patch })), { replace: true })
+  }
+  return { st, set, search: `?${bilanQuery(st)}` }
+}
+
+/** Joueurs d'un club comme dans « Qui ? » : à voir, puis déjà vus, chacun par nom. */
+export function whoOrder(club: ClubCoverage<Player>) {
+  const byName = (a: Player, b: Player) => a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr')
+  return { toSee: [...club.toSee].sort(byName), seen: [...club.seenPlayers].sort(byName) }
+}
+
+/** Calculs du bilan pour un état donné (page, fiche ouverte depuis le bilan) ; refaits seulement quand un filtre ou les données changent. */
+export function useBilanModel(st: BilanState) {
   const data = useCoverageData()
   const lists = useDepartments()
-  const regionLabel = useRegionLabel()
-  const deptName = useDeptName()
-  const [sex, setSex] = useStored<CoverageSex>(SEX_KEY, ['all', 'M', 'F'], 'all')
-  const [period, setPeriod] = usePeriod()
-  const [view, setView] = useStored<View>(VIEW_KEY, ['map', 'years'], 'map')
-  const [mapBy, setMapBy] = useStored<'region' | 'dept'>(MAP_BY_KEY, ['region', 'dept'], 'region')
-  // Filtres communs à la carte, aux générations et aux clubs ; retrouvés au retour d'une fiche joueur.
-  // Année : null toutes, '' année inconnue. Lieu : '' toute la France ; NO_DEPT : département non renseigné.
-  const [year, setYear] = useSessionState<string | null>('handbase.bilan.year', null)
-  const [region, setRegion] = useSessionState('handbase.bilan.region', '')
-  const [dept, setDept] = useSessionState('handbase.bilan.dept', '')
-  const [clubSel, setClub] = useSessionState<string | null>('handbase.bilan.club', null)
-  const side = useMedia(MQ.side)
-  const whereRef = useRef<HTMLDivElement>(null)
-
+  const { sex, period, year, region, dept } = st
   // Lieu d'un joueur : département du n° de club (ou de licence, ou saisi), région selon la liste des départements.
   const place = useMemo<PlaceOf<Player>>(() => ({ deptOf: department, regionOf: (d) => regionOfDept(d) }), [lists]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Calculs refaits seulement quand les données ou un filtre changent (jamais à un survol) ; la base n'est pas relue.
+  // Jamais à un survol ; la base n'est pas relue.
   const last = useMemo(() => (data ? lastSights(data.sights, periodInfo(period).range) : new Map<string, Sight>()), [data, period])
   // Carte : sexe et année (elle montre tous les lieux).
   const forMap = useMemo(() => (data ? filterPlayers(data.players, { sex, year }, place) : []), [data, sex, year, place])
@@ -352,35 +449,43 @@ export default function Coverage() {
     if (year !== null) ys.add(year)
     return [...ys].sort((a, b) => (!a ? 1 : !b ? -1 : b.localeCompare(a)))
   }, [data, year])
+  const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
+  return { data, last, byPlace, years, clubs, allYears, club, yearText: year === null ? 'Toutes les années' : yearLabel(year) }
+}
+
+/** Ce que les listes « Qui ? » du bilan partagent : état de l'adresse (pour les fiches) et « Déjà vus » ouvert. */
+const WhoCtx = createContext<{ search: string; seenOpen: boolean; setSeenOpen: (v: boolean) => void }>({ search: '', seenOpen: false, setSeenOpen: () => {} })
+
+// ---------- Page ----------
+
+export default function Coverage() {
+  const role = useRole()
+  const regionLabel = useRegionLabel()
+  const deptName = useDeptName()
+  // Filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
+  const { st, set, search } = useBilanState()
+  const { sex, period, view, mapBy, year, region, dept } = st
+  const { data, last, byPlace, years, clubs, allYears, club, yearText } = useBilanModel(st)
+  const side = useMedia(MQ.side)
+  const whereRef = useRef<HTMLDivElement>(null)
+  const who = useMemo(() => ({ search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }) }), [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   const total = totalOf(clubs)
-  const club = clubs.find((c) => c.key === clubSel)
-  const yearText = year === null ? 'Toutes les années' : yearLabel(year)
   const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
 
-  const pickYear = (y: string | null) => {
-    setYear(y)
-    setClub(null)
-  }
-  const goFrance = () => {
-    setRegion('')
-    setDept('')
-    setClub(null)
-  }
-  const pickRegion = (r: string) => {
-    setRegion(r)
-    setDept('')
-    setClub(null)
-  }
-  const pickDept = (d: string) => {
-    setRegion(d === NO_DEPT ? '' : (regionOfDept(d) ?? ''))
-    setDept(d)
-    setClub(null)
-  }
-  const pickClub = (k: string) => setClub(club?.key === k ? null : k)
+  const setSex = (v: CoverageSex) => set({ sex: v })
+  const setPeriod = (v: CoveragePeriod) => set({ period: v })
+  const setView = (v: View) => set({ view: v })
+  const setMapBy = (v: 'region' | 'dept') => set({ mapBy: v })
+  const closeClub = () => set({ club: null, seenOpen: false })
+  const pickYear = (y: string | null) => set({ year: y, club: null, seenOpen: false })
+  const goFrance = () => set({ region: '', dept: '', club: null, seenOpen: false })
+  const pickRegion = (r: string) => set({ region: r, dept: '', club: null, seenOpen: false })
+  const pickDept = (d: string) => set({ region: d === NO_DEPT ? '' : (regionOfDept(d) ?? ''), dept: d, club: null, seenOpen: false })
+  const pickClub = (k: string) => set({ club: club?.key === k ? null : k, seenOpen: false })
   // Générations : un toucher choisit l'année (un 2e toucher revient à toutes) ; au téléphone, on descend vers ses clubs.
   const pickCard = (y: string | null) => {
     pickYear(y === year ? null : y)
@@ -390,7 +495,7 @@ export default function Coverage() {
   const crumbs = [
     { label: 'France', go: goFrance },
     ...(region ? [{ label: regionLabel(region), go: () => pickRegion(region) }] : []),
-    ...(dept ? [{ label: deptText(dept), go: club ? () => setClub(null) : undefined }] : []),
+    ...(dept ? [{ label: deptText(dept), go: club ? closeClub : undefined }] : []),
     ...(dept && club ? [{ label: clubLabel(club.name) }] : []),
   ]
   // Ordinateur, un club choisi dans un département : la liste des clubs remplace la carte (à gauche), ses joueurs à
@@ -456,6 +561,7 @@ export default function Coverage() {
   )
 
   return (
+    <WhoCtx.Provider value={who}>
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <BackButton fallback="/" label="ACCUEIL" className="self-start" />
@@ -498,7 +604,7 @@ export default function Coverage() {
       {view === 'map' ? (
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
           {clubMode && club ? (
-            <section className="side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
+            <section data-keep-scroll="bilan-clubs" className="side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
               <SectionTitle info="Clubs du département, du plus grand nombre de joueurs à voir au plus petit. Touche un autre club pour changer, ou le département dans le fil pour revenir à la carte.">
                 Où aller ? · {deptText(dept)} · {yearText}
               </SectionTitle>
@@ -609,7 +715,7 @@ export default function Coverage() {
               {clubList(!side)}
             </section>
             {side && (
-              <section className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
+              <section data-keep-scroll="bilan-qui" className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
                 <SectionTitle>Qui ?</SectionTitle>
                 {club ? <Who club={club} label={yearText} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir les joueurs qu’il reste à voir.</Empty>}
               </section>
@@ -618,6 +724,7 @@ export default function Coverage() {
         </>
       )}
     </div>
+    </WhoCtx.Provider>
   )
 }
 
@@ -683,11 +790,12 @@ function ClubList({
 
 function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
   const role = useRole()
-  const [showSeen, setShowSeen] = useState(false)
+  // « Déjà vus » ouvert et état du bilan : dans l'adresse (retrouvés au retour d'une fiche).
+  const { search, seenOpen: showSeen, setSeenOpen: setShowSeen } = useContext(WhoCtx)
   const [adding, setAdding] = useState<string[] | null>(null)
-  const byName = (a: Player, b: Player) => a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr')
-  const toSee = [...club.toSee].sort(byName)
-  const seenP = [...club.seenPlayers].sort(byName)
+  const { toSee, seen: seenP } = whoOrder(club)
+  // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou ‹ › (téléphone), retour à l'identique.
+  const linkTo = (p: Player) => ({ to: `/bilan/joueurs/${p.id}${search}` })
   const addEvents = can.manageEvents(role)
   return (
     <div className="card flex flex-col gap-2 p-3">
@@ -712,7 +820,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
             <PlayerRow
               key={p.id}
               p={p}
-              link={{ to: `/joueurs/${p.id}` }}
+              link={linkTo(p)}
               sub={p.birthDate?.slice(0, 4) ?? ''}
               rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
               follow={<FollowStar id={p.id} />}
@@ -743,7 +851,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
                   <PlayerRow
                     key={p.id}
                     p={p}
-                    link={{ to: `/joueurs/${p.id}` }}
+                    link={linkTo(p)}
                     sub={[p.birthDate?.slice(0, 4), s && `vu le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}`].filter(Boolean).join(' · ')}
                     follow={<FollowStar id={p.id} />}
                   />
@@ -761,7 +869,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
 // ---------- Ajouter à un événement ----------
 
 /** Événements à venir où je peux ajouter des joueurs (organisateur, administrateur, participant) ; un toucher les ajoute. */
-function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; onClose: () => void }) {
+export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; onClose: () => void }) {
   const role = useRole()
   const [done, setDone] = useState<string | null>(null)
   const events = useLiveQuery(async () => {
