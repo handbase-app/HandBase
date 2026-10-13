@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 import { db, newId, remove, save, type Player, type Video, type VideoMoment } from '../db'
 import type { MatchSheet, StoredAction } from '../matchSheet'
@@ -30,9 +30,6 @@ import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, use
  * (Rematch, YouTube, Handball TV, Facebook…) pour regarder quelques minutes avant d'aller voir un joueur.
  * Tout le monde en ajoute ; son auteur modifie le sien ; auteur, administrateur ou encadrant (secteur) supprime.
  */
-
-/** Frise du match sous la vidéo d'une fiche joueur (module chargé à la demande, seulement pour une vidéo de match calée). */
-const MatchTimeline = lazy(() => import('./MatchTimeline'))
 
 type SheetMod = typeof import('../matchSheet')
 
@@ -208,13 +205,10 @@ export function VideoSection({
           onClose: closeVideo,
           tools: (!sheet || editing) && tools ? (api) => tools(open, api) : undefined,
           badge: read?.badge ?? badgeOf(open),
-          // Fiche joueur : frise du match en lecture seule (pas de calage depuis une fiche).
+          // Fiche joueur : vidéo comme les autres (ses moments seulement), pas de frise du match ; le séquençage se fait
+          // depuis la vidéo de l'événement, en mode édition.
           bar: openSheet
-            ? (api) => (
-                <Suspense fallback={null}>
-                  <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} readOnly />
-                </Suspense>
-              )
+            ? undefined
             : (!sheet || editing) && bar
               ? (api) => bar(open, api)
               : undefined,
