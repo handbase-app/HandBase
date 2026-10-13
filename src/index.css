@@ -140,4 +140,21 @@ body {
   html, body { background: #fff !important; color: #000 !important; }
   header, nav, .no-print { display: none !important; }
   main { padding: 0 !important; }
+  /* Export d'un groupe (src/pages/GroupReport.tsx) : pages A4 nommées, en-tête des tableaux répété, lignes entières. */
+  .group-report { page: group-report; font-size: 8pt; }
+  .group-report th, .group-report td { padding-left: 2px !important; padding-right: 2px !important; }
+  .group-report thead { display: table-header-group; }
+  .group-report tr, .group-report dl { break-inside: avoid; }
+  .group-report h3 { break-after: avoid; }
 }
+
+/* Pages de l'export d'un groupe : A4 portrait ; à gauche du pied de page, le nom du groupe et la date (posés par la page). */
+@page group-report {
+  size: A4 portrait;
+  margin: 14mm 12mm 16mm;
+  @bottom-left { font-size: 8pt; color: #444; }
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
+}
+
+/* Export d'un groupe : police de document administratif (écran et impression). */
+.group-report { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; }

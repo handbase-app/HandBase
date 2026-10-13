@@ -58,6 +58,7 @@ const Coverage = lazy(() => import('./pages/Coverage'))
 const CoveragePlayers = lazy(() => import('./pages/CoveragePlayers'))
 const CoveragePlayer = lazy(() => import('./pages/CoveragePlayers').then((m) => ({ default: m.CoveragePlayer })))
 const CoverageReport = lazy(() => import('./pages/Coverage').then((m) => ({ default: m.CoverageReport })))
+const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -156,8 +157,8 @@ const PAGE_W: [RegExp, string][] = [
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
-  // Rapport chiffré du bilan : une feuille à imprimer.
-  [/^\/bilan\/rapport$/, 'wide:max-w-4xl'],
+  // Rapport chiffré du bilan, export d'un groupe en PDF : une feuille à imprimer.
+  [/^\/(bilan|groupes\/[^/]+)\/rapport$/, 'wide:max-w-4xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
@@ -280,6 +281,7 @@ export default function App() {
             <Route path=":pid" element={<GroupPlayer />} />
           </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
+          <Route path="/groupes/:id/rapport" element={<GroupReport />} />
           <Route path={STAFF.route} element={<Teams />} />
           <Route path="/parametres" element={<Settings />} />
           <Route path="/confidentialite" element={<Privacy />} />

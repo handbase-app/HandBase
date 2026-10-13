@@ -329,6 +329,7 @@ function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRow
     (manage || can.contributeGroup(role, g)) && { label: 'Ajouter des joueurs', icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
     manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
     { label: 'Dupliquer', icon: 'list', hint: 'avec ses joueurs', onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+    { label: 'Exporter en PDF', icon: 'download', hint: 'à imprimer', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
     manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
     manage && {
@@ -751,6 +752,10 @@ export function GroupDetail() {
         {panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
         {!editing && (
           <div className="flex flex-wrap gap-3">
+            {/* Liste des joueurs à imprimer ou enregistrer en PDF (identité seulement), ex. pour la ligue. */}
+            <Link to={`/groupes/${g.id}/rapport`} className="text-xs text-muted hover:text-fg">
+              Exporter en PDF
+            </Link>
             {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
             <button
               className="text-xs text-muted hover:text-fg"
