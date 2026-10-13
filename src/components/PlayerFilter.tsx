@@ -505,7 +505,7 @@ export function usePlayerFilter(
   // Sans `dock` (fiche ouverte à droite), il redevient repliable au-dessus de la liste.
   const docked = !!opts.dock && wideScreen
   const search = <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
-  // Ligne de recherche : avec le micro et « ✨ » (recherche en langage naturel) quand l'écran le demande et que c'est disponible.
+  // Ligne de recherche : avec le bouton « micro ✨ » (recherche vocale en langage naturel) quand l'écran le demande et que c'est disponible.
   const approxNote = approx && (
     <div className="text-[11px] text-muted" role="status">
       Résultats approchants pour « {q.trim()} »

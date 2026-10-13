@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { MicButton, MicStatus, useMicRecorder } from './MicButton'
+import { MicStatus, useMicRecorder } from './MicButton'
+import { Icon } from './ui'
 import { sendFilterRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import {
@@ -8,7 +9,6 @@ import {
   currentForModel,
   hasFilters,
   localCommand,
-  normalize,
   notFoundText,
   outcomeText,
   sameFilters,
@@ -21,7 +21,9 @@ import {
 /*
  * Recherche de joueurs en langage naturel (essai, liste Joueurs) : « tous les joueurs nés en 2010 qui mesurent plus d'1 m 80 »,
  * puis « ajoute le Var », « enlève la taille », « efface la sélection ».
- *  - micro à côté de « Rechercher… » (dictée Voxtral, comme les commentaires), ou phrase tapée dans le champ puis « ✨ » ;
+ *  - un seul bouton « micro ✨ » à côté de « Rechercher… » : un appui, on dicte (Voxtral, comme les commentaires), un nouvel
+ *    appui (ou relâcher après l'avoir maintenu) arrête ; la phrase transcrite est appliquée aux filtres directement. Pas de
+ *    phrase tapée : pour taper, il y a les filtres (le champ « Rechercher… » reste la recherche par nom) ;
  *  - commandes évidentes (« efface tout », « réinitialise »…) reconnues ici, sans appel (instantané, hors ligne) ;
  *  - sinon la phrase, le schéma des filtres et les filtres actifs (src/voiceSearch.ts) partent à la fonction « transcrire »
  *    (?mode=filtres), qui rend une action : remplacer, ajouter, retirer ou effacer ;
@@ -35,9 +37,6 @@ import {
 
 /** base : filtres sur lesquels la phrase a agi (et que « Annuler » remet) ; shownFor : filtres pendant lesquels la ligne reste. */
 type Result = { outcome: Outcome; phrase: string; base: FilterValues; applied: boolean; shownFor: FilterValues }
-
-/** Filtres actuels sans la phrase tapée elle-même dans « Rechercher… » (elle ne trouverait personne). */
-const withoutPhrase = (v: FilterValues, phrase: string) => ({ ...v, q: normalize(v.q) === normalize(phrase) ? '' : v.q })
 
 export function VoiceSearch({
   values,
@@ -55,12 +54,7 @@ export function VoiceSearch({
   const { searchReady } = useDictation()
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [result, setResultState] = useState<Result | null>(null)
-  const resultRef = useRef<Result | null>(null)
-  const setResult = (r: Result | null) => {
-    resultRef.current = r
-    setResultState(r)
-  }
+  const [result, setResult] = useState<Result | null>(null)
   const abort = useRef<AbortController | null>(null)
   const latest = useRef({ values, ctx, apply })
   useEffect(() => {
@@ -73,7 +67,7 @@ export function VoiceSearch({
   }, [])
 
   function show(outcome: Outcome, phrase: string, prev: FilterValues, base: FilterValues) {
-    // Rien ne change : les filtres restent comme ils sont (la phrase tapée reste dans le champ, pour la reformuler).
+    // Rien ne change : les filtres restent comme ils sont.
     if (outcome.changed) latest.current.apply(outcome.values)
     setResult({ outcome, phrase, base, applied: outcome.changed, shownFor: outcome.changed ? outcome.values : prev })
   }
@@ -82,22 +76,17 @@ export function VoiceSearch({
     const text = phrase.replace(/\s+/g, ' ').trim()
     if (!text || abort.current) return
     setError('')
-    const { ctx: c, values: prev } = latest.current
-    // Phrase tapée : elle a pris la place du nom cherché dans « Rechercher… ». Si les autres filtres sont ceux de la phrase
-    // d'avant, on repart de ceux-là (nom compris : « enlève le nom », « ajoute les gauchers » le gardent).
-    const last = resultRef.current
-    const current =
-      last?.applied && normalize(prev.q) === normalize(text) && sameFilters({ ...prev, q: last.shownFor.q }, last.shownFor) ? last.shownFor : withoutPhrase(prev, text)
+    const { ctx: c, values: current } = latest.current
     setResult(null)
     // Commande évidente : sans appel.
-    if (localCommand(text) === 'effacer') return show(applyAnswer({ action: 'effacer' }, current, c), text, prev, current)
+    if (localCommand(text) === 'effacer') return show(applyAnswer({ action: 'effacer' }, current, c), text, current, current)
     setBusy(text)
     const ctrl = new AbortController()
     abort.current = ctrl
     try {
       const ans = await sendFilterRequest(text, buildSchema(c), currentForModel(current, c), ctrl.signal)
       if (ctrl.signal.aborted) return
-      show(applyAnswer(ans, current, c), text, prev, current)
+      show(applyAnswer(ans, current, c), text, current, current)
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
     } finally {
@@ -109,30 +98,49 @@ export function VoiceSearch({
   const mic = useMicRecorder((text) => void understand(text))
   if (!searchReady) return <div className="flex gap-2">{input}{after}</div>
 
-  const micBusy = mic.phase !== 'idle'
-  // La ligne reste tant que les filtres sont ceux de la phrase (on peut taper la suivante) ; un changement à la main la fait
-  // disparaître.
-  const shown = result && sameFilters({ ...values, q: result.shownFor.q }, result.shownFor) ? result : null
+  const rec = mic.phase === 'recording' || mic.phase === 'opening'
+  const sending = mic.phase === 'sending' || !!busy
+  // La ligne reste tant que les filtres sont ceux de la phrase ; un changement à la main (nom compris) la fait disparaître.
+  const shown = result && sameFilters(values, result.shownFor) ? result : null
   const extra = shown ? [unsupportedText(shown.outcome), notFoundText(shown.outcome)].filter(Boolean) : []
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-2">
         {input}
-        <MicButton mic={mic} />
+        {/* Un seul bouton : micro + ✨ (toucher pour dicter, toucher à nouveau pour finir ; ou maintenir pendant qu'on parle). */}
         <button
           type="button"
-          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-line bg-panel-2 px-2 text-base hover:border-accent disabled:opacity-50"
-          title="Comprendre la phrase tapée (ex. « gauchers nés en 2010, plus d’1 m 80 », « ajoute le Var », « efface tout ») et remplir les filtres"
-          aria-label="Comprendre la phrase tapée et remplir les filtres"
-          disabled={!values.q.trim() || !!busy || micBusy}
-          onClick={() => void understand(values.q)}
+          data-noswipe
+          aria-label={rec ? 'Recherche vocale : arrêter et chercher' : sending ? 'Recherche vocale en cours' : 'Recherche vocale'}
+          aria-pressed={rec}
+          title={
+            rec
+              ? 'Arrêter : la phrase est transcrite puis appliquée aux filtres'
+              : 'Recherche vocale : touchez et dites par exemple « les gauchers nés en 2010 qui mesurent plus d’1 m 80 », « ajoute le Var », « efface tout » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)'
+          }
+          disabled={sending}
+          className={`relative flex min-h-11 min-w-11 shrink-0 touch-none items-center justify-center rounded-md border-2 px-2 transition select-none [-webkit-touch-callout:none] ${
+            rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-line bg-panel-2 text-fg hover:border-accent active:bg-accent active:text-white'
+          } disabled:opacity-70`}
+          {...mic.buttonProps}
         >
-          ✨
+          {sending ? (
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          ) : rec ? (
+            <span className="h-4 w-4 rounded-sm bg-white" />
+          ) : (
+            <>
+              <Icon name="mic" className="h-6 w-6" />
+              <span className="pointer-events-none absolute top-0.5 right-0.5 text-[11px] leading-none" aria-hidden>
+                ✨
+              </span>
+            </>
+          )}
         </button>
         {after}
       </div>
-      {micBusy ? (
+      {mic.phase !== 'idle' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
         <div className="flex items-center gap-2 text-xs text-muted" role="status">
@@ -167,7 +175,7 @@ export function VoiceSearch({
               ✕
             </button>
           </div>
-          {shown.applied && <span className="truncate text-muted">« {shown.phrase} »</span>}
+          {shown.applied && <span className="truncate text-muted">Entendu : « {shown.phrase} »</span>}
           {extra.map((t) => (
             <span key={t} className="text-muted">
               {t}

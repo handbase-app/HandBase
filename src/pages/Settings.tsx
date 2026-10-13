@@ -346,13 +346,12 @@ function DictationSetting() {
         </p>
         {search && (
           <p className="text-[11px] text-muted">
-            Recherche de joueurs : dans Joueurs, touchez le micro à côté de « Rechercher… » et dites par exemple « les gauchers nés en
-            2010 qui mesurent plus d'1 m 80 » ou « trouve Lucas Martin », puis « ajoute le Var », « enlève la taille » ou « efface la
-            sélection » ; ou tapez la
-            phrase puis touchez ✨. Les filtres restent modifiables à la main ; « Annuler » remet les précédents. Seuls la phrase, la
+            Recherche de joueurs : dans Joueurs, touchez le bouton micro ✨ à côté de « Rechercher… », dites par exemple « les gauchers
+            nés en 2010 qui mesurent plus d'1 m 80 » ou « trouve Lucas Martin », puis touchez-le à nouveau ; ensuite « ajoute le Var »,
+            « enlève la taille » ou « efface la sélection ». Les filtres restent modifiables à la main ; « Annuler » remet les précédents. Seuls la phrase, la
             liste des filtres possibles et les filtres choisis (sans le nom cherché) sont envoyés à Mistral AI, avec les noms de vos groupes et de vos profils
             recherchés ; aucune donnée de joueur. « Efface tout », « réinitialise »… se font sur l'appareil, sans envoi. Chaque phrase
-            envoyée compte comme une dictée (deux avec le micro : la transcription, puis la recherche).
+            compte comme deux dictées : la transcription, puis la recherche.
           </p>
         )}
         {access?.avis && (
