@@ -227,7 +227,7 @@ export const can = {
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
   /**
-   * Bilan du repérage (/bilan : joueurs vus par génération et par club, qui reste à voir, rapport chiffré) : POINT UNIQUE
+   * Bilan de détection (/bilan : joueurs vus par génération et par club, qui reste à voir, rapport chiffré) : POINT UNIQUE
    * de décision pour la page, sa tuile d'accueil et ses liens. Pour l'instant administrateurs et encadrants ; droits à affiner.
    */
   viewCoverage: (r: Role) => r === 'admin' || r === 'preparateur',

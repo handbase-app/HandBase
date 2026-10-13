@@ -1,4 +1,4 @@
--- Démo uniquement (base de test HandBase-test, données fictives) : remplit le « Bilan du repérage » avec des joueurs
+-- Démo uniquement (base de test HandBase-test, données fictives) : remplit le « Bilan de détection » avec des joueurs
 -- déjà « vus », pour que la page ait des chiffres réalistes. NE JAMAIS lancer sur la base réelle.
 --
 -- Principe (tirage déterministe : relancer le script donne exactement le même résultat, sans doublon) :

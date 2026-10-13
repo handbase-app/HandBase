@@ -114,7 +114,7 @@ const STATIC: Record<string, string> = {
   '/staffs': 'MES STAFFS',
   '/comparer': 'COMPARAISON',
   '/a-revoir': 'MES À REVOIR',
-  '/bilan': 'BILAN DU REPÉRAGE',
+  '/bilan': 'BILAN DE DÉTECTION',
   '/bilan/rapport': 'RAPPORT CHIFFRÉ',
 }
 

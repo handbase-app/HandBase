@@ -1,4 +1,4 @@
-// Test du bilan du repérage (src/coverage.ts), sur des joueurs fictifs.
+// Test du bilan de détection (src/coverage.ts), sur des joueurs fictifs.
 //
 //   npx jiti tools/test-bilan.ts
 import assert from 'node:assert/strict'
@@ -91,4 +91,4 @@ assert.deepEqual(r2011.clubs[1], { name: 'HBC Exemple', M: { seen: 2, total: 2 }
 const text = JSON.stringify(rep)
 for (const id of ['"a"', '"b"', '"c"', 'playerId', 'toSee']) assert.ok(!text.includes(id), `le rapport ne doit pas contenir ${id}`)
 
-console.log('Bilan du repérage : tous les tests passent.')
+console.log('Bilan de détection : tous les tests passent.')

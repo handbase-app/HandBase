@@ -127,7 +127,7 @@ body {
   }
 }
 
-/* Impression (Rapport Fédé du bilan du repérage, src/pages/Coverage.tsx) : seulement la feuille, sur fond blanc,
+/* Impression (Rapport Fédé du bilan de détection, src/pages/Coverage.tsx) : seulement la feuille, sur fond blanc,
    sans en-tête, menu ni boutons (.no-print). */
 @media print {
   @page { margin: 12mm; }

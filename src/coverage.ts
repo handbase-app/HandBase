@@ -1,7 +1,7 @@
 import type { Evaluation, Player, Seen } from './db'
 
 /*
- * Bilan du repérage : qui a été vu, par génération (année de naissance) et par club. Calculs purs (sans base ni
+ * Bilan de détection : qui a été vu, par génération (année de naissance) et par club. Calculs purs (sans base ni
  * écran), testés par tools/test-bilan.ts sur des joueurs fictifs.
  * Un joueur est « vu » si au moins un membre du staff l'a vu : une marque « vu » (seen) ou un avis (evaluations).
  * Aucune note n'est nécessaire et il n'existe aucune marque négative : un joueur pas encore vu est simplement « à voir ».

@@ -58,7 +58,7 @@ export default function RewatchPage() {
         </p>
         {can.viewCoverage(role) && (
           <Link to="/bilan" className="mt-1 inline-block text-[11px] font-bold text-accent">
-            Bilan du repérage : qui reste à voir, par génération et par club →
+            Bilan de détection : qui reste à voir, par génération et par club →
           </Link>
         )}
       </div>

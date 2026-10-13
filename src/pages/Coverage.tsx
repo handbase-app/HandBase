@@ -30,7 +30,7 @@ import { PlayerRow } from '../components/PlayerRow'
 import { FollowStar } from '../components/Follow'
 
 /*
- * Bilan du repérage : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
+ * Bilan de détection : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
  * ces joueurs. Un joueur est « vu » dès qu'un membre du staff l'a marqué vu ou a donné un avis (src/coverage.ts).
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », jamais autre chose.
  */
@@ -176,7 +176,7 @@ export default function Coverage() {
   const last = useMemo(() => (data ? lastSights(data.sights, periodInfo(period).range) : new Map<string, Sight>()), [data, period])
   const years = useMemo(() => (data ? coverageByYear(data.players, last, sex) : []), [data, last, sex])
 
-  if (!can.viewCoverage(role)) return <Empty>Le bilan du repérage est réservé aux administrateurs et aux encadrants.</Empty>
+  if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   const total = totalOf(years)
@@ -195,7 +195,7 @@ export default function Coverage() {
         <BackButton fallback="/" label="ACCUEIL" className="self-start" />
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h1 className="text-lg font-extrabold">Bilan du repérage</h1>
+            <h1 className="text-lg font-extrabold">Bilan de détection</h1>
             <p className="text-[11px] text-muted">Un joueur est vu dès qu’un membre du staff l’a marqué « vu » ou a donné un avis sur lui.</p>
           </div>
           <Link to="/bilan/rapport" className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
@@ -468,7 +468,7 @@ export function CoverageReport() {
   const info = periodInfo(period)
   const report = useMemo(() => (data ? fedReport(data.players, lastSights(data.sights, periodInfo(period).range)) : null), [data, period])
 
-  if (!can.viewCoverage(role)) return <Empty>Le bilan du repérage est réservé aux administrateurs et aux encadrants.</Empty>
+  if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!report) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const noSex = report.total.all.total - report.total.M.total - report.total.F.total
   // Cellules : nom à gauche (retour à la ligne permis), nombres à droite sur une ligne.
@@ -480,7 +480,7 @@ export function CoverageReport() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
       <div className="no-print flex flex-col gap-2">
-        <BackButton fallback="/bilan" label="BILAN DU REPÉRAGE" className="self-start" />
+        <BackButton fallback="/bilan" label="BILAN DE DÉTECTION" className="self-start" />
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="min-w-0 flex-1 text-lg font-extrabold">Rapport Fédé</h1>
           <button className="btn-primary min-h-8 px-4 py-1.5 text-xs" onClick={() => window.print()}>
@@ -494,7 +494,7 @@ export function CoverageReport() {
       <article className="report rounded-lg bg-white p-3 text-[11px] text-neutral-900 shadow sm:p-6 print:rounded-none print:p-0 print:shadow-none">
         <div className="mb-3 border-b-2 border-neutral-900 pb-2">
           <div className="text-[10px] font-bold tracking-widest text-neutral-500">HANDBASE</div>
-          <h2 className="text-base font-extrabold">Bilan du repérage</h2>
+          <h2 className="text-base font-extrabold">Bilan de détection</h2>
           <div>
             Édité le {fmtDate(today())} · Période : {info.long}
           </div>
