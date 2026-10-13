@@ -135,3 +135,22 @@ export const corrections = [
   { faux: 'inter comité', juste: 'Intercomités' },
   { faux: 'inter comités', juste: 'Intercomités' },
 ]
+
+// Mots de contexte pour Voxtral (Mistral, champ context_bias : 100 au plus) : le jargon le plus rare,
+// les mots courants (« contre », « zone »…) n'en ont pas besoin.
+export const motsVoxtral = [
+  'demi-centre', 'pivot', 'ailier gauche', 'ailier droit', 'arrière gauche', 'arrière droit', 'base arrière',
+  'défenseur avancé', 'gardien', 'gaucher', 'droitier',
+  'chabala', 'roucoulette', 'kung-fu', 'flyer', 'kempa', 'lob', 'tir en suspension', "tir à l'appui", 'tir à la hanche',
+  'tir en rotation', 'tir désaxé', 'tir à rebond', 'feinte de tir', 'feinte de passe', 'feinte de corps',
+  'double dribble', 'passage en force', 'croisé', 'contre-croisé', 'écran', 'sortie de bloc', 'débordement',
+  'décalage', 'fixation', 'renversement', 'montée de balle', 'contre-attaque', 'engagement rapide',
+  'repli défensif', 'retour défensif', '1 contre 1', '2 contre 1', 'interception', 'dissuasion', 'harcèlement',
+  'défense 0-6', 'défense 1-5', 'défense 3-2-1', 'défense 5+1', 'défense 4+2', 'homme à homme', 'défense étagée',
+  'défense alignée', '7 contre 6', 'gardien volant', 'surnombre', 'infériorité numérique', 'supériorité numérique',
+  'jet de 7 mètres', '9 mètres', '6 mètres', 'jet franc', 'jeu passif', 'temps mort', 'exclusion de 2 minutes',
+  'carton bleu', 'parade', 'arrêt réflexe', 'relance', 'couverture de but', 'papillon', 'grand écart',
+  'explosivité', 'détente', 'appuis', 'envergure', 'gabarit', 'lecture du jeu', 'vision du jeu',
+  "prise d'information", 'prise de décision', 'latéralité', 'Pôle Espoirs', 'PPF', 'Interligues', 'Intercomités',
+  'U13', 'U15', 'U17', 'U18',
+]

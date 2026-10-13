@@ -101,7 +101,7 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
 <main>
   <h1>Essai de dictée</h1>
   <p class="muted">Page d'essai, hors de l'application. Elle sert à mesurer si la reconnaissance vocale en français (Whisper, exécuté dans le navigateur) est assez rapide et juste sur votre appareil, avant d'ajouter éventuellement des mémos vocaux aux évaluations.</p>
-  <p class="note">Confidentialité : le son reste en mémoire sur cet appareil et disparaît en fermant la page. Rien n'est envoyé ni enregistré, à part le modèle téléchargé, gardé dans le cache du navigateur. Exception : le moteur « Dictée du navigateur » envoie le son au service de reconnaissance du navigateur (Google pour Chrome). Le nettoyage et la reformulation (IA intégrée de Chrome, quand elle existe) se font aussi sur l'appareil.</p>
+  <p class="note">Confidentialité : le son reste en mémoire sur cet appareil et disparaît en fermant la page. Rien n'est envoyé ni enregistré, à part le modèle téléchargé, gardé dans le cache du navigateur. Exceptions : le moteur « Dictée du navigateur » envoie le son au service de reconnaissance du navigateur (Google pour Chrome), et le moteur « Voxtral » l'envoie à Mistral AI, par le serveur HandBase (administrateurs seulement). Le nettoyage et la reformulation (IA intégrée de Chrome, quand elle existe) se font aussi sur l'appareil.</p>
 
   <section id="device">
     <h2>Votre appareil</h2>
@@ -120,8 +120,16 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
     <div class="seg" id="engineSeg">
       <label><input type="radio" name="engine" value="whisper" checked> Whisper sur l'appareil</label>
       <label id="wsLabel"><input type="radio" name="engine" value="webspeech"> Dictée du navigateur</label>
+      <label id="vxLabel"><input type="radio" name="engine" value="voxtral" disabled> Voxtral (Mistral, en ligne)</label>
     </div>
+    <p id="vxState" class="muted"></p>
+    <p id="vxNote" class="note hidden">Voxtral : le son est envoyé à Mistral AI (offre gratuite : données pouvant servir à l'entraînement). Ne dictez que les phrases d'essai, sans nom de joueur.</p>
     <p id="wsNote" class="note hidden">La dictée du navigateur passe par le service de reconnaissance du navigateur (Google pour Chrome) : le son quitte l'appareil. Elle sert seulement de point de comparaison.</p>
+
+    <div id="vocabBox">
+      <div class="seg" style="margin-top:10px"><label><input type="checkbox" id="vocab" checked> Utiliser le vocabulaire du hand</label></div>
+      <p class="muted">Donne au moteur le jargon du hand (postes, gestes, systèmes…) pour mieux le reconnaître : court texte de contexte pour Whisper, liste de mots pour Voxtral. Décochez pour comparer.</p>
+    </div>
 
     <div id="whisperOpts">
       <label class="field" for="model">Modèle</label>
@@ -143,8 +151,6 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
         <label><input type="radio" name="threads" value="8"> 8</label>
       </div>
       <p class="muted" id="threadsNote"></p>
-      <div class="seg" style="margin-top:10px"><label><input type="checkbox" id="vocab" checked> Utiliser le vocabulaire du hand</label></div>
-      <p class="muted">Donne à Whisper un court texte de contexte (postes, gestes, systèmes…) pour mieux reconnaître le jargon. Décochez pour comparer.</p>
       <div class="row" style="margin-top:10px">
         <button id="loadBtn" class="primary">Charger le modèle</button>
         <button id="clearCacheBtn">Supprimer les modèles téléchargés</button>

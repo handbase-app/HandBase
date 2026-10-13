@@ -1,9 +1,10 @@
 // Essai de dictée : page autonome, hors de l'application HandBase.
 // Le son reste en mémoire. Seuls les réglages et les résultats de cette page sont gardés
-// sur l'appareil (clés handbase.essai-dictee.*), rien d'autre de l'application n'est lu ni écrit.
+// sur l'appareil (clés handbase.essai-dictee.*). De l'application, seule la session Supabase est lue (pour
+// Voxtral, en lecture seule) ; rien d'autre n'est lu ni écrit.
 
 import { nettoyer, nettoyerDetail } from './nettoyage.js'
-import { promptWhisper } from './vocabulaire.js'
+import { promptWhisper, motsVoxtral } from './vocabulaire.js'
 
 const $ = (id) => document.getElementById(id)
 const KEY_PREFS = 'handbase.essai-dictee.prefs'
@@ -314,13 +315,139 @@ function showPhrase() {
 }
 function engine() { return radio('engine') }
 function updateEngineUi() {
-  const ws = engine() === 'webspeech'
-  $('whisperOpts').classList.toggle('hidden', ws)
-  $('wsNote').classList.toggle('hidden', !ws)
+  const e = engine()
+  $('whisperOpts').classList.toggle('hidden', e !== 'whisper')
+  $('vocabBox').classList.toggle('hidden', e === 'webspeech')
+  $('wsNote').classList.toggle('hidden', e !== 'webspeech')
+  $('vxNote').classList.toggle('hidden', e !== 'voxtral')
   updateButtons()
 }
 
-const useVocab = () => $('vocab').checked
+// ---------- Voxtral (Mistral AI), par la fonction Supabase « transcrire » ----------
+// La clé Mistral reste sur le serveur. La page reprend, en lecture seule, la session HandBase gardée par
+// l'application sur ce site (clé « sb-<projet>-auth-token ») ; elle ne la renouvelle jamais elle-même
+// (ce serait déconnecter l'application) : session expirée → ouvrir HandBase, puis revenir.
+const vx = { state: 'inconnu', url: '', token: '', restantMois: null, restantJour: null }
+const VX_TEXTE = {
+  inconnu: 'Voxtral : vérification…',
+  ok: 'Voxtral : prêt.',
+  non_connecte: "Voxtral : connectez-vous d'abord dans HandBase (compte administrateur), puis rechargez cette page.",
+  expire: 'Voxtral : session expirée. Ouvrez HandBase sur ce site pour la renouveler, puis rechargez cette page.',
+  pas_admin: 'Voxtral : réservé aux comptes administrateurs.',
+  absent: "Voxtral n'est pas installé sur ce serveur.",
+  sans_cle: "Voxtral : la clé Mistral n'est pas encore configurée sur le serveur.",
+  erreur: 'Voxtral : serveur injoignable.',
+}
+function readSession() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      const m = k && k.match(/^sb-([a-z0-9]+)-auth-token$/)
+      if (!m) continue
+      const v = JSON.parse(localStorage.getItem(k) || 'null')
+      const sess = v?.currentSession ?? v
+      if (sess?.access_token) return { ref: m[1], token: sess.access_token, expiresAt: Number(sess.expires_at) || 0 }
+    }
+  } catch { /* stockage indisponible */ }
+  return null
+}
+async function detectVoxtral() {
+  const sess = readSession()
+  if (!sess) return setVx('non_connecte')
+  if (sess.expiresAt && sess.expiresAt * 1000 < Date.now() + 60000) return setVx('expire')
+  vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
+  vx.token = sess.token
+  try {
+    const res = await fetch(vx.url, { headers: { Authorization: 'Bearer ' + vx.token } })
+    if (res.status === 404) return setVx('absent')
+    if (res.status === 401) return setVx('expire')
+    if (res.status === 403) return setVx('pas_admin')
+    if (!res.ok) return setVx('erreur')
+    const d = await res.json()
+    vx.restantMois = d.restant_mois
+    vx.restantJour = d.restant_jour
+    setVx(d.pret ? 'ok' : 'sans_cle')
+  } catch {
+    setVx('erreur')
+  }
+}
+function setVx(state) {
+  vx.state = state
+  const input = document.querySelector('input[name="engine"][value="voxtral"]')
+  input.disabled = state !== 'ok'
+  if (input.disabled && input.checked) { setRadio('engine', 'whisper'); updateEngineUi() }
+  let t = VX_TEXTE[state] || ''
+  if (state === 'ok' && vx.restantMois != null) t += ' Restant : ' + vx.restantMois + ' dictées ce mois-ci, ' + vx.restantJour + " aujourd'hui pour vous."
+  $('vxState').textContent = t
+}
+const VX_ERREURS = {
+  quota_atteint: 'Quota du mois atteint : dictez au clavier.',
+  quota_jour_atteint: "Plafond du jour atteint pour votre compte : dictez au clavier, ou réessayez demain.",
+  trop_long: 'Son trop long pour Voxtral : 60 secondes au plus.',
+  trop_gros: 'Son trop lourd pour Voxtral : 2 Mo au plus.',
+  mistral_limite: "Limite de l'offre gratuite Mistral atteinte pour l'instant : réessayez dans un moment.",
+  mistral_cle: 'La clé Mistral est refusée : à vérifier sur le serveur.',
+  cle_absente: "La clé Mistral n'est pas configurée sur le serveur.",
+  non_connecte: 'Session expirée : ouvrez HandBase pour la renouveler, puis rechargez cette page.',
+  pas_admin: 'Voxtral est réservé aux comptes administrateurs.',
+}
+function blobName(blob) {
+  const t = blob.type || ''
+  const ext = /ogg/.test(t) ? 'ogg' : /mp4|m4a|aac/.test(t) ? 'm4a' : /wav/.test(t) ? 'wav' : /mpeg|mp3/.test(t) ? 'mp3' : 'webm'
+  return 'son.' + ext
+}
+async function runVoxtral(blob, audioS) {
+  if (vx.state !== 'ok') throw new Error(VX_TEXTE[vx.state] || 'Voxtral indisponible.')
+  if (audioS > 60) throw new Error(VX_ERREURS.trop_long)
+  if (blob.size > 2 * 1024 * 1024) throw new Error(VX_ERREURS.trop_gros)
+  const form = new FormData()
+  form.append('file', blob, blob.name || blobName(blob))
+  form.append('duree', String(Math.ceil(audioS * 10) / 10))
+  if (vocabOn()) for (const m of motsVoxtral) form.append('context_bias', m)
+  const t0 = performance.now()
+  let res
+  try {
+    res = await fetch(vx.url, { method: 'POST', headers: { Authorization: 'Bearer ' + vx.token }, body: form })
+  } catch {
+    throw new Error('Voxtral : serveur injoignable (connexion ?).')
+  }
+  const ms = performance.now() - t0
+  let d = {}
+  try { d = await res.json() } catch { /* réponse vide */ }
+  if (d.restant_mois != null) { vx.restantMois = d.restant_mois; vx.restantJour = d.restant_jour; setVx(vx.state) }
+  if (!res.ok) {
+    let msg = VX_ERREURS[d.error] || 'Voxtral : erreur ' + res.status + (d.error ? ' (' + d.error + ')' : '')
+    if (d.error === 'quota_jour_atteint' && d.restant_mois != null) msg += ' Reste ce mois-ci : ' + d.restant_mois + '.'
+    if (d.error === 'non_connecte') setVx('expire')
+    throw new Error(msg)
+  }
+  return { text: d.text || '', ms, serverMs: d.ms, model: d.model, biais: !!d.biais }
+}
+
+async function voxtralAndRecord(blob, audioS, note) {
+  busy = true
+  updateButtons()
+  const phrase = Number($('phrase').value)
+  const amb = radio('amb')
+  try {
+    setStatus('Envoi à Voxtral…')
+    const r = await runVoxtral(blob, audioS)
+    const transS = r.ms / 1000
+    addResult({
+      kind: 'dictée', engine: 'Voxtral', model: r.model || 'voxtral', variant: '', device: 'en ligne', vocab: r.biais, amb, phrase,
+      audioS, loadS: null, transS, serverS: r.serverMs != null ? r.serverMs / 1000 : null, rtf: transS / audioS, text: r.text,
+      wer: phrase ? wer(PHRASES[phrase - 1], r.text) : null, note,
+    })
+    setStatus('Terminé : ' + fmt(transS, 2) + ' s aller-retour pour ' + fmt(audioS) + ' s de son.')
+  } catch (e) {
+    setStatus(e.message, true)
+  } finally {
+    busy = false
+    updateButtons()
+  }
+}
+
+const vocabOn = () => $('vocab').checked
 function wantedThreads() {
   if (!self.crossOriginIsolated) return 1
   const v = radio('threads')
@@ -344,6 +471,7 @@ let loading = null
 let busy = false
 let lastAudio = null // Float32Array 16 kHz mono
 let lastAudioSource = ''
+let lastBlob = null // son d'origine (pour Voxtral)
 let pending = new Map()
 let nextId = 1
 
@@ -352,7 +480,7 @@ function setStatus(text, err) {
   $('status').classList.toggle('err', !!err)
 }
 function updateButtons() {
-  $('againBtn').disabled = busy || !lastAudio || engine() !== 'whisper'
+  $('againBtn').disabled = busy || !lastAudio || engine() === 'webspeech' || (engine() === 'voxtral' && !lastBlob)
   $('aptBtn').disabled = busy || !lastAudio || engine() !== 'whisper'
   $('loadBtn').disabled = busy
   $('talk').disabled = busy && !recording
@@ -471,14 +599,14 @@ async function runWhisper(audio, tick) {
   const id = nextId++
   try {
     tick?.()
-    const r = await ask(id, { type: 'transcribe', id, audio, prompt: useVocab() ? promptWhisper : null })
+    const r = await ask(id, { type: 'transcribe', id, audio, prompt: vocabOn() ? promptWhisper : null })
     return { ...r, mdl }
   } catch (e) {
     if (mdl.device === 'webgpu' && !isMemoryError(e.message) && worker) {
       setStatus('WebGPU a échoué pendant la transcription, nouvel essai en WASM…')
       mdl = await ensureModel('wasm')
       const id2 = nextId++
-      const r = await ask(id2, { type: 'transcribe', id: id2, audio, prompt: useVocab() ? promptWhisper : null })
+      const r = await ask(id2, { type: 'transcribe', id: id2, audio, prompt: vocabOn() ? promptWhisper : null })
       return { ...r, mdl, note: 'WebGPU a échoué, repli WASM' }
     }
     throw new Error(explainError(e.message))
@@ -574,6 +702,7 @@ function renderResults() {
       const parts = ['son ' + fmt(r.audioS) + ' s']
       if (r.loadS != null) parts.push('chargement ' + fmt(r.loadS) + ' s')
       if (r.engine === 'Whisper') parts.push('transcription ' + fmt(r.transS, 2) + ' s', 'FTR ' + fmt(r.rtf, 2))
+      else if (r.engine === 'Voxtral') parts.push('aller-retour ' + fmt(r.transS, 2) + ' s (dont Mistral ' + fmt(r.serverS, 2) + ' s)', 'FTR ' + fmt(r.rtf, 2) + ' réseau compris')
       else parts.push('délai après relâche ' + fmt(r.transS, 2) + ' s')
       if (r.note) parts.push(r.note)
       m.textContent = parts.join(' · ')
@@ -599,8 +728,8 @@ function resultsText() {
         '', '', r.verdict + ' (FTR ' + r.rtfs.map((x) => fmt(x, 2)).join(' / ') + ')'].join(' | '))
     } else {
       L.push([r.n, r.engine, r.model ? r.model + ' ' + r.variant : '', calc(r), vocabTxt(r), r.amb, r.phrase || 'libre', fmt(r.audioS),
-        r.loadS != null ? fmt(r.loadS) : '', fmt(r.transS, 2), r.engine === 'Whisper' ? fmt(r.rtf, 2) : '', pct(r.wer), pct(r.cleanWer),
-        (r.text || '') + (r.note ? ' [' + r.note + ']' : '')].join(' | '))
+        r.loadS != null ? fmt(r.loadS) : '', fmt(r.transS, 2), r.engine === 'Webspeech' || r.rtf == null ? '' : fmt(r.rtf, 2), pct(r.wer), pct(r.cleanWer),
+        (r.text || '') + (r.note ? ' [' + r.note + ']' : '') + (r.serverS != null ? ' [Mistral ' + fmt(r.serverS, 2) + ' s]' : '')].join(' | '))
       L.push('   nettoyé : ' + (r.clean ?? nettoyer(r.text || '')) + (r.fixes?.length ? '  [corrigé : ' + r.fixes.join(' ; ') + ']' : ''))
       if (r.ai) L.push('   reformulé (' + r.aiApi + ', ' + fmt(r.aiS, 1) + ' s, ouverture ' + fmt(r.aiCreateS, 1) + ' s) : ' + r.ai.replace(/\s*\n\s*/g, ' / '))
     }
@@ -688,9 +817,11 @@ async function onRecorded(r) {
   }
   if (audio.length < 0.3 * 16000) { setStatus(modeHold() ? 'Trop court : maintenez le bouton pendant que vous parlez.' : 'Trop court.', true); return }
   lastAudio = audio
+  lastBlob = blob
   lastAudioSource = 'micro'
   updateButtons()
-  await transcribeAndRecord(audio)
+  if (engine() === 'voxtral') await voxtralAndRecord(blob, audio.length / 16000)
+  else await transcribeAndRecord(audio)
 }
 
 async function transcribeAndRecord(audio, note) {
@@ -874,7 +1005,7 @@ function bind() {
   for (const el of document.querySelectorAll('input[name="threads"]')) {
     el.addEventListener('change', () => { prefs.threads = radio('threads'); savePrefs(); killWorker() })
   }
-  $('vocab').addEventListener('change', () => { prefs.vocab = useVocab(); savePrefs() })
+  $('vocab').addEventListener('change', () => { prefs.vocab = vocabOn(); savePrefs() })
   $('phrase').addEventListener('change', () => { prefs.phrase = Number($('phrase').value); savePrefs(); showPhrase() })
 
   $('loadBtn').addEventListener('click', async () => {
@@ -890,17 +1021,24 @@ function bind() {
     } catch (e) { setStatus('Suppression impossible : ' + e.message, true) }
     detectDevice()
   })
-  $('againBtn').addEventListener('click', () => { if (lastAudio) transcribeAndRecord(lastAudio, lastAudioSource === 'fichier' ? 'fichier audio' : 'même son') })
+  $('againBtn').addEventListener('click', () => {
+    if (!lastAudio) return
+    const note = lastAudioSource === 'fichier' ? 'fichier audio' : 'même son'
+    if (engine() === 'voxtral') { if (lastBlob) voxtralAndRecord(lastBlob, lastAudio.length / 16000, note) }
+    else transcribeAndRecord(lastAudio, note)
+  })
   $('aptBtn').addEventListener('click', aptitude)
   $('fileIn').addEventListener('change', async () => {
     const f = $('fileIn').files[0]
     if (!f) return
     try {
       lastAudio = await toMono16k(await f.arrayBuffer())
+      lastBlob = f
       lastAudioSource = 'fichier'
       updateButtons()
-      if (engine() !== 'whisper') { setStatus('Fichier chargé. Choisissez le moteur Whisper pour le transcrire.'); return }
-      await transcribeAndRecord(lastAudio, 'fichier audio')
+      if (engine() === 'webspeech') { setStatus('Fichier chargé. Choisissez Whisper ou Voxtral pour le transcrire.'); return }
+      if (engine() === 'voxtral') await voxtralAndRecord(f, lastAudio.length / 16000, 'fichier audio')
+      else await transcribeAndRecord(lastAudio, 'fichier audio')
     } catch (e) {
       setStatus('Fichier illisible : ' + (e.message || e), true)
     } finally {
@@ -941,6 +1079,7 @@ async function init() {
   renderResults()
   await detectDevice()
   renderResults() // avec le bouton « Reformuler » si l'IA de Chrome est là
+  detectVoxtral()
   if (!dev.webSpeech) {
     $('wsLabel').classList.add('hidden')
     setRadio('engine', 'whisper')
@@ -959,6 +1098,9 @@ window.essaiDictee = {
   wer,
   nettoyer,
   texte: () => resultsText(),
+  // Essai de l'interface Voxtral contre un faux serveur local (console seulement).
+  voxtralLocal: async (url) => { const s = readSession(); vx.url = url; vx.token = s?.token || 'essai'; const r = await fetch(url, { headers: { Authorization: 'Bearer ' + vx.token } }); const d = await r.json(); vx.restantMois = d.restant_mois; vx.restantJour = d.restant_jour; setVx('ok') },
+  voxtral: (samples, blob) => { lastAudio = samples; lastBlob = blob; return voxtralAndRecord(blob, samples.length / 16000, 'son de test') },
 }
 
 init()
