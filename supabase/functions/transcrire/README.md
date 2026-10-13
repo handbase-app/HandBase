@@ -65,13 +65,26 @@ Les mots de contexte (`context_bias`, 100 au plus, expressions reliées par « _
 Liste Joueurs de l'appli : micro à côté de « Rechercher… », ou phrase tapée puis « ✨ ». Exemple : « tous les joueurs nés
 en 2010 qui mesurent plus d'1 m 80 » → filtres « année 2010 » et « taille ≥ 180 cm ».
 
-- Requête : `POST /functions/v1/transcrire?mode=filtres`, JSON `{ phrase, schema }` (phrase de 300 caractères au plus,
-  schéma construit par l'appli dans `src/voiceSearch.ts` : clés permises, types et valeurs possibles, noms des groupes et
-  des profils recherchés du compte). **Jamais de données de joueurs.**
+- Requête : `POST /functions/v1/transcrire?mode=filtres`, JSON `{ phrase, schema, actuels }` (phrase de 300 caractères au
+  plus ; schéma compact construit par l'appli dans `src/voiceSearch.ts` : une ligne par clé, valeurs possibles, noms des
+  groupes et des profils recherchés du compte ; régions, départements et clubs ne sont pas listés : le modèle recopie ce
+  qui est dit et l'appli le retrouve ; `actuels` : filtres actifs, avec les clés du schéma). **Jamais de données de joueurs.**
+- Opérations : le modèle rend une `action` : `remplacer` (nouvelle recherche), `ajouter` (garder les filtres actuels et
+  ajouter ou changer des critères : « ajoute le Var », « seulement les gauchères »), `retirer` (clés dans `retirer` :
+  « enlève la taille », « peu importe le poste ») ou `effacer` (« efface la sélection »). Les commandes évidentes pour tout
+  effacer (« efface tout », « réinitialise », « remets à zéro »…) sont reconnues par l'appli sans appel.
+- Noms : « trouve Lucas Martin », « le joueur Dupont », « les Martin nés en 2010 », « ajoute Martin » → clé `recherche`,
+  nom recopié tel quel ; licence dite par morceaux recollée ; « enlève le nom » → `retirer: ["recherche"]`. Le nom cherché
+  n'est pas renvoyé au modèle dans `actuels` (seulement `"recherche": "(nom)"`). La liste cherche sans accents ni
+  majuscules, puis, si personne, des noms approchants (« Dupond » → « Dupont » : « Résultats approchants pour … »).
+- Consignes (`CONSIGNES` dans `index.ts`) : courtes, avec 14 exemples, pensées pour les petits modèles (ministral-8b) ;
+  environ 5 200 caractères avec le schéma (≈ 1 500 jetons) ; `tools/test-recherche-vocale.ts` vérifie que chaque exemple est
+  accepté par l'appli.
 - Mistral : `chat/completions`, modèle `mistral-small-latest` (secret `MISTRAL_MODELE_FILTRES` pour en changer),
   température 0, `response_format: json_object`. Consignes : n'utiliser que les clés et valeurs du schéma, ne rien
   inventer, mettre ce qui n'est pas géré dans `nonGere`.
-- Réponse : `{ filtres, nonGere, ms, model, restant_mois, restant_jour }`. L'appli revérifie chaque valeur.
+- Réponse : `{ action, filtres, retirer, nonGere, ms, model, restant_mois, restant_jour }`. L'appli revérifie chaque valeur.
+  Avec une version de la fonction sans `action`, l'appli remplace les filtres (comportement d'avant).
 - Mêmes règles que la dictée : administrateur connecté, mêmes plafonds (un appel compté par phrase ; avec le micro, deux :
   la transcription puis la recherche), mêmes origines (CORS), rien de la phrase n'est journalisé. Erreurs en plus :
   `phrase_absente` (400), `phrase_trop_longue` (413), `schema_invalide` (400), `reponse_illisible` (502).

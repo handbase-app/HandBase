@@ -5,11 +5,12 @@
 // - GET : vérifie l'accès et renvoie { admin, modele, restant_mois, restant_jour, max_secondes, max_octets }.
 // - POST (multipart) : file (son webm / ogg / wav / mp4, 2 Mo au plus), duree (secondes, 60 au plus),
 //   context_bias (facultatif, répété : mots du hand, 100 au plus) → { text, model, ms, biais, restant_mois, restant_jour }.
-// - POST ?mode=filtres (JSON) : { phrase, schema } → { filtres, nonGere, ms, restant_mois, restant_jour } : recherche de
+// - POST ?mode=filtres (JSON) : { phrase, schema, actuels } → { action, filtres, retirer, nonGere, ms, restant_mois, restant_jour } :
+//   action = remplacer, ajouter, retirer ou effacer, d'après les filtres actifs (actuels) ; recherche de
 //   joueurs en langage naturel (« nés en 2010, plus d'1 m 80 »). Un petit modèle de Mistral (mistral-small-latest,
 //   température 0, réponse JSON) traduit la phrase en filtres de la liste Joueurs, d'après le schéma construit par
-//   l'appli (src/voiceSearch.ts : clés permises, valeurs possibles). Seuls la phrase et le schéma sont envoyés, jamais
-//   de données de joueurs ; l'appli revérifie chaque valeur. Même compte, mêmes plafonds (un appel compté par phrase).
+//   l'appli (src/voiceSearch.ts : clés permises, valeurs possibles). Seuls la phrase, le schéma et les filtres actifs
+//   sont envoyés, jamais de données de joueurs ; l'appli revérifie chaque valeur. Même compte, mêmes plafonds (un appel compté par phrase).
 // - Plafonds : TRANSCRIRE_QUOTA_MOIS appels par mois civil (heure de Paris, 2000 par défaut) pour tous,
 //   TRANSCRIRE_QUOTA_JOUR appels par jour et par compte (200 par défaut) ; au-delà : erreur « quota_atteint »
 //   ou « quota_jour_atteint ». Compteurs : supabase/042_quota_transcription.sql (des nombres seulement).
@@ -39,6 +40,8 @@ const MAX_SECONDES = 60
 const MAX_MOTS = 100
 const MAX_PHRASE = 300
 const MAX_SCHEMA = 40_000
+const MAX_ACTUELS = 2_000
+const ACTIONS = ['remplacer', 'ajouter', 'retirer', 'effacer']
 const TOUS = '00000000-0000-0000-0000-000000000000'
 const ORIGINES = ['https://handbase-demo.github.io', 'https://handbase-app.github.io']
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
@@ -180,28 +183,43 @@ Deno.serve(async (req) => {
 
 // ---------- Recherche de joueurs en langage naturel (POST ?mode=filtres) ----------
 
-const CONSIGNES = `Tu traduis une demande en français (dictée ou tapée par un entraîneur de handball) en filtres pour une liste de joueurs.
-Règles :
-- Utilise UNIQUEMENT les clés du schéma fourni, avec ses types et ses valeurs permises (champ "valeurs" : recopie exactement une "valeur").
-- N'invente jamais de valeur. Si une partie de la demande ne correspond à aucune clé ou à aucune valeur permise, ne la mets pas
-  dans "filtres" : décris-la en quelques mots dans "nonGere" (ex. "moins de 1 m 70", "nés en 2010 ou 2011", "catégorie U15", "bons au tir").
-- N'ajoute aucun filtre qui n'est pas demandé. Une demande sans filtre utilisable donne "filtres": {}.
-- Tailles : "1 m 80", "1m80", "1,80", "1.80 m", "180", "180 cm" valent 180 (centimètres). "plus de", "au moins", "minimum", "dépasse" donnent tailleMin.
-  Un maximum ("moins de", "au plus") n'est pas géré : nonGere.
-- Années : "nés en 2010", "né en 2010", "2010", "génération 2010" donnent annee 2010. Une seule année possible ; plusieurs années ou un âge : nonGere.
-- "garçons", "masculins", "joueurs" au masculin explicite ("les garçons") donnent sexe "M" ; "filles", "féminines", "joueuses" donnent "F".
-  "joueurs" seul ou "tous les joueurs" ne fixe pas le sexe.
-- "gaucher(s)", "gauchère(s)" : lateralite "gaucher" ; "droitier(s)", "droitière(s)" : "droitier" ; "ambidextre(s)" : "ambidextre".
-- "premier trimestre", "nés en janvier" (mois 1 à 3) : trimestre 1 ; avril à juin : 2 ; juillet à septembre : 3 ; octobre à décembre : 4.
-- Postes : gardien, ailier gauche, arrière gauche, demi-centre (meneur, demi), arrière droit, ailier droit, pivot : utilise l'identifiant du schéma.
-  "qui peuvent jouer", "qui dépannent", "même en secondaire" : postesSecondaires true en plus du poste.
-- Départements : nom ou numéro ("le Var", "83", "les Bouches-du-Rhône") : donne le code du schéma. Régions : l'identifiant du schéma.
-- Club : recopie le nom du club tel qu'il est dit (sans "club de"), l'appli le retrouvera.
-- "Pôle", "au Pôle Espoirs", "polistes" : pole "en_cours" ; "sortis du Pôle", "anciens du Pôle" : "sortis" ; "passés par le Pôle" : "tous".
-- "avec vidéo", "qui ont une vidéo" : avecVideo true. "suivis", "mes suivis", "que je suis" : suivis true.
-- Groupe ou profil recherché : seulement un nom présent dans les valeurs du schéma.
-- recherche : seulement un nom de famille, un prénom ou un numéro de licence cité explicitement pour retrouver une personne.
-Réponds UNIQUEMENT par un objet JSON strict : {"filtres": {...}, "nonGere": ["..."]}.`
+// Consignes du modèle : courtes, explicites, avec des exemples (petits modèles comme ministral-8b). Les exemples sont relus
+// par tools/test-recherche-vocale.ts (chaque réponse d'exemple doit être acceptée par l'appli et donner l'effet attendu).
+const CONSIGNES = `Tu transformes la phrase d'un entraîneur de handball en filtres pour sa liste de joueurs.
+Réponds seulement par ce JSON : {"action":"…","filtres":{…},"retirer":[…],"nonGere":[…]}
+
+ACTION (une seule)
+- "remplacer" : nouvelle recherche complète, sans lien avec les filtres actuels. Ex. « montre-moi les… », « cherche les… », « tous les… », « les gardiens de 2011 ».
+- "ajouter" : garde les filtres actuels et ajoute ou change des critères. Ex. « ajoute… », « rajoute… », « en plus », « aussi », « et… », « seulement ceux qui… », « parmi eux », « affine… », « garde… et… ».
+- "retirer" : enlève des critères ; mets leurs clés dans "retirer". Ex. « enlève le filtre taille », « sans condition d'année », « peu importe le poste », « retire le Var ».
+- "effacer" : enlève tous les filtres. Ex. « efface la sélection », « réinitialise », « tout effacer », « remets à zéro », « montre tout le monde », « recommence ».
+- En cas de doute, s'il y a des filtres actuels : "ajouter" si la phrase donne un seul critère avec un mot de liaison (et, aussi, que, qui, seulement), sinon "remplacer".
+
+FILTRES
+- Seulement les clés du schéma ; ne jamais inventer de valeur ; n'ajouter aucun critère non demandé.
+- Taille : « 1 m 80 », « 1,80 », « 180 » → 180 ; « plus de », « au moins » → tailleMin.
+- « nés en 2010 », « 2010 » → annee 2010. « garçons » → sexe M ; « filles », « joueuses » → F ; « joueur(s) » seul ne fixe pas le sexe.
+- Nom ou prénom d'une personne (« trouve Lucas Martin », « le joueur Dupont », « les Martin ») → recherche, recopié tel quel. Numéro de licence → recherche, chiffres collés. « enlève le nom » → retirer ["recherche"].
+- « gaucher(e) » → gaucher ; « droitier(e) » → droitier. « premier trimestre », « nés en janvier » → trimestre 1.
+- Département, région, club : recopie le nom ou le numéro dit (« Var », « 83 », « PACA », « Toulon »).
+- « Pôle », « polistes » → pole en_cours ; « avec vidéo » → avecVideo true ; « mes suivis » → suivis true.
+- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots (« moins de 1 m 70 », « nés en 2010 ou 2011 », « U15 »).
+
+EXEMPLES
+Actuels {} ; « tous les joueurs nés en 2010 qui mesurent plus d'1 m 80 » → {"action":"remplacer","filtres":{"annee":2010,"tailleMin":180},"retirer":[],"nonGere":[]}
+Actuels {"sexe":"M"} ; « montre-moi les demi-centres du Pôle » → {"action":"remplacer","filtres":{"poste":"DC","pole":"en_cours"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"tailleMin":180} ; « ajoute au filtre que le gamin doit être dans le Var » → {"action":"ajouter","filtres":{"departement":"Var"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010} ; « seulement les gauchères » → {"action":"ajouter","filtres":{"sexe":"F","lateralite":"gaucher"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"departement":"83"} ; « et qui ont une vidéo » → {"action":"ajouter","filtres":{"avecVideo":true},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"tailleMin":180} ; « enlève le filtre taille » → {"action":"retirer","filtres":{},"retirer":["tailleMin"],"nonGere":[]}
+Actuels {"departement":"83","poste":"PIV"} ; « peu importe le poste » → {"action":"retirer","filtres":{},"retirer":["poste"],"nonGere":[]}
+Actuels {"annee":2010,"poste":"DC"} ; « sans condition d'année mais des pivots » → {"action":"ajouter","filtres":{"poste":"PIV"},"retirer":["annee"],"nonGere":[]}
+Actuels {"annee":2010,"departement":"83"} ; « efface la sélection » → {"action":"effacer","filtres":{},"retirer":[],"nonGere":[]}
+Actuels {} ; « trouve Lucas Martin » → {"action":"remplacer","filtres":{"recherche":"Lucas Martin"},"retirer":[],"nonGere":[]}
+Actuels {} ; « les Martin nés en 2010 » → {"action":"remplacer","filtres":{"recherche":"Martin","annee":2010},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010} ; « ajoute Martin » → {"action":"ajouter","filtres":{"recherche":"Martin"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"recherche":"(nom)"} ; « enlève le nom » → {"action":"retirer","filtres":{},"retirer":["recherche"],"nonGere":[]}
+Actuels {} ; « les filles de 2011 de moins de 1 m 70 en U15 » → {"action":"remplacer","filtres":{"sexe":"F","annee":2011},"retirer":[],"nonGere":["moins de 1 m 70","U15"]}`
 
 // deno-lint-ignore no-explicit-any
 type Db = any
@@ -217,7 +235,7 @@ async function rechercheFiltres(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; actuels?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -226,8 +244,17 @@ async function rechercheFiltres(
   const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
   if (!phrase) return json({ error: 'phrase_absente' }, 400)
   if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
-  const schema = entree.schema && typeof entree.schema === 'object' ? JSON.stringify(entree.schema) : ''
+  // Schéma compact : une ligne « clé : valeurs » par filtre (moins de mots pour le modèle).
+  const schema =
+    entree.schema && typeof entree.schema === 'object' && !Array.isArray(entree.schema)
+      ? Object.entries(entree.schema as Record<string, unknown>)
+          .map(([k, v]) => `${k} : ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+          .join('\n')
+      : ''
   if (!schema || schema.length > MAX_SCHEMA) return json({ error: 'schema_invalide' }, 400)
+  // Filtres actifs (clés du schéma) : pour « ajoute… », « enlève… ».
+  const actuels = entree.actuels && typeof entree.actuels === 'object' && !Array.isArray(entree.actuels) ? JSON.stringify(entree.actuels) : '{}'
+  if (actuels.length > MAX_ACTUELS) return json({ error: 'schema_invalide' }, 400)
 
   // Plafonds : un appel compté par phrase, comme une dictée.
   const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
@@ -245,8 +272,8 @@ async function rechercheFiltres(
       max_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES}\n\nSchéma des filtres (JSON) :\n${schema}` },
-        { role: 'user', content: phrase },
+        { role: 'system', content: `${CONSIGNES}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
+        { role: 'user', content: `Actuels ${actuels} ; « ${phrase} »` },
       ],
     }),
   }))
@@ -259,7 +286,7 @@ async function rechercheFiltres(
     return json({ error, status: res.status, ...restants }, 502)
   }
   // La réponse du modèle n'est jamais journalisée (elle reprend la phrase).
-  let sortie: { filtres?: unknown; nonGere?: unknown } = {}
+  let sortie: { action?: unknown; filtres?: unknown; retirer?: unknown; nonGere?: unknown } = {}
   try {
     const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
     const contenu = out.choices?.[0]?.message?.content
@@ -272,5 +299,7 @@ async function rechercheFiltres(
   const nonGere = Array.isArray(sortie.nonGere)
     ? sortie.nonGere.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim().slice(0, 80)).slice(0, 10)
     : []
-  return json({ filtres: filtresOk, nonGere, ms, model: modele, ...restants })
+  const action = typeof sortie.action === 'string' && ACTIONS.includes(sortie.action) ? sortie.action : ''
+  const retirer = Array.isArray(sortie.retirer) ? sortie.retirer.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 40)).slice(0, 16) : []
+  return json({ action, filtres: filtresOk, retirer, nonGere, ms, model: modele, ...restants })
 }

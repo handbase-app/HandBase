@@ -2,7 +2,7 @@ import { useAlerts } from '../alerts'
 import { useFollows } from '../follows'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { departmentLabel, officialRegions, regionOfDept, useDepartments, useRegionLabel, useRegions } from '../lists'
+import { allDepts, departmentLabel, officialRegions, regionOfDept, useDepartments, useRegionLabel, useRegions } from '../lists'
 import { can, groupTag } from '../roles'
 import { loadTeams } from '../teams'
 import { birthQuarter, Icon } from './ui'
@@ -11,6 +11,16 @@ import { MQ, useMedia } from '../layout'
 import { alive, db, poleStatus, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
 import { VoiceSearch } from './VoiceSearch'
 import type { FilterValues, PoleValue, SearchContext } from '../voiceSearch'
+import { nameTokens, playerHaystack, searchByName } from '../nameMatch'
+
+// Textes de recherche de chaque joueur, calculés à la première recherche et gardés tant que la fiche ne change pas.
+const hays = new WeakMap<Player, string>()
+const hayOf = (p: Player) => {
+  let h = hays.get(p)
+  if (h === undefined) hays.set(p, (h = playerHaystack(p)))
+  return h
+}
+const tokensOf = (p: Player) => nameTokens(p)
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -207,14 +217,9 @@ export function usePlayerFilter(
   const years = useMemo(() => countBy(yearBase, (p) => p.birthDate?.slice(0, 4)).sort((a, b) => b[0].localeCompare(a[0])), [yearBase])
   const scoped = useMemo(() => yearBase.filter(okYear), [yearBase, year]) // eslint-disable-line react-hooks/exhaustive-deps
   // Recherche, puis postes (comptés après la recherche : le chiffre d'un poste est celui qu'on obtiendra).
-  const searched = useMemo(() => {
-    const words = fold(q).split(/\s+/).filter(Boolean)
-    if (!words.length) return scoped
-    return scoped.filter((p) => {
-      const hay = fold(`${p.firstName} ${p.lastName} ${p.club ?? ''} ${p.team ?? ''} ${p.license ?? ''}`)
-      return words.every((w) => hay.includes(w))
-    })
-  }, [scoped, q])
+  // Nom, prénom (traits d'union et espaces équivalents), club, équipe, licence (chiffres recollés) ; si personne :
+  // noms approchants (« Dupond » trouve « Dupont » : utile après une dictée), signalés sous la recherche.
+  const { list: searched, approx } = useMemo(() => searchByName(scoped, q, hayOf, tokensOf), [scoped, q])
   const positionCounts = useMemo(() => {
     const c: Record<string, number> = { none: 0 }
     for (const p of searched) {
@@ -299,7 +304,7 @@ export function usePlayerFilter(
     const regs = regionList.length ? regionList.map((r) => ({ id: r.id, name: r.name })) : officialRegions()
     const clubs = [...new Set((players ?? []).map((p) => p.club).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'fr'))
     const names = new Map(deptList.map((d) => [d.code!, d.name]))
-    const codes = [...new Set([...deptList.map((d) => d.code!), ...(players ?? []).map((p) => department(p)).filter((c): c is string => !!c)])]
+    const codes = [...new Set([...allDepts(), ...deptList.map((d) => d.code!), ...(players ?? []).map((p) => department(p)).filter((c): c is string => !!c)])]
     return {
       positions: POSITIONS.map((p) => ({ id: p.id, label: p.label })),
       regions: regs,
@@ -501,15 +506,24 @@ export function usePlayerFilter(
   const docked = !!opts.dock && wideScreen
   const search = <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
   // Ligne de recherche : avec le micro et « ✨ » (recherche en langage naturel) quand l'écran le demande et que c'est disponible.
-  const searchRow = (after?: React.ReactNode) =>
-    voiceCtx ? (
-      <VoiceSearch values={values} apply={setValues} ctx={voiceCtx} input={search} after={after} />
-    ) : (
-      <div className="flex gap-2">
-        {search}
-        {after}
-      </div>
-    )
+  const approxNote = approx && (
+    <div className="text-[11px] text-muted" role="status">
+      Résultats approchants pour « {q.trim()} »
+    </div>
+  )
+  const searchRow = (after?: React.ReactNode) => (
+    <>
+      {voiceCtx ? (
+        <VoiceSearch values={values} apply={setValues} ctx={voiceCtx} input={search} after={after} />
+      ) : (
+        <div className="flex gap-2">
+          {search}
+          {after}
+        </div>
+      )}
+      {approxNote}
+    </>
+  )
   // Panneau ancré : la recherche passe en tête de la colonne de filtres, rien au-dessus de la liste.
   const ui = docked ? null : (
     <div className="flex flex-col gap-2">

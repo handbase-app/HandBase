@@ -73,52 +73,64 @@ export type SearchContext = {
 
 // ---------- Schéma envoyé avec la phrase ----------
 
-type Choice = { valeur: string | number; sens: string }
-type SchemaEntry = { type: 'texte' | 'entier' | 'booleen'; sens: string; valeurs?: Choice[]; min?: number; max?: number }
-
 export const QUARTER_TEXT = ['janvier à mars', 'avril à juin', 'juillet à septembre', 'octobre à décembre']
 const POLE_KEYS: Record<string, PoleValue> = { en_cours: 'current', sortis: 'past', tous: 'any' }
+/** Au-delà, les noms de groupes ou de profils ne sont pas envoyés (le modèle recopie alors le nom dit). */
+const MAX_NAMES = 30
 
-export function buildSchema(ctx: SearchContext): Record<string, SchemaEntry> {
-  const s: Record<string, SchemaEntry> = {
-    sexe: { type: 'texte', sens: 'sexe des joueurs', valeurs: [{ valeur: 'M', sens: 'garçons' }, { valeur: 'F', sens: 'filles' }] },
-    annee: { type: 'entier', sens: 'année de naissance (une seule)', min: 1950, max: ctx.thisYear },
-    trimestre: { type: 'entier', sens: 'trimestre de naissance', valeurs: QUARTER_TEXT.map((t, i) => ({ valeur: i + 1, sens: t })) },
-    tailleMin: { type: 'entier', sens: 'taille minimum en centimètres (dernière mesure)', min: 100, max: 230 },
-    lateralite: {
-      type: 'texte',
-      sens: 'latéralité',
-      valeurs: [
-        { valeur: 'droitier', sens: 'droitiers, droitières' },
-        { valeur: 'gaucher', sens: 'gauchers, gauchères' },
-        { valeur: 'ambidextre', sens: 'ambidextres' },
-      ],
-    },
-    poste: {
-      type: 'texte',
-      sens: 'poste principal',
-      valeurs: [...ctx.positions.map((p) => ({ valeur: p.id, sens: p.label })), { valeur: 'aucun', sens: 'sans poste renseigné' }],
-    },
-    postesSecondaires: { type: 'booleen', sens: 'compter aussi les joueurs qui ont ce poste en secondaire (avec « poste »)' },
-    region: { type: 'texte', sens: 'région (ligue)', valeurs: ctx.regions.map((r) => ({ valeur: r.id, sens: r.name })) },
-    departement: { type: 'texte', sens: 'département du club', valeurs: ctx.depts.map((d) => ({ valeur: d.code, sens: d.name ?? `département ${d.code}` })) },
-    club: { type: 'texte', sens: 'nom du club, tel qu’il est dit' },
-    pole: {
-      type: 'texte',
-      sens: 'Pôle Espoirs',
-      valeurs: [
-        { valeur: 'en_cours', sens: 'au Pôle Espoirs en ce moment' },
-        { valeur: 'sortis', sens: 'sortis du Pôle Espoirs' },
-        { valeur: 'tous', sens: 'passés par le Pôle Espoirs (en cours ou sortis)' },
-      ],
-    },
-    avecVideo: { type: 'booleen', sens: 'seulement les joueurs qui ont une vidéo' },
-    suivis: { type: 'booleen', sens: 'seulement les joueurs que je suis' },
+/**
+ * Schéma compact envoyé avec la phrase : une ligne par clé (petits modèles : court et explicite).
+ * Régions, départements et clubs ne sont pas listés : le modèle recopie ce qui est dit (« Var », « 83 », « PACA »,
+ * « Toulon ») et l'appli le retrouve dans ses listes (moins de mots envoyés, rien d'inventé).
+ */
+export function buildSchema(ctx: SearchContext): Record<string, string> {
+  const s: Record<string, string> = {
+    sexe: 'M (garçons) ou F (filles)',
+    annee: 'année de naissance, entier (une seule)',
+    trimestre: 'trimestre de naissance : 1 (janv.-mars), 2 (avril-juin), 3 (juil.-sept.), 4 (oct.-déc.)',
+    tailleMin: 'taille minimum en cm, entier',
+    lateralite: 'droitier, gaucher ou ambidextre',
+    poste: [...ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`), 'aucun (sans poste)'].join(', '),
+    postesSecondaires: 'true : compter aussi le poste secondaire (avec poste)',
+    region: 'nom de la région tel que dit',
+    departement: 'numéro ou nom du département tel que dit',
+    club: 'nom du club tel que dit',
+    pole: 'Pôle Espoirs : en_cours, sortis ou tous',
+    avecVideo: 'true : seulement les joueurs avec une vidéo',
+    suivis: 'true : seulement mes joueurs suivis',
   }
-  if (ctx.groups.length) s.groupe = { type: 'texte', sens: 'groupe de joueurs', valeurs: ctx.groups.map((g) => ({ valeur: g.name, sens: 'groupe' })) }
-  if (ctx.profiles.length) s.profil = { type: 'texte', sens: 'profil recherché enregistré', valeurs: ctx.profiles.map((p) => ({ valeur: p.name, sens: 'profil' })) }
-  s.recherche = { type: 'texte', sens: 'nom, prénom ou numéro de licence d’une personne citée explicitement' }
+  if (ctx.groups.length)
+    s.groupe = ctx.groups.length <= MAX_NAMES ? `un de : ${ctx.groups.map((g) => g.name).join(' | ')}` : 'nom du groupe tel que dit'
+  if (ctx.profiles.length)
+    s.profil = ctx.profiles.length <= MAX_NAMES ? `profil recherché, un de : ${ctx.profiles.map((p) => p.name).join(' | ')}` : 'nom du profil recherché tel que dit'
+  s.recherche = 'nom et/ou prénom d’une personne, tel que dit ; ou numéro de licence'
   return s
+}
+
+/** Valeur envoyée à la place du nom cherché (le modèle peut la rendre : elle est ignorée). */
+export const NAME_PLACEHOLDER = '(nom)'
+
+/** Filtres actifs, avec les clés du schéma (envoyés avec la phrase pour « ajoute… », « enlève… ») ; du nom cherché, sa présence seulement. */
+export function currentForModel(v: FilterValues, ctx: SearchContext): Record<string, string | number | boolean> {
+  const o: Record<string, string | number | boolean> = {}
+  if (v.sex !== 'all') o.sexe = v.sex
+  if (v.year) o.annee = Number(v.year)
+  if (v.quarter) o.trimestre = v.quarter
+  if (Number(v.minH)) o.tailleMin = Number(v.minH)
+  if (v.hand !== 'all') o.lateralite = v.hand
+  if (v.position !== 'all') o.poste = v.position === 'none' ? 'aucun' : v.position
+  if (v.withSecondary) o.postesSecondaires = true
+  if (v.region) o.region = ctx.regions.find((r) => r.id === v.region)?.name ?? v.region
+  if (v.dept) o.departement = v.dept
+  if (v.club) o.club = v.club
+  if (v.pole) o.pole = Object.keys(POLE_KEYS).find((k) => POLE_KEYS[k] === v.pole) ?? v.pole
+  if (v.videoOnly) o.avecVideo = true
+  if (v.followedOnly) o.suivis = true
+  if (v.group) o.groupe = ctx.groups.find((g) => g.id === v.group)?.name ?? 'groupe choisi'
+  if (v.profile) o.profil = ctx.profiles.find((p) => p.id === v.profile)?.name ?? 'profil choisi'
+  // Recherche par nom : sa présence seulement (« enlève le nom »), pas le nom lui-même.
+  if (v.q.trim()) o.recherche = NAME_PLACEHOLDER
+  return o
 }
 
 // ---------- Rapprochement de noms (accents, majuscules, noms partiels) ----------
@@ -359,7 +371,7 @@ export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchCont
     const m = matchDept(f.departement, ctx)
     if ('found' in m) {
       values.dept = m.found.code
-      understood.push({ key: 'departement', label: m.found.name ? `${m.found.code} · ${m.found.name}` : `département ${m.found.code}` })
+      understood.push({ key: 'departement', label: m.found.name ? `${m.found.name} (${m.found.code})` : `département ${m.found.code}` })
     } else if ('ambiguous' in m) skip(`département ${quote(f.departement)}`, `plusieurs possibles : ${m.ambiguous.slice(0, 3).map((d) => d.name).join(', ')}`)
     else skip(`département ${quote(f.departement)}`, 'pas trouvé')
   }
@@ -433,13 +445,202 @@ export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchCont
     } else skip(`poste ${quote(f.poste)}`, 'valeur inconnue')
   }
   if (has('recherche')) {
-    const s = asText(f.recherche).replace(/\s+/g, ' ').slice(0, 60)
-    if (s) {
+    let s = asText(f.recherche).replace(/\s+/g, ' ').slice(0, 60)
+    // Licence dite par morceaux (« 638 301 500 1234 ») : chiffres recollés. Le nom est gardé tel quel (la liste le cherche
+    // sans accents ni majuscules, puis en approchant s'il ne trouve personne).
+    if (/^[\d\s.-]+$/.test(s)) s = s.replace(/\D/g, '')
+    // Valeur de remplacement renvoyée par le modèle (« (nom) ») : ignorée.
+    if (s && !/^\(.*\)$/.test(s)) {
       values.q = s
-      understood.push({ key: 'recherche', label: `« ${s} »` })
+      understood.push({ key: 'recherche', label: /^\d+$/.test(s) ? `licence ${s}` : `nom : ${s}` })
     }
   }
   return { values, understood, notFound, unsupported }
+}
+
+// ---------- Opérations sur les filtres actuels ----------
+
+/** remplacer : nouvelle recherche ; ajouter : garder les filtres actuels et ajouter (ou changer) ; retirer ; effacer : tout. */
+export type FilterAction = 'remplacer' | 'ajouter' | 'retirer' | 'effacer'
+export const ACTIONS: FilterAction[] = ['remplacer', 'ajouter', 'retirer', 'effacer']
+
+/** Champs de FilterValues de chaque clé du schéma. */
+const KEY_FIELDS: Record<string, (keyof FilterValues)[]> = {
+  sexe: ['sex'],
+  annee: ['year'],
+  trimestre: ['quarter'],
+  tailleMin: ['minH'],
+  lateralite: ['hand'],
+  poste: ['position', 'withSecondary'],
+  postesSecondaires: ['withSecondary'],
+  region: ['region'],
+  departement: ['dept'],
+  club: ['club'],
+  pole: ['pole'],
+  avecVideo: ['videoOnly'],
+  suivis: ['followedOnly'],
+  groupe: ['group'],
+  profil: ['profile'],
+  recherche: ['q'],
+}
+/** Nom court d'un filtre (« Retiré : taille »). */
+export const KEY_TEXT: Record<string, string> = {
+  sexe: 'garçons / filles',
+  annee: 'année',
+  trimestre: 'trimestre',
+  tailleMin: 'taille',
+  lateralite: 'latéralité',
+  poste: 'poste',
+  postesSecondaires: 'postes secondaires',
+  region: 'région',
+  departement: 'département',
+  club: 'club',
+  pole: 'Pôle Espoirs',
+  avecVideo: 'vidéo',
+  suivis: 'suivis',
+  groupe: 'groupe',
+  profil: 'profil',
+  recherche: 'recherche par nom',
+}
+// Mots acceptés dans « retirer » à la place des clés (petits modèles : « taille », « année »…).
+const KEY_ALIASES: Record<string, string> = {
+  taille: 'tailleMin',
+  tailles: 'tailleMin',
+  hauteur: 'tailleMin',
+  annee: 'annee',
+  annees: 'annee',
+  age: 'annee',
+  naissance: 'annee',
+  sexe: 'sexe',
+  genre: 'sexe',
+  trimestre: 'trimestre',
+  lateralite: 'lateralite',
+  main: 'lateralite',
+  poste: 'poste',
+  postes: 'poste',
+  region: 'region',
+  ligue: 'region',
+  departement: 'departement',
+  dept: 'departement',
+  club: 'club',
+  pole: 'pole',
+  video: 'avecVideo',
+  videos: 'avecVideo',
+  suivis: 'suivis',
+  groupe: 'groupe',
+  profil: 'profil',
+  recherche: 'recherche',
+  nom: 'recherche',
+  noms: 'recherche',
+  prenom: 'recherche',
+  licence: 'recherche',
+}
+
+export type ModelAnswer = { action?: unknown; filtres?: unknown; retirer?: unknown; nonGere?: unknown }
+
+export type Outcome = {
+  action: FilterAction
+  /** Filtres à appliquer (tous). */
+  values: FilterValues
+  /** Critères posés (remplacer, ajouter). */
+  added: Understood[]
+  /** Noms des filtres retirés (« taille »). */
+  removed: string[]
+  notFound: string[]
+  unsupported: string[]
+  /** Les filtres changent-ils ? */
+  changed: boolean
+}
+
+/** Au moins un filtre posé (Garçons / Filles compris). */
+export const hasFilters = (v: FilterValues) => !sameFilters(v, EMPTY_FILTERS)
+
+/** Clé du schéma pour un nom de filtre rendu dans « retirer » : clé exacte ou mot courant (« la taille », « filtre année »). */
+export function keyOf(v: unknown): string | undefined {
+  const s = asText(v)
+  if (KEY_FIELDS[s]) return s
+  const w = normalize(s)
+    .split(' ')
+    .filter((x) => !['le', 'la', 'les', 'l', 'filtre', 'filtres', 'critere', 'condition', 'de', 'd', 'du', 'des', 'sur', 'par'].includes(x))
+  return w.length ? KEY_ALIASES[w[0]] : undefined
+}
+
+/**
+ * Applique la réponse du modèle aux filtres actuels, après vérification de chaque valeur :
+ *  - effacer : tout à zéro ; remplacer : seulement les nouveaux critères ;
+ *  - ajouter : filtres actuels + nouveaux critères (une clé déjà posée prend la nouvelle valeur) ; « retirer » peut s'y ajouter ;
+ *  - retirer : les clés citées reviennent à zéro (un critère rendu dans « filtres », « retire le Var », retire aussi sa clé).
+ * Action absente ou inconnue (ancienne version de la fonction) : « retirer » s'il n'y a que des clés à retirer, sinon « remplacer ».
+ */
+export function applyAnswer(answer: ModelAnswer, current: FilterValues, ctx: SearchContext): Outcome {
+  const it = interpretFilters(answer.filtres, answer.nonGere, ctx)
+  const rawRemove = Array.isArray(answer.retirer) ? answer.retirer.slice(0, 16) : []
+  let action: FilterAction = ACTIONS.includes(answer.action as FilterAction)
+    ? (answer.action as FilterAction)
+    : !it.understood.length && rawRemove.length
+      ? 'retirer'
+      : 'remplacer'
+  // Rien d'actif : « ajouter » revient à « remplacer ».
+  if (action === 'ajouter' && !hasFilters(current)) action = 'remplacer'
+  const out = { action, added: [] as Understood[], removed: [] as string[], notFound: it.notFound, unsupported: it.unsupported }
+  if (action === 'effacer') return { ...out, values: { ...EMPTY_FILTERS }, changed: hasFilters(current) }
+  if (action === 'remplacer') {
+    if (!it.understood.length) return { ...out, values: current, changed: false }
+    return { ...out, values: it.values, added: it.understood, changed: !sameFilters(it.values, current) }
+  }
+  const values: FilterValues = { ...current }
+  const set = (f: keyof FilterValues, v: unknown) => ((values as Record<string, unknown>)[f] = v)
+  const keys = new Set<string>()
+  for (const r of rawRemove) {
+    const k = keyOf(r)
+    if (k) keys.add(k)
+    else out.notFound.push(`retirer ${quote(r)} (filtre inconnu)`)
+  }
+  if (action === 'retirer') for (const u of it.understood) keys.add(u.key)
+  for (const k of keys) {
+    const fields = KEY_FIELDS[k]
+    const before = JSON.stringify(fields.map((f) => values[f]))
+    for (const f of fields) set(f, EMPTY_FILTERS[f])
+    if (JSON.stringify(fields.map((f) => values[f])) !== before) out.removed.push(KEY_TEXT[k])
+  }
+  if (action === 'ajouter') {
+    for (const u of it.understood) for (const f of KEY_FIELDS[u.key]) set(f, it.values[f])
+    out.added = it.understood
+    const added = new Set(it.understood.map((u) => u.key))
+    // Nouveau département : une région d'ailleurs part ; nouvelle région : un département d'ailleurs part.
+    if (added.has('departement') && !added.has('region') && values.region && ctx.regionOfDept && ctx.regionOfDept(values.dept) !== values.region) values.region = ''
+    if (added.has('region') && !added.has('departement') && values.dept && ctx.regionOfDept && ctx.regionOfDept(values.dept) !== values.region) values.dept = ''
+  }
+  return { ...out, values, changed: !sameFilters(values, current) }
+}
+
+/** Ce qui s'est passé, en une ligne : « Ajouté : Var (83) », « Retiré : taille », « Filtres effacés », « Remplacés : … ». */
+export function outcomeText(o: Outcome, hadFilters: boolean): string {
+  const list = (u: Understood[]) => u.map((x) => x.label).join(' · ')
+  if (o.action === 'effacer') return o.changed ? 'Filtres effacés' : 'Aucun filtre à effacer'
+  if (!o.changed) return ''
+  if (o.action === 'remplacer') return `${hadFilters ? 'Remplacés' : 'Compris'} : ${list(o.added)}`
+  return [o.removed.length ? `Retiré : ${o.removed.join(' · ')}` : '', o.added.length ? `Ajouté : ${list(o.added)}` : ''].filter(Boolean).join(' — ')
+}
+
+// ---------- Commandes évidentes, sans appel au modèle ----------
+
+// « efface la sélection », « réinitialise », « remets à zéro », « tout effacer », « supprime les filtres », « montre tout le monde »…
+const POLITE = String.raw`(?:(?:s il (?:te|vous) plait|stp|svp|merci|ok|bon|alors|allez|euh|tu peux|vous pouvez|peux tu|pouvez vous|je veux|on peut|il faut) )*`
+const END = String.raw`(?: s il (?:te|vous) plait| stp| svp| merci)?$`
+const VERB = String.raw`(?:efface[rsz]?|reinitialise[rsz]?|vide[rsz]?|supprime[rsz]?|enleve[rsz]?|retire[rsz]?|nettoie[rsz]?|nettoyer|reset|remet[stz]? (?:tout )?a zero|remettre (?:tout )?a zero|remise a zero|recommence[rsz]?|on recommence|on repart de zero|repars de zero|on efface tout)`
+const WHAT = String.raw`(?: tout)?(?: (?:tous |toutes )?(?:les|la|le|mes|ma|mon|ces|cette|tout|toute) (?:filtres?|selection|criteres?|conditions?|recherche))?(?: tout)?`
+const CLEAR_RES = [
+  new RegExp(`^${POLITE}${VERB}${WHAT}${END}`),
+  new RegExp(`^${POLITE}(?:tout effacer|tout efface|plus de filtres?|sans (?:aucun )?filtres?|aucun filtre|zero filtre)${END}`),
+  new RegExp(`^${POLITE}(?:montre|affiche|montrer|afficher|montrez|affichez|voir|donne) (?:moi )?(?:tout le monde|tous les joueurs|toute la liste|la liste complete|tout|tous)${END}`),
+]
+
+/** Commande reconnue sans le modèle (instantané, gratuit, hors ligne) ; null : à envoyer au modèle. */
+export function localCommand(phrase: string): 'effacer' | null {
+  const n = normalize(phrase)
+  if (!n || n.split(' ').length > 10) return null
+  return CLEAR_RES.some((re) => re.test(n)) ? 'effacer' : null
 }
 
 /** « Compris : nés en 2010 · taille ≥ 180 cm » (vide si rien n'a été compris). */

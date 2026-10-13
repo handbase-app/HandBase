@@ -110,12 +110,12 @@ export async function sendDictation(blob: Blob, seconds: number, signal?: AbortS
   }
 }
 
-/** Recherche de joueurs en langage naturel : la phrase et le schéma des filtres seulement (src/voiceSearch.ts). */
-export async function sendFilterRequest(phrase: string, schema: unknown, signal?: AbortSignal): Promise<FilterAnswer> {
+/** Recherche de joueurs en langage naturel : la phrase, le schéma et les filtres actifs seulement (src/voiceSearch.ts). */
+export async function sendFilterRequest(phrase: string, schema: unknown, actuels: Record<string, unknown>, signal?: AbortSignal): Promise<FilterAnswer> {
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandFilters(ep, phrase, schema, signal)
+    const r = await understandFilters(ep, phrase, schema, actuels, signal)
     if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
     return r
   } catch (e) {

@@ -141,13 +141,20 @@ export async function transcribe(ep: Endpoint, blob: Blob, seconds: number, sign
 
 export const MAX_PHRASE = 300
 
-export type FilterAnswer = { filtres: unknown; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
+/** action : remplacer, ajouter, retirer ou effacer (absente avec une ancienne version de la fonction) ; retirer : clés à retirer. */
+export type FilterAnswer = { action?: string; filtres: unknown; retirer: unknown[]; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
 
 /**
- * Recherche de joueurs en langage naturel (POST ?mode=filtres, JSON) : envoie seulement la phrase et le schéma des filtres
+ * Recherche de joueurs en langage naturel (POST ?mode=filtres, JSON) : envoie seulement la phrase, le schéma des filtres et les filtres actifs
  * (src/voiceSearch.ts), jamais de données de joueurs. Renvoie la réponse brute du modèle : l'appli revérifie chaque valeur.
  */
-export async function understandFilters(ep: Endpoint, phrase: string, schema: unknown, signal?: AbortSignal): Promise<FilterAnswer> {
+export async function understandFilters(
+  ep: Endpoint,
+  phrase: string,
+  schema: unknown,
+  actuels: Record<string, unknown> = {},
+  signal?: AbortSignal,
+): Promise<FilterAnswer> {
   const text = phrase.replace(/\s+/g, ' ').trim()
   if (!text) throw new DictationError('phrase_absente')
   if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
@@ -157,14 +164,14 @@ export async function understandFilters(ep: Endpoint, phrase: string, schema: un
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=filtres', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: text, schema }),
+      body: JSON.stringify({ phrase: text, schema, actuels }),
       signal,
     })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Recherche annulée.')
     throw new DictationError('reseau')
   }
-  let d: { filtres?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  let d: { action?: unknown; filtres?: unknown; retirer?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
   try {
     d = await res.json()
   } catch {
@@ -175,5 +182,13 @@ export async function understandFilters(ep: Endpoint, phrase: string, schema: un
     throw new DictationError(code)
   }
   const nonGere = Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : []
-  return { filtres: d.filtres ?? {}, nonGere, ms: d.ms, restantMois: d.restant_mois, restantJour: d.restant_jour }
+  return {
+    ...(typeof d.action === 'string' ? { action: d.action } : {}),
+    filtres: d.filtres ?? {},
+    retirer: Array.isArray(d.retirer) ? d.retirer : [],
+    nonGere,
+    ms: d.ms,
+    restantMois: d.restant_mois,
+    restantJour: d.restant_jour,
+  }
 }

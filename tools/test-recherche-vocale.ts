@@ -15,8 +15,16 @@ import {
   sameFilters,
   summaryText,
   unsupportedText,
+  applyAnswer,
+  currentForModel,
+  keyOf,
+  localCommand,
+  outcomeText,
+  type FilterValues,
   type SearchContext,
 } from '../src/voiceSearch'
+import { readFileSync } from 'node:fs'
+import { levenshtein, nameKey, nameLike, nameTokens, phonetic, playerHaystack, queryWords, searchByName } from '../src/nameMatch'
 import { DictationError, requestAccess, understandFilters, type Endpoint } from '../src/dictation/transcribe'
 
 const REGIONS: Record<string, string> = { '83': 'region-sud', '13': 'region-sud', '06': 'region-sud', '75': 'region-idf', '73': 'region-ara', '74': 'region-ara', '2A': 'region-cor' }
@@ -61,11 +69,14 @@ const schema = buildSchema(ctx)
 assert.deepEqual(Object.keys(schema), [
   'sexe', 'annee', 'trimestre', 'tailleMin', 'lateralite', 'poste', 'postesSecondaires', 'region', 'departement', 'club', 'pole', 'avecVideo', 'suivis', 'groupe', 'profil', 'recherche',
 ])
-assert.deepEqual(schema.poste.valeurs?.map((v) => v.valeur), ['GB', 'AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV', 'aucun'])
-assert.equal(schema.departement.valeurs?.find((v) => v.valeur === '83')?.sens, 'Var')
-assert.deepEqual(schema.groupe.valeurs?.map((v) => v.valeur), ['Intercomités 2011', 'Sélection Var U15', 'Sélection Var U13'])
-assert.equal(schema.club.valeurs, undefined, 'les clubs ne sont pas envoyés')
+assert.equal(schema.poste, 'GB (gardien), AG (ailier gauche), ARG (arrière gauche), DC (demi-centre), ARD (arrière droit), AD (ailier droit), PIV (pivot), aucun (sans poste)')
+assert.equal(schema.departement, 'numéro ou nom du département tel que dit', 'départements recopiés, retrouvés par l’appli')
+assert.equal(schema.groupe, 'un de : Intercomités 2011 | Sélection Var U15 | Sélection Var U13')
+assert.equal(schema.club, 'nom du club tel que dit', 'les clubs ne sont pas envoyés')
 const sent = JSON.stringify(schema)
+for (const d of ['Bouches-du-Rhône', 'Haute-Savoie', 'Alpes-Maritimes', 'Région Sud']) assert.ok(!sent.includes(d), `absent du schéma : ${d}`)
+// Au-delà de 30 groupes : pas de liste.
+assert.equal(buildSchema({ ...ctx, groups: Array.from({ length: 31 }, (_, i) => ({ id: `x${i}`, name: `G${i}` })) }).groupe, 'nom du groupe tel que dit')
 for (const c of ctx.clubs) assert.ok(!sent.includes(c), `club absent du schéma : ${c}`)
 assert.ok(!sent.includes('"g1"') && !sent.includes('"p1"'), 'pas d’identifiants internes')
 // Sans groupes ni profils visibles : clés absentes.
@@ -101,7 +112,7 @@ assert.deepEqual(it.values, {
 })
 assert.equal(
   summaryText(it.understood),
-  'Compris : filles · nées en 2011 · trimestre 1 (janv.–mars) · gauchers · 83 · Var · Saint-Raphaël Var Handball · mes suivis · au Pôle Espoirs · avec une vidéo · arrière droit · + postes secondaires',
+  'Compris : filles · nées en 2011 · trimestre 1 (janv.–mars) · gauchers · Var (83) · Saint-Raphaël Var Handball · mes suivis · au Pôle Espoirs · avec une vidéo · arrière droit · + postes secondaires',
 )
 assert.equal(unsupportedText(it), 'Je ne sais pas encore filtrer sur : catégorie U15')
 
@@ -209,6 +220,10 @@ assert.equal(pos('ailier'), 'all', 'ailier seul : ambigu')
 assert.equal(interpretFilters({ lateralite: 'droitière' }, [], ctx).values.hand, 'droitier')
 assert.equal(interpretFilters({ sexe: 'garçons' }, [], ctx).values.sex, 'M')
 assert.equal(interpretFilters({ recherche: '  Dupont   Léa ' }, [], ctx).values.q, 'Dupont Léa')
+assert.equal(summaryText(interpretFilters({ recherche: 'Lucas Martin', annee: 2010 }, [], ctx).understood), 'Compris : nés en 2010 · nom : Lucas Martin')
+assert.equal(interpretFilters({ recherche: '638 301 500 1234' }, [], ctx).values.q, '6383015001234', 'licence recollée')
+assert.equal(summaryText(interpretFilters({ recherche: '6383015001234' }, [], ctx).understood), 'Compris : licence 6383015001234')
+assert.equal(interpretFilters({ recherche: '(nom)' }, [], ctx).values.q, '', 'valeur de remplacement ignorée')
 assert.equal(interpretFilters({ pole: 'sortis' }, [], ctx).values.pole, 'past')
 assert.equal(interpretFilters({ pole: 'tous' }, [], ctx).values.pole, 'any')
 
@@ -232,15 +247,20 @@ const ans = await understandFilters(
   { ...ep, fetch: fakeFetch(200, { filtres: { annee: 2010 }, nonGere: ['U15', 3], ms: 400, restant_mois: 10, restant_jour: 5 }, calls) },
   '  tous les joueurs   nés en 2010 ',
   schema,
+  { tailleMin: 180 },
 )
-assert.deepEqual(ans, { filtres: { annee: 2010 }, nonGere: ['U15'], ms: 400, restantMois: 10, restantJour: 5 })
+assert.deepEqual(ans, { filtres: { annee: 2010 }, retirer: [], nonGere: ['U15'], ms: 400, restantMois: 10, restantJour: 5 })
 assert.equal(calls[0].url, ep.url + '?mode=filtres')
 assert.equal(calls[0].init?.method, 'POST')
 const hdr = calls[0].init?.headers as Record<string, string>
 assert.equal(hdr['Content-Type'], 'application/json')
 assert.equal(hdr.Authorization, 'Bearer t')
 const body = JSON.parse(String(calls[0].init?.body))
-assert.deepEqual(Object.keys(body), ['phrase', 'schema'], 'seulement la phrase et le schéma')
+assert.deepEqual(Object.keys(body), ['phrase', 'schema', 'actuels'], 'seulement la phrase, le schéma et les filtres actifs')
+assert.deepEqual(body.actuels, { tailleMin: 180 })
+// Réponse avec action.
+const withAction = await understandFilters({ ...ep, fetch: fakeFetch(200, { action: 'retirer', filtres: {}, retirer: ['tailleMin'], nonGere: [] }) }, 'enlève la taille', schema)
+assert.deepEqual([withAction.action, withAction.retirer], ['retirer', ['tailleMin']])
 assert.equal(body.phrase, 'tous les joueurs nés en 2010')
 // Erreurs.
 const code = async (f: typeof fetch, phrase = 'nés en 2010') => {
@@ -267,4 +287,244 @@ assert.equal((await requestAccess({ ...ep, fetch: fakeFetch(200, { pret: true, m
 assert.equal((await requestAccess({ ...ep, fetch: fakeFetch(200, { pret: true }) })).filtres, undefined, 'ancienne version de la fonction')
 assert.equal((await requestAccess({ ...ep, fetch: fakeFetch(404, undefined) })).status, 'absent')
 
+// ---------- Opérations sur les filtres actuels ----------
+const cur: FilterValues = { ...EMPTY_FILTERS, year: '2010', minH: '180', position: 'DC' }
+assert.deepEqual(currentForModel(cur, ctx), { annee: 2010, tailleMin: 180, poste: 'DC' })
+assert.deepEqual(
+  currentForModel({ ...EMPTY_FILTERS, sex: 'F', region: 'region-sud', dept: '83', group: 'g1', pole: 'past', videoOnly: true, q: 'Dupont' }, ctx),
+  { sexe: 'F', region: 'Région Sud', departement: '83', pole: 'sortis', avecVideo: true, groupe: 'Intercomités 2011', recherche: '(nom)' },
+  'du nom cherché, sa présence seulement',
+)
+
+// ajouter : les filtres actuels restent (le cas signalé : « ajoute au filtre que le gamin doit être dans le Var »).
+let o = applyAnswer({ action: 'ajouter', filtres: { departement: 'Var' }, retirer: [], nonGere: [] }, cur, ctx)
+assert.deepEqual(o.values, { ...cur, dept: '83' })
+assert.equal(outcomeText(o, true), 'Ajouté : Var (83)')
+// Une clé déjà posée prend la nouvelle valeur.
+o = applyAnswer({ action: 'ajouter', filtres: { annee: 2011, lateralite: 'gaucher' } }, cur, ctx)
+assert.deepEqual(o.values, { ...cur, year: '2011', hand: 'gaucher' })
+assert.equal(outcomeText(o, true), 'Ajouté : nés en 2011 · gauchers')
+// Nouveau département d'une autre région : la région d'avant part ; nouvelle région : le département d'ailleurs part.
+o = applyAnswer({ action: 'ajouter', filtres: { departement: '75' } }, { ...cur, region: 'region-sud' }, ctx)
+assert.deepEqual([o.values.region, o.values.dept], ['', '75'])
+o = applyAnswer({ action: 'ajouter', filtres: { region: 'IDF' } }, { ...cur, dept: '83' }, ctx)
+assert.deepEqual([o.values.region, o.values.dept], ['region-idf', ''])
+// ajouter + retirer.
+o = applyAnswer({ action: 'ajouter', filtres: { poste: 'PIV' }, retirer: ['annee'] }, cur, ctx)
+assert.deepEqual(o.values, { ...cur, year: '', position: 'PIV' })
+assert.equal(outcomeText(o, true), 'Retiré : année — Ajouté : pivot')
+// ajouter sans filtre actif : remplacer.
+o = applyAnswer({ action: 'ajouter', filtres: { annee: 2010 } }, EMPTY_FILTERS, ctx)
+assert.equal(o.action, 'remplacer')
+assert.equal(outcomeText(o, false), 'Compris : nés en 2010')
+// ajouter une valeur inventée : rien ne change, c'est signalé.
+o = applyAnswer({ action: 'ajouter', filtres: { club: 'Real Madrid' } }, cur, ctx)
+assert.deepEqual([o.changed, o.values], [false, cur])
+assert.equal(notFoundText(o), 'Non appliqué : club « Real Madrid » (pas trouvé dans la base)')
+
+// retirer : par clé, par mot courant, ou par valeur (« retire le Var »).
+o = applyAnswer({ action: 'retirer', filtres: {}, retirer: ['tailleMin'] }, cur, ctx)
+assert.deepEqual(o.values, { ...cur, minH: '' })
+assert.equal(outcomeText(o, true), 'Retiré : taille')
+o = applyAnswer({ action: 'retirer', retirer: ['la taille', 'filtre année', 'poste'] }, cur, ctx)
+assert.deepEqual(o.values, EMPTY_FILTERS)
+assert.equal(outcomeText(o, true), 'Retiré : taille · année · poste')
+o = applyAnswer({ action: 'retirer', filtres: { departement: 'Var' } }, { ...cur, dept: '83' }, ctx)
+assert.deepEqual(o.values, cur)
+assert.equal(outcomeText(o, true), 'Retiré : département')
+// Clé inconnue : signalée ; clé non posée : rien ne change.
+o = applyAnswer({ action: 'retirer', retirer: ['couleurMaillot'] }, cur, ctx)
+assert.deepEqual([o.changed, o.notFound], [false, ['retirer « couleurMaillot » (filtre inconnu)']])
+assert.equal(applyAnswer({ action: 'retirer', retirer: ['club'] }, cur, ctx).changed, false)
+for (const [w, k] of [['tailleMin', 'tailleMin'], ['taille', 'tailleMin'], ['la taille', 'tailleMin'], ['le filtre de taille', 'tailleMin'], ['année', 'annee'], ['le poste', 'poste'], ['vidéo', 'avecVideo'], ['département', 'departement'], ['Var', undefined]] as [string, string | undefined][])
+  assert.equal(keyOf(w), k, w)
+
+// effacer.
+o = applyAnswer({ action: 'effacer', filtres: { annee: 2012 } }, { ...cur, sex: 'M' }, ctx)
+assert.deepEqual(o.values, EMPTY_FILTERS)
+assert.equal(outcomeText(o, true), 'Filtres effacés')
+assert.equal(applyAnswer({ action: 'effacer' }, EMPTY_FILTERS, ctx).changed, false)
+assert.equal(outcomeText(applyAnswer({ action: 'effacer' }, EMPTY_FILTERS, ctx), false), 'Aucun filtre à effacer')
+
+// remplacer.
+o = applyAnswer({ action: 'remplacer', filtres: { annee: 2010, tailleMin: 180 } }, { ...EMPTY_FILTERS, dept: '83', sex: 'F' }, ctx)
+assert.deepEqual(o.values, { ...EMPTY_FILTERS, year: '2010', minH: '180' })
+assert.equal(outcomeText(o, true), 'Remplacés : nés en 2010 · taille ≥ 180 cm')
+// Rien de compris : filtres inchangés.
+o = applyAnswer({ action: 'remplacer', filtres: {}, nonGere: ['bons au tir'] }, cur, ctx)
+assert.deepEqual([o.changed, o.values, unsupportedText(o)], [false, cur, 'Je ne sais pas encore filtrer sur : bons au tir'])
+
+// Action absente ou inventée (ancienne version de la fonction, modèle distrait).
+assert.equal(applyAnswer({ filtres: { annee: 2010 } }, cur, ctx).action, 'remplacer')
+assert.equal(applyAnswer({ retirer: ['taille'] }, cur, ctx).action, 'retirer')
+assert.equal(applyAnswer({ action: 'supprimer_tout', filtres: { annee: 2012 } }, cur, ctx).action, 'remplacer')
+assert.equal(applyAnswer({ action: 'retirer', retirer: 'taille' }, cur, ctx).changed, false, 'retirer doit être un tableau')
+
+// ---------- Exemples des consignes du modèle : chaque réponse est acceptée et a l'effet attendu ----------
+const fn = readFileSync(new URL('../supabase/functions/transcrire/index.ts', import.meta.url), 'utf8')
+const consignes = fn.slice(fn.indexOf('const CONSIGNES = `') + 19, fn.indexOf('`', fn.indexOf('const CONSIGNES = `') + 19))
+const examples = [...consignes.matchAll(/^Actuels (\{.*?\}) ; « (.*) » → (\{.*\})$/gm)]
+assert.ok(examples.length >= 8, `exemples trouvés : ${examples.length}`)
+// « (nom) » : un nom est cherché (exemple : Martin).
+const toValues = (a: Record<string, unknown>) => {
+  const v = applyAnswer({ action: 'remplacer', filtres: { ...a, recherche: undefined } }, EMPTY_FILTERS, ctx).values
+  return a.recherche ? { ...v, q: 'Martin' } : v
+}
+const seen = new Set<string>()
+for (const [, actuels, phrase, reponse] of examples) {
+  const before = toValues(JSON.parse(actuels))
+  const r = JSON.parse(reponse)
+  assert.deepEqual(Object.keys(r), ['action', 'filtres', 'retirer', 'nonGere'], phrase)
+  seen.add(r.action)
+  const out = applyAnswer(r, before, ctx)
+  assert.equal(out.action, r.action, phrase)
+  assert.equal(out.notFound.length, 0, `${phrase} : ${out.notFound}`)
+  assert.ok(out.changed, `l'exemple change les filtres : ${phrase}`)
+  // Les clés des exemples sont celles du schéma.
+  for (const k of [...Object.keys(r.filtres), ...r.retirer, ...Object.keys(JSON.parse(actuels))]) assert.ok(k in schema, `${phrase} : clé ${k}`)
+  if (localCommand(phrase)) assert.equal(r.action, 'effacer', phrase)
+}
+assert.deepEqual([...seen].sort(), ['ajouter', 'effacer', 'remplacer', 'retirer'])
+// Le cas signalé, d'après l'exemple : les filtres restent et le Var s'ajoute.
+const varCase = examples.find((e) => e[2].includes('gamin'))!
+assert.deepEqual(applyAnswer(JSON.parse(varCase[3]), toValues(JSON.parse(varCase[1])), ctx).values, { ...EMPTY_FILTERS, year: '2010', minH: '180', dept: '83' })
+
+// Taille des consignes (avec le schéma d'une base ordinaire), pour suivre le coût de chaque appel.
+const schemaText = Object.entries(schema).map(([k, v]) => `${k} : ${v}`).join('\n')
+const promptChars = consignes.length + schemaText.length + 30
+console.log(`Consignes : ${consignes.length} caractères, schéma : ${schemaText.length}, total ≈ ${promptChars} caractères (≈ ${Math.round(promptChars / 3.5)} jetons)`)
+assert.ok(promptChars < 6000, 'consignes compactes')
+
+// ---------- Commandes évidentes, reconnues sans le modèle ----------
+const LOCAL: [string, 'effacer' | null][] = [
+  ['efface la sélection', 'effacer'],
+  ['Efface la sélection.', 'effacer'],
+  ['efface les filtres', 'effacer'],
+  ['efface tout', 'effacer'],
+  ['effacer', 'effacer'],
+  ['tout effacer', 'effacer'],
+  ['réinitialise', 'effacer'],
+  ['réinitialise les filtres', 'effacer'],
+  ['Réinitialiser la recherche', 'effacer'],
+  ['remets à zéro', 'effacer'],
+  ['remets tout à zéro', 'effacer'],
+  ['remise à zéro', 'effacer'],
+  ['supprime les filtres', 'effacer'],
+  ['supprime tous les filtres', 'effacer'],
+  ['enlève tous les filtres', 'effacer'],
+  ['retire les filtres', 'effacer'],
+  ['vide la sélection', 'effacer'],
+  ['tu peux effacer les filtres s’il te plaît', 'effacer'],
+  ['euh efface tout', 'effacer'],
+  ['on recommence', 'effacer'],
+  ['recommence', 'effacer'],
+  ['montre tout le monde', 'effacer'],
+  ['montre-moi tous les joueurs', 'effacer'],
+  ['affiche toute la liste', 'effacer'],
+  ['plus de filtres', 'effacer'],
+  ['aucun filtre', 'effacer'],
+  ['reset', 'effacer'],
+  // Au modèle : ce n'est pas « tout effacer ».
+  ['efface le filtre taille', null],
+  ['enlève la taille', null],
+  ['retire le Var', null],
+  ['tous les joueurs nés en 2010', null],
+  ['montre-moi les gauchers', null],
+  ['ajoute au filtre que le gamin doit être dans le Var', null],
+  ['peu importe le poste', null],
+  ['sans condition d’année', null],
+  ['efface la sélection et montre les gardiens de 2010', null],
+  ['les joueurs du club de Toulon', null],
+  ['', null],
+]
+for (const [phrase, want] of LOCAL) assert.equal(localCommand(phrase), want, phrase)
+assert.ok(LOCAL.length >= 25)
+// La commande locale donne le même effet qu'un « effacer » du modèle.
+assert.deepEqual(applyAnswer({ action: localCommand('efface la sélection')! }, cur, ctx).values, EMPTY_FILTERS)
+
+// ---------- Noms : opérations avec la recherche par nom ----------
+o = applyAnswer({ action: 'ajouter', filtres: { recherche: 'Martin' } }, { ...EMPTY_FILTERS, year: '2010' }, ctx)
+assert.deepEqual(o.values, { ...EMPTY_FILTERS, year: '2010', q: 'Martin' })
+assert.equal(outcomeText(o, true), 'Ajouté : nom : Martin')
+o = applyAnswer({ action: 'retirer', retirer: ['recherche'] }, { ...EMPTY_FILTERS, year: '2010', q: 'Martin' }, ctx)
+assert.deepEqual([o.values, outcomeText(o, true)], [{ ...EMPTY_FILTERS, year: '2010' }, 'Retiré : recherche par nom'])
+assert.equal(keyOf('le nom'), 'recherche')
+assert.equal(keyOf('prénom'), 'recherche')
+// Le modèle recopie « (nom) » en ajoutant autre chose : le nom cherché reste.
+o = applyAnswer({ action: 'ajouter', filtres: { recherche: '(nom)', lateralite: 'gaucher' } }, { ...EMPTY_FILTERS, q: 'Martin' }, ctx)
+assert.deepEqual(o.values, { ...EMPTY_FILTERS, q: 'Martin', hand: 'gaucher' })
+
+// ---------- Recherche par nom tolérante (src/nameMatch.ts) ----------
+assert.equal(nameKey('  Jean-Pierre  D’Arc '), 'jean pierre d arc')
+assert.deepEqual(queryWords('Martin 638 301 500 1234'), ['martin', '6383015001234'])
+assert.deepEqual(queryWords('6 3 8 3 0 1 5'), ['6383015'])
+assert.deepEqual(queryWords('Lucas-Martin'), ['lucas', 'martin'])
+for (const [a, b] of [
+  ['Dupond', 'Dupont'],
+  ['Mathéo', 'Matteo'],
+  ['Lefebvre', 'Lefèvre'],
+  ['Philippe', 'Filipe'],
+  ['Gauthier', 'Gautier'],
+  ['Rémi', 'Rémy'],
+  ['Kévin', 'KEVIN'],
+  ['Thomas', 'Tomas'],
+  ['Martins', 'Martin'],
+] as [string, string][])
+  assert.equal(phonetic(a), phonetic(b), `${a} = ${b}`)
+for (const [a, b] of [['Martin', 'Morin'], ['Dupont', 'Durand'], ['Léa', 'Léo']] as [string, string][]) assert.notEqual(phonetic(a), phonetic(b), `${a} ≠ ${b}`)
+assert.equal(levenshtein('dupond', 'dupont'), 1)
+assert.equal(levenshtein('martin', 'durand', 2), 3, 'arrêt au-delà du plafond')
+assert.ok(nameLike('mateo', 'matteo'))
+assert.ok(nameLike('lukas', 'lucas'))
+assert.ok(!nameLike('le', 'lea'), 'mots trop courts : pas d’approchant')
+
+type P = { id: string; firstName: string; lastName: string; club?: string; team?: string; license?: string }
+const people: P[] = [
+  { id: '1', firstName: 'Lucas', lastName: 'Martin', club: 'Toulon Handball', license: '6383015001234' },
+  { id: '2', firstName: 'Matteo', lastName: 'Dupont', club: 'US Ivry Handball', license: '6375001000001' },
+  { id: '3', firstName: 'Jean-Pierre', lastName: 'Lefèvre', club: 'Istres Provence Handball' },
+  { id: '4', firstName: 'Léa', lastName: 'Martin', club: 'Hand Ball Club Aix' },
+  { id: '5', firstName: 'Kévin', lastName: 'Morin' },
+]
+const find = (q: string) => {
+  const r = searchByName(people, q, playerHaystack, nameTokens)
+  return [r.list.map((p) => p.id).join(','), r.approx] as [string, boolean]
+}
+assert.deepEqual(find(''), ['1,2,3,4,5', false])
+assert.deepEqual(find('Lucas Martin'), ['1', false])
+assert.deepEqual(find('martin'), ['1,4', false])
+assert.deepEqual(find('MARTIN léa'), ['4', false])
+assert.deepEqual(find('jean pierre'), ['3', false])
+assert.deepEqual(find('Jean-Pierre'), ['3', false])
+assert.deepEqual(find('jeanpierre'), ['3', false])
+assert.deepEqual(find('lefevre'), ['3', false], 'sans accent')
+assert.deepEqual(find('ivry'), ['2', false], 'club')
+assert.deepEqual(find('638 301 500 1234'), ['1', false], 'licence dite par morceaux')
+assert.deepEqual(find('6375001'), ['2', false], 'début de licence')
+// Approchants : seulement si la recherche exacte ne trouve personne.
+assert.deepEqual(find('Dupond'), ['2', true])
+assert.deepEqual(find('Mathéo Dupond'), ['2', true])
+assert.deepEqual(find('Lefebvre'), ['3', true])
+assert.deepEqual(find('Lukas Martin'), ['1', true])
+assert.deepEqual(find('Kevin Maurin'), ['5', true])
+assert.deepEqual(find('Zidane'), ['', false], 'personne, pas d’approchant inventé')
+assert.deepEqual(find('Martin Toulouse'), ['', false], 'un mot sans rapport : personne')
+assert.deepEqual(find('12345'), ['', false], 'chiffres : pas d’approchant')
+// Grande base : 40 000 fiches, recherche exacte puis approchante en un temps raisonnable.
+const big: P[] = Array.from({ length: 40_000 }, (_, i) => ({ id: String(i), firstName: ['Lucas', 'Léa', 'Hugo', 'Emma'][i % 4], lastName: `Nom${i}`, club: `Club ${i % 300}`, license: String(6300000000000 + i) }))
+big.push({ id: 'x', firstName: 'Matteo', lastName: 'Dupont' })
+const hayCache = new Map<P, string>()
+const hayOfBig = (p: P) => hayCache.get(p) ?? (hayCache.set(p, playerHaystack(p)), hayCache.get(p)!)
+let t0 = performance.now()
+assert.equal(searchByName(big, 'dupont', hayOfBig, nameTokens).list.length, 1)
+const tExact = performance.now() - t0
+t0 = performance.now()
+const near = searchByName(big, 'dupond', hayOfBig, nameTokens)
+const tNear = performance.now() - t0
+assert.deepEqual([near.list.map((p) => p.id), near.approx], [['x'], true])
+console.log(`Recherche par nom sur 40 001 fiches : exacte ${Math.round(tExact)} ms (textes préparés compris), approchante ${Math.round(tNear)} ms`)
+assert.ok(tNear < 1500, 'recherche approchante assez rapide')
+
 console.log('Recherche vocale : tous les tests passent.')
+
+
