@@ -83,6 +83,10 @@ html, body, #root { min-height: 100%; }
 @container (min-width: 40rem) {
   .md-panel .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Avis d'un joueur à côté de la liste (événement, components/Opinions.tsx) : avis détaillés sur deux colonnes si la place le permet. */
+@container (min-width: 44rem) {
+  .avis-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 /* Trois colonnes seulement sur un panneau très large : en dessous, nom, poste et club seraient coupés. */
 @container (min-width: 100rem) {
   .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }

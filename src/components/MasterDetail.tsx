@@ -1,4 +1,4 @@
-import { createContext, Suspense, useContext, useEffect, useRef, type ReactNode } from 'react'
+import { createContext, Suspense, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useMatch, useNavigate, useOutlet } from 'react-router-dom'
 import { useBack } from '../backNav'
 import { ask, canLeave, releaseLeaveGuard, setLeaveGuard } from './Confirm'
@@ -11,7 +11,11 @@ import { Icon } from './ui'
  * comme avant. Les lignes de la liste portent `data-md="<id>"` : un clic (ou ↑ ↓) les ouvre dans le panneau.
  */
 
-type Panel = { close: () => void }
+/**
+ * `setFocus(true)` : l'écran du panneau demande toute la largeur (la liste est masquée, pas démontée : elle garde son
+ * état, et la page reprend sa position quand elle revient). Ex. avis d'un joueur ouverts sur un événement.
+ */
+type Panel = { close: () => void; focus: boolean; setFocus: (on: boolean) => void }
 const PanelCtx = createContext<Panel | null>(null)
 
 /** Dans le panneau de droite (null ailleurs) : l'écran affiche « Fermer » au lieu du bouton retour. */
@@ -71,6 +75,21 @@ export default function MasterDetail({
   // Champs du panneau où l'on a tapé quelque chose (remis à zéro à chaque élément ouvert).
   const typed = useRef(new WeakSet<Element>())
   const open = id && split
+  // Panneau en pleine largeur (demandé par l'écran ouvert), liste masquée.
+  const [focusWanted, setFocus] = useState(false)
+  const focus = !!open && focusWanted
+  const focusRef = useRef(focus)
+  focusRef.current = focus
+  // Position de la page (donc de la liste) quand elle est masquée : retrouvée quand elle revient.
+  const listY = useRef(0)
+  useLayoutEffect(() => {
+    if (focus) {
+      listY.current = window.scrollY
+      return
+    }
+    if (listY.current) window.scrollTo(0, listY.current)
+    listY.current = 0
+  }, [focus])
 
   /** Ouvre `next` dans le panneau (après vérification d'une saisie en cours). */
   async function show(next: string) {
@@ -117,6 +136,8 @@ export default function MasterDetail({
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select, [contenteditable="true"]')) return
       if (e.key === 'Escape') return void closeRef.current()
+      // Liste masquée : ↑ ↓ appartiennent à l'écran du panneau.
+      if (focusRef.current) return
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (t === document.body || t === document.documentElement)) {
         const items = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-md]') ?? [])]
         const i = items.findIndex((el) => el.dataset.md === id)
@@ -162,8 +183,11 @@ export default function MasterDetail({
   }
 
   return (
-    <div className={open ? 'grid items-start gap-5 rail:gap-2' : ''} style={open ? { gridTemplateColumns: `${listCol} minmax(0, 1fr)` } : undefined}>
-      <div ref={listRef} className={`min-w-0 ${open ? 'md-list' : ''}`} onClickCapture={onClick} onKeyDown={onKeyDown}>
+    <div
+      className={open ? 'grid items-start gap-5 rail:gap-2' : ''}
+      style={open ? { gridTemplateColumns: focus ? 'minmax(0, 1fr)' : `${listCol} minmax(0, 1fr)` } : undefined}
+    >
+      <div ref={listRef} className={`min-w-0 ${open ? 'md-list' : ''} ${focus ? 'hidden' : ''}`} onClickCapture={onClick} onKeyDown={onKeyDown}>
         {list}
       </div>
       {open && (
@@ -178,7 +202,7 @@ export default function MasterDetail({
             if ((e.target as Element).matches(TYPED)) typed.current.add(e.target as Element)
           }}
         >
-          <PanelCtx.Provider value={{ close: () => void closeRef.current() }}>
+          <PanelCtx.Provider value={{ close: () => void closeRef.current(), focus, setFocus }}>
             <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>{outlet}</Suspense>
           </PanelCtx.Provider>
         </section>

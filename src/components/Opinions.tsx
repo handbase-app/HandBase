@@ -16,6 +16,48 @@ const obsColor = (i: number) => {
   const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
   return list[i % list.length]
 }
+// « Détail des avis » : cartes repliées par défaut ; « Tout déplier » retenu sur l'appareil.
+const ALL_OPEN_KEY = 'handbase.avis.toutDeplie'
+function readAllOpen() {
+  try {
+    return localStorage.getItem(ALL_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Cartes repliables du « Détail des avis » : chacune s'ouvre seule ; « Tout déplier / Tout replier » change toutes les
+ * cartes et devient le choix par défaut sur l'appareil.
+ */
+function useAvisFold(ids: string[]) {
+  const [allOpen, setAllOpen] = useState(readAllOpen)
+  // Cartes ouvertes ou fermées à la main, à l'inverse du choix général.
+  const [flipped, setFlipped] = useState<Set<string>>(new Set())
+  const isOpen = (id: string) => allOpen !== flipped.has(id)
+  const everyOpen = ids.length > 0 && ids.every(isOpen)
+  return {
+    isOpen,
+    everyOpen,
+    toggle: (id: string) =>
+      setFlipped((s) => {
+        const n = new Set(s)
+        if (n.has(id)) n.delete(id)
+        else n.add(id)
+        return n
+      }),
+    setAll: (open: boolean) => {
+      setAllOpen(open)
+      setFlipped(new Set())
+      try {
+        localStorage.setItem(ALL_OPEN_KEY, open ? '1' : '0')
+      } catch {
+        /* stockage indisponible : choix gardé jusqu'à la fermeture */
+      }
+    },
+  }
+}
+
 /** Écart (max − min) à partir duquel les avis sont considérés divergents. */
 export const DIVERGENCE = 2
 
@@ -43,6 +85,7 @@ interface Row {
  * les avis hors cadre jamais (ils restent consultables à part).
  * `lockedEventId` : vue d'un seul événement (page de l'événement), sans sélecteur, radar d'abord, en compact ;
  * `scoreCriteria` : détaille alors les notes de chaque avis.
+ * `wide` : colonne large (avis à côté de la liste, ordinateur) : radar plus grand, avis détaillés sur deux colonnes.
  */
 export function Opinions({
   player,
@@ -51,6 +94,7 @@ export function Opinions({
   events,
   lockedEventId,
   scoreCriteria,
+  wide = false,
 }: {
   player: Player
   criteria: Criterion[]
@@ -58,6 +102,7 @@ export function Opinions({
   events: HBEvent[]
   lockedEventId?: string
   scoreCriteria?: Criterion[]
+  wide?: boolean
 }) {
   const locked = lockedEventId !== undefined
   const [chosenEventId, setEventId] = useState<string>('all')
@@ -71,6 +116,8 @@ export function Opinions({
   // Avis pris en compte dans les chiffres, et avis listés dans le détail (validés + en attente).
   const evs = evaluations.filter((e) => inPeriod(e) && (counts(e) || (withPending && reviewOf(e) === 'pending')))
   const listed = evaluations.filter((e) => inPeriod(e) && reviewOf(e) !== 'refused')
+  // Détail des avis : cartes repliées par défaut (ou toutes dépliées, au choix retenu sur l'appareil).
+  const fold = useAvisFold(listed.map((e) => e.id))
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
   const eventLabel = (e: Evaluation) => {
     if (!e.eventId) return contextLabel(e)
@@ -245,13 +292,25 @@ export function Opinions({
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
         <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-          <OpinionsRadar data={radarData} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked} />
+          <OpinionsRadar data={radarData} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked && !wide} large={wide} />
         </Suspense>
       )}
 
       {/* Détail des avis (avec commentaires) */}
       <div className="flex flex-col gap-2">
-        <div className="section-title mt-2">Détail des avis ({listed.length})</div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="section-title m-0">Détail des avis ({listed.length})</div>
+          {listed.length > 0 && (
+            <button
+              className="-my-2 flex min-h-11 shrink-0 items-center px-2 text-[11px] font-bold text-accent"
+              onClick={() => fold.setAll(!fold.everyOpen)}
+              title={fold.everyOpen ? 'Replier toutes les cartes' : 'Déplier toutes les cartes (retenu sur cet appareil)'}
+            >
+              {fold.everyOpen ? 'Tout replier' : 'Tout déplier'}
+            </button>
+          )}
+        </div>
+        <div className={wide ? 'avis-cols flex flex-col gap-2' : 'contents'}>
         {[...listed]
           .sort((a, b) => b.date.localeCompare(a.date))
           .map((e) => (
@@ -263,8 +322,10 @@ export function Opinions({
               dept={department(player)}
               event={events.find((x) => x.id === e.eventId)}
               criteria={scoreCriteria}
+              fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
             />
           ))}
+        </div>
       </div>
 
       {refused.length > 0 && (
@@ -284,6 +345,7 @@ export function Opinions({
                   dept={department(player)}
                   event={events.find((x) => x.id === e.eventId)}
                   criteria={scoreCriteria}
+                  fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
                 />
               ))}
           </div>
@@ -322,6 +384,7 @@ export function AvisCard({
   dept,
   event,
   criteria,
+  fold,
 }: {
   e: Evaluation
   where?: string
@@ -330,12 +393,27 @@ export function AvisCard({
   dept?: string
   event?: HBEvent
   criteria?: Criterion[]
+  /** Carte repliable (« Détail des avis ») : repliée, seulement l'auteur, la date, le nombre de critères et une ligne de commentaire. */
+  fold?: { open: boolean; toggle: () => void }
 }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
   const notes = Object.values(e.scores).filter((v) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
+  const shut = !!fold && !fold.open
   return (
-    <div className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
+    <div
+      className={`rounded-lg border border-line bg-panel-2 p-2.5 text-xs ${fold ? 'cursor-pointer' : ''}`}
+      onClick={
+        fold
+          ? (ev) => {
+              // Liens, ✎, ✕, validation… gardent leur rôle ; un texte sélectionné ne replie pas la carte.
+              if ((ev.target as HTMLElement).closest('a, button, input, select, textarea, label, summary, [role="button"]')) return
+              if (window.getSelection()?.toString()) return
+              fold.toggle()
+            }
+          : undefined
+      }
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="text-[10px] text-muted">
           {player && (
@@ -372,17 +450,28 @@ export function AvisCard({
               ✕
             </button>
           )}
+          {fold && (
+            <button
+              className="-my-2 -mr-2 flex min-h-11 min-w-11 items-center justify-center text-sm text-muted hover:text-fg"
+              aria-expanded={fold.open}
+              aria-label={fold.open ? 'Replier le détail de cet avis' : 'Déplier le détail de cet avis'}
+              title={fold.open ? 'Replier' : 'Voir les notes critère par critère'}
+              onClick={fold.toggle}
+            >
+              {fold.open ? '▾' : '▸'}
+            </button>
+          )}
         </div>
       </div>
-      {criteria && <ScoreChips e={e} criteria={criteria} />}
+      {criteria && !shut && <ScoreChips e={e} criteria={criteria} />}
       {e.strengths && (
-        <div>
+        <div className={shut ? 'truncate' : ''}>
           <span className="text-emerald-300">+ </span>
           {e.strengths}
         </div>
       )}
       {e.improvements && (
-        <div>
+        <div className={shut ? 'truncate' : ''}>
           <span className="text-amber-300">→ </span>
           {e.improvements}
         </div>
@@ -445,7 +534,7 @@ function ScoreChips({ e, criteria }: { e: Evaluation; criteria: Criterion[] }) {
  * fiche (tableau / radar, détail, validation), verrouillée sur l'événement. Mêmes avis visibles que la fiche
  * (tous ceux présents sur l'appareil) ; en tête, la note de chaque évaluateur pour comprendre un « avis très partagés ».
  */
-export function EventAvis({ player, evals, criteria, event }: { player: Player; evals: Evaluation[]; criteria: Criterion[]; event: HBEvent }) {
+export function EventAvis({ player, evals, criteria, event, wide }: { player: Player; evals: Evaluation[]; criteria: Criterion[]; event: HBEvent; wide?: boolean }) {
   const list = evals.filter((e) => e.playerId === player.id)
   // Mêmes critères que l'onglet Avis de la fiche : subjectifs, du poste du joueur.
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, player.position))
@@ -478,7 +567,7 @@ export function EventAvis({ player, evals, criteria, event }: { player: Player; 
           Voir la fiche →
         </Link>
       </div>
-      <Opinions player={player} criteria={subjective} evaluations={list} events={[event]} lockedEventId={event.id} scoreCriteria={criteria} />
+      <Opinions player={player} criteria={subjective} evaluations={list} events={[event]} lockedEventId={event.id} scoreCriteria={criteria} wide={wide} />
     </div>
   )
 }

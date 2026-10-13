@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useEffect, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
@@ -432,16 +432,31 @@ export function EventDetail() {
   // événement réparti en équipes : liste par équipe et poste (par défaut), par équipe et numéro, ou par poste.
   const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
   const [groupBy, setGroupBy] = useRosterGroup(id)
-  // Joueur dont les avis sont dépliés sous sa ligne (un seul à la fois).
-  const [avis, setAvis] = useSessionState<{ ev?: string; pid: string } | null>('handbase.evenement.avis', null)
-  const openAvis = avis && avis.ev === id ? avis.pid : null
-  const toggleAvis = (pid: string) => setAvis(openAvis === pid ? null : { ev: id, pid })
   const panel = usePanel()
-  // Ordinateur : boutons en barre d'actions compacte ; et, s'il y a la place, liste des joueurs à gauche
-  // et avis du joueur choisi à droite (sur téléphone, les avis se déplient sous la ligne).
+  const loc = useLocation()
+  // Ordinateur : boutons en barre d'actions compacte ; et liste des joueurs à gauche, avis du joueur choisi à droite
+  // (dans le panneau, qui passe alors en pleine largeur ; sur téléphone, les avis se déplient sous la ligne).
   const bar = useMedia(MQ.side)
   const [boxRef, boxW] = useWidth<HTMLDivElement>()
-  const duo = bar && boxW >= 680
+  const duo = bar && (!!panel || boxW >= 680)
+  // Joueur dont les avis sont ouverts (un seul à la fois). Téléphone : dépliés sous sa ligne, retenus pendant la session.
+  // Ordinateur : dans l'adresse (?avis=<id>) : le retour du navigateur les ferme, et revenir d'une fiche les retrouve.
+  const [avis, setAvis] = useSessionState<{ ev?: string; pid: string } | null>('handbase.evenement.avis', null)
+  const urlAvis = params.get('avis')
+  const openAvis = duo ? urlAvis : avis && avis.ev === id ? avis.pid : null
+  function showAvis(pid: string | null) {
+    if (!duo) return setAvis(pid ? { ev: id, pid } : null)
+    const state = (loc.state ?? {}) as Record<string, unknown>
+    // Fermer des avis ouverts ici : retour à l'entrée d'avant (liste des événements, à sa position).
+    if (!pid && state.avis) return void nav(-1)
+    const next = new URLSearchParams(params)
+    if (pid) next.set('avis', pid)
+    else next.delete('avis')
+    // Premiers avis ouverts : nouvelle entrée d'historique ; d'un joueur à l'autre, on remplace.
+    if (pid && !urlAvis) setParams(next, { state: { ...state, avis: true } })
+    else setParams(next, { replace: true, state })
+  }
+  const toggleAvis = (pid: string) => showAvis(openAvis === pid ? null : pid)
   // « Comparer » : cases à cocher sur les joueurs (liste et classement), deux à comparer.
   const pick = useComparePick()
   const data = useLiveQuery(async () => {
@@ -462,6 +477,53 @@ export function EventDetail() {
 
   // Retour d'une fiche ouverte depuis la liste : même position qu'avant.
   useRestoreScroll(`evenement.${id}`, !!data)
+
+  // Avis affichés à côté de la liste des joueurs : le panneau prend toute la largeur (liste des événements masquée),
+  // joueurs sur un tiers, avis sur deux tiers. Échap ferme les avis (la liste revient) ; ↑ ↓ changent de joueur.
+  const avisShown = duo && tab === 'joueurs' && !adding && !!openAvis && !!data?.players.some((p) => p.id === openAvis)
+  const setFocus = panel?.setFocus
+  useEffect(() => {
+    if (!setFocus) return
+    setFocus(avisShown)
+    return () => {
+      setFocus(false)
+    }
+  }, [setFocus, avisShown])
+  // Joueurs dont on peut lire les avis, dans l'ordre affiché (rempli au rendu).
+  const avisOrder = useRef<string[]>([])
+  const avisKeys = useRef({ openAvis, showAvis })
+  avisKeys.current = { openAvis, showAvis }
+  useEffect(() => {
+    if (!avisShown) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
+      if (document.querySelector('[aria-modal="true"], .fixed.inset-0')) return
+      const t = e.target as HTMLElement
+      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
+      const { openAvis: cur, showAvis: go } = avisKeys.current
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        go(null)
+        return
+      }
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (t === document.body || t === document.documentElement || !!t.closest('[data-avis-nav]'))) {
+        e.preventDefault()
+        const order = avisOrder.current
+        const next = order[order.indexOf(cur ?? '') + (e.key === 'ArrowDown' ? 1 : -1)]
+        if (!next) return
+        go(next)
+        // La ligne du joueur reste visible dans la liste.
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-avis-row="${CSS.escape(next)}"]`)?.scrollIntoView({ block: 'nearest' })
+        })
+      }
+    }
+    // Capture : avant le panneau, qui sinon fermerait l'événement (Échap) ou parcourrait la liste masquée (↑ ↓).
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [avisShown])
 
   // Match importé d'une feuille avant la répartition en équipes : l'organisateur ou un participant qui l'ouvre
   // range une fois (par appareil) les joueurs dans les deux équipes de la feuille. Retirer ces équipes ensuite ne les
@@ -557,7 +619,10 @@ export function EventDetail() {
   )
   const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
-  const avisPlayer = duo && openAvis ? players.find((p) => p.id === openAvis) : undefined
+  const avisPlayer = avisShown ? players.find((p) => p.id === openAvis) : undefined
+  // ↑ ↓ : joueurs de la liste affichée puis hors liste, ceux qui ont des avis.
+  const withAvis = new Set(evals.map((e) => e.playerId))
+  avisOrder.current = [...sections.flatMap((sec) => sec.players), ...settled].map((p) => p.id).filter((pid) => withAvis.has(pid))
 
   // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation.
   async function removeOne(p: Player) {
@@ -570,7 +635,16 @@ export function EventDetail() {
     <PlayerMenuScope.Provider value={{ pick, eventId: ev.id }}>
     <div ref={boxRef} className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        {panel ? <PanelClose /> : <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />}
+        {avisPlayer && panel ? (
+          // Avis ouverts en pleine largeur : on revient à la liste des événements en fermant les avis.
+          <button onClick={() => showAvis(null)} title="Fermer les avis et afficher la liste des événements (Échap)" className="text-left text-xs font-bold text-muted hover:text-fg">
+            ← LISTE DES ÉVÉNEMENTS
+          </button>
+        ) : panel ? (
+          <PanelClose />
+        ) : (
+          <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
+        )}
         {manage && (
           <div className="flex gap-4">
             {!editing && (
@@ -694,7 +768,11 @@ export function EventDetail() {
           <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
           // Deux colonnes seulement quand un joueur est choisi : sinon la liste (et « Notés hors liste ») prend toute la largeur.
-          <div className={avisPlayer ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : ''}>
+          // Panneau en pleine largeur : joueurs sur un tiers (une colonne de cartes), avis sur deux tiers.
+          <div
+            className={avisPlayer ? 'grid items-start gap-4' : ''}
+            style={avisPlayer ? { gridTemplateColumns: panel ? 'clamp(19rem, 33%, 34rem) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)' } : undefined}
+          >
           <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
             {duo && !avisPlayer && (
               <p className="text-[11px] text-muted">
@@ -742,7 +820,7 @@ export function EventDetail() {
                 {settled.length > 0 && (
                   <div className="cols mt-2 flex flex-col gap-1 gap-x-6">
                     {settled.map((p) => (
-                      <div key={p.id} className={`flex flex-col gap-1 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
+                      <div key={p.id} data-avis-row={p.id} className={`flex flex-col gap-1 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
                         <div className={`flex items-center justify-between gap-2 rounded text-xs ${duo && openAvis === p.id ? 'bg-accent/10' : ''}`}>
                           <Link to={`/joueurs/${p.id}`} className="truncate">
                             <b>
@@ -864,7 +942,7 @@ export function EventDetail() {
                   const n = evals.filter((e) => e.playerId === p.id).length
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
-                    <div key={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
+                    <div key={p.id} data-avis-row={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
                     {/* La photo ouvre la fiche dans l'événement (ses joueurs seulement autour, EventPlayers.tsx ; le retour revient
                         ici, à la même position) ; le reste de la ligne mène à l'évaluation. */}
                     <PlayerRow
@@ -928,16 +1006,17 @@ export function EventDetail() {
           </div>
           {avisPlayer && (
             // Avis du joueur choisi : colonne collée en haut du panneau, qui défile seule.
-            <aside className="md-box sticky top-0 z-10 flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] flex-col gap-2 overflow-y-auto overscroll-contain">
+            <aside key={avisPlayer.id} data-avis-nav className="md-box sticky top-0 z-10 flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] flex-col gap-2 overflow-y-auto overscroll-contain">
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate text-sm font-bold">
                   {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
                 </span>
-                <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis" aria-label="Fermer les avis" onClick={() => setAvis(null)}>
+                <span className="hidden shrink-0 text-[10px] text-muted wide:inline">↑ ↓ joueur précédent / suivant · Échap ferme</span>
+                <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis (Échap)" aria-label="Fermer les avis" onClick={() => showAvis(null)}>
                   <Icon name="close" className="h-4 w-4" />
                 </button>
               </div>
-              <EventAvis player={avisPlayer} evals={evals} criteria={criteria} event={ev} />
+              <EventAvis player={avisPlayer} evals={evals} criteria={criteria} event={ev} wide={!!panel} />
             </aside>
           )}
           </div>
