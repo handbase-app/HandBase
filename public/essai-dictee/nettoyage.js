@@ -3,7 +3,10 @@
 //   de phrase ou entre virgules (en fait, tu vois, tu sais, du coup, voilà en début ou en fin) ;
 // - retire les répétitions immédiates d'un mot ou d'un groupe de 2 à 3 mots (« le le », « très très ») ;
 // - corrige les espaces et la ponctuation à la française, met une majuscule en début de phrase.
+// - corrige pour finir les erreurs de reconnaissance connues du vocabulaire du handball (vocabulaire.js).
 // Aucun autre mot n'est retiré : le sens est gardé.
+
+import { corrections } from './vocabulaire.js'
 
 const NBSP = '\u00A0'
 // Toujours des hésitations, où qu'elles soient.
@@ -14,7 +17,8 @@ const BEN = /(^|[\s,;.!?…])ben(?=$|[\s,;.!?…])/gu
 // (« il en fait trop » garde son « en fait »).
 const TICS = ['en fait', 'tu vois', 'tu sais', 'du coup']
 // Mots qui se répètent normalement (« nous nous entraînons », « vous vous placez »).
-const KEEP_DOUBLE = new Set(['nous', 'vous', 'que', 'qu'])
+// Les nombres aussi : « 2 contre 1, 1 contre 1 » ne doit rien perdre.
+const KEEP_DOUBLE = new Set(['nous', 'vous', 'que', 'qu', 'un', 'une', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'])
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -47,7 +51,7 @@ function removeRepeats(t) {
       const prev = out.slice(-n).map(bare)
       const next = tokens.slice(i, i + n).map(bare)
       if (prev.some((w) => !w)) continue
-      if (n === 1 && KEEP_DOUBLE.has(prev[0])) continue
+      if (n === 1 && (KEEP_DOUBLE.has(prev[0]) || /^\d+$/.test(prev[0]))) continue
       if (prev.join(' ') === next.join(' ')) {
         // On retire la première occurrence, la seconde (et sa ponctuation) est gardée.
         out.splice(out.length - n, n)
@@ -77,12 +81,50 @@ function fixPunctuation(t) {
   t = t.replace(/ {2,}/g, ' ').trim()
   // majuscule en début de texte et après . ! ? (pas après …, souvent en milieu de phrase)
   t = t.replace(/(^|[.!?]\s+)(\p{Ll})/gu, (m, a, b) => a + b.toUpperCase())
+  t = t.replace(/[,;:\s ]+$/u, '') // virgule ou deux-points laissés en fin
   if (t && /[\p{L}\p{N}»)]$/u.test(t)) t += '.'
   return t
 }
 
-export function nettoyer(texte) {
-  if (!texte) return ''
+// Lettres tolérant les accents, pour les corrections données en chaîne.
+const ACCENTS = { a: '[aàâä]', e: '[eéèêë]', i: '[iîï]', o: '[oôö]', u: '[uùûü]', c: '[cç]', y: '[yÿ]' }
+function patternFrom(faux) {
+  if (faux instanceof RegExp) return faux
+  const base = faux.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  let src = ''
+  for (const ch of base) {
+    if (ch === ' ' || ch === '-') src += '[\\s-]+'
+    else if (ACCENTS[ch]) src += ACCENTS[ch]
+    else src += escapeRe(ch)
+  }
+  return new RegExp('(?<![\\p{L}\\p{N}])' + src + '(?![\\p{L}\\p{N}])', 'giu')
+}
+const COMPILED = corrections.map((c) => ({ re: patternFrom(c.faux), juste: c.juste }))
+
+// Applique les corrections ; renvoie le texte et la liste des remplacements réellement faits.
+export function corriger(texte) {
+  const faites = []
+  let t = texte
+  for (const { re, juste } of COMPILED) {
+    re.lastIndex = 0
+    t = t.replace(re, (...args) => {
+      const m = args[0]
+      const named = typeof args.at(-1) === 'object'
+      const off = args.at(named ? -3 : -2)
+      const src = args.at(named ? -2 : -1)
+      const debutPhrase = off === 0 || /[.!?]\s*$/.test(src.slice(0, off))
+      let r = typeof juste === 'function' ? juste(...args) : juste.replace(/\$(\d)/g, (x, k) => args[Number(k)] ?? '')
+      // majuscule gardée en début de phrase
+      if (debutPhrase && /^\p{Lu}/u.test(m) && /^\p{Ll}/u.test(r)) r = r[0].toUpperCase() + r.slice(1)
+      if (r !== m) faites.push({ de: m, vers: r })
+      return r
+    })
+  }
+  return { texte: t, corrections: faites }
+}
+
+export function nettoyerDetail(texte) {
+  if (!texte) return { texte: '', corrections: [] }
   let t = ' ' + String(texte).replace(/[\s\u00A0\u202F]+/g, ' ') + ' '
   // deux passages : « euh, euh » ou « euh hein »
   for (let k = 0; k < 2; k++) {
@@ -94,5 +136,10 @@ export function nettoyer(texte) {
   t = fixPunctuation(t)
   // « … » laissé en tête ou isolé après le retrait d'une hésitation
   t = t.replace(/^…\s*/, '').replace(/,\s*…/g, ',').replace(/…\s*,/g, ',')
-  return t.replace(/^(\p{Ll})/u, (m) => m.toUpperCase())
+  t = t.replace(/^(\p{Ll})/u, (m) => m.toUpperCase())
+  return corriger(t)
+}
+
+export function nettoyer(texte) {
+  return nettoyerDetail(texte).texte
 }

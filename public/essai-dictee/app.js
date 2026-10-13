@@ -2,7 +2,8 @@
 // Le son reste en mémoire. Seuls les réglages et les résultats de cette page sont gardés
 // sur l'appareil (clés handbase.essai-dictee.*), rien d'autre de l'application n'est lu ni écrit.
 
-import { nettoyer } from './nettoyage.js'
+import { nettoyer, nettoyerDetail } from './nettoyage.js'
+import { promptWhisper } from './vocabulaire.js'
 
 const $ = (id) => document.getElementById(id)
 const KEY_PREFS = 'handbase.essai-dictee.prefs'
@@ -53,7 +54,7 @@ function writeStore(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* stockage indisponible : sans importance */ }
 }
 
-const prefs = Object.assign({ engine: 'whisper', model: '', variant: '', device: 'auto', amb: 'calme', mode: 'hold', phrase: 1 }, readStore(KEY_PREFS, {}))
+const prefs = Object.assign({ engine: 'whisper', model: '', variant: '', device: 'auto', amb: 'calme', mode: 'hold', phrase: 1, threads: 'auto', vocab: true }, readStore(KEY_PREFS, {}))
 let results = readStore(KEY_RESULTS, [])
 if (!Array.isArray(results)) results = []
 const savePrefs = () => writeStore(KEY_PREFS, prefs)
@@ -122,7 +123,7 @@ async function detectDevice() {
     }
   }
   L.push(['WebGPU', gpuText])
-  L.push(['crossOriginIsolated', self.crossOriginIsolated ? 'oui (WASM multi-cœur possible)' : 'non (WASM sur un seul cœur)'])
+  L.push(['crossOriginIsolated', self.crossOriginIsolated ? 'oui (WASM sur plusieurs cœurs possible)' : 'non (WASM sur un seul cœur' + (window.coiNote ? ' : ' + window.coiNote : '') + ')'])
   try {
     const est = await navigator.storage?.estimate?.()
     if (est) L.push(['Stockage', fmtBytes(est.quota - est.usage) + ' libres sur ' + fmtBytes(est.quota) + ' (' + fmtBytes(est.usage) + ' utilisés par ce site)'])
@@ -161,11 +162,17 @@ async function detectDevice() {
 const AI_LABEL = { available: 'disponible', downloadable: 'à télécharger', downloading: 'à télécharger (en cours)', unavailable: 'indisponible' }
 const ai = { state: 'unavailable', api: '', detail: '', fr: false }
 const AI_SYSTEM = [
-  'Tu rédiges des notes de repérage de handball en français, à partir de la dictée d\'un entraîneur.',
-  'Écris une note courte de cette forme :',
-  'Points forts : …',
-  'À revoir : … (ajoute cette ligne seulement si l\'entraîneur a cité un point à travailler ; sinon ne l\'écris pas)',
-  'Règles : ton neutre et positif ; n\'invente rien qui n\'a pas été dit ; garde les numéros de maillot, les postes et les termes de handball tels quels (demi-centre, pivot, ailier, chabala, roucoulette, kung-fu…) ; n\'ajoute aucun nom de personne ; pas de titre, pas de commentaire, réponds seulement avec la note.',
+  'Tu mets en forme la dictée d\'un entraîneur de handball en note de repérage, en français. Cette note sera relue et validée par l\'entraîneur.',
+  'Forme :',
+  'Points forts : (ce que l\'entraîneur a dit de positif, avec ses mots)',
+  'À revoir : (seulement si l\'entraîneur a lui-même cité un point à travailler ; sinon, n\'écris pas du tout cette ligne)',
+  'Règles strictes :',
+  '- reprends uniquement ce qui a été dit ; n\'invente rien, ne déduis rien ;',
+  '- n\'ajoute aucun adjectif ni jugement absent du texte (pas de « efficace », « amélioré », « excellent »… s\'ils n\'ont pas été dits) ;',
+  '- jamais de remplissage ni d\'espace réservé : pas de « … », pas de « à préciser », pas de ligne vide ;',
+  '- garde tels quels les numéros de maillot, les postes et les termes de handball (demi-centre, pivot, ailier, chabala, roucoulette, kung-fu…) ;',
+  '- ton neutre ou positif ; n\'ajoute aucun nom de personne ;',
+  '- pas de titre ni de commentaire : réponds seulement avec la note.',
 ].join('\n')
 const LM_LANG = { expectedInputs: [{ type: 'text', languages: ['fr'] }], expectedOutputs: [{ type: 'text', languages: ['fr'] }] }
 const RW_OPTS = { tone: 'as-is', format: 'plain-text', length: 'as-is', expectedInputLanguages: ['fr'], expectedContextLanguages: ['fr'], outputLanguage: 'fr' }
@@ -313,6 +320,22 @@ function updateEngineUi() {
   updateButtons()
 }
 
+const useVocab = () => $('vocab').checked
+function wantedThreads() {
+  if (!self.crossOriginIsolated) return 1
+  const v = radio('threads')
+  if (v === 'auto') return Math.min(navigator.hardwareConcurrency || 1, 8)
+  return Math.min(Number(v) || 1, navigator.hardwareConcurrency || 1)
+}
+function updateThreadsUi() {
+  const iso = !!self.crossOriginIsolated
+  for (const el of document.querySelectorAll('input[name="threads"]')) el.disabled = !iso && el.value !== '1'
+  if (!iso) setRadio('threads', '1')
+  $('threadsNote').textContent = iso
+    ? 'Auto : ' + Math.min(navigator.hardwareConcurrency || 1, 8) + ' fils sur cet appareil. Changer relance le moteur. Sans effet en WebGPU.'
+    : 'Page non isolée : un seul fil possible' + (window.coiNote ? ' (' + window.coiNote + ')' : '') + '.'
+}
+
 // ---------- état ----------
 let worker = null
 let workerReady = null
@@ -408,7 +431,8 @@ async function ensureModel(forceDevice) {
   const modelKey = $('model').value
   const variant = $('variant').value
   const device = forceDevice || resolvedDevice()
-  const key = [modelKey, variant, device].join('|')
+  const threads = wantedThreads()
+  const key = [modelKey, variant, device, threads].join('|')
   if (loaded && (loaded.key === key || (loaded.wanted === key))) return loaded
   if (loading) await loading
   if (loaded && (loaded.key === key || loaded.wanted === key)) return loaded
@@ -421,11 +445,11 @@ async function ensureModel(forceDevice) {
     await getWorker()
     if (loaded) $('loadInfo').textContent = 'Libération du modèle précédent…'
     loaded = null
-    const res = await ask('load', { type: 'load', repo: m.repo, revision: m.revision, dtype: VARIANTS[variant].dtype, device })
+    const res = await ask('load', { type: 'load', repo: m.repo, revision: m.revision, dtype: VARIANTS[variant].dtype, device, threads })
     const loadS = (performance.now() - t0) / 1000
-    loaded = { key: [modelKey, variant, res.device].join('|'), wanted: key, model: modelKey, variant, device: res.device, loadS, loadReported: false }
+    loaded = { key: [modelKey, variant, res.device, threads].join('|'), wanted: key, model: modelKey, variant, device: res.device, threads: res.device === 'wasm' ? res.threads : null, loadS, loadReported: false }
     $('prog').classList.add('hidden')
-    let info = 'Modèle prêt : ' + m.label.split(' (')[0] + ', ' + variant + ', ' + res.device + ', chargé en ' + fmt(loadS) + ' s (téléchargement compris s\'il n\'était pas en cache).'
+    let info = 'Modèle prêt : ' + m.label.split(' (')[0] + ', ' + variant + ', ' + res.device + (res.device === 'wasm' ? ' (' + res.threads + (res.threads > 1 ? ' fils' : ' fil') + ')' : '') + ', chargé en ' + fmt(loadS) + ' s (téléchargement compris s\'il n\'était pas en cache).'
     if (res.fallback) info += ' WebGPU a échoué, le calcul se fait en WASM. (' + res.fallback + ')'
     $('loadInfo').textContent = info
     setStatus('')
@@ -447,14 +471,14 @@ async function runWhisper(audio, tick) {
   const id = nextId++
   try {
     tick?.()
-    const r = await ask(id, { type: 'transcribe', id, audio })
+    const r = await ask(id, { type: 'transcribe', id, audio, prompt: useVocab() ? promptWhisper : null })
     return { ...r, mdl }
   } catch (e) {
     if (mdl.device === 'webgpu' && !isMemoryError(e.message) && worker) {
       setStatus('WebGPU a échoué pendant la transcription, nouvel essai en WASM…')
       mdl = await ensureModel('wasm')
       const id2 = nextId++
-      const r = await ask(id2, { type: 'transcribe', id: id2, audio })
+      const r = await ask(id2, { type: 'transcribe', id: id2, audio, prompt: useVocab() ? promptWhisper : null })
       return { ...r, mdl, note: 'WebGPU a échoué, repli WASM' }
     }
     throw new Error(explainError(e.message))
@@ -486,7 +510,9 @@ function wer(ref, hyp) {
 // ---------- résultats ----------
 function addResult(r) {
   if (r.kind !== 'aptitude') {
-    r.clean = nettoyer(r.text || '')
+    const det = nettoyerDetail(r.text || '')
+    r.clean = det.texte
+    r.fixes = det.corrections.map((c) => c.de + ' → ' + c.vers)
     r.cleanWer = r.phrase ? wer(PHRASES[r.phrase - 1], r.clean) : null
   }
   r.n = (results.at(-1)?.n || 0) + 1
@@ -496,6 +522,8 @@ function addResult(r) {
   renderResults()
 }
 const pct = (x) => (x == null ? '—' : Math.round(x * 100) + ' %')
+const calc = (r) => (r.device || '') + (r.threads ? ', ' + r.threads + ' fil' + (r.threads > 1 ? 's' : '') : '')
+const vocabTxt = (r) => (r.vocab == null ? '' : r.vocab ? 'oui' : 'non')
 function renderResults() {
   const box = $('resList')
   box.innerHTML = ''
@@ -504,7 +532,8 @@ function renderResults() {
     const div = document.createElement('div')
     div.className = 'result'
     const head = document.createElement('div')
-    const tags = [r.n + '.', r.engine, r.model ? r.model + ' ' + r.variant : '', r.device || '', r.amb, r.phrase ? 'phrase ' + r.phrase : 'texte libre'].filter(Boolean)
+    const tags = [r.n + '.', r.engine, r.model ? r.model + ' ' + r.variant : '', calc(r),
+      r.vocab == null ? '' : r.vocab ? 'vocabulaire du hand' : 'sans vocabulaire', r.amb, r.phrase ? 'phrase ' + r.phrase : 'texte libre'].filter(Boolean)
     for (const t of tags) { const s = document.createElement('span'); s.className = 'tag'; s.textContent = t; head.append(s) }
     div.append(head)
     if (r.kind === 'aptitude') {
@@ -526,9 +555,12 @@ function renderResults() {
       }
       col('Brut' + (r.wer != null ? ' · TEM ' + pct(r.wer) : ''), r.text || '(rien de reconnu)')
       const clean = r.clean ?? nettoyer(r.text || '')
-      col('Nettoyé' + (r.cleanWer != null ? ' · TEM ' + pct(r.cleanWer) : ''), clean || '(vide)')
+      const fixBox = r.fixes?.length ? document.createElement('div') : null
+      if (fixBox) { fixBox.className = 'meta'; fixBox.textContent = 'corrigé : ' + r.fixes.length + (r.fixes.length > 1 ? ' mots' : ' mot') + ' (' + r.fixes.join(' ; ') + ')' }
+      col('Nettoyé' + (r.cleanWer != null ? ' · TEM ' + pct(r.cleanWer) : ''), clean || '(vide)', fixBox)
       if (r.ai) {
-        col('Reformulé (IA sur l\'appareil, ' + fmt(r.aiS, 1) + ' s)', r.ai)
+        const v = document.createElement('div'); v.className = 'meta'; v.textContent = 'Proposition à relire et valider par l\'entraîneur.'
+        col('Reformulé (IA sur l\'appareil, ' + fmt(r.aiS, 1) + ' s)', r.ai, v)
       } else if (ai.state !== 'unavailable' && clean) {
         const out = document.createElement('div'); out.className = 'meta'
         const b = document.createElement('button')
@@ -559,17 +591,17 @@ function resultsText() {
   for (const [k, v] of dev.lines) L.push('  ' + k + ' : ' + v)
   L.push('  Verdict rapide : ' + dev.verdict)
   L.push('')
-  L.push('n° | moteur | modèle | calcul | ambiance | phrase | son (s) | chargement (s) | transcription (s) | FTR | TEM brut | TEM nettoyé | texte brut')
+  L.push('n° | moteur | modèle | calcul | vocabulaire | ambiance | phrase | son (s) | chargement (s) | transcription (s) | FTR | TEM brut | TEM nettoyé | texte brut')
   L.push('   (dessous : texte nettoyé, puis texte reformulé par l\'IA de Chrome s\'il y en a un)')
   for (const r of results) {
     if (r.kind === 'aptitude') {
-      L.push([r.n, "test d'aptitude", r.model + ' ' + r.variant, r.device, r.amb, r.phrase || 'libre', fmt(r.audioS), '', '', fmt(r.rtf, 2),
+      L.push([r.n, "test d'aptitude", r.model + ' ' + r.variant, calc(r), vocabTxt(r), r.amb, r.phrase || 'libre', fmt(r.audioS), '', '', fmt(r.rtf, 2),
         '', '', r.verdict + ' (FTR ' + r.rtfs.map((x) => fmt(x, 2)).join(' / ') + ')'].join(' | '))
     } else {
-      L.push([r.n, r.engine, r.model ? r.model + ' ' + r.variant : '', r.device || '', r.amb, r.phrase || 'libre', fmt(r.audioS),
+      L.push([r.n, r.engine, r.model ? r.model + ' ' + r.variant : '', calc(r), vocabTxt(r), r.amb, r.phrase || 'libre', fmt(r.audioS),
         r.loadS != null ? fmt(r.loadS) : '', fmt(r.transS, 2), r.engine === 'Whisper' ? fmt(r.rtf, 2) : '', pct(r.wer), pct(r.cleanWer),
         (r.text || '') + (r.note ? ' [' + r.note + ']' : '')].join(' | '))
-      L.push('   nettoyé : ' + (r.clean ?? nettoyer(r.text || '')))
+      L.push('   nettoyé : ' + (r.clean ?? nettoyer(r.text || '')) + (r.fixes?.length ? '  [corrigé : ' + r.fixes.join(' ; ') + ']' : ''))
       if (r.ai) L.push('   reformulé (' + r.aiApi + ', ' + fmt(r.aiS, 1) + ' s, ouverture ' + fmt(r.aiCreateS, 1) + ' s) : ' + r.ai.replace(/\s*\n\s*/g, ' / '))
     }
   }
@@ -678,7 +710,7 @@ async function transcribeAndRecord(audio, note) {
     const firstLoad = !r.mdl.loadReported
     r.mdl.loadReported = true
     addResult({
-      kind: 'dictée', engine: 'Whisper', model: r.mdl.model, variant: r.mdl.variant, device: r.mdl.device, amb, phrase,
+      kind: 'dictée', engine: 'Whisper', model: r.mdl.model, variant: r.mdl.variant, device: r.mdl.device, threads: r.mdl.threads, vocab: !!r.prompted, promptTokens: r.promptTokens, amb, phrase,
       audioS, loadS: firstLoad ? r.mdl.loadS : null, transS, rtf: transS / audioS, text: r.text,
       wer: phrase ? wer(PHRASES[phrase - 1], r.text) : null, note: [note, r.note].filter(Boolean).join(', ') || undefined,
     })
@@ -776,11 +808,13 @@ async function aptitude() {
   try {
     const rtfs = []
     let mdl
+    let aptVocab = false
     for (let i = 1; i <= 3; i++) {
       setStatus("Test d'aptitude : passage " + i + ' sur 3…')
       $('aptOut').textContent = 'Passage ' + i + ' sur 3…'
       const r = await runWhisper(audio)
       mdl = r.mdl
+      aptVocab = !!r.prompted
       rtfs.push(r.ms / 1000 / audioS)
     }
     const med = [...rtfs].sort((a, b) => a - b)[1]
@@ -793,7 +827,7 @@ async function aptitude() {
       const n = document.createElement('p'); n.className = 'muted'; n.textContent = 'Son court : refaites-le avec une phrase d\'au moins 5 secondes pour une mesure fiable.'
       $('aptOut').append(n)
     }
-    addResult({ kind: 'aptitude', engine: 'Whisper', model: mdl.model, variant: mdl.variant, device: mdl.device, amb: radio('amb'),
+    addResult({ kind: 'aptitude', engine: 'Whisper', model: mdl.model, variant: mdl.variant, device: mdl.device, threads: mdl.threads, vocab: aptVocab, amb: radio('amb'),
       phrase: Number($('phrase').value), audioS, rtf: med, rtfs, verdict })
     setStatus('')
   } catch (e) {
@@ -837,6 +871,10 @@ function bind() {
   for (const el of document.querySelectorAll('input[name="engine"]')) el.addEventListener('change', () => { prefs.engine = engine(); savePrefs(); updateEngineUi() })
   for (const el of document.querySelectorAll('input[name="amb"]')) el.addEventListener('change', () => { prefs.amb = radio('amb'); savePrefs() })
   for (const el of document.querySelectorAll('input[name="mode"]')) el.addEventListener('change', () => { prefs.mode = radio('mode'); savePrefs(); resetTalk() })
+  for (const el of document.querySelectorAll('input[name="threads"]')) {
+    el.addEventListener('change', () => { prefs.threads = radio('threads'); savePrefs(); killWorker() })
+  }
+  $('vocab').addEventListener('change', () => { prefs.vocab = useVocab(); savePrefs() })
   $('phrase').addEventListener('change', () => { prefs.phrase = Number($('phrase').value); savePrefs(); showPhrase() })
 
   $('loadBtn').addEventListener('click', async () => {
@@ -897,6 +935,7 @@ async function init() {
   setRadio('device', prefs.device)
   setRadio('amb', prefs.amb)
   setRadio('mode', prefs.mode)
+  $('vocab').checked = prefs.vocab !== false
   resetTalk()
   bind()
   renderResults()
@@ -908,6 +947,8 @@ async function init() {
   }
   fillModels()
   fillVariants(true)
+  setRadio('threads', prefs.threads || 'auto')
+  updateThreadsUi()
   updateEngineUi()
   $('loadInfo').textContent = 'Aucun modèle chargé. Il se charge aussi tout seul à la première dictée.'
 }

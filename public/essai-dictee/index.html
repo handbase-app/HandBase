@@ -6,6 +6,32 @@
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
 <title>Essai de dictée</title>
+<script>
+// Isolation multi-origine (crossOriginIsolated) pour le calcul sur plusieurs cœurs : voir coi-sw.js.
+// Ajouter ?sans-isolation à l'adresse pour s'en passer.
+(function () {
+  var KEY = 'handbase.essai-dictee.coi-reload'
+  if (self.crossOriginIsolated) { try { sessionStorage.removeItem(KEY) } catch (e) {} return }
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) { window.coiNote = 'service worker indisponible'; return }
+  if (/[?&]sans-isolation/.test(location.search)) { window.coiNote = 'désactivée par ?sans-isolation'; return }
+  var ua = navigator.userAgent
+  var coep = /Safari\//.test(ua) && !/Chrome|Chromium|Android|Firefox/.test(ua) ? 'require-corp' : 'credentialless'
+  var already = false
+  try { already = !!sessionStorage.getItem(KEY) } catch (e) {}
+  var ours = function () { var c = navigator.serviceWorker.controller; return !!c && /coi-sw\.js/.test(c.scriptURL) }
+  if (ours() && already) { window.coiNote = 'isolation refusée par le navigateur'; return }
+  window.coiNote = 'activation en cours'
+  function reload() {
+    if (already) { window.coiNote = 'isolation refusée par le navigateur'; return }
+    try { sessionStorage.setItem(KEY, '1') } catch (e) {}
+    location.reload()
+  }
+  navigator.serviceWorker.register('./coi-sw.js?coep=' + coep, { scope: './' }).then(function () {
+    if (ours()) reload()
+    else navigator.serviceWorker.addEventListener('controllerchange', reload, { once: true })
+  }).catch(function (e) { window.coiNote = 'service worker refusé (' + (e && e.message) + ')' })
+})()
+</script>
 <style>
 :root {
   --bg: #f6f6f8; --card: #ffffff; --text: #1d1d24; --muted: #5d5d6c; --line: #d9d9e2;
@@ -84,7 +110,7 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
     <details class="muted" style="margin-top:8px">
       <summary>Comment ce verdict est calculé</summary>
       <p>Indication rapide, avant tout essai. « Probablement apte » : WebGPU disponible, ou au moins 8 cœurs et 6 Go de mémoire (ou mémoire inconnue). « Trop faible » : 2 Go de mémoire ou moins, ou 2 cœurs ou moins. Sinon « Limite ». Le navigateur arrondit la mémoire annoncée (8 Go au plus) et Firefox ne la donne pas. Seul le test d'aptitude plus bas fait foi.</p>
-      <p>Les pages GitHub ne peuvent pas activer l'isolation multi-origine (« crossOriginIsolated ») : en WASM, Whisper n'utilise alors qu'un seul cœur.</p>
+      <p>Les pages GitHub n'envoient pas les en-têtes d'isolation multi-origine. Cette page installe donc, pour elle seule (/essai-dictee/), un petit service worker qui les ajoute, puis se recharge une fois : la page devient « crossOriginIsolated » et Whisper peut calculer en WASM sur plusieurs cœurs. Sans cela, un seul cœur.</p>
     </details>
   </section>
 
@@ -109,6 +135,16 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
         <label><input type="radio" name="device" value="webgpu"> WebGPU</label>
         <label><input type="radio" name="device" value="wasm"> WASM</label>
       </div>
+      <label class="field">Fils de calcul (WASM)</label>
+      <div class="seg">
+        <label><input type="radio" name="threads" value="auto" checked> Auto</label>
+        <label><input type="radio" name="threads" value="1"> 1</label>
+        <label><input type="radio" name="threads" value="4"> 4</label>
+        <label><input type="radio" name="threads" value="8"> 8</label>
+      </div>
+      <p class="muted" id="threadsNote"></p>
+      <div class="seg" style="margin-top:10px"><label><input type="checkbox" id="vocab" checked> Utiliser le vocabulaire du hand</label></div>
+      <p class="muted">Donne à Whisper un court texte de contexte (postes, gestes, systèmes…) pour mieux reconnaître le jargon. Décochez pour comparer.</p>
       <div class="row" style="margin-top:10px">
         <button id="loadBtn" class="primary">Charger le modèle</button>
         <button id="clearCacheBtn">Supprimer les modèles téléchargés</button>
@@ -159,7 +195,7 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
     </div>
     <p class="muted" id="copyMsg"></p>
     <div id="resList"><p class="muted">Aucun résultat pour l'instant.</p></div>
-    <p class="muted">Chaque texte est montré en trois versions : brut (tel que reconnu) ; nettoyé (hésitations comme « euh », « du coup » ou « en fait » en début ou fin de phrase et mots répétés retirés, ponctuation et majuscules corrigées, sans retirer d'autres mots) ; reformulé en note « Points forts / À revoir » par l'IA intégrée de Chrome, seulement si ce navigateur la propose (bouton « Reformuler »).</p>
+    <p class="muted">Chaque texte est montré en trois versions : brut (tel que reconnu) ; nettoyé (hésitations comme « euh », « du coup » ou « en fait » en début ou fin de phrase et mots répétés retirés, ponctuation et majuscules corrigées, sans retirer d'autres mots, puis erreurs connues du vocabulaire du hand corrigées, comme « roue coulette » en « roucoulette ») ; reformulé en note « Points forts / À revoir » par l'IA intégrée de Chrome, seulement si ce navigateur la propose (bouton « Reformuler »).</p>
     <p class="muted">Facteur temps réel (FTR) : temps de transcription divisé par la durée du son. Taux d'erreur (TEM) : mots manquants, en trop ou différents par rapport à la phrase, sans tenir compte des majuscules, des accents ni de la ponctuation.</p>
   </section>
 </main>
