@@ -16,7 +16,7 @@ import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../compone
  * Comme le classement : avis validés seulement.
  */
 
-// Radar chargé à la demande (recharts).
+// Radar par zones, chargé à la demande.
 const CompareRadar = lazy(() => import('../components/CompareRadar'))
 
 // Bleu, orange, violet (comme la palette des avis) : bien distincts, y compris pour les daltoniens, et
@@ -121,9 +121,7 @@ export default function Compare() {
       .filter((r) => r.win === i && r.gap >= CLEAR)
       .sort((x, y) => y.gap - x.gap)
       .slice(0, 5)
-  const radarData = rows
-    .filter((r) => r.c.scale === 'score5' && r.v.every((x) => x !== null))
-    .map((r) => ({ label: r.c.label, ...Object.fromEntries(r.v.map((x, i) => [`v${i}`, x!])) }))
+  const radarData = rows.filter((r) => r.c.scale === 'score5' && r.v.every((x) => x !== null))
   const overallWin = winner(
     overall.map((o) => r1(o?.avg)),
     TIE,
@@ -232,7 +230,7 @@ export default function Compare() {
             ) : (
               <>
                 <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
-                  <CompareRadar data={radarData} colors={colors} focus={focus} />
+                  <CompareRadar rows={radarData} colors={colors} focus={focus} />
                 </Suspense>
                 <p className="text-[10px] text-muted">
                   Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant.

@@ -287,3 +287,33 @@ export function rowsFromJson(text: string): Cell[][] {
   })
   return [head, ...rows]
 }
+
+// ---------- Catégories (Réglages → Critères) ----------
+
+/** Clé de comparaison d'une catégorie : espaces en trop et majuscules ignorés. */
+export const categoryKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr')
+
+/**
+ * Catégories existantes, sans doublon (à la casse et aux espaces près), dans l'ordre d'affichage des réglages :
+ * ordre des critères, ceux du type `first` (subjectifs / factuels) d'abord.
+ */
+export function categoryList(criteria: Pick<Criterion, 'category' | 'order' | 'kind' | 'deleted'>[], first?: CriterionKind): string[] {
+  const sorted = criteria
+    .filter((c) => !c.deleted && c.category.trim())
+    .sort((a, b) => (first ? Number(b.kind === first) - Number(a.kind === first) : 0) || a.order - b.order)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const c of sorted) {
+    const k = categoryKey(c.category)
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(c.category)
+  }
+  return out
+}
+
+/** Catégorie tapée : l'existante si elle y est déjà (à la casse et aux espaces près), sinon le texte nettoyé. */
+export function resolveCategory(typed: string, existing: string[]): string {
+  const k = categoryKey(typed)
+  return existing.find((c) => categoryKey(c) === k) ?? typed.trim().replace(/\s+/g, ' ')
+}

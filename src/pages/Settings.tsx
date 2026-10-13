@@ -1,12 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
-import { alive, db, newId, plural, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
+import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, type Criterion, type CriterionScale } from '../db'
+import { categoryStyles, defaultColor, defaultZone, RADAR_PALETTE, RADAR_ZONES, styleOf, type RadarZone } from '../radarZones'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
-import type { ParsedFile } from '../criteriaFormat'
+import { categoryList, resolveCategory, type ParsedFile } from '../criteriaFormat'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
@@ -990,19 +991,43 @@ function CriteriaEditor() {
   const [kind, setKind] = useState<'factual' | 'subjective'>('subjective')
   const [open, setOpen] = useState<string | null>(null)
   const list = criteria.filter((c) => c.kind === kind)
+  const role = useRole()
+  // Critère en cours d'ajout : pas enregistré avant « Enregistrer » ; `at` = catégorie d'où l'on ajoute (sinon en bas).
+  const [draft, setDraft] = useState<{ c: Criterion; at: string | null } | null>(null)
+  const cats = categoryList(criteria, kind)
 
-  async function add() {
-    const c = await save<Criterion>('criteria', {
-      id: newId(),
-      label: 'Nouveau critère',
-      category: list[list.length - 1]?.category ?? 'Divers',
-      kind,
-      scale: kind === 'subjective' ? 'score5' : 'number',
-      active: true,
-      order: (criteria[criteria.length - 1]?.order ?? 0) + 1,
+  function add(category: string | null) {
+    setOpen(null)
+    setDraft({
+      at: category,
+      c: {
+        id: newId(),
+        label: '',
+        // Depuis une catégorie : celle-ci ; sinon la première ; aucune : nouvelle catégorie à saisir.
+        category: category ?? cats[0] ?? '',
+        kind,
+        scale: kind === 'subjective' ? 'score5' : 'number',
+        active: true,
+        order: (criteria[criteria.length - 1]?.order ?? 0) + 1,
+        updatedAt: 0,
+      },
     })
-    setOpen(c.id)
   }
+  const draftEditor = draft && (
+    <div className="rounded-lg border border-accent/60">
+      <div className="px-3 pt-2 text-[11px] font-bold text-accent">Nouveau critère {kind === 'subjective' ? 'subjectif' : 'factuel'}</div>
+      <CriterionEdit
+        key={draft.c.id}
+        c={draft.c}
+        categories={categoryList(criteria, draft.c.kind)}
+        isNew
+        onDone={(saved) => {
+          setDraft(null)
+          if (saved) setOpen(saved.id)
+        }}
+      />
+    </div>
+  )
 
   return (
     <section className="card flex flex-col gap-3 p-4">
@@ -1032,7 +1057,10 @@ function CriteriaEditor() {
 
       {groupBy(list, (c) => c.category).map(([cat, cs]) => (
         <div key={cat}>
-          <div className="mb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">{cat}</div>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="text-[10px] font-extrabold tracking-wider text-accent uppercase">{cat}</span>
+            <RadarPlacement category={cat} criteria={criteria} editable={can.editCriteria(role)} />
+          </div>
           <div className="divide-y divide-line rounded-lg border border-line">
             {cs.map((c) => (
               <div key={c.id} className={c.active ? '' : 'opacity-50'}>
@@ -1048,25 +1076,124 @@ function CriteriaEditor() {
                     <span>{open === c.id ? '▴' : '▾'}</span>
                   </span>
                 </button>
-                {open === c.id && <CriterionEdit c={c} />}
+                {open === c.id && <CriterionEdit c={c} categories={categoryList(criteria, c.kind)} />}
               </div>
             ))}
           </div>
+          {draft?.at === cat && draft.c.kind === kind ? (
+            <div className="mt-2">{draftEditor}</div>
+          ) : (
+            <button className="mt-1 min-h-11 w-full rounded-md text-left text-[11px] font-bold text-muted hover:text-accent" onClick={() => add(cat)}>
+              + Ajouter dans « {cat} »
+            </button>
+          )}
         </div>
       ))}
 
-      <button className="btn-ghost text-xs" onClick={() => void add()}>
-        + Ajouter un critère {kind === 'subjective' ? 'subjectif' : 'factuel'}
-      </button>
+      {draft && draft.c.kind === kind && (draft.at === null || !list.some((c) => c.category === draft.at)) ? (
+        draftEditor
+      ) : (
+        <button className="btn-ghost min-h-11 text-xs" onClick={() => add(null)}>
+          + Ajouter un critère {kind === 'subjective' ? 'subjectif' : 'factuel'}
+        </button>
+      )}
     </section>
   )
 }
 
-function CriterionEdit({ c }: { c: Criterion }) {
+/**
+ * Place de la catégorie sur le radar des avis (src/radarZones.ts) : zone du cadran et couleur, posées sur tous ses
+ * critères (synchronisés comme le reste). « Auto » : déduites du nom de la catégorie.
+ */
+function RadarPlacement({ category, criteria, editable }: { category: string; criteria: Criterion[]; editable: boolean }) {
+  const st = styleOf(categoryStyles(criteria), category)
+  const auto = defaultZone(category)
+  const zoneText = (z: RadarZone | null) => (z ? RADAR_ZONES.find((x) => x.id === z)!.label.toLowerCase() : 'dans l’espace libre')
+  async function apply(patch: { radarZone?: RadarZone | null; radarColor?: string | null }) {
+    const rows = criteria
+      .filter((c) => c.category === category)
+      .map((c) => {
+        const next = { ...c }
+        if (patch.radarZone !== undefined) next.radarZone = patch.radarZone ?? undefined
+        if (patch.radarColor !== undefined) next.radarColor = patch.radarColor ?? undefined
+        return next
+      })
+    await saveMany<Criterion>('criteria', rows)
+  }
+  if (!editable)
+    return (
+      <span className="flex items-center gap-1 text-[10px] text-muted">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: st.color }} />
+        Radar : {zoneText(st.zone)}
+      </span>
+    )
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
+      <label className="flex items-center gap-1">
+        Radar
+        <select
+          className="rounded border border-line bg-panel-2 px-1 py-1 text-[11px] text-fg"
+          aria-label={`Zone du radar pour ${category}`}
+          value={st.setZone ? st.zone! : ''}
+          onChange={(e) => void apply({ radarZone: (e.target.value || null) as RadarZone | null })}
+        >
+          <option value="">Auto ({zoneText(auto)})</option>
+          {RADAR_ZONES.map((z) => (
+            <option key={z.id} value={z.id}>
+              {z.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="flex items-center" role="radiogroup" aria-label={`Couleur du radar pour ${category}`}>
+        {RADAR_PALETTE.map((p) => {
+          const on = st.color.toLowerCase() === p.color.toLowerCase()
+          return (
+            <button
+              key={p.color}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={p.label + (!st.setColor && p.color === defaultColor(category) ? ' (auto)' : '')}
+              onClick={() => void apply({ radarColor: p.color === defaultColor(category) ? null : p.color })}
+              className="flex h-8 w-6 items-center justify-center"
+            >
+              <span className={`block h-4 w-4 rounded-full ${on ? 'ring-2 ring-fg ring-offset-1 ring-offset-panel' : ''}`} style={{ background: p.color }} />
+            </button>
+          )
+        })}
+      </span>
+    </span>
+  )
+}
+
+const NEW_CATEGORY = '\u0000nouvelle'
+
+/**
+ * Fiche d'un critère (modification, ou ajout : `isNew`, rien n'est enregistré avant « Enregistrer »).
+ * Catégorie choisie dans la liste des catégories existantes, ou « + Nouvelle catégorie… » (tapée ; si elle existe
+ * déjà à la casse et aux espaces près, l'existante est reprise).
+ */
+function CriterionEdit({ c, categories, isNew, onDone }: { c: Criterion; categories: string[]; isNew?: boolean; onDone?: (saved: Criterion | null) => void }) {
   const [d, setD] = useState(c)
   // Texte brut des options (une par ligne), pour pouvoir taper librement.
   const [optText, setOptText] = useState((c.options ?? []).join('\n'))
-  const dirty = JSON.stringify({ ...d, updatedAt: 0 }) !== JSON.stringify({ ...c, updatedAt: 0 })
+  // Nouvelle catégorie en cours de saisie (null : catégorie choisie dans la liste).
+  const [newCat, setNewCat] = useState<string | null>(categories.includes(c.category) ? null : c.category)
+  const category = newCat === null ? d.category : resolveCategory(newCat, categories)
+  const known = categories.includes(category)
+  const eff = { ...d, category }
+  // Zone / couleur du radar : réglées pour toute la catégorie (RadarPlacement), jamais par cette copie.
+  const radar = (x: Criterion) => ({ ...x, updatedAt: 0, radarZone: undefined, radarColor: undefined })
+  const dirty = isNew || JSON.stringify(radar(eff)) !== JSON.stringify(radar(c))
+  const uid = useId()
+  async function submit() {
+    // Même catégorie : réglage du radar gardé ; autre catégorie : celui de la nouvelle (ou déduit de son nom).
+    const saved = await save<Criterion>('criteria', category === c.category ? { ...eff, radarZone: c.radarZone, radarColor: c.radarColor } : { ...eff, radarZone: undefined, radarColor: undefined })
+    if (isNew) return onDone?.(saved)
+    setD(saved)
+    setNewCat(null)
+  }
   const set = <K extends keyof Criterion>(k: K, v: Criterion[K]) => setD((x) => ({ ...x, [k]: v }))
   const togglePos = (p: (typeof POSITIONS)[number]['id']) =>
     set('positions', d.positions?.includes(p) ? d.positions.filter((x) => x !== p) : [...(d.positions ?? []), p])
@@ -1075,14 +1202,73 @@ function CriterionEdit({ c }: { c: Criterion }) {
     <div className="flex flex-col gap-2 bg-panel-2 p-3">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <span className="label">Nom</span>
-          <input className="field" value={d.label} onChange={(e) => set('label', e.target.value)} />
+          <label className="label" htmlFor={`${uid}-nom`}>
+            Nom
+          </label>
+          <input id={`${uid}-nom`} className="field min-h-11" autoFocus={isNew && newCat === null} placeholder="Nom du critère" value={d.label} onChange={(e) => set('label', e.target.value)} />
         </div>
         <div>
-          <span className="label">Catégorie</span>
-          <input className="field" value={d.category} onChange={(e) => set('category', e.target.value)} />
+          <label className="label" htmlFor={`${uid}-cat`}>
+            Catégorie
+          </label>
+          <select
+            id={`${uid}-cat`}
+            className="field min-h-11"
+            value={newCat === null ? d.category : NEW_CATEGORY}
+            onChange={(e) => {
+              if (e.target.value === NEW_CATEGORY) setNewCat('')
+              else {
+                setNewCat(null)
+                set('category', e.target.value)
+              }
+            }}
+          >
+            {categories.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+            <option value={NEW_CATEGORY}>+ Nouvelle catégorie…</option>
+          </select>
         </div>
       </div>
+      {newCat !== null && (
+        <div>
+          <label className="label" htmlFor={`${uid}-new`}>
+            Nouvelle catégorie
+          </label>
+          <input
+            id={`${uid}-new`}
+            className="field min-h-11"
+            autoFocus
+            placeholder="Nom de la catégorie"
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => {
+              // Échap : retour à la liste (catégorie d'avant).
+              if (e.key === 'Escape' && categories.length) {
+                e.stopPropagation()
+                setNewCat(null)
+              }
+            }}
+          />
+          {category && (
+            <p className="mt-1 text-[11px] text-muted">
+              {known ? (
+                <>« {category} » existe déjà : le critère y sera rangé.</>
+              ) : (
+                <>
+                  Nouvelle catégorie · sur le radar : {(() => {
+                    const z = defaultZone(category)
+                    return z ? RADAR_ZONES.find((x) => x.id === z)!.label.toLowerCase() : 'dans l’espace libre'
+                  })()}
+                  <span className="ml-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: defaultColor(category) }} />
+                </>
+              )}
+            </p>
+          )}
+        </div>
+      )}
       <div>
         <span className="label">Définition (ce qu'on observe)</span>
         <input className="field" value={d.description ?? ''} onChange={(e) => set('description', e.target.value || undefined)} />
@@ -1156,9 +1342,14 @@ function CriterionEdit({ c }: { c: Criterion }) {
         </label>
       </div>
       <div className="flex gap-2">
-        <button className="btn-primary flex-1 text-xs" disabled={!dirty || !d.label.trim() || (d.scale === 'choice' && (d.options?.length ?? 0) < 2)} onClick={async () => setD(await save<Criterion>('criteria', d))}>
+        <button className="btn-primary min-h-11 flex-1 text-xs" disabled={!dirty || !d.label.trim() || !category || (d.scale === 'choice' && (d.options?.length ?? 0) < 2)} onClick={() => void submit()}>
           Enregistrer
         </button>
+        {isNew ? (
+          <button className="btn min-h-11 text-xs text-muted" onClick={() => onDone?.(null)}>
+            Annuler
+          </button>
+        ) : (
         <button
           className="btn text-xs text-muted hover:text-red-400"
           onClick={async () => {
@@ -1169,6 +1360,7 @@ function CriterionEdit({ c }: { c: Criterion }) {
         >
           Supprimer
         </button>
+        )}
       </div>
     </div>
   )

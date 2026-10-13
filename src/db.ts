@@ -199,6 +199,12 @@ export interface Criterion extends Syncable {
    * partagée tient la liste des critères (règle de transition : retireUnpublishedCriteria).
    */
   importedAt?: number
+  /**
+   * Radar par zones (src/radarZones.ts) : zone et couleur de la catégorie, posées sur tous les critères de la
+   * catégorie depuis les réglages ; absentes = déduites du nom de la catégorie.
+   */
+  radarZone?: import('./radarZones').RadarZone
+  radarColor?: string
 }
 
 /** Valeur factuelle d'un critère pour un joueur à une date. */

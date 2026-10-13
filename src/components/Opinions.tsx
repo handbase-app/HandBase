@@ -10,7 +10,7 @@ import { Empty, Icon, playerName } from './ui'
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
 const COLORS_LIGHT = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#c2410c', '#be185d', '#0e7490', '#4d7c0f']
-// Radar chargé à la demande (recharts).
+// Radar par zones, chargé à la demande.
 const OpinionsRadar = lazy(() => import('./OpinionsRadar'))
 const obsColor = (i: number) => {
   const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
@@ -177,12 +177,6 @@ export function Opinions({
       </Empty>
     )
 
-  const radarData = numericRows.map((r) => ({
-    label: r.c.label,
-    Moyenne: r.avg,
-    ...Object.fromEntries(observers.map((o, i) => [o, r.nums![i]])),
-  }))
-
   const divergent = rows.filter((r) => r.divergent)
 
   return (
@@ -292,7 +286,7 @@ export function Opinions({
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
         <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-          <OpinionsRadar data={radarData} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked && !wide} large={wide} />
+          <OpinionsRadar rows={numericRows} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked && !wide} large={wide} />
         </Suspense>
       )}
 
