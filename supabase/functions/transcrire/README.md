@@ -160,15 +160,26 @@ personne depuis septembre »… La **réponse est calculée sur l'appareil** (do
 - Réponse : `{ recette, nonGere, ms, model, restant_mois, restant_jour }`. La recette est un petit JSON (population, condition
   « vu » par événement ou par personne avec une période, moyennes d'avis, nombre d'avis, mesures, sortie nombre / liste /
   tableau / carte). L'appli revérifie **chaque champ** (inconnu : ignoré et signalé), borne les nombres, ne fait que lire.
+  `nonGere` (ce que le modèle n'a pas su traduire) est sorti de la recette s'il y a été mis, et accepté en texte seul.
+- Ce que la recette sait dire, en plus des filtres : tableau **par personne du staff** (joueurs vus distincts, avis écrits ;
+  noms lus sur l'appareil, jamais envoyés), **score combiné** de plusieurs critères ou catégories (« Vitesse + Intelligence
+  de jeu »), tri par **progression** (dernier avis moins le précédent, au moins deux avis), tri **« à voir en priorité »**
+  (vus une fois et déjà bien notés ≥ 3,5 « à confirmer », puis pas encore vus des plus âgés aux plus jeunes, puis les autres
+  vus une fois ; règle affichée), tableaux triés par **part vue** (« le plus en retard » : croissante). Les moyennes d'une
+  catégorie ou d'une zone ne comptent que les critères qui concernent le poste du joueur.
+- Côté écran : une période n'est ajoutée que pour « vu » (saison en cours par défaut, toujours affichée) ; une question sans
+  population, sans condition ni tri parlant affiche « Je ne sais pas encore répondre à … » avec des exemples, jamais une
+  liste par défaut ; une question comprise en partie affiche la réponse et « Pas pris en compte : … ».
 - Modèle : `mistral-small-latest` (secret facultatif `MISTRAL_MODELE_QUESTION`), température 0, réponse JSON ; consignes
-  courtes en français avec 14 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 7 000 caractères avec la description).
+  courtes en français avec 23 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 10 500 caractères avec la description).
 - Mêmes garde-fous : administrateur connecté, JWT, un appel compté (`hb_transcription_compter`), relance sur 429, ni la
   phrase ni la réponse journalisées. Erreurs en plus : `phrase_absente`, `phrase_trop_longue`, `schema_invalide`,
   `reponse_illisible`.
 - Le GET annonce `question` dans `modes` : le bouton n'apparaît qu'avec une fonction qui le connaît (et pour les
   administrateurs, réglage de dictée activé). Les questions enregistrées (« Mes questions ») se relancent sans appel.
 - Test (sans appel réseau) : `npx jiti tools/test-questions.ts` (chaque exemple des consignes accepté par l'appli avec
-  l'effet attendu, recettes piégées écartées, aucune donnée de joueur envoyée, 40 000 joueurs en moins de 300 ms).
+  l'effet attendu, recettes piégées écartées, aucune donnée de joueur envoyée, 40 000 joueurs en moins de 300 ms, liste
+  triée sur toute la base comprise).
 
 Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
 

@@ -522,7 +522,8 @@ async function avisVocal(
 // l'appli revérifie chaque champ (inconnu : ignoré et signalé), retrouve les noms dans ses listes et calcule la réponse sur
 // l'appareil (lecture seule). Modèle : MISTRAL_MODELE_QUESTION (mistral-small-latest par défaut), température 0, JSON.
 // Les exemples sont relus par tools/test-questions.ts (chaque recette d'exemple est acceptée par l'appli, avec l'effet
-// attendu). Ni la phrase ni la réponse ne sont journalisées.
+// attendu). Ni la phrase ni la réponse ne sont journalisées. Tableau « par staff » : l'appli lit les noms sur l'appareil,
+// le modèle n'en voit ni n'en écrit aucun.
 
 const MAX_RECETTE = 8_000
 
@@ -534,17 +535,23 @@ RÈGLES
 - Clubs, régions, départements, groupes, événements : recopie le nom dit (« Var », « 83 », « PACA », « Toulon »).
 - « nés en 2010 », « les 2010 » → annee 2010 ; « 2010 et 2011 », « de 2010 à 2012 » → annees {"de":…,"a":…}. « filles », « joueuses » → sexe F ; « garçons » → M ; « joueurs » seul ne fixe pas le sexe.
 - Taille : « 1 m 85 », « 1,85 » → 185 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax.
-- Vus : « vu une fois », « à un seul événement » → op "=" n 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
-- Période : « cette saison » → saison ; « dans l'année », « sur un an », « 12 derniers mois » → 12mois ; « depuis toujours », « jamais » → toujours ; « depuis septembre », « depuis le 1er janvier 2026 » → periode depuis + depuis (mois dit ou date AAAA-MM-JJ). Sans précision : saison.
-- Avis : « en défense », « défenseurs » → moyenne de la catégorie Défense ; « note générale » → sur global ; notes sur 5.
-- « les meilleurs », « les mieux notés » → tri moyenne, ordre decroissant, limite 20 ; « les moins bien notés », « les plus faibles » → tri moyenne, ordre croissant.
-- Sortie : « combien », « nombre de » → nombre ; « par club », « par département », « par région », « par génération », « par poste » → tableau + par ; « carte » → carte ; sinon liste. « part », « pourcentage de vus » → valeur part_vus.
+- Vus : « vus », « ont été vus », « déjà vus » sans nombre → op ">=" n 1 ; « vu une fois », « une seule fois » → "=" 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
+- Période : SEULEMENT si la phrase en dit une, sinon omets periode (l'appli prend la saison en cours et l'affiche). « cette saison » → saison ; « dans l'année », « sur un an », « 12 derniers mois » → 12mois ; « depuis toujours », « jamais » → toujours ; « depuis septembre », « depuis le 1er janvier 2026 » → periode depuis + depuis (mois dit ou date AAAA-MM-JJ).
+- Avis : « en défense », « défenseurs » → moyenne de la catégorie Défense ; « note générale » → sur global ; notes sur 5. Un critère nommé (« vitesse », « explosivité ») → sur critere avec son nom.
+- Plusieurs qualités à la fois (« les plus rapides et les plus malins ») → moyenne {"sur":"combine","nom":[noms de critères ou de catégories]} (score combiné).
+- « les meilleurs », « les mieux notés », « les plus … » → tri moyenne, ordre decroissant, limite 20 (ou le nombre dit) ; « les moins bien notés » → tri moyenne, ordre croissant.
+- « progressé », « progression », « évolution entre deux avis » → tri progression, ordre decroissant.
+- « prioritaires », « à aller voir en priorité », « qui aller voir » → tri priorite (l'appli applique sa règle et l'explique), limite 20.
+- Sortie : « combien », « nombre de » → nombre ; « par club », « par département », « par région », « par génération », « par poste », « par sexe » → tableau + par ; « carte » → carte ; sinon liste. « part », « pourcentage de vus » → valeur part_vus.
+- « compare A et B » (filles et garçons, postes, générations) → tableau par la dimension comparée (sexe, poste, annee), sans la fixer dans population.
+- « quel département / club / région est le plus en retard », « le moins vu », « où aller » → tableau, valeur part_vus, tri part_vus, ordre croissant ; « le plus vu », « le plus en avance » → ordre decroissant.
+- « quel coach », « qui du staff », « quel observateur » a vu le plus de joueurs → tableau par staff, tri vus ; « a écrit le plus d'avis » → tri nbAvis. Jamais de nom de personne.
 - « les clubs où personne n'a été vu » → vus aucun, tableau par club, garder tous.
-- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots. Jamais de nom de personne.
+- Ce qui ne rentre dans aucune clé va dans "nonGere" (à côté de "recette", jamais dedans) en quelques mots. Si rien n'est traduisible : "recette":{}.
 
 EXEMPLES
 « les joueuses 2011 vues une seule fois cette saison, par département » → {"recette":{"population":{"sexe":"F","annee":2011},"vus":{"compter":"evenements","op":"=","n":1,"periode":"saison"},"sortie":{"type":"tableau","par":"departement"}},"nonGere":[]}
-« montre-moi la carte de France des joueurs vus deux fois dans l'année » → {"recette":{"vus":{"compter":"evenements","op":"=","n":2,"periode":"12mois"},"sortie":{"type":"carte"}},"nonGere":[]}
+« montre-moi la carte de France des joueurs vus au moins deux fois dans l'année » → {"recette":{"vus":{"compter":"evenements","op":">=","n":2,"periode":"12mois"},"sortie":{"type":"carte"}},"nonGere":[]}
 « les meilleurs défenseurs nés en 2010 selon les avis » → {"recette":{"population":{"annee":2010},"sortie":{"type":"liste","tri":"moyenne","moyenne":{"sur":"categorie","nom":"Défense"},"ordre":"decroissant","limite":20}},"nonGere":[]}
 « combien de gardiens 2009 mesurent plus de 1m85 » → {"recette":{"population":{"postes":["GB"],"annee":2009,"tailleMin":185},"sortie":{"type":"nombre"}},"nonGere":[]}
 « les clubs du Var où on n'a vu personne depuis septembre » → {"recette":{"population":{"departements":["Var"]},"vus":{"op":"aucun","n":0,"periode":"depuis","depuis":"septembre"},"sortie":{"type":"tableau","par":"club","garder":"tous"}},"nonGere":[]}
@@ -556,7 +563,16 @@ EXEMPLES
 « les joueurs avec au moins 2 avis et 3,5 de moyenne générale, du moins bien noté au mieux noté » → {"recette":{"nbAvis":{"op":">=","n":2},"avis":[{"sur":"global","op":">=","valeur":3.5}],"sortie":{"type":"liste","tri":"moyenne","ordre":"croissant"}},"nonGere":[]}
 « les joueurs du tournoi de Cannes qui sautent plus de 40 au CMJ » → {"recette":{"population":{"evenements":["tournoi de Cannes"]},"mesures":[{"critere":"CMJ – hauteur","op":">=","valeur":40}],"sortie":{"type":"liste","tri":"mesure","ordre":"decroissant"}},"nonGere":[]}
 « la carte des joueuses 2012 vues au moins une fois depuis le 1er janvier 2026 » → {"recette":{"population":{"sexe":"F","annee":2012},"vus":{"op":">=","n":1,"periode":"depuis","depuis":"2026-01-01"},"sortie":{"type":"carte"}},"nonGere":[]}
-« les 2011 du Var qui jouent en Nationale 2 » → {"recette":{"population":{"annee":2011,"departements":["Var"]},"sortie":{"type":"liste"}},"nonGere":["jouent en Nationale 2"]}`
+« les 2011 du Var qui jouent en Nationale 2 » → {"recette":{"population":{"annee":2011,"departements":["Var"]},"sortie":{"type":"liste"}},"nonGere":["jouent en Nationale 2"]}
+« compare les filles et les garçons nés en 2012 : combien ont été vus ? » → {"recette":{"population":{"annee":2012},"vus":{"op":">=","n":1},"sortie":{"type":"tableau","par":"sexe"}},"nonGere":[]}
+« quel coach a vu le plus de joueurs cette saison ? » → {"recette":{"sortie":{"type":"tableau","par":"staff","tri":"vus","ordre":"decroissant","periode":"saison"}},"nonGere":[]}
+« qui a écrit le plus d'avis sur les 2011 ? » → {"recette":{"population":{"annee":2011},"sortie":{"type":"tableau","par":"staff","tri":"nbAvis","ordre":"decroissant"}},"nonGere":[]}
+« les demi-centres les plus rapides et les plus malins, nés en 2011 » → {"recette":{"population":{"postes":["DC"],"annee":2011},"sortie":{"type":"liste","tri":"moyenne","moyenne":{"sur":"combine","nom":["Vitesse","Intelligence de jeu"]},"ordre":"decroissant","limite":20}},"nonGere":[]}
+« quel département est le plus en retard sur les 2013 ? » → {"recette":{"population":{"annee":2013},"sortie":{"type":"tableau","par":"departement","valeur":"part_vus","tri":"part_vus","ordre":"croissant"}},"nonGere":[]}
+« la région où les 2011 sont le plus vus » → {"recette":{"population":{"annee":2011},"sortie":{"type":"tableau","par":"region","valeur":"part_vus","tri":"part_vus","ordre":"decroissant"}},"nonGere":[]}
+« les joueurs qui ont le plus progressé entre leurs deux derniers avis » → {"recette":{"sortie":{"type":"liste","tri":"progression","ordre":"decroissant","limite":20}},"nonGere":[]}
+« si je n'ai qu'un week-end, quels joueurs prioritaires je dois aller voir en Bretagne ? » → {"recette":{"population":{"regions":["Bretagne"]},"sortie":{"type":"liste","tri":"priorite","limite":20}},"nonGere":[]}
+« quels joueurs ont changé de club cette année ? » → {"recette":{},"nonGere":["changé de club"]}`
 
 async function questionRecette(
   req: Request,
@@ -630,10 +646,14 @@ async function questionRecette(
   // Forme seulement : un objet de taille raisonnable (l'appli revérifie chaque champ). Recette rendue sans enveloppe : acceptée.
   const objet = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
   if (!objet(sortie)) return json({ error: 'reponse_illisible', ...restants }, 502)
-  const recette = objet(sortie.recette) ? sortie.recette : Object.fromEntries(Object.entries(sortie).filter(([k]) => k !== 'nonGere'))
+  // « nonGere » : à côté de la recette ; s'il est dedans (petits modèles), il en est sorti ; un texte seul est accepté.
+  const brute = objet(sortie.recette) ? sortie.recette : sortie
+  const recette = Object.fromEntries(Object.entries(brute).filter(([k]) => k !== 'nonGere'))
   if (JSON.stringify(recette).length > MAX_RECETTE) return json({ error: 'reponse_illisible', ...restants }, 502)
-  const nonGere = Array.isArray(sortie.nonGere)
-    ? sortie.nonGere.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim().slice(0, 80)).slice(0, 10)
-    : []
+  const liste = (v: unknown): unknown[] => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : [])
+  const nonGere = [...liste(sortie.nonGere), ...(brute !== sortie ? liste(brute.nonGere) : [])]
+    .filter((x): x is string => typeof x === 'string' && !!x.trim())
+    .map((x) => x.trim().slice(0, 80))
+    .slice(0, 10)
   return json({ recette, nonGere, ms, model: modele, ...restants })
 }

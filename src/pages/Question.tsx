@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { Navigate, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, counts, db, POSITIONS, today, type Player, type Position } from '../db'
-import { percent, seasonOf, type Tally } from '../coverage'
+import { seasonOf, type Tally } from '../coverage'
 import { officialRegions, regionOfDept, useDepartments, useRegionLabel, useRegions } from '../lists'
 import { useThrottledQuery } from '../live'
 import { MQ, useMedia } from '../layout'
@@ -12,10 +12,19 @@ import { scoutId } from '../scouting'
 import { loadTeams } from '../teams'
 import { categoryStyles, styleOf } from '../radarZones'
 import {
+  answersNothing,
+  periodText,
   applyVars,
+  avgText,
   avisCategories,
   avisCriteria,
   buildIndex,
+  defaultSort,
+  hasConditions,
+  PRIORITY_TEXT,
+  QUESTION_EXAMPLES,
+  shareOf,
+  shareText,
   decodeRecipe,
   DEFAULT_LIMIT,
   encodeRecipe,
@@ -28,7 +37,6 @@ import {
   recipeText,
   removeChip,
   runRecipe,
-  targetText,
   VAR_TEXT,
   varValues,
   type Answer,
@@ -96,10 +104,14 @@ function useQuestionData() {
       const dayOf = (s: string) => (s.length <= 10 ? s : new Date(Date.parse(s)).toLocaleDateString('sv'))
       // Passages, comme le bilan (src/coverage.ts toSights) : « vu » et avis (hors cadre exclus), avec l'événement et la personne.
       const sights: QSight[] = []
+      // Noms des personnes du staff (signature du serveur, auteur de l'avis) : lus ici, affichés, jamais envoyés.
+      const staff = new Map<string, string>()
+      const named = (id: string | undefined, name: string | undefined) => id && name?.trim() && !staff.has(id) && staff.set(id, name.trim())
       for (const s of seen) {
         if (s.deleted || dead.has(s.eventId)) continue
         const when = s.at ?? s.createdAtServer
         const mine = !!me && (s.createdBy ? s.createdBy === me : s.id.startsWith(`${me}:`))
+        named(s.createdBy, s.createdByName)
         sights.push({
           playerId: s.playerId,
           day: when ? dayOf(when) : new Date(s.updatedAt).toLocaleDateString('sv'),
@@ -110,14 +122,18 @@ function useQuestionData() {
       for (const e of evals) {
         if (e.deleted || e.review === 'refused' || (e.eventId && dead.has(e.eventId))) continue
         const day = dayOf(e.date)
+        named(e.observerId, e.observer)
         // Avis sans événement : un jour d'observation compte comme un événement.
         sights.push({ playerId: e.playerId, day, event: e.eventId || `jour:${day}`, person: e.observerId || e.observer || '?' })
       }
       return {
         players,
         sights,
+        staff,
         // Moyennes : avis validés seulement (comme la comparaison et le classement).
-        evals: evals.filter((e) => !e.deleted && counts(e)).map((e) => ({ playerId: e.playerId, observer: e.observerId || e.observer, scores: e.scores })),
+        evals: evals
+          .filter((e) => !e.deleted && counts(e))
+          .map((e) => ({ playerId: e.playerId, observer: e.observerId || e.observer, day: dayOf(e.date), scores: e.scores })),
         measures,
         criteria: alive(criteria),
         groups: alive(groups).filter((g) => can.seeGroup(g)),
@@ -175,6 +191,8 @@ function useQuestionModel() {
       criterion: (id) => data?.criteria.find((c) => c.id === id)?.label ?? 'critère',
       unit: (id) => data?.criteria.find((c) => c.id === id)?.unit,
       position: (id) => POSITIONS.find((p) => p.id === id)?.label ?? id,
+      // Une personne sans nom connu est l'auteur d'un avis écrit hors ligne : son nom tel qu'écrit, sinon « Moi ».
+      staff: (id) => data?.staff.get(id) ?? (id === scoutId() ? 'Moi' : /^[0-9a-f-]{30,}$/i.test(id) ? 'Personne du staff' : id),
       today: today(),
     }),
     [index, data, regionLabel, deptName],
@@ -186,7 +204,6 @@ type Model = ReturnType<typeof useQuestionModel>
 type HistState = Partial<AskState> & { notes?: string[]; unsupported?: string[]; saved?: string }
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
-const hasConditions = (r: Recipe) => !!(r.seen || r.avis.length || r.nbAvis || r.measures.length)
 const fr = (n: number, d = 0) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
 
 /** Recette de l'adresse, et ses changements (sans nouvelle entrée d'historique : le retour reste sur cette réponse). */
@@ -232,7 +249,9 @@ export default function Question() {
     nav(`/bilan/question?${enc(it.recipe)}`, { replace: true, state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported } satisfies HistState })
   }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const answer = useMemo(() => (model.index && recipe ? runRecipe(model.index, recipe) : null), [model.index, recipe])
+  // Ni population, ni condition, ni tri parlant : « Je ne sais pas encore répondre », jamais une liste par défaut.
+  const nothing = !!recipe && answersNothing(recipe, st.unsupported)
+  const answer = useMemo(() => (model.index && recipe && !nothing ? runRecipe(model.index, recipe) : null), [model.index, recipe, nothing])
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!model.index || pending) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -240,14 +259,20 @@ export default function Question() {
   const left = (
     <div className="flex flex-col gap-3">
       <AskQuestion />
-      {recipe ? (
+      {recipe && nothing ? (
+        <NotUnderstood heard={st.heard} unsupported={st.unsupported} />
+      ) : recipe ? (
         <>
           <div className="flex flex-col gap-1">
             {st.heard && <p className="text-[11px] text-muted">Entendu : « {st.heard} »</p>}
             {st.saved && <p className="text-[11px] text-muted">Ma question : « {st.saved} »</p>}
             <RecipeChips recipe={recipe} names={model.names} model={model} onChange={(r) => set(r, r.out.type === 'map')} />
+            {!!st.unsupported?.length && (
+              <p className="rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
+                <b>Pas pris en compte :</b> {st.unsupported.join(' ; ')}
+              </p>
+            )}
             {!!st.notes?.length && <p className="text-[11px] text-muted">Non appliqué : {st.notes.join(' ; ')}</p>}
-            {!!st.unsupported?.length && <p className="text-[11px] text-muted">Je ne sais pas encore répondre sur : {st.unsupported.join(' ; ')}</p>}
           </div>
           {saving ? (
             <SaveForm recipe={recipe} names={model.names} phrase={st.heard} onDone={() => setSaving(false)} />
@@ -282,6 +307,24 @@ export default function Question() {
         </section>
         {/* Téléphone : « Mes questions » sous la réponse. */}
         {!side && <SavedQuestions model={model} />}
+      </div>
+    </div>
+  )
+}
+
+/** Question pas comprise : ce que le modèle n'a pas su traduire et des questions qui marchent, au lieu d'une réponse. */
+function NotUnderstood({ heard, unsupported }: { heard?: string; unsupported?: string[] }) {
+  return (
+    <div className="card flex flex-col gap-2 border-sky-500/40 p-3 text-xs" role="status">
+      <p className="font-bold">Je ne sais pas encore répondre à : « {heard || 'cette question'} »</p>
+      {!!unsupported?.length && <p className="text-muted">Pas compris : {unsupported.join(' ; ')}</p>}
+      <div>
+        <p className="text-muted">Par exemple, essayez :</p>
+        <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5">
+          {QUESTION_EXAMPLES.slice(0, 3).map((q) => (
+            <li key={q}>« {q} »</li>
+          ))}
+        </ul>
       </div>
     </div>
   )
@@ -382,17 +425,21 @@ function PeriodPicker({ value, onChange }: { value: Period; onChange: (p: Period
 function TargetPicker({ value, model, onChange }: { value: AvisTarget; model: Model; onChange: (t: AvisTarget) => void }) {
   const cs = model.data?.criteria ?? []
   const opts = [
+    // Score combiné (venu de la question) : gardé tel quel tant qu'on n'en choisit pas un autre.
+    ...(value.on === 'mix' ? [{ value: 'mix', label: avgText(value, model.names).replace(/^score/, 'Score') }] : []),
     { value: 'g', label: 'Moyenne générale' },
     ...avisCategories(cs).map((c) => ({ value: `c:${c}`, label: `Catégorie : ${c}` })),
     ...avisCriteria(cs).map((c) => ({ value: `k:${c.id}`, label: `Critère : ${c.label}` })),
   ]
-  const cur = value.on === 'category' ? `c:${value.name}` : value.on === 'criterion' ? `k:${value.id}` : 'g'
+  const cur = value.on === 'mix' ? 'mix' : value.on === 'category' ? `c:${value.name}` : value.on === 'criterion' ? `k:${value.id}` : 'g'
   return (
     <Select
       label="Moyenne de"
       value={opts.some((o) => o.value === cur) ? cur : 'g'}
       options={opts}
-      onChange={(v) => onChange(v.startsWith('c:') ? { on: 'category', name: v.slice(2) } : v.startsWith('k:') ? { on: 'criterion', id: v.slice(2) } : { on: 'global' })}
+      onChange={(v) =>
+        v !== 'mix' && onChange(v.startsWith('c:') ? { on: 'category', name: v.slice(2) } : v.startsWith('k:') ? { on: 'criterion', id: v.slice(2) } : { on: 'global' })
+      }
     />
   )
 }
@@ -530,16 +577,25 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
         </div>
       )
       break
+    case 'outPeriod':
+      body = <PeriodPicker value={r.out.period ?? r.seen?.period ?? { kind: 'season' }} onChange={(p) => apply((x) => (x.out.period = p))} />
+      break
     case 'sort': {
-      const s = r.out.sort ?? (r.avis.length || r.out.avg ? { by: 'avg' as const, dir: 'desc' as const } : { by: 'name' as const, dir: 'asc' as const })
+      const table = r.out.type === 'table'
+      const staff = table && r.out.groupBy === 'staff'
+      const s = table ? (r.out.sort ?? { by: staff ? ('seen' as const) : ('share' as const), dir: 'desc' as const }) : defaultSort(r)
       const ms = measureCriteria(model.data?.criteria ?? [])
-      body = (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Select<SortBy>
-            label="Trier par"
-            value={s.by}
-            onChange={(by) => apply((x) => (x.out.sort = { by, dir: by === 'name' ? 'asc' : 'desc' }))}
-            options={[
+      const options: { value: SortBy; label: string }[] = staff
+        ? [
+            { value: 'seen', label: 'Joueurs vus' },
+            { value: 'nbAvis', label: 'Avis écrits' },
+          ]
+        : table
+          ? [
+              { value: 'share', label: r.out.value === 'seen' || !hasConditions(r) ? 'Part vue' : 'Part qui répond' },
+              { value: 'avg', label: 'Moyenne d’avis' },
+            ]
+          : [
               { value: 'name', label: 'Nom' },
               { value: 'year', label: 'Année de naissance' },
               { value: 'height', label: 'Taille' },
@@ -547,17 +603,24 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
               { value: 'avg', label: 'Moyenne d’avis' },
               { value: 'nbAvis', label: 'Nombre d’avis' },
               ...(ms.length ? [{ value: 'measure' as const, label: 'Mesure' }] : []),
-            ]}
-          />
-          <Segmented<'asc' | 'desc'>
-            value={s.dir}
-            onChange={(dir) => apply((x) => (x.out.sort = { by: s.by, dir }))}
-            options={[
-              { value: 'asc', label: 'Croissant ↑' },
-              { value: 'desc', label: 'Décroissant ↓' },
-            ]}
-          />
-          {s.by === 'avg' && <TargetPicker value={r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }} model={model} onChange={(t) => apply((x) => (x.out.avg = t))} />}
+              { value: 'progress', label: 'Évolution entre les deux derniers avis' },
+              { value: 'priority', label: 'À voir en priorité' },
+            ]
+      body = (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Select<SortBy> label="Trier par" value={s.by} onChange={(by) => apply((x) => (x.out.sort = { by, dir: by === 'name' ? 'asc' : 'desc' }))} options={options} />
+          {s.by !== 'priority' && (
+            <Segmented<'asc' | 'desc'>
+              value={s.dir}
+              onChange={(dir) => apply((x) => (x.out.sort = { by: s.by, dir }))}
+              options={[
+                { value: 'asc', label: 'Croissant ↑' },
+                { value: 'desc', label: 'Décroissant ↓' },
+              ]}
+            />
+          )}
+          {s.by === 'priority' && <span className="text-muted">Priorité : {PRIORITY_TEXT}.</span>}
+          {(s.by === 'avg' || s.by === 'progress') && <TargetPicker value={r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }} model={model} onChange={(t) => apply((x) => (x.out.avg = t))} />}
           {s.by === 'measure' && (
             <Select
               label="Mesure"
@@ -604,6 +667,7 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'year', label: 'par génération' },
   { value: 'position', label: 'par poste' },
   { value: 'sex', label: 'par sexe' },
+  { value: 'staff', label: 'par personne du staff' },
 ]
 
 // ---------- Réponse ----------
@@ -637,7 +701,7 @@ function AnswerView({
     <p className="text-[11px] text-muted">
       {cond ? (
         <>
-          <b className="text-fg">{who(answer.count)}</b> sur {fr(answer.total)} dans la population ({percent(answer.count, answer.total)} %)
+          <b className="text-fg">{who(answer.count)}</b> sur {fr(answer.total)} dans la population ({shareText(answer.count, answer.total)})
         </>
       ) : (
         <b className="text-fg">{who(answer.count)}</b>
@@ -654,7 +718,7 @@ function AnswerView({
           <span className="text-sm">{who(answer.count).replace(/^\S+ /, '')}</span>
           {cond && (
             <span className="text-xs text-muted">
-              sur {fr(answer.total)} dans la population ({percent(answer.count, answer.total)} %)
+              sur {fr(answer.total)} dans la population ({shareText(answer.count, answer.total)})
             </span>
           )}
           {cond && <Bar t={{ seen: answer.count, total: answer.total || 1 }} className="mt-1 w-full" />}
@@ -672,31 +736,77 @@ function AnswerView({
     const rows = answer.rows ?? []
     const limit = recipe.out.limit ?? DEFAULT_LIMIT
     const ranked = answer.count - (answer.missing ?? 0)
+    const sort = defaultSort(recipe).by
+    const missingText =
+      sort === 'priority'
+        ? 'déjà vus deux fois ou plus : pas dans cette liste'
+        : sort === 'progress'
+          ? 'avec moins de deux avis sur ce point : pas dans ce classement'
+          : 'sans valeur pour ce tri (pas d’avis ou pas de mesure) : pas dans ce classement'
     return (
       <div className="flex flex-col gap-2">
         {summary}
+        {sort === 'priority' && (
+          <p className="rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]">
+            <b>Priorité</b>, {periodText(recipe.out.period ?? recipe.seen?.period ?? { kind: 'season' }, today())} : {PRIORITY_TEXT}.
+          </p>
+        )}
         {!!answer.missing && (
           <p className="text-[11px] text-muted">
-            {fr(answer.missing)} sans valeur pour ce tri (pas d’avis ou pas de mesure) : pas dans ce classement.
+            {fr(answer.missing)} {missingText}.
           </p>
         )}
         {!rows.length ? (
           <Empty>Personne ne répond à cette question pour l’instant.</Empty>
         ) : (
-          rows.map(({ p, value }) => (
+          rows.map(({ p, value, tag }) => (
             <PlayerRow
               key={p.id}
               p={p}
               link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
-              sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value)].filter(Boolean).join(' · ')}
+              sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value, tag)].filter(Boolean).join(' · ')}
               follow={<FollowStar id={p.id} />}
             />
           ))
         )}
         {ranked > limit && limit < LIMITS.limit[1] && (
           <button type="button" className="btn-ghost min-h-11 py-1.5 text-xs" onClick={() => setRecipe({ ...recipe, out: { ...recipe.out, limit: Math.min(LIMITS.limit[1], limit + DEFAULT_LIMIT) } })}>
-            Afficher {Math.min(DEFAULT_LIMIT, ranked - limit)} de plus ({fr(ranked - limit)} {ranked - limit > 1 ? "autres" : "autre"})
+            Afficher {Math.min(DEFAULT_LIMIT, ranked - limit)} de plus ({fr(ranked - limit)} {ranked - limit > 1 ? 'autres' : 'autre'})
           </button>
+        )}
+      </div>
+    )
+  }
+
+  if (recipe.out.type === 'table' && recipe.out.groupBy === 'staff') {
+    const rows = answer.table ?? []
+    const per = periodText(recipe.out.period ?? recipe.seen?.period ?? { kind: 'season' }, today())
+    const max = Math.max(1, ...rows.map((r) => r.staff!.players))
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] text-muted">
+          <b className="text-fg">
+            {fr(rows.length)} {rows.length > 1 ? 'personnes du staff' : 'personne du staff'}
+          </b>{' '}
+          · {per} · parmi {who(answer.count)} · calculé sur l’appareil en {answer.ms} ms
+        </p>
+        <SectionTitle info="Joueurs distincts vus (marqués « vu » ou avec un avis) et avis écrits, dans la période. Noms lus sur cet appareil.">Par personne du staff</SectionTitle>
+        {!rows.length ? (
+          <Empty>Personne du staff n’a vu ces joueurs dans cette période.</Empty>
+        ) : (
+          rows.map((row) => (
+            <div key={row.key} className="card flex min-h-11 items-center gap-3 px-3 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-bold">{model.names.staff?.(row.key) ?? 'Personne du staff'}</span>
+                <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
+                  <span className="shrink-0">
+                    <b className="text-fg">{who(row.staff!.players)}</b> vus · {fr(row.staff!.avis)} avis
+                  </span>
+                  <Bar t={{ seen: row.staff!.players, total: max }} className="w-12 sm:w-20" />
+                </span>
+              </span>
+            </div>
+          ))
         )}
       </div>
     )
@@ -726,12 +836,18 @@ function AnswerView({
                     <span className="shrink-0">
                       {cond ? (
                         <>
-                          <b className="text-fg">{fr(row.match)}</b> sur {fr(row.total)} · {percent(row.match, row.total)} %
+                          <b className="text-fg">{fr(row.match)}</b> sur {fr(row.total)} · {shareText(row.match, row.total)}
                         </>
                       ) : (
                         <b className="text-fg">{who(row.total)}</b>
                       )}
-                      {row.seen && ` · ${percent(row.seen.seen, row.seen.total)} % vus`}
+                      {row.seen && (
+                        <>
+                          {' · '}
+                          <b className={recipe.out.sort?.by === 'share' ? 'text-fg' : ''}>{shareText(row.seen.seen, row.seen.total)} vus</b>
+                          {!cond && ` (${fr(row.seen.seen)})`}
+                        </>
+                      )}
                       {row.avg !== undefined && ` · moyenne ${row.avg === null ? '–' : fr(row.avg, 2)}`}
                     </span>
                     {cond && <Bar t={t} className="w-12 sm:w-20" />}
@@ -743,6 +859,7 @@ function AnswerView({
             )
           })
         )}
+        {recipe.out.sort?.by === 'share' && rows.some((r) => shareOf(r) === null) && <p className="text-[10px] text-muted">Sans joueur : en fin de tableau.</p>}
       </div>
     )
   }
@@ -750,11 +867,14 @@ function AnswerView({
   return <MapAnswer answer={answer} model={model} index={index} params={params} search={search} setMap={setMap} summary={summary} />
 }
 
-/** Valeur du tri, en clair, dans la ligne du joueur. */
-function valueText(r: Recipe, names: Names, v: number | null | undefined): string {
+/** Valeur du tri, en clair, dans la ligne du joueur (priorité : la raison, en clair). */
+function valueText(r: Recipe, names: Names, v: number | null | undefined, tag?: string): string {
+  if (tag) return tag
   if (v === null || v === undefined) return ''
-  const by = r.out.sort?.by ?? (r.avis.length || r.out.avg ? 'avg' : 'name')
-  if (by === 'avg') return `moyenne ${targetText(r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }, names)} ${fr(v, 2)}`
+  const by = defaultSort(r).by
+  const target = r.out.avg ?? r.avis[0]?.target ?? { on: 'global' as const }
+  if (by === 'avg') return `${avgText(target, names)} ${fr(v, 2)}`
+  if (by === 'progress') return `évolution ${v > 0 ? '+' : ''}${fr(v, 2)} entre les deux derniers avis`
   if (by === 'height') return `${v} cm`
   if (by === 'seen') return `${fr(v)} ${r.seen?.by === 'person' ? (v > 1 ? 'personnes' : 'personne') : v > 1 ? 'événements' : 'événement'}`
   if (by === 'nbAvis') return `${fr(v)} avis`
@@ -771,10 +891,11 @@ function groupLabel(by: GroupBy, key: string, model: Model): string {
   if (by === 'region') return key ? model.names.region(key) : 'Région inconnue'
   if (by === 'year') return key || 'Année inconnue'
   if (by === 'position') return key ? model.names.position(key as Position) : 'Sans poste'
+  if (by === 'staff') return model.names.staff?.(key) ?? 'Personne du staff'
   return key === 'M' ? 'Garçons' : key === 'F' ? 'Filles' : 'Sexe non renseigné'
 }
 
-/** Recette limitée à une ligne du tableau, en liste. */
+/** Recette limitée à une ligne du tableau, en liste (part vue : les joueurs à voir en priorité de cette ligne). */
 function restrict(r: Recipe, by: GroupBy, key: string): Recipe {
   const pop = { ...r.pop }
   if (by === 'club') pop.clubs = [key]
@@ -786,7 +907,13 @@ function restrict(r: Recipe, by: GroupBy, key: string): Recipe {
   if (by === 'year') pop.years = [Number(key), Number(key)]
   if (by === 'position') pop.positions = [key as Position]
   if (by === 'sex') pop.sex = key as 'M' | 'F'
-  return { ...r, pop, out: { type: 'list', ...(r.out.value === 'avg' ? { avg: r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }, sort: { by: 'avg', dir: 'desc' } } : {}) } }
+  const out: Recipe['out'] =
+    r.out.value === 'avg'
+      ? { type: 'list', avg: r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }, sort: { by: 'avg', dir: 'desc' } }
+      : r.out.value === 'seen' && !r.seen
+        ? { type: 'list', sort: { by: 'priority', dir: 'desc' }, ...(r.out.period ? { period: r.out.period } : {}) }
+        : { type: 'list' }
+  return { ...r, pop, out }
 }
 
 // ---------- Carte ----------
@@ -819,8 +946,13 @@ function MapAnswer({
   const md = params.get('md') ?? ''
   const mc = params.get('mc')
   const t = useMemo(() => mapTallies(index, answer), [index, answer])
-  const sc = scaleOf(!mr ? t.byRegion.values() : [...t.byDept].filter(([d]) => regionOfDept(d) === mr).map(([, x]) => x))
-  const fill = (code: string) => fillOf(!mr ? t.byRegion.get(regionOfDept(code) ?? '') : t.byDept.get(code), sc)
+  const shown = !mr ? [...t.byRegion.values()] : [...t.byDept].filter(([d]) => regionOfDept(d) === mr).map(([, x]) => x)
+  const sc = scaleOf(shown)
+  // Condition rare (moins de 5 % de la population) : couleur selon le NOMBRE de joueurs qui répondent, mis en avant.
+  const rare = answer.count > 0 && answer.count < 0.05 * answer.total
+  const maxN = Math.max(1, ...shown.map((x) => x.seen))
+  const colorOf = (x: Tally | undefined, max = maxN) => (rare && x?.total ? fillOf({ seen: x.seen, total: max }) : fillOf(x, sc))
+  const fill = (code: string) => colorOf(!mr ? t.byRegion.get(regionOfDept(code) ?? '') : t.byDept.get(code))
   const pickRegion = (r: string) => setMap({ mr: r, md: '', mc: '' })
   const pickDept = (d: string) => setMap({ mr: regionOfDept(d) ?? '', md: d, mc: '' })
   // Clubs du département choisi : joueurs qui répondent sur joueurs de la population.
@@ -837,14 +969,22 @@ function MapAnswer({
     }
     return [...m].sort((a, b) => (!a[0] ? 1 : !b[0] ? -1 : b[1].seen - a[1].seen || b[1].total - a[1].total))
   }, [md, answer, index])
-  const share = (x: Tally) => (
-    <>
-      <b className="text-fg">{percent(x.seen, x.total)} %</b> · {fr(x.seen)} sur {fr(x.total)}
-    </>
-  )
-  const Row = ({ label, x, onClick, on }: { label: string; x: Tally; onClick: () => void; on?: boolean }) => (
+  const clubMax = Math.max(1, ...clubs.map(([, x]) => x.seen))
+  const share = (x: Tally) =>
+    rare ? (
+      <>
+        <b className="text-fg">{fr(x.seen)}</b> · {shareText(x.seen, x.total)} de {fr(x.total)}
+      </>
+    ) : (
+      <>
+        <b className="text-fg">{shareText(x.seen, x.total)}</b> · {fr(x.seen)} sur {fr(x.total)}
+      </>
+    )
+  // Ordre des régions et départements : part (ou nombre, condition rare) décroissante.
+  const order = (a: Tally, b: Tally) => (rare ? b.seen - a.seen : b.seen / b.total - a.seen / a.total) || b.total - a.total
+  const Row = ({ label, x, onClick, on, max }: { label: string; x: Tally; onClick: () => void; on?: boolean; max?: number }) => (
     <button type="button" onClick={onClick} aria-pressed={on} className={`card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}>
-      <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: fillOf(x, sc) }} />
+      <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: colorOf(x, max) }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{label}</span>
         <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
@@ -875,14 +1015,18 @@ function MapAnswer({
     ) : md ? (
       <section className="flex flex-col gap-2">
         <SectionTitle>Clubs · {model.names.dept(md)}</SectionTitle>
-        {clubs.length ? clubs.map(([k, x]) => <Row key={k || '?'} label={k ? model.names.club(k) : 'Club non renseigné'} x={x} onClick={() => setMap({ mc: k })} />) : <Empty>Aucun joueur ici.</Empty>}
+        {clubs.length ? (
+          clubs.map(([k, x]) => <Row key={k || '?'} label={k ? model.names.club(k) : 'Club non renseigné'} x={x} max={clubMax} onClick={() => setMap({ mc: k })} />)
+        ) : (
+          <Empty>Aucun joueur ici.</Empty>
+        )}
       </section>
     ) : mr ? (
       <section className="flex flex-col gap-2">
         <SectionTitle>Départements · {regionLabel(mr)}</SectionTitle>
         {[...t.byDept]
           .filter(([d]) => regionOfDept(d) === mr)
-          .sort((a, b) => b[1].seen / b[1].total - a[1].seen / a[1].total || b[1].total - a[1].total)
+          .sort((a, b) => order(a[1], b[1]))
           .map(([d, x]) => (
             <Row key={d} label={model.names.dept(d)} x={x} onClick={() => pickDept(d)} />
           ))}
@@ -892,7 +1036,7 @@ function MapAnswer({
         <SectionTitle>Régions</SectionTitle>
         {answer.total ? (
           [...t.byRegion]
-            .sort((a, b) => b[1].seen / b[1].total - a[1].seen / a[1].total || b[1].total - a[1].total)
+            .sort((a, b) => order(a[1], b[1]))
             .map(([r, x]) => <Row key={r} label={regionLabel(r)} x={x} onClick={() => pickRegion(r)} />)
         ) : (
           <Empty>Aucun joueur dans cette population.</Empty>
@@ -925,8 +1069,20 @@ function MapAnswer({
               )
             }}
           />
-          <MapLegend sc={sc} />
-          <p className="text-[10px] text-muted">Part de la population qui répond à la question. {md ? 'Touchez un club pour ses joueurs.' : mr ? 'Touchez un département pour ses clubs.' : 'Touchez une région pour la voir de plus près.'}</p>
+          {rare ? (
+            <div className="flex items-center gap-2 text-[10px] text-muted">
+              <span className="tabular-nums">0</span>
+              <span className="h-3 min-w-0 flex-1 rounded-sm" style={{ background: `linear-gradient(to right, ${fillOf({ seen: 0, total: 1 })}, ${fillOf({ seen: 1, total: 1 })})` }} />
+              <span className="tabular-nums">
+                {fr(maxN)} {maxN > 1 ? 'joueurs' : 'joueur'}
+              </span>
+            </div>
+          ) : (
+            <MapLegend sc={sc} />
+          )}
+          <p className="text-[10px] text-muted">
+            {rare ? 'Peu de joueurs répondent : couleur selon leur nombre (la part est donnée à côté).' : 'Part de la population qui répond à la question.'} {md ? 'Touchez un club pour ses joueurs.' : mr ? 'Touchez un département pour ses clubs.' : 'Touchez une région pour la voir de plus près.'}
+          </p>
         </section>
         {list}
       </div>
@@ -1124,8 +1280,8 @@ export function QuestionPlayers() {
   const players = useMemo(() => answerIds(recipe, answer, model.index, params), [recipe, answer, model.index, params])
   const leave = useLeaveTo(`/bilan/question${search}`, 'QUESTION')
   const value = useMemo(() => {
-    const m = new Map((answer?.rows ?? []).map((r) => [r.p.id, r.value]))
-    return (p: Player) => (recipe ? valueText(recipe, model.names, m.get(p.id)) : '')
+    const m = new Map((answer?.rows ?? []).map((r) => [r.p.id, r]))
+    return (p: Player) => (recipe ? valueText(recipe, model.names, m.get(p.id)?.value, m.get(p.id)?.tag) : '')
   }, [answer, recipe, model.names])
   const base = '/bilan/question/joueurs'
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>

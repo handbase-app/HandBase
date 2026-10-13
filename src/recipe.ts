@@ -10,7 +10,9 @@
 //     identifiants et des valeurs permises.
 //  3. cleanRecipe : même contrôle pour une recette lue dans l'adresse ou dans « Mes questions » (rien n'y est cru).
 //  4. buildIndex + runRecipe : exécution, en lecture seule, sur les tableaux de données (joueurs, « vu », avis, mesures,
-//     critères, groupes, événements) ; index par joueur, rapide sur 40 000 joueurs.
+//     critères, groupes, événements) ; index par joueur, rapide sur 40 000 joueurs. En plus des filtres : tableau par
+//     personne du staff, score combiné, progression, « à voir en priorité », tableaux triés par part vue ; moyennes
+//     limitées aux critères du poste. answersNothing : question sans rien d'utile (« Je ne sais pas encore répondre »).
 //  5. recipeChips : la recette en clair, en pastilles (« Joueuses · nées en 2011 · vues à 1 événement · cette saison »).
 // Uniquement des formulations positives ou neutres sur les jeunes : « pas encore vus », tri croissant ou décroissant.
 
@@ -28,9 +30,17 @@ export type PeriodKind = 'season' | '12m' | 'all' | 'since'
 /** Période des « vu » : saison en cours (1er septembre → 31 août), 12 derniers mois, depuis toujours, depuis une date. */
 export type Period = { kind: PeriodKind; since?: string }
 /** Moyenne d'avis : générale, d'un critère, d'une catégorie ou d'une zone du radar (src/radarZones.ts). */
-export type AvisTarget = { on: 'global' } | { on: 'criterion'; id: string } | { on: 'category'; name: string } | { on: 'zone'; zone: RadarZone }
-export type GroupBy = 'club' | 'dept' | 'region' | 'year' | 'position' | 'sex'
-export type SortBy = 'name' | 'year' | 'height' | 'seen' | 'avg' | 'nbAvis' | 'measure'
+export type SimpleTarget = { on: 'global' } | { on: 'criterion'; id: string } | { on: 'category'; name: string } | { on: 'zone'; zone: RadarZone }
+/** … ou SCORE COMBINÉ : moyenne de 2 à 4 cibles (« Vitesse + Intelligence de jeu »), chacune nécessaire. */
+export type AvisTarget = SimpleTarget | { on: 'mix'; parts: SimpleTarget[] }
+/** Regroupement ; « staff » : une ligne par personne du staff (joueurs vus distincts, avis écrits), noms lus sur l'appareil. */
+export type GroupBy = 'club' | 'dept' | 'region' | 'year' | 'position' | 'sex' | 'staff'
+/**
+ * Tri. Liste : nom, année, taille, vus, moyenne (ou score combiné), nombre d'avis, mesure, progression (écart entre les
+ * deux derniers avis), priorité (« à voir en priorité », règle fixe expliquée à l'écran). Tableau : part (part vue, ou
+ * part qui répond), moyenne, vus et avis (staff).
+ */
+export type SortBy = 'name' | 'year' | 'height' | 'seen' | 'avg' | 'nbAvis' | 'measure' | 'progress' | 'priority' | 'share'
 export type OutType = 'count' | 'list' | 'table' | 'map'
 export type PoleWanted = 'current' | 'past' | 'any'
 
@@ -72,11 +82,11 @@ export type Output = {
   /** Tableau : lignes gardées (certains joueurs répondent, tous, aucun). */
   keep?: 'some' | 'all' | 'none'
   sort?: { by: SortBy; dir: 'asc' | 'desc' }
-  /** Moyenne utilisée par le tri ou par la colonne « moyenne » ; défaut : celle de la 1re condition d'avis, sinon générale. */
+  /** Moyenne utilisée par le tri (moyenne, progression, priorité) ou la colonne « moyenne » ; défaut : celle de la 1re condition d'avis, sinon générale. */
   avg?: AvisTarget
   /** Mesure utilisée par le tri ; défaut : celle de la 1re condition de mesure. */
   measure?: string
-  /** Période de la part vue (tableau) ou du tri par « vus » ; défaut : celle de la condition « vu », sinon la saison. */
+  /** Période de la part vue (tableau), du tableau du staff, du tri par « vus » ou par priorité ; défaut : celle de la condition « vu », sinon la saison (affichée). */
   period?: Period
   /** Liste : nombre de joueurs montrés. */
   limit?: number
@@ -103,7 +113,7 @@ const MAX_ID = 120
 
 // ---------- Contexte de l'appli (listes réelles, jamais envoyées hors schéma) ----------
 
-export type QCriterion = { id: string; label: string; category: string; kind: 'factual' | 'subjective'; scale: string; unit?: string; deleted?: boolean; active?: boolean }
+export type QCriterion = { id: string; label: string; category: string; kind: 'factual' | 'subjective'; scale: string; unit?: string; deleted?: boolean; active?: boolean; positions?: Position[] }
 
 export type QuestionContext = Places & {
   positions: { id: Position; label: string }[]
@@ -148,8 +158,8 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
     population:
       'objet, clés facultatives : sexe (M ou F), annee (entier) ou annees {de, a}, postes [codes], clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous)',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
-    vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (saison par défaut | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
-    avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5)}',
+    vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
+    avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5)} ; score combiné : sur "combine", nom [liste de noms]',
     categories: avisCategories(ctx.criteria).join(' | ') || 'aucune',
     criteres: names(avis) || 'aucun',
     zones: RADAR_ZONES.map((z) => `${z.id}${ZONE_HINT[z.id] ? ` (${ZONE_HINT[z.id]})` : ''}`).join(', '),
@@ -157,7 +167,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
     mesures: 'liste facultative : {critere (nom de mesure), op (>= | <=), valeur}',
     mesuresPossibles: names(mes) || 'aucune',
     sortie:
-      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe), valeur (compte | part_vus | moyenne), garder (certains | tous | aucun) ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} et mesure (nom) pour le tri ou la colonne ; periode (de la part vue)',
+      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe | staff), valeur (compte | part_vus | moyenne), garder (certains | tous | aucun), tri (part_vus | moyenne | vus | nbAvis), ordre ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure | progression | priorite), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} (ou {sur:"combine", nom:[noms]}) et mesure (nom) pour le tri ou la colonne ; periode (de la part vue, du staff, de la priorité)',
   }
 }
 
@@ -263,7 +273,7 @@ export type Interpreted = {
   unsupported: string[]
 }
 
-const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie']
+const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie', 'nonGere']
 const KNOWN_POP = ['sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax', 'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole']
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
@@ -278,49 +288,75 @@ function matchPositionOf(v: unknown, ctx: QuestionContext): Position | undefined
   return 'found' in m ? m.found.id : undefined
 }
 
-/** Cible d'une moyenne d'avis : { sur, nom } du modèle → AvisTarget (catégorie, critère, zone retrouvés). */
+/** Cible d'une moyenne d'avis : { sur, nom } du modèle → AvisTarget (catégorie, critère, zone retrouvés ; liste : score combiné). */
 export function readAvisTarget(v: unknown, ctx: QuestionContext, skip: (what: string, why: string) => void): AvisTarget | undefined {
+  // Score combiné : liste de cibles ([{sur, nom}, …]), {sur: "combine", nom: [noms]}, ou « Vitesse + Intelligence de jeu ».
+  const many: unknown[] | undefined = Array.isArray(v)
+    ? v
+    : isObj(v) && Array.isArray(v.nom)
+      ? v.nom.map((nom) => (isObj(nom) ? nom : { sur: /^combin|^mix|^score/.test(normalize(asText(v.sur))) ? '' : v.sur, nom }))
+      : isObj(v) && /\s\+\s/.test(asText(v.nom))
+        ? asText(v.nom)
+            .split(/\s\+\s/)
+            .map((nom) => ({ sur: v.sur, nom }))
+        : undefined
+  if (many) {
+    const parts: SimpleTarget[] = []
+    for (const x of many.slice(0, 4)) {
+      const t = readAvisTarget(x, ctx, skip)
+      if (t && t.on !== 'mix' && !parts.some((y) => sameTarget(y, t))) parts.push(t)
+    }
+    return parts.length > 1 ? { on: 'mix', parts } : parts[0]
+  }
   if (!isObj(v)) {
     if (normalize(asText(v)) === 'global') return { on: 'global' }
-    return undefined
+    // Nom seul (« Vitesse ») : catégorie ou critère.
+    return asText(v) ? readAvisTarget({ nom: asText(v) }, ctx, skip) : undefined
   }
   const on = normalize(asText(v.sur))
   const name = asText(v.nom)
-  if (on === 'global' || on === 'generale' || on === 'general' || (!on && !name)) return { on: 'global' }
+  if (on === 'global' || on === 'generale' || on === 'general' || (!name && (!on || /^categ|^critere/.test(on)))) return { on: 'global' }
   const cats = avisCategories(ctx.criteria)
-  const findCategory = (n: string): string | undefined => {
+  const crits = avisCriteria(ctx.criteria)
+  const exactCategory = (n: string): string | undefined => {
     const m = bestMatch(n, cats, (c) => [c])
-    if ('found' in m) return m.found
-    // Mot dit (« défense », « les défenseurs ») : la catégorie de cette famille (src/radarZones.ts).
-    const kind = categoryKind(n.replace(/eurs?\b|euses?\b/gi, 'e'))
-    const same = kind !== 'autre' ? cats.filter((c) => categoryKind(c) === kind) : []
-    return same[0]
+    return 'found' in m ? m.found : undefined
   }
+  // Mot dit (« défense », « les défenseurs ») : la catégorie de cette famille (src/radarZones.ts).
+  const kindCategory = (n: string): string | undefined => {
+    const kind = categoryKind(n.replace(/eurs?\b|euses?\b/gi, 'e'))
+    return kind !== 'autre' ? cats.find((c) => categoryKind(c) === kind) : undefined
+  }
+  const criterion = (n: string) => bestMatch(n, crits, (c) => [c.label, c.id])
   if (on === 'zone') {
     const n = normalize(name)
-    const cat = findCategory(name)
+    const cat = exactCategory(name) ?? kindCategory(name)
     const z = isRadarZone(name) ? name : (ZONE_WORDS.find(([re]) => re.test(n))?.[1] ?? (cat ? ctx.zoneOf?.(cat) : undefined))
     if (z) return { on: 'zone', zone: z }
     skip(`zone ${quote(name)}`, 'zone du radar inconnue')
     return undefined
   }
   if (on === 'critere' || on === 'criteres') {
-    const m = bestMatch(name, avisCriteria(ctx.criteria), (c) => [c.label, c.id])
+    const m = criterion(name)
     if ('found' in m) return { on: 'criterion', id: m.found.id }
     // Le modèle a pu nommer une catégorie.
-    const c = findCategory(name)
+    const c = exactCategory(name) ?? kindCategory(name)
     if (c) return { on: 'category', name: c }
     skip(`critère ${quote(name)}`, 'ambiguous' in m ? 'plusieurs critères possibles' : 'critère d’avis introuvable')
     return undefined
   }
-  // Catégorie (défaut), ou critère si le nom en est un.
-  const c = findCategory(name)
+  // Catégorie (défaut) dite telle quelle, sinon critère nommé (« Vitesse », « Explosivité »), sinon famille de catégorie.
+  const c = exactCategory(name)
   if (c) return { on: 'category', name: c }
-  const m = bestMatch(name, avisCriteria(ctx.criteria), (x) => [x.label])
+  const m = criterion(name)
   if ('found' in m) return { on: 'criterion', id: m.found.id }
+  const k = kindCategory(name)
+  if (k) return { on: 'category', name: k }
   skip(`avis ${quote(name)}`, 'catégorie ou critère introuvable')
   return undefined
 }
+
+const sameTarget = (a: AvisTarget, b: AvisTarget) => JSON.stringify(a) === JSON.stringify(b)
 
 function readMeasure(v: unknown, ctx: QuestionContext): string | undefined {
   const s = asText(v)
@@ -335,11 +371,15 @@ function readMeasure(v: unknown, ctx: QuestionContext): string | undefined {
 const GROUP_WORDS: Record<string, GroupBy> = {
   club: 'club', clubs: 'club', departement: 'dept', departements: 'dept', dept: 'dept', comite: 'dept', region: 'region', regions: 'region', ligue: 'region',
   annee: 'year', annees: 'year', generation: 'year', generations: 'year', naissance: 'year', poste: 'position', postes: 'position', sexe: 'sex', genre: 'sex',
+  staff: 'staff', personne: 'staff', personnes: 'staff', observateur: 'staff', observateurs: 'staff', coach: 'staff', coachs: 'staff', entraineur: 'staff',
+  entraineurs: 'staff', encadrant: 'staff', encadrants: 'staff', membre: 'staff', membres: 'staff', auteur: 'staff',
 }
 const TYPE_WORDS: Record<string, OutType> = { nombre: 'count', combien: 'count', compte: 'count', count: 'count', liste: 'list', list: 'list', tableau: 'table', table: 'table', carte: 'map', map: 'map' }
 const SORT_WORDS: Record<string, SortBy> = {
   nom: 'name', name: 'name', annee: 'year', age: 'year', naissance: 'year', taille: 'height', vus: 'seen', vu: 'seen', passages: 'seen',
-  moyenne: 'avg', note: 'avg', notes: 'avg', avis: 'avg', nbavis: 'nbAvis', 'nb avis': 'nbAvis', 'nombre d avis': 'nbAvis', mesure: 'measure', mesures: 'measure',
+  moyenne: 'avg', note: 'avg', notes: 'avg', avis: 'avg', score: 'avg', nbavis: 'nbAvis', 'nb avis': 'nbAvis', 'nombre d avis': 'nbAvis', mesure: 'measure', mesures: 'measure',
+  progression: 'progress', progres: 'progress', evolution: 'progress', priorite: 'priority', prioritaire: 'priority', prioritaires: 'priority', 'a voir': 'priority',
+  part: 'share', 'part vus': 'share', 'part vue': 'share', pourcentage: 'share', taux: 'share',
 }
 
 /**
@@ -349,13 +389,14 @@ const SORT_WORDS: Record<string, SortBy> = {
 export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionContext): Interpreted {
   const notes: string[] = []
   const skip = (what: string, why: string) => notes.push(`${what} (${why})`)
-  const unsupported = asList(nonGere)
+  const top = isObj(raw) ? raw : {}
+  // « nonGere » : ce que le modèle n'a pas su traduire, à côté de la recette ou (parfois) dedans ; jamais un champ de recette.
+  const unsupported = [...asList(nonGere), ...asList(top.nonGere)]
     .filter((x): x is string => typeof x === 'string')
     .map((x) => x.replace(/\s+/g, ' ').trim().slice(0, 80))
-    .filter(Boolean)
+    .filter((x, i, xs) => x && xs.indexOf(x) === i)
     .slice(0, 8)
   const r: Recipe = { pop: {}, avis: [], measures: [], out: { type: 'list' } }
-  const top = isObj(raw) ? raw : {}
   const unknown = (o: Record<string, unknown>, known: string[], where: string) => {
     for (const k of Object.keys(o)) if (!known.includes(k) && present(o[k])) skip(`${where}${quote(k)}`, 'champ inconnu, ignoré')
   }
@@ -574,16 +615,21 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     if (per) r.out.period = per
     else skip(`période ${quote(s.periode)}`, 'valeur inconnue')
   }
+  // Tri inconnu : pas de tri par défaut à la place (jamais une liste triée par nom qui n'a rien à voir) ; dit à l'écran.
+  let sortUnknown = false
   if (present(s.tri)) {
     const by = SORT_WORDS[normalize(asText(s.tri))]
     if (by) r.out.sort = { by, dir: by === 'name' ? 'asc' : 'desc' }
-    else skip(`tri ${quote(s.tri)}`, 'valeur inconnue')
+    else {
+      sortUnknown = true
+      unsupported.push(`tri ${quote(s.tri)}`)
+    }
   }
-  if (present(s.ordre)) {
+  if (present(s.ordre) && !sortUnknown) {
     const o = normalize(asText(s.ordre))
     const dir = /^(croiss|asc|du plus petit|du moins)/.test(o) ? 'asc' : /^(decroiss|desc|du plus grand|du plus haut)/.test(o) ? 'desc' : undefined
     if (!dir) skip(`ordre ${quote(s.ordre)}`, 'valeur inconnue')
-    else r.out.sort = { by: r.out.sort?.by ?? (r.out.avg || r.avis.length ? 'avg' : 'name'), dir }
+    else r.out.sort = { by: r.out.sort?.by ?? (r.out.avg || r.avis.length ? 'avg' : r.out.type === 'table' && r.out.value === 'seen' ? 'share' : 'name'), dir }
   }
   if (present(s.limite)) {
     const n = parseNumber(s.limite)
@@ -594,6 +640,25 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   return { recipe: settle(r, notes), notes, unsupported }
 }
 
+/** Tris possibles d'une liste et d'un tableau. */
+const LIST_SORTS: readonly SortBy[] = ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure', 'progress', 'priority']
+const TABLE_SORTS: readonly SortBy[] = ['share', 'avg']
+const STAFF_SORTS: readonly SortBy[] = ['seen', 'nbAvis']
+
+export const hasConditions = (r: Recipe) => !!(r.seen || r.avis.length || r.nbAvis || r.measures.length)
+export const hasPopulation = (r: Recipe) => Object.keys(r.pop).length > 0
+
+/**
+ * Recette qui ne répond à rien d'utile : ni population, ni condition, et une liste sans tri parlant (tous les joueurs
+ * par nom), ou un nombre de tous les joueurs dont une partie n'a pas été comprise. L'écran dit alors « Je ne sais pas encore
+ * répondre à … » au lieu de sortir une liste par défaut.
+ */
+export function answersNothing(r: Recipe, unsupported: readonly string[] = []): boolean {
+  if (hasPopulation(r) || hasConditions(r)) return false
+  const plainList = r.out.type === 'list' && (!r.out.sort || r.out.sort.by === 'name')
+  return plainList || (unsupported.length > 0 && r.out.type === 'count')
+}
+
 /** Recette cohérente : tri par moyenne ou mesure avec sa cible, valeurs inutiles retirées. */
 function settle(r: Recipe, notes?: string[]): Recipe {
   const out = r.out
@@ -601,19 +666,37 @@ function settle(r: Recipe, notes?: string[]): Recipe {
     delete out.groupBy
     delete out.value
     delete out.keep
+  } else if (out.groupBy === 'staff') {
+    // Staff : joueurs vus distincts et avis écrits, toujours ; pas de part ni de moyenne.
+    delete out.value
+    delete out.keep
+    if (out.sort && !STAFF_SORTS.includes(out.sort.by)) delete out.sort
+  } else if (out.sort) {
+    // « vus » sur un tableau : la part vue ; « part » sans condition : la part vue ; « moyenne » : la colonne moyenne.
+    if (out.sort.by === 'seen') out.sort.by = 'share'
+    if (out.sort.by === 'share' && !out.value && !hasConditions(r)) out.value = 'seen'
+    if (out.sort.by === 'avg') out.value = 'avg'
+    if (!TABLE_SORTS.includes(out.sort.by)) delete out.sort
   }
+  if (out.type === 'list' && out.sort && !LIST_SORTS.includes(out.sort.by)) delete out.sort
   if (out.type !== 'list') {
     delete out.limit
-    if (out.type !== 'table' || out.value !== 'avg') delete out.avg
     delete out.measure
-    delete out.sort
+    if (out.type !== 'table') delete out.sort
+    if (out.type !== 'table' || (out.value !== 'avg' && out.sort?.by !== 'avg')) delete out.avg
   }
   if (out.sort?.by === 'measure' && !out.measure && !r.measures.length) {
     notes?.push('tri par mesure (aucune mesure nommée : tri par nom)')
     out.sort = { by: 'name', dir: 'asc' }
   }
-  if (out.period && !(out.type === 'table' && out.value === 'seen') && out.sort?.by !== 'seen') delete out.period
+  if (!usesOutPeriod(r)) delete out.period
   return r
+}
+
+/** La recette se sert-elle de out.period (part vue d'un tableau, tableau du staff, tri par vus ou par priorité) ? */
+export function usesOutPeriod(r: Recipe): boolean {
+  const o = r.out
+  return (o.type === 'table' && (o.value === 'seen' || o.groupBy === 'staff')) || (o.type === 'list' && (o.sort?.by === 'seen' || o.sort?.by === 'priority'))
 }
 
 // ---------- 3. Recette lue dans l'adresse ou le stockage ----------
@@ -636,6 +719,10 @@ function cleanPeriod(v: unknown): Period | undefined {
 }
 function cleanTarget(v: unknown): AvisTarget | undefined {
   if (!isObj(v)) return undefined
+  if (v.on === 'mix') {
+    const parts = (Array.isArray(v.parts) ? v.parts.slice(0, 4) : []).map(cleanTarget).filter((t): t is SimpleTarget => !!t && t.on !== 'mix')
+    return parts.length > 1 ? { on: 'mix', parts } : parts[0]
+  }
   if (v.on === 'global') return { on: 'global' }
   if (v.on === 'criterion' && okId(v.id)) return { on: 'criterion', id: v.id }
   if (v.on === 'category' && okId(v.name)) return { on: 'category', name: v.name }
@@ -693,14 +780,14 @@ export function cleanRecipe(v: unknown): Recipe {
     if (isObj(m) && okId(m.id) && op && value !== undefined) r.measures.push({ id: m.id, op, value })
   }
   const out = isObj(o.out) ? o.out : {}
-  const groupBy = oneOf(out.groupBy, ['club', 'dept', 'region', 'year', 'position', 'sex'] as const)
+  const groupBy = oneOf(out.groupBy, ['club', 'dept', 'region', 'year', 'position', 'sex', 'staff'] as const)
   if (r.out.type === 'table') r.out.groupBy = groupBy ?? 'club'
   const value = oneOf(out.value, ['count', 'seen', 'avg'] as const)
   if (value && value !== 'count') r.out.value = value
   const keep = oneOf(out.keep, ['some', 'all', 'none'] as const)
   if (keep && keep !== 'some') r.out.keep = keep
   if (isObj(out.sort)) {
-    const by = oneOf(out.sort.by, ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure'] as const)
+    const by = oneOf(out.sort.by, ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure', 'progress', 'priority', 'share'] as const)
     const dir = oneOf(out.sort.dir, ['asc', 'desc'] as const)
     if (by && dir) r.out.sort = { by, dir }
   }
@@ -731,8 +818,8 @@ export function decodeRecipe(s: string | null | undefined): Recipe | null {
 export type QPlayer = Pick<Player, 'id' | 'firstName' | 'lastName' | 'birthDate' | 'sex' | 'club' | 'position' | 'secondaryPositions' | 'laterality' | 'poles' | 'deleted' | 'mergedInto' | 'review'>
 /** Un passage : joueur vu ce jour-là, à cet événement (ou ce jour d'observation), par cette personne du staff. */
 export type QSight = { playerId: string; day: string; event: string; person: string }
-/** Avis qui compte (validé, ni supprimé ni hors cadre) : notes par critère. */
-export type QEval = { playerId: string; observer: string; scores: Record<string, number | string> }
+/** Avis qui compte (validé, ni supprimé ni hors cadre) : auteur, jour (AAAA-MM-JJ : progression, tableau du staff), notes par critère. */
+export type QEval = { playerId: string; observer: string; day?: string; scores: Record<string, number | string> }
 export type QMeasure = { playerId: string; criterionId: string; value: number | string; date: string; updatedAt?: number; deleted?: boolean }
 
 export type QData<P extends QPlayer> = {
@@ -750,7 +837,8 @@ export type QData<P extends QPlayer> = {
   today: string
 }
 
-type PlayerInfo = { dept?: string; region?: string; club: string; year: string }
+/** `name` : nom puis prénom repliés (sans accents, minuscules) pour trier vite par nom. */
+type PlayerInfo = { dept?: string; region?: string; club: string; year: string; pos?: Position; name: string }
 
 export type QIndex<P extends QPlayer> = {
   data: QData<P>
@@ -764,6 +852,8 @@ export type QIndex<P extends QPlayer> = {
   eventMembers: Map<string, Set<string>>
   /** Échelle de chaque critère d'avis (notes ramenées sur 5). */
   norm: Map<string, (v: number) => number | undefined>
+  /** Le critère compte-t-il pour un joueur de ce poste (postes du critère ; sinon famille de la catégorie, voir applies) ? */
+  applies: (cid: string, pos: Position | undefined, byFamily: boolean) => boolean
   clubNames: Map<string, string>
 }
 
@@ -781,7 +871,7 @@ export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
   for (const p of players) {
     const dept = data.deptOf(p)
     const club = clubKey(p.club)
-    info.set(p.id, { dept, region: dept ? data.regionOf(dept) : undefined, club, year: birthYear(p) })
+    info.set(p.id, { dept, region: dept ? data.regionOf(dept) : undefined, club, year: birthYear(p), pos: p.position, name: `${fold(p.lastName)}\u0001${fold(p.firstName)}` })
     if (club) {
       const m = names.get(club) ?? new Map<string, number>()
       names.set(club, m)
@@ -794,6 +884,8 @@ export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
   for (const s of data.sights) push(sights, s.playerId, s)
   const evals = new Map<string, QEval[]>()
   for (const e of data.evals) push(evals, e.playerId, e)
+  // Avis d'un joueur dans l'ordre des jours (progression : les deux derniers).
+  for (const es of evals.values()) if (es.length > 1) es.sort((a, b) => (a.day ?? '').localeCompare(b.day ?? ''))
   const lastAt = new Map<string, Map<string, { v: number; date: string; u: number }>>()
   for (const m of data.measures) {
     if (m.deleted) continue
@@ -815,8 +907,26 @@ export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
     // Notes ramenées sur 5 (1 → 5) pour comparer des échelles différentes ; une note hors échelle est ignorée.
     norm.set(c.id, (v) => (v < lo || v > hi ? undefined : c.scale === 'score5' ? v : 1 + ((v - lo) * 4) / (hi - lo)))
   }
-  return { data, players, info, sights, evals, last, groupMembers, eventMembers, norm, clubNames }
+  // Postes concernés de chaque critère (réglages) et famille de sa catégorie.
+  const critPos = new Map<string, Set<Position>>()
+  const critKind = new Map<string, string>()
+  for (const c of data.criteria) {
+    if (c.positions?.length) critPos.set(c.id, new Set(c.positions))
+    critKind.set(c.id, categoryKind(c.category))
+  }
+  const applies = (cid: string, pos: Position | undefined, byFamily: boolean) => {
+    const ps = critPos.get(cid)
+    if (ps) return !!pos && ps.has(pos)
+    if (!byFamily || !pos) return true
+    // Sans postes réglés, moyenne d'une catégorie ou d'une zone : un gardien n'y est pas classé sur la défense ou l'attaque
+    // des joueurs de champ, un joueur de champ pas sur les catégories de gardien.
+    const k = critKind.get(cid)
+    return pos === 'GB' ? k !== 'defense' && k !== 'attaque' : k !== 'gardien' && k !== 'gardien-arrets'
+  }
+  return { data, players, info, sights, evals, last, groupMembers, eventMembers, norm, applies, clubNames }
 }
+
+const fold = (s: string | undefined) => (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
 const DAY = 86_400_000
 const shiftDay = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10)
@@ -843,30 +953,42 @@ export function seenCount<P extends QPlayer>(ix: QIndex<P>, pid: string, by: 'ev
   return keys.size
 }
 
-/** Critères d'une cible de moyenne. */
+/** Critères d'une cible simple de moyenne (score combiné : ceux de toutes ses parties). */
 export function targetCriteria<P extends QPlayer>(ix: QIndex<P>, t: AvisTarget): Set<string> {
   const cs = avisCriteria(ix.data.criteria)
+  if (t.on === 'mix') return new Set(t.parts.flatMap((x) => [...targetCriteria(ix, x)]))
   if (t.on === 'global') return new Set(cs.map((c) => c.id))
   if (t.on === 'criterion') return new Set(cs.filter((c) => c.id === t.id).map((c) => c.id))
   if (t.on === 'category') return new Set(cs.filter((c) => c.category === t.name).map((c) => c.id))
   return new Set(cs.filter((c) => (ix.data.zoneOf?.(c.category) ?? null) === t.zone).map((c) => c.id))
 }
 
-/** Moyenne d'avis (sur 5) : chaque observateur pèse pareil (moyenne de ses notes), puis moyenne des observateurs. */
-export function avgOf<P extends QPlayer>(ix: QIndex<P>, pid: string, crit: Set<string>): number | null {
+/** Notes d'un avis sur ces critères (ramenées sur 5, critères du poste seulement) : somme et nombre. */
+function evalNotes<P extends QPlayer>(ix: QIndex<P>, e: QEval, crit: Set<string>, pos: Position | undefined, byFamily: boolean, acc: { s: number; n: number }) {
+  for (const cid in e.scores) {
+    const raw = e.scores[cid]
+    if (typeof raw !== 'number' || !crit.has(cid) || !ix.applies(cid, pos, byFamily)) continue
+    const v = ix.norm.get(cid)?.(raw)
+    if (v === undefined) continue
+    acc.s += v
+    acc.n++
+  }
+}
+
+/**
+ * Moyenne d'avis (sur 5) : chaque observateur pèse pareil (moyenne de ses notes), puis moyenne des observateurs. Seuls
+ * comptent les critères qui concernent le poste du joueur (`byFamily` : en plus, pour une catégorie ou une zone, la
+ * famille de la catégorie, voir buildIndex).
+ */
+export function avgOf<P extends QPlayer>(ix: QIndex<P>, pid: string, crit: Set<string>, byFamily = false): number | null {
   const es = ix.evals.get(pid)
   if (!es || !crit.size) return null
+  const pos = ix.info.get(pid)?.pos
   const byObs = new Map<string, { s: number; n: number }>()
   for (const e of es) {
-    for (const [cid, raw] of Object.entries(e.scores)) {
-      if (!crit.has(cid) || typeof raw !== 'number') continue
-      const v = ix.norm.get(cid)?.(raw)
-      if (v === undefined) continue
-      const o = byObs.get(e.observer) ?? { s: 0, n: 0 }
-      o.s += v
-      o.n++
-      byObs.set(e.observer, o)
-    }
+    const o = byObs.get(e.observer) ?? { s: 0, n: 0 }
+    evalNotes(ix, e, crit, pos, byFamily, o)
+    if (o.n) byObs.set(e.observer, o)
   }
   if (!byObs.size) return null
   let t = 0
@@ -874,7 +996,62 @@ export function avgOf<P extends QPlayer>(ix: QIndex<P>, pid: string, crit: Set<s
   return t / byObs.size
 }
 
-export type TableRow = { key: string; total: number; match: number; seen?: Tally; avg?: number | null }
+type Scorer = (pid: string) => number | null
+
+/** Moyenne d'une cible ; score combiné : moyenne des moyennes de ses parties, chacune nécessaire. */
+export function scorer<P extends QPlayer>(ix: QIndex<P>, t: AvisTarget): Scorer {
+  if (t.on === 'mix') {
+    const fs = t.parts.map((x) => scorer(ix, x))
+    return (pid) => {
+      let s = 0
+      for (const f of fs) {
+        const v = f(pid)
+        if (v === null) return null
+        s += v
+      }
+      return s / fs.length
+    }
+  }
+  const crit = targetCriteria(ix, t)
+  const byFamily = t.on === 'category' || t.on === 'zone'
+  return (pid) => avgOf(ix, pid, crit, byFamily)
+}
+
+/**
+ * Progression : moyenne du dernier avis moins celle de l'avis précédent (avis qui notent la cible, dans l'ordre des jours ;
+ * score combiné : chaque partie dans chacun des deux avis). null : moins de deux avis sur ce point.
+ */
+export function progressOf<P extends QPlayer>(ix: QIndex<P>, pid: string, t: AvisTarget): number | null {
+  const es = ix.evals.get(pid)
+  if (!es || es.length < 2) return null
+  const parts: SimpleTarget[] = t.on === 'mix' ? t.parts : [t]
+  const sets = parts.map((x) => ({ crit: targetCriteria(ix, x), byFamily: x.on === 'category' || x.on === 'zone' }))
+  const pos = ix.info.get(pid)?.pos
+  const found: number[] = []
+  for (let i = es.length - 1; i >= 0 && found.length < 2; i--) {
+    let total = 0
+    let ok = true
+    for (const x of sets) {
+      const acc = { s: 0, n: 0 }
+      evalNotes(ix, es[i], x.crit, pos, x.byFamily, acc)
+      if (!acc.n) {
+        ok = false
+        break
+      }
+      total += acc.s / acc.n
+    }
+    if (ok) found.push(total / sets.length)
+  }
+  return found.length === 2 ? found[0] - found[1] : null
+}
+
+/** « À voir en priorité » : note de bonne impression (moyenne sur 5) qui place un joueur vu une fois en tête (à confirmer). */
+export const PRIORITY_GOOD = 3.5
+/** Explication affichée avec la liste « à voir en priorité ». */
+export const PRIORITY_TEXT = `d’abord les joueurs vus une seule fois et déjà bien notés (moyenne ≥ ${String(PRIORITY_GOOD).replace('.', ',')} : à confirmer), puis ceux pas encore vus, des plus âgés aux plus jeunes, puis les autres vus une seule fois ; ceux déjà vus deux fois ou plus n’y sont pas`
+
+/** Ligne de tableau ; staff : `key` = la personne, `staff` = joueurs vus distincts et avis écrits (total = match = joueurs). */
+export type TableRow = { key: string; total: number; match: number; seen?: Tally; avg?: number | null; staff?: { players: number; avis: number } }
 
 export type Answer<P> = {
   /** Joueurs qui passent la population. */
@@ -884,8 +1061,9 @@ export type Answer<P> = {
   match: P[]
   matchIds: Set<string>
   pop: P[]
-  /** Liste : joueurs triés et limités, avec la valeur du tri ; `missing` : joueurs sans valeur de tri (non listés). */
-  rows?: { p: P; value?: number | null }[]
+  /** Liste : joueurs triés et limités, avec la valeur du tri (priorité : le rang, et `tag` en clair). */
+  rows?: { p: P; value?: number | null; tag?: string }[]
+  /** Joueurs non classés : sans valeur de tri, moins de deux avis (progression), déjà vus deux fois ou plus (priorité). */
   missing?: number
   table?: TableRow[]
   ms: number
@@ -937,6 +1115,9 @@ export function groupKey<P extends QPlayer>(ix: QIndex<P>, by: GroupBy, p: P): s
   return p.sex ?? ''
 }
 
+/** Avis d'une personne du staff dans la période (jour de l'avis ; sans jour : compté). */
+const inRange = (day: string | undefined, range?: { from: string; to: string }) => !range || !day || (day >= range.from && day <= range.to)
+
 /**
  * Exécute une recette (lecture seule) : population, puis conditions (vu, avis, nombre d'avis, mesures), puis la sortie
  * demandée (nombre, liste triée et limitée, tableau groupé, ou joueurs pour la carte).
@@ -946,11 +1127,11 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
   const today = ix.data.today
   const pop = ix.players.filter((p) => inPopulation(ix, r.pop, p))
   const seenRange = r.seen ? periodRange(r.seen.period, today) : undefined
-  const avisRules = r.avis.map((a) => ({ ...a, crit: targetCriteria(ix, a.target) }))
+  const avisRules = r.avis.map((a) => ({ ...a, score: scorer(ix, a.target) }))
   const match = pop.filter((p) => {
     if (r.seen && !test(r.seen.op, seenCount(ix, p.id, r.seen.by, seenRange), r.seen.n)) return false
     for (const a of avisRules) {
-      const v = avgOf(ix, p.id, a.crit)
+      const v = a.score(p.id)
       if (v === null || !(a.op === 'gte' ? v >= a.value - 1e-9 : v <= a.value + 1e-9)) return false
     }
     if (r.nbAvis && !test(r.nbAvis.op, ix.evals.get(p.id)?.length ?? 0, r.nbAvis.n)) return false
@@ -964,37 +1145,53 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
   const ans: Answer<P> = { total: pop.length, count: match.length, match, matchIds, pop, ms: 0 }
   const avgTarget = r.out.avg ?? r.avis[0]?.target ?? { on: 'global' as const }
   const outRange = periodRange(r.out.period ?? r.seen?.period ?? { kind: 'season' }, today)
+  const nameOf = (p: P) => ix.info.get(p.id)!.name
+  const byName = (a: P, b: P) => {
+    const x = nameOf(a)
+    const y = nameOf(b)
+    return x < y ? -1 : x > y ? 1 : 0
+  }
 
   if (r.out.type === 'list') {
-    const sort = r.out.sort ?? (r.avis.length || r.out.avg ? { by: 'avg' as const, dir: 'desc' as const } : { by: 'name' as const, dir: 'asc' as const })
-    const crit = sort.by === 'avg' ? targetCriteria(ix, avgTarget) : undefined
-    const measure = r.out.measure ?? r.measures[0]?.id
-    const valueOf = (p: P): number | null | undefined => {
-      switch (sort.by) {
-        case 'year':
-          return ix.info.get(p.id)!.year ? Number(ix.info.get(p.id)!.year) : null
-        case 'height':
-          return ix.last.get(HEIGHT_ID)?.get(p.id) ?? null
-        case 'seen':
-          return seenCount(ix, p.id, r.seen?.by ?? 'event', outRange)
-        case 'avg':
-          return avgOf(ix, p.id, crit!)
-        case 'nbAvis':
-          return ix.evals.get(p.id)?.length ?? 0
-        case 'measure':
-          return measure ? (ix.last.get(measure)?.get(p.id) ?? null) : null
-        default:
-          return undefined
+    const sort = defaultSort(r)
+    const limit = r.out.limit ?? DEFAULT_LIMIT
+    if (sort.by === 'priority') {
+      ans.rows = priorityRows(ix, match, scorer(ix, avgTarget), outRange, byName)
+      ans.missing = match.length - ans.rows.length
+      ans.rows = ans.rows.slice(0, limit)
+    } else {
+      const score = sort.by === 'avg' ? scorer(ix, avgTarget) : undefined
+      const measure = r.out.measure ?? r.measures[0]?.id
+      const valueOf = (p: P): number | null | undefined => {
+        switch (sort.by) {
+          case 'year':
+            return ix.info.get(p.id)!.year ? Number(ix.info.get(p.id)!.year) : null
+          case 'height':
+            return ix.last.get(HEIGHT_ID)?.get(p.id) ?? null
+          case 'seen':
+            return seenCount(ix, p.id, r.seen?.by ?? 'event', outRange)
+          case 'avg':
+            return score!(p.id)
+          case 'nbAvis':
+            return ix.evals.get(p.id)?.length ?? 0
+          case 'measure':
+            return measure ? (ix.last.get(measure)?.get(p.id) ?? null) : null
+          case 'progress':
+            return progressOf(ix, p.id, avgTarget)
+          default:
+            return undefined
+        }
       }
+      const vals = sort.by === 'name' ? match.map((p) => ({ p, value: undefined as number | null | undefined })) : match.map((p) => ({ p, value: valueOf(p) }))
+      // Sans valeur (pas d'avis sur ce point, jamais mesuré) : pas dans le classement, compté à part.
+      const ranked = sort.by === 'name' ? vals : vals.filter((x) => x.value !== null && x.value !== undefined)
+      const k = sort.dir === 'asc' ? 1 : -1
+      ranked.sort((a, b) => (sort.by === 'name' ? k * byName(a.p, b.p) : k * ((a.value as number) - (b.value as number)) || byName(a.p, b.p)))
+      ans.missing = vals.length - ranked.length
+      ans.rows = ranked.slice(0, limit)
     }
-    const byName = (a: P, b: P) => a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr')
-    const vals = match.map((p) => ({ p, value: valueOf(p) }))
-    // Sans valeur (pas d'avis sur ce point, jamais mesuré) : pas dans le classement, compté à part.
-    const ranked = sort.by === 'name' ? vals : vals.filter((x) => x.value !== null && x.value !== undefined)
-    const k = sort.dir === 'asc' ? 1 : -1
-    ranked.sort((a, b) => (sort.by === 'name' ? k * byName(a.p, b.p) : k * ((a.value as number) - (b.value as number)) || byName(a.p, b.p)))
-    ans.missing = vals.length - ranked.length
-    ans.rows = ranked.slice(0, r.out.limit ?? DEFAULT_LIMIT)
+  } else if (r.out.type === 'table' && r.out.groupBy === 'staff') {
+    ans.table = staffRows(ix, match, outRange, r.out.sort)
   } else if (r.out.type === 'table') {
     const by = r.out.groupBy ?? 'club'
     const rows = new Map<string, TableRow>()
@@ -1006,7 +1203,7 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
       if (matchIds.has(p.id)) row.match++
     }
     if (r.out.value === 'seen' || r.out.value === 'avg') {
-      const crit = r.out.value === 'avg' ? targetCriteria(ix, avgTarget) : undefined
+      const score = r.out.value === 'avg' ? scorer(ix, avgTarget) : undefined
       const sums = new Map<string, { s: number; n: number }>()
       for (const p of match) {
         const row = rows.get(groupKey(ix, by, p))!
@@ -1015,7 +1212,7 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
           row.seen.total++
           if (seenCount(ix, p.id, 'event', outRange) > 0) row.seen.seen++
         } else {
-          const v = avgOf(ix, p.id, crit!)
+          const v = score!(p.id)
           if (v === null) continue
           const x = sums.get(row.key) ?? { s: 0, n: 0 }
           x.s += v
@@ -1026,18 +1223,73 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
       if (r.out.value === 'avg') for (const row of rows.values()) row.avg = sums.has(row.key) ? sums.get(row.key)!.s / sums.get(row.key)!.n : null
     }
     const keep = r.out.keep ?? 'some'
-    ans.table = [...rows.values()]
-      .filter((x) => (keep === 'all' ? x.match === x.total : keep === 'none' ? x.match === 0 : x.match > 0))
-      .sort((a, b) => {
-        // Inconnu (club non renseigné, année inconnue…) à la fin ; années : la plus récente d'abord.
-        if (!a.key !== !b.key) return !a.key ? 1 : -1
-        if (by === 'year') return b.key.localeCompare(a.key)
-        if (r.out.value === 'avg') return (b.avg ?? -1) - (a.avg ?? -1) || b.match - a.match
-        return (keep === 'some' ? b.match - a.match : 0) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
-      })
+    const sort = r.out.sort
+    // Tri par part : toutes les lignes restent (celles à 0 % sont justement « en retard »).
+    const keepRow = (x: TableRow) => (keep === 'all' ? x.match === x.total : keep === 'none' ? x.match === 0 : sort?.by === 'share' || x.match > 0)
+    const k = sort?.dir === 'asc' ? 1 : -1
+    // Valeur triée : null (pas de valeur) toujours en fin de tableau.
+    const cmp = (a: number | null | undefined, b: number | null | undefined) => (a == null ? (b == null ? 0 : 1) : b == null ? -1 : k * (a - b))
+    ans.table = [...rows.values()].filter(keepRow).sort((a, b) => {
+      // Inconnu (club non renseigné, année inconnue…) à la fin ; années : la plus récente d'abord.
+      if (!a.key !== !b.key) return !a.key ? 1 : -1
+      if (sort?.by === 'share') return cmp(shareOf(a), shareOf(b)) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
+      if (sort?.by === 'avg' || r.out.value === 'avg') return (sort ? cmp(a.avg, b.avg) : (b.avg ?? -1) - (a.avg ?? -1)) || b.match - a.match
+      if (by === 'year') return b.key.localeCompare(a.key)
+      return (keep === 'some' ? b.match - a.match : 0) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
+    })
   }
   ans.ms = Math.round(now() - t0)
   return ans
+}
+
+/** Tri effectif d'une liste : celui de la recette, sinon moyenne (s'il y a une moyenne en jeu), sinon nom. */
+export function defaultSort(r: Recipe): { by: SortBy; dir: 'asc' | 'desc' } {
+  return r.out.sort ?? (r.avis.length || r.out.avg ? { by: 'avg', dir: 'desc' } : { by: 'name', dir: 'asc' })
+}
+
+/** Part d'une ligne de tableau : part vue (colonne « part vue »), sinon part qui répond. */
+export const shareOf = (row: TableRow): number | null => (row.seen ? (row.seen.total ? row.seen.seen / row.seen.total : null) : row.total ? row.match / row.total : null)
+
+/** « À voir en priorité » (PRIORITY_TEXT) : rang 0 à confirmer, 1 pas encore vu, 2 vu une fois ; vus ≥ 2 : écartés. */
+function priorityRows<P extends QPlayer>(ix: QIndex<P>, match: P[], score: Scorer, range: { from: string; to: string } | undefined, byName: (a: P, b: P) => number) {
+  const rows: { p: P; value: number; tag: string; avg: number | null; year: number }[] = []
+  for (const p of match) {
+    const n = seenCount(ix, p.id, 'event', range)
+    if (n > 1) continue
+    const avg = n === 1 ? score(p.id) : null
+    const e = p.sex === 'F' ? 'e' : ''
+    const year = Number(ix.info.get(p.id)!.year) || 9999
+    const note = avg === null ? '' : `, moyenne ${fr(avg)}`
+    if (n === 1 && avg !== null && avg >= PRIORITY_GOOD - 1e-9) rows.push({ p, value: 0, tag: `à confirmer : vu${e} 1 fois${note}`, avg, year })
+    else if (n === 0) rows.push({ p, value: 1, tag: `pas encore vu${e}`, avg, year })
+    else rows.push({ p, value: 2, tag: `vu${e} 1 fois${note}`, avg, year })
+  }
+  rows.sort((a, b) => a.value - b.value || (b.avg ?? -1) - (a.avg ?? -1) || a.year - b.year || byName(a.p, b.p))
+  return rows.map(({ p, value, tag }) => ({ p, value, tag }))
+}
+
+/** Tableau du staff : par personne, joueurs (de la réponse) vus distincts et avis écrits dans la période. */
+function staffRows<P extends QPlayer>(ix: QIndex<P>, match: P[], range: { from: string; to: string } | undefined, sort?: { by: SortBy; dir: 'asc' | 'desc' }): TableRow[] {
+  const players = new Map<string, Set<string>>()
+  const avis = new Map<string, number>()
+  const known = (who: string) => !!who && who !== '?'
+  for (const p of match) {
+    for (const s of ix.sights.get(p.id) ?? []) {
+      if (!known(s.person) || !inRange(s.day, range)) continue
+      const set = players.get(s.person) ?? new Set<string>()
+      players.set(s.person, set)
+      set.add(p.id)
+    }
+    for (const e of ix.evals.get(p.id) ?? []) if (known(e.observer) && inRange(e.day, range)) avis.set(e.observer, (avis.get(e.observer) ?? 0) + 1)
+  }
+  const rows = [...new Set([...players.keys(), ...avis.keys()])].map((key): TableRow => {
+    const n = players.get(key)?.size ?? 0
+    return { key, total: n, match: n, staff: { players: n, avis: avis.get(key) ?? 0 } }
+  })
+  const k = sort?.dir === 'asc' ? 1 : -1
+  const main = (x: TableRow) => (sort?.by === 'nbAvis' ? x.staff!.avis : x.staff!.players)
+  const other = (x: TableRow) => (sort?.by === 'nbAvis' ? x.staff!.players : x.staff!.avis)
+  return rows.sort((a, b) => k * (main(a) - main(b)) || other(b) - other(a) || a.key.localeCompare(b.key))
 }
 
 /** Carte : part de la population qui remplit les conditions, par département et par région (seen = remplit). */
@@ -1076,17 +1328,27 @@ export type Names = {
   criterion: (id: string) => string
   unit?: (id: string) => string | undefined
   position: (id: Position) => string
+  /** Personne du staff (nom lu sur l'appareil, jamais envoyé). */
+  staff?: (id: string) => string
   today: string
 }
 
 /** Ce qu'on peut changer d'un toucher sur une pastille (en plus de la retirer). */
-export type ChipEdit = 'sex' | 'years' | 'height' | 'seen' | 'period' | 'avis' | 'nbAvis' | 'measure' | 'out' | 'sort' | 'limit' | 'value'
+export type ChipEdit = 'sex' | 'years' | 'height' | 'seen' | 'period' | 'avis' | 'nbAvis' | 'measure' | 'out' | 'sort' | 'limit' | 'value' | 'outPeriod'
 export type Chip = { key: string; label: string; edit?: ChipEdit; removable: boolean }
 
 const fr = (n: number, d = 2) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
 const fmtDay = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 const OP_TEXT: Record<Cmp, string> = { eq: '=', gte: '≥', lte: '≤' }
-const GROUP_TEXT: Record<GroupBy, string> = { club: 'par club', dept: 'par département', region: 'par région', year: 'par génération', position: 'par poste', sex: 'par sexe' }
+const GROUP_TEXT: Record<GroupBy, string> = {
+  club: 'par club',
+  dept: 'par département',
+  region: 'par région',
+  year: 'par génération',
+  position: 'par poste',
+  sex: 'par sexe',
+  staff: 'par personne du staff',
+}
 const POLE_TEXT: Record<PoleWanted, string> = { current: 'au Pôle Espoirs', past: 'sortis du Pôle Espoirs', any: 'passés par le Pôle Espoirs' }
 
 export function periodText(p: Period, today: string): string {
@@ -1097,10 +1359,23 @@ export function periodText(p: Period, today: string): string {
 }
 
 export function targetText(t: AvisTarget, names: Names): string {
+  if (t.on === 'mix') return t.parts.map((x) => targetText(x, names)).join(' + ')
   if (t.on === 'global') return 'générale'
   if (t.on === 'criterion') return names.criterion(t.id)
   if (t.on === 'category') return t.name
   return `zone « ${RADAR_ZONES.find((z) => z.id === t.zone)?.label.toLowerCase() ?? t.zone} »`
+}
+
+/** « moyenne Défense », « moyenne générale », « score Vitesse + Intelligence de jeu ». */
+export const avgText = (t: AvisTarget, names: Names) => `${t.on === 'mix' ? 'score' : 'moyenne'} ${targetText(t, names)}`
+
+/** Part en clair : entière au-dessous (« 12 % »), une décimale sous 1 % (« 0,3 % »), « < 0,1 % » pour une part plus petite. */
+export function shareText(part: number, total: number): string {
+  if (!total || !part) return '0 %'
+  const p = (part * 100) / total
+  if (p >= 1) return `${Math.floor(p)} %`
+  const d = Math.floor(p * 10) / 10
+  return d ? `${fr(d, 1)} %` : '< 0,1 %'
 }
 
 const list = (xs: string[], max = 3) => (xs.length > max ? `${xs.slice(0, max).join(', ')} +${xs.length - max}` : xs.join(', '))
@@ -1144,7 +1419,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
     c.push({ key: 'seen', label, edit: 'seen', removable: true })
     c.push({ key: 'period', label: periodText(s.period, names.today), edit: 'period', removable: false })
   }
-  r.avis.forEach((a, i) => c.push({ key: `avis.${i}`, label: `moyenne ${targetText(a.target, names)} ${OP_TEXT[a.op]} ${fr(a.value)}`, edit: 'avis', removable: true }))
+  r.avis.forEach((a, i) => c.push({ key: `avis.${i}`, label: `${avgText(a.target, names)} ${OP_TEXT[a.op]} ${fr(a.value)}`, edit: 'avis', removable: true }))
   if (r.nbAvis) c.push({ key: 'nbAvis', label: `${OP_TEXT[r.nbAvis.op] === '=' ? '' : `${OP_TEXT[r.nbAvis.op]} `}${r.nbAvis.n} avis`, edit: 'nbAvis', removable: true })
   r.measures.forEach((m, i) => {
     const u = names.unit?.(m.id)
@@ -1153,31 +1428,43 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   const o = r.out
   c.push({
     key: 'out',
-    label: o.type === 'count' ? 'combien ?' : o.type === 'map' ? 'carte de France' : o.type === 'table' ? GROUP_TEXT[o.groupBy ?? 'club'] : 'liste',
+    label: o.type === 'count' ? 'combien ?' : o.type === 'map' ? 'carte de France' : o.type === 'table' ? (o.groupBy === 'staff' ? 'tableau par personne du staff' : GROUP_TEXT[o.groupBy ?? 'club']) : 'liste',
     edit: 'out',
     removable: false,
   })
+  const avgT = o.avg ?? r.avis[0]?.target ?? { on: 'global' as const }
+  const arrow = (dir: 'asc' | 'desc') => (dir === 'asc' ? '↑' : '↓')
   if (o.type === 'table' && o.value && o.value !== 'count')
     c.push({
       key: 'value',
-      label: o.value === 'seen' ? `part vue (${periodText(o.period ?? r.seen?.period ?? { kind: 'season' }, names.today)})` : `moyenne ${targetText(o.avg ?? r.avis[0]?.target ?? { on: 'global' }, names)}`,
+      label: o.value === 'seen' ? `part vue (${periodText(o.period ?? r.seen?.period ?? { kind: 'season' }, names.today)})` : avgText(avgT, names),
       edit: 'value',
       removable: true,
     })
   if (o.type === 'table' && o.keep && o.keep !== 'some')
     c.push({ key: 'keep', label: o.keep === 'all' ? 'seulement si tous répondent' : 'seulement si aucun ne répond', removable: true })
+  // Période du tableau du staff, du tri par vus ou par priorité : toujours affichée (saison en cours par défaut).
+  if (usesOutPeriod(r) && !(o.type === 'table' && o.value === 'seen'))
+    c.push({ key: 'outPeriod', label: periodText(o.period ?? r.seen?.period ?? { kind: 'season' }, names.today), edit: 'outPeriod', removable: false })
+  if (o.type === 'table' && o.sort) {
+    const what = o.groupBy === 'staff' ? (o.sort.by === 'nbAvis' ? 'avis écrits' : 'joueurs vus') : o.sort.by === 'avg' ? avgText(avgT, names) : o.value === 'seen' ? 'part vue' : 'part qui répond'
+    c.push({ key: 'sort', label: `tri : ${what} ${arrow(o.sort.dir)}`, edit: 'sort', removable: true })
+  }
   if (o.type === 'list') {
-    const s = o.sort ?? (r.avis.length || o.avg ? { by: 'avg' as const, dir: 'desc' as const } : { by: 'name' as const, dir: 'asc' as const })
+    const s = defaultSort(r)
     const what: Record<SortBy, string> = {
       name: 'nom',
       year: 'année de naissance',
       height: 'taille',
       seen: 'nombre de vus',
-      avg: `moyenne ${targetText(o.avg ?? r.avis[0]?.target ?? { on: 'global' }, names)}`,
+      avg: avgText(avgT, names),
       nbAvis: 'nombre d’avis',
       measure: names.criterion(o.measure ?? r.measures[0]?.id ?? ''),
+      progress: `évolution entre les deux derniers avis (${avgText(avgT, names)})`,
+      priority: 'à voir en priorité',
+      share: 'part',
     }
-    c.push({ key: 'sort', label: `tri : ${what[s.by]} ${s.dir === 'asc' ? '↑' : '↓'}`, edit: 'sort', removable: !!o.sort })
+    c.push({ key: 'sort', label: s.by === 'priority' ? `tri : ${what.priority}` : `tri : ${what[s.by]} ${arrow(s.dir)}`, edit: 'sort', removable: !!o.sort })
     c.push({ key: 'limit', label: `${o.limit ?? DEFAULT_LIMIT} premiers`, edit: 'limit', removable: false })
   }
   return c
@@ -1298,3 +1585,11 @@ export function parseSaved(raw: unknown): SavedQuestion[] {
 // ---------- Aide ----------
 
 export const QUESTION_HINT = 'les joueuses 2011 vues une seule fois cette saison, par département », « combien de gardiens 2009 mesurent plus de 1 m 85'
+
+/** Questions qui marchent, montrées quand une question n'a pas été comprise. */
+export const QUESTION_EXAMPLES = [
+  'Les joueuses 2011 vues une seule fois cette saison, par département',
+  'Quel département est le plus en retard sur les 2013 ?',
+  'Les 10 meilleurs défenseurs nés en 2010',
+  'Quels joueurs aller voir en priorité en Bretagne ?',
+]
