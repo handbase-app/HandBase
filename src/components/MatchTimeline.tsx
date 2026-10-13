@@ -29,7 +29,8 @@ import { PlaceMark } from './Videos'
  * repère, toutes listées sur la carte, calées, retirées et annulées ensemble. Clavier (ordinateur) : Entrée = « C'est ici ! »,
  * N = passer ; espace et flèches sont gérés par le lecteur (VideoPlayer). Tout le calcul est dans
  * matchSheet.ts, les écritures dans matchSync.ts : ce fichier n'est que l'écran (il peut être remplacé sans y toucher).
- * Calage réservé à can.calibrateMatch ; les autres voient la frise et le statut.
+ * Calage réservé à can.calibrateMatch, sur une vidéo d'événement en mode édition (Videos.tsx) ; sur une fiche joueur
+ * (readOnly) et pour les autres : la frise et le statut seulement.
  */
 
 /** Dernier calage annulable de cet événement (l'écran se met à jour quand la pile change). */
@@ -216,6 +217,7 @@ export default function MatchTimeline({
   api,
   pls = [],
   playerId,
+  readOnly = false,
 }: {
   eventId: string
   video: Pick<Video, 'id' | 'url'>
@@ -223,6 +225,8 @@ export default function MatchTimeline({
   api: PlayerTools
   pls?: number[]
   playerId?: string
+  /** Frise consultée sans calage (fiche joueur), même pour qui a le droit de caler. */
+  readOnly?: boolean
 }) {
   const role = useRole()
   const ev = useLiveQuery(() => db.events.get(eventId), [eventId])
@@ -299,7 +303,7 @@ export default function MatchTimeline({
   }, [mNote, mAt, hasMs])
 
   if (!ev || !ms) return null
-  const calib = can.calibrateMatch(role, { eventId, playerId })
+  const calib = !readOnly && can.calibrateMatch(role, { eventId, playerId })
   const sync = ms.sync
   const tl = timelineOf(ms)
   const marks = sync?.marks ?? {}

@@ -1,8 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
-import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
-import type { MatchSheet } from '../matchSheet'
+import { db, newId, remove, save, type Player, type Video, type VideoMoment } from '../db'
+import type { MatchSheet, StoredAction } from '../matchSheet'
 import { can, useRole } from '../roles'
 import { supabase } from '../sync'
 import {
@@ -21,9 +21,9 @@ import {
   withMoments,
 } from '../videos'
 import { ask } from './Confirm'
-import { Icon, InfoButton } from './ui'
+import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
-import { closeVideo, openVideo, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
+import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
 
 /*
  * Section « Vidéos » d'une fiche joueur ou d'un événement (supabase/036_videos.sql) : liens vers des vidéos
@@ -49,9 +49,9 @@ const looksGenerated = (m: VideoMoment) => !!m.note?.endsWith('feuille') && m.no
  * Fiche joueur : événements dont la feuille de match est calée sur l'adresse d'un de ces liens et où cette fiche est reliée
  * à un joueur de la feuille (fiches fondues suivies). Le module de la feuille n'est chargé que s'il y a des moments générés.
  */
-function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Video[]) {
+function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Video[], eventSheet = false) {
   const urls = kind === 'player' ? [...new Set((videos ?? []).filter((v) => momentsOf(v).some(looksGenerated)).map((v) => v.url))] : []
-  const need = urls.length > 0
+  const need = urls.length > 0 || eventSheet
   const [mod, setMod] = useState<SheetMod>()
   useEffect(() => {
     if (need && !mod) import('../matchSheet').then((m) => setMod(m)).catch(() => {})
@@ -81,8 +81,25 @@ function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Vid
     },
     [mod, targetId, urls.join('\n')],
   )
-  // Feuilles connues (ou aucune à chercher) : la frise du lecteur peut être décidée.
-  return { mod, links: links ?? [], ready: !need || links !== undefined }
+  // Feuilles connues (ou aucune à chercher) et module chargé s'il le faut : la frise du lecteur peut être décidée.
+  return { mod, links: links ?? [], ready: !need || (links !== undefined && !!mod) }
+}
+
+/** Nom affiché pour le joueur (ou l'équipe) d'une action de la feuille : fiche reliée, sinon « n° 7 (Équipe) ». undefined : pas encore lu. */
+function useSheetWho(ms: MatchSheet | undefined) {
+  const ids = (ms?.players ?? []).flatMap((p) => (p.playerId ? [p.playerId] : []))
+  const byId = useLiveQuery(
+    async () => new Map((await db.players.bulkGet(ids)).filter((p): p is Player => !!p).map((p) => [p.id, p])),
+    [ids.join(',')],
+  )
+  if (!ms || !byId) return undefined
+  const team = (side?: string) => (side === 'home' ? ms.home : side === 'away' ? ms.away : '')
+  return (a: StoredAction) => {
+    if (a.k === 'tm' || a.pl === undefined) return team(a.side)
+    const sp = ms.players[a.pl]
+    const p = sp?.playerId ? byId.get(sp.playerId) : undefined
+    return p ? playerName(p) : `n° ${sp?.num ?? '?'} (${team(sp?.side)})`
+  }
 }
 
 function useOnline() {
@@ -109,15 +126,22 @@ export function VideoSection({
   dept,
   tools,
   bar,
+  sheet,
   children,
 }: {
   kind: Video['targetKind']
   targetId: string
   dept?: string
-  /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement). */
+  /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement ; en mode édition si sheet). */
   tools?: (v: Video, api: PlayerTools) => ReactNode
-  /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement). */
+  /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement ; en mode édition si sheet). */
   bar?: (v: Video, api: PlayerTools) => ReactNode
+  /**
+   * Feuille de match d'un événement. La vidéo s'ouvre en lecture : les actions placées sur la vidéo calée s'ajoutent à ses
+   * moments ; tools et bar (frise de calage) ne viennent qu'en mode édition, ouvert par « Éditer le séquençage » pour qui
+   * peut caler (canEdit).
+   */
+  sheet?: { ms: MatchSheet; canEdit: boolean }
   /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
   children?: ReactNode
 }) {
@@ -138,7 +162,10 @@ export function VideoSection({
   const owner = `${kind}:${targetId}`
   useDockOwner(owner)
   const playing = useDockOpen(owner)
-  const sheets = useSheetLinks(kind, targetId, videos)
+  const sheets = useSheetLinks(kind, targetId, videos, !!sheet)
+  // Mode édition du séquençage : gardé par le lecteur (VideoDock), il survit à une rotation ; jamais pour qui ne peut caler.
+  const editing = useDockEditing() && !!sheet?.canEdit
+  const sheetWho = useSheetWho(sheet?.ms)
   // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
   const open = playing && videos ? (videos.find((x) => x.id === playing.v.id) ?? playing.v) : undefined
   const sheetOf = (v: Video) => sheets.links.find((l) => l.url === v.url)
@@ -153,25 +180,45 @@ export function VideoSection({
     }
   }
   const openSheet = open ? sheetOf(open) : undefined
+  // Vidéo d'événement en lecture : ses moments et les actions de la feuille placées sur elle, dans l'ordre du temps.
+  const read = (() => {
+    if (!open || !sheet || editing || !sheets.mod || !sheetWho) return undefined
+    const list = sheets.mod.sheetMoments(sheet.ms, open, sheetWho)
+    if (!list.length) return undefined
+    const tl = sheets.mod.timelineOf(sheet.ms)
+    const status = new Map(list.map((x) => [x.m, tl.status(x.i)]))
+    const own = momentsOf(open)
+    const moments = [...own, ...list.map((x) => x.m)].sort((a, b) => a.at - b.at)
+    const at = playing?.moment !== undefined ? own[playing.moment] : undefined
+    return {
+      video: { ...open, at: moments[0].at, moments },
+      moment: at ? moments.indexOf(at) : undefined,
+      badge: (m: VideoMoment) => (status.has(m) ? <PlaceMark status={status.get(m)} /> : null),
+    }
+  })()
 
   // Réglages du lecteur, une fois la liste et les feuilles connues (sinon le lecteur garde les précédents : la frise ne
   // disparaît pas le temps que la section revienne).
   useDockPublish(
     owner,
-    open && sheets.ready
+    open && sheets.ready && (!sheet || sheetWho)
       ? {
-          video: open,
-          moment: playing!.moment,
+          video: read?.video ?? open,
+          moment: read ? read.moment : playing!.moment,
           onClose: closeVideo,
-          tools: tools && ((api) => tools(open, api)),
-          badge: badgeOf(open),
+          tools: (!sheet || editing) && tools ? (api) => tools(open, api) : undefined,
+          badge: read?.badge ?? badgeOf(open),
+          // Fiche joueur : frise du match en lecture seule (pas de calage depuis une fiche).
           bar: openSheet
             ? (api) => (
                 <Suspense fallback={null}>
-                  <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
+                  <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} readOnly />
                 </Suspense>
               )
-            : bar && ((api) => bar(open, api)),
+            : (!sheet || editing) && bar
+              ? (api) => bar(open, api)
+              : undefined,
+          edit: sheet?.canEdit ? { on: editing, set: setDockEditing } : undefined,
         }
       : undefined,
   )

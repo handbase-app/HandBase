@@ -443,6 +443,7 @@ export default function VideoPlayer({
   tools,
   bar,
   badge,
+  edit,
 }: {
   video: Video
   moment?: number
@@ -453,6 +454,11 @@ export default function VideoPlayer({
   bar?: (api: PlayerTools) => ReactNode
   /** Marque ajoutée à la pastille d'un moment (ex. « ✓ calé » / « ~ estimé »). */
   badge?: (m: VideoMoment) => ReactNode
+  /**
+   * Mode édition (séquençage d'une vidéo d'événement) : la vidéo s'ouvre en lecture ; « Éditer le séquençage » passe en
+   * édition (tools et bar fournis alors par la section), « Terminer » ou Échap en sort. Absent : pas de droit de caler.
+   */
+  edit?: { on: boolean; set: (on: boolean) => void }
 }) {
   const embed = embedOf(video.url)
   const online = useOnline()
@@ -489,6 +495,8 @@ export default function VideoPlayer({
   const locked = useRef(false)
   const ctlRef = useRef<Ctl | undefined>(undefined)
   ctlRef.current = ctl
+  const editRef = useRef(edit)
+  editRef.current = edit
   useEffect(() => {
     const el = stage.current
     const on = () => {
@@ -591,6 +599,10 @@ export default function VideoPlayer({
           auto.current = false
           return setCssFs(false)
         }
+        // Échap pris par le lecteur : le panneau de la page derrière ne se ferme pas avec lui (MasterDetail : defaultPrevented).
+        e.preventDefault()
+        // Mode édition : Échap le termine d'abord (un second Échap ferme le lecteur).
+        if (editRef.current?.on) return editRef.current.set(false)
         return onClose()
       }
       const c = ctlRef.current
@@ -723,6 +735,23 @@ export default function VideoPlayer({
     duration: () => ctl?.duration(),
   }
 
+  // Mode édition : bandeau visible pendant l'édition (sous l'en-tête ; en plein écran, au-dessus de la frise).
+  const editBanner = edit?.on && (
+    <div className="flex shrink-0 items-center gap-2 border-y border-yellow-400/40 bg-[color-mix(in_srgb,var(--color-panel)_85%,#facc15)] px-3 py-0.5 text-[11px]" role="status">
+      <Icon name="pencil" className="h-4 w-4 shrink-0 text-yellow-300" />
+      <span className="min-w-0 truncate">
+        <span className="font-extrabold text-yellow-300">Mode édition</span> <span className="text-muted">· séquençage de la feuille de match</span>
+      </span>
+      <button
+        className="ml-auto h-11 shrink-0 rounded-md bg-yellow-400 px-4 text-sm font-extrabold text-black hover:bg-yellow-300"
+        title="Terminer l’édition (Échap) : retour à la lecture"
+        onClick={() => edit.set(false)}
+      >
+        Terminer
+      </button>
+    </div>
+  )
+
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/80 sm:items-center sm:p-4 [@media(max-height:520px)]:p-0" onClick={onClose}>
       <div
@@ -742,6 +771,14 @@ export default function VideoPlayer({
             <Icon name="close" className="h-5 w-5" />
           </button>
         </div>
+        {edit && (edit.on ? editBanner : (
+          <div className="flex shrink-0 items-center px-3 pb-2 [@media(max-height:520px)]:pb-1">
+            <button className="btn-ghost inline-flex h-11 items-center gap-1.5 px-3 text-xs font-bold" title="Ouvrir la frise de calage : « C’est ici ! », enchaînement, repères" onClick={() => edit.set(true)}>
+              <Icon name="pencil" className="h-4 w-4" />
+              Éditer le séquençage
+            </button>
+          </div>
+        ))}
 
         {/* Portrait : vidéo puis moments. Paysage (téléphone couché, ordinateur) : vidéo à gauche, moments à droite. */}
         <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
@@ -777,6 +814,7 @@ export default function VideoPlayer({
               onKeyDownCapture={immersive ? poke : undefined}
             >
               {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} big={immersive} />}
+              {fs && edit?.on && editBanner}
               {/* Plein écran au doigt : frise limitée (le haut de la vidéo reste visible pendant le calage), défilante. */}
               {bar && <div className={`shrink-0 bg-panel ${immersive ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : ''}`}>{bar(api)}</div>}
             </div>

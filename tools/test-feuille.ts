@@ -20,6 +20,7 @@ import {
   momentAction,
   momentNote,
   planPlayerMoments,
+  sheetMoments,
   sheetPlayersOf,
   simultaneous,
   stepIn,
@@ -244,6 +245,21 @@ assert.deepEqual(sheetPlayersOf(st, 'z', (id) => (id === 'a' ? 'z' : id)), [1], 
 st.sync.opts = { saves: true }
 const gk = planPlayerMoments(st, 0)
 assert.equal(gk.generated + gk.unplaced, FLOW.filter((a) => a.name === HOME[0].name && (a.label === 'Arrêt' || a.label.startsWith('But'))).length)
+// Vidéo d'événement en lecture : un moment par action placée, seulement sur la vidéo calée.
+{
+  const vid = { id: 'v1', url: 'https://example.org/match.mp4' }
+  const synced = { ...st, sync: { ...st.sync, videoId: vid.id, url: vid.url } }
+  const list = sheetMoments(synced, vid, () => 'X')
+  const tl = timeline(synced)
+  assert.equal(list.length, s.actions.filter((_, i) => tl.at(i) !== undefined).length)
+  for (const { m, i } of list) {
+    assert.equal(m.at, Math.max(0, Math.round(tl.at(i)! - CLIP_LEAD)))
+    assert.ok(m.dur === 12 && !isGenerated(m) && m.note!.endsWith(`${st.actions[i].s[0]}-${st.actions[i].s[1]} · X`))
+  }
+  assert.deepEqual(sheetMoments(synced, { id: 'v2', url: vid.url }), [], 'autre vidéo de l’événement')
+  assert.deepEqual(sheetMoments({ ...synced, sync: { marks: {}, url: vid.url } }, vid), [], 'pas encore calée')
+  assert.equal(sheetMoments({ ...st, sync: { ...st.sync, url: vid.url } }, vid).length, list.length, 'sans videoId : par l’adresse')
+}
 
 // ---------- Feuille de la démo (public/demo, faite par tools/feuille-demo.ts) ----------
 const d = parseSheet(await items(new Uint8Array(readFileSync(new URL('../public/demo/feuille-match-demo.pdf', import.meta.url)))))

@@ -39,6 +39,8 @@ const subscribe = (l: () => void) => {
   return () => void listeners.delete(l)
 }
 let seq = 0
+/** Numéro d'ouverture de la vidéo en mode édition (null : en lecture). */
+let editing: number | null = null
 
 /** Adresse de l'écran (le lecteur reste ouvert tant qu'on n'en change pas). */
 const here = () => location.pathname + location.search
@@ -47,6 +49,7 @@ const watch = createDockWatch(() => closeVideo())
 
 export function openVideo(owner: string, v: Video, moment?: number) {
   open = { owner, v, moment, n: ++seq }
+  editing = null
   props = undefined
   watch.opened(owner, here())
   emit()
@@ -57,7 +60,27 @@ export function closeVideo() {
   if (!open) return
   open = null
   props = undefined
+  editing = null
   emit()
+}
+
+/*
+ * Mode édition du séquençage (frise de calage d'une vidéo d'événement) : propre à la vidéo ouverte (numéro d'ouverture),
+ * gardé ici et non dans la section, pour survivre à une rotation, un plein écran, un changement de mise en page (la section
+ * est remontée, pas le lecteur). Jamais retenu : chaque ouverture de vidéo repart en lecture.
+ */
+
+/** Passe la vidéo ouverte en mode édition (ou en sort). */
+export function setDockEditing(on: boolean) {
+  const next = on && open ? open.n : null
+  if (next === editing) return
+  editing = next
+  emit()
+}
+
+/** La vidéo ouverte est en mode édition. */
+export function useDockEditing() {
+  return useSyncExternalStore(subscribe, () => editing !== null && editing === open?.n)
 }
 
 /** Vidéo ouverte par cette section (undefined sinon). Ne change qu'à l'ouverture et à la fermeture. */

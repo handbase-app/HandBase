@@ -454,10 +454,11 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         <InfoButton title="Feuille de match">
           <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, joueurs reliés aux fiches et déroulé.</p>
           <p>
-            Calage en regardant : ouvre la vidéo du match dans « Vidéos » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action
-            est alors estimée (« ~ estimé ») : regarde un moment, depuis l’événement ou la fiche d’un joueur, et touche « C’est ici ! » au moment exact de
-            l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale aussitôt, moments des fiches compris. « Annuler » reprend le dernier
-            calage ; un repère se retire aussi depuis la liste des actions de l’événement.
+            Calage en regardant : ouvre la vidéo du match dans « Vidéos » (elle s’ouvre en lecture, les actions calées parmi ses moments), touche
+            « Éditer le séquençage » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action est alors estimée (« ~ estimé ») :
+            touche son repère sur la frise et « C’est ici ! » au moment exact de l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale
+            aussitôt, moments des fiches compris. « Annuler » reprend le dernier calage ; un repère se retire aussi depuis la liste des actions de
+            l’événement. « Terminer » (ou Échap) revient à la lecture ; sur la fiche d’un joueur, la frise se consulte sans calage.
           </p>
           <p>
             Entre deux repères, les actions sont placées en proportion (les arrêts de jeu se répartissent) ; après le dernier, au rythme constaté. Fins de
@@ -518,8 +519,8 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
           </>
         ) : (
           <span className="text-muted">
-            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : pose le coup d’envoi sous le lecteur,
-            puis « C’est ici ! » en regardant les actions.
+            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : « Éditer le séquençage », pose le coup
+            d’envoi sous le lecteur, puis « C’est ici ! » en regardant les actions.
           </span>
         )}
       </div>

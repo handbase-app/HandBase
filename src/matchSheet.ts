@@ -851,6 +851,28 @@ export function momentAction(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sy
   return cands.reduce((a, b) => (dist(b) < dist(a) ? b : a))
 }
 
+/**
+ * Lecture d'une vidéo d'événement (hors mode édition) : un moment par action du match placée sur cette vidéo (calée ou
+ * estimée), comme les moments générés sur les fiches (CLIP_LEAD s avant, CLIP_DUR s), avec l'indice de son action. Rien si
+ * la feuille est calée sur une autre vidéo ou pas encore calée. who : nom affiché du joueur ou de l'équipe d'une action.
+ */
+export function sheetMoments(
+  sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>,
+  video: { id: string; url: string },
+  who: (a: StoredAction) => string = () => '',
+  tl = timelineOf(sheet),
+): { m: VideoMoment; i: number }[] {
+  const s = sheet.sync
+  if (!s || (s.videoId ? s.videoId !== video.id : s.url !== video.url)) return []
+  return sheet.actions.flatMap((a, i) => {
+    const v = tl.at(i)
+    if (v === undefined) return []
+    const name = who(a)
+    const label = a.k === 'autre' ? (a.l ?? 'Action') : KIND_LABEL[a.k]
+    return [{ m: { at: Math.max(0, Math.round(v - CLIP_LEAD)), dur: CLIP_DUR, note: `${label} ${a.s[0]}-${a.s[1]}${name ? ` · ${name}` : ''}` }, i }]
+  })
+}
+
 /** Indices des joueurs de la feuille reliés à cette fiche (fiches fondues suivies : resolve rend la fiche actuelle). */
 export function sheetPlayersOf(sheet: Pick<MatchSheet, 'players'>, playerId: string, resolve: (id: string) => string = (id) => id) {
   return sheet.players.flatMap((sp, i) => (sp.playerId && resolve(sp.playerId) === playerId ? [i] : []))

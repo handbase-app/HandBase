@@ -724,6 +724,7 @@ export function EventDetail() {
         <VideoSection
           kind="event"
           targetId={ev.id}
+          sheet={ev.matchSheet ? { ms: ev.matchSheet, canEdit: can.calibrateMatch(role, { eventId: ev.id }) } : undefined}
           tools={
             ev.matchSheet
               ? (v, api) => (
