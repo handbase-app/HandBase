@@ -10,7 +10,19 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
 import { understandAvis, type AvisAnswer, type AvisCritere } from './avis'
-import { DictationError, requestAccess, transcribe, understandFilters, type Access, type AccessStatus, type Endpoint, type FilterAnswer, type Transcript } from './transcribe'
+import {
+  DictationError,
+  requestAccess,
+  transcribe,
+  understandFilters,
+  understandQuestion,
+  type Access,
+  type AccessStatus,
+  type Endpoint,
+  type FilterAnswer,
+  type QuestionAnswer,
+  type Transcript,
+} from './transcribe'
 
 const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '')
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -153,7 +165,37 @@ export function useDictation() {
   }, [allowed])
   const available = allowed && access?.value.status === 'ok'
   const ready = available && enabled
-  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, searchModes: (allowed && access?.value.modes) || [], avisReady: ready && !!access?.value.avis, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
+  const searchReady = ready && !!access?.value.filtres
+  return {
+    allowed,
+    available,
+    ready,
+    searchReady,
+    searchModes: (allowed && access?.value.modes) || [],
+    avisReady: ready && !!access?.value.avis,
+    // « Poser une question » au bilan : comme la recherche vocale, et la fonction déployée annonce « question ».
+    questionReady: searchReady && !!access?.value.modes?.includes('question'),
+    enabled,
+    access: allowed ? access?.value : undefined,
+    setEnabled: setDictationEnabled,
+  }
+}
+
+/** « Poser une question » : la phrase et la description de la recette seulement (src/recipe.ts), jamais de données de joueur. */
+export async function sendQuestionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal): Promise<QuestionAnswer> {
+  const ep = await endpoint()
+  if (!ep) throw new DictationError('non_connecte')
+  try {
+    const r = await understandQuestion(ep, phrase, schema, signal)
+    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    return r
+  } catch (e) {
+    const code = e instanceof DictationError ? e.code : ''
+    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
+    if (lost[code]) remember(ep.uid, { status: lost[code] })
+    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    throw e
+  }
 }
 
 /** « Avis vocal » : le texte dicté et les critères applicables seulement (src/dictation/avis.ts), jamais de données de joueur. */

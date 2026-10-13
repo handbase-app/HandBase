@@ -370,6 +370,15 @@ function DictationSetting() {
             le texte dicté et la liste des critères sont envoyés ; deux dictées comptées par avis.
           </p>
         )}
+        {search && access?.modes?.includes('question') && (
+          <p className="text-[11px] text-muted">
+            Poser une question : dans le bilan de détection, touchez « Poser une question » et dites par exemple « les joueuses 2011
+            vues une seule fois cette saison, par département » ou « combien de gardiens 2009 mesurent plus de 1 m 85 » (ou tapez-la).
+            La réponse est calculée sur l’appareil : seuls la phrase et la description des questions possibles (postes, critères,
+            date du jour) sont envoyées, jamais les données des joueurs. La question s’affiche en pastilles modifiables ;
+            « Enregistrer cette question » la garde dans « Mes questions » (sur cet appareil), à relancer sans envoi.
+          </p>
+        )}
       </section>
     </Fold>
   )

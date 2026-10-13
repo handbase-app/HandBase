@@ -13,13 +13,21 @@
 //   température 0, réponse JSON) traduit la phrase en filtres de la liste Joueurs, d'après le schéma construit par
 //   l'appli (src/voiceSearch.ts : clés permises, valeurs possibles). Seuls la phrase, le schéma et les filtres actifs
 //   sont envoyés, jamais de données de joueurs ; l'appli revérifie chaque valeur. Même compte, mêmes plafonds (un appel compté par phrase).
+// - POST ?mode=avis (JSON) : notes proposées d'après un avis dicté (voir plus bas).
+// - POST ?mode=question (JSON) : { phrase, schema } → { recette, nonGere, ms, model, restant_mois, restant_jour } : « Poser une
+//   question » au bilan de détection (« les joueuses 2011 vues une seule fois cette saison, par département »). Le modèle
+//   (MISTRAL_MODELE_QUESTION, mistral-small-latest par défaut, température 0, JSON) traduit la phrase en RECETTE d'après la
+//   description envoyée par l'appli (src/recipe.ts : clés, opérateurs, valeurs permises). Seuls la phrase et cette
+//   description partent : aucune donnée de joueur, aucun nom de club, de lieu, de groupe ou d'événement (recopiés tels que
+//   dits, retrouvés par l'appli). L'appli revérifie chaque champ et calcule la réponse sur l'appareil. Un appel compté.
 // - Plafonds : TRANSCRIRE_QUOTA_MOIS appels par mois civil (heure de Paris, 2000 par défaut) pour tous,
 //   TRANSCRIRE_QUOTA_JOUR appels par jour et par compte (200 par défaut) ; au-delà : erreur « quota_atteint »
 //   ou « quota_jour_atteint ». Compteurs : supabase/042_quota_transcription.sql (des nombres seulement).
 // - Rien n'est journalisé du son ni du texte : seulement des codes d'erreur.
 //
 // Secrets (Edge Functions > Secrets) : MISTRAL_API_KEY ; facultatifs : TRANSCRIRE_QUOTA_MOIS, TRANSCRIRE_QUOTA_JOUR,
-// MISTRAL_MODELE (voxtral-mini-latest par défaut), MISTRAL_MODELE_FILTRES (mistral-small-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
+// MISTRAL_MODELE (voxtral-mini-latest par défaut), MISTRAL_MODELE_FILTRES, MISTRAL_MODELE_AVIS et MISTRAL_MODELE_QUESTION
+// (mistral-small-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 // Déploiement : voir README.md à côté.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -111,13 +119,15 @@ Deno.serve(async (req) => {
       max_octets: MAX_OCTETS,
       // Modes de POST connus de cette version (l'appli n'affiche la recherche vocale que si « filtres » y est ; celle des
       // Événements et des Groupes, que si leur mode y est : consignes propres à ces pages, champ « page »).
-      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes'],
+      // « question » : « Poser une question » au bilan de détection (recette calculée par l'appli, POST ?mode=question).
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question'],
     })
   }
 
   if (!cle) return json({ error: 'cle_absente' }, 503)
   if (filtres) return await rechercheFiltres(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'avis') return await avisVocal(req, db, userId, cle, maxMois, maxJour, json)
+  if (new URL(req.url).searchParams.get('mode') === 'question') return await questionRecette(req, db, userId, cle, maxMois, maxJour, json)
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_OCTETS + 64 * 1024) return json({ error: 'trop_gros' }, 413)
 
@@ -503,4 +513,127 @@ async function avisVocal(
     })
   const ambigus = Array.isArray(sortie.ambigus) ? sortie.ambigus.map((a) => str(a, 200)).filter(Boolean).slice(0, 5) : []
   return json({ notes, pointsForts: str(sortie.pointsForts, 500), axes: str(sortie.axes, 500), ambigus, ms, model: modele, ...restants })
+}
+
+// ---------- « Poser une question » au bilan de détection (POST ?mode=question) ----------
+// Entrée (JSON) : { phrase, schema } : la phrase (300 caractères au plus) et la description de la recette construite par
+// l'appli (src/recipe.ts, buildQuestionSchema : une ligne par clé, opérateurs, valeurs permises, date du jour). Aucune donnée
+// de joueur. Sortie : { recette, nonGere, ms, model, restant_mois, restant_jour }. Le modèle rend seulement une RECETTE :
+// l'appli revérifie chaque champ (inconnu : ignoré et signalé), retrouve les noms dans ses listes et calcule la réponse sur
+// l'appareil (lecture seule). Modèle : MISTRAL_MODELE_QUESTION (mistral-small-latest par défaut), température 0, JSON.
+// Les exemples sont relus par tools/test-questions.ts (chaque recette d'exemple est acceptée par l'appli, avec l'effet
+// attendu). Ni la phrase ni la réponse ne sont journalisées.
+
+const MAX_RECETTE = 8_000
+
+const CONSIGNES_QUESTION = `Tu traduis la question d'un entraîneur de handball (détection de jeunes) en RECETTE JSON pour son bilan de détection. L'appli calcule la réponse elle-même : tu ne vois aucune donnée et tu ne réponds jamais à la question.
+Réponds seulement par ce JSON : {"recette":{"population":{…},"vus":{…},"avis":[…],"nbAvis":{…},"mesures":[…],"sortie":{…}},"nonGere":[…]}
+
+RÈGLES
+- Seulement les clés et les valeurs du SCHÉMA ; omets ce qui n'est pas demandé ; n'invente aucune valeur.
+- Clubs, régions, départements, groupes, événements : recopie le nom dit (« Var », « 83 », « PACA », « Toulon »).
+- « nés en 2010 », « les 2010 » → annee 2010 ; « 2010 et 2011 », « de 2010 à 2012 » → annees {"de":…,"a":…}. « filles », « joueuses » → sexe F ; « garçons » → M ; « joueurs » seul ne fixe pas le sexe.
+- Taille : « 1 m 85 », « 1,85 » → 185 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax.
+- Vus : « vu une fois », « à un seul événement » → op "=" n 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
+- Période : « cette saison » → saison ; « dans l'année », « sur un an », « 12 derniers mois » → 12mois ; « depuis toujours », « jamais » → toujours ; « depuis septembre », « depuis le 1er janvier 2026 » → periode depuis + depuis (mois dit ou date AAAA-MM-JJ). Sans précision : saison.
+- Avis : « en défense », « défenseurs » → moyenne de la catégorie Défense ; « note générale » → sur global ; notes sur 5.
+- « les meilleurs », « les mieux notés » → tri moyenne, ordre decroissant, limite 20 ; « les moins bien notés », « les plus faibles » → tri moyenne, ordre croissant.
+- Sortie : « combien », « nombre de » → nombre ; « par club », « par département », « par région », « par génération », « par poste » → tableau + par ; « carte » → carte ; sinon liste. « part », « pourcentage de vus » → valeur part_vus.
+- « les clubs où personne n'a été vu » → vus aucun, tableau par club, garder tous.
+- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots. Jamais de nom de personne.
+
+EXEMPLES
+« les joueuses 2011 vues une seule fois cette saison, par département » → {"recette":{"population":{"sexe":"F","annee":2011},"vus":{"compter":"evenements","op":"=","n":1,"periode":"saison"},"sortie":{"type":"tableau","par":"departement"}},"nonGere":[]}
+« montre-moi la carte de France des joueurs vus deux fois dans l'année » → {"recette":{"vus":{"compter":"evenements","op":"=","n":2,"periode":"12mois"},"sortie":{"type":"carte"}},"nonGere":[]}
+« les meilleurs défenseurs nés en 2010 selon les avis » → {"recette":{"population":{"annee":2010},"sortie":{"type":"liste","tri":"moyenne","moyenne":{"sur":"categorie","nom":"Défense"},"ordre":"decroissant","limite":20}},"nonGere":[]}
+« combien de gardiens 2009 mesurent plus de 1m85 » → {"recette":{"population":{"postes":["GB"],"annee":2009,"tailleMin":185},"sortie":{"type":"nombre"}},"nonGere":[]}
+« les clubs du Var où on n'a vu personne depuis septembre » → {"recette":{"population":{"departements":["Var"]},"vus":{"op":"aucun","n":0,"periode":"depuis","depuis":"septembre"},"sortie":{"type":"tableau","par":"club","garder":"tous"}},"nonGere":[]}
+« les garçons vus par au moins trois personnes du staff depuis toujours » → {"recette":{"population":{"sexe":"M"},"vus":{"compter":"personnes","op":">=","n":3,"periode":"toujours"},"sortie":{"type":"liste","tri":"vus","ordre":"decroissant"}},"nonGere":[]}
+« combien de joueurs du Pôle n'ont encore jamais été vus » → {"recette":{"population":{"pole":"en_cours"},"vus":{"op":"aucun","n":0,"periode":"toujours"},"sortie":{"type":"nombre"}},"nonGere":[]}
+« les pivots gauchers de la région Sud avec au moins 4 de moyenne en attaque » → {"recette":{"population":{"postes":["PIV"],"lateralite":"gaucher","regions":["Région Sud"]},"avis":[{"sur":"categorie","nom":"Attaque","op":">=","valeur":4}],"sortie":{"type":"liste"}},"nonGere":[]}
+« les 2010 et 2011 du groupe Intercomités classés par taille » → {"recette":{"population":{"annees":{"de":2010,"a":2011},"groupes":["Intercomités"]},"sortie":{"type":"liste","tri":"taille","ordre":"decroissant"}},"nonGere":[]}
+« la part de joueurs vus cette saison par région » → {"recette":{"sortie":{"type":"tableau","par":"region","valeur":"part_vus","periode":"saison"}},"nonGere":[]}
+« les joueurs avec au moins 2 avis et 3,5 de moyenne générale, du moins bien noté au mieux noté » → {"recette":{"nbAvis":{"op":">=","n":2},"avis":[{"sur":"global","op":">=","valeur":3.5}],"sortie":{"type":"liste","tri":"moyenne","ordre":"croissant"}},"nonGere":[]}
+« les joueurs du tournoi de Cannes qui sautent plus de 40 au CMJ » → {"recette":{"population":{"evenements":["tournoi de Cannes"]},"mesures":[{"critere":"CMJ – hauteur","op":">=","valeur":40}],"sortie":{"type":"liste","tri":"mesure","ordre":"decroissant"}},"nonGere":[]}
+« la carte des joueuses 2012 vues au moins une fois depuis le 1er janvier 2026 » → {"recette":{"population":{"sexe":"F","annee":2012},"vus":{"op":">=","n":1,"periode":"depuis","depuis":"2026-01-01"},"sortie":{"type":"carte"}},"nonGere":[]}
+« les 2011 du Var qui jouent en Nationale 2 » → {"recette":{"population":{"annee":2011,"departements":["Var"]},"sortie":{"type":"liste"}},"nonGere":["jouent en Nationale 2"]}`
+
+async function questionRecette(
+  req: Request,
+  db: Db,
+  userId: string,
+  cle: string,
+  maxMois: number,
+  maxJour: number,
+  json: (body: unknown, status?: number) => Response,
+): Promise<Response> {
+  const taille = Number(req.headers.get('content-length') ?? 0)
+  if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
+  let entree: { phrase?: unknown; schema?: unknown }
+  try {
+    entree = await req.json()
+  } catch {
+    return json({ error: 'requete_illisible' }, 400)
+  }
+  const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
+  if (!phrase) return json({ error: 'phrase_absente' }, 400)
+  if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
+  // Description de la recette : une ligne « clé : valeurs » par clé (textes seulement), rien d'autre.
+  const schema =
+    entree.schema && typeof entree.schema === 'object' && !Array.isArray(entree.schema)
+      ? Object.entries(entree.schema as Record<string, unknown>)
+          .filter(([, v]) => typeof v === 'string')
+          .map(([k, v]) => `${k.slice(0, 40)} : ${v}`)
+          .join('\n')
+      : ''
+  if (!schema || schema.length > MAX_SCHEMA) return json({ error: 'schema_invalide' }, 400)
+
+  // Plafonds : un appel compté par question, comme une dictée.
+  const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
+  if (quotaError) return json({ error: 'quota_indisponible' }, 500)
+  if (!quota?.ok) return json({ error: quota?.raison ?? 'quota_atteint', restant_mois: quota?.restant_mois ?? 0, restant_jour: quota?.restant_jour ?? 0 }, 429)
+
+  const modele = Deno.env.get('MISTRAL_MODELE_QUESTION') || 'mistral-small-latest'
+  const t0 = performance.now()
+  const res = await avecRelance(() => fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modele,
+      temperature: 0,
+      max_tokens: 700,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${CONSIGNES_QUESTION}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
+        { role: 'user', content: `« ${phrase} »` },
+      ],
+    }),
+  }))
+  const ms = Math.round(performance.now() - t0)
+  const restants = { restant_mois: quota.restant_mois, restant_jour: quota.restant_jour }
+  if (!res.ok) {
+    console.error('transcrire (question) : Mistral a répondu', res.status)
+    await res.body?.cancel()
+    const error = res.status === 429 ? 'mistral_limite' : res.status === 401 ? 'mistral_cle' : 'mistral_erreur'
+    return json({ error, status: res.status, ...restants }, 502)
+  }
+  // La réponse du modèle n'est jamais journalisée (elle reprend la phrase).
+  let sortie: Record<string, unknown> = {}
+  try {
+    const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
+    const contenu = out.choices?.[0]?.message?.content
+    const texte = typeof contenu === 'string' ? contenu : Array.isArray(contenu) ? contenu.map((c) => (c as { text?: string })?.text ?? '').join('') : ''
+    sortie = JSON.parse(texte.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+  } catch {
+    return json({ error: 'reponse_illisible', ...restants }, 502)
+  }
+  // Forme seulement : un objet de taille raisonnable (l'appli revérifie chaque champ). Recette rendue sans enveloppe : acceptée.
+  const objet = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+  if (!objet(sortie)) return json({ error: 'reponse_illisible', ...restants }, 502)
+  const recette = objet(sortie.recette) ? sortie.recette : Object.fromEntries(Object.entries(sortie).filter(([k]) => k !== 'nonGere'))
+  if (JSON.stringify(recette).length > MAX_RECETTE) return json({ error: 'reponse_illisible', ...restants }, 502)
+  const nonGere = Array.isArray(sortie.nonGere)
+    ? sortie.nonGere.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim().slice(0, 80)).slice(0, 10)
+    : []
+  return json({ recette, nonGere, ms, model: modele, ...restants })
 }

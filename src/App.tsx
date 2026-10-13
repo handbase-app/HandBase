@@ -58,6 +58,9 @@ const Coverage = lazy(() => import('./pages/Coverage'))
 const CoveragePlayers = lazy(() => import('./pages/CoveragePlayers'))
 const CoveragePlayer = lazy(() => import('./pages/CoveragePlayers').then((m) => ({ default: m.CoveragePlayer })))
 const CoverageReport = lazy(() => import('./pages/Coverage').then((m) => ({ default: m.CoverageReport })))
+const Question = lazy(() => import('./pages/Question'))
+const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
+const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
@@ -153,7 +156,7 @@ const PAGE_W: [RegExp, string][] = [
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
-  [/^\/(joueurs|(evenements|groupes)\/[^/]+\/joueurs|bilan\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
+  [/^\/(joueurs|(evenements|groupes)\/[^/]+\/joueurs|bilan(\/question)?\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
@@ -163,7 +166,7 @@ const PAGE_W: [RegExp, string][] = [
 ]
 
 /** Listes en maître-détail (liste + panneau sur ordinateur) : même largeur, liste seule ou fiche ouverte. */
-const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|((evenements|groupes)\/[^/]+|bilan)\/joueurs\/[^/]+)$/
+const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|((evenements|groupes)\/[^/]+|bilan(\/question)?)\/joueurs\/[^/]+)$/
 
 function PageWidth({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -297,6 +300,11 @@ export default function App() {
           {/* Fiche ouverte depuis le bilan : les joueurs du club choisi à gauche (ordinateur), ‹ › sur téléphone (CoveragePlayers.tsx). */}
           <Route path="/bilan/joueurs" element={<CoveragePlayers />}>
             <Route path=":pid" element={<CoveragePlayer />} />
+          </Route>
+          {/* « Poser une question » au bilan : réponse (recette dans l'adresse), fiche dans le contexte de la réponse (Question.tsx). */}
+          <Route path="/bilan/question" element={<Question />} />
+          <Route path="/bilan/question/joueurs" element={<QuestionPlayers />}>
+            <Route path=":pid" element={<QuestionPlayer />} />
           </Route>
         </Routes>
         </PageWidth>

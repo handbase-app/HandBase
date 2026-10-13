@@ -32,7 +32,8 @@ Supabase (projet de test) → *Edge Functions* → *Secrets* → *Add new secret
 - facultatifs : `TRANSCRIRE_QUOTA_MOIS` (appels par mois civil pour tous, 2000 par défaut),
   `TRANSCRIRE_QUOTA_JOUR` (appels par jour et par compte, 200 par défaut),
   `MISTRAL_MODELE` (`voxtral-mini-latest` par défaut),
-  `MISTRAL_MODELE_FILTRES` (`mistral-small-latest` par défaut, recherche de joueurs).
+  `MISTRAL_MODELE_FILTRES` (`mistral-small-latest` par défaut, recherche de joueurs),
+  `MISTRAL_MODELE_AVIS` et `MISTRAL_MODELE_QUESTION` (`mistral-small-latest` par défaut : avis vocal, « Poser une question »).
 
 ## 4. Déploiement
 
@@ -145,3 +146,34 @@ envoie le texte à `POST ?mode=avis` (JSON) : `{ texte, criteres: [{ id, label, 
 - L'appli revérifie tout (`src/dictation/avis.ts`, test : `npx jiti tools/test-avis-vocal.ts`) et n'affiche que des
   propositions : le coach accepte, change ou écarte chaque note, puis enregistre comme d'habitude.
 - Le GET renvoie `modes: ['dictee', 'filtres', 'avis']` : le bouton n'apparaît qu'avec une fonction qui connaît `avis`.
+
+## 8. « Poser une question » au bilan de détection (`?mode=question`)
+
+Dans le bilan de détection, « micro ✨ Poser une question » (ou la question tapée) : « les joueuses 2011 vues une seule fois
+cette saison, par département », « combien de gardiens 2009 mesurent plus de 1 m 85 », « les clubs du Var où on n'a vu
+personne depuis septembre »… La **réponse est calculée sur l'appareil** (données locales), jamais par le serveur.
+
+- Requête : `POST ?mode=question`, JSON `{ phrase, schema }` : la phrase (300 caractères au plus) et la **description de la
+  recette** construite par l'appli (`src/recipe.ts`, `buildQuestionSchema` : clés, opérateurs, postes, catégories et
+  critères d'avis, mesures, zones du radar, date du jour). **Aucune donnée de joueur**, aucun nom de club, de région, de
+  département, de groupe ou d'événement : le modèle recopie ce qui est dit et l'appli le retrouve dans ses listes.
+- Réponse : `{ recette, nonGere, ms, model, restant_mois, restant_jour }`. La recette est un petit JSON (population, condition
+  « vu » par événement ou par personne avec une période, moyennes d'avis, nombre d'avis, mesures, sortie nombre / liste /
+  tableau / carte). L'appli revérifie **chaque champ** (inconnu : ignoré et signalé), borne les nombres, ne fait que lire.
+- Modèle : `mistral-small-latest` (secret facultatif `MISTRAL_MODELE_QUESTION`), température 0, réponse JSON ; consignes
+  courtes en français avec 14 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 7 000 caractères avec la description).
+- Mêmes garde-fous : administrateur connecté, JWT, un appel compté (`hb_transcription_compter`), relance sur 429, ni la
+  phrase ni la réponse journalisées. Erreurs en plus : `phrase_absente`, `phrase_trop_longue`, `schema_invalide`,
+  `reponse_illisible`.
+- Le GET annonce `question` dans `modes` : le bouton n'apparaît qu'avec une fonction qui le connaît (et pour les
+  administrateurs, réglage de dictée activé). Les questions enregistrées (« Mes questions ») se relancent sans appel.
+- Test (sans appel réseau) : `npx jiti tools/test-questions.ts` (chaque exemple des consignes accepté par l'appli avec
+  l'effet attendu, recettes piégées écartées, aucune donnée de joueur envoyée, 40 000 joueurs en moins de 300 ms).
+
+Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
+
+```sh
+npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
+```
+
+Puis se déconnecter et se reconnecter (ou nouvel onglet) : « Poser une question » apparaît dans le bilan de détection.

@@ -175,7 +175,7 @@ export function currentForModel(v: FilterValues, ctx: SearchContext): Record<str
   return o
 }
 
-const POSITION_ALIASES: Record<string, string[]> = {
+export const POSITION_ALIASES: Record<string, string[]> = {
   GB: ['gardien de but', 'gardienne', 'goal', 'GK'],
   DC: ['demi centre', 'demi', 'meneur', 'meneuse', 'DC'],
   ARG: ['arrière gauche', 'ARG'],

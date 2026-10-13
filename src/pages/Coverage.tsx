@@ -40,6 +40,8 @@ import { FollowStar } from '../components/Follow'
 import { VoiceSearch } from '../components/VoiceSearch'
 import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
+import { AskQuestion } from '../components/AskQuestion'
+import { SavedQuestions } from './Question'
 
 /*
  * Bilan de détection : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
@@ -48,6 +50,9 @@ import { useVoicePlaces } from '../voicePlaces'
  * Recherche vocale « micro ✨ » à côté des filtres (src/components/VoiceSearch.tsx, schéma : src/voicePages.ts) : « les filles de
  * 2011 dans le Var », « depuis toujours », « le club de Toulon », « efface tout » ; elle change les mêmes choix que les
  * boutons et la carte (l'adresse suit).
+ * « Poser une question » (src/components/AskQuestion.tsx, src/recipe.ts) : une question libre (« les joueuses 2011 vues
+ * une seule fois cette saison, par département ») dont la réponse est calculée sur l'appareil (src/pages/Question.tsx) ;
+ * « Mes questions » : celles qu'on a enregistrées, relancées sans envoi.
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », jamais autre chose.
  */
 
@@ -124,7 +129,7 @@ const clubLabel = (name: string) => name || 'Club non renseigné'
 
 // ---------- Petits éléments ----------
 
-function Bar({ t, className = '' }: { t: Tally; className?: string }) {
+export function Bar({ t, className = '' }: { t: Tally; className?: string }) {
   const p = t.total ? (t.seen / t.total) * 100 : 0
   return (
     <span className={`block h-1.5 overflow-hidden rounded-full bg-panel-2 ${className}`}>
@@ -221,11 +226,11 @@ function Filters({
  */
 const TEAL = '#14b8a6'
 const NO_PLAYER = 'var(--color-panel-2)'
-type Scale = { lo: number; hi: number }
+export type Scale = { lo: number; hi: number }
 const FULL: Scale = { lo: 0, hi: 1 }
 const share = (t: Tally) => t.seen / t.total
 /** Échelle des zones affichées : de la plus faible à la plus forte part de vus (au moins 10 points d'écart). */
-function scaleOf(ts: Iterable<Tally>): Scale {
+export function scaleOf(ts: Iterable<Tally>): Scale {
   const v = [...ts].filter((t) => t.total).map(share)
   if (!v.length) return FULL
   let lo = Math.min(...v)
@@ -238,14 +243,14 @@ function scaleOf(ts: Iterable<Tally>): Scale {
   }
   return { lo, hi }
 }
-const fillOf = (t?: Tally, sc: Scale = FULL) => {
+export const fillOf = (t?: Tally, sc: Scale = FULL) => {
   if (!t?.total) return NO_PLAYER
   const k = Math.min(1, Math.max(0, (share(t) - sc.lo) / (sc.hi - sc.lo)))
   // Courbe un peu accentuée au milieu, du très clair (8 %) au très soutenu (100 %).
   return `color-mix(in srgb, ${TEAL} ${Math.round(8 + 92 * k)}%, var(--color-panel))`
 }
 
-function MapLegend({ sc }: { sc: Scale }) {
+export function MapLegend({ sc }: { sc: Scale }) {
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((k) => Math.round(100 * (sc.lo + k * (sc.hi - sc.lo))))
   const adjusted = sc.lo > 0 || sc.hi < 1
   return (
@@ -268,7 +273,7 @@ function MapLegend({ sc }: { sc: Scale }) {
 }
 
 /** Fil d'Ariane du lieu : « France › Région Sud › Var (83) » ; chaque étape avant la dernière ramène à elle. */
-function Crumbs({ steps }: { steps: { label: string; go?: () => void }[] }) {
+export function Crumbs({ steps }: { steps: { label: string; go?: () => void }[] }) {
   return (
     <nav aria-label="Lieu" className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs">
       {steps.map((s, i) => {
@@ -601,6 +606,9 @@ export default function Coverage() {
             Rapport Fédé
           </Link>
         </div>
+        {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». */}
+        <AskQuestion />
+        <SavedQuestions />
         <VoiceSearch<BilanVoice>
           values={{ sex, period, year, region, dept, club: st.club, view }}
           apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}

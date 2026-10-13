@@ -44,6 +44,7 @@ export const ERROR_TEXT: Record<string, string> = {
   reponse_illisible: 'Phrase pas comprise pour l’instant : réessayez, ou choisissez dans Filtres.',
   phrase_trop_longue: 'Phrase trop longue : 300 caractères au plus.',
   phrase_absente: 'Tapez ou dictez une phrase d’abord.',
+  question_illisible: 'Question pas comprise pour l’instant : reformulez-la, ou réessayez.',
 }
 
 export class DictationError extends Error {
@@ -197,6 +198,49 @@ export async function understandFilters(
     filtres: d.filtres ?? {},
     retirer: Array.isArray(d.retirer) ? d.retirer : [],
     nonGere,
+    ms: d.ms,
+    restantMois: d.restant_mois,
+    restantJour: d.restant_jour,
+  }
+}
+
+/** Recette rendue pour « Poser une question » (brute : l'appli revérifie chaque champ, src/recipe.ts). */
+export type QuestionAnswer = { recette: unknown; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
+
+/**
+ * « Poser une question » au bilan de détection (POST ?mode=question, JSON) : envoie seulement la phrase et la description
+ * de la recette (src/recipe.ts, buildQuestionSchema), jamais de données de joueurs. La réponse est calculée par l'appli.
+ */
+export async function understandQuestion(ep: Endpoint, phrase: string, schema: Record<string, string>, signal?: AbortSignal): Promise<QuestionAnswer> {
+  const text = phrase.replace(/\s+/g, ' ').trim()
+  if (!text) throw new DictationError('phrase_absente')
+  if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
+  const f = ep.fetch ?? fetch
+  let res: Response
+  try {
+    res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=question', {
+      method: 'POST',
+      headers: { ...ep.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: text, schema }),
+      signal,
+    })
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Question annulée.')
+    throw new DictationError('reseau')
+  }
+  let d: { recette?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  try {
+    d = await res.json()
+  } catch {
+    /* réponse vide */
+  }
+  if (!res.ok) {
+    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    throw new DictationError(code === 'reponse_illisible' ? 'question_illisible' : code)
+  }
+  return {
+    recette: d.recette ?? {},
+    nonGere: Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : [],
     ms: d.ms,
     restantMois: d.restant_mois,
     restantJour: d.restant_jour,
