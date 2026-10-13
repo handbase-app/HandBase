@@ -20,6 +20,20 @@
 // Déploiement : voir README.md à côté.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
+// Offre gratuite Mistral : environ 1 requête par seconde. Dictée puis recherche s'enchaînent en moins d'une seconde :
+// sur un refus 429, on attend (Retry-After s'il est donné, au plus 5 s) et on réessaie, 3 fois au plus.
+async function avecRelance(appel: () => Promise<Response>): Promise<Response> {
+  let res = await appel()
+  for (const attente of [1200, 2500, 4000]) {
+    if (res.status !== 429) break
+    const ra = Number(res.headers.get('retry-after'))
+    await res.body?.cancel()
+    await new Promise((r) => setTimeout(r, ra > 0 ? Math.min(ra * 1000, 5000) : attente))
+    res = await appel()
+  }
+  return res
+}
+
 const MAX_OCTETS = 2 * 1024 * 1024
 const MAX_SECONDES = 60
 const MAX_MOTS = 100
@@ -139,12 +153,12 @@ Deno.serve(async (req) => {
 
   const t0 = performance.now()
   let biais = mots.length > 0
-  let res = await appel(biais)
+  let res = await avecRelance(() => appel(biais))
   // Si Mistral refuse les mots de contexte (format ou langue), nouvel essai sans eux.
   if (biais && (res.status === 400 || res.status === 422)) {
     await res.body?.cancel()
     biais = false
-    res = await appel(false)
+    res = await avecRelance(() => appel(false))
   }
   const ms = Math.round(performance.now() - t0)
   if (!res.ok) {
@@ -222,7 +236,7 @@ async function rechercheFiltres(
 
   const modele = Deno.env.get('MISTRAL_MODELE_FILTRES') || 'mistral-small-latest'
   const t0 = performance.now()
-  const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+  const res = await avecRelance(() => fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -235,7 +249,7 @@ async function rechercheFiltres(
         { role: 'user', content: phrase },
       ],
     }),
-  })
+  }))
   const ms = Math.round(performance.now() - t0)
   const restants = { restant_mois: quota.restant_mois, restant_jour: quota.restant_jour }
   if (!res.ok) {
