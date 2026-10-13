@@ -6,6 +6,7 @@ import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predict
 import { ask } from '../components/Confirm'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
+import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { FollowStar } from '../components/Follow'
 import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
@@ -29,23 +30,7 @@ export default function Alerts() {
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const mine = data.alerts.filter((a) => a.alert.private)
   const shared = data.alerts.filter((a) => !a.alert.private)
-  const card = ({ alert, players, fresh }: (typeof data.alerts)[number]) => (
-    <Link key={alert.id} to={`/alertes/${alert.id}`} className="card flex items-center gap-3 p-3 hover:border-accent">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${fresh.length ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-        <Icon name="target" className="h-5 w-5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-bold">{alert.name}</div>
-        <div className="line-clamp-2 text-[11px] text-muted">{rulesSummary(alert.rules, data.ctx.criteria)}</div>
-      </div>
-      <div className="shrink-0 text-right text-[11px] text-muted">
-        <div>
-          <b className="text-fg">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
-        </div>
-        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} nouveau{fresh.length > 1 ? 'x' : ''}</div>}
-      </div>
-    </Link>
-  )
+  const card = (a: (typeof data.alerts)[number]) => <AlertCard key={a.alert.id} {...a} summary={rulesSummary(a.alert.rules, data.ctx.criteria)} />
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -77,6 +62,47 @@ export default function Alerts() {
       )}
       {!can.publicGroups(role) && <p className="text-[11px] text-muted">Tes profils recherchés sont privés : seuls les encadrants les partagent au staff.</p>}
     </div>
+  )
+}
+
+/** Supprimer un profil recherché, après confirmation. Renvoie true si supprimé. */
+async function deleteAlert(alert: PlayerAlert) {
+  if (!(await ask(`Supprimer le profil recherché « ${alert.name} » ? Les joueurs ne sont pas touchés.`, { ok: 'Supprimer', focusCancel: true }))) return false
+  await remove('alerts', alert.id)
+  return true
+}
+
+/** Ligne d'un profil recherché ; menu (appui long, clic droit, « ⋮ ») : ouvrir, modifier, supprimer. */
+function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; players: Player[]; fresh: Player[]; summary: string }) {
+  const role = useRole()
+  const nav = useNavigate()
+  const menu = useRowMenu()
+  const manage = can.editGroup(role, alert)
+  const items: (MenuItem | false)[] = [
+    { label: 'Ouvrir', icon: 'target', onSelect: () => nav(`/alertes/${alert.id}`) },
+    manage && { label: 'Modifier', icon: 'pencil', onSelect: () => nav(`/alertes/${alert.id}?modifier`) },
+    manage && { label: 'Supprimer', icon: 'trash', danger: true, onSelect: () => void deleteAlert(alert) },
+  ]
+  return (
+    <>
+    <Link to={`/alertes/${alert.id}`} className={`card flex items-center gap-3 p-3 hover:border-accent ${MENU_ROW}`} {...menu.bind}>
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${fresh.length ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+        <Icon name="target" className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-bold">{alert.name}</div>
+        <div className="line-clamp-2 text-[11px] text-muted">{summary}</div>
+      </div>
+      <div className="shrink-0 text-right text-[11px] text-muted">
+        <div>
+          <b className="text-fg">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
+        </div>
+        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} nouveau{fresh.length > 1 ? 'x' : ''}</div>}
+      </div>
+      <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${alert.name} »`} className="-mr-1.5" />
+    </Link>
+    {menu.anchor && <ItemMenu anchor={menu.anchor} title={alert.name} subtitle={summary} items={items.filter((x): x is MenuItem => !!x)} onClose={menu.close} />}
+    </>
   )
 }
 
@@ -121,9 +147,7 @@ export function AlertDetail() {
             <button
               className="text-xs text-muted hover:text-red-400"
               onClick={async () => {
-                if (!(await ask(`Supprimer le profil recherché « ${alert.name} » ? Les joueurs ne sont pas touchés.`, { ok: 'Supprimer' }))) return
-                await remove('alerts', alert.id)
-                nav('/alertes', { replace: true })
+                if (await deleteAlert(alert)) nav('/alertes', { replace: true })
               }}
             >
               Supprimer

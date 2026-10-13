@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, SyntheticEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { Player } from '../db'
+import { MENU_ROW, MenuButton, useRowMenu } from './ItemMenu'
 import { selectedCls } from './MasterDetail'
+import { PlayerMenu, type MenuExtra } from './PlayerMenu'
 import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
 
 /*
@@ -11,7 +13,10 @@ import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
  * - nom : NOM Prénom en gras, jamais coupé avant les pastilles si on peut l'éviter (les pastilles passent à la ligne) ;
  * - pastilles : Pôle, poste, postes secondaires, trimestre (Q1…Q4), puis celles propres à la liste ;
  * - ligne secondaire : (numéro, équipe ·) année · club, 11 px (10 px en compact), grise ;
- * - icônes au bout : œil « vu », horloge « à revoir », étoile « suivre » (16 px dans 32 px), puis les actions de la liste.
+ * - icônes au bout : œil « vu », horloge « à revoir », étoile « suivre », « ⋮ » (16 px dans 32 px), puis les actions de la liste ;
+ * - menu de la ligne (PlayerMenu) : appui long sur téléphone, clic droit sur ordinateur, touche « menu » ou Maj+F10,
+ *   ou « ⋮ » (ligne pleine ; en colonne de contexte, faute de place, seulement les gestes). Un toucher ou un clic
+ *   normal garde son effet (fiche, évaluation) ; après un appui long, le clic du relâchement est ignoré.
  * La photo ouvre la fiche du joueur (dans son contexte quand il y en a un : événement, groupe).
  * Uniquement des marques positives ou neutres sur les jeunes joueurs.
  */
@@ -87,6 +92,8 @@ type RowProps = {
   className?: string
   /** Attributs de la carte (data-row…). */
   cardProps?: Record<string, string | undefined>
+  /** Actions propres à la liste dans le menu de la ligne (« Retirer de cet événement »…). */
+  menuExtras?: MenuExtra[]
 }
 
 /** Ligne pleine (photo 44 px). */
@@ -119,8 +126,12 @@ function Row({
   selected = false,
   className = '',
   cardProps,
+  menuExtras,
   compact,
 }: RowProps & { compact: boolean }) {
+  const menu = useRowMenu()
+  // « Voir la fiche » du menu : là où mène la photo (fiche dans son contexte), sinon la ligne si elle mène à la fiche.
+  const fiche: RowLink = avatarLink ?? (link && !link.to.startsWith('/evaluer') ? link : { to: `/joueurs/${p.id}` })
   const size = compact ? COMPACT_AVATAR : ROW_AVATAR
   const avatar = <Avatar p={p} size={size} />
   const text = (
@@ -140,7 +151,7 @@ function Row({
   )
   // Toute la hauteur de la carte : un clic n'importe où sur le texte ouvre la ligne.
   const bodyCls = `flex min-w-0 flex-1 items-center self-stretch text-left outline-none ${compact ? 'min-h-10 gap-2 rounded-md' : 'gap-3'}`
-  const icons = !!(seen || rewatch || follow)
+  const icons = !compact || !!(seen || rewatch || follow)
   const row = (
     <>
       {lead}
@@ -174,23 +185,38 @@ function Row({
           {seen}
           {rewatch}
           {follow}
+          {!compact && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour ${p.lastName.toUpperCase()} ${p.firstName}`} />}
         </span>
       )}
       {actions}
     </>
   )
-  const card = `card ${poleEdge(p)} ${selectedCls(selected)} ${link || onClick ? 'hover:border-accent focus-within:border-accent' : ''} ${className}`
+  const card = `card ${MENU_ROW} ${poleEdge(p)} ${selectedCls(selected)} ${link || onClick ? 'hover:border-accent focus-within:border-accent' : ''} ${className}`
   const line = compact ? 'flex items-center gap-1 py-0.5 pr-0.5 pl-1.5' : 'flex items-center gap-3 p-2.5'
-  if (!below)
-    return (
-      <div className={`${card} ${line}`} {...cardProps}>
-        {row}
-      </div>
-    )
-  return (
-    <div className={`${card} flex flex-col gap-1.5 ${compact ? 'py-0.5 pr-0.5 pl-1.5' : 'p-2.5'}`} {...cardProps}>
-      <div className={`flex items-center ${compact ? 'gap-1' : 'gap-3'}`}>{row}</div>
-      {below}
+  const opened = menu.anchor && (
+    // Hors de la carte ; les événements du menu et de ses fenêtres ne remontent pas jusqu'à la liste.
+    <div className="contents" onClick={stop} onKeyDown={stop} onPointerDown={stop} onContextMenu={stop}>
+      <PlayerMenu p={p} anchor={menu.anchor} fiche={fiche} extras={menuExtras} onClose={menu.close} />
     </div>
   )
+  if (!below)
+    return (
+      <>
+        <div className={`${card} ${line}`} {...cardProps} {...menu.bind}>
+          {row}
+        </div>
+        {opened}
+      </>
+    )
+  return (
+    <>
+      <div className={`${card} flex flex-col gap-1.5 ${compact ? 'py-0.5 pr-0.5 pl-1.5' : 'p-2.5'}`} {...cardProps} {...menu.bind}>
+        <div className={`flex items-center ${compact ? 'gap-1' : 'gap-3'}`}>{row}</div>
+        {below}
+      </div>
+      {opened}
+    </>
+  )
 }
+
+const stop = (e: SyntheticEvent) => e.stopPropagation()

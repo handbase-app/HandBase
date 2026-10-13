@@ -375,6 +375,10 @@ export const ICONS = {
   video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
   play: 'M9 6.5v11l9-5.5z',
   close: 'M6 6l12 12M18 6L6 18',
+  /** « ⋮ » : menu d'une ligne (à dessiner plein). */
+  more: 'M12 6.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM12 13.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM12 20.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2z',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  archive: 'M3 4h18v4H3zM5 8v12h14V8M10 12h4',
   external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   prev: 'M7 6v12M18 6l-8 6 8 6z',
   next: 'M17 6v12M6 6l8 6-8 6z',

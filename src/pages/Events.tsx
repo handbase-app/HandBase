@@ -1,9 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, lazy, Suspense, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
+import { PlayerMenuScope } from '../components/PlayerMenu'
+import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
+import { type Role } from '../roles'
 import { FollowStar } from '../components/Follow'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -276,17 +279,82 @@ function inDays(date: string) {
 
 type EventStats = { avis: number; players: Set<string> }
 
+/** Archiver (après confirmation : retiré des listes, avis gardés) ou désarchiver. Renvoie false si on renonce. */
+async function toggleArchiveEvent(ev: HBEvent) {
+  if (!ev.archived && !(await ask(`Archiver « ${ev.name} » ? Il n’apparaîtra plus dans Évaluer ni dans la liste ; ses avis sont gardés et comptent toujours.`, { ok: 'Archiver' })))
+    return false
+  await save<HBEvent>('events', { ...ev, archived: !ev.archived })
+  return true
+}
+
+/**
+ * Supprimer un événement, après confirmation. Chaque avis appartient à un événement : supprimer l'événement supprime
+ * ses avis ; les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur. Renvoie true si supprimé.
+ */
+async function deleteEvent(ev: HBEvent, role: Role) {
+  const evals = alive(await db.evaluations.where('eventId').equals(ev.id).toArray())
+  const n = evals.length
+  if (n && role !== 'admin') {
+    await inform(`« ${ev.name} » contient ${n} avis : seul un administrateur peut le supprimer.`)
+    return false
+  }
+  const msg = n
+    ? `Supprimer l’événement « ${ev.name} » ? ${n > 1 ? `Ses ${n} avis seront supprimés aussi.` : 'Son avis sera supprimé aussi.'}`
+    : `Supprimer l’événement « ${ev.name} » ? Les fiches des joueurs ne sont pas touchées.`
+  if (!(await ask(msg, { ok: 'Supprimer', focusCancel: true }))) return false
+  for (const e of evals) await remove('evaluations', e.id)
+  await remove('events', ev.id)
+  return true
+}
+
+/** Menu d'une ligne d'événement (appui long, clic droit, « ⋮ ») : seulement ce que les droits permettent. */
+function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMenu> }) {
+  const role = useRole()
+  const nav = useNavigate()
+  const { pathname } = useLocation()
+  if (!menu.anchor) return null
+  const manage = can.editEvent(role, ev)
+  const items: (MenuItem | false)[] = [
+    { label: 'Ouvrir', icon: 'calendar', onSelect: () => nav(`/evenements/${ev.id}`) },
+    { label: 'Évaluer des joueurs', icon: 'check', onSelect: () => nav(`/evaluer?evenement=${ev.id}`) },
+    (manage || can.contributeEvent(role, ev)) && { label: 'Ajouter des joueurs', icon: 'userPlus', onSelect: () => nav(`/evenements/${ev.id}?ajout=1`) },
+    manage && { label: 'Modifier', icon: 'pencil', onSelect: () => nav(`/evenements/${ev.id}?modifier=1`) },
+    manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void toggleArchiveEvent(ev) },
+    { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
+    manage && {
+      label: 'Supprimer',
+      icon: 'trash',
+      danger: true,
+      onSelect: async () => {
+        if ((await deleteEvent(ev, role)) && pathname.startsWith(`/evenements/${ev.id}`)) nav('/evenements', { replace: true })
+      },
+    },
+  ]
+  return (
+    <ItemMenu
+      anchor={menu.anchor}
+      title={ev.name}
+      subtitle={[typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · ')}
+      items={items.filter((x): x is MenuItem => !!x)}
+      onClose={menu.close}
+    />
+  )
+}
+
 function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
   // Ordinateur : événement ouvert dans le panneau de droite.
   const on = useSelected('/evenements') === ev.id
+  const menu = useRowMenu()
   return (
+    <>
     <Link
       to={`/evenements/${ev.id}`}
       data-md={ev.id}
       aria-current={on || undefined}
-      className={`card flex items-center gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${today ? 'border-accent/70' : ''} ${selectedCls(on)}`}
+      className={`card flex items-center gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${MENU_ROW} ${today ? 'border-accent/70' : ''} ${selectedCls(on)}`}
+      {...menu.bind}
     >
       <div className={`w-11 shrink-0 rounded-md py-1 text-center leading-tight ${upcoming ? 'bg-accent/15' : 'bg-panel-2'}`}>
         <div className="text-[9px] font-bold text-muted uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</div>
@@ -323,7 +391,10 @@ function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventS
           )
         )}
       </div>
+      <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${ev.name} »`} className="-mr-1.5" />
     </Link>
+    <EventMenu ev={ev} menu={menu} />
+    </>
   )
 }
 
@@ -334,8 +405,21 @@ export function EventDetail() {
   const teams = useTeams() ?? []
   // Onglet et avis dépliés : retrouvés au retour d'une fiche (pendant la session).
   const [tab, setTab] = useSessionState<'joueurs' | 'classement'>('handbase.evenement.onglet', 'joueurs')
-  const [adding, setAdding] = useState(false)
-  const [editing, setEditing] = useState(false)
+  // « Ajouter des joueurs », « Modifier » depuis le menu d'une ligne de la liste : ?ajout=1, ?modifier=1 (comme les groupes).
+  const [params, setParams] = useSearchParams()
+  const [adding, setAdding] = useState(params.has('ajout'))
+  const [editing, setEditing] = useState(params.has('modifier'))
+  useEffect(() => {
+    const add = params.has('ajout')
+    const edit = params.has('modifier')
+    if (!add && !edit) return
+    setAdding(add)
+    setEditing(edit)
+    const next = new URLSearchParams(params)
+    next.delete('ajout')
+    next.delete('modifier')
+    setParams(next, { replace: true })
+  }, [id, params, setParams])
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
   const [removing, setRemoving] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -475,7 +559,15 @@ export function EventDetail() {
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
   const avisPlayer = duo && openAvis ? players.find((p) => p.id === openAvis) : undefined
 
+  // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation.
+  async function removeOne(p: Player) {
+    const n = evals.filter((e) => e.playerId === p.id).length
+    const msg = `Retirer ${p.lastName.toUpperCase()} ${p.firstName} de « ${ev!.name} » ? ${n ? `Ses ${n > 1 ? `${n} avis` : 'avis'} sur cet événement ${n > 1 ? 'sont conservés' : 'est conservé'}.` : 'Sa fiche n’est pas touchée.'}`
+    if (await ask(msg, { ok: 'Retirer', focusCancel: true })) await setRoster((ev!.playerIds ?? []).filter((x) => x !== p.id))
+  }
+
   return (
+    <PlayerMenuScope.Provider value={{ pick, eventId: ev.id }}>
     <div ref={boxRef} className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         {panel ? <PanelClose /> : <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />}
@@ -489,29 +581,14 @@ export function EventDetail() {
             {/* Archiver : retiré des listes (Évaluer, événements), avis conservés. */}
             <button
               className="text-xs text-muted hover:text-fg"
-              onClick={async () => {
-                if (!ev.archived && !(await ask(`Archiver « ${ev.name} » ? Il n’apparaîtra plus dans Évaluer ni dans la liste ; ses avis sont gardés et comptent toujours.`, { ok: 'Archiver' })))
-                  return
-                await save<HBEvent>('events', { ...ev, archived: !ev.archived })
-              }}
+              onClick={() => void toggleArchiveEvent(ev)}
             >
               {ev.archived ? 'Désarchiver' : 'Archiver'}
             </button>
             <button
               className="text-xs text-muted hover:text-red-400"
               onClick={async () => {
-                const n = evals.length
-                // Chaque avis appartient à un événement : supprimer l'événement supprime ses avis.
-                // Les avis des autres évaluateurs ne peuvent être supprimés que par un administrateur.
-                if (n && role !== 'admin') {
-                  await inform(`« ${ev.name} » contient ${n} avis : seul un administrateur peut le supprimer.`)
-                  return
-                }
-                const msg = n ? `Supprimer « ${ev.name} » et ses ${n} avis ?` : `Supprimer « ${ev.name} » ?`
-                if (!(await ask(msg, { ok: 'Supprimer' }))) return
-                for (const e of evals) await remove('evaluations', e.id)
-                await remove('events', ev.id)
-                nav('/evenements', { replace: true })
+                if (await deleteEvent(ev, role)) nav('/evenements', { replace: true })
               }}
             >
               Supprimer
@@ -831,6 +908,7 @@ export function EventDetail() {
                           </span>
                         )
                       }
+                      menuExtras={can.removeFromEvent(role, ev, p.id) ? [{ label: 'Retirer de cet événement', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
                       seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
                       rewatch={!removing && <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />}
                       follow={!removing && <FollowStar id={p.id} />}
@@ -878,6 +956,7 @@ export function EventDetail() {
       )}
       <CompareBar pick={pick} players={players} eventId={ev.id} />
     </div>
+    </PlayerMenuScope.Provider>
   )
 }
 

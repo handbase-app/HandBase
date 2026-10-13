@@ -22,6 +22,9 @@ import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerMenuScope } from '../components/PlayerMenu'
+import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
+import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { sortByName } from '../rosterOrder'
 import { teamFollowed } from '../follows'
@@ -288,7 +291,69 @@ function TeamFollowChip() {
   )
 }
 
+/** Copier le groupe et ses joueurs (ex. le pôle de la saison suivante) ; renvoie la copie, à ajuster. */
+function duplicateGroup(g: PlayerGroup, role: Role) {
+  return save<PlayerGroup>('groups', {
+    ...stripStamps(g),
+    id: newId(),
+    name: `${g.name} (copie)`,
+    archived: undefined,
+    // L'observateur ne crée que des groupes privés.
+    private: can.publicGroups(role) ? g.private : true,
+    team: can.publicGroups(role) ? g.team : undefined,
+    teams: can.publicGroups(role) ? g.teams : undefined,
+    // La copie est à moi : je ne suis pas mon propre participant.
+    editors: can.publicGroups(role) ? g.editors?.filter((u) => u !== currentUserId()) : [],
+  })
+}
+
+/** Supprimer un groupe, après confirmation (joueurs, avis et événements ne sont pas touchés). Renvoie true si supprimé. */
+async function deleteGroup(g: PlayerGroup) {
+  const n = g.playerIds.length
+  const who = n > 1 ? `Ses ${n} joueurs gardent leur fiche` : n ? 'Son joueur garde sa fiche' : ''
+  const msg = `Supprimer le groupe « ${g.name} » ? ${who ? `${who} ; les` : 'Les'} avis et les événements ne sont pas touchés.`
+  if (!(await ask(msg, { ok: 'Supprimer', focusCancel: true }))) return false
+  await remove('groups', g.id)
+  return true
+}
+
+/** Menu d'une ligne de groupe (appui long, clic droit, « ⋮ ») : seulement ce que les droits permettent. */
+function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRowMenu> }) {
+  const role = useRole()
+  const nav = useNavigate()
+  const { pathname } = useLocation()
+  if (!menu.anchor) return null
+  const manage = can.editGroup(role, g)
+  const items: (MenuItem | false)[] = [
+    { label: 'Ouvrir', icon: 'users', onSelect: () => nav(`/groupes/${g.id}`) },
+    (manage || can.contributeGroup(role, g)) && { label: 'Ajouter des joueurs', icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
+    manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
+    { label: 'Dupliquer', icon: 'list', hint: 'avec ses joueurs', onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+    manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+    { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
+    manage && {
+      label: 'Supprimer',
+      icon: 'trash',
+      danger: true,
+      onSelect: async () => {
+        if ((await deleteGroup(g)) && pathname.startsWith(`/groupes/${g.id}`)) nav('/groupes', { replace: true })
+      },
+    },
+  ]
+  return (
+    <ItemMenu
+      anchor={menu.anchor}
+      title={g.name}
+      subtitle={`${g.playerIds.length} joueur${g.playerIds.length > 1 ? 's' : ''}${g.archived ? ' · archivé' : ''}`}
+      items={items.filter((x): x is MenuItem => !!x)}
+      onClose={menu.close}
+    />
+  )
+}
+
+/** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
+  const menu = useRowMenu()
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
   // Participants en bref : staffs choisis (par leur nom), puis participants choisis un par un.
@@ -297,11 +362,13 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   // Ordinateur : groupe ouvert dans le panneau de droite.
   const on = useSelected('/groupes') === g.id
   return (
+    <>
     <Link
       to={`/groupes/${g.id}`}
       data-md={g.id}
       aria-current={on || undefined}
-      className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${g.archived ? 'opacity-60' : ''} ${selectedCls(on)}`}
+      className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${MENU_ROW} ${g.archived ? 'opacity-60' : ''} ${selectedCls(on)}`}
+      {...menu.bind}
     >
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
@@ -321,8 +388,11 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
       <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-muted">
         <FollowStar kind="group" id={g.id} />
         {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''}
+        <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${g.name} »`} className="-mr-1.5" />
       </span>
     </Link>
+    <GroupMenu g={g} menu={menu} />
+    </>
   )
 }
 
@@ -607,11 +677,13 @@ export function GroupDetail() {
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState(params.has('modifier'))
   // Même écran réutilisé d'un groupe à l'autre (ex. après « Dupliquer ») : on repart de l'adresse.
+  // Aussi depuis le menu d'une ligne de la liste (« Ajouter des joueurs », « Modifier ») sur le groupe déjà ouvert.
+  const wantEdit = params.has('modifier')
+  const wantAdd = params.has('ajout')
   useEffect(() => {
-    setEditing(params.has('modifier'))
-    setAdding(params.has('ajout'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+    setEditing(wantEdit)
+    setAdding(wantAdd)
+  }, [id, wantEdit, wantAdd])
   const [adding, setAdding] = useState(params.has('ajout'))
   const panel = usePanel()
   // Ordinateur : boutons regroupés en une barre d'actions compacte (pleine largeur sur téléphone).
@@ -666,7 +738,14 @@ export function GroupDetail() {
       />
     )
 
+  // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation.
+  async function removeOne(p: Player) {
+    if (await ask(`Retirer ${p.lastName.toUpperCase()} ${p.firstName} du groupe « ${g!.name} » ? Sa fiche et ses avis ne sont pas touchés.`, { ok: 'Retirer', focusCancel: true }))
+      await removeFromGroup(g!, [p.id])
+  }
+
   return (
+    <PlayerMenuScope.Provider value={{ pick }}>
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
@@ -675,21 +754,7 @@ export function GroupDetail() {
             {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
             <button
               className="text-xs text-muted hover:text-fg"
-              onClick={async () => {
-                const copy = await save<PlayerGroup>('groups', {
-                  ...stripStamps(g),
-                  id: newId(),
-                  name: `${g.name} (copie)`,
-                  archived: undefined,
-                  // L'observateur ne crée que des groupes privés.
-                  private: can.publicGroups(role) ? g.private : true,
-                  team: can.publicGroups(role) ? g.team : undefined,
-                  teams: can.publicGroups(role) ? g.teams : undefined,
-                  // La copie est à moi : je ne suis pas mon propre participant.
-                  editors: can.publicGroups(role) ? g.editors?.filter((u) => u !== currentUserId()) : [],
-                })
-                nav(`/groupes/${copy.id}?modifier=1`)
-              }}
+              onClick={async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`)}
             >
               Dupliquer
             </button>
@@ -704,9 +769,7 @@ export function GroupDetail() {
                 <button
                   className="text-xs text-muted hover:text-red-400"
                   onClick={async () => {
-                    if (!(await ask(`Supprimer le groupe « ${g.name} » ? Les joueurs, leurs avis et les événements ne sont pas touchés.`, { ok: 'Supprimer' }))) return
-                    await remove('groups', g.id)
-                    nav('/groupes', { replace: true })
+                    if (await deleteGroup(g)) nav('/groupes', { replace: true })
                   }}
                 >
                   Supprimer
@@ -848,6 +911,7 @@ export function GroupDetail() {
                 <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} />
               </>
             }
+            menuExtras={can.removeFromGroup(role, g, p.id) ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
             rewatch={!removing && <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
             follow={!removing && <FollowStar id={p.id} />}
             actions={
@@ -863,5 +927,6 @@ export function GroupDetail() {
       </div>
       <CompareBar pick={pick} players={players} />
     </div>
+    </PlayerMenuScope.Provider>
   )
 }

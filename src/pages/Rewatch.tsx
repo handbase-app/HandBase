@@ -1,10 +1,12 @@
 import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
-import { alive, db, fmtDate, type HBEvent, type Player, type PlayerGroup } from '../db'
+import { alive, db, fmtDate, remove, type HBEvent, type Player, type PlayerGroup } from '../db'
 import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
-import { loadRewatchEntries, revisitedAt, setRevisited, stamp, type RewatchEntry } from '../scouting'
+import { isMyRewatch, loadRewatchEntries, revisitedAt, setRevisited, stamp, type RewatchEntry } from '../scouting'
+import { ask } from '../components/Confirm'
+import type { MenuExtra } from '../components/PlayerMenu'
 import { RewatchButton, RewatchOrigins } from '../components/Scouting'
 import { Empty, GroupMark } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
@@ -90,11 +92,29 @@ export default function RewatchPage() {
           const grIds = [...new Set(rows.flatMap((r) => r.groups ?? []))]
           const manual = e.rows.filter((r) => r.done)
           const via = e.rows.map((r) => revisitedAt(r, keys)).find(Boolean)
+          // Menu de la ligne : « Revu », « Remettre à revoir », retirer mon « à revoir » (après confirmation).
+          // « Modifier » : « À revoir… » du menu commun (ma fenêtre « à revoir », déjà remplie).
+          const mineOpen = e.open.filter(isMyRewatch)
+          const extras: (MenuExtra | false)[] = [
+            tab === 'open' && { label: 'Marquer revu', icon: 'check', hint: 'tous ses « à revoir » ouverts', onSelect: () => void setRevisited(e.open, true) },
+            tab === 'done' && manual.length > 0 && { label: 'Remettre à revoir', icon: 'undo', onSelect: () => void setRevisited(manual, false) },
+            mineOpen.length > 0 && {
+              label: 'Retirer mon « à revoir »',
+              icon: 'close',
+              onSelect: async () => {
+                const note = mineOpen.some((r) => r.note) ? ' Ton commentaire est retiré avec lui.' : ''
+                if (!(await ask(`Retirer ton « à revoir » sur ${p.lastName.toUpperCase()} ${p.firstName} ?${note} Ceux des autres membres du staff restent.`, { ok: 'Retirer', focusCancel: true })))
+                  return
+                for (const r of mineOpen) await remove('rewatch', r.id)
+              },
+            },
+          ]
           return (
             <PlayerRow
               key={e.playerId}
               p={p}
               link={{ to: `/joueurs/${p.id}` }}
+              menuExtras={extras.filter((x): x is MenuExtra => !!x)}
               aside={
                 tab === 'open' ? (
                   <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" title="Marquer revu (pour tous les « à revoir » ouverts de ce joueur)" onClick={() => void setRevisited(e.open, true)}>

@@ -11,6 +11,8 @@ export interface Choice<T extends string> {
   value: T
   label: string
   style?: Style
+  /** Focus clavier au départ (par défaut : le dernier choix). */
+  focus?: boolean
 }
 
 type Request = { message: string; choices: Choice<string>[]; resolve: (v: string | null) => void }
@@ -28,10 +30,13 @@ export function choose<T extends string>(message: string, choices: Choice<T>[]):
   })
 }
 
-/** Demande une confirmation ; renvoie true si l'utilisateur valide. */
-export async function ask(message: string, opts: { ok?: string; danger?: boolean } = {}): Promise<boolean> {
+/**
+ * Demande une confirmation ; renvoie true si l'utilisateur valide.
+ * `focusCancel` : le focus clavier part sur « Annuler » (suppressions et retraits depuis un menu de ligne).
+ */
+export async function ask(message: string, opts: { ok?: string; danger?: boolean; focusCancel?: boolean } = {}): Promise<boolean> {
   const r = await choose(message, [
-    { value: 'cancel', label: 'Annuler', style: 'ghost' },
+    { value: 'cancel', label: 'Annuler', style: 'ghost', focus: opts.focusCancel },
     { value: 'ok', label: opts.ok ?? 'Confirmer', style: opts.danger ?? true ? 'danger' : 'primary' },
   ])
   return r === 'ok'
@@ -78,7 +83,7 @@ export function ConfirmHost() {
         <p className="text-sm leading-relaxed">{req.message}</p>
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           {req.choices.map((c, i) => (
-            <button key={c.value} autoFocus={i === req.choices.length - 1} className={STYLE[c.style ?? 'primary']} onClick={() => close(c.value)}>
+            <button key={c.value} autoFocus={req.choices.some((x) => x.focus) ? !!c.focus : i === req.choices.length - 1}className={STYLE[c.style ?? 'primary']} onClick={() => close(c.value)}>
               {c.label}
             </button>
           ))}

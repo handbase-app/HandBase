@@ -4,6 +4,7 @@ import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
+import { GlobalCompareBar } from './components/ComparePick'
 import { db, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
 import Evaluate from './pages/Evaluate'
@@ -332,6 +333,7 @@ export default function App() {
         </div>
       </nav>
       <UpdateBanner />
+      <GlobalCompareBar />
       <ConfirmHost />
     </div>
   )

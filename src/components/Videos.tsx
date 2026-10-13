@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
 import type { MatchSheet } from '../matchSheet'
 import { can, useRole } from '../roles'
@@ -199,7 +200,11 @@ export function VideoSection({
                 onEdit={can.editVideo(v) ? () => setForm(v) : undefined}
                 onDelete={
                   can.deleteVideo(role, v, dept)
-                    ? async () => (await ask(`Retirer le lien « ${v.title || sourceLabel(v.url)} » ?`, { ok: 'Retirer' })) && void remove('videos', v.id)
+                    ? async () => {
+                        const n = momentsOf(v).length
+                        const msg = `Retirer le lien « ${v.title || sourceLabel(v.url)} » ?${n ? ` ${n > 1 ? `Ses ${n} moments repérés disparaissent` : 'Son moment repéré disparaît'} avec lui.` : ''} La vidéo elle-même n’est pas touchée.`
+                        if (await ask(msg, { ok: 'Retirer', focusCancel: true })) await remove('videos', v.id)
+                      }
                     : undefined
                 }
               />
@@ -297,6 +302,22 @@ function VideoRow({
       onOffline()
     }
   }
+  // Menu de la ligne (appui long, clic droit, « ⋮ ») : ouvrir, modifier, retirer, selon les droits.
+  const menu = useRowMenu()
+  const items: (MenuItem | false)[] = [
+    (!!onPlay || !!href) && {
+      label: onPlay ? 'Lire la vidéo' : `Ouvrir sur ${source}`,
+      icon: onPlay ? 'play' : 'external',
+      onSelect: () => {
+        if (onPlay) return onPlay()
+        if (!navigator.onLine) return onOffline()
+        window.open(href, '_blank', 'noopener,noreferrer')
+      },
+    },
+    !!onEdit && { label: 'Modifier', icon: 'pencil', onSelect: () => onEdit?.() },
+    !!onDelete && { label: 'Retirer le lien', icon: 'trash', danger: true, onSelect: () => onDelete?.() },
+  ]
+  const menuItems = items.filter((x): x is MenuItem => !!x)
   const link = (cls: string, children: React.ReactNode, label?: string) =>
     onPlay ? (
       <button type="button" onClick={() => onPlay()} className={`${cls} max-w-full text-left`} aria-label={label} title="Lire la vidéo">
@@ -319,7 +340,7 @@ function VideoRow({
       <span className={cls}>{children}</span>
     )
   return (
-    <div className="rounded-md border border-line bg-panel-2 p-2">
+    <div className={`rounded-md border border-line bg-panel-2 p-2 ${MENU_ROW}`} {...(menuItems.length ? menu.bind : {})}>
       <div className="flex items-center gap-3">
         {link(
           'relative flex h-[54px] w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-panel text-muted',
@@ -364,7 +385,11 @@ function VideoRow({
             )}
           </div>
         )}
+        {menuItems.length > 0 && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour la vidéo ${v.title || source}`} className="-mr-1" />}
       </div>
+      {menu.anchor && (
+        <ItemMenu anchor={menu.anchor} title={v.title || `Vidéo ${source}`} subtitle={[source, author, when].filter(Boolean).join(' · ')} items={menuItems} onClose={menu.close} />
+      )}
       {moments.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Moments à regarder">
           {moments.map((m, i) => {

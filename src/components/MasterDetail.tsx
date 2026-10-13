@@ -138,8 +138,8 @@ export default function MasterDetail({
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-md]')
     if (!a || !listRef.current?.contains(a)) return
-    // Bouton dans la ligne (étoile « suivre »…) : il garde son rôle.
-    const inner = (e.target as HTMLElement).closest('button, input, select, textarea, label')
+    // Bouton dans la ligne (étoile « suivre », « ⋮ »…) : il garde son rôle.
+    const inner = (e.target as HTMLElement).closest('button, input, select, textarea, label, [role="button"]')
     if (inner && a.contains(inner) && inner !== a) return
     e.preventDefault()
     void show(a.dataset.md!)
