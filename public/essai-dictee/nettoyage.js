@@ -125,7 +125,8 @@ export function corriger(texte) {
 
 export function nettoyerDetail(texte) {
   if (!texte) return { texte: '', corrections: [] }
-  let t = ' ' + String(texte).replace(/[\s\u00A0\u202F]+/g, ' ') + ' '
+  // Voxtral recopie parfois les mots de contexte avec leurs « _ » (« 1_contre_1 ») : on remet des espaces.
+  let t = ' ' + String(texte).replace(/([\p{L}\p{N}])_(?=[\p{L}\p{N}])/gu, '$1 ').replace(/[\s\u00A0\u202F]+/g, ' ') + ' '
   // deux passages : « euh, euh » ou « euh hein »
   for (let k = 0; k < 2; k++) {
     t = t.replace(ALWAYS, '$1').replace(BEN, '$1')
