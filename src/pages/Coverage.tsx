@@ -390,8 +390,12 @@ export default function Coverage() {
   const crumbs = [
     { label: 'France', go: goFrance },
     ...(region ? [{ label: regionLabel(region), go: () => pickRegion(region) }] : []),
-    ...(dept ? [{ label: deptText(dept) }] : []),
+    ...(dept ? [{ label: deptText(dept), go: club ? () => setClub(null) : undefined }] : []),
+    ...(dept && club ? [{ label: clubLabel(club.name) }] : []),
   ]
+  // Ordinateur, un club choisi dans un département : la liste des clubs remplace la carte (à gauche), ses joueurs à
+  // voir passent à droite. Le fil (ou un nouveau toucher sur le club) ramène à la carte.
+  const clubMode = side && !!dept && !!club
   const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
   const clubList = (inline: boolean) =>
     clubs.length ? (
@@ -493,6 +497,14 @@ export default function Coverage() {
 
       {view === 'map' ? (
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          {clubMode && club ? (
+            <section className="side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
+              <SectionTitle info="Clubs du département, du plus grand nombre de joueurs à voir au plus petit. Touche un autre club pour changer, ou le département dans le fil pour revenir à la carte.">
+                Où aller ? · {deptText(dept)} · {yearText}
+              </SectionTitle>
+              {clubList(false)}
+            </section>
+          ) : (
           <section className="card flex flex-col gap-2 p-3 side:sticky side:top-[calc(var(--hdr)+1rem)]">
             {!region && (
               <div className="[&_button]:min-h-8">
@@ -544,7 +556,14 @@ export default function Coverage() {
               {dept ? 'Toucher un autre département pour changer.' : region ? 'Toucher un département pour voir ses clubs.' : 'Toucher une région pour la voir de plus près.'}
             </p>
           </section>
-          <div ref={whereRef}>{side2}</div>
+          )}
+          <div ref={whereRef}>
+            {clubMode && club ? (
+              <Who club={club} label={yearText} last={last} rewatch={data.rewatch} />
+            ) : (
+              side2
+            )}
+          </div>
         </div>
       ) : !years.length ? (
         <Empty>Aucun joueur ici avec ces filtres.</Empty>
