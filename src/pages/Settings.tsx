@@ -20,6 +20,7 @@ import { STAFF } from '../staffLabels'
 import { useTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
+import { useDictation } from '../dictation/useDictation'
 import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
@@ -74,6 +75,7 @@ export default function Settings() {
           <NotificationSettings />
         </Fold>
       )}
+      <DictationSetting />
       <Fold id="apparence" icon="palette" title="Apparence" summary={themeSummary()}>
         <ThemePicker />
       </Fold>
@@ -314,6 +316,34 @@ function NotificationSettings() {
       )}
       {msg && <p className={`text-[11px] ${msg.ok ? 'text-emerald-300' : 'text-red-300'}`}>{msg.text}</p>}
     </section>
+  )
+}
+
+/**
+ * Dictée vocale (essai) : visible seulement quand elle est disponible pour ce compte et cet appareil (useDictation) ;
+ * activée par défaut, réglage gardé sur l'appareil.
+ */
+function DictationSetting() {
+  const { available, enabled, setEnabled, access } = useDictation()
+  if (!available) return null
+  return (
+    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? 'Activée sur cet appareil : micro à côté des commentaires' : 'Désactivée sur cet appareil'}>
+      <section className="flex flex-col gap-2">
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <b>Dictée vocale (essai)</b>
+        </label>
+        <p className="text-[11px] text-muted">
+          Le son est envoyé à Mistral AI (France) pour être transcrit, puis effacé ; seul le texte est gardé. Pendant l'essai (offre
+          gratuite), évitez de dicter des noms.
+        </p>
+        <p className="text-[11px] text-muted">
+          Touchez le micro pour commencer et pour finir (ou maintenez-le pendant que vous parlez), 1 minute au plus. Le texte s'ajoute au
+          commentaire : relisez-le avant d'enregistrer.
+          {access?.restantMois != null && ` Restant : ${access.restantMois} dictées ce mois-ci, ${access.restantJour ?? '?'} aujourd'hui pour vous.`}
+        </p>
+      </section>
+    </Fold>
   )
 }
 

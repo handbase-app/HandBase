@@ -13,6 +13,7 @@ import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { supabase } from '../sync'
 import { MQ, useMedia } from '../layout'
+import { DictationTextarea } from '../components/MicButton'
 import {
   alive,
   CONTEXT_TYPES,
@@ -651,11 +652,11 @@ export default function Evaluate() {
             </div>
             <div>
               <span className="label">Points forts</span>
-              <textarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(e) => setDraft((d) => ({ ...d, strengths: e.target.value }))} />
+              <DictationTextarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(v) => setDraft((d) => ({ ...d, strengths: v }))} />
             </div>
             <div>
               <span className="label">Axes de progression</span>
-              <textarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(e) => setDraft((d) => ({ ...d, improvements: e.target.value }))} />
+              <DictationTextarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(v) => setDraft((d) => ({ ...d, improvements: v }))} />
             </div>
           </div>
 

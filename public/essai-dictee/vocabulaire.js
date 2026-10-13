@@ -1,3 +1,5 @@
+// Copie JavaScript pour la page d'essai : la source de vérité est src/dictation/vocabulary.ts (utilisée par l'application) ;
+// toute correction se fait d'abord là-bas (test : npx jiti tools/test-dictee.ts), puis se recopie ici.
 // Vocabulaire du handball en français (données seules, réutilisables dans l'application).
 // - vocabulaire : termes par thème ;
 // - motsCles : liste à plat (pour une consigne d'IA, une recherche…) ;

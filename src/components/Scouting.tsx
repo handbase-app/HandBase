@@ -34,6 +34,7 @@ import {
 import { addToGroup } from './Groups'
 import { inform } from './Confirm'
 import { getMe, GroupMark, Icon } from './ui'
+import { DictationTextarea } from './MicButton'
 
 /*
  * Repérage en tournoi (supabase/041_reperage_tournoi.sql) : bouton « vu », couverture de l'équipe d'observateurs,
@@ -387,7 +388,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
           </div>
           <label className="flex flex-col gap-1">
             <span className="label">Commentaire (facultatif)</span>
-            <textarea className="field min-h-16 text-xs" maxLength={500} placeholder="Ex. à voir sur un match entier, en défense…" value={text} onChange={(e) => setNote(e.target.value)} />
+            <DictationTextarea className="field min-h-16 text-xs" maxLength={500} placeholder="Ex. à voir sur un match entier, en défense…" value={text} onChange={setNote} />
           </label>
           {!pickedEvents.length && !pickedGroups.length && !newGroup.trim() && (
             <p className="text-[11px] text-muted">Rien de coché : il va dans la liste « À revoir » générale.</p>

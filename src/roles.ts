@@ -237,4 +237,11 @@ export const can = {
   exportAll: (r: Role) => r === 'admin',
   /** Copie de toutes les données d'un joueur (demande d'accès RGPD d'une famille) : admin et encadrants. */
   exportPlayer: (r: Role) => r !== 'observateur',
+  /**
+   * Dictée vocale des commentaires (bouton micro, src/components/MicButton.tsx) : POINT UNIQUE de décision côté interface.
+   * Le bouton s'affiche en plus seulement si l'appareil sait enregistrer et si la fonction « transcrire » répond que
+   * l'accès est ouvert (src/dictation/transcribe.ts). Pendant l'essai (offre gratuite Mistral) : administrateurs seulement.
+   * Pour élargir plus tard : changer ce test ET le contrôle « pas_admin » de supabase/functions/transcrire/index.ts.
+   */
+  dictate: (r: Role) => r === 'admin',
 }

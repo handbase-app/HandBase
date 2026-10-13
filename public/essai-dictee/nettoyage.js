@@ -1,3 +1,5 @@
+// Copie JavaScript pour la page d'essai : la source de vérité est src/dictation/clean.ts (utilisée par l'application) ;
+// toute correction se fait d'abord là-bas (test : npx jiti tools/test-dictee.ts), puis se recopie ici.
 // Nettoyage d'une dictée en français, par règles simples (fonction pure, réutilisable dans l'application).
 // - retire les hésitations (euh, heu, hum, bah, ben, hein) et les tics de langage placés en début ou fin
 //   de phrase ou entre virgules (en fait, tu vois, tu sais, du coup, voilà en début ou en fin) ;
