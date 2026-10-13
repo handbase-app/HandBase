@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
+import { understandAvis, type AvisAnswer, type AvisCritere } from './avis'
 import { DictationError, requestAccess, transcribe, understandFilters, type Access, type AccessStatus, type Endpoint, type FilterAnswer, type Transcript } from './transcribe'
 
 const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '')
@@ -132,7 +133,8 @@ export async function sendFilterRequest(phrase: string, schema: unknown, actuels
  *  - allowed : rôle, appareil et serveur configuré (avant la réponse du serveur) ;
  *  - available : en plus, le serveur a dit oui (le réglage de l'appareil s'affiche alors) ;
  *  - ready : en plus, le réglage est activé (le bouton micro s'affiche) ;
- *  - searchReady : en plus, la fonction sait traduire une phrase en filtres (recherche vocale de la liste Joueurs).
+ *  - searchReady : en plus, la fonction sait traduire une phrase en filtres (recherche vocale de la liste Joueurs) ;
+ *  - avisReady : en plus, la fonction sait proposer des notes d'après un avis dicté (écran de notation, src/dictation/avis.ts).
  */
 export function useDictation() {
   const role = useRole()
@@ -150,5 +152,22 @@ export function useDictation() {
   }, [allowed])
   const available = allowed && access?.value.status === 'ok'
   const ready = available && enabled
-  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
+  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, avisReady: ready && !!access?.value.avis, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
+}
+
+/** « Avis vocal » : le texte dicté et les critères applicables seulement (src/dictation/avis.ts), jamais de données de joueur. */
+export async function sendAvisRequest(texte: string, criteres: AvisCritere[], signal?: AbortSignal): Promise<AvisAnswer> {
+  const ep = await endpoint()
+  if (!ep) throw new DictationError('non_connecte')
+  try {
+    const r = await understandAvis(ep, texte, criteres, signal)
+    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    return r
+  } catch (e) {
+    const code = e instanceof DictationError ? e.code : ''
+    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
+    if (lost[code]) remember(ep.uid, { status: lost[code] })
+    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    throw e
+  }
 }

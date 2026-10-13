@@ -20,6 +20,9 @@
   --color-muted: #9a9ab8;
   --color-accent: #f43f5e;
   --color-accent-soft: #f43f5e22;
+  /* Propositions de l'« avis vocal » (écran de notation) : vert vif, distinct de l'accent et lisible au soleil. */
+  --color-suggest: #a3e635;
+  --color-suggest-soft: #a3e6351f;
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
   /* Changement de joueur par glissement (écran de notation). */
@@ -107,6 +110,8 @@ body {
    passent en version foncée pour rester lisibles (src/theme.ts pose data-light sur <html>). */
 :root[data-light] {
   color-scheme: light;
+  --color-suggest: #4d7c0f;
+  --color-suggest-soft: #4d7c0f1a;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }

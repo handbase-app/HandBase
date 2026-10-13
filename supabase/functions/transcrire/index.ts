@@ -108,12 +108,13 @@ Deno.serve(async (req) => {
       max_secondes: MAX_SECONDES,
       max_octets: MAX_OCTETS,
       // Modes de POST connus de cette version (l'appli n'affiche la recherche vocale que si « filtres » y est).
-      modes: ['dictee', 'filtres'],
+      modes: ['dictee', 'filtres', 'avis'],
     })
   }
 
   if (!cle) return json({ error: 'cle_absente' }, 503)
   if (filtres) return await rechercheFiltres(req, db, userId, cle, maxMois, maxJour, json)
+  if (new URL(req.url).searchParams.get('mode') === 'avis') return await avisVocal(req, db, userId, cle, maxMois, maxJour, json)
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_OCTETS + 64 * 1024) return json({ error: 'trop_gros' }, 413)
 
@@ -302,4 +303,126 @@ async function rechercheFiltres(
   const action = typeof sortie.action === 'string' && ACTIONS.includes(sortie.action) ? sortie.action : ''
   const retirer = Array.isArray(sortie.retirer) ? sortie.retirer.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 40)).slice(0, 16) : []
   return json({ action, filtres: filtresOk, retirer, nonGere, ms, model: modele, ...restants })
+}
+
+// ---------- « Avis vocal » : notes proposées d'après un avis dicté (POST ?mode=avis) ----------
+// Entrée (JSON) : { texte, criteres: [{ id, label, description?, echelle: { min, max, libelles? } }] } : seulement les critères
+// notés sur une échelle qui s'appliquent au poste du joueur (src/dictation/avis.ts), sous des identifiants courts (c1, c2…) ;
+// aucune donnée de joueur, aucun nom. Sortie : { notes: [{ id, valeur, extrait, confiance }], pointsForts, axes, ambigus, ms }.
+// Le modèle PROPOSE seulement : l'appli revérifie chaque note (critère connu, valeur dans l'échelle, extrait présent dans le
+// texte) et le coach accepte ou écarte chacune avant d'enregistrer. Modèle : MISTRAL_MODELE_AVIS (mistral-small-latest par
+// défaut, plus nuancé que ministral-8b), température 0, réponse JSON. Même compte, mêmes plafonds (un appel compté par avis).
+// Ni le texte ni la réponse ne sont journalisés.
+
+const MAX_AVIS_TEXTE = 2000
+const MAX_AVIS_CRITERES = 60
+
+const CONSIGNES_AVIS = `Tu aides un entraîneur de handball (détection de jeunes) à remplir une fiche d'évaluation d'après ce qu'il a dit d'un joueur.
+Tu reçois la liste des critères (id, label, description, echelle min-max, libelles éventuels) puis le texte dicté.
+Règles :
+1. Note UNIQUEMENT les critères dont l'entraîneur parle explicitement. Un critère dont il ne parle pas n'apparaît pas. Ne devine jamais : dans le doute, ne note pas.
+2. "extrait" : copie mot pour mot un court passage du texte qui justifie la note (sans le reformuler).
+3. Si un passage peut correspondre à plusieurs critères, ne choisis pas : décris l'hésitation dans "ambigus" en nommant les critères par leur label (ex. "« voit bien le jeu » : Lecture du jeu ou Prise d'information").
+4. "valeur" : un entier de l'échelle du critère (respecte les libelles s'il y en a). "excellent", "explose", "remarquable", "très fort" : le maximum ; "bon", "solide", "à l'aise" : au-dessus du milieu ; "correct", "moyen", "niveau attendu" : le milieu ; "doit travailler", "en retard", "un peu juste", "fragile" : sous le milieu. Le minimum seulement si l'entraîneur le dit clairement ("très insuffisant").
+5. "confiance" : "forte" si l'intensité est claire, sinon "moyenne".
+6. "pointsForts" : reformule brièvement, en termes positifs, les qualités citées. "axes" : ce qu'il faut travailler selon l'entraîneur, de façon constructive, en commençant par "À travailler : ". Rien d'inventé, aucun jugement définitif, aucun nom de personne. Chaîne vide si rien n'est dit.
+Réponds UNIQUEMENT par un objet JSON strict : {"notes":[{"id":"...","valeur":0,"extrait":"...","confiance":"forte"}],"pointsForts":"...","axes":"...","ambigus":["..."]}
+
+Exemple 1. Critères : c1 Vitesse (1-5), c2 Tir (1-5), c3 Défense (1-5).
+Texte : "Très rapide, il explose sur les contre-attaques. Au tir c'est correct."
+Réponse : {"notes":[{"id":"c1","valeur":5,"extrait":"il explose sur les contre-attaques","confiance":"forte"},{"id":"c2","valeur":3,"extrait":"Au tir c'est correct","confiance":"forte"}],"pointsForts":"Très rapide, explosif en contre-attaque.","axes":"","ambigus":[]}
+(c3 : pas évoqué, pas noté.)
+
+Exemple 2. Critères : c1 Lecture du jeu (1-5), c2 Prise d'information (1-5), c3 Repli défensif (0-3).
+Texte : "Il voit bien le jeu. Par contre il doit travailler ses replis, il est souvent en retard."
+Réponse : {"notes":[{"id":"c3","valeur":1,"extrait":"il doit travailler ses replis","confiance":"moyenne"}],"pointsForts":"Bonne vision du jeu.","axes":"À travailler : les replis défensifs.","ambigus":["« Il voit bien le jeu » : Lecture du jeu ou Prise d'information"]}`
+
+async function avisVocal(
+  req: Request,
+  db: Db,
+  userId: string,
+  cle: string,
+  maxMois: number,
+  maxJour: number,
+  json: (body: unknown, status?: number) => Response,
+): Promise<Response> {
+  const taille = Number(req.headers.get('content-length') ?? 0)
+  if (taille > 64 * 1024) return json({ error: 'trop_gros' }, 413)
+  // deno-lint-ignore no-explicit-any
+  let entree: { texte?: unknown; criteres?: any }
+  try {
+    entree = await req.json()
+  } catch {
+    return json({ error: 'requete_illisible' }, 400)
+  }
+  const texte = typeof entree.texte === 'string' ? entree.texte.replace(/\s+/g, ' ').trim() : ''
+  if (!texte) return json({ error: 'texte_absent' }, 400)
+  if (texte.length > MAX_AVIS_TEXTE) return json({ error: 'texte_trop_long' }, 413)
+  // Critères recopiés champ par champ : rien d'autre que ce qui est prévu ne part chez Mistral.
+  const str = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '')
+  const criteres: { id: string; label: string; description?: string; echelle: { min: number; max: number; libelles?: Record<string, string> } }[] = []
+  for (const c of Array.isArray(entree.criteres) ? entree.criteres.slice(0, MAX_AVIS_CRITERES) : []) {
+    const id = str(c?.id, 12)
+    const label = str(c?.label, 100)
+    const min = Number(c?.echelle?.min)
+    const max = Number(c?.echelle?.max)
+    if (!/^c\d{1,3}$/.test(id) || !label || !Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max > 10 || min >= max) continue
+    const libelles: Record<string, string> = {}
+    const lib = c?.echelle?.libelles
+    if (lib && typeof lib === 'object') for (const [k, v] of Object.entries(lib)) if (/^\d{1,2}$/.test(k) && str(v, 40)) libelles[k] = str(v, 40)
+    const description = str(c?.description, 200)
+    criteres.push({ id, label, ...(description && { description }), echelle: { min, max, ...(Object.keys(libelles).length ? { libelles } : {}) } })
+  }
+  if (!criteres.length) return json({ error: 'criteres_invalides' }, 400)
+
+  // Plafonds : un appel compté par avis, comme une dictée.
+  const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
+  if (quotaError) return json({ error: 'quota_indisponible' }, 500)
+  if (!quota?.ok) return json({ error: quota?.raison ?? 'quota_atteint', restant_mois: quota?.restant_mois ?? 0, restant_jour: quota?.restant_jour ?? 0 }, 429)
+
+  const modele = Deno.env.get('MISTRAL_MODELE_AVIS') || 'mistral-small-latest'
+  const t0 = performance.now()
+  const res = await avecRelance(() => fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modele,
+      temperature: 0,
+      max_tokens: 900,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: CONSIGNES_AVIS },
+        { role: 'user', content: `Critères (JSON) :\n${JSON.stringify(criteres)}\n\nTexte dicté :\n"""${texte.replace(/"""/g, '"')}"""` },
+      ],
+    }),
+  }))
+  const ms = Math.round(performance.now() - t0)
+  const restants = { restant_mois: quota.restant_mois, restant_jour: quota.restant_jour }
+  if (!res.ok) {
+    console.error('transcrire (avis) : Mistral a répondu', res.status)
+    await res.body?.cancel()
+    const error = res.status === 429 ? 'mistral_limite' : res.status === 401 ? 'mistral_cle' : 'mistral_erreur'
+    return json({ error, status: res.status, ...restants }, 502)
+  }
+  // La réponse du modèle n'est jamais journalisée (elle reprend le texte).
+  let sortie: { notes?: unknown; pointsForts?: unknown; axes?: unknown; ambigus?: unknown } = {}
+  try {
+    const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
+    const contenu = out.choices?.[0]?.message?.content
+    const brut = typeof contenu === 'string' ? contenu : Array.isArray(contenu) ? contenu.map((c) => (c as { text?: string })?.text ?? '').join('') : ''
+    sortie = JSON.parse(brut.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+  } catch {
+    return json({ error: 'reponse_illisible', ...restants }, 502)
+  }
+  // Forme seulement (l'appli revérifie chaque note : critère, échelle, extrait).
+  const ids = new Set(criteres.map((c) => c.id))
+  const notes = (Array.isArray(sortie.notes) ? sortie.notes : [])
+    .filter((n) => n && typeof n === 'object' && ids.has(String((n as { id?: unknown }).id)))
+    .slice(0, MAX_AVIS_CRITERES)
+    .map((n) => {
+      const { id, valeur, extrait, confiance } = n as Record<string, unknown>
+      return { id, valeur, extrait: str(extrait, 300), confiance: confiance === 'forte' ? 'forte' : 'moyenne' }
+    })
+  const ambigus = Array.isArray(sortie.ambigus) ? sortie.ambigus.map((a) => str(a, 200)).filter(Boolean).slice(0, 5) : []
+  return json({ notes, pointsForts: str(sortie.pointsForts, 500), axes: str(sortie.axes, 500), ambigus, ms, model: modele, ...restants })
 }

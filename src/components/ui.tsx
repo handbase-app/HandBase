@@ -161,27 +161,37 @@ export function CriterionInput({
   c,
   value,
   onChange,
+  suggested,
 }: {
   c: Criterion
   value: number | string | undefined
   onChange: (v: number | string | undefined) => void
+  /** Note proposée par l'« avis vocal » (src/components/AvisVocal.tsx) : contour vif et ✨ ; la toucher l'accepte. */
+  suggested?: number
 }) {
   const max = scaleMax(c.scale)
   if (max !== null) {
     const min = scaleMin(c.scale)
     const opts = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+    const hint = suggested !== undefined && suggested !== value
     return (
-      <div className="flex gap-1">
+      <div className={`flex ${hint ? 'gap-1.5' : 'gap-1'}`}>
         {opts.map((n) => (
           <button
             key={n}
             type="button"
-            onClick={() => onChange(value === n ? undefined : n)}
-            className={`h-8 w-8 rounded-md border text-xs font-bold transition ${
-              value === n ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+            aria-label={hint && n === suggested ? `${n} (note proposée : toucher pour l’accepter)` : undefined}
+            onClick={() => onChange(value === n && !(hint && n === suggested) ? undefined : n)}
+            className={`relative rounded-md border text-xs font-bold transition ${hint ? 'h-11 w-11' : 'h-8 w-8'} ${
+              value === n
+                ? 'border-accent bg-accent text-white'
+                : hint && n === suggested
+                  ? 'border-2 border-suggest bg-suggest-soft text-fg shadow-[0_0_0_3px_var(--color-suggest-soft),0_0_14px_var(--color-suggest)]'
+                  : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
           >
             {n}
+            {hint && n === suggested && <span className="pointer-events-none absolute -top-2 -right-2 text-[13px] leading-none" aria-hidden>✨</span>}
           </button>
         ))}
       </div>

@@ -354,6 +354,14 @@ function DictationSetting() {
             envoyée compte comme une dictée (deux avec le micro : la transcription, puis la recherche).
           </p>
         )}
+        {access?.avis && (
+          <p className="text-[11px] text-muted">
+            Avis vocal : sur l’écran de notation, touchez « ✨ Avis vocal » et parlez librement du joueur. Les notes proposées sont
+            mises en évidence avec le passage dicté : touchez-les pour les accepter, choisissez-en une autre ou écartez-les ; les
+            commentaires proposés s’ajoutent d’un toucher. Rien n’est enregistré avant « Enregistrer », l’avis reste le vôtre. Seuls
+            le texte dicté et la liste des critères sont envoyés ; deux dictées comptées par avis.
+          </p>
+        )}
       </section>
     </Fold>
   )

@@ -15,7 +15,7 @@ export const MAX_BYTES = 2 * 1024 * 1024
 /** ok : prêt ; absent : fonction inexistante (prod) ; pas_admin ; sans_cle : clé Mistral non configurée ; non_connecte ; erreur : réseau. */
 export type AccessStatus = 'ok' | 'absent' | 'pas_admin' | 'sans_cle' | 'non_connecte' | 'erreur'
 /** filtres : la fonction sait aussi traduire une phrase en filtres de joueurs (POST ?mode=filtres). */
-export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number; filtres?: boolean }
+export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number; filtres?: boolean; avis?: boolean }
 
 export type Endpoint = { url: string; headers: Record<string, string>; fetch?: typeof fetch }
 
@@ -91,6 +91,8 @@ export async function requestAccess(ep: Endpoint): Promise<Access> {
       restantJour: d.restant_jour,
       // Version de la fonction qui annonce ses modes : la recherche de joueurs n'est montrée que si « filtres » y est.
       ...(Array.isArray(d.modes) && d.modes.includes('filtres') ? { filtres: true } : {}),
+      // « Avis vocal » (notes proposées sur l'écran de notation) : seulement si la fonction connaît « avis ».
+      ...(Array.isArray(d.modes) && d.modes.includes('avis') ? { avis: true } : {}),
     }
   } catch {
     return { status: 'erreur' }

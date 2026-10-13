@@ -98,3 +98,20 @@ npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 
 Puis, dans l'appli (site de démo, compte administrateur) : se déconnecter et se reconnecter, ou ouvrir un nouvel onglet
 (l'accès est gardé pour la session), ouvrir Joueurs : le micro et « ✨ » apparaissent à côté de « Rechercher… ».
+
+## 7. Avis vocal (`?mode=avis`)
+
+Sur l'écran de notation, « ✨ Avis vocal » : le coach parle librement du joueur ; l'appli dicte (POST habituel), puis
+envoie le texte à `POST ?mode=avis` (JSON) : `{ texte, criteres: [{ id, label, description?, echelle: { min, max, libelles? } }] }`
+→ `{ notes: [{ id, valeur, extrait, confiance }], pointsForts, axes, ambigus, ms, restant_mois, restant_jour }`.
+
+- Seuls le texte (2 000 caractères au plus) et les critères notés sur une échelle qui s'appliquent au poste du joueur sont
+  envoyés, sous des identifiants courts (`c1`, `c2`…) ; aucune donnée de joueur, aucun nom. La fonction recopie les
+  critères champ par champ avant de les transmettre.
+- Modèle : `mistral-small-latest` (secret facultatif `MISTRAL_MODELE_AVIS` pour en changer), température 0, réponse JSON ;
+  consignes courtes en français avec deux exemples (`CONSIGNES_AVIS` dans `index.ts`).
+- Même compte et mêmes plafonds : un appel compté par avis (deux avec la dictée). Relance sur 429 comme les autres modes.
+  Ni le texte ni la réponse ne sont journalisés.
+- L'appli revérifie tout (`src/dictation/avis.ts`, test : `npx jiti tools/test-avis-vocal.ts`) et n'affiche que des
+  propositions : le coach accepte, change ou écarte chaque note, puis enregistre comme d'habitude.
+- Le GET renvoie `modes: ['dictee', 'filtres', 'avis']` : le bouton n'apparaît qu'avec une fonction qui connaît `avis`.
