@@ -891,22 +891,13 @@ export function EventDetail() {
                               <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} hideEmpty />
                             </span>
                           )}
-                          {!bar && (n > 0 || notedByMe.has(p.id)) && (
+                          {(n > 0 || notedByMe.has(p.id)) && (
                             <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] font-bold">
                               {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
                               {notedByMe.has(p.id) && <span className="text-[9px] text-emerald-300">✓ noté par moi</span>}
                             </span>
                           )}
                         </>
-                      }
-                      aside={
-                        // Téléphone : sous le nom (la ligne garde la place du nom et des pastilles) ; ordinateur : au bout.
-                        bar && (n > 0 || notedByMe.has(p.id)) && (
-                          <span className="flex shrink-0 flex-col items-end text-right text-[10px] font-bold">
-                            {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
-                            {notedByMe.has(p.id) && <span className="block text-[9px] text-emerald-300">✓ noté par moi</span>}
-                          </span>
-                        )
                       }
                       menuExtras={can.removeFromEvent(role, ev, p.id) ? [{ label: 'Retirer de cet événement', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
                       seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
