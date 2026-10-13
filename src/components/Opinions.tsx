@@ -127,6 +127,16 @@ export function Opinions({
   }
   const role = useRole()
   const observers = [...new Set(evs.map((e) => e.observer))].sort()
+  // Courbes d'observateurs affichées sur le radar (œil des cartes) : aucune par défaut, état de l'écran remis à zéro
+  // quand on change de joueur.
+  const [shownState, setShown] = useState<{ pid: string; set: ReadonlySet<string> }>({ pid: player.id, set: new Set() })
+  const shown = shownState.pid === player.id ? shownState.set : new Set<string>()
+  const toggleShown = (o: string) => {
+    const n = new Set(shown)
+    if (n.has(o)) n.delete(o)
+    else n.add(o)
+    setShown({ pid: player.id, set: n })
+  }
 
   const rows = useMemo(() => {
     return criteria
@@ -155,6 +165,13 @@ export function Opinions({
   const numericRows = rows.filter((r) => r.nums)
   // Sur l'événement, radar d'abord… s'il y a de quoi le tracer.
   const view = locked && chosenView === 'radar' && numericRows.length < 3 ? 'table' : chosenView
+  // L'œil n'a de sens que radar affiché et au moins deux observateurs (un seul : la moyenne est son avis).
+  const radarShown = view === 'radar' && numericRows.length >= 3
+  const curveOf = (e: Evaluation) => {
+    const i = observers.indexOf(e.observer)
+    if (!radarShown || observers.length < 2 || i < 0) return undefined
+    return { color: obsColor(i), on: shown.has(e.observer), toggle: () => toggleShown(e.observer) }
+  }
 
   // Moyenne : pour chaque observateur, moyenne de ses notes de critères ; puis moyenne des observateurs.
   const overall = mean(
@@ -286,7 +303,7 @@ export function Opinions({
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
         <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-          <OpinionsRadar rows={numericRows} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked && !wide} large={wide} />
+          <OpinionsRadar rows={numericRows} observers={observers} colors={observers.map((_, i) => obsColor(i))} shown={shown} compact={locked && !wide} large={wide} />
         </Suspense>
       )}
 
@@ -317,6 +334,7 @@ export function Opinions({
               event={events.find((x) => x.id === e.eventId)}
               criteria={scoreCriteria}
               fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
+              curve={curveOf(e)}
             />
           ))}
         </div>
@@ -379,6 +397,7 @@ export function AvisCard({
   event,
   criteria,
   fold,
+  curve,
 }: {
   e: Evaluation
   where?: string
@@ -389,6 +408,8 @@ export function AvisCard({
   criteria?: Criterion[]
   /** Carte repliable (« Détail des avis ») : repliée, seulement l'auteur, la date, le nombre de critères et une ligne de commentaire. */
   fold?: { open: boolean; toggle: () => void }
+  /** Courbe de l'observateur sur le radar : pastille de sa couleur et œil pour l'afficher / la masquer. */
+  curve?: { color: string; on: boolean; toggle: () => void }
 }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
@@ -418,6 +439,7 @@ export function AvisCard({
               <br />
             </>
           )}
+          {curve && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: curve.color }} aria-hidden="true" />}
           <b className="text-fg">{e.observer}</b>
           {where && <> · {where}</>} · {fmtDate(e.date)}
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
@@ -442,6 +464,18 @@ export function AvisCard({
               }
             >
               ✕
+            </button>
+          )}
+          {curve && (
+            <button
+              className={`-my-2 flex min-h-11 min-w-11 items-center justify-center ${curve.on ? '' : 'text-muted hover:text-fg'}`}
+              style={curve.on ? { color: curve.color } : undefined}
+              aria-pressed={curve.on}
+              aria-label={curve.on ? `Masquer la courbe de ${e.observer} sur le radar` : `Afficher la courbe de ${e.observer} sur le radar`}
+              title={curve.on ? 'Masquer sa courbe' : 'Afficher sa courbe sur le radar'}
+              onClick={curve.toggle}
+            >
+              <Icon name={curve.on ? 'eye' : 'eyeOff'} className="h-4 w-4" />
             </button>
           )}
           {fold && (

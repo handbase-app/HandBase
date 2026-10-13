@@ -7,7 +7,7 @@ import { layoutRadar, polar, wrapLabel, type CategoryStyle, type RadarAxis } fro
  *  - « zones » : polygone rempli, dans chaque secteur, de la couleur de la catégorie (découpé par secteur), contour
  *    couleur du texte, points aux sommets couleur de la catégorie (moyenne des avis) ;
  *  - « fill » : polygone d'une seule couleur, translucide (un joueur dans la comparaison) ;
- *  - « line » : contour seul (un observateur).
+ *  - « line » : contour seul et petits points à ses notes, sans remplissage (un observateur affiché à la demande).
  * Légende des catégories (et des tracés donnés dans `legend`) sous le radar. Libellés coupés sur deux lignes et
  * écartés les uns des autres pour ne pas se chevaucher.
  */
@@ -211,6 +211,28 @@ export default function ZoneRadar({
                           <circle key={a.id} cx={p[0]} cy={p[1]} r={size === 'compact' ? 2.6 : 3.2} fill={sectors[a.sector].color} style={{ stroke: 'var(--color-panel)' }} strokeWidth={1}>
                             <title>
                               {a.label} : {fmt(v)}
+                            </title>
+                          </circle>
+                        )
+                      )
+                    })}
+                  </g>
+                )
+              // Contour d'un observateur : petits points à ses notes (une note isolée, sans voisine notée, reste visible).
+              if (s.mode === 'line')
+                return (
+                  <g key={s.key}>
+                    <path d={d} fill="none" stroke={s.color} strokeOpacity={s.strokeOpacity ?? 1} strokeWidth={s.strokeWidth ?? 1.2} strokeLinejoin="round">
+                      <title>{s.name}</title>
+                    </path>
+                    {layout.axes.map((a, i) => {
+                      const v = values(s)[i]
+                      const p = pt(v, a.angle)
+                      return (
+                        p && (
+                          <circle key={a.id} cx={p[0]} cy={p[1]} r={size === 'compact' ? 2 : 2.4} fill={s.color}>
+                            <title>
+                              {s.name} · {a.label} : {fmt(v)}
                             </title>
                           </circle>
                         )
