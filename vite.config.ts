@@ -41,6 +41,8 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
+        // Page d'essai autonome (public/essai-dictee/) : jamais remplacée par l'app, jamais installée d'avance.
+        navigateFallbackDenylist: [/\/essai-dictee(\/|$)/],
         // Première installation : la page ouverte passe tout de suite sous le service worker (hors ligne).
         clientsClaim: true,
         // Réception des notifications (public/push-sw.js).
@@ -48,7 +50,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // Lecteur de PDF (feuille de match, ~1,8 Mo avec son worker) : pas installé d'avance pour tout le monde,
         // gardé en cache au premier import (ensuite disponible hors ligne).
-        globIgnores: ['**/assets/pdf-*.js', '**/assets/pdf.worker*'],
+        globIgnores: ['**/assets/pdf-*.js', '**/assets/pdf.worker*', '**/essai-dictee/**'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => /\/assets\/pdf(\.worker\.min)?-[\w-]+\.m?js$/.test(url.pathname),

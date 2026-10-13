@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Essai de dictée</title>
+<style>
+:root {
+  --bg: #f6f6f8; --card: #ffffff; --text: #1d1d24; --muted: #5d5d6c; --line: #d9d9e2;
+  --accent: #2858c9; --accent-text: #ffffff; --rec: #c62a2a; --ok: #1f7a3c; --warn: #9a6200; --bad: #b42323;
+  --soft: #eef1fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171d; --card: #22222b; --text: #ececf2; --muted: #a3a3b4; --line: #3a3a48;
+    --accent: #7ea2ff; --accent-text: #10131c; --rec: #ff6b6b; --ok: #5fd08a; --warn: #f0b85a; --bad: #ff7b7b;
+    --soft: #2a2f40;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 16px 16px 48px; }
+h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+h2 { font-size: 1.15rem; margin: 0 0 10px; }
+p { margin: 6px 0; }
+.muted { color: var(--muted); font-size: .92rem; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 14px 0; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: .95rem; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.verdict { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--soft); font-weight: 600; }
+.v-ok { color: var(--ok); } .v-warn { color: var(--warn); } .v-bad { color: var(--bad); }
+label.field { display: block; margin: 10px 0 4px; font-weight: 600; }
+select, button, input[type=file] { font: inherit; color: inherit; }
+select { width: 100%; min-height: 48px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg label { flex: 1 1 0; min-width: 110px; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; text-align: center; }
+.seg input { accent-color: var(--accent); width: 20px; height: 20px; }
+.seg label:has(input:checked) { border-color: var(--accent); background: var(--soft); font-weight: 600; }
+.seg label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+button { min-height: 48px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+#talk { display: block; width: 100%; min-height: 120px; margin: 14px 0 8px; font-size: 1.3rem; font-weight: 700; border-radius: 16px;
+  background: var(--accent); color: var(--accent-text); border: none; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#talk.rec { background: var(--rec); color: #fff; }
+#talk.busy { opacity: .7; }
+.phrase { font-size: 1.15rem; padding: 12px; border-radius: 8px; background: var(--soft); margin-top: 8px; }
+.progress { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; margin-top: 6px; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+#status { min-height: 1.5em; font-weight: 600; margin-top: 8px; }
+#status.err { color: var(--bad); }
+.note { border-left: 4px solid var(--warn); padding: 6px 10px; background: var(--soft); border-radius: 4px; font-size: .92rem; margin-top: 8px; }
+.result { border-top: 1px solid var(--line); padding: 10px 0; }
+.result:first-child { border-top: none; }
+.result .text { font-size: 1.08rem; margin: 4px 0; }
+.result .meta { font-size: .88rem; color: var(--muted); }
+.versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin: 6px 0; }
+.ver { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+.ver .vh { font-size: .82rem; font-weight: 600; color: var(--muted); }
+.ver .text { white-space: pre-line; }
+.ver button { margin-top: 6px; width: 100%; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--soft); font-size: .85rem; margin-right: 4px; }
+.apt { font-size: 1.1rem; font-weight: 700; }
+table { border-collapse: collapse; font-size: .9rem; }
+td, th { padding: 2px 8px 2px 0; text-align: left; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Essai de dictée</h1>
+  <p class="muted">Page d'essai, hors de l'application. Elle sert à mesurer si la reconnaissance vocale en français (Whisper, exécuté dans le navigateur) est assez rapide et juste sur votre appareil, avant d'ajouter éventuellement des mémos vocaux aux évaluations.</p>
+  <p class="note">Confidentialité : le son reste en mémoire sur cet appareil et disparaît en fermant la page. Rien n'est envoyé ni enregistré, à part le modèle téléchargé, gardé dans le cache du navigateur. Exception : le moteur « Dictée du navigateur » envoie le son au service de reconnaissance du navigateur (Google pour Chrome). Le nettoyage et la reformulation (IA intégrée de Chrome, quand elle existe) se font aussi sur l'appareil.</p>
+
+  <section id="device">
+    <h2>Votre appareil</h2>
+    <dl id="devlist"></dl>
+    <div id="devverdict" class="verdict">Analyse…</div>
+    <details class="muted" style="margin-top:8px">
+      <summary>Comment ce verdict est calculé</summary>
+      <p>Indication rapide, avant tout essai. « Probablement apte » : WebGPU disponible, ou au moins 8 cœurs et 6 Go de mémoire (ou mémoire inconnue). « Trop faible » : 2 Go de mémoire ou moins, ou 2 cœurs ou moins. Sinon « Limite ». Le navigateur arrondit la mémoire annoncée (8 Go au plus) et Firefox ne la donne pas. Seul le test d'aptitude plus bas fait foi.</p>
+      <p>Les pages GitHub ne peuvent pas activer l'isolation multi-origine (« crossOriginIsolated ») : en WASM, Whisper n'utilise alors qu'un seul cœur.</p>
+    </details>
+  </section>
+
+  <section id="setup">
+    <h2>Réglages</h2>
+    <label class="field">Moteur</label>
+    <div class="seg" id="engineSeg">
+      <label><input type="radio" name="engine" value="whisper" checked> Whisper sur l'appareil</label>
+      <label id="wsLabel"><input type="radio" name="engine" value="webspeech"> Dictée du navigateur</label>
+    </div>
+    <p id="wsNote" class="note hidden">La dictée du navigateur passe par le service de reconnaissance du navigateur (Google pour Chrome) : le son quitte l'appareil. Elle sert seulement de point de comparaison.</p>
+
+    <div id="whisperOpts">
+      <label class="field" for="model">Modèle</label>
+      <select id="model"></select>
+      <label class="field" for="variant">Variante</label>
+      <select id="variant"></select>
+      <p class="muted" id="sizeNote"></p>
+      <label class="field">Calcul</label>
+      <div class="seg">
+        <label><input type="radio" name="device" value="auto" checked> Auto</label>
+        <label><input type="radio" name="device" value="webgpu"> WebGPU</label>
+        <label><input type="radio" name="device" value="wasm"> WASM</label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="loadBtn" class="primary">Charger le modèle</button>
+        <button id="clearCacheBtn">Supprimer les modèles téléchargés</button>
+      </div>
+      <div id="loadInfo" class="muted" style="margin-top:6px"></div>
+      <div class="progress hidden" id="prog"><div></div></div>
+    </div>
+  </section>
+
+  <section id="speak">
+    <h2>Dicter</h2>
+    <label class="field" for="phrase">Phrase n°</label>
+    <select id="phrase"></select>
+    <div class="phrase" id="phraseText"></div>
+
+    <label class="field">Ambiance</label>
+    <div class="seg">
+      <label><input type="radio" name="amb" value="calme" checked> Calme</label>
+      <label><input type="radio" name="amb" value="bruit de match"> Bruit de match</label>
+    </div>
+
+    <label class="field">Bouton</label>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="hold" checked> Maintenir</label>
+      <label><input type="radio" name="mode" value="toggle"> Toucher pour démarrer / arrêter</label>
+    </div>
+
+    <button id="talk" type="button">Maintenir pour parler</button>
+    <div id="status" aria-live="polite"></div>
+    <div class="row" style="margin-top:8px">
+      <button id="againBtn" disabled>Transcrire à nouveau le dernier son</button>
+      <label class="muted" style="display:flex;align-items:center;gap:8px">Ou un fichier audio : <input type="file" id="fileIn" accept="audio/*"></label>
+    </div>
+  </section>
+
+  <section id="aptitude">
+    <h2>Test d'aptitude</h2>
+    <p class="muted">Transcrit 3 fois votre dernier enregistrement avec le modèle chargé et retient le facteur temps réel médian (temps de transcription divisé par la durée du son ; 1 = aussi long que le son). Verdict : « Apte » sous 1,5, « Limite » sous 3, sinon « Trop lent ». C'est la règle qui servirait plus tard dans l'application pour proposer ou non la dictée sur un appareil. Faites-le avec une phrase d'au moins 5 secondes.</p>
+    <button id="aptBtn" class="primary" disabled>Lancer le test d'aptitude</button>
+    <div id="aptOut" style="margin-top:8px"></div>
+  </section>
+
+  <section id="results">
+    <h2>Résultats</h2>
+    <div class="row">
+      <button id="copyBtn" class="primary">Copier les résultats</button>
+      <button id="clearBtn">Tout effacer</button>
+    </div>
+    <p class="muted" id="copyMsg"></p>
+    <div id="resList"><p class="muted">Aucun résultat pour l'instant.</p></div>
+    <p class="muted">Chaque texte est montré en trois versions : brut (tel que reconnu) ; nettoyé (hésitations comme « euh », « du coup » ou « en fait » en début ou fin de phrase et mots répétés retirés, ponctuation et majuscules corrigées, sans retirer d'autres mots) ; reformulé en note « Points forts / À revoir » par l'IA intégrée de Chrome, seulement si ce navigateur la propose (bouton « Reformuler »).</p>
+    <p class="muted">Facteur temps réel (FTR) : temps de transcription divisé par la durée du son. Taux d'erreur (TEM) : mots manquants, en trop ou différents par rapport à la phrase, sans tenir compte des majuscules, des accents ni de la ponctuation.</p>
+  </section>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
