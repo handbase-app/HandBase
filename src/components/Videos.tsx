@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 import { db, newId, remove, save, type Player, type Video, type VideoMoment } from '../db'
 import type { MatchSheet, StoredAction } from '../matchSheet'
@@ -30,6 +30,9 @@ import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, use
  * (Rematch, YouTube, Handball TV, Facebook…) pour regarder quelques minutes avant d'aller voir un joueur.
  * Tout le monde en ajoute ; son auteur modifie le sien ; auteur, administrateur ou encadrant (secteur) supprime.
  */
+
+/** Frise du match sous la vidéo d'une fiche joueur, en mode édition (module chargé à la demande). */
+const MatchTimeline = lazy(() => import('./MatchTimeline'))
 
 type SheetMod = typeof import('../matchSheet')
 
@@ -161,7 +164,8 @@ export function VideoSection({
   const playing = useDockOpen(owner)
   const sheets = useSheetLinks(kind, targetId, videos, !!sheet)
   // Mode édition du séquençage : gardé par le lecteur (VideoDock), il survit à une rotation ; jamais pour qui ne peut caler.
-  const editing = useDockEditing() && !!sheet?.canEdit
+  const dockEditing = useDockEditing()
+  const editing = dockEditing && !!sheet?.canEdit
   const sheetWho = useSheetWho(sheet?.ms)
   // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
   const open = playing && videos ? (videos.find((x) => x.id === playing.v.id) ?? playing.v) : undefined
@@ -177,6 +181,10 @@ export function VideoSection({
     }
   }
   const openSheet = open ? sheetOf(open) : undefined
+  // Fiche joueur : séquençage de ses actions possible aussi, en mode édition (même règle de droits, joueur compris :
+  // prévu pour un futur espace joueur qui calera lui-même ses actions).
+  const playerCanEdit = !!openSheet && can.calibrateMatch(role, { eventId: openSheet.eventId, playerId: targetId })
+  const playerEditing = dockEditing && playerCanEdit
   // Vidéo d'événement en lecture : ses moments et les actions de la feuille placées sur elle, dans l'ordre du temps.
   const read = (() => {
     if (!open || !sheet || editing || !sheets.mod || !sheetWho) return undefined
@@ -205,14 +213,23 @@ export function VideoSection({
           onClose: closeVideo,
           tools: (!sheet || editing) && tools ? (api) => tools(open, api) : undefined,
           badge: read?.badge ?? badgeOf(open),
-          // Fiche joueur : vidéo comme les autres (ses moments seulement), pas de frise du match ; le séquençage se fait
-          // depuis la vidéo de l'événement, en mode édition.
+          // Fiche joueur : vidéo comme les autres (ses moments) ; la frise du match (calage de ses actions) en mode édition.
           bar: openSheet
-            ? undefined
+            ? playerEditing
+              ? (api) => (
+                  <Suspense fallback={null}>
+                    <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
+                  </Suspense>
+                )
+              : undefined
             : (!sheet || editing) && bar
               ? (api) => bar(open, api)
               : undefined,
-          edit: sheet?.canEdit ? { on: editing, set: setDockEditing } : undefined,
+          edit: sheet?.canEdit
+            ? { on: editing, set: setDockEditing }
+            : playerCanEdit
+              ? { on: playerEditing, set: setDockEditing }
+              : undefined,
         }
       : undefined,
   )
