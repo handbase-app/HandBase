@@ -354,12 +354,50 @@ function readSession() {
   } catch { /* stockage indisponible */ }
   return null
 }
+// Connexion de la page (supabase-js, même clé de stockage que l'application) : elle renouvelle la session comme
+// un 2e onglet HandBase (verrou partagé entre onglets), sans déconnecter l'application. Adresse et clé publique
+// posées par l'application (handbase.supabase) ; à défaut, lecture seule de la session comme avant.
+let sbClient = null
+let sbUrl = ''
+async function client() {
+  if (sbClient) return sbClient
+  let cfg = null
+  try { cfg = JSON.parse(localStorage.getItem('handbase.supabase') || 'null') } catch { /* stockage indisponible */ }
+  if (!cfg?.url || !cfg?.key) return null
+  try {
+    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.109.0/+esm')
+    sbClient = createClient(cfg.url, cfg.key)
+    sbUrl = String(cfg.url).replace(/\/$/, '')
+  } catch { sbClient = null }
+  return sbClient
+}
+/** Jeton d'accès à jour (renouvelé si besoin), ou null. */
+async function freshToken() {
+  const c = await client()
+  if (!c) return null
+  try {
+    const { data } = await c.auth.getSession()
+    const s = data?.session
+    if (!s?.access_token) return null
+    if (sbUrl) vx.url = sbUrl + '/functions/v1/transcrire'
+    return s.access_token
+  } catch { return null }
+}
 async function detectVoxtral() {
-  const sess = readSession()
-  if (!sess) return setVx('non_connecte')
-  if (sess.expiresAt && sess.expiresAt * 1000 < Date.now() + 60000) return setVx('expire')
-  vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
-  vx.token = sess.token
+  const fresh = await freshToken()
+  if (fresh) {
+    vx.token = fresh
+    if (!vx.url) {
+      const sess = readSession()
+      if (sess) vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
+    }
+  } else {
+    const sess = readSession()
+    if (!sess) return setVx('non_connecte')
+    if (sess.expiresAt && sess.expiresAt * 1000 < Date.now() + 60000) return setVx('expire')
+    vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
+    vx.token = sess.token
+  }
   try {
     const res = await fetch(vx.url, { headers: { Authorization: 'Bearer ' + vx.token } })
     if (res.status === 404) return setVx('absent')
@@ -404,6 +442,8 @@ async function runVoxtral(blob, audioS) {
   if (vx.state !== 'ok') throw new Error(VX_TEXTE[vx.state] || 'Voxtral indisponible.')
   if (audioS > 60) throw new Error(VX_ERREURS.trop_long)
   if (blob.size > 2 * 1024 * 1024) throw new Error(VX_ERREURS.trop_gros)
+  const tok = await freshToken()
+  if (tok) vx.token = tok
   const form = new FormData()
   form.append('file', blob, blob.name || blobName(blob))
   form.append('duree', String(Math.ceil(audioS * 10) / 10))

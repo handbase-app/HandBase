@@ -20,6 +20,15 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null
+// Adresse et clé publique du serveur, pour la page d'essai de dictée (public/essai-dictee/) servie sur le même site :
+// elle ouvre sa propre connexion (même session, renouvelée comme dans un 2e onglet). Rien de secret.
+if (url && key) {
+  try {
+    localStorage.setItem('handbase.supabase', JSON.stringify({ url, key }))
+  } catch {
+    /* stockage indisponible */
+  }
+}
 export const syncEnabled = !!supabase
 
 export type SyncState = 'local' | 'login' | 'offline' | 'syncing' | 'synced' | 'error'
