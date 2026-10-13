@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
@@ -13,6 +13,8 @@ import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, useRole } from '../roles'
 import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
+import { VoiceSearch } from '../components/VoiceSearch'
+import { eventsVoicePage, type EventsVoice } from '../voicePages'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
@@ -67,6 +69,17 @@ export default function Events() {
   const [year, setYear] = useSessionState('handbase.evenements.year', '')
   const [mine, setMine] = useSessionState('handbase.evenements.mine', false)
   const [open, setOpen] = useSessionState('handbase.evenements.open', false)
+  // Recherche vocale (« micro ✨ ») : type, année, « mes événements », nom ou lieu (retrouvé ici parmi les événements, jamais
+  // envoyé) ; schéma : src/voicePages.ts. Bouton seulement si la fonction déployée annonce « filtres_evenements ».
+  const voicePage = useMemo(
+    () =>
+      eventsVoicePage({
+        types: EVENT_TYPES,
+        names: (events ?? []).flatMap((e) => [e.name, e.place ?? '']),
+        years: [...new Set((events ?? []).map((e) => e.date.slice(0, 4)))],
+      }),
+    [events],
+  )
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
@@ -136,15 +149,20 @@ export default function Events() {
       )}
       {events.length > 0 && (
         <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, lieu ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />
-            <button
-              onClick={() => setOpen(!open)}
-              className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-            >
-              Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-            </button>
-          </div>
+          <VoiceSearch<EventsVoice>
+            values={{ q, type, year, mine }}
+            apply={(v) => (setQ(v.q), setType(v.type), setYear(v.year), setMine(v.mine))}
+            page={voicePage}
+            input={<input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, lieu ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />}
+            after={
+              <button
+                onClick={() => setOpen(!open)}
+                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+              >
+                Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+              </button>
+            }
+          />
           {open && (
             <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
               <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">

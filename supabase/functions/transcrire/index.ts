@@ -5,7 +5,9 @@
 // - GET : vérifie l'accès et renvoie { admin, modele, restant_mois, restant_jour, max_secondes, max_octets }.
 // - POST (multipart) : file (son webm / ogg / wav / mp4, 2 Mo au plus), duree (secondes, 60 au plus),
 //   context_bias (facultatif, répété : mots du hand, 100 au plus) → { text, model, ms, biais, restant_mois, restant_jour }.
-// - POST ?mode=filtres (JSON) : { phrase, schema, actuels } → { action, filtres, retirer, nonGere, ms, restant_mois, restant_jour } :
+// - POST ?mode=filtres (JSON) : { phrase, schema, actuels, page? } → { action, filtres, retirer, nonGere, ms, restant_mois, restant_jour } :
+//   page (facultatif) : « bilan », « evenements » ou « groupes » → consignes et exemples de cette page (CONSIGNES_PAGES) ;
+//   absente ou inconnue : liste Joueurs (CONSIGNES), comme avant ;
 //   action = remplacer, ajouter, retirer ou effacer, d'après les filtres actifs (actuels) ; recherche de
 //   joueurs en langage naturel (« nés en 2010, plus d'1 m 80 »). Un petit modèle de Mistral (mistral-small-latest,
 //   température 0, réponse JSON) traduit la phrase en filtres de la liste Joueurs, d'après le schéma construit par
@@ -107,8 +109,9 @@ Deno.serve(async (req) => {
       restant_jour: Math.max(maxJour - n(p.jour, userId), 0),
       max_secondes: MAX_SECONDES,
       max_octets: MAX_OCTETS,
-      // Modes de POST connus de cette version (l'appli n'affiche la recherche vocale que si « filtres » y est).
-      modes: ['dictee', 'filtres', 'avis'],
+      // Modes de POST connus de cette version (l'appli n'affiche la recherche vocale que si « filtres » y est ; celle des
+      // Événements et des Groupes, que si leur mode y est : consignes propres à ces pages, champ « page »).
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes'],
     })
   }
 
@@ -222,6 +225,79 @@ Actuels {"annee":2010} ; « ajoute Martin » → {"action":"ajouter","filtres":{
 Actuels {"annee":2010,"recherche":"(nom)"} ; « enlève le nom » → {"action":"retirer","filtres":{},"retirer":["recherche"],"nonGere":[]}
 Actuels {} ; « les filles de 2011 de moins de 1 m 70 en U15 » → {"action":"remplacer","filtres":{"sexe":"F","annee":2011},"retirer":[],"nonGere":["moins de 1 m 70","U15"]}`
 
+// Consignes des autres pages (champ « page » de la requête ; absent : liste Joueurs, CONSIGNES ci-dessus). Même forme de
+// réponse, mêmes actions ; exemples propres à chaque page, relus eux aussi par tools/test-recherche-vocale.ts.
+const ACTIONS_COMMUNES = `ACTION (une seule)
+- "remplacer" : nouvelle recherche complète, sans lien avec les filtres actuels. Ex. « montre-moi les… », « cherche les… », « tous les… ».
+- "ajouter" : garde les filtres actuels et ajoute ou change des critères. Ex. « ajoute… », « en plus », « aussi », « et… », « seulement ceux qui… », « parmi eux ».
+- "retirer" : enlève des critères ; mets leurs clés dans "retirer". Ex. « enlève… », « sans condition de… », « peu importe… ».
+- "effacer" : enlève tous les filtres. Ex. « efface tout », « réinitialise », « remets à zéro », « montre tout ».
+- En cas de doute, s'il y a des filtres actuels : "ajouter" si la phrase donne un seul critère avec un mot de liaison (et, aussi, que, qui, seulement), sinon "remplacer".`
+
+const CONSIGNES_PAGES: Record<string, string> = {
+  bilan: `Tu transformes la phrase d'un entraîneur de handball en filtres pour son bilan de détection (joueurs vus par génération, par lieu et par club, avec une carte de France).
+Réponds seulement par ce JSON : {"action":"…","filtres":{…},"retirer":[…],"nonGere":[…]}
+
+${ACTIONS_COMMUNES}
+
+FILTRES
+- Seulement les clés du schéma ; ne jamais inventer de valeur ; n'ajouter aucun critère non demandé.
+- « nés en 2010 », « la génération 2010 », « les 2010 » → annee 2010. « garçons » → sexe M ; « filles », « joueuses » → F.
+- « cette saison », « la saison » → periode saison ; « depuis toujours », « depuis le début », « sur toutes les saisons » → periode toujours.
+- Département, région, club : recopie le nom ou le numéro dit (« Var », « 83 », « PACA », « Toulon »).
+- « montre la carte » → vue carte ; « par génération », « les générations » → vue generations.
+- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots.
+
+EXEMPLES
+Actuels {} ; « les filles de 2011 dans le Var » → {"action":"remplacer","filtres":{"sexe":"F","annee":2011,"departement":"Var"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010} ; « depuis toujours » → {"action":"ajouter","filtres":{"periode":"toujours"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"departement":"83"} ; « et le club de Toulon » → {"action":"ajouter","filtres":{"club":"Toulon"},"retirer":[],"nonGere":[]}
+Actuels {"region":"Région Sud","annee":2011} ; « peu importe l'année » → {"action":"retirer","filtres":{},"retirer":["annee"],"nonGere":[]}
+Actuels {"sexe":"M","departement":"83"} ; « montre la Bretagne par génération » → {"action":"remplacer","filtres":{"region":"Bretagne","vue":"generations"},"retirer":[],"nonGere":[]}
+Actuels {"annee":2010,"departement":"83"} ; « efface tout » → {"action":"effacer","filtres":{},"retirer":[],"nonGere":[]}`,
+
+  evenements: `Tu transformes la phrase d'un entraîneur de handball en filtres pour sa liste d'événements (matchs, tournois, entraînements, observations).
+Réponds seulement par ce JSON : {"action":"…","filtres":{…},"retirer":[…],"nonGere":[…]}
+
+${ACTIONS_COMMUNES}
+
+FILTRES
+- Seulement les clés du schéma ; ne jamais inventer de valeur ; n'ajouter aucun critère non demandé.
+- Type : « les matchs » → match ; « les tournois » → tournoi ; « les entraînements », « les stages » → entrainement ; « les observations », « les détections » → observation.
+- « en 2025 », « de 2025 » → annee 2025. « mes événements », « ceux que j'ai créés » → mesEvenements true.
+- Nom ou lieu d'un événement (« le tournoi de Cannes », « à Toulon », « Intercomités ») → recherche, recopié tel que dit, sans le type s'il est déjà dans "type".
+- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots (« la semaine prochaine », « avec plus de 20 joueurs »).
+
+EXEMPLES
+Actuels {} ; « les tournois de 2025 » → {"action":"remplacer","filtres":{"type":"tournoi","annee":2025},"retirer":[],"nonGere":[]}
+Actuels {"type":"tournoi"} ; « seulement ceux que j'ai créés » → {"action":"ajouter","filtres":{"mesEvenements":true},"retirer":[],"nonGere":[]}
+Actuels {} ; « le match à Toulon » → {"action":"remplacer","filtres":{"type":"match","recherche":"Toulon"},"retirer":[],"nonGere":[]}
+Actuels {"type":"match","annee":2025} ; « peu importe l'année » → {"action":"retirer","filtres":{},"retirer":["annee"],"nonGere":[]}
+Actuels {"type":"match","recherche":"(nom)"} ; « enlève le nom » → {"action":"retirer","filtres":{},"retirer":["recherche"],"nonGere":[]}
+Actuels {"annee":2025} ; « réinitialise » → {"action":"effacer","filtres":{},"retirer":[],"nonGere":[]}`,
+
+  groupes: `Tu transformes la phrase d'un entraîneur de handball en filtres pour sa liste de groupes de joueurs (Intercomités, Pôle, sélections…).
+Réponds seulement par ce JSON : {"action":"…","filtres":{…},"retirer":[…],"nonGere":[…]}
+
+${ACTIONS_COMMUNES}
+
+FILTRES
+- Seulement les clés du schéma ; ne jamais inventer de valeur ; n'ajouter aucun critère non demandé.
+- Portée : « fédéraux », « de la Fédération » → federation ; « de ligue », « régionaux » → ligue ; « de comité », « départementaux » → comite.
+- « garçons » → sexe M ; « filles » → F ; « mixtes » → mixte. « 2011 », « nés en 2011 » → annee 2011.
+- Ligue (région) et comité (département) : recopie le nom ou le numéro dit (« Var », « 83 », « PACA »).
+- Nom d'un groupe (« Intercomités », « Pôle Espoirs », « sélection U15 ») → recherche, recopié tel que dit.
+- Ce qui ne rentre dans aucune clé va dans "nonGere" en quelques mots.
+
+EXEMPLES
+Actuels {} ; « les groupes de filles du Var » → {"action":"remplacer","filtres":{"sexe":"F","departement":"Var"},"retirer":[],"nonGere":[]}
+Actuels {"sexe":"F"} ; « et ceux de 2011 » → {"action":"ajouter","filtres":{"annee":2011},"retirer":[],"nonGere":[]}
+Actuels {} ; « les Intercomités » → {"action":"remplacer","filtres":{"recherche":"Intercomités"},"retirer":[],"nonGere":[]}
+Actuels {} ; « les groupes de ligue en PACA » → {"action":"remplacer","filtres":{"portee":"ligue","region":"PACA"},"retirer":[],"nonGere":[]}
+Actuels {"sexe":"M","annee":2011} ; « peu importe le sexe » → {"action":"retirer","filtres":{},"retirer":["sexe"],"nonGere":[]}
+Actuels {"departement":"83","annee":2011} ; « efface les filtres » → {"action":"effacer","filtres":{},"retirer":[],"nonGere":[]}`,
+}
+
 // deno-lint-ignore no-explicit-any
 type Db = any
 
@@ -236,7 +312,7 @@ async function rechercheFiltres(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown; actuels?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; actuels?: unknown; page?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -256,6 +332,8 @@ async function rechercheFiltres(
   // Filtres actifs (clés du schéma) : pour « ajoute… », « enlève… ».
   const actuels = entree.actuels && typeof entree.actuels === 'object' && !Array.isArray(entree.actuels) ? JSON.stringify(entree.actuels) : '{}'
   if (actuels.length > MAX_ACTUELS) return json({ error: 'schema_invalide' }, 400)
+  // Page d'où vient la phrase (bilan, événements, groupes) : ses consignes ; absente ou inconnue : liste Joueurs.
+  const consignes = (typeof entree.page === 'string' && Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES
 
   // Plafonds : un appel compté par phrase, comme une dictée.
   const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
@@ -273,7 +351,7 @@ async function rechercheFiltres(
       max_tokens: 400,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
+        { role: 'system', content: `${consignes}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
         { role: 'user', content: `Actuels ${actuels} ; « ${phrase} »` },
       ],
     }),

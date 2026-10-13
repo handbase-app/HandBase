@@ -13,7 +13,8 @@ import { can, useRole } from '../roles'
  * Vue nationale (administrateurs) : carte des départements colorée selon un indicateur, chiffres clés et
  * classement. Tout est calculé sur l'appareil, en une passe sur les joueurs et les mesures ; rien n'est écrit.
  * Mêmes filtres que la liste Joueurs (usePlayerFilter, portée « national »), sauf la région et le département,
- * absents du panneau : c'est la carte qui les choisit (une région, puis un de ses départements).
+ * absents du panneau : c'est la carte qui les choisit (une région, puis un de ses départements). Recherche vocale « micro ✨ »
+ * comme sur Joueurs : elle peut aussi choisir la région de la carte (« montre la Bretagne »), pas le département.
  * Carte : src/components/FranceMap.tsx (partagée avec le bilan de détection).
  */
 
@@ -105,8 +106,8 @@ function breaks(values: number[]) {
 }
 const classOf = (v: number, b: number[]) => b.filter((x) => v > x).length
 
-/** Filtres partagés avec la liste Joueurs, sauf la région et le département : c'est la carte qui les choisit. */
-const HIDE = { hide: ['dept' as const, 'region' as const] }
+/** Filtres partagés avec la liste Joueurs, sauf la région et le département : c'est la carte qui les choisit ; recherche vocale. */
+const HIDE = { hide: ['dept' as const, 'region' as const], voice: true }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')
 const pct = (n: number) => `${n.toLocaleString('fr-FR', { maximumFractionDigits: n < 10 ? 1 : 0 })} %`

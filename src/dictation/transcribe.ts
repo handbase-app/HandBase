@@ -14,8 +14,11 @@ export const MAX_BYTES = 2 * 1024 * 1024
 
 /** ok : prêt ; absent : fonction inexistante (prod) ; pas_admin ; sans_cle : clé Mistral non configurée ; non_connecte ; erreur : réseau. */
 export type AccessStatus = 'ok' | 'absent' | 'pas_admin' | 'sans_cle' | 'non_connecte' | 'erreur'
-/** filtres : la fonction sait aussi traduire une phrase en filtres de joueurs (POST ?mode=filtres). */
-export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number; filtres?: boolean; avis?: boolean }
+/**
+ * filtres : la fonction sait aussi traduire une phrase en filtres de joueurs (POST ?mode=filtres) ; modes : modes annoncés
+ * par la fonction déployée (« filtres_evenements », « filtres_groupes »… : recherche vocale de ces pages).
+ */
+export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number; filtres?: boolean; avis?: boolean; modes?: string[] }
 
 export type Endpoint = { url: string; headers: Record<string, string>; fetch?: typeof fetch }
 
@@ -93,6 +96,8 @@ export async function requestAccess(ep: Endpoint): Promise<Access> {
       ...(Array.isArray(d.modes) && d.modes.includes('filtres') ? { filtres: true } : {}),
       // « Avis vocal » (notes proposées sur l'écran de notation) : seulement si la fonction connaît « avis ».
       ...(Array.isArray(d.modes) && d.modes.includes('avis') ? { avis: true } : {}),
+      // Tous les modes annoncés (recherche vocale des autres pages : bouton seulement si leur mode y est).
+      ...(Array.isArray(d.modes) ? { modes: d.modes.filter((m): m is string => typeof m === 'string').slice(0, 30) } : {}),
     }
   } catch {
     return { status: 'erreur' }
@@ -147,8 +152,10 @@ export const MAX_PHRASE = 300
 export type FilterAnswer = { action?: string; filtres: unknown; retirer: unknown[]; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
 
 /**
- * Recherche de joueurs en langage naturel (POST ?mode=filtres, JSON) : envoie seulement la phrase, le schéma des filtres et les filtres actifs
- * (src/voiceSearch.ts), jamais de données de joueurs. Renvoie la réponse brute du modèle : l'appli revérifie chaque valeur.
+ * Recherche en langage naturel (POST ?mode=filtres, JSON) : envoie seulement la phrase, le schéma des filtres et les filtres actifs
+ * (src/voiceSearch.ts, src/voicePages.ts), jamais de données de joueurs. Renvoie la réponse brute du modèle : l'appli revérifie
+ * chaque valeur. page : page d'où vient la phrase, hors liste Joueurs (« bilan », « evenements », « groupes ») ; la fonction
+ * y prend les consignes et les exemples de cette page (une version qui ne la connaît pas l'ignore).
  */
 export async function understandFilters(
   ep: Endpoint,
@@ -156,6 +163,7 @@ export async function understandFilters(
   schema: unknown,
   actuels: Record<string, unknown> = {},
   signal?: AbortSignal,
+  page?: string,
 ): Promise<FilterAnswer> {
   const text = phrase.replace(/\s+/g, ' ').trim()
   if (!text) throw new DictationError('phrase_absente')
@@ -166,7 +174,7 @@ export async function understandFilters(
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=filtres', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: text, schema, actuels }),
+      body: JSON.stringify({ phrase: text, schema, actuels, ...(page && page !== 'joueurs' ? { page } : {}) }),
       signal,
     })
   } catch (e) {

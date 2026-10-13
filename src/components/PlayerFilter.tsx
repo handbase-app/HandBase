@@ -10,7 +10,7 @@ import { CourtFilter } from './CourtPicker'
 import { MQ, useMedia } from '../layout'
 import { alive, db, poleStatus, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
 import { VoiceSearch } from './VoiceSearch'
-import type { FilterValues, PoleValue, SearchContext } from '../voiceSearch'
+import { playerVoicePage, type FilterValues, type PoleValue, type SearchContext } from '../voiceSearch'
 import { nameTokens, playerHaystack, searchByName } from '../nameMatch'
 
 // Textes de recherche de chaque joueur, calculés à la première recherche et gardés tant que la fiche ne change pas.
@@ -260,11 +260,12 @@ export function usePlayerFilter(
     setWithSecondary(false)
   }
 
-  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »).
+  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »). Région masquée (vue nationale) :
+  // c'est celle de la carte, que la voix peut aussi choisir (« montre la Bretagne ») ; un département masqué n'est jamais appliqué.
   const values: FilterValues = {
     q,
     sex,
-    region: hideRegion ? '' : region,
+    region,
     dept,
     club,
     year,
@@ -282,7 +283,7 @@ export function usePlayerFilter(
   const setValues = (v: FilterValues) => {
     setQ(v.q)
     setSex(v.sex)
-    if (!hideRegion) setRegion(v.region)
+    setRegion(v.region)
     if (!hideDept) setDept(v.dept)
     setClub(v.club)
     setYear(v.year)
@@ -314,8 +315,10 @@ export function usePlayerFilter(
       profiles: (profiles ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
       regionOfDept,
       thisYear: new Date().getFullYear(),
+      ...(hideDept ? { exclude: [{ key: 'departement', why: 'choisissez-le sur la carte' }] } : {}),
     }
-  }, [opts.voice, regionList, deptList, players, groups, profiles])
+  }, [opts.voice, regionList, deptList, players, groups, profiles, hideDept])
+  const voicePage = useMemo(() => (voiceCtx ? playerVoicePage(voiceCtx) : null), [voiceCtx])
 
   // Filtres repliés par défaut : la recherche et les postes restent visibles, les filtres actifs
   // s'affichent en pastilles qu'on retire d'un appui.
@@ -513,8 +516,8 @@ export function usePlayerFilter(
   )
   const searchRow = (after?: React.ReactNode) => (
     <>
-      {voiceCtx ? (
-        <VoiceSearch values={values} apply={setValues} ctx={voiceCtx} input={search} after={after} />
+      {voicePage ? (
+        <VoiceSearch values={values} apply={setValues} page={voicePage} input={search} after={after} />
       ) : (
         <div className="flex gap-2">
           {search}

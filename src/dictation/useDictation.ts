@@ -111,12 +111,12 @@ export async function sendDictation(blob: Blob, seconds: number, signal?: AbortS
   }
 }
 
-/** Recherche de joueurs en langage naturel : la phrase, le schéma et les filtres actifs seulement (src/voiceSearch.ts). */
-export async function sendFilterRequest(phrase: string, schema: unknown, actuels: Record<string, unknown>, signal?: AbortSignal): Promise<FilterAnswer> {
+/** Recherche en langage naturel : la phrase, le schéma et les filtres actifs seulement (src/voiceSearch.ts, src/voicePages.ts). */
+export async function sendFilterRequest(phrase: string, schema: unknown, actuels: Record<string, unknown>, signal?: AbortSignal, page?: string): Promise<FilterAnswer> {
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandFilters(ep, phrase, schema, actuels, signal)
+    const r = await understandFilters(ep, phrase, schema, actuels, signal, page)
     if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
     return r
   } catch (e) {
@@ -134,6 +134,7 @@ export async function sendFilterRequest(phrase: string, schema: unknown, actuels
  *  - available : en plus, le serveur a dit oui (le réglage de l'appareil s'affiche alors) ;
  *  - ready : en plus, le réglage est activé (le bouton micro s'affiche) ;
  *  - searchReady : en plus, la fonction sait traduire une phrase en filtres (recherche vocale de la liste Joueurs) ;
+ *  - searchModes : modes annoncés par la fonction (recherche vocale des Événements, des Groupes : « filtres_evenements »…) ;
  *  - avisReady : en plus, la fonction sait proposer des notes d'après un avis dicté (écran de notation, src/dictation/avis.ts).
  */
 export function useDictation() {
@@ -152,7 +153,7 @@ export function useDictation() {
   }, [allowed])
   const available = allowed && access?.value.status === 'ok'
   const ready = available && enabled
-  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, avisReady: ready && !!access?.value.avis, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
+  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, searchModes: (allowed && access?.value.modes) || [], avisReady: ready && !!access?.value.avis, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
 }
 
 /** « Avis vocal » : le texte dicté et les critères applicables seulement (src/dictation/avis.ts), jamais de données de joueur. */

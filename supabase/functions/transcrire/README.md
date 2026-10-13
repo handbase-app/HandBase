@@ -88,7 +88,7 @@ en 2010 qui mesurent plus d'1 m 80 » → filtres « année 2010 » et « taille
 - Mêmes règles que la dictée : administrateur connecté, mêmes plafonds (un appel compté par phrase ; avec le micro, deux :
   la transcription puis la recherche), mêmes origines (CORS), rien de la phrase n'est journalisé. Erreurs en plus :
   `phrase_absente` (400), `phrase_trop_longue` (413), `schema_invalide` (400), `reponse_illisible` (502).
-- Le GET renvoie `modes: ['dictee', 'filtres']` : l'appli n'affiche la recherche que si la fonction déployée la connaît.
+- Le GET renvoie `modes` (`dictee`, `filtres`, …) : l'appli n'affiche la recherche que si la fonction déployée la connaît.
 
 Redéploiement après cette mise à jour (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
 
@@ -98,6 +98,36 @@ npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 
 Puis, dans l'appli (site de démo, compte administrateur) : se déconnecter et se reconnecter, ou ouvrir un nouvel onglet
 (l'accès est gardé pour la session), ouvrir Joueurs : le micro et « ✨ » apparaissent à côté de « Rechercher… ».
+
+### Autres pages : vue nationale, bilan de détection, Événements, Groupes (champ `page`)
+
+Le même bouton « micro ✨ » est sur chaque page qui a des filtres. Chaque page envoie **son** schéma (clés et valeurs
+permises, construits par l'appli : `src/voiceSearch.ts` pour les listes de joueurs, `src/voicePages.ts` pour les autres) ;
+les noms d'événements, de groupes et de clubs ne sont **jamais** listés : le modèle recopie ce qui est dit, l'appli le
+retrouve parmi ses données et revérifie chaque valeur.
+
+- Requête : la même (`POST ?mode=filtres`), avec en plus `page` (`bilan`, `evenements` ou `groupes`) hors liste Joueurs.
+  La fonction prend alors les consignes et les exemples de cette page (`CONSIGNES_PAGES` dans `index.ts`, ≈ 2 000
+  caractères avec le schéma) ; `page` absente ou inconnue : consignes de la liste Joueurs, comme avant. Une version
+  plus ancienne de la fonction ignore `page`.
+- Le GET annonce en plus `filtres_bilan`, `filtres_evenements` et `filtres_groupes` dans `modes`.
+- **Vue nationale** (filtres de joueurs, sans département : la carte le choisit) et **bilan de détection** (sexe,
+  génération, période « Cette saison / Depuis toujours », région, département, club, vue carte / générations) : marchent
+  aussi avec la version déjà déployée (consignes de la liste Joueurs, mêmes clés) ; la nouvelle version a des exemples
+  propres au bilan.
+- **Événements** (type, année, « mes événements », nom ou lieu) et **Groupes** (portée, garçons / filles / mixte, ligue,
+  comité, année d'âge, nom) : le bouton n'apparaît **qu'après le redéploiement** (l'appli attend `filtres_evenements` /
+  `filtres_groupes` dans `modes`).
+- Test (sans appel réseau) : `npx jiti tools/test-recherche-vocale-pages.ts` (chaque exemple des consignes de chaque
+  page est accepté par l'appli et a l'effet attendu ; rien d'autre que la phrase, le schéma et les filtres actifs n'est envoyé).
+
+Redéploiement nécessaire pour Événements et Groupes (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
+
+```sh
+npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
+```
+
+Puis se déconnecter et se reconnecter (ou nouvel onglet) : le bouton apparaît dans Événements et Groupes.
 
 ## 7. Avis vocal (`?mode=avis`)
 

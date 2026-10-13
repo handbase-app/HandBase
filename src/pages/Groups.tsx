@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useGoBack } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
@@ -33,6 +33,9 @@ import { MQ, useMedia } from '../layout'
 import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
+import { VoiceSearch } from '../components/VoiceSearch'
+import { groupsVoicePage, type GroupsVoice } from '../voicePages'
+import { useVoicePlaces } from '../voicePlaces'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -50,6 +53,19 @@ export default function Groups() {
   const [year, setYear] = useSessionState('handbase.groupes.year', '')
   const [scope, setScope] = useSessionState('handbase.groupes.scope', '')
   const [open, setOpen] = useSessionState('handbase.groupes.open', false)
+  // Recherche vocale (« micro ✨ ») : portée, garçons / filles, ligue, comité, année, nom (retrouvé ici parmi les groupes,
+  // jamais envoyé) ; schéma : src/voicePages.ts. Bouton seulement si la fonction déployée annonce « filtres_groupes ».
+  const places = useVoicePlaces(useMemo(() => [...new Set((groups ?? []).map((g) => g.department ?? '').filter(Boolean))], [groups]))
+  const voicePage = useMemo(
+    () =>
+      groupsVoicePage({
+        ...places,
+        scopes: GROUP_SCOPES,
+        names: (groups ?? []).map((g) => g.name),
+        years: [...new Set((groups ?? []).flatMap((g) => g.years ?? []))],
+      }),
+    [places, groups],
+  )
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const words = fold(q).split(/\s+/).filter(Boolean)
   // Comme pour les joueurs : chaque menu compte les groupes qui passent tous les AUTRES filtres.
@@ -132,17 +148,22 @@ export default function Groups() {
       <AllGroupsToggle role={role} />
       {groups.length > 0 && (
         <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, description ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />
-            {hasInfo && (
-              <button
-                onClick={() => setOpen(!open)}
-                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-              >
-                Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-              </button>
-            )}
-          </div>
+          <VoiceSearch<GroupsVoice>
+            values={{ q, scope, sex, dept, region, year }}
+            apply={(v) => (setQ(v.q), setScope(v.scope), setSex(v.sex), setDept(v.dept), setRegion(v.region), setYear(v.year))}
+            page={voicePage}
+            input={<input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, description ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />}
+            after={
+              hasInfo && (
+                <button
+                  onClick={() => setOpen(!open)}
+                  className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+                >
+                  Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+                </button>
+              )
+            }
+          />
           {open && hasInfo && (
             <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
               <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Portée</span>

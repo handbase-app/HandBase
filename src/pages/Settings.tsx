@@ -329,7 +329,7 @@ function DictationSetting() {
   const search = !!access?.filtres
   if (!available) return null
   return (
-    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : micro à côté des commentaires${search ? ' et de la recherche de joueurs' : ''}` : 'Désactivée sur cet appareil'}>
+    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : micro à côté des commentaires${search ? ' et des recherches (joueurs, bilan…)' : ''}` : 'Désactivée sur cet appareil'}>
       <section className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -352,6 +352,14 @@ function DictationSetting() {
             liste des filtres possibles et les filtres choisis (sans le nom cherché) sont envoyés à Mistral AI, avec les noms de vos groupes et de vos profils
             recherchés ; aucune donnée de joueur. « Efface tout », « réinitialise »… se font sur l'appareil, sans envoi. Chaque phrase
             compte comme deux dictées : la transcription, puis la recherche.
+          </p>
+        )}
+        {search && (
+          <p className="text-[11px] text-muted">
+            Le même bouton se trouve dans la vue nationale et le bilan de détection (« les filles de 2011 dans le Var », « depuis
+            toujours », « le club de Toulon »){access?.modes?.includes('filtres_evenements') ? ', dans Événements (« les tournois de 2025 »)' : ''}
+            {access?.modes?.includes('filtres_groupes') ? ' et dans Groupes (« les groupes de filles du Var »)' : ''}. Les noms d’événements, de
+            groupes et de clubs ne sont pas envoyés : ce que vous dites est retrouvé sur l’appareil.
           </p>
         )}
         {access?.avis && (

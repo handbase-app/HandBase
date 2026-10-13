@@ -5,6 +5,7 @@ import { alive, db, fmtDate, plural, today, type Player, type Rewatch } from '..
 import {
   birthYear,
   byLeftToSee,
+  clubKey,
   coverageByClub,
   coverageByPlace,
   coverageByYear,
@@ -36,11 +37,17 @@ import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { AddToEventDialog } from '../components/AddToEvent'
 import { FollowStar } from '../components/Follow'
+import { VoiceSearch } from '../components/VoiceSearch'
+import { bilanVoicePage, type BilanVoice } from '../voicePages'
+import { useVoicePlaces } from '../voicePlaces'
 
 /*
  * Bilan de détection : couverture par génération (« X vus sur N »), clubs où il reste des joueurs à voir, et la liste de
  * ces joueurs ; carte de France (src/components/FranceMap.tsx) de la part des joueurs vus par région puis par
  * département, jusqu'aux clubs d'un département. Mêmes filtres partout : sexe, période, année, lieu. Un joueur est « vu » dès qu'un membre du staff l'a marqué vu ou a donné un avis (src/coverage.ts).
+ * Recherche vocale « micro ✨ » à côté des filtres (src/components/VoiceSearch.tsx, schéma : src/voicePages.ts) : « les filles de
+ * 2011 dans le Var », « depuis toujours », « le club de Toulon », « efface tout » ; elle change les mêmes choix que les
+ * boutons et la carte (l'adresse suit).
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », jamais autre chose.
  */
 
@@ -467,6 +474,27 @@ export default function Coverage() {
   const side = useMedia(MQ.side)
   const whereRef = useRef<HTMLDivElement>(null)
   const who = useMemo(() => ({ search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }) }), [search]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Recherche vocale (« micro ✨ ») : filtres du bilan (sexe, période, génération, lieu de la carte, club, vue). Clubs et
+  // lieux sont retrouvés ici ; seuls la phrase, le schéma et les filtres actifs partent (src/voicePages.ts).
+  const voiceClubs = useMemo(() => {
+    const m = new Map<string, { names: Map<string, number>; depts: Map<string, number> }>()
+    for (const p of data ? livePlayers(data.players) : []) {
+      const k = clubKey(p.club)
+      if (!k) continue
+      let c = m.get(k)
+      if (!c) m.set(k, (c = { names: new Map(), depts: new Map() }))
+      c.names.set(p.club!.trim(), (c.names.get(p.club!.trim()) ?? 0) + 1)
+      const d = department(p)
+      if (d) c.depts.set(d, (c.depts.get(d) ?? 0) + 1)
+    }
+    const top = (x: Map<string, number>) => [...x].sort((a, b) => b[1] - a[1])[0]?.[0]
+    return [...m].map(([key, c]) => ({ key, name: top(c.names)!, dept: top(c.depts) }))
+  }, [data])
+  const places = useVoicePlaces()
+  const voicePage = useMemo(
+    () => bilanVoicePage({ ...places, clubs: voiceClubs, thisYear: new Date().getFullYear(), view, season: seasonOf(today()).label }),
+    [places, voiceClubs, view],
+  )
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -573,7 +601,16 @@ export default function Coverage() {
             Rapport Fédé
           </Link>
         </div>
-        <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} years={allYears} year={year} setYear={pickYear} />
+        <VoiceSearch<BilanVoice>
+          values={{ sex, period, year, region, dept, club: st.club, view }}
+          apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
+          page={voicePage}
+          input={
+            <div className="min-w-0 flex-1">
+              <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} years={allYears} year={year} setYear={pickYear} />
+            </div>
+          }
+        />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <Crumbs steps={crumbs} />
           <div className="sm:w-64 [&_button]:min-h-8">
