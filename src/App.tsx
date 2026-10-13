@@ -28,6 +28,7 @@ import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
 import { spyTarget } from './spy'
 import MasterDetail from './components/MasterDetail'
+import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
@@ -333,6 +334,8 @@ export default function App() {
         </div>
       </nav>
       <UpdateBanner />
+      {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
+      <VideoDock />
       <GlobalCompareBar />
       <ConfirmHost />
     </div>

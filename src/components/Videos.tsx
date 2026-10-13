@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
 import type { MatchSheet } from '../matchSheet'
@@ -23,23 +23,13 @@ import {
 import { ask } from './Confirm'
 import { Icon, InfoButton } from './ui'
 import type { PlayerTools } from './VideoPlayer'
+import { closeVideo, openVideo, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
 
 /*
  * Section « Vidéos » d'une fiche joueur ou d'un événement (supabase/036_videos.sql) : liens vers des vidéos
  * (Rematch, YouTube, Handball TV, Facebook…) pour regarder quelques minutes avant d'aller voir un joueur.
  * Tout le monde en ajoute ; son auteur modifie le sien ; auteur, administrateur ou encadrant (secteur) supprime.
  */
-
-/** Lecteur intégré : son code (et celui des lecteurs YouTube/Vimeo) n'est chargé qu'au premier clic sur une vidéo. */
-const VideoPlayer = lazy(() =>
-  import('./VideoPlayer').catch(() => ({
-    default: ({ onClose }: { onClose: () => void }) => (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
-        <p className="card max-w-sm p-4 text-sm">Le lecteur n’a pas pu être chargé (connexion ?). Réessaie plus tard ou ouvre la vidéo sur son site.</p>
-      </div>
-    ),
-  })),
-)
 
 /** Frise du match sous la vidéo d'une fiche joueur (module chargé à la demande, seulement pour une vidéo de match calée). */
 const MatchTimeline = lazy(() => import('./MatchTimeline'))
@@ -67,8 +57,10 @@ function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Vid
     if (need && !mod) import('../matchSheet').then((m) => setMod(m)).catch(() => {})
   }, [need, mod])
   const links = useLiveQuery(
-    async (): Promise<SheetLink[]> => {
-      if (!mod || !urls.length) return []
+    async (): Promise<SheetLink[] | undefined> => {
+      if (!urls.length) return []
+      // Module pas encore chargé : « pas encore su » (undefined), pas « aucune feuille ».
+      if (!mod) return undefined
       const evs = (await db.events.toArray()).filter((e) => !e.deleted && e.matchSheet?.sync?.url && urls.includes(e.matchSheet.sync.url))
       if (!evs.length) return []
       // Fiches fondues depuis l'import : on suit mergedInto (quelques niveaux au plus).
@@ -88,9 +80,9 @@ function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Vid
         .filter((l) => l.pls.length > 0)
     },
     [mod, targetId, urls.join('\n')],
-    [],
   )
-  return { mod, links }
+  // Feuilles connues (ou aucune à chercher) : la frise du lecteur peut être décidée.
+  return { mod, links: links ?? [], ready: !need || links !== undefined }
 }
 
 function useOnline() {
@@ -141,13 +133,14 @@ export function VideoSection({
   // Formulaire : null = fermé, 'new' = ajout, sinon le lien modifié.
   const [form, setForm] = useState<'new' | Video | null>(null)
   const [note, setNote] = useState('')
-  // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite).
-  const [playing, setPlaying] = useState<{ v: Video; moment?: number } | null>(null)
-  const closePlayer = useCallback(() => setPlaying(null), [])
+  // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite) : le lecteur est posé à la racine de l'appli
+  // (VideoDock.tsx), il survit à cette section quand la page se redessine (téléphone tourné).
+  const owner = `${kind}:${targetId}`
+  useDockOwner(owner)
+  const playing = useDockOpen(owner)
   const sheets = useSheetLinks(kind, targetId, videos)
-  if (!videos) return null
   // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
-  const open = playing && (videos.find((x) => x.id === playing.v.id) ?? playing.v)
+  const open = playing && videos ? (videos.find((x) => x.id === playing.v.id) ?? playing.v) : undefined
   const sheetOf = (v: Video) => sheets.links.find((l) => l.url === v.url)
   /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main). */
   const badgeOf = (v: Video) => {
@@ -160,6 +153,29 @@ export function VideoSection({
     }
   }
   const openSheet = open ? sheetOf(open) : undefined
+
+  // Réglages du lecteur, une fois la liste et les feuilles connues (sinon le lecteur garde les précédents : la frise ne
+  // disparaît pas le temps que la section revienne).
+  useDockPublish(
+    owner,
+    open && sheets.ready
+      ? {
+          video: open,
+          moment: playing!.moment,
+          onClose: closeVideo,
+          tools: tools && ((api) => tools(open, api)),
+          badge: badgeOf(open),
+          bar: openSheet
+            ? (api) => (
+                <Suspense fallback={null}>
+                  <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
+                </Suspense>
+              )
+            : bar && ((api) => bar(open, api)),
+        }
+      : undefined,
+  )
+  if (!videos) return null
 
   const what = kind === 'player' ? 'ce joueur' : 'cet événement'
   return (
@@ -195,7 +211,7 @@ export function VideoSection({
                 v={v}
                 online={online}
                 onOffline={() => setNote('Hors ligne : la vidéo pourra s’ouvrir une fois la connexion revenue.')}
-                onPlay={embedOf(v.url) ? (moment) => (setNote(''), setPlaying({ v, moment })) : undefined}
+                onPlay={embedOf(v.url) ? (moment) => (setNote(''), openVideo(owner, v, moment)) : undefined}
                 badge={badgeOf(v)}
                 onEdit={can.editVideo(v) ? () => setForm(v) : undefined}
                 onDelete={
@@ -238,32 +254,6 @@ export function VideoSection({
 
       {children}
 
-      {playing && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 text-sm text-white/80" role="status">
-              Chargement du lecteur…
-            </div>
-          }
-        >
-          <VideoPlayer
-            video={open!}
-            moment={playing.moment}
-            onClose={closePlayer}
-            tools={tools && ((api) => tools(open!, api))}
-            badge={badgeOf(open!)}
-            bar={
-              openSheet
-                ? (api) => (
-                    <Suspense fallback={null}>
-                      <MatchTimeline eventId={openSheet.eventId} video={open!} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
-                    </Suspense>
-                  )
-                : bar && ((api) => bar(open!, api))
-            }
-          />
-        </Suspense>
-      )}
     </div>
   )
 }

@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Video, VideoMoment } from '../db'
 import { embedOf, fmtMoment, momentLabel, momentsOf, openUrl, sourceLabel, type Embed } from '../videos'
 import { Icon } from './ui'
+import { useMedia } from '../layout'
 
 /*
- * Lecteur vidéo intégré (chargé à la demande depuis Videos.tsx : rien n'est téléchargé avant le clic).
+ * Lecteur vidéo intégré (chargé à la demande par VideoDock.tsx, posé à la racine de l'appli : rien n'est téléchargé avant le
+ * clic, et le lecteur survit aux changements de mise en page quand le téléphone tourne).
  * Un adaptateur par source pilote le lecteur (aller à un moment, lire, pause, temps courant) :
  *   - YouTube : lecteur officiel (IFrame Player API) sur youtube-nocookie.com ;
  *   - Vimeo : player.vimeo.com piloté par messages (postMessage), sans bibliothèque ;
@@ -99,7 +101,8 @@ function YouTubeAdapter({ embed, start, onCtl, onFail }: AdapterProps) {
   // Adresse figée au premier rendu (le cadre ne doit pas se recharger).
   const [src] = useState(() => {
     // controls=0 : les commandes sont les nôtres, sous la vidéo (rien n'est posé sur le cadre YouTube : son logo et ses
-    // écrans restent visibles, comme le demandent ses conditions).
+    // écrans restent visibles, comme le demandent ses conditions). Seule exception : plein écran au doigt, où elles
+    // apparaissent par-dessus le temps d'un toucher, comme dans l'appli YouTube.
     const q = new URLSearchParams({ enablejsapi: '1', origin: location.origin, playsinline: '1', rel: '0', controls: '0' })
     if (start) q.set('start', String(Math.floor(start)))
     return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?${q}`
@@ -298,6 +301,37 @@ function nudge(c: Ctl, d: number) {
   c.seek(t)
 }
 
+/** Pointeur au doigt (téléphone, tablette). */
+const COARSE = '(pointer: coarse)'
+/** Téléphone couché (même hauteur que MQ.rail), au doigt. */
+const PHONE_LANDSCAPE = '(orientation: landscape) and (max-height: 520px) and (pointer: coarse)'
+/** Commandes masquées après ce délai sans geste, en lecture, en plein écran au doigt. */
+const HIDE_AFTER = 3000
+
+type Orientation = ScreenOrientation & { lock?: (o: string) => Promise<void> }
+
+/** Orientation bloquée en paysage (Android, plein écran) ; refusée sans bruit ailleurs. */
+function lockLandscape(locked: { current: boolean }) {
+  try {
+    const o = screen.orientation as Orientation | undefined
+    o?.lock?.('landscape')
+      .then(() => (locked.current = true))
+      .catch(() => {})
+  } catch {
+    /* non pris en charge */
+  }
+}
+
+function unlockOrientation(locked: { current: boolean }) {
+  if (!locked.current) return
+  locked.current = false
+  try {
+    screen.orientation?.unlock()
+  } catch {
+    /* non pris en charge */
+  }
+}
+
 /** « 12:05 » / « 1:02:05 ». */
 const MUTE_KEY = 'handbase.video.muet'
 const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' : fmtMoment(Math.floor(t)))
@@ -306,7 +340,7 @@ const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' 
  * Nos commandes sous la vidéo (YouTube est intégré sans les siennes, controls=0 ; fichier vidéo : sans celles du
  * navigateur) : lire / pause, −2 s / +2 s, vitesse, temps / durée, plein écran de notre bloc (vidéo, commandes, frise).
  */
-function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }) {
+function Controls({ ctl, fs, onFs, big }: { ctl: Ctl; fs: boolean; onFs: () => void; big?: boolean }) {
   const [, tick] = useState(0)
   const [rate, setRate] = useState(1)
   // Son coupé : retenu sur l'appareil et appliqué à chaque vidéo ouverte.
@@ -335,11 +369,13 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
   }, [])
   const t = ctl.time()
   const playing = ctl.playing()
-  const btn = 'flex h-8 min-w-8 items-center justify-center rounded px-1.5 text-white/90 hover:bg-white/10'
+  // Plein écran au doigt : boutons de 44 px.
+  const btn = `flex items-center justify-center rounded px-1.5 text-white/90 hover:bg-white/10 ${big ? 'h-11 min-w-11 text-xs' : 'h-8 min-w-8'}`
+  const ico = big ? 'h-5 w-5' : 'h-4 w-4'
   return (
     <div className="flex shrink-0 items-center gap-1 bg-black px-2 py-1 text-[11px] text-white/90" role="toolbar" aria-label="Commandes de la vidéo">
       <button className={btn} title={playing ? 'Pause (espace)' : 'Lire (espace)'} aria-label={playing ? 'Pause' : 'Lire'} onClick={() => (playing ? ctl.pause() : ctl.play())}>
-        <Icon name={playing ? 'pause' : 'play'} className="h-4 w-4" filled />
+        <Icon name={playing ? 'pause' : 'play'} className={ico} filled />
       </button>
       <button className={btn} title={`Reculer de ${SKIP} s (←)`} aria-label={`Reculer de ${SKIP} s`} onClick={() => nudge(ctl, -SKIP)}>
         −{SKIP} s
@@ -351,10 +387,10 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
         {clock(t)} <span className="text-white/50">/ {clock(ctl.duration())}</span>
       </span>
       <button className={`${btn} ml-auto`} title={muted ? 'Remettre le son' : 'Couper le son'} aria-label={muted ? 'Remettre le son' : 'Couper le son'} aria-pressed={muted} onClick={toggleMute}>
-        <Icon name={muted ? 'mute' : 'volume'} className="h-4 w-4" />
+        <Icon name={muted ? 'mute' : 'volume'} className={ico} />
       </button>
       <select
-        className="h-8 rounded bg-white/10 px-1 text-[11px] text-white"
+        className={`rounded bg-white/10 px-1 text-white ${big ? 'h-11 text-xs' : 'h-8 text-[11px]'}`}
         title="Vitesse de lecture"
         aria-label="Vitesse de lecture"
         value={rate}
@@ -371,7 +407,7 @@ function Controls({ ctl, fs, onFs }: { ctl: Ctl; fs: boolean; onFs: () => void }
         ))}
       </select>
       <button className={btn} title={fs ? 'Quitter le plein écran' : 'Plein écran'} aria-label={fs ? 'Quitter le plein écran' : 'Plein écran'} onClick={onFs}>
-        <Icon name={fs ? 'shrink' : 'expand'} className="h-4 w-4" />
+        <Icon name={fs ? 'shrink' : 'expand'} className={ico} />
       </button>
     </div>
   )
@@ -437,24 +473,107 @@ export default function VideoPlayer({
   const armed = useRef(false)
   const startedAt = useRef(0)
   const closeBtn = useRef<HTMLButtonElement>(null)
-  // Plein écran de notre bloc (vidéo, commandes, frise) ; sans l'API (iPhone) : bloc posé sur tout l'écran.
+  // Plein écran de notre bloc (vidéo, commandes, frise) : celui du navigateur (apiFs) ou, sans l'API (iPhone) ou refusé,
+  // bloc posé sur tout l'écran (cssFs).
   const stage = useRef<HTMLDivElement>(null)
-  const [fs, setFs] = useState(false)
+  const [apiFs, setApiFs] = useState(false)
+  const [cssFs, setCssFs] = useState(false)
+  const fs = apiFs || cssFs
+  // Téléphone (au doigt) : plein écran « immersif » à la YouTube, commandes posées sur la vidéo et masquées en lecture.
+  const coarse = useMedia(COARSE)
+  const phoneLandscape = useMedia(PHONE_LANDSCAPE)
+  const immersive = fs && coarse
+  // Plein écran entré tout seul (téléphone couché) : quitté tout seul en le redressant ; un choix fait au bouton est gardé.
+  const auto = useRef(false)
+  // Orientation bloquée en paysage par le bouton plein écran (Android) : libérée en sortant du plein écran.
+  const locked = useRef(false)
   const ctlRef = useRef<Ctl | undefined>(undefined)
   ctlRef.current = ctl
   useEffect(() => {
-    const on = () => setFs(document.fullscreenElement === stage.current && !!stage.current)
+    const el = stage.current
+    const on = () => {
+      const mine = !!el && document.fullscreenElement === el
+      setApiFs(mine)
+      if (mine) return
+      unlockOrientation(locked)
+      // Plein écran quitté par le téléphone (retour, geste) : on sort aussi du bloc posé sur l'écran.
+      auto.current = false
+      setCssFs(false)
+    }
     document.addEventListener('fullscreenchange', on)
-    return () => document.removeEventListener('fullscreenchange', on)
+    return () => {
+      document.removeEventListener('fullscreenchange', on)
+      // Lecteur fermé en plein écran : on rend l'écran et l'orientation.
+      if (el && document.fullscreenElement === el) void document.exitFullscreen().catch(() => {})
+      unlockOrientation(locked)
+    }
   }, [])
   function toggleFs() {
     const el = stage.current
     if (!el) return
-    if (document.fullscreenElement) return void document.exitFullscreen().catch(() => {})
-    if (fs) return setFs(false)
-    if (el.requestFullscreen) el.requestFullscreen().catch(() => setFs(true))
-    else setFs(true)
+    auto.current = false
+    if (document.fullscreenElement) {
+      setCssFs(false)
+      return void document.exitFullscreen().catch(() => {})
+    }
+    if (cssFs) return setCssFs(false)
+    if (!el.requestFullscreen) return setCssFs(true)
+    // Demande restée sans réponse (navigateur intégré, webview…) : bloc posé sur l'écran en attendant.
+    const slow = window.setTimeout(() => setCssFs(true), 1000)
+    el.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => {
+        window.clearTimeout(slow)
+        // Téléphone tenu droit : la vidéo passe en paysage (Android ; refusé sans bruit ailleurs, iPhone compris).
+        if (coarse && matchMedia('(orientation: portrait)').matches) lockLandscape(locked)
+      })
+      .catch(() => {
+        window.clearTimeout(slow)
+        setCssFs(true)
+      })
   }
+
+  // Téléphone tourné en paysage, lecteur ouvert : plein écran tout de suite (le navigateur peut le refuser sans geste de
+  // la personne : le bloc est alors posé sur tout l'écran). Redressé : on en sort, s'il était entré tout seul.
+  const canPlayRef = useRef(false)
+  const fsRef = useRef(fs)
+  fsRef.current = fs
+  const wasLandscape = useRef(phoneLandscape)
+  useEffect(() => {
+    if (wasLandscape.current === phoneLandscape) return
+    wasLandscape.current = phoneLandscape
+    if (phoneLandscape) {
+      if (fsRef.current || !canPlayRef.current) return
+      auto.current = true
+      setCssFs(true)
+      stage.current?.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {})
+    } else if (auto.current) {
+      auto.current = false
+      setCssFs(false)
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+    }
+  }, [phoneLandscape])
+
+  // Commandes en plein écran au doigt : un toucher sur la vidéo les montre ou les cache (en pause aussi, pour voir toute
+  // l'image) ; masquées seules 3 s après le dernier geste pendant la lecture (gardées en pause et avec la frise du match).
+  const [chrome, setChrome] = useState(true)
+  const hideTimer = useRef(0)
+  const poke = () => {
+    setChrome(true)
+    window.clearTimeout(hideTimer.current)
+    // Frise du match (calage) : pas de masquage tout seul, « C'est ici ! » doit rester à portée du doigt.
+    if (bar) return
+    const later = () => {
+      hideTimer.current = window.setTimeout(() => (ctlRef.current?.playing() ? setChrome(false) : later()), HIDE_AFTER)
+    }
+    later()
+  }
+  const pokeRef = useRef(poke)
+  pokeRef.current = poke
+  useEffect(() => {
+    if (immersive) pokeRef.current()
+    else setChrome(true)
+    return () => window.clearTimeout(hideTimer.current)
+  }, [immersive])
 
   // Clavier, quel que soit l'élément qui a le focus (frise, repère, bouton…), sauf dans un champ de saisie : Échap ferme (ou
   // quitte le plein écran) ; espace lit / met en pause ; flèches : ±2 s, avec Maj ±0,5 s. Écouté en phase de capture et
@@ -468,7 +587,10 @@ export default function VideoPlayer({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (document.fullscreenElement) return
-        if (fs) return setFs(false)
+        if (cssFs) {
+          auto.current = false
+          return setCssFs(false)
+        }
         return onClose()
       }
       const c = ctlRef.current
@@ -501,7 +623,7 @@ export default function VideoPlayer({
       window.removeEventListener('keyup', onKeyUp, true)
       document.body.style.overflow = overflow
     }
-  }, [onClose, fs])
+  }, [onClose, cssFs])
 
   function start(r: Run, c = ctl) {
     if (!c) {
@@ -572,6 +694,7 @@ export default function VideoPlayer({
 
   const Adapter = embed ? ADAPTERS[embed.kind] : undefined
   const canPlay = !!Adapter && !failed && online
+  canPlayRef.current = canPlay
   const openLink = href && (
     <a
       href={href}
@@ -624,17 +747,56 @@ export default function VideoPlayer({
         <div className="flex min-h-0 flex-1 flex-col landscape:flex-row">
         <div
           ref={stage}
-          className={`flex shrink-0 flex-col bg-black landscape:min-w-0 landscape:flex-1 ${fs ? 'fixed inset-0 z-[60] h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]' : ''}`}
+          className={`flex shrink-0 flex-col bg-black landscape:min-w-0 landscape:flex-1 ${fs ? 'fixed inset-0 z-[60] h-full w-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]' : ''} ${immersive ? 'pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]' : ''}`}
         >
         {canPlay && embed ? (
           <>
-            <div className={`flex min-h-0 items-center justify-center bg-black ${fs ? 'flex-1' : 'landscape:flex-1'}`}>
+            <div className={`relative flex min-h-0 items-center justify-center bg-black ${fs ? 'flex-1' : 'landscape:flex-1'}`}>
               <div className={`aspect-video max-h-full w-full bg-black ${fs ? 'h-full w-auto max-w-full' : 'landscape:h-full landscape:w-auto landscape:max-w-full'}`}>
                 <Adapter embed={embed} start={moments[moment ?? 0]?.at ?? 0} onCtl={onCtl} onFail={() => (setFailed(true), setRun(null))} />
               </div>
+              {/* Plein écran au doigt : toucher la vidéo montre ou cache les commandes (calque transparent, rien n'est caché). */}
+              {immersive && (
+                <button
+                  type="button"
+                  className="absolute inset-0 z-10 cursor-default"
+                  aria-label={chrome ? 'Cacher les commandes' : 'Afficher les commandes'}
+                  onClick={() => (chrome ? (window.clearTimeout(hideTimer.current), setChrome(false)) : poke())}
+                />
+              )}
             </div>
-            {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} />}
-            {bar && <div className="shrink-0 bg-panel">{bar(api)}</div>}
+            {/* Commandes et frise : sous la vidéo ; plein écran au doigt : posées en bas de la vidéo, masquées en lecture. */}
+            <div
+              className={
+                immersive
+                  ? `absolute inset-x-0 bottom-0 z-20 bg-black/70 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] transition-opacity duration-200 ${chrome ? '' : 'pointer-events-none opacity-0'}`
+                  : 'shrink-0'
+              }
+              aria-hidden={immersive && !chrome ? true : undefined}
+              onPointerDownCapture={immersive ? poke : undefined}
+              onKeyDownCapture={immersive ? poke : undefined}
+            >
+              {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} big={immersive} />}
+              {/* Plein écran au doigt : frise limitée (le haut de la vidéo reste visible pendant le calage), défilante. */}
+              {bar && <div className={`shrink-0 bg-panel ${immersive ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : ''}`}>{bar(api)}</div>}
+            </div>
+            {immersive && (
+              <div
+                className={`absolute inset-x-0 top-0 z-20 flex items-center gap-2 bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)] pr-[max(0.5rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] transition-opacity duration-200 ${chrome ? '' : 'pointer-events-none opacity-0'}`}
+                aria-hidden={!chrome ? true : undefined}
+                onPointerDownCapture={poke}
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">{video.title || `Vidéo ${source}`}</span>
+                <button
+                  className="flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-black/60 px-3 text-xs font-bold text-white hover:bg-black/80"
+                  aria-label="Quitter le plein écran"
+                  onClick={toggleFs}
+                >
+                  <Icon name="shrink" className="h-5 w-5" />
+                  Quitter le plein écran
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-black px-6 text-center text-sm text-white/80 landscape:h-full landscape:w-auto landscape:max-w-full">
