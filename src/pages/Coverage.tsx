@@ -209,14 +209,40 @@ function Filters({
 // ---------- Carte ----------
 
 /**
- * Part des joueurs vus : une seule teinte (sarcelle), du plus clair (0 %) au plus soutenu (100 %). Jamais de rouge : un
- * lieu peu vu n'est pas « mauvais », il reste simplement des joueurs à voir. Gris : aucun joueur avec ces filtres.
+ * Part des joueurs vus : une seule teinte (sarcelle), du plus clair au plus soutenu. Jamais de rouge : un lieu peu vu
+ * n'est pas « mauvais », il reste simplement des joueurs à voir. Gris : aucun joueur avec ces filtres.
+ * Échelle ajustée aux zones affichées (du moins vu au plus vu), pour que les écarts se voient même quand toutes les
+ * zones sont proches (ex. régions entre 38 et 47 %) ; la légende donne les vraies valeurs.
  */
 const TEAL = '#14b8a6'
 const NO_PLAYER = 'var(--color-panel-2)'
-const fillOf = (t?: Tally) => (!t?.total ? NO_PLAYER : `color-mix(in srgb, ${TEAL} ${Math.round(14 + (80 * t.seen) / t.total)}%, var(--color-panel))`)
+type Scale = { lo: number; hi: number }
+const FULL: Scale = { lo: 0, hi: 1 }
+const share = (t: Tally) => t.seen / t.total
+/** Échelle des zones affichées : de la plus faible à la plus forte part de vus (au moins 10 points d'écart). */
+function scaleOf(ts: Iterable<Tally>): Scale {
+  const v = [...ts].filter((t) => t.total).map(share)
+  if (!v.length) return FULL
+  let lo = Math.min(...v)
+  let hi = Math.max(...v)
+  if (hi - lo < 0.1) {
+    const mid = (lo + hi) / 2
+    lo = Math.max(0, mid - 0.05)
+    hi = Math.min(1, lo + 0.1)
+    lo = hi - 0.1
+  }
+  return { lo, hi }
+}
+const fillOf = (t?: Tally, sc: Scale = FULL) => {
+  if (!t?.total) return NO_PLAYER
+  const k = Math.min(1, Math.max(0, (share(t) - sc.lo) / (sc.hi - sc.lo)))
+  // Courbe un peu accentuée au milieu, du très clair (8 %) au très soutenu (100 %).
+  return `color-mix(in srgb, ${TEAL} ${Math.round(8 + 92 * k)}%, var(--color-panel))`
+}
 
-function MapLegend() {
+function MapLegend({ sc }: { sc: Scale }) {
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((k) => Math.round(100 * (sc.lo + k * (sc.hi - sc.lo))))
+  const adjusted = sc.lo > 0 || sc.hi < 1
   return (
     <div className="flex items-start gap-3 text-[10px] text-muted">
       <span className="flex shrink-0 items-center gap-1">
@@ -224,12 +250,13 @@ function MapLegend() {
         aucun joueur
       </span>
       <div className="min-w-0 flex-1">
-        <div className="h-3 rounded-sm" style={{ background: `linear-gradient(to right, ${fillOf({ seen: 0, total: 1 })}, ${fillOf({ seen: 1, total: 1 })})` }} />
+        <div className="h-3 rounded-sm" style={{ background: `linear-gradient(to right, ${fillOf({ seen: sc.lo, total: 1 }, sc)}, ${fillOf({ seen: sc.hi, total: 1 }, sc)})` }} />
         <div className="mt-0.5 flex justify-between tabular-nums">
-          {[0, 25, 50, 75, 100].map((v) => (
-            <span key={v}>{v} %</span>
+          {ticks.map((v, i) => (
+            <span key={i}>{v} %</span>
           ))}
         </div>
+        {adjusted && <div className="mt-0.5">Échelle ajustée aux zones affichées, du moins vu au plus vu.</div>}
       </div>
     </div>
   )
@@ -261,10 +288,10 @@ function Crumbs({ steps }: { steps: { label: string; go?: () => void }[] }) {
 }
 
 /** Ligne d'une région ou d'un département : vus sur total, barre, joueurs à voir ; un toucher l'ouvre. */
-function PlaceRow({ label, t, onClick }: { label: string; t: Tally; onClick: () => void }) {
+function PlaceRow({ label, t, sc, onClick }: { label: string; t: Tally; sc?: Scale; onClick: () => void }) {
   return (
     <button onClick={onClick} className="card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent">
-      <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: fillOf(t) }} />
+      <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: fillOf(t, sc) }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{label}</span>
         <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
@@ -374,7 +401,12 @@ export default function Coverage() {
     )
 
   // Carte : couleur d'un département (vue France « par région » : celle de sa région).
-  const fill = (code: string) => fillOf(!region && mapBy === 'region' ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
+  // Échelle des couleurs : zones affichées (régions de France, départements de la région ou de France).
+  const byRegionView = !region && mapBy === 'region'
+  const sc = scaleOf(
+    byRegionView ? byPlace.byRegion.values() : region ? [...byPlace.byDept].filter(([d]) => regionOfDept(d) === region).map(([, t]) => t) : byPlace.byDept.values(),
+  )
+  const fill = (code: string) => fillOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code), sc)
   // À côté de la carte : les régions (France), les départements (région), les clubs (département).
   const deptRows = byLeftToSee([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
   const side2 = dept ? (
@@ -392,7 +424,7 @@ export default function Coverage() {
       {deptRows.length ? (
         <div className="flex flex-col gap-2">
           {deptRows.map(([d, t]) => (
-            <PlaceRow key={d} label={deptText(d)} t={t} onClick={() => pickDept(d)} />
+            <PlaceRow key={d} label={deptText(d)} t={t} sc={sc} onClick={() => pickDept(d)} />
           ))}
         </div>
       ) : (
@@ -405,11 +437,11 @@ export default function Coverage() {
       {byPlace.total ? (
         <div className="flex flex-col gap-2">
           {byLeftToSee(byPlace.byRegion).map(([r, t]) => (
-            <PlaceRow key={r} label={regionLabel(r)} t={t} onClick={() => pickRegion(r)} />
+            <PlaceRow key={r} label={regionLabel(r)} t={t} sc={sc} onClick={() => pickRegion(r)} />
           ))}
           {/* Départements hors découpage (numéro inconnu) et joueurs sans département : choisis directement. */}
           {deptRows.map(([d, t]) => (
-            <PlaceRow key={d} label={deptText(d)} t={t} onClick={() => pickDept(d)} />
+            <PlaceRow key={d} label={deptText(d)} t={t} sc={sc} onClick={() => pickDept(d)} />
           ))}
           {byPlace.noDept.total > 0 && <PlaceRow label={deptText(NO_DEPT)} t={byPlace.noDept} onClick={() => pickDept(NO_DEPT)} />}
         </div>
@@ -506,7 +538,7 @@ export default function Coverage() {
                 )
               }}
             />
-            <MapLegend />
+            <MapLegend sc={sc} />
             <p className="text-[10px] text-muted">
               Part des joueurs vus ({periodInfo(period).label.toLowerCase()}, {year === null ? 'toutes les années' : year ? `nés en ${year}` : 'année de naissance inconnue'}).{' '}
               {dept ? 'Toucher un autre département pour changer.' : region ? 'Toucher un département pour voir ses clubs.' : 'Toucher une région pour la voir de plus près.'}
