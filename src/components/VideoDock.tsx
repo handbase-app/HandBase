@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useSyncExternalStore, type ComponentProps } from 'react'
+import { useLocation } from 'react-router-dom'
+import { createDockWatch } from '../dockWatch'
 import type { Video } from '../db'
 
 /*
@@ -7,8 +9,9 @@ import type { Video } from '../db'
  * lecture, même position.
  *
  * La section « Vidéos » (Videos.tsx) ouvre la vidéo ici (`openVideo`), puis fournit à chaque rendu les réglages du
- * lecteur (`useDockPublish` : version à jour du lien, frise, outils, marques). Section démontée sans revenir (on quitte la
- * fiche) : le lecteur se ferme ; remontée tout de suite (rotation) : il reste ouvert et prend ses nouveaux réglages.
+ * lecteur (`useDockPublish` : version à jour du lien, frise, outils, marques). Le lecteur ne se ferme tout seul que si
+ * la personne a quitté l'écran de la vidéo : section démontée ET adresse changée (dockWatch.ts). Rotation : même adresse,
+ * il attend que la section revienne (si long que soit le rechargement de la fiche) et prend ses nouveaux réglages.
  */
 
 /** Lecteur intégré : son code (et celui des lecteurs YouTube/Vimeo) n'est chargé qu'au premier clic sur une vidéo. */
@@ -35,20 +38,22 @@ const subscribe = (l: () => void) => {
   listeners.add(l)
   return () => void listeners.delete(l)
 }
-/** Sections montées, par propriétaire. */
-const mounted = new Map<string, number>()
 let seq = 0
 
-/** Temps laissé à une section démontée pour revenir (rotation : la page se redessine, ses données se relisent). */
-const GRACE = 1500
+/** Adresse de l'écran (le lecteur reste ouvert tant qu'on n'en change pas). */
+const here = () => location.pathname + location.search
+/** Sections montées et adresse de la vidéo : fermeture quand on a quitté son écran (pas sur une rotation). */
+const watch = createDockWatch(() => closeVideo())
 
 export function openVideo(owner: string, v: Video, moment?: number) {
   open = { owner, v, moment, n: ++seq }
   props = undefined
+  watch.opened(owner, here())
   emit()
 }
 
 export function closeVideo() {
+  watch.closed()
   if (!open) return
   open = null
   props = undefined
@@ -61,20 +66,12 @@ export function useDockOpen(owner: string) {
   return o?.owner === owner ? o : undefined
 }
 
-/** La section est montée (le lecteur ne se ferme pas tant qu'elle l'est, ou qu'elle revient vite). */
+/** La section est montée (le lecteur ne se ferme pas tant qu'elle l'est, ni tant qu'on reste à la même adresse). */
 export function useDockOwner(owner: string) {
   useEffect(() => {
-    mounted.set(owner, (mounted.get(owner) ?? 0) + 1)
-    return () => {
-      const n = (mounted.get(owner) ?? 1) - 1
-      if (n > 0) mounted.set(owner, n)
-      else mounted.delete(owner)
-      if (n > 0 || open?.owner !== owner) return
-      const was = open
-      window.setTimeout(() => {
-        if (open === was && !mounted.get(owner)) closeVideo()
-      }, GRACE)
-    }
+    watch.mount(owner, here())
+    // Démontage après une navigation : l'adresse est déjà la nouvelle, le lecteur se ferme.
+    return () => watch.unmount(owner, here())
   }, [owner])
 }
 
@@ -103,6 +100,11 @@ const dockSubscribe = (l: () => void) => {
 /** Lecteur de l'appli (un seul, posé une fois dans App.tsx). */
 export default function VideoDock() {
   const s = useSyncExternalStore(dockSubscribe, dockSnap)
+  // Adresse changée alors que la section de la vidéo n'est pas montée (partie pendant un rechargement) : fermé.
+  // Section montée : sa nouvelle adresse devient celle de la vidéo (ex. avis ouverts sur un événement, ?avis=…).
+  const { pathname, search } = useLocation()
+  // (window.location, comme à l'ouverture : même forme d'adresse, préfixe du site compris.)
+  useEffect(() => watch.navigated(here()), [pathname, search])
   if (!s.open || !s.props) return null
   return (
     <Suspense
