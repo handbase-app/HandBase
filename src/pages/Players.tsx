@@ -208,8 +208,9 @@ export default function Players() {
 /** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
 const PAGE = 60
 /** Grand écran : filtres dans une colonne toujours ouverte, à gauche de la liste (repliés quand une fiche est ouverte). */
-const DOCK = { dock: true }
-const FOLDED = { dock: false }
+// Recherche en langage naturel (micro, « ✨ ») : seulement sur la liste Joueurs.
+const DOCK = { dock: true, voice: true }
+const FOLDED = { dock: false, voice: true }
 const SCROLL_KEY = 'handbase.joueurs.scroll'
 
 export { fold }

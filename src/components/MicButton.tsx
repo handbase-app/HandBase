@@ -30,7 +30,7 @@ function micError(e: unknown): string {
 type Rec = { stream: MediaStream; recorder: MediaRecorder; chunks: Blob[]; t0: number; timer: number; discard: boolean }
 
 /** Enregistrement et envoi ; `onText` reçoit le texte nettoyé. */
-function useMicRecorder(onText: (text: string) => void) {
+export function useMicRecorder(onText: (text: string) => void) {
   const [phase, setPhase] = useState<MicPhase>('idle')
   const [seconds, setSeconds] = useState(0)
   const [error, setError] = useState('')

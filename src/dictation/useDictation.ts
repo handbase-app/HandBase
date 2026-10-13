@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
-import { DictationError, requestAccess, transcribe, type Access, type AccessStatus, type Endpoint, type Transcript } from './transcribe'
+import { DictationError, requestAccess, transcribe, understandFilters, type Access, type AccessStatus, type Endpoint, type FilterAnswer, type Transcript } from './transcribe'
 
 const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '')
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -110,11 +110,29 @@ export async function sendDictation(blob: Blob, seconds: number, signal?: AbortS
   }
 }
 
+/** Recherche de joueurs en langage naturel : la phrase et le schéma des filtres seulement (src/voiceSearch.ts). */
+export async function sendFilterRequest(phrase: string, schema: unknown, signal?: AbortSignal): Promise<FilterAnswer> {
+  const ep = await endpoint()
+  if (!ep) throw new DictationError('non_connecte')
+  try {
+    const r = await understandFilters(ep, phrase, schema, signal)
+    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    return r
+  } catch (e) {
+    const code = e instanceof DictationError ? e.code : ''
+    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
+    if (lost[code]) remember(ep.uid, { status: lost[code] })
+    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    throw e
+  }
+}
+
 /**
  * État de la dictée pour l'écran courant.
  *  - allowed : rôle, appareil et serveur configuré (avant la réponse du serveur) ;
  *  - available : en plus, le serveur a dit oui (le réglage de l'appareil s'affiche alors) ;
- *  - ready : en plus, le réglage est activé (le bouton micro s'affiche).
+ *  - ready : en plus, le réglage est activé (le bouton micro s'affiche) ;
+ *  - searchReady : en plus, la fonction sait traduire une phrase en filtres (recherche vocale de la liste Joueurs).
  */
 export function useDictation() {
   const role = useRole()
@@ -131,5 +149,6 @@ export function useDictation() {
     if (allowed) void ensureAccess()
   }, [allowed])
   const available = allowed && access?.value.status === 'ok'
-  return { allowed, available, ready: available && enabled, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
+  const ready = available && enabled
+  return { allowed, available, ready, searchReady: ready && !!access?.value.filtres, enabled, access: allowed ? access?.value : undefined, setEnabled: setDictationEnabled }
 }

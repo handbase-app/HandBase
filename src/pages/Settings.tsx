@@ -325,9 +325,10 @@ function NotificationSettings() {
  */
 function DictationSetting() {
   const { available, enabled, setEnabled, access } = useDictation()
+  const search = !!access?.filtres
   if (!available) return null
   return (
-    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? 'Activée sur cet appareil : micro à côté des commentaires' : 'Désactivée sur cet appareil'}>
+    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : micro à côté des commentaires${search ? ' et de la recherche de joueurs' : ''}` : 'Désactivée sur cet appareil'}>
       <section className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -342,6 +343,15 @@ function DictationSetting() {
           commentaire : relisez-le avant d'enregistrer.
           {access?.restantMois != null && ` Restant : ${access.restantMois} dictées ce mois-ci, ${access.restantJour ?? '?'} aujourd'hui pour vous.`}
         </p>
+        {search && (
+          <p className="text-[11px] text-muted">
+            Recherche de joueurs : dans Joueurs, touchez le micro à côté de « Rechercher… » et dites par exemple « les gauchers nés en
+            2010 qui mesurent plus d'1 m 80 », ou tapez la phrase puis touchez ✨. Les filtres sont remplis (les autres sont effacés) et
+            restent modifiables à la main ; « Annuler » remet les précédents. Seuls la phrase et la liste des filtres possibles sont
+            envoyés à Mistral AI, avec les noms de vos groupes et de vos profils recherchés ; aucune donnée de joueur. Chaque phrase
+            compte comme une dictée (deux avec le micro : la transcription, puis la recherche).
+          </p>
+        )}
       </section>
     </Fold>
   )

@@ -1,6 +1,7 @@
 # Fonction « transcrire » (Voxtral, Mistral AI)
 
-Dictée en ligne pour la page d'essai `/essai-dictee/` (moteur « Voxtral (Mistral, en ligne) »). La clé Mistral reste
+Dictée en ligne pour la page d'essai `/essai-dictee/` (moteur « Voxtral (Mistral, en ligne) ») et pour l'appli (micro à
+côté des commentaires), plus la **recherche de joueurs en langage naturel** (`POST ?mode=filtres`, voir plus bas). La clé Mistral reste
 dans les secrets de la fonction, jamais dans la page ni dans le dépôt. Réservée aux administrateurs connectés.
 Aucun son ni texte n'est enregistré ou journalisé ; seuls des nombres d'appels sont comptés (`042_quota_transcription.sql`).
 
@@ -30,7 +31,8 @@ Supabase (projet de test) → *Edge Functions* → *Secrets* → *Add new secret
 - `MISTRAL_API_KEY` : la clé de l'étape 1 ;
 - facultatifs : `TRANSCRIRE_QUOTA_MOIS` (appels par mois civil pour tous, 2000 par défaut),
   `TRANSCRIRE_QUOTA_JOUR` (appels par jour et par compte, 200 par défaut),
-  `MISTRAL_MODELE` (`voxtral-mini-latest` par défaut).
+  `MISTRAL_MODELE` (`voxtral-mini-latest` par défaut),
+  `MISTRAL_MODELE_FILTRES` (`mistral-small-latest` par défaut, recherche de joueurs).
 
 ## 4. Déploiement
 
@@ -57,3 +59,29 @@ avec `restant_mois` et `restant_jour`), `trop_long` / `trop_gros` (413, 60 s ou 
 `mistral_limite` / `mistral_cle` / `mistral_erreur` (502). Un appel refusé par Mistral compte quand même dans les plafonds.
 Les mots de contexte (`context_bias`, 100 au plus, expressions reliées par « _ ») sont envoyés seulement si
 « Utiliser le vocabulaire du hand » est coché ; si Mistral les refuse, la fonction refait l'appel sans eux.
+
+## 6. Recherche de joueurs en langage naturel (`?mode=filtres`)
+
+Liste Joueurs de l'appli : micro à côté de « Rechercher… », ou phrase tapée puis « ✨ ». Exemple : « tous les joueurs nés
+en 2010 qui mesurent plus d'1 m 80 » → filtres « année 2010 » et « taille ≥ 180 cm ».
+
+- Requête : `POST /functions/v1/transcrire?mode=filtres`, JSON `{ phrase, schema }` (phrase de 300 caractères au plus,
+  schéma construit par l'appli dans `src/voiceSearch.ts` : clés permises, types et valeurs possibles, noms des groupes et
+  des profils recherchés du compte). **Jamais de données de joueurs.**
+- Mistral : `chat/completions`, modèle `mistral-small-latest` (secret `MISTRAL_MODELE_FILTRES` pour en changer),
+  température 0, `response_format: json_object`. Consignes : n'utiliser que les clés et valeurs du schéma, ne rien
+  inventer, mettre ce qui n'est pas géré dans `nonGere`.
+- Réponse : `{ filtres, nonGere, ms, model, restant_mois, restant_jour }`. L'appli revérifie chaque valeur.
+- Mêmes règles que la dictée : administrateur connecté, mêmes plafonds (un appel compté par phrase ; avec le micro, deux :
+  la transcription puis la recherche), mêmes origines (CORS), rien de la phrase n'est journalisé. Erreurs en plus :
+  `phrase_absente` (400), `phrase_trop_longue` (413), `schema_invalide` (400), `reponse_illisible` (502).
+- Le GET renvoie `modes: ['dictee', 'filtres']` : l'appli n'affiche la recherche que si la fonction déployée la connaît.
+
+Redéploiement après cette mise à jour (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
+
+```sh
+npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
+```
+
+Puis, dans l'appli (site de démo, compte administrateur) : se déconnecter et se reconnecter, ou ouvrir un nouvel onglet
+(l'accès est gardé pour la session), ouvrir Joueurs : le micro et « ✨ » apparaissent à côté de « Rechercher… ».

@@ -2,13 +2,15 @@ import { useAlerts } from '../alerts'
 import { useFollows } from '../follows'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { departmentLabel, regionOfDept, useDepartments, useRegionLabel } from '../lists'
+import { departmentLabel, officialRegions, regionOfDept, useDepartments, useRegionLabel, useRegions } from '../lists'
 import { can, groupTag } from '../roles'
 import { loadTeams } from '../teams'
 import { birthQuarter, Icon } from './ui'
 import { CourtFilter } from './CourtPicker'
 import { MQ, useMedia } from '../layout'
 import { alive, db, poleStatus, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
+import { VoiceSearch } from './VoiceSearch'
+import type { FilterValues, PoleValue, SearchContext } from '../voiceSearch'
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -85,7 +87,7 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 export function usePlayerFilter(
   players: Player[] | undefined,
   scope = 'joueurs',
-  opts: { hide?: ('dept' | 'region')[]; dock?: boolean } = {},
+  opts: { hide?: ('dept' | 'region')[]; dock?: boolean; voice?: boolean } = {},
 ) {
   const k = (name: string) => `handbase.filter.${scope}.${name}`
   const wideScreen = useMedia(MQ.xl)
@@ -98,7 +100,7 @@ export function usePlayerFilter(
   const [region, setRegion] = useSessionState(k('region'), '')
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
-  useDepartments() // noms des départements à jour dans le menu
+  const deptList = useDepartments() // noms des départements à jour dans le menu
   const [group, setGroup] = useSessionState(k('group'), '')
   // Profil recherché (alerte enregistrée) : seulement les joueurs qui y correspondent.
   const [profile, setProfile] = useSessionState(k('profile'), '')
@@ -252,6 +254,63 @@ export function usePlayerFilter(
     setPosition('all')
     setWithSecondary(false)
   }
+
+  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »).
+  const values: FilterValues = {
+    q,
+    sex,
+    region: hideRegion ? '' : region,
+    dept,
+    club,
+    year,
+    position,
+    withSecondary,
+    hand,
+    quarter,
+    minH,
+    group,
+    profile,
+    followedOnly,
+    pole: pole as PoleValue,
+    videoOnly,
+  }
+  const setValues = (v: FilterValues) => {
+    setQ(v.q)
+    setSex(v.sex)
+    if (!hideRegion) setRegion(v.region)
+    if (!hideDept) setDept(v.dept)
+    setClub(v.club)
+    setYear(v.year)
+    setPosition(v.position)
+    setWithSecondary(v.withSecondary)
+    setHand(v.hand)
+    setQuarter(v.quarter)
+    setMinH(v.minH)
+    setGroup(v.group)
+    setProfile(v.profile)
+    setFollowedOnly(v.followedOnly)
+    setPole(v.pole)
+    setVideoOnly(v.videoOnly)
+  }
+  // Listes réelles pour la recherche en langage naturel (seulement sur l'écran qui l'affiche).
+  const regionList = useRegions()
+  const voiceCtx = useMemo<SearchContext | null>(() => {
+    if (!opts.voice) return null
+    const regs = regionList.length ? regionList.map((r) => ({ id: r.id, name: r.name })) : officialRegions()
+    const clubs = [...new Set((players ?? []).map((p) => p.club).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'fr'))
+    const names = new Map(deptList.map((d) => [d.code!, d.name]))
+    const codes = [...new Set([...deptList.map((d) => d.code!), ...(players ?? []).map((p) => department(p)).filter((c): c is string => !!c)])]
+    return {
+      positions: POSITIONS.map((p) => ({ id: p.id, label: p.label })),
+      regions: regs,
+      depts: codes.map((code) => ({ code, name: names.get(code) })),
+      clubs,
+      groups: groups.map((g) => ({ id: g.id, name: g.name })),
+      profiles: (profiles ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
+      regionOfDept,
+      thisYear: new Date().getFullYear(),
+    }
+  }, [opts.voice, regionList, deptList, players, groups, profiles])
 
   // Filtres repliés par défaut : la recherche et les postes restent visibles, les filtres actifs
   // s'affichent en pastilles qu'on retire d'un appui.
@@ -441,20 +500,29 @@ export function usePlayerFilter(
   // Sans `dock` (fiche ouverte à droite), il redevient repliable au-dessus de la liste.
   const docked = !!opts.dock && wideScreen
   const search = <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+  // Ligne de recherche : avec le micro et « ✨ » (recherche en langage naturel) quand l'écran le demande et que c'est disponible.
+  const searchRow = (after?: React.ReactNode) =>
+    voiceCtx ? (
+      <VoiceSearch values={values} apply={setValues} ctx={voiceCtx} input={search} after={after} />
+    ) : (
+      <div className="flex gap-2">
+        {search}
+        {after}
+      </div>
+    )
   // Panneau ancré : la recherche passe en tête de la colonne de filtres, rien au-dessus de la liste.
   const ui = docked ? null : (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {search}
-        {!docked && (
+      {searchRow(
+        !docked && (
           <button
             onClick={() => setOpen(!open)}
             className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
           >
             Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
           </button>
-        )}
-      </div>
+        ),
+      )}
       {open && !docked && panel}
       {(chips.length > 0 || active) && !open && !docked && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -479,7 +547,7 @@ export function usePlayerFilter(
   )
   const side = docked ? (
     <div className="flex flex-col gap-2">
-      <div className="flex">{search}</div>
+      {searchRow()}
       <div className="flex items-center justify-between gap-2">
         <span className="section-title mb-0">Filtres{chips.length > 0 && ` (${chips.length})`}</span>
         {active && (

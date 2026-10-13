@@ -14,7 +14,8 @@ export const MAX_BYTES = 2 * 1024 * 1024
 
 /** ok : prêt ; absent : fonction inexistante (prod) ; pas_admin ; sans_cle : clé Mistral non configurée ; non_connecte ; erreur : réseau. */
 export type AccessStatus = 'ok' | 'absent' | 'pas_admin' | 'sans_cle' | 'non_connecte' | 'erreur'
-export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number }
+/** filtres : la fonction sait aussi traduire une phrase en filtres de joueurs (POST ?mode=filtres). */
+export type Access = { status: AccessStatus; restantMois?: number; restantJour?: number; filtres?: boolean }
 
 export type Endpoint = { url: string; headers: Record<string, string>; fetch?: typeof fetch }
 
@@ -37,6 +38,9 @@ export const ERROR_TEXT: Record<string, string> = {
   mistral_cle: 'Dictée indisponible pour l’instant (serveur).',
   mistral_erreur: 'Transcription impossible pour l’instant : réessayez.',
   absent: 'Dictée indisponible sur ce serveur.',
+  reponse_illisible: 'Phrase pas comprise pour l’instant : réessayez, ou choisissez dans Filtres.',
+  phrase_trop_longue: 'Phrase trop longue : 300 caractères au plus.',
+  phrase_absente: 'Tapez ou dictez une phrase d’abord.',
 }
 
 export class DictationError extends Error {
@@ -80,8 +84,14 @@ export async function requestAccess(ep: Endpoint): Promise<Access> {
   if (res.status === 403) return { status: 'pas_admin' }
   if (!res.ok) return { status: 'erreur' }
   try {
-    const d = (await res.json()) as { pret?: boolean; restant_mois?: number; restant_jour?: number }
-    return { status: d.pret ? 'ok' : 'sans_cle', restantMois: d.restant_mois, restantJour: d.restant_jour }
+    const d = (await res.json()) as { pret?: boolean; restant_mois?: number; restant_jour?: number; modes?: unknown }
+    return {
+      status: d.pret ? 'ok' : 'sans_cle',
+      restantMois: d.restant_mois,
+      restantJour: d.restant_jour,
+      // Version de la fonction qui annonce ses modes : la recherche de joueurs n'est montrée que si « filtres » y est.
+      ...(Array.isArray(d.modes) && d.modes.includes('filtres') ? { filtres: true } : {}),
+    }
   } catch {
     return { status: 'erreur' }
   }
@@ -127,4 +137,43 @@ export async function transcribe(ep: Endpoint, blob: Blob, seconds: number, sign
   const { texte, corrections } = cleanDetail(raw)
   if (!texte) throw new DictationError('vide')
   return { text: texte, raw, corrections, restantMois: d.restant_mois, restantJour: d.restant_jour }
+}
+
+export const MAX_PHRASE = 300
+
+export type FilterAnswer = { filtres: unknown; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
+
+/**
+ * Recherche de joueurs en langage naturel (POST ?mode=filtres, JSON) : envoie seulement la phrase et le schéma des filtres
+ * (src/voiceSearch.ts), jamais de données de joueurs. Renvoie la réponse brute du modèle : l'appli revérifie chaque valeur.
+ */
+export async function understandFilters(ep: Endpoint, phrase: string, schema: unknown, signal?: AbortSignal): Promise<FilterAnswer> {
+  const text = phrase.replace(/\s+/g, ' ').trim()
+  if (!text) throw new DictationError('phrase_absente')
+  if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
+  const f = ep.fetch ?? fetch
+  let res: Response
+  try {
+    res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=filtres', {
+      method: 'POST',
+      headers: { ...ep.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: text, schema }),
+      signal,
+    })
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Recherche annulée.')
+    throw new DictationError('reseau')
+  }
+  let d: { filtres?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  try {
+    d = await res.json()
+  } catch {
+    /* réponse vide */
+  }
+  if (!res.ok) {
+    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    throw new DictationError(code)
+  }
+  const nonGere = Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : []
+  return { filtres: d.filtres ?? {}, nonGere, ms: d.ms, restantMois: d.restant_mois, restantJour: d.restant_jour }
 }
