@@ -224,12 +224,13 @@ export type QuestionAnswer = {
   restantJour?: number
 }
 /**
- * Contexte d'une question posée depuis la liste Joueurs : la fonction y ajoute ses consignes (« la phrase ajoute à la
+ * Contexte d'une question posée depuis une liste (Joueurs ; Événements, Groupes : recette propre à la page, annoncée par
+ * « question_evenements », « question_groupes ») : la fonction y ajoute ses consignes (« la phrase ajoute à la
  * sélection, sauf si elle dit d'effacer, de retirer… ») et rend une action. `actuels` : NOMS des filtres posés seulement
  * (« sexe », « annee », « recherche »…), jamais leurs valeurs ni un nom de joueur. Une version qui ne connaît pas ce
  * contexte l'ignore (l'appli décide alors de l'action elle-même).
  */
-export type QuestionExtra = { contexte: 'joueurs'; actuels: string[] }
+export type QuestionExtra = { contexte: 'joueurs' | 'evenements' | 'groupes'; actuels: string[] }
 
 /**
  * « Poser une question » au bilan de détection (POST ?mode=question, JSON) : envoie seulement la phrase et la description

@@ -117,27 +117,35 @@ let contextIds: string[] = []
 /** Joueurs de la liste affichée, dans l'ordre (fiche ouverte depuis la liste : ‹ › sur téléphone). */
 export const playersContext = () => contextIds
 
-export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boolean }) {
+/**
+ * Filtres d'une liste de joueurs. `scope` : autre liste que Joueurs (ajout de joueurs à un événement ou un groupe :
+ * « ajout-evenement », « ajout-groupe ») : son propre état de session, sans toucher à la liste Joueurs ni à son ‹ ›.
+ */
+export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boolean; scope?: string }) {
   const wide = useMedia(MQ.xl)
   const docked = opts.dock && wide
+  const keys = opts.scope
+    ? { query: `handbase.${opts.scope}.recette`, text: `handbase.${opts.scope}.texte`, result: `handbase.${opts.scope}.resultat`, sql: `handbase.${opts.scope}.sql` }
+    : JOUEURS_KEYS
+  const pre = opts.scope ? `handbase.${opts.scope}` : 'handbase.joueurs'
   const regionLabel = useRegionLabel()
   const { questionReady, sqlReady } = useDictation()
 
   // ---------- État (session) ----------
-  const [rawQuery, setRawQuery] = useSessionState<unknown>(JOUEURS_KEYS.query, (() => {
+  const [rawQuery, setRawQuery] = useSessionState<unknown>(keys.query, (() => {
     const sex = readSex()
     return { ...EMPTY_QUERY, recipe: { ...EMPTY_QUERY.recipe, pop: sex !== 'all' ? { sex } : {} } }
   })())
   const qy = useMemo(() => cleanQuery(rawQuery), [rawQuery])
-  const [text, setText] = useSessionState(JOUEURS_KEYS.text, qy.q)
-  const [result, setResult] = useSessionState<ResultLine | null>(JOUEURS_KEYS.result, null)
-  const [rawSql, setSql] = useSessionState<SqlState | null>(JOUEURS_KEYS.sql, null)
+  const [text, setText] = useSessionState(keys.text, qy.q)
+  const [result, setResult] = useSessionState<ResultLine | null>(keys.result, null)
+  const [rawSql, setSql] = useSessionState<SqlState | null>(keys.sql, null)
   const sql = useMemo(() => {
     const spec = rawSql ? cleanSqlSpec(rawSql.spec) : null
     return spec && rawSql ? { ...rawSql, spec, partial: rawSql.partial ? cleanQuery(rawSql.partial) : undefined } : null
   }, [rawSql])
-  const [open, setOpen] = useSessionState('handbase.joueurs.filtres', false)
-  const [more, setMore] = useSessionState('handbase.joueurs.conditions', false)
+  const [open, setOpen] = useSessionState(`${pre}.filtres`, false)
+  const [more, setMore] = useSessionState(`${pre}.conditions`, false)
   const [chipOpen, setChipOpen] = useState<string | null>(null)
   const [asked, setAsked] = useState(false)
   const [busy, setBusy] = useState('')
@@ -210,8 +218,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const fromSql = !!sql && sqlList.players.length > 0
   const filtered = useMemo(() => (fromSql ? sqlList.players : (sel?.list ?? [])), [fromSql, sqlList, sel])
   useEffect(() => {
-    contextIds = filtered.map((p) => p.id)
-  }, [filtered])
+    if (!opts.scope) contextIds = filtered.map((p) => p.id)
+  }, [filtered, opts.scope])
   const sortRecipe = useMemo(() => listRecipe(qy.recipe), [qy])
   const sorted = !!(qy.recipe.out.sort || qy.recipe.avis.length)
   const valueOf = (p: Player): string => {

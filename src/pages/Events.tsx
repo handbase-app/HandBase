@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
@@ -12,9 +12,9 @@ import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, ty
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, useRole } from '../roles'
-import { arrowNav, department, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
-import { VoiceSearch } from '../components/VoiceSearch'
-import { eventsVoicePage, type EventsVoice } from '../voicePages'
+import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
+import { useEventsQuery, type EventStats } from '../components/EventsQuery'
+import { usePlayersQuery } from '../components/PlayersQuery'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
@@ -39,6 +39,8 @@ const MatchTimeline = lazy(() => import('../components/MatchTimeline'))
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
+const NO_STATS = new Map<string, EventStats>()
+
 export default function Events() {
   const role = useRole()
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
@@ -53,7 +55,7 @@ export default function Events() {
       s.players.add(e.playerId)
     })
     return m
-  }, [], new Map<string, EventStats>())
+  }, [], NO_STATS)
   // Depuis un groupe : « Créer un événement » ouvre le formulaire avec ses joueurs.
   const [params, setParams] = useSearchParams()
   const fromGroup = params.get('groupe') ?? undefined
@@ -63,23 +65,9 @@ export default function Events() {
   // Tout afficher, archivés : retrouvés au retour (pendant la session), comme les filtres.
   const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
   const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
-  // Recherche et filtres (gardés pendant la session), sur le modèle des joueurs et des groupes.
-  const [q, setQ] = useSessionState('handbase.evenements.q', '')
-  const [type, setType] = useSessionState('handbase.evenements.type', '')
-  const [year, setYear] = useSessionState('handbase.evenements.year', '')
-  const [mine, setMine] = useSessionState('handbase.evenements.mine', false)
-  const [open, setOpen] = useSessionState('handbase.evenements.open', false)
-  // Recherche vocale (« micro ✨ ») : type, année, « mes événements », nom ou lieu (retrouvé ici parmi les événements, jamais
-  // envoyé) ; schéma : src/voicePages.ts. Bouton seulement si la fonction déployée annonce « filtres_evenements ».
-  const voicePage = useMemo(
-    () =>
-      eventsVoicePage({
-        types: EVENT_TYPES,
-        names: (events ?? []).flatMap((e) => [e.name, e.place ?? '']),
-        years: [...new Set((events ?? []).map((e) => e.date.slice(0, 4)))],
-      }),
-    [events],
-  )
+  // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
+  // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
+  const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
 
   if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
@@ -88,27 +76,6 @@ export default function Events() {
   const upcoming = events.filter((e) => !e.archived && e.date >= todayIso).reverse()
   const past = events.filter((e) => !e.archived && e.date < todayIso)
   const archived = events.filter((e) => e.archived)
-
-  // Recherche : nom, lieu, créateur. Dès qu'on cherche ou filtre, une seule liste, archivés compris.
-  const words = fold(q).split(/\s+/).filter(Boolean)
-  const ok = {
-    q: (e: HBEvent) => words.every((w) => fold(`${e.name} ${e.place ?? ''} ${e.createdByName ?? ''}`).includes(w)),
-    type: (e: HBEvent) => !type || e.type === type,
-    year: (e: HBEvent) => !year || e.date.startsWith(year),
-    mine: (e: HBEvent) => !mine || (!!e.createdBy && e.createdBy === currentUserId()),
-  }
-  const except = (k: keyof typeof ok) => events.filter((e) => (Object.keys(ok) as (keyof typeof ok)[]).every((x) => x === k || ok[x](e)))
-  const searching = !!(q || type || year || mine)
-  const results = searching ? except('q').filter(ok.q) : []
-  const years = [...new Set(events.map((e) => e.date.slice(0, 4)))].sort().reverse()
-  const yearCount = (y: string) => except('year').filter((e) => e.date.startsWith(y)).length
-  const typeCount = (t: string) => except('type').filter((e) => e.type === t).length
-  const chips = [
-    type && { label: typeLabel(type), clear: () => setType('') },
-    year && { label: year, clear: () => setYear('') },
-    mine && { label: 'Mes événements', clear: () => setMine(false) },
-  ].filter((c): c is { label: string; clear: () => void } => !!c)
-  const resetSearch = () => (setQ(''), setType(''), setYear(''), setMine(false))
 
   return (
     <div className="flex flex-col gap-3">
@@ -147,72 +114,19 @@ export default function Events() {
           />
         </div>
       )}
-      {events.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <VoiceSearch<EventsVoice>
-            values={{ q, type, year, mine }}
-            apply={(v) => (setQ(v.q), setType(v.type), setYear(v.year), setMine(v.mine))}
-            page={voicePage}
-            input={<input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, lieu ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />}
-            after={
-              <button
-                onClick={() => setOpen(!open)}
-                className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-              >
-                Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-              </button>
-            }
-          />
-          {open && (
-            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
-              <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-                {[{ value: '', label: 'Tous' }, ...EVENT_TYPES].map((t) => (
-                  <button key={t.value} onClick={() => setType(t.value)} className={`flex-1 py-1.5 ${type === t.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-                    {t.value === 'entrainement' ? 'Entraîn.' : t.value === 'observation' ? 'Observ.' : t.label}
-                    {t.value && <span className="ml-1 text-[10px] opacity-70">{typeCount(t.value)}</span>}
-                  </button>
-                ))}
-              </div>
-              <select className={`field py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`} value={year} onChange={(e) => setYear(e.target.value)}>
-                <option value="">Toutes les années ({except('year').length})</option>
-                {years.map((y) => (
-                  <option key={y} value={y}>
-                    {y} ({yearCount(y)})
-                  </option>
-                ))}
-              </select>
-              <label className="flex items-center gap-1.5 text-xs">
-                <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
-                Seulement les événements que j’ai créés
-              </label>
-            </div>
-          )}
-          {searching && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {!open &&
-                chips.map((c) => (
-                  <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
-                    {c.label} <span className="text-muted">✕</span>
-                  </button>
-                ))}
-              <button className="text-[11px] font-bold text-muted underline" onClick={resetSearch}>
-                Tout effacer
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      {events.length > 0 && filterUi}
+      {filterTop}
       {searching ? (
         <>
           <div className="section-title mt-1 mb-0">
-            {results.length} résultat{results.length > 1 ? 's' : ''} <span className="text-muted normal-case">(archivés compris)</span>
+            {filterLoading ? 'Chargement…' : `${results.length} résultat${results.length > 1 ? 's' : ''}`} <span className="text-muted normal-case">(archivés compris)</span>
           </div>
           <div className="cols flex flex-col gap-3">
             {results.map((ev) => (
               <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
             ))}
           </div>
-          {!results.length && <Empty>Aucun événement ne correspond.</Empty>}
+          {!results.length && !filterLoading && <Empty>Aucun événement ne correspond.</Empty>}
         </>
       ) : events.length === 0 ? (
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs évaluateurs puissent y noter les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
@@ -295,7 +209,6 @@ function inDays(date: string) {
   return n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : `dans ${n} jours`
 }
 
-type EventStats = { avis: number; players: Set<string> }
 
 /** Archiver (après confirmation : retiré des listes, avis gardés) ou désarchiver. Renvoie false si on renonce. */
 async function toggleArchiveEvent(ev: HBEvent) {
@@ -1049,8 +962,11 @@ export function EventDetail() {
   )
 }
 
-/** Ajout de joueurs : filtres (sexe, club, année, poste, nom), « tout sélectionner » ou un par un. */
-/** Ajout de joueurs à une liste (événement, groupe) : par groupe de filtres ou un par un. */
+/**
+ * Ajout de joueurs à une liste (événement, groupe) : par groupe de filtres ou un par un. Filtres = même éditeur de recette
+ * que la liste Joueurs (src/components/PlayersQuery.tsx : champ « Filtrer ou poser une question… », micro ✨, pastilles,
+ * panneau Filtres ; une phrase AJOUTE aux filtres posés), avec son propre état de session (scope).
+ */
 export function AddPlayers({
   current,
   onAdd,
@@ -1063,7 +979,7 @@ export function AddPlayers({
   scope?: string
 }) {
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
-  const { filtered, ui } = usePlayerFilter(all, scope)
+  const { filtered, ui, top } = usePlayersQuery(all, { dock: false, scope })
   // Dans le panneau de droite (ordinateur), la barre se colle en haut du panneau, qui défile seul.
   const inPanel = !!usePanel()
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -1096,6 +1012,7 @@ export function AddPlayers({
         <div className="text-xs font-extrabold">Ajouter des joueurs</div>
         {ui}
       </div>
+      {top}
 
       <div className={`sticky z-10 flex items-center justify-between gap-2 rounded-lg border border-line bg-bg/95 p-2 backdrop-blur ${inPanel ? 'top-0' : 'top-14 rail:top-11'}`}>
         <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!available.length} onClick={() => void pickAll()}>

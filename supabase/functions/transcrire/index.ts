@@ -17,7 +17,9 @@
 // - POST ?mode=question (JSON) : { phrase, schema, contexte?, actuels? } → { recette, nonGere, action?, retirer?, ms, model,
 //   restant_mois, restant_jour } : contexte « joueurs » (liste Joueurs, filtres = recette) : consignes en plus
 //   (CONSIGNES_JOUEURS) et action rendue (ajouter, retirer, effacer) d'après les NOMS des filtres posés (actuels, jamais leurs
-//   valeurs) ; sans contexte, comme avant. « Poser une
+//   valeurs) ; contextes « evenements » et « groupes » (listes Événements et Groupes, filtres = recette de la page) :
+//   consignes propres (CONSIGNES_EVENEMENTS, CONSIGNES_GROUPES, sans celles des joueurs), même réponse avec action ;
+//   sans contexte, comme avant. « Poser une
 //   question » au bilan de détection (« les joueuses 2011 vues une seule fois cette saison, par département »). Le modèle
 //   (MISTRAL_MODELE_QUESTION, mistral-small-latest par défaut, température 0, JSON) traduit la phrase en RECETTE d'après la
 //   description envoyée par l'appli (src/recipe.ts : clés, opérateurs, valeurs permises). Seuls la phrase et cette
@@ -131,8 +133,10 @@ Deno.serve(async (req) => {
       // Événements et des Groupes, que si leur mode y est : consignes propres à ces pages, champ « page »).
       // « question » : « Poser une question » au bilan de détection (recette calculée par l'appli, POST ?mode=question) ;
       // « sql » : son mode avancé (requête SQLite exécutée par l'appli sur sa copie locale, POST ?mode=sql).
-      // « question_joueurs » : « question » comprend aussi le contexte de la liste Joueurs (champ « contexte », action rendue).
-      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'sql'],
+      // « question_joueurs » : « question » comprend aussi le contexte de la liste Joueurs (champ « contexte », action rendue) ;
+      // « question_evenements », « question_groupes » : contextes des listes Événements et Groupes (recette de la page).
+      // « filtres_evenements », « filtres_groupes » : anciens micros de ces pages, gardés pour les versions précédentes.
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql'],
     })
   }
 
@@ -625,6 +629,50 @@ Actuels ["annee"] ; « combien sont-ils par club ? » → {"action":"ajouter","r
 Actuels [] ; « les gauchers vus au moins deux fois, classés par taille » → {"action":"ajouter","recette":{"population":{"lateralite":"gaucher"},"vus":{"op":">=","n":2},"sortie":{"type":"liste","tri":"taille","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
 Actuels ["postes"] ; « peu importe le poste, mais au Pôle » → {"action":"ajouter","recette":{"population":{"pole":"en_cours"}},"retirer":["postes"],"nonGere":[]}`
 
+// Contextes « evenements » et « groupes » : la phrase est dite sur la liste Événements ou Groupes, dont les filtres SONT une
+// recette propre à la page (description envoyée par l'appli : src/eventQuery.ts, src/groupQuery.ts). Même règle que la liste
+// Joueurs : la phrase AJOUTE par défaut. Consignes complètes (celles des joueurs ne sont pas envoyées).
+const CONSIGNES_LISTE = (quoi: string) => `Tu traduis une phrase en français, dite sur la liste ${quoi} d'une appli de détection de handball, en RECETTE JSON d'après le SCHÉMA (clés, valeurs permises). Réponds UNIQUEMENT par un objet JSON :
+{"action":"…","recette":{…},"retirer":[…],"nonGere":[…]}
+RÈGLES
+- Seulement les clés du SCHÉMA ; une clé non dite est omise. Noms de lieux, de personnes, de groupes ou d'événements : recopiés TELS QUE DITS (l'appli les retrouve).
+- "actuels" donne les noms des filtres déjà posés (pas leurs valeurs).
+- "ajouter" (PAR DÉFAUT) : la phrase ajoute ou change des critères ; les filtres actuels restent ; un critère déjà posé prend la nouvelle valeur.
+- "retirer" : seulement si la phrase dit d'enlever (« enlève le type », « peu importe la date ») : clés dans "retirer" (noms de "actuels").
+- "effacer" : seulement si la phrase dit d'effacer ou de recommencer (« efface tout et… », « recommence ») ; la recette donne ce qui suit.
+- Calcul sur la sélection (« combien ? », « combien par mois ? ») : action "ajouter", sortie nombre ou tableau, sans répéter les filtres actuels.
+- Tri (« les plus récents d'abord », « classés par nombre de joueurs ») : sortie liste avec tri et ordre.
+- Ce qui ne rentre dans aucune clé : une courte explication dans "nonGere" (ne l'invente pas en filtre).`
+
+const CONSIGNES_EVENEMENTS = `${CONSIGNES_LISTE('Événements (matchs, tournois, entraînements, observations)')}
+- Dates : periode relative (a_venir, passes, ce_mois, cette_saison, saison_derniere) ou {"annee"}, {"mois":"AAAA-MM"}, {"du","au"} d'après "aujourdhui". La saison va du 1er septembre au 31 août.
+- « mes événements », « les miens » : mes = les_miens ; « ceux que j'ai créés » : crees ; « où je participe » : participant.
+EXEMPLES (contexte evenements)
+Actuels [] ; « les tournois de cette saison » → {"action":"ajouter","recette":{"types":["tournoi"],"periode":"cette_saison"},"retirer":[],"nonGere":[]}
+Actuels ["types"] ; « à venir dans le Var » → {"action":"ajouter","recette":{"periode":"a_venir","departements":["Var"]},"retirer":[],"nonGere":[]}
+Actuels ["types","periode"] ; « combien par mois ? » → {"action":"ajouter","recette":{"sortie":{"type":"tableau","par":"mois"}},"retirer":[],"nonGere":[]}
+Actuels ["periode"] ; « seulement les miens avec une feuille de match » → {"action":"ajouter","recette":{"mes":"les_miens","feuilleDeMatch":true},"retirer":[],"nonGere":[]}
+Actuels ["types","lieux"] ; « enlève le lieu » → {"action":"retirer","recette":{},"retirer":["lieux"],"nonGere":[]}
+Actuels ["types"] ; « efface tout et montre les matchs entre mars et mai 2025 » → {"action":"effacer","recette":{"types":["match"],"periode":{"du":"2025-03-01","au":"2025-05-31"}},"retirer":[],"nonGere":[]}
+Actuels [] ; « ceux avec au moins 20 joueurs et des joueurs à revoir, les plus récents d'abord » → {"action":"ajouter","recette":{"joueurs":{"op":">=","n":20},"aRevoir":true,"sortie":{"type":"liste","tri":"date","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
+Actuels ["periode"] ; « les observations de la génération 2011 créées par Paul » → {"action":"ajouter","recette":{"types":["observation"],"generation":2011,"createurs":["Paul"]},"retirer":[],"nonGere":[]}`
+
+const CONSIGNES_GROUPES = `${CONSIGNES_LISTE('Groupes (listes de joueurs : Intercomités, Pôle, sélections…)')}
+- Visibilité : prive (moi seul), mon_staff, tout_le_staff. Niveau : federation, ligue, comite. Une ligue est une région, un comité un département.
+- « mes groupes » : mes = les_miens ; « ceux que j'ai créés » : crees ; « où je participe » : participant ; « que je suis » : suivis.
+EXEMPLES (contexte groupes)
+Actuels [] ; « les groupes de filles du Var » → {"action":"ajouter","recette":{"sexe":"F","comites":["Var"]},"retirer":[],"nonGere":[]}
+Actuels ["sexe"] ; « ceux de 2011 » → {"action":"ajouter","recette":{"annees":[2011]},"retirer":[],"nonGere":[]}
+Actuels ["sexe","annees"] ; « combien par comité ? » → {"action":"ajouter","recette":{"sortie":{"type":"tableau","par":"comite"}},"retirer":[],"nonGere":[]}
+Actuels ["comites"] ; « peu importe le comité, seulement les groupes privés » → {"action":"ajouter","recette":{"visibilite":["prive"]},"retirer":["comites"],"nonGere":[]}
+Actuels ["sexe","comites"] ; « enlève le sexe » → {"action":"retirer","recette":{},"retirer":["sexe"],"nonGere":[]}
+Actuels ["annees"] ; « efface tout et montre les groupes que je suis » → {"action":"effacer","recette":{"suivis":true},"retirer":[],"nonGere":[]}
+Actuels [] ; « mes groupes de plus de 15 joueurs, classés par nombre de joueurs » → {"action":"ajouter","recette":{"mes":"les_miens","joueurs":{"op":">","n":15},"sortie":{"type":"liste","tri":"joueurs","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
+Actuels [] ; « les groupes de ligue créés par Paul en Bretagne » → {"action":"ajouter","recette":{"niveau":"ligue","createurs":["Paul"],"ligues":["Bretagne"]},"retirer":[],"nonGere":[]}`
+
+/** Consignes de chaque contexte de liste (« joueurs » : en plus des consignes de la recette des joueurs). */
+const CONTEXTES: Record<string, string> = { joueurs: CONSIGNES_JOUEURS, evenements: CONSIGNES_EVENEMENTS, groupes: CONSIGNES_GROUPES }
+
 async function questionRecette(
   req: Request,
   db: Db,
@@ -645,9 +693,11 @@ async function questionRecette(
   const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
   if (!phrase) return json({ error: 'phrase_absente' }, 400)
   if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
-  // Liste Joueurs : noms des filtres posés seulement (mots courts), jamais leurs valeurs.
-  const joueurs = entree.contexte === 'joueurs'
-  const actuels = joueurs && Array.isArray(entree.actuels)
+  // Listes Joueurs, Événements, Groupes : noms des filtres posés seulement (mots courts), jamais leurs valeurs.
+  // Contexte inconnu (version future de l'appli) : comme sans contexte.
+  const contexte = typeof entree.contexte === 'string' && Object.hasOwn(CONTEXTES, entree.contexte) ? entree.contexte : ''
+  const joueurs = contexte === 'joueurs'
+  const actuels = contexte && Array.isArray(entree.actuels)
     ? entree.actuels.filter((k): k is string => typeof k === 'string' && /^[A-Za-z]{1,30}$/.test(k)).slice(0, MAX_ACTUELS_CLES)
     : []
   // Description de la recette : une ligne « clé : valeurs » par clé (textes seulement), rien d'autre.
@@ -676,8 +726,11 @@ async function questionRecette(
       max_tokens: 700,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES_QUESTION}${joueurs ? `\n${CONSIGNES_JOUEURS}` : ''}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
-        { role: 'user', content: joueurs ? `Actuels ${JSON.stringify(actuels)} ; « ${phrase} »` : `« ${phrase} »` },
+        {
+          role: 'system',
+          content: `${contexte && !joueurs ? CONTEXTES[contexte] : `${CONSIGNES_QUESTION}${joueurs ? `\n${CONSIGNES_JOUEURS}` : ''}`}\n\nSCHÉMA (clé : valeurs)\n${schema}`,
+        },
+        { role: 'user', content: contexte ? `Actuels ${JSON.stringify(actuels)} ; « ${phrase} »` : `« ${phrase} »` },
       ],
     }),
   }))
@@ -711,8 +764,8 @@ async function questionRecette(
     .filter((x): x is string => typeof x === 'string' && !!x.trim())
     .map((x) => x.trim().slice(0, 80))
     .slice(0, 10)
-  if (!joueurs) return json({ recette, nonGere, ms, model: modele, ...restants })
-  // Liste Joueurs : action (ajouter par défaut) et noms des filtres à retirer.
+  if (!contexte) return json({ recette, nonGere, ms, model: modele, ...restants })
+  // Listes (Joueurs, Événements, Groupes) : action (ajouter par défaut) et noms des filtres à retirer.
   const action = ['ajouter', 'retirer', 'effacer', 'remplacer'].includes(sortie.action as string) ? sortie.action : 'ajouter'
   const retirer = liste(sortie.retirer).filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 30)).slice(0, 16)
   return json({ recette, nonGere, action, retirer, ms, model: modele, ...restants })

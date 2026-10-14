@@ -1,11 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useGoBack } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
-import { arrowNav, fold, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
+import { arrowNav, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
@@ -33,9 +33,7 @@ import { MQ, useMedia } from '../layout'
 import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
-import { VoiceSearch } from '../components/VoiceSearch'
-import { groupsVoicePage, type GroupsVoice } from '../voicePages'
-import { useVoicePlaces } from '../voicePlaces'
+import { useGroupsQuery } from '../components/GroupsQuery'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -44,85 +42,12 @@ export default function Groups() {
   const teams = useTeams() ?? []
   // Archivés affichés : retrouvé au retour (pendant la session), comme les filtres.
   const [showArchived, setShowArchived] = useSessionState('handbase.groupes.archived', false)
-  const regionName = useRegionName()
-  // Filtres de la liste (gardés pendant la session).
-  const [q, setQ] = useSessionState('handbase.groupes.q', '')
-  const [sex, setSex] = useSessionState('handbase.groupes.sex', '')
-  const [dept, setDept] = useSessionState('handbase.groupes.dept', '')
-  const [region, setRegion] = useSessionState('handbase.groupes.region', '')
-  const [year, setYear] = useSessionState('handbase.groupes.year', '')
-  const [scope, setScope] = useSessionState('handbase.groupes.scope', '')
-  const [open, setOpen] = useSessionState('handbase.groupes.open', false)
-  // Recherche vocale (« micro ✨ ») : portée, garçons / filles, ligue, comité, année, nom (retrouvé ici parmi les groupes,
-  // jamais envoyé) ; schéma : src/voicePages.ts. Bouton seulement si la fonction déployée annonce « filtres_groupes ».
-  const places = useVoicePlaces(useMemo(() => [...new Set((groups ?? []).map((g) => g.department ?? '').filter(Boolean))], [groups]))
-  const voicePage = useMemo(
-    () =>
-      groupsVoicePage({
-        ...places,
-        scopes: GROUP_SCOPES,
-        names: (groups ?? []).map((g) => g.name),
-        years: [...new Set((groups ?? []).flatMap((g) => g.years ?? []))],
-      }),
-    [places, groups],
-  )
+  // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
+  // question… », micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session.
+  const { filtered: shown, active: filtering, ui: filterUi, top: filterTop } = useGroupsQuery(groups)
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const words = fold(q).split(/\s+/).filter(Boolean)
-  // Comme pour les joueurs : chaque menu compte les groupes qui passent tous les AUTRES filtres.
-  const ok = {
-    q: (g: PlayerGroup) => words.every((w) => fold(`${g.name} ${g.description ?? ''} ${g.createdByName ?? ''}`).includes(w)),
-    scope: (g: PlayerGroup) => !scope || g.scope === scope,
-    sex: (g: PlayerGroup) => !sex || g.sex === sex,
-    dept: (g: PlayerGroup) => !dept || g.department === dept,
-    region: (g: PlayerGroup) => !region || g.regionId === region,
-    year: (g: PlayerGroup) => !year || !!g.years?.includes(year),
-  }
-  const except = (k: keyof typeof ok) => groups.filter((g) => (Object.keys(ok) as (keyof typeof ok)[]).every((x) => x === k || ok[x](g)))
-  const shown = except('q').filter(ok.q)
   const active = shown.filter((g) => !g.archived)
   const archived = shown.filter((g) => g.archived)
-  const countBy = (gs: PlayerGroup[], key: (g: PlayerGroup) => (string | undefined)[]) => {
-    const m = new Map<string, number>()
-    for (const g of gs) for (const v of key(g)) if (v) m.set(v, (m.get(v) ?? 0) + 1)
-    return m
-  }
-  const scopeCounts = countBy(except('scope'), (g) => [g.scope])
-  const sexCounts = countBy(except('sex'), (g) => [g.sex])
-  const deptCounts = countBy(except('dept'), (g) => [g.department])
-  const regionCounts = countBy(except('region'), (g) => [g.regionId])
-  const yearCounts = countBy(except('year'), (g) => g.years ?? [])
-  // Départements : seulement ceux de la région choisie (choix en cascade : région, puis département).
-  const depts = [...deptCounts.keys()].filter((d) => !region || regionOfDept(d) === region).sort()
-  const regions = [...regionCounts.keys()].filter((r) => regionName(r)).sort()
-  const years = [...yearCounts.keys()].sort().reverse()
-  const filtering = !!(q || scope || sex || dept || region || year)
-  const clearAll = () => (setQ(''), setScope(''), setSex(''), setDept(''), setRegion(''), setYear(''))
-  const chips = [
-    scope && { label: GROUP_SCOPES.find((x) => x.value === scope)?.label ?? scope, clear: () => setScope('') },
-    region && { label: regionName(region) ?? region, clear: () => (setRegion(''), setDept('')) },
-    sex && { label: SEXES.find((x) => x.value === sex)?.label ?? sex, clear: () => setSex('') },
-    dept && { label: departmentLabel(dept), clear: () => setDept('') },
-    year && { label: year, clear: () => setYear('') },
-  ].filter((c): c is { label: string; clear: () => void } => !!c)
-  const hasInfo = depts.length > 0 || regions.length > 0 || years.length > 0 || groups.some((g) => g.sex || g.scope) || chips.length > 0
-  // Un rang de boutons (Tous + valeurs), chacun avec son nombre de groupes.
-  const seg = (value: string, set: (v: string) => void, opts: readonly { value: string; label: string }[], counts: Map<string, number>, total: number) => (
-    <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-      {[{ value: '', label: 'Tous' }, ...opts].map((x) => {
-        const n = x.value ? (counts.get(x.value) ?? 0) : total
-        return (
-          <button
-            key={x.value}
-            onClick={() => set(x.value)}
-            disabled={!n && value !== x.value}
-            className={`flex-1 py-1.5 disabled:opacity-40 ${value === x.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-          >
-            {x.label} <span className="font-normal opacity-70">{n}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -146,103 +71,8 @@ export default function Groups() {
         événement.
       </p>
       <AllGroupsToggle role={role} />
-      {groups.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <VoiceSearch<GroupsVoice>
-            values={{ q, scope, sex, dept, region, year }}
-            apply={(v) => (setQ(v.q), setScope(v.scope), setSex(v.sex), setDept(v.dept), setRegion(v.region), setYear(v.year))}
-            page={voicePage}
-            input={<input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, description ou créateur" value={q} onChange={(e) => setQ(e.target.value)} />}
-            after={
-              hasInfo && (
-                <button
-                  onClick={() => setOpen(!open)}
-                  className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-                >
-                  Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-                </button>
-              )
-            }
-          />
-          {open && hasInfo && (
-            <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
-              <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Portée</span>
-              {seg(scope, (v) => (setScope(v), v === 'federation' && (setRegion(''), setDept('')), v === 'ligue' && setDept('')), GROUP_SCOPES, scopeCounts, except('scope').length)}
-              {scope !== 'federation' && (
-                <>
-                  <span className="mt-1 text-[10px] font-bold tracking-wider text-muted uppercase">Territoire</span>
-                  <div className={`grid gap-2 ${scope === 'ligue' ? '' : 'grid-cols-2'}`}>
-                    <select
-                      className={`field py-1.5 text-xs ${region ? 'border-accent font-bold' : ''}`}
-                      value={region}
-                      onChange={(e) => (setRegion(e.target.value), dept && regionOfDept(dept) !== e.target.value && setDept(''))}
-                    >
-                      <option value="">Toutes les ligues ({except('region').length})</option>
-                      {regions.map((r) => (
-                        <option key={r} value={r}>
-                          {regionName(r)} ({regionCounts.get(r)})
-                        </option>
-                      ))}
-                    </select>
-                    {scope !== 'ligue' && (
-                      <select
-                        className={`field py-1.5 text-xs ${dept ? 'border-accent font-bold' : ''}`}
-                        value={dept}
-                        onChange={(e) => (setDept(e.target.value), e.target.value && setRegion(regionOfDept(e.target.value) ?? region))}
-                      >
-                        <option value="">{region ? 'Tous ses comités' : 'Tous les comités'} ({except('dept').length})</option>
-                        {depts.map((d) => (
-                          <option key={d} value={d}>
-                            {departmentLabel(d)} ({deptCounts.get(d)})
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </>
-              )}
-              <span className="mt-1 text-[10px] font-bold tracking-wider text-muted uppercase">Garçons / filles</span>
-              {seg(sex, setSex, SEXES, sexCounts, except('sex').length)}
-              {years.length > 0 && (
-                <>
-                  <span className="mt-1 text-[10px] font-bold tracking-wider text-muted uppercase">Année d’âge</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {years.map((y) => (
-                      <button
-                        key={y}
-                        onClick={() => setYear(year === y ? '' : y)}
-                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${year === y ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'}`}
-                      >
-                        {y} <span className="font-normal opacity-70">{yearCounts.get(y)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {!open && (chips.length > 0 || filtering) && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {chips.map((c) => (
-                <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
-                  {c.label} <span className="text-muted">✕</span>
-                </button>
-              ))}
-              <button className="text-[11px] font-bold text-muted underline" onClick={clearAll}>
-                Tout effacer
-              </button>
-            </div>
-          )}
-          {open && filtering && (
-            <button
-              className="self-start text-[11px] font-bold text-muted underline"
-              onClick={clearAll}
-            >
-              Effacer les filtres
-            </button>
-          )}
-        </div>
-      )}
+      {groups.length > 0 && filterUi}
+      {filterTop}
       {!active.length && filtering && <Empty>Aucun groupe ne correspond.</Empty>}
       {!groups.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>

@@ -365,9 +365,9 @@ function DictationSetting() {
         {search && (
           <p className="text-[11px] text-muted">
             Le même bouton (« Filtrer ») se trouve dans le bilan de détection (« les filles de 2011 dans le Var », « depuis
-            toujours », « le club de Toulon »){access?.modes?.includes('filtres_evenements') ? ', dans Événements (« les tournois de 2025 »)' : ''}
-            {access?.modes?.includes('filtres_groupes') ? ' et dans Groupes (« les groupes de filles du Var »)' : ''}. Les noms d’événements, de
-            groupes et de clubs ne sont pas envoyés : ce que vous dites est retrouvé sur l’appareil.
+            toujours », « le club de Toulon »){access?.modes?.includes('question_evenements') ? ' ; le champ « Filtrer ou poser une question… » et son micro ✨, dans Événements (« les tournois de cette saison », « combien par mois ? »)' : ''}
+            {access?.modes?.includes('question_groupes') ? ' et dans Groupes (« les groupes de filles du Var »)' : ''}. Une phrase s’ajoute aux filtres posés ; les noms d’événements, de
+            groupes, de lieux et de clubs ne sont pas envoyés : ce que vous dites est retrouvé sur l’appareil.
           </p>
         )}
         {access?.avis && (

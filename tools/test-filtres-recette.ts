@@ -294,7 +294,7 @@ for (const s of ['nés en 2010', '2010', 'les gauchers', 'quelle est la taille m
 // ---------- 5. Exemples des consignes « joueurs » de la fonction ----------
 {
   const fn = readFileSync(new URL('../supabase/functions/transcrire/index.ts', import.meta.url), 'utf8')
-  const block = fn.slice(fn.indexOf('const CONSIGNES_JOUEURS'), fn.indexOf('async function questionRecette'))
+  const block = fn.slice(fn.indexOf('const CONSIGNES_JOUEURS'), fn.indexOf('const CONSIGNES_LISTE'))
   const lines = [...block.matchAll(/^Actuels (\[[^\]]*\]) ; « (.+?) » → (\{.+\})`?$/gm)]
   assert.ok(lines.length >= 8, 'exemples présents')
   // Une valeur fictive pour chaque clé de « actuels ».
@@ -319,8 +319,8 @@ for (const s of ['nés en 2010', '2010', 'les gauchers', 'quelle est la taille m
     assert.ok(expect[said], `effet attendu de « ${said} »`)
     expect[said](r.qy, r.unsupported)
   }
-  assert.ok(fn.includes("'question', 'question_joueurs', 'sql'"), 'GET : la fonction annonce le contexte joueurs')
-  assert.ok(fn.includes("entree.contexte === 'joueurs'"), 'contexte joueurs seulement sur demande (rétrocompatible)')
+  assert.ok(fn.includes("'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql'"), 'GET : la fonction annonce le contexte joueurs')
+  assert.ok(fn.includes("Object.hasOwn(CONTEXTES, entree.contexte)") && fn.includes("const joueurs = contexte === 'joueurs'"), 'contexte joueurs seulement sur demande (rétrocompatible)')
 }
 
 // ---------- 6. Équivalence des filtres rapides avec l'ancien PlayerFilter ----------

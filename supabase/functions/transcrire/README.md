@@ -119,9 +119,9 @@ retrouve parmi ses données et revérifie chaque valeur.
   génération, période « Cette saison / Depuis toujours », région, département, club, vue carte / générations) : marchent
   aussi avec la version déjà déployée (consignes de la liste Joueurs, mêmes clés) ; la nouvelle version a des exemples
   propres au bilan.
-- **Événements** (type, année, « mes événements », nom ou lieu) et **Groupes** (portée, garçons / filles / mixte, ligue,
-  comité, année d'âge, nom) : le bouton n'apparaît **qu'après le redéploiement** (l'appli attend `filtres_evenements` /
-  `filtres_groupes` dans `modes`).
+- **Événements** et **Groupes** : leurs filtres sont maintenant une recette (section 10, contextes `evenements` et
+  `groupes` de `?mode=question`). Les consignes « filtres » de ces pages (`page: evenements | groupes`) restent dans la
+  fonction pour les versions précédentes de l'appli (`filtres_evenements`, `filtres_groupes` toujours annoncés).
 - Test (sans appel réseau) : `npx jiti tools/test-recherche-vocale-pages.ts` (chaque exemple des consignes de chaque
   page est accepté par l'appli et a l'effet attendu ; rien d'autre que la phrase, le schéma et les filtres actifs n'est envoyé).
 
@@ -281,3 +281,33 @@ Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL 
 ```sh
 npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 ```
+
+### Listes Événements et Groupes : même expérience (contextes `evenements` et `groupes`)
+
+Les listes Événements et Groupes ont le même champ « Filtrer ou poser une question… », le même micro ✨, les mêmes pastilles
+et la même règle (une phrase **ajoute** à la sélection ; effacer ou retirer seulement si c'est dit ; « Annuler » ; ligne
+« Ajouté : … — Remplacé : … — Retiré : … »), avec une recette propre à chaque liste (`src/listQuery.ts`,
+`src/eventQuery.ts`, `src/groupQuery.ts`, écran `src/components/ListQuery.tsx`). Le panneau « Ajouter des joueurs » d'un
+événement ou d'un groupe a les filtres de la liste Joueurs (contexte `joueurs`, état propre).
+
+- **Événements** : types, période (`a_venir`, `passes`, `ce_mois`, `cette_saison`, `saison_derniere`, une année, un mois,
+  `{du, au}`), lieux, départements, régions, `mes` (les miens / créés / participant), créateurs, feuille de match, vidéo,
+  nombre de joueurs, nombre d'avis, joueurs « à revoir », génération des joueurs ; tri (date, joueurs, avis, nom) ; calcul
+  (nombre, tableau par type, mois, année, saison, lieu, département, région, créateur). Lieu (département) d'un
+  événement : écrit dans le lieu (« (83) », code postal), sinon celui de la plupart de ses joueurs.
+- **Groupes** : visibilité (privé, mon staff, tout le staff), niveau (fédération, ligue, comité), garçons / filles /
+  mixte, ligues, comités, années d'âge, `mes`, suivis, créateurs, nombre de joueurs ; tri (nom, joueurs, dernière
+  modification) ; calcul (nombre, tableau par visibilité, niveau, sexe, ligue, comité, année, créateur).
+- Requête : `POST ?mode=question`, JSON `{ phrase, schema, contexte: "evenements" | "groupes", actuels }` ; `schema` :
+  description de la recette de la page (clés, valeurs permises, date du jour) ; `actuels` : **noms** des filtres posés.
+  **Aucune donnée** : ni noms d'événements, de groupes, de lieux ou de personnes (recopiés tels que dits, retrouvés par
+  l'appli), ni valeurs des filtres. La fonction prend alors `CONSIGNES_EVENEMENTS` ou `CONSIGNES_GROUPES` (règles
+  communes + 8 exemples chacune), **sans** les consignes de la recette des joueurs. Réponse : comme le contexte `joueurs`
+  (`recette`, `nonGere`, `action`, `retirer`).
+- Le GET annonce `question_evenements` et `question_groupes` dans `modes`. Tant que la fonction déployée ne les annonce
+  pas, ces pages gardent le champ (recherche locale), les pastilles et le panneau Filtres, **sans micro**.
+- Test (sans appel réseau) : `npx jiti tools/test-filtres-recette-pages.ts` (mêmes résultats que les anciens filtres,
+  fusion, calculs, nom ou phrase, chaque exemple des consignes relu avec l'effet attendu, rien d'autre que les noms des
+  filtres ne part).
+
+Redéploiement nécessaire pour le micro d'Événements et de Groupes (même commande que ci-dessus).

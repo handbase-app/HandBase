@@ -358,15 +358,20 @@ export function decideAction(model: unknown, phrase: string): QueryAction {
  * poste », « sans l'année » (chaque mot après le verbe est un filtre connu). null : la phrase part au modèle.
  */
 export function localQueryCommand(phrase: string): { action: 'effacer' } | { action: 'retirer'; keys: FilterKey[] } | null {
+  return localCommandWith(phrase, keysOfWord)
+}
+
+/** Même lecture pour une autre liste (Événements, Groupes : src/listQuery.ts), avec ses propres mots de filtres. */
+export function localCommandWith<K extends string>(phrase: string, keysOf: (w: string) => K[]): { action: 'effacer' } | { action: 'retirer'; keys: K[] } | null {
   if (localCommand(phrase) === 'effacer') return { action: 'effacer' }
   const n = normalize(phrase)
   const m = /^(?:(?:alors|bon|ok|et) )*(?:enleve|enlever|retire|retirer|supprime|supprimer|oublie|peu importe|sans)(?: le| la| les| l| filtre| filtres| condition| conditions| de| du| des| d| sur| par| mon| ma| mes)*((?: [a-z]+)+?)(?: s il (?:te|vous) plait| stp| svp| merci)?$/.exec(n)
   if (!m) return null
   const parts = m[1].trim().split(/ (?:et|ni|ou|puis) | /).filter((w) => w && !['le', 'la', 'les', 'l', 'de', 'du', 'des', 'd', 'filtre', 'filtres', 'aussi'].includes(w))
   if (!parts.length || parts.length > 4) return null
-  const keys = new Set<FilterKey>()
+  const keys = new Set<K>()
   for (const w of parts) {
-    const ks = keysOfWord(w)
+    const ks = keysOf(w)
     if (!ks.length) return null
     for (const k of ks) keys.add(k)
   }

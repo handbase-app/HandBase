@@ -7,9 +7,10 @@ import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, 
 
 /*
  * Recherche en langage naturel (essai) : « tous les joueurs nés en 2010 qui mesurent plus d'1 m 80 », puis « ajoute le Var »,
- * « enlève la taille », « efface la sélection ». Même bouton sur chaque page qui a des filtres (Joueurs,
- * bilan de détection — libellé « Filtrer », la page ayant aussi « Poser une question » —, Événements, Groupes) : la page décrit ses filtres (`page` : schéma, filtres actifs, relecture ;
- * src/voiceSearch.ts, src/voicePages.ts) et les applique (`apply`).
+ * « enlève la taille », « efface la sélection ». Ne sert plus qu'au bilan de détection (libellé « Filtrer », la page ayant
+ * aussi « Poser une question ») : les listes Joueurs, Événements et Groupes ont leurs filtres en recette, avec le champ
+ * « Filtrer ou poser une question… » (src/components/PlayersQuery.tsx, src/components/ListQuery.tsx). La page décrit ses
+ * filtres (`page` : schéma, filtres actifs, relecture ; src/voicePages.ts) et les applique (`apply`).
  *  - un seul bouton « micro ✨ » à côté de « Rechercher… » : un appui, on dicte (Voxtral, comme les commentaires), un nouvel
  *    appui (ou relâcher après l'avoir maintenu) arrête ; la phrase transcrite est appliquée aux filtres directement. Pas de
  *    phrase tapée : pour taper, il y a les filtres (le champ « Rechercher… » reste la recherche par nom) ;
@@ -21,7 +22,7 @@ import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, 
  *    filtres d'avant ;
  *  - recherche seulement, aucune action sur les joueurs, les événements ou les groupes.
  * Disponibilité : celle de la dictée (useDictation().searchReady : administrateurs pendant l'essai, fonction présente et
- * à jour, réglage activé) ; une page qui demande un mode (`page.mode`, ex. « filtres_evenements ») attend en plus que la
+ * à jour, réglage activé) ; une page qui demande un mode (`page.mode`) attend en plus que la
  * fonction déployée l'annonce. Sinon, la ligne de recherche habituelle.
  */
 
