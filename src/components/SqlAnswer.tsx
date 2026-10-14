@@ -6,8 +6,8 @@ import { saveSqlQuestion } from '../savedQuestions'
 import { holdMirror, runSql, SqlRunError, type SqlResult } from '../sqlClient'
 import { cleanSqlSpec, columnLabel, guardSql, type SqlSpec } from '../sqlGuard'
 import { buildSqlSchema, type MirrorInput } from '../sqlMirror'
-import { logAdvancedQuestion, type AdvancedTrace } from '../questionLog'
-import type { QuestionStatus } from '../questionLogCore'
+import { logQuestion, type QuestionTrace } from '../questionLog'
+import type { AdvancedStatus, RecipeStatus } from '../questionLogCore'
 import { FollowStar } from './Follow'
 import { PlayerRow } from './PlayerRow'
 import { Empty, Icon, SectionTitle } from './ui'
@@ -91,11 +91,14 @@ export function useSqlResult(spec: SqlSpec | null, source: MirrorSource) {
 const isNegative = (s: string) => /pas retenu|mauvais|faible/i.test(s)
 
 /** Statut du journal pour une erreur qui interrompt le mode avancé. */
-function failStatus(e: unknown): QuestionStatus {
-  if (e instanceof SqlRunError) return e.kind === 'delai' ? 'delai' : e.kind === 'invalide' ? 'refuse' : 'erreur'
+function failStatus(e: unknown): AdvancedStatus {
+  if (e instanceof SqlRunError) return e.kind === 'delai' ? 'delai' : e.kind === 'invalide' ? 'refus' : 'erreur'
   if (e instanceof DictationError) return e.code === 'annule' ? 'annule' : e.code === 'reseau' ? 'reseau' : 'erreur'
   return 'erreur'
 }
+
+/** Ce qu'avait fait la recette avant le mode avancé (pour le journal des questions). */
+export type RecipeInfo = { recipe: RecipeStatus; missing?: string[] }
 
 export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof buildSqlSchema>[0]['criteria'], zoneOf?: (c: string) => string | null | undefined) {
   const [busy, setBusy] = useState(false)
@@ -105,10 +108,10 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
   useEffect(() => holdMirror(), [])
 
   /**
-   * Requête prête (essayée sur la copie), ou null (message dans `error`). how et recipeMissing (ce que la recette n'a pas su
-   * faire) : pour le journal des questions avancées (src/questionLog.ts), qui garde chaque passage, anonymisé.
+   * Requête prête (essayée sur la copie), ou null (message dans `error`). how et recipe (ce qu'avait fait la recette) : pour
+   * le journal des questions (src/questionLog.ts), qui garde chaque question, anonymisée, avec le résultat du mode avancé.
    */
-  async function ask(phrase: string | undefined, how: 'auto' | 'button' = 'button', recipeMissing?: string[]): Promise<SqlSpec | null> {
+  async function ask(phrase: string | undefined, how: 'auto' | 'button' = 'button', recipe: RecipeInfo = { recipe: 'pas_comprise' }): Promise<SqlSpec | null> {
     const said = (phrase ?? '').replace(/\s+/g, ' ').trim()
     if (!said || !source || abort.current) return null
     setBusy(true)
@@ -116,7 +119,7 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
     const ctrl = new AbortController()
     abort.current = ctrl
     // Ce qui part au journal : jamais le résultat, seulement le nombre de lignes.
-    const trace: AdvancedTrace = { how, phrase: said, recipeMissing, status: 'erreur' }
+    const trace: QuestionTrace = { how, phrase: said, recipe: recipe.recipe, recipeMissing: recipe.missing, status: 'erreur' }
     try {
       const schema = buildSqlSchema({ criteria, positions: POSITIONS, zoneOf, today: today() })
       let ans = await sendSqlRequest(said, schema, undefined, ctrl.signal)
@@ -126,14 +129,16 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
         if (ans.nonGere.length) trace.modelMissing = [...new Set([...(trace.modelMissing ?? []), ...ans.nonGere])]
         trace.display = ans.affichage
         if (!ans.sql.trim()) {
-          trace.status = 'sans_requete'
+          // Pas de requête proposée (le modèle dit ne pas savoir) : un refus.
+          trace.status = 'refus'
+          trace.detail = 'pas de requête proposée'
           const why = ans.nonGere.filter((x) => !isNegative(x)).join(' ; ')
           setError(`Je ne sais pas encore répondre à cette question, même en mode avancé${why ? ` (${why})` : ''}.`)
           return null
         }
         const g = guardSql(ans.sql)
         let problem = g.ok ? '' : g.error
-        trace.status = g.ok ? 'erreur_sql' : 'refuse'
+        trace.status = g.ok ? 'erreur' : 'refus'
         if (g.ok)
           try {
             const res = await runSql(g.sql, source)
@@ -162,7 +167,7 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
     } finally {
       if (abort.current === ctrl) abort.current = null
       setBusy(false)
-      void logAdvancedQuestion(trace, source())
+      void logQuestion(trace, source())
     }
   }
   return { ask, busy, error, cancel: () => abort.current?.abort() }
@@ -185,7 +190,23 @@ export function AdvancedBusy({ heard, onCancel }: { heard?: string; onCancel: ()
 
 // ---------- Explication, requête, enregistrement ----------
 
-export function SqlExplain({ spec, advanced, heard, saved }: { spec: SqlSpec; advanced?: 'auto' | 'button'; heard?: string; saved?: string }) {
+/**
+ * simplified : la recette n'avait appliqué qu'une partie de la question (bascule automatique) ; lien discret vers sa réponse
+ * (« Voir la réponse simplifiée »), avec ce qu'elle n'a pas appliqué.
+ */
+export function SqlExplain({
+  spec,
+  advanced,
+  heard,
+  saved,
+  onSimplified,
+}: {
+  spec: SqlSpec
+  advanced?: 'auto' | 'button'
+  heard?: string
+  saved?: string
+  onSimplified?: () => void
+}) {
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   return (
@@ -197,6 +218,11 @@ export function SqlExplain({ spec, advanced, heard, saved }: { spec: SqlSpec; ad
         {advanced === 'auto' ? ' (la question demandait plus que les réponses habituelles)' : ''} : requête écrite par l’assistant, calculée
         sur une copie des données de cet appareil (rien d’autre n’est envoyé).
       </p>
+      {onSimplified && (
+        <button type="button" className="min-h-9 self-start text-[11px] text-muted underline" onClick={onSimplified}>
+          Voir la réponse simplifiée
+        </button>
+      )}
       <p className="text-xs">
         <b>Ce que j’ai calculé :</b> {spec.explanation}
       </p>

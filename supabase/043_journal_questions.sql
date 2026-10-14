@@ -1,25 +1,37 @@
--- HandBase : journal des questions avancées (« Poser une question », mode avancé).
+-- HandBase : journal des questions (« Poser une question » au bilan de détection).
 -- À exécuter une fois dans Supabase > SQL Editor, APRÈS 042_quota_transcription.sql (base de test d'abord, puis la réelle).
--- Peut être relancé sans risque.
+-- Peut être relancé sans risque (idempotent : create if not exists, create or replace, drop … if exists).
 --
--- Principe : chaque fois que « Poser une question » (bilan de détection) passe en mode avancé (requête SQL écrite par
--- l'assistant, calculée sur l'appareil), l'appli d'un administrateur garde une entrée : la FORME de la question, pour en
--- faire ensuite une recette. L'appli anonymise tout AVANT l'envoi (src/questionLogCore.ts) : prénoms et noms des fiches
+-- Principe : CHAQUE question posée au bilan laisse une entrée (phase de développement), pour écrire ensuite de nouvelles
+-- recettes : la FORME de la question, ce qu'en a fait la recette (complète, partielle, pas comprise) et, si le mode avancé
+-- a été lancé, son résultat. L'appli anonymise tout AVANT l'envoi (src/questionLogCore.ts) : prénoms et noms des fiches
 -- deviennent [prénom] / [nom], les numéros de licence [licence]. Aucun résultat, aucune donnée de joueur n'est envoyé.
+-- L'écran « Poser une question » le dit (« Phase de développement : vos questions peuvent être enregistrées… ») et la page
+-- Confidentialité l'explique (quoi, pourquoi, qui, combien de temps).
 --
 -- 1) Table hb_question_log, sur le modèle des autres tables hb_* (id, data, updated_at_client, deleted,
---    server_updated_at ; signature hb_stamp, journal hb_log, horodatage hb_touch) :
---    { at, authorId, authorName, how, phrase, recipeMissing?, modelMissing?, sql?, sqlRetry?, status, detail?, rows?,
---      display?, recipeDone? }.
---    - Qui la voit : les administrateurs seulement (hb_profiles.role = 'admin', fonction hb_is_admin).
---    - Qui écrit : les administrateurs seulement, via hb_upsert (contenu nettoyé, auteur posé par le serveur) ;
---      « transformée en recette » (recipeDone) et « Vider le journal » (suppression) : tout administrateur.
---    - Lignes supprimées : effacées au bout de 30 jours (hb_purge_deleted, tâche de nuit), comme le reste.
--- 2) hb_summary (journal d'activité) : « Question avancée : « … » ».
--- 3) hb_upsert, hb_purge_deleted : reprises de 041 avec la nouvelle table ; droits des fonctions : reprise de 041 avec
+--    server_updated_at ; horodatage hb_touch, signature hb_stamp) :
+--    { at, authorId, authorName, phrase, recipe (complete | partielle | pas_comprise), recipeMissing?, how? (auto | button),
+--      status? (ok | erreur | refus | delai | reseau | annule), modelMissing?, sql?, sqlRetry?, detail?, rows?, display?,
+--      recipeDone? }.
+-- 2) DROITS
+--    - ÉCRITURE : tout compte qui peut poser une question (administrateur, encadrant), via hb_upsert seulement : il CRÉE ses
+--      propres lignes ; l'auteur (authorId, authorName) est posé par le serveur, jamais lu de l'appareil. Un encadrant ne
+--      modifie ni ne supprime aucune ligne (pas même la sienne) ; le renvoi d'une ligne déjà reçue (réponse perdue) est sans
+--      effet. Observateur, compte sans rôle : rien.
+--    - LECTURE : administrateurs seulement (règle de lecture, hb_is_admin). Un encadrant ne relit JAMAIS le journal, pas même
+--      ses lignes (l'appli ne synchronise d'ailleurs pas cette table vers son appareil : envoi seulement, src/sync.ts).
+--    - Case « transformée en recette » (recipeDone) et « Vider le journal » (suppression) : administrateurs seulement ; le
+--      contenu d'une entrée ne change plus après sa création.
+--    - Aucun droit direct sur la table (ni insert, ni update, ni delete) : tout passe par hb_upsert.
+-- 3) CONSERVATION : 12 mois. La tâche de nuit (hb_purge_deleted, 028) efface les entrées de plus de 12 mois (date de
+--    création sur le serveur) ; « Vider le journal » (administrateur) les supprime tout de suite, effacées au bout de
+--    30 jours comme le reste. Effacer = ne garder que l'identifiant (les appareils des administrateurs l'oublient aussi).
+-- 4) Pas de ligne dans l'historique (hb_audit) ni de diffusion en direct pour cette table : le journal est lui-même un
+--    relevé (et l'historique garderait les phrases au-delà de 12 mois).
+-- 5) hb_upsert et hb_purge_deleted : reprises de 041 avec la nouvelle table ; droits des fonctions : reprise de 041 avec
 --    hb_is_admin (appelée par la règle de lecture).
--- Tant que ce script n'est pas passé, l'appli garde les entrées sur l'appareil (file d'envoi) et les envoie ensuite.
--- Droits : lecture seule pour les administrateurs connectés (comme 040), écritures uniquement via hb_upsert.
+-- Tant que ce script n'est pas passé, l'appli garde les entrées dans sa file d'envoi et les envoie ensuite.
 
 -- ---------- Table ----------
 
@@ -43,6 +55,7 @@ $$;
 
 drop policy if exists "admin_read" on public.hb_question_log;
 create policy "admin_read" on public.hb_question_log for select to authenticated using ((select public.hb_is_admin()));
+-- Ni insertion, ni modification, ni suppression directes : seulement hb_upsert (security definer).
 revoke all on public.hb_question_log from public, anon, authenticated;
 grant select on public.hb_question_log to authenticated;
 
@@ -53,47 +66,12 @@ begin
     create trigger hb_touch before insert or update on public.hb_%1$s for each row execute function public.hb_touch();
     drop trigger if exists hb_stamp on public.hb_%1$s;
     create trigger hb_stamp before insert or update on public.hb_%1$s for each row execute function public.hb_stamp();
-    drop trigger if exists hb_log on public.hb_%1$s;
-    create trigger hb_log after insert or update or delete on public.hb_%1$s for each row execute function public.hb_log();', t);
-  -- Diffusion en direct possible (la règle de lecture s'applique ; l'appli relit de toute façon chaque minute).
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
-     and not exists (select 1 from pg_publication_tables
-                      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'hb_' || t) then
-    execute format('alter publication supabase_realtime add table public.hb_%1$s', t);
+    drop trigger if exists hb_log on public.hb_%1$s;', t);
+  -- Pas de diffusion en direct (version précédente de ce script) : retirée si elle avait été posée.
+  if exists (select 1 from pg_publication_tables
+              where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'hb_' || t) then
+    execute format('alter publication supabase_realtime drop table public.hb_%1$s', t);
   end if;
-end $$;
-
--- ---------- Journal : de quoi parle une ligne (reprise de 041) ----------
-
-create or replace function public.hb_summary(p_table text, p_data jsonb) returns text
-language plpgsql stable security definer set search_path = public as $$
-begin
-  return case p_table
-    when 'players' then trim(upper(coalesce(p_data ->> 'lastName', '')) || ' ' || coalesce(p_data ->> 'firstName', ''))
-    when 'events' then p_data ->> 'name'
-    when 'criteria' then p_data ->> 'label'
-    when 'measurements' then coalesce(public.hb_player_name(p_data ->> 'playerId'), '?') || ' — '
-      || coalesce(p_data ->> 'criterionId', '?') || ' = ' || coalesce(p_data ->> 'value', '?') || ' (' || coalesce(p_data ->> 'date', '') || ')'
-    when 'evaluations' then coalesce(p_data ->> 'observer', '?') || ' → '
-      || coalesce(public.hb_player_name(p_data ->> 'playerId'), '?')
-    when 'groups' then p_data ->> 'name'
-    when 'lists' then p_data ->> 'name'
-    when 'alerts' then p_data ->> 'name'
-    when 'referents' then trim(coalesce(p_data ->> 'firstName', '') || ' ' || coalesce(p_data ->> 'lastName', '')) || ' → '
-      || coalesce(public.hb_player_name(p_data ->> 'playerId'), '?')
-    -- 036 : « Vidéo « J3 contre Nîmes » → DUPONT Jean ».
-    when 'videos' then 'Vidéo' || coalesce(' « ' || (p_data ->> 'title') || ' »', '') || ' → '
-      || coalesce(case p_data ->> 'targetKind'
-           when 'player' then public.hb_player_name(p_data ->> 'targetId')
-           when 'event' then (select e.data ->> 'name' from public.hb_events e where e.id = p_data ->> 'targetId') end, '?')
-    -- 041 : « Vu : DUPONT Jean → Tournoi de l'Espenon », « À revoir : DUPONT Jean ».
-    when 'seen' then 'Vu : ' || coalesce(public.hb_player_name(p_data ->> 'playerId'), '?') || ' → '
-      || coalesce((select e.data ->> 'name' from public.hb_events e where e.id = p_data ->> 'eventId'), '?')
-    when 'rewatch' then 'À revoir : ' || coalesce(public.hb_player_name(p_data ->> 'playerId'), '?')
-    -- 043 : « Question avancée : « combien s'appellent [prénom] » » (phrase déjà anonymisée par l'appli).
-    when 'question_log' then 'Question avancée : « ' || coalesce(left(p_data ->> 'phrase', 80), '?') || ' »'
-    else null
-  end;
 end $$;
 
 -- ---------- Écritures (reprise de 041) ----------
@@ -161,6 +139,17 @@ begin
     end if;
     execute format('select data, deleted, updated_at_client from public.hb_%1$s where id = $1', p_table)
       into v_existing, v_existing_deleted, v_existing_ts using r ->> 'id';
+
+    -- 043 : journal des questions : un compte qui n'est pas administrateur ne fait que CRÉER ses lignes. Renvoi d'une de ses
+    -- lignes déjà reçue (réponse perdue) : sans effet et pas refusée (il ne pourrait pas relire la version du serveur) ;
+    -- modification, suppression, ligne d'un autre : refusées.
+    if p_table = 'question_log' and v_role <> 'admin' and v_existing is not null then
+      if not v_deleting and v_existing ->> 'authorId' = v_uid::text then
+        continue;
+      end if;
+      v_rejected := v_rejected || to_jsonb(r ->> 'id');
+      continue;
+    end if;
 
     -- Ligne supprimée ou effacée sur le serveur.
     if v_existing is not null and (v_existing_deleted or coalesce((v_existing ->> 'purged')::boolean, false)) then
@@ -316,44 +305,52 @@ begin
       end if;
     end if;
 
-    -- 043 : journal des questions avancées (administrateurs seulement, voir plus bas). Rien d'autre n'est gardé que :
-    -- moment (at, envoyé par l'appareil, sinon l'heure du serveur ; fixé à la création), auteur (compte et nom du profil,
-    -- posés par le serveur à la création), how (auto | button), phrase (300 caractères), recipeMissing et modelMissing
-    -- (10 textes de 200 caractères au plus), sql et sqlRetry (4 200 caractères, sans caractère de contrôle hors retours à
-    -- la ligne et tabulations), status (valeurs connues), detail (300), rows (entier 0 à 100 000), display (20), recipeDone
-    -- (true ou absent). L'appli anonymise phrase, textes et requêtes avant l'envoi ; aucun résultat n'est jamais envoyé.
+    -- 043 : journal des questions. Une NOUVELLE entrée ne garde que : moment (at, envoyé par l'appareil s'il est valable,
+    -- sinon l'heure du serveur), auteur (compte et nom du profil, posés par le serveur), phrase (300 caractères), recipe
+    -- (complete | partielle | pas_comprise), recipeMissing et modelMissing (10 textes de 200 caractères au plus), how
+    -- (auto | button) et status (ok | erreur | refus | delai | reseau | annule) du mode avancé, sql et sqlRetry (4 200
+    -- caractères, sans caractère de contrôle hors retours à la ligne et tabulations), detail (300), rows (entier 0 à
+    -- 100 000), display (20), recipeDone (true ou absent ; administrateur seulement). L'appli anonymise phrase, textes et
+    -- requêtes avant l'envoi ; aucun résultat n'est jamais envoyé.
+    -- Entrée EXISTANTE (administrateur) : seule la case « transformée en recette » change, le reste est celui enregistré.
     -- Suppression (« Vider le journal ») : le contenu enregistré reste tel quel jusqu'à l'effacement (hb_purge_deleted).
     if p_table = 'question_log' then
       if v_deleting and v_existing is not null then
         v_data := (v_existing - 'deleted') || jsonb_build_object('updatedAt', v_data -> 'updatedAt', 'deleted', true);
+      elsif v_existing is not null then
+        v_data := (v_existing - 'recipeDone' - 'updatedAt' - 'deleted')
+          || jsonb_strip_nulls(jsonb_build_object(
+               'recipeDone', case when v_data -> 'recipeDone' = 'true'::jsonb then true end,
+               'updatedAt', v_data -> 'updatedAt'));
       else
         v_data := jsonb_strip_nulls(jsonb_build_object(
           'id', r ->> 'id',
-          'at', coalesce(v_existing -> 'at',
-                         case when v_data ->> 'at' ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$'
+          'at', coalesce(case when v_data ->> 'at' ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$'
                               then v_data -> 'at' end,
                          to_jsonb(now())),
-          'authorId', coalesce(v_existing -> 'authorId', to_jsonb(v_uid)),
-          'authorName', coalesce(v_existing -> 'authorName', to_jsonb(v_name)),
-          'how', case when v_data ->> 'how' in ('auto', 'button') then v_data ->> 'how' end,
+          'authorId', to_jsonb(v_uid),
+          'authorName', to_jsonb(v_name),
           'phrase', left(nullif(btrim(regexp_replace(v_data ->> 'phrase', '[[:cntrl:]]+', ' ', 'g')), ''), 300),
+          'recipe', case when v_data ->> 'recipe' in ('complete', 'partielle', 'pas_comprise') then v_data ->> 'recipe' end,
           'recipeMissing', (select jsonb_agg(s.t order by s.o) from (
                               select left(nullif(btrim(regexp_replace(x.v, '[[:cntrl:]]+', ' ', 'g')), ''), 200) as t, x.o
                                 from jsonb_array_elements_text(public.hb_arr(v_data -> 'recipeMissing')) with ordinality x(v, o)
                                order by x.o limit 10) s where s.t is not null),
+          'how', case when v_data ->> 'how' in ('auto', 'button')
+                       and v_data ->> 'status' in ('ok', 'erreur', 'refus', 'delai', 'reseau', 'annule') then v_data ->> 'how' end,
+          'status', case when v_data ->> 'status' in ('ok', 'erreur', 'refus', 'delai', 'reseau', 'annule')
+                         then v_data ->> 'status' end,
           'modelMissing', (select jsonb_agg(s.t order by s.o) from (
                               select left(nullif(btrim(regexp_replace(x.v, '[[:cntrl:]]+', ' ', 'g')), ''), 200) as t, x.o
                                 from jsonb_array_elements_text(public.hb_arr(v_data -> 'modelMissing')) with ordinality x(v, o)
                                order by x.o limit 10) s where s.t is not null),
           'sql', left(nullif(btrim(regexp_replace(v_data ->> 'sql', '[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]+', '', 'g')), ''), 4200),
           'sqlRetry', left(nullif(btrim(regexp_replace(v_data ->> 'sqlRetry', '[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]+', '', 'g')), ''), 4200),
-          'status', case when v_data ->> 'status' in ('ok', 'erreur_sql', 'refuse', 'delai', 'reseau', 'sans_requete', 'annule', 'erreur')
-                         then v_data ->> 'status' end,
           'detail', left(nullif(btrim(regexp_replace(v_data ->> 'detail', '[[:cntrl:]]+', ' ', 'g')), ''), 300),
           'rows', case when jsonb_typeof(v_data -> 'rows') = 'number' and (v_data ->> 'rows')::numeric between 0 and 100000
                        then to_jsonb(floor((v_data ->> 'rows')::numeric)::int) end,
           'display', left(nullif(btrim(regexp_replace(v_data ->> 'display', '[[:cntrl:]]+', ' ', 'g')), ''), 20),
-          'recipeDone', case when v_data -> 'recipeDone' = 'true'::jsonb then true end,
+          'recipeDone', case when v_role = 'admin' and v_data -> 'recipeDone' = 'true'::jsonb then true end,
           'updatedAt', v_data -> 'updatedAt', 'deleted', case when v_deleting then true end));
       end if;
     end if;
@@ -403,9 +400,13 @@ begin
 
     v_ok := case
       when v_participant then true
-      -- 043 : journal des questions avancées : administrateurs seulement (lecture comme écriture). Une entrée a toujours
-      -- une phrase et un statut connu (sauf pour la supprimer).
-      when p_table = 'question_log' then v_role = 'admin' and (v_deleting or (v_data ? 'phrase' and v_data ? 'status'))
+      -- 043 : journal des questions : un administrateur crée, coche « transformée en recette » et supprime ; un encadrant
+      -- crée seulement (ses lignes existantes : traitées plus haut). Une entrée a toujours une phrase et un statut de
+      -- recette connu (sauf pour la supprimer). Observateur : rien (il ne pose pas de question).
+      when p_table = 'question_log' then case
+        when v_role = 'admin' then v_deleting or (v_data ? 'phrase' and v_data ? 'recipe')
+        when v_role = 'preparateur' then v_existing is null and not v_deleting and v_data ? 'phrase' and v_data ? 'recipe'
+        else false end
       -- 032 : suivis : chacun les siens, quel que soit son rôle (administrateur compris : il ne voit pas ceux des autres).
       when p_table = 'follows' then v_data ->> 'kind' in ('player', 'group')
         and coalesce(v_data ->> 'targetId', '') <> ''
@@ -659,7 +660,7 @@ begin
   return v_rejected;
 end $$;
 
--- ---------- Effacement définitif des suppressions (reprise de 041, journal des questions compris) ----------
+-- ---------- Effacement définitif des suppressions (reprise de 041, journal des questions compris : 12 mois) ----------
 
 create or replace function public.hb_purge_deleted(p_days int default 30, p_tables text[] default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -673,6 +674,7 @@ declare
   v_t text;
   v_total jsonb := '{}'::jsonb;
   v_notifs integer;
+  v_expired integer;
 begin
   -- Appel depuis l'appli : administrateurs uniquement (le serveur, lui, l'appelle sans compte).
   if v_uid is not null and (select role from public.hb_profiles where user_id = v_uid) is distinct from 'admin' then
@@ -726,6 +728,20 @@ begin
      where g.data -> 'playerIds' ?| v_players;
   end if;
 
+  -- 043 : journal des questions : chaque entrée est effacée au bout de 12 mois (date de création sur le serveur, posée
+  -- par hb_stamp ; à défaut, dernière écriture). Effacée = l'identifiant seul (les appareils l'oublient aussi).
+  if p_tables is null or 'question_log' = any (p_tables) then
+    update public.hb_question_log
+       set data = jsonb_build_object('id', id, 'deleted', true, 'purged', true, 'updatedAt', v_now),
+           deleted = true, updated_at_client = v_now
+     where not coalesce((data ->> 'purged')::boolean, false)
+       and coalesce((data ->> 'createdAtServer')::timestamptz, server_updated_at) < now() - interval '12 months';
+    get diagnostics v_expired = row_count;
+    if v_expired > 0 then
+      v_total := v_total || jsonb_build_object('question_log_12_mois', v_expired);
+    end if;
+  end if;
+
   -- Toutes les lignes supprimées depuis le délai (dont les joueurs ci-dessus).
   foreach v_t in array v_all loop
     continue when p_tables is not null and not (v_t = any (p_tables));
@@ -755,11 +771,12 @@ begin
     insert into public.hb_audit (user_id, user_name, user_role, table_name, row_id, action, summary)
     values (v_uid, case when v_uid is null then 'Serveur (tâche de nuit)' else (select coalesce(full_name, email) from public.hb_profiles where user_id = v_uid) end,
             'admin', 'players', '-', 'suppression définitive',
-            'Effacement des suppressions de plus de ' || p_days || ' jours : '
+            'Effacement des suppressions de plus de ' || p_days || ' jours (journal des questions : plus de 12 mois) : '
               || (select string_agg(value || ' ' || case key when 'players' then 'joueur(s)' when 'measurements' then 'mesure(s)'
                      when 'evaluations' then 'avis' when 'events' then 'événement(s)' when 'groups' then 'groupe(s)'
                      when 'referents' then 'référent(s)' when 'videos' then 'vidéo(s)' when 'seen' then '« vu »'
-                     when 'rewatch' then '« à revoir »' when 'question_log' then 'question(s) avancée(s)'
+                     when 'rewatch' then '« à revoir »' when 'question_log' then 'question(s) du journal (vidé)'
+                     when 'question_log_12_mois' then 'question(s) du journal de plus de 12 mois'
                      else 'alerte(s)' end, ', ') from jsonb_each_text(v_total)));
   end if;
   return v_total;
@@ -792,9 +809,12 @@ begin
   end loop;
 end $$;
 
--- Vérification : table en place (nombre de lignes), hb_upsert la connaît, déclencheurs et règle de lecture posés.
+-- Vérification : table en place (nombre de lignes), hb_upsert et hb_purge_deleted la connaissent, déclencheurs (hb_touch,
+-- hb_stamp ; pas hb_log) et règle de lecture (admin_read, select) posés, aucun droit d'écriture direct.
 select (select count(*) from public.hb_question_log) as questions,
        (select position('question_log' in prosrc) > 0 from pg_proc where proname = 'hb_upsert') as hb_upsert_ok,
-       (select position('question_log' in prosrc) > 0 from pg_proc where proname = 'hb_purge_deleted') as purge_ok;
+       (select position('12 months' in prosrc) > 0 from pg_proc where proname = 'hb_purge_deleted') as purge_12_mois_ok,
+       (select string_agg(privilege_type, ', ' order by privilege_type) from information_schema.role_table_grants
+         where table_schema = 'public' and table_name = 'hb_question_log' and grantee = 'authenticated') as droits_authenticated;
 select tgname as declencheur from pg_trigger where tgrelid = 'public.hb_question_log'::regclass and not tgisinternal order by 1;
 select policyname, cmd, roles from pg_policies where tablename = 'hb_question_log';

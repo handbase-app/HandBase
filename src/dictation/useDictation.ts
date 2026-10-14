@@ -1,7 +1,9 @@
 // Disponibilité de la dictée vocale dans l'appli : un seul point de décision.
 //  1. le rôle : can.dictate(role) (src/roles.ts) ;
 //  2. l'appareil : getUserMedia et MediaRecorder présents ;
-//  3. le serveur : un GET à la fonction « transcrire », une fois par session et par compte (gardé en sessionStorage).
+//  3. le serveur : un GET à la fonction « transcrire » (accès, quotas et MODES connus de la version déployée), gardé en
+//     sessionStorage et RAFRAÎCHI : toutes les 10 minutes, au retour sur l'onglet s'il date de plus de 10 minutes, et tout
+//     de suite quand un appel répond « mode inconnu » (fonction redéployée plus ancienne ou plus récente que l'appli).
 //     Sur un serveur sans la fonction (prod), elle répond « absent » : le bouton ne s'affiche pas, sans message d'erreur ;
 //  4. le réglage de l'appareil « Dictée vocale (essai) » (Réglages), activé par défaut, gardé en localStorage.
 // Sans serveur (mode local, version d'essai) : jamais disponible, aucun appel.
@@ -31,9 +33,11 @@ const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.repla
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 const ACCESS_KEY = 'handbase.dictation.access'
 const SETTING_KEY = 'handbase.dictation'
-/** Réponses gardées pour la session ; les autres (réseau, session expirée) sont redemandées un peu plus tard. */
+/** Réponses gardées (10 minutes, CAPS_TTL) ; les autres (réseau, session expirée) sont redemandées un peu plus tard. */
 const LASTING: AccessStatus[] = ['ok', 'absent', 'pas_admin', 'sans_cle']
 const RETRY_MS = 60_000
+/** Durée de vie des capacités connues (modes de la fonction) : au-delà, redemandées (intervalle, retour sur l'onglet). */
+export const CAPS_TTL = 10 * 60_000
 
 export const recorderSupported = () =>
   typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined'
@@ -63,10 +67,15 @@ export function setDictationEnabled(on: boolean) {
   notify()
 }
 
-function remember(uid: string, value: Access) {
-  access = { uid, value, at: Date.now() }
+/** Réponse encore valable ? (capacités de moins de 10 minutes ; erreur passagère : moins d'une minute) */
+export const accessFresh = (a: { value: Access; at: number } | null, now = Date.now()) =>
+  !!a && now - a.at < (LASTING.includes(a.value.status) ? CAPS_TTL : RETRY_MS)
+
+/** Mise à jour des quotas après un appel : l'âge des capacités ne change pas (elles ne sont pas relues). */
+function remember(uid: string, value: Access, at = Date.now()) {
+  access = { uid, value, at }
   try {
-    if (LASTING.includes(value.status)) sessionStorage.setItem(ACCESS_KEY, JSON.stringify({ uid, value }))
+    if (LASTING.includes(value.status)) sessionStorage.setItem(ACCESS_KEY, JSON.stringify({ uid, value, at }))
     else sessionStorage.removeItem(ACCESS_KEY)
   } catch {
     /* stockage indisponible */
@@ -84,17 +93,20 @@ async function endpoint(): Promise<(Endpoint & { uid: string }) | null> {
   return { url: `${baseUrl}/functions/v1/transcrire`, headers, uid: s.user.id }
 }
 
-/** Demande l'accès au serveur si on ne le connaît pas déjà pour ce compte (une fois par session). */
+/**
+ * Demande l'accès (et les modes) au serveur si on ne le connaît pas pour ce compte ou s'il date de plus de 10 minutes.
+ * Pendant la nouvelle demande, l'ancienne réponse reste affichée (pas de bouton qui disparaît puis revient).
+ */
 function ensureAccess(): Promise<void> {
   pending ??= (async () => {
     try {
       const ep = await endpoint()
       if (!ep) return
-      if (access?.uid === ep.uid && (LASTING.includes(access.value.status) || Date.now() - access.at < RETRY_MS)) return
+      if (access?.uid === ep.uid && accessFresh(access)) return
       try {
-        const saved = JSON.parse(sessionStorage.getItem(ACCESS_KEY) ?? 'null') as { uid: string; value: Access } | null
-        if (saved?.uid === ep.uid && LASTING.includes(saved.value.status)) {
-          access = { ...saved, at: Date.now() }
+        const saved = JSON.parse(sessionStorage.getItem(ACCESS_KEY) ?? 'null') as { uid: string; value: Access; at?: number } | null
+        if (saved?.uid === ep.uid && LASTING.includes(saved.value.status) && typeof saved.at === 'number' && accessFresh({ value: saved.value, at: saved.at })) {
+          access = { uid: saved.uid, value: saved.value, at: saved.at }
           notify()
           return
         }
@@ -109,19 +121,41 @@ function ensureAccess(): Promise<void> {
   return pending
 }
 
+/** Capacités périmées (« mode inconnu » : la fonction déployée n'est pas celle qu'on croyait) : redemandées tout de suite. */
+export function invalidateAccess() {
+  if (access) access = { ...access, at: 0 }
+  try {
+    sessionStorage.removeItem(ACCESS_KEY)
+  } catch {
+    /* stockage indisponible */
+  }
+  void ensureAccess()
+}
+
+/** Erreur d'un appel : accès retiré, quota atteint, mode inconnu (capacités à relire). */
+function afterError(uid: string, e: unknown) {
+  const code = e instanceof DictationError ? e.code : ''
+  const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
+  if (lost[code]) remember(uid, { status: lost[code] })
+  if (code === 'quota_atteint' && access?.uid === uid) remember(uid, { ...access.value, restantMois: 0 }, access.at)
+  if (code === 'mode_inconnu') invalidateAccess()
+}
+
+/** Quotas rendus par un appel réussi. */
+function afterCall(uid: string, r: { restantMois?: number; restantJour?: number }) {
+  if (access?.uid === uid) remember(uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour }, access.at)
+}
+
 /** Envoie le son à la fonction ; met à jour l'accès connu (quotas, accès retiré). Le Blob n'est pas gardé. */
 export async function sendDictation(blob: Blob, seconds: number, signal?: AbortSignal): Promise<Transcript> {
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await transcribe(ep, blob, seconds, signal)
-    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    afterCall(ep.uid, r)
     return r
   } catch (e) {
-    const code = e instanceof DictationError ? e.code : ''
-    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
-    if (lost[code]) remember(ep.uid, { status: lost[code] })
-    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    afterError(ep.uid, e)
     throw e
   }
 }
@@ -132,13 +166,10 @@ export async function sendFilterRequest(phrase: string, schema: unknown, actuels
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandFilters(ep, phrase, schema, actuels, signal, page)
-    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    afterCall(ep.uid, r)
     return r
   } catch (e) {
-    const code = e instanceof DictationError ? e.code : ''
-    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
-    if (lost[code]) remember(ep.uid, { status: lost[code] })
-    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    afterError(ep.uid, e)
     throw e
   }
 }
@@ -164,7 +195,16 @@ export function useDictation() {
     }
   }, [])
   useEffect(() => {
-    if (allowed) void ensureAccess()
+    if (!allowed) return
+    void ensureAccess()
+    // Capacités rafraîchies toutes les 10 minutes, et au retour sur l'onglet si elles datent de plus de 10 minutes.
+    const timer = window.setInterval(() => void ensureAccess(), CAPS_TTL)
+    const onVisible = () => document.visibilityState === 'visible' && void ensureAccess()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [allowed])
   const available = allowed && access?.value.status === 'ok'
   const ready = available && enabled
@@ -192,13 +232,10 @@ export async function sendQuestionRequest(phrase: string, schema: Record<string,
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandQuestion(ep, phrase, schema, signal)
-    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    afterCall(ep.uid, r)
     return r
   } catch (e) {
-    const code = e instanceof DictationError ? e.code : ''
-    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
-    if (lost[code]) remember(ep.uid, { status: lost[code] })
-    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    afterError(ep.uid, e)
     throw e
   }
 }
@@ -209,13 +246,10 @@ export async function sendSqlRequest(phrase: string, schema: Record<string, stri
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandSql(ep, phrase, schema, precedent, signal)
-    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    afterCall(ep.uid, r)
     return r
   } catch (e) {
-    const code = e instanceof DictationError ? e.code : ''
-    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
-    if (lost[code]) remember(ep.uid, { status: lost[code] })
-    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    afterError(ep.uid, e)
     throw e
   }
 }
@@ -226,13 +260,10 @@ export async function sendAvisRequest(texte: string, criteres: AvisCritere[], si
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandAvis(ep, texte, criteres, signal)
-    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    afterCall(ep.uid, r)
     return r
   } catch (e) {
-    const code = e instanceof DictationError ? e.code : ''
-    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
-    if (lost[code]) remember(ep.uid, { status: lost[code] })
-    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    afterError(ep.uid, e)
     throw e
   }
 }

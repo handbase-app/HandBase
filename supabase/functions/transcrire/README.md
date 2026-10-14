@@ -168,18 +168,31 @@ personne depuis septembre »… La **réponse est calculée sur l'appareil** (do
   (vus une fois et déjà bien notés ≥ 3,5 « à confirmer », puis pas encore vus des plus âgés aux plus jeunes, puis les autres
   vus une fois ; règle affichée), tableaux triés par **part vue** (« le plus en retard » : croissante). Les moyennes d'une
   catégorie ou d'une zone ne comptent que les critères qui concernent le poste du joueur.
-- Côté écran : une période n'est ajoutée que pour « vu » (saison en cours par défaut, toujours affichée) ; une question sans
-  population, sans condition ni tri parlant affiche « Je ne sais pas encore répondre à … » avec des exemples, jamais une
-  liste par défaut ; une question comprise en partie affiche la réponse et « Pas pris en compte : … ».
+- **Moyennes de mesures et âge moyen** (`valeur: moyenne_mesure` + `mesure`, `valeur: age_moyen`) : colonne d'un tableau
+  (moyenne, plus petite et plus grande valeur, nombre de mesurés) ou valeur sous un nombre ; tableau **par événement**
+  (`par: evenement` : les joueurs vus à chaque événement, le plus récent d'abord) ; **notes une par une** (`calcul: max`
+  « jamais plus de 3 en défense », `calcul: min` « toujours au moins 3 »).
+- **Pas de substitution** : les consignes interdisent de remplacer une grandeur demandée (taille, âge, poids, mesure) par une
+  moyenne d'avis (sinon `nonGere`) ; l'appli le revérifie sur la phrase (`checkQuantities` dans `src/recipe.ts`) : grandeur
+  dite mais pas calculée, « jamais plus de / toujours au moins » rendu en moyenne → « Pas pris en compte ».
+- Côté écran : une période n'est ajoutée que pour « vu » (saison en cours par défaut, toujours affichée) ; la recette n'est
+  la réponse principale que si elle a **tout** appliqué. Sinon (« Non appliqué », « Pas pris en compte », approximation, pas
+  comprise), **bascule automatique en mode avancé** (section 9) ; sans mode avancé, réponse partielle et bandeau, ou « Je ne
+  sais pas encore répondre à … » avec des exemples, jamais une liste par défaut.
 - Modèle : `mistral-small-latest` (secret facultatif `MISTRAL_MODELE_QUESTION`), température 0, réponse JSON ; consignes
-  courtes en français avec 25 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 11 100 caractères avec la description).
+  courtes en français avec 30 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 13 200 caractères avec la description).
 - Recherche par prénom ou nom (« combien de joueurs s'appellent Lucas » → `population.noms`, cherché sans accents, mots
   entiers du prénom ou du nom) ; tri des tableaux par nombre (« quel club a le plus de pivots gauchers » → `tri: compte`).
 - Mêmes garde-fous : administrateur connecté, JWT, un appel compté (`hb_transcription_compter`), relance sur 429, ni la
-  phrase ni la réponse journalisées. Erreurs en plus : `phrase_absente`, `phrase_trop_longue`, `schema_invalide`,
-  `reponse_illisible`.
+  phrase ni la réponse journalisées par la fonction. Erreurs en plus : `phrase_absente`, `phrase_trop_longue`,
+  `schema_invalide`, `reponse_illisible` ; `mode_inconnu` (400) pour un `?mode=` que la version déployée ne connaît pas.
 - Le GET annonce `question` dans `modes` : le bouton n'apparaît qu'avec une fonction qui le connaît (et pour les
-  administrateurs, réglage de dictée activé). Les questions enregistrées (« Mes questions ») se relancent sans appel.
+  administrateurs, réglage de dictée activé). L'appli **relit les modes toutes les 10 minutes**, au retour sur l'onglet
+  s'ils datent de plus de 10 minutes, et tout de suite après un `mode_inconnu` : après un redéploiement, plus besoin de se
+  reconnecter. Les questions enregistrées (« Mes questions ») se relancent sans appel.
+- Journal des questions (appli, pas la fonction) : chaque question est notée **anonymisée sur l'appareil** (phrase, ce
+  qu'a fait la recette, résultat du mode avancé, jamais la réponse) dans `hb_question_log` (`supabase/043_journal_questions.sql` :
+  écriture par tout compte qui peut poser une question, lecture par les administrateurs seulement, effacement après 12 mois).
 - Test (sans appel réseau) : `npx jiti tools/test-questions.ts` (chaque exemple des consignes accepté par l'appli avec
   l'effet attendu, recettes piégées écartées, aucune donnée de joueur envoyée, 40 000 joueurs en moins de 300 ms, liste
   triée sur toute la base comprise).
@@ -190,13 +203,14 @@ Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL 
 npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 ```
 
-Puis se déconnecter et se reconnecter (ou nouvel onglet) : « Poser une question » apparaît dans le bilan de détection.
+« Poser une question » apparaît dans le bilan de détection au plus tard 10 minutes après (ou en revenant sur l'onglet).
 
 ## 9. « Poser une question », mode avancé (`?mode=sql`)
 
-Quand la recette ne sait pas répondre (« Je ne sais pas encore répondre à… »), l'appli bascule **automatiquement** en mode
-avancé (un appel de plus) ; quand elle a répondu en partie (« Pas pris en compte : … »), un bouton « Essayer en mode
-avancé » le propose. Le modèle écrit une **requête SQLite**, que l'appli exécute **uniquement dans le navigateur**, sur une
+Dès que la recette n'a pas tout appliqué (« Non appliqué », « Pas pris en compte », approximation signalée) ou ne comprend
+pas, l'appli bascule **automatiquement** en mode avancé (un appel de plus) : sa réponse devient la réponse principale, avec
+un lien discret « Voir la réponse simplifiée » (la recette partielle). En cas d'échec, la réponse partielle et un bouton
+« Réessayer en mode avancé ». Le modèle écrit une **requête SQLite**, que l'appli exécute **uniquement dans le navigateur**, sur une
 **copie jetable** de ses données locales. **Jamais de SQL sur la base Supabase** ; IndexedDB n'est jamais modifiée.
 
 - Requête : `POST ?mode=sql`, JSON `{ phrase, schema, precedent? }` : la phrase (300 caractères au plus) et la
@@ -220,8 +234,8 @@ avancé » le propose. Le modèle écrit une **requête SQLite**, que l'appli ex
 - Écran : « Réponse en mode avancé », « Ce que j'ai calculé : … », résultat (nombre, joueurs cliquables vers leur fiche avec
   Retour exact, ou tableau), « Voir la requête » ; « Enregistrer cette question » : relancée ensuite sans appel.
 - Mêmes garde-fous : administrateur connecté, JWT, un appel compté par requête (correction comprise,
-  `hb_transcription_compter`), relance sur 429, rien journalisé. Le GET annonce `sql` dans `modes` : sans lui, l'appli
-  garde « Je ne sais pas encore répondre » (rétrocompatible).
+  `hb_transcription_compter`), relance sur 429, rien journalisé par la fonction. Le GET annonce `sql` dans `modes` : sans
+  lui, l'appli garde la réponse partielle et son bandeau, ou « Je ne sais pas encore répondre » (rétrocompatible).
 - Test (sans appel réseau) : `npx jiti tools/test-sql.ts` (copie construite depuis un jeu fictif, contrôle des requêtes,
   chaque exemple des consignes exécuté avec le résultat attendu, 40 000 joueurs, aucune donnée dans ce qui part).
 
@@ -231,4 +245,4 @@ Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL 
 npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 ```
 
-Puis se déconnecter et se reconnecter (ou nouvel onglet) : le mode avancé est proposé dans « Poser une question ».
+Le mode avancé est proposé dans « Poser une question » au plus tard 10 minutes après (ou en revenant sur l'onglet).

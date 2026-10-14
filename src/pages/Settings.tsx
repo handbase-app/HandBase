@@ -188,9 +188,9 @@ export default function Settings() {
               </section>
               )}
           </Fold>
-          {/* Administrateur réel seulement (table réservée aux administrateurs), absent pendant « Voir comme… ». */}
+          {/* Administrateur réel seulement (lecture réservée aux administrateurs), absent pendant « Voir comme… ». */}
           {canUseQuestionLog() && (
-            <Fold id="questions-avancees" icon="message" title="Journal des questions avancées" summary="Questions passées en mode avancé, pour écrire de nouvelles recettes">
+            <Fold id="questions-avancees" icon="message" title="Journal des questions" summary="Questions posées au bilan (ratées, sauvées, comprises), pour écrire de nouvelles recettes">
               <QuestionLogView />
             </Fold>
           )}

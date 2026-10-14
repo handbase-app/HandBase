@@ -114,6 +114,32 @@ export function CharterText() {
   )
 }
 
+/** « Poser une question » au bilan : ce qui est gardé des questions du staff (src/questionLog.ts, supabase/043_journal_questions.sql). */
+export function QuestionsText() {
+  return (
+    <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
+      <p>
+        Pendant la phase de développement, les questions posées au bilan de détection (« Poser une question ») peuvent être
+        enregistrées pour améliorer HandBase.
+      </p>
+      <H>Quoi ?</H>
+      <p>
+        La phrase de la question, rendue anonyme sur l’appareil avant tout envoi : les prénoms et noms de joueurs deviennent
+        [prénom] et [nom], les numéros de licence [licence]. S’y ajoutent le résultat du traitement (question comprise en
+        entier, en partie ou pas comprise ; réponse du mode avancé obtenue ou non, avec la requête écrite par l’assistant, elle
+        aussi rendue anonyme), le moment et l’auteur de la question (son compte). Jamais la réponse elle-même ni aucune donnée de
+        joueur.
+      </p>
+      <H>Pourquoi ?</H>
+      <p>Uniquement pour améliorer les réponses : repérer les questions mal comprises et apprendre à l’appli à y répondre.</p>
+      <H>Qui les voit ?</H>
+      <p>Les administrateurs seulement. Celui qui pose une question ne relit pas ce journal, pas même ses propres questions.</p>
+      <H>Combien de temps ?</H>
+      <p>12 mois au plus : chaque question est effacée automatiquement au bout de 12 mois ; un administrateur peut aussi vider le journal à tout moment.</p>
+    </div>
+  )
+}
+
 /** Page Réglages → Confidentialité. */
 export default function Privacy() {
   const { hash } = useLocation()
@@ -130,6 +156,10 @@ export default function Privacy() {
       <section id="charte" className="card scroll-mt-16 p-4">
         <div className="section-title">Charte d’utilisation du staff</div>
         <CharterText />
+      </section>
+      <section id="questions" className="card scroll-mt-16 p-4">
+        <div className="section-title">Questions posées au bilan (phase de développement)</div>
+        <QuestionsText />
       </section>
     </div>
   )

@@ -1,11 +1,13 @@
 import { nameKey } from './nameMatch'
 
 /*
- * « Journal des questions avancées » : fonctions pures (testées dans tools/test-journal-questions.ts).
- * Chaque passage de « Poser une question » en mode avancé (src/components/SqlAnswer.tsx) laisse une entrée : la FORME de la
- * question (phrase anonymisée), ce que la recette n'a pas su faire, la requête écrite par l'assistant (anonymisée), le
- * statut et le nombre de lignes. JAMAIS le résultat ni aucune donnée de joueur. Ces entrées servent à écrire de nouvelles
- * recettes (src/recipe.ts) : « Copier pour Claude » les donne, groupées, en Markdown compact.
+ * « Journal des questions » : fonctions pures (testées dans tools/test-journal-questions.ts).
+ * CHAQUE question de « Poser une question » (src/pages/Question.tsx) laisse une entrée : la FORME de la question (phrase
+ * anonymisée), ce qu'en a fait la recette (complète, partielle avec ce qui n'est pas appliqué, pas comprise), et, si le mode
+ * avancé a été lancé (src/components/SqlAnswer.tsx), son résultat (réponse calculée, erreur, refus, délai, réseau), la
+ * requête écrite par l'assistant (anonymisée) et le nombre de lignes. JAMAIS le résultat ni aucune donnée de joueur. Ces
+ * entrées servent à écrire de nouvelles recettes (src/recipe.ts) : « Copier pour Claude » donne les ratés à traiter et les
+ * questions les plus fréquentes, groupés, en Markdown compact.
  *
  * ANONYMISATION (sur l'appareil, avant tout stockage) :
  *  - Un mot est comparé sans accents ni majuscules, mot entier (src/nameMatch.ts), aux prénoms et noms de famille des
@@ -29,18 +31,27 @@ import { nameKey } from './nameMatch'
  *    `sans_accents(nom) LIKE '%x%'`, `nom IN ('x', 'y')`) est remplacé en entier, quel qu'il soit. Licences : partout.
  */
 
-export type QuestionStatus = 'ok' | 'erreur_sql' | 'refuse' | 'delai' | 'reseau' | 'sans_requete' | 'annule' | 'erreur'
+/** Ce qu'a fait la recette : tout appliqué, une partie seulement (« Non appliqué » / « Pas pris en compte »), rien compris. */
+export type RecipeStatus = 'complete' | 'partielle' | 'pas_comprise'
+/** Résultat du mode avancé, quand il a été lancé. */
+export type AdvancedStatus = 'ok' | 'erreur' | 'refus' | 'delai' | 'reseau' | 'annule'
 
-export const STATUS_LABEL: Record<QuestionStatus, string> = {
-  ok: 'Réponse calculée',
-  erreur_sql: 'Erreur SQL',
-  refuse: 'Refusée par le contrôle',
-  delai: 'Délai dépassé',
-  reseau: 'Erreur réseau',
-  sans_requete: 'Pas de requête proposée',
-  annule: 'Annulée',
-  erreur: 'Autre erreur',
+export const RECIPE_LABEL: Record<RecipeStatus, string> = {
+  complete: 'Recette complète',
+  partielle: 'Recette partielle',
+  pas_comprise: 'Pas comprise',
 }
+
+/** Résultat du mode avancé en quelques mots (« Copier pour Claude ») ; STATUS_LABEL : avec « Mode avancé : » devant. */
+export const ADVANCED_SHORT: Record<AdvancedStatus, string> = {
+  ok: 'réponse calculée',
+  erreur: 'erreur',
+  refus: 'refus',
+  delai: 'délai dépassé',
+  reseau: 'erreur réseau',
+  annule: 'annulé',
+}
+export const STATUS_LABEL = Object.fromEntries(Object.entries(ADVANCED_SHORT).map(([k, v]) => [k, `Mode avancé : ${v}`])) as Record<AdvancedStatus, string>
 
 /** Contenu d'une entrée du journal (table hb_question_log, supabase/043_journal_questions.sql). */
 export interface QuestionLogFields {
@@ -49,18 +60,21 @@ export interface QuestionLogFields {
   /** Auteur : posé par le serveur à la création (compte et nom affiché) ; l'appareil met les siens en attendant. */
   authorId?: string
   authorName?: string
-  /** Bascule automatique (la recette ne savait rien répondre) ou bouton « Essayer en mode avancé ». */
-  how: 'auto' | 'button'
   /** Phrase anonymisée. */
   phrase: string
-  /** Ce que la recette n'a pas su faire (« Pas pris en compte »), anonymisé. */
+  /** Ce qu'a fait la recette. */
+  recipe: RecipeStatus
+  /** Ce que la recette n'a pas appliqué (« Non appliqué », « Pas pris en compte »), anonymisé. */
   recipeMissing?: string[]
+  /** Mode avancé lancé : bascule automatique ou bouton « Essayer en mode avancé » ; absent sinon. */
+  how?: 'auto' | 'button'
+  /** Résultat du mode avancé (absent s'il n'a pas été lancé). */
+  status?: AdvancedStatus
   /** Ce que le mode avancé lui-même n'a pas su faire (nonGere), anonymisé. */
   modelMissing?: string[]
   /** Requête écrite par l'assistant (anonymisée) ; sqlRetry : la requête corrigée au 2e essai. */
   sql?: string
   sqlRetry?: string
-  status: QuestionStatus
   /** Précision sur l'échec (message du contrôle ou de SQLite, code d'erreur), anonymisée. */
   detail?: string
   /** Nombre de lignes du résultat (500 au plus), jamais les lignes. */
@@ -72,6 +86,31 @@ export interface QuestionLogFields {
 }
 
 export type QuestionLogRow = QuestionLogFields & { id: string; updatedAt?: number; deleted?: boolean }
+
+/**
+ * Droits sur le journal (miroir de supabase/043_journal_questions.sql) :
+ *  - write : noter ses questions : tout compte qui peut poser une question (administrateur, encadrant), jamais pendant
+ *    « Voir comme… » (spying) ;
+ *  - read : relire le journal (écran, synchronisation vers l'appareil, case « transformée en recette », « Vider ») :
+ *    administrateurs seulement, hors « Voir comme… ». Un encadrant ne relit pas même ses propres questions.
+ */
+export function questionLogRights(role: string | null | undefined, spying = false): { write: boolean; read: boolean } {
+  return { write: !spying && (role === 'admin' || role === 'preparateur'), read: !spying && role === 'admin' }
+}
+
+/**
+ * Issue d'une question, pour le tri et les filtres de l'écran :
+ *  - rate : ni la recette (incomplète) ni le mode avancé (absent ou en échec) n'ont donné de réponse ;
+ *  - sauvee : recette incomplète, mais réponse du mode avancé (à transformer en recette) ;
+ *  - complete : la recette a tout appliqué.
+ */
+export type Outcome = 'rate' | 'sauvee' | 'complete'
+export const OUTCOME_LABEL: Record<Outcome, string> = { rate: 'Ratée', sauvee: 'Sauvée par le mode avancé', complete: 'Comprise par la recette' }
+const OUTCOME_RANK: Record<Outcome, number> = { rate: 0, sauvee: 1, complete: 2 }
+export function outcomeOf(e: Pick<QuestionLogFields, 'recipe' | 'status'>): Outcome {
+  if (e.recipe === 'complete') return 'complete'
+  return e.status === 'ok' ? 'sauvee' : 'rate'
+}
 
 // ---------- Anonymisation ----------
 
@@ -273,6 +312,54 @@ export function buildAnonymizer({ players, keep = [] }: AnonymizerInput): Anonym
   return { text, sql }
 }
 
+// ---------- Entrée du journal ----------
+
+/** Ce qu'a donné une question, tel quel (anonymisé par buildEntry). */
+export type QuestionTrace = {
+  phrase: string
+  recipe: RecipeStatus
+  recipeMissing?: string[]
+  how?: 'auto' | 'button'
+  status?: AdvancedStatus
+  modelMissing?: string[]
+  sql?: string
+  sqlRetry?: string
+  detail?: string
+  rows?: number
+  display?: string
+}
+
+const clip = (s: string | undefined, n: number) => (s ? s.slice(0, n) : undefined)
+
+/**
+ * Entrée prête à enregistrer : phrase, textes et requêtes ANONYMISÉS (fiches de l'appareil, mots à garder), bornés comme sur
+ * le serveur, champs vides retirés ; « how » seulement si le mode avancé a été lancé. Jamais de résultat.
+ */
+export function buildEntry(trace: QuestionTrace, input: AnonymizerInput, me: { id?: string; name?: string } = {}, at = new Date()): QuestionLogFields {
+  const an = buildAnonymizer(input)
+  const list = (xs?: string[]) => {
+    const out = (xs ?? []).map((x) => clip(an.text(x), 200)!).filter(Boolean).slice(0, 10)
+    return out.length ? out : undefined
+  }
+  const entry: QuestionLogFields = {
+    at: at.toISOString(),
+    authorId: me.id,
+    authorName: me.name,
+    phrase: clip(an.text(trace.phrase), 300)!,
+    recipe: trace.recipe,
+    recipeMissing: list(trace.recipeMissing),
+    how: trace.status ? trace.how : undefined,
+    status: trace.status,
+    modelMissing: list(trace.modelMissing),
+    sql: clip(trace.sql && an.sql(trace.sql), 4200),
+    sqlRetry: clip(trace.sqlRetry && an.sql(trace.sqlRetry), 4200),
+    detail: clip(trace.detail && an.text(trace.detail), 300),
+    rows: trace.rows,
+    display: clip(trace.display, 20),
+  }
+  return Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) as unknown as QuestionLogFields
+}
+
 // ---------- Regroupement des phrases semblables ----------
 
 /** Clé de regroupement : sans accents ni majuscules, sans petits mots, nombres remplacés par #, pluriels simples retirés. */
@@ -295,15 +382,22 @@ export interface QuestionGroup<T extends QuestionLogRow = QuestionLogRow> {
   /** Toutes « transformées en recette ». */
   done: boolean
   last: string
+  /** Issue la moins bonne du groupe (une seule question ratée suffit). */
+  outcome: Outcome
 }
 
-/** Regroupe les entrées (non supprimées) par phrase semblable ; groupes les plus récents d'abord. */
-export function groupEntries<T extends QuestionLogRow>(rows: T[]): QuestionGroup<T>[] {
+/** Tri des groupes : ratés d'abord (puis les plus fréquents), les plus fréquents, ou les plus récents. */
+export type GroupSort = 'rates' | 'frequentes' | 'recentes'
+
+/** Regroupe les entrées (non supprimées) par phrase semblable, avec leur nombre ; triées selon `sort`. */
+export function groupEntries<T extends QuestionLogRow>(rows: T[], sort: GroupSort = 'recentes'): QuestionGroup<T>[] {
   const by = new Map<string, T[]>()
   for (const r of rows) {
     if (r.deleted) continue
     const k = similarKey(r.phrase) || r.phrase
-    by.set(k, [...(by.get(k) ?? []), r])
+    const list = by.get(k)
+    if (list) list.push(r)
+    else by.set(k, [r])
   }
   const groups: QuestionGroup<T>[] = []
   for (const [key, list] of by) {
@@ -316,42 +410,74 @@ export function groupEntries<T extends QuestionLogRow>(rows: T[]): QuestionGroup
       phrases: [...counts].map(([phrase, count]) => ({ phrase, count })).sort((a, b) => b.count - a.count),
       done: entries.every((e) => e.recipeDone),
       last: entries[0].at,
+      outcome: entries.map(outcomeOf).sort((a, b) => OUTCOME_RANK[a] - OUTCOME_RANK[b])[0],
     })
   }
-  return groups.sort((a, b) => b.last.localeCompare(a.last))
+  const recent = (a: QuestionGroup<T>, b: QuestionGroup<T>) => b.last.localeCompare(a.last)
+  const freq = (a: QuestionGroup<T>, b: QuestionGroup<T>) => b.entries.length - a.entries.length
+  return groups.sort((a, b) =>
+    sort === 'rates'
+      ? OUTCOME_RANK[a.outcome] - OUTCOME_RANK[b.outcome] || freq(a, b) || recent(a, b)
+      : sort === 'frequentes'
+        ? freq(a, b) || recent(a, b)
+        : recent(a, b),
+  )
+}
+
+/** Filtre de l'écran : toutes, une issue, ou « à traiter » (pas comprise en entier par la recette, pas encore transformée). */
+export type LogFilter = 'toutes' | 'a_traiter' | Outcome
+export function filterEntries<T extends QuestionLogRow>(rows: T[], f: LogFilter): T[] {
+  return rows.filter((r) => !r.deleted && (f === 'toutes' || (f === 'a_traiter' ? outcomeOf(r) !== 'complete' && !r.recipeDone : outcomeOf(r) === f)))
 }
 
 // ---------- « Copier pour Claude » ----------
 
 const uniq = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x && !!x.trim()))]
+function counted<K extends string>(xs: (K | undefined)[], label: Record<K, string>): string {
+  const m = new Map<K, number>()
+  for (const x of xs) if (x) m.set(x, (m.get(x) ?? 0) + 1)
+  return [...m].map(([k, n]) => `${label[k] ?? k}${n > 1 ? ` ×${n}` : ''}`).join(', ')
+}
+
+/** Nombre de questions les plus fréquentes reprises dans « Copier pour Claude ». */
+export const TOP_FREQUENT = 15
 
 /**
- * Texte Markdown compact des entrées À TRAITER (ni supprimées, ni transformées en recette), groupées par phrase semblable :
- * formulations et compteurs, ce que la recette n'a pas su faire, statuts, dernière requête (et sa correction). Rien d'autre.
+ * Texte Markdown compact pour écrire de nouvelles recettes :
+ *  1. les RATÉS À TRAITER (recette incomplète, pas encore « transformée en recette »), groupés par phrase semblable, ratés
+ *     d'abord puis les plus fréquents : formulations et compteurs, ce que la recette n'a pas appliqué, statuts, dernière
+ *     requête du mode avancé (et sa correction) ;
+ *  2. les QUESTIONS LES PLUS FRÉQUENTES (toutes issues), une ligne chacune avec leur nombre et leurs issues.
+ * Rien d'autre : phrases et requêtes déjà anonymisées, aucun résultat.
  */
 export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOString().slice(0, 10)): string {
-  const todo = rows.filter((r) => !r.deleted && !r.recipeDone)
-  const groups = groupEntries(todo)
+  const alive = rows.filter((r) => !r.deleted)
+  const todo = filterEntries(alive, 'a_traiter')
+  const groups = groupEntries(todo, 'rates')
+  const n = (k: number, w: string) => `${k} ${w}${k > 1 ? 's' : ''}`
   const out = [
-    `# HandBase : questions passées en mode avancé (à transformer en recettes)`,
-    `${todo.length} question${todo.length > 1 ? 's' : ''}, ${groups.length} forme${groups.length > 1 ? 's' : ''} différente${groups.length > 1 ? 's' : ''} · relevé du ${today}.`,
+    `# HandBase : questions posées au bilan (à transformer en recettes)`,
+    `${n(alive.length, 'question')} au journal · ${n(todo.length, 'question')} à traiter en ${n(groups.length, 'forme')} · relevé du ${today}.`,
     `Phrases et requêtes anonymisées ([prénom], [nom], [licence]) ; aucun résultat ni donnée de joueur.`,
+    '',
+    `## Ratés à traiter (ratés d'abord, puis les plus fréquents)`,
   ]
-  if (!groups.length) return [...out, '', 'Rien à traiter.'].join('\n')
+  if (!groups.length) out.push('', 'Rien à traiter.')
   groups.forEach((g, i) => {
-    out.push('', `## ${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length}`)
+    out.push('', `### ${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length} · ${OUTCOME_LABEL[g.outcome]}`)
     if (g.phrases.length > 1) out.push(`- Autres formulations : ${g.phrases.slice(1).map((p) => `« ${p.phrase} »${p.count > 1 ? ` ×${p.count}` : ''}`).join(' ; ')}`)
-    const recipe = uniq(g.entries.flatMap((e) => e.recipeMissing ?? []))
-    if (recipe.length) out.push(`- Pas pris en compte par la recette : ${recipe.join(' ; ')}`)
+    out.push(`- Recette : ${counted(g.entries.map((e) => e.recipe), RECIPE_LABEL)}`)
+    const missing = uniq(g.entries.flatMap((e) => e.recipeMissing ?? []))
+    if (missing.length) out.push(`- Pas appliqué par la recette : ${missing.join(' ; ')}`)
+    const adv = g.entries.filter((e) => e.status)
+    out.push(`- Mode avancé : ${adv.length ? counted(adv.map((e) => e.status), ADVANCED_SHORT) : 'pas lancé'}`)
     const model = uniq(g.entries.flatMap((e) => e.modelMissing ?? []))
     if (model.length) out.push(`- Pas géré en mode avancé : ${model.join(' ; ')}`)
-    const st = new Map<QuestionStatus, number>()
-    for (const e of g.entries) st.set(e.status, (st.get(e.status) ?? 0) + 1)
-    out.push(`- Statut : ${[...st].map(([s, n]) => `${STATUS_LABEL[s] ?? s}${n > 1 ? ` ×${n}` : ''}`).join(', ')}`)
-    const ref = g.entries.find((e) => e.status === 'ok') ?? g.entries[0]
+    const ref = adv.find((e) => e.status === 'ok') ?? adv[0]
+    if (!ref) return
     const facts = [ref.display && `affichage ${ref.display}`, ref.rows !== undefined && `${ref.rows} ligne${ref.rows > 1 ? 's' : ''}`].filter(Boolean)
     if (facts.length) out.push(`- ${ref.status === 'ok' ? 'Réponse' : 'Dernier essai'} : ${facts.join(', ')}`)
-    const details = uniq(g.entries.filter((e) => e.status !== 'ok').map((e) => e.detail))
+    const details = uniq(adv.filter((e) => e.status !== 'ok').map((e) => e.detail))
     if (details.length) out.push(`- Erreur : ${details.slice(0, 3).join(' ; ')}`)
     const finalSql = ref.sqlRetry || ref.sql
     if (finalSql) {
@@ -360,5 +486,11 @@ export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOSt
       out.push('```sql', finalSql.trim(), '```')
     }
   })
+  const top = groupEntries(alive, 'frequentes').slice(0, TOP_FREQUENT)
+  out.push('', `## Questions les plus fréquentes (${top.length} premières, toutes issues)`, '')
+  if (!top.length) out.push('Aucune question.')
+  top.forEach((g, i) =>
+    out.push(`${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length} : ${counted(g.entries.map(outcomeOf), OUTCOME_LABEL)}${g.done ? ' (transformée en recette)' : ''}`),
+  )
   return out.join('\n')
 }

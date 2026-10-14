@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { db, POSITIONS, today } from '../db'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
@@ -16,6 +16,8 @@ import { Icon } from './ui'
  * calcule sur l'appareil. Aucune donnée de joueur ne part ; aucun nom de club, de lieu, de groupe ou d'événement non plus.
  * Disponibilité : useDictation().questionReady (administrateurs, fonction présente, réglage de dictée activé, mode
  * « question » annoncé par la fonction déployée) ; sinon rien ne s'affiche.
+ * Transparence (phase de développement) : les questions peuvent être notées au journal des questions (src/questionLog.ts),
+ * sans nom de joueur ; le message le dit, avec un lien vers la page Confidentialité (paragraphe « Questions posées au bilan »).
  */
 
 export type AskState = { raw: unknown; nonGere: string[]; heard: string }
@@ -126,6 +128,12 @@ export function AskQuestion({ className = '' }: { className?: string }) {
       ) : (
         <div className="text-[10px] text-muted">Réponse calculée sur cet appareil ; seule la phrase est envoyée pour être comprise, jamais les données des joueurs.</div>
       )}
+      <p className="text-[10px] text-muted">
+        Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer HandBase.{' '}
+        <Link to="/confidentialite#questions" className="underline">
+          Confidentialité
+        </Link>
+      </p>
     </div>
   )
 }

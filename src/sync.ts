@@ -4,6 +4,7 @@ import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
 import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
+import { questionLogRights } from './questionLogCore'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -198,6 +199,33 @@ const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rew
 let rejectedCount = 0
 
 /*
+ * Tables en ÉCRITURE SEULE pour un compte qui n'est pas administrateur : ses lignes partent au serveur, mais rien n'en est
+ * reçu, et ses lignes envoyées quittent l'appareil (journal des questions, supabase/043_journal_questions.sql : lecture
+ * réservée aux administrateurs ; un encadrant ne relit pas même ses propres questions). Le rôle est lu dans le stockage de
+ * src/roles.ts (roles.ts importe ce fichier : pas d'import en retour). Sans serveur (mode local) : lu comme les autres.
+ */
+const ADMIN_READ: SyncTable[] = ['question_log']
+const ROLE_KEY = 'handbase.role'
+function readsTable(table: SyncTable) {
+  if (!ADMIN_READ.includes(table)) return true
+  try {
+    return questionLogRights(localStorage.getItem(ROLE_KEY)).read
+  } catch {
+    return false
+  }
+}
+
+/** Table en écriture seule : retire de l'appareil ses lignes déjà envoyées (celles de la file d'envoi restent jusqu'à l'envoi). */
+async function forgetWriteOnly(table: SyncTable) {
+  localStorage.removeItem(PULL_KEY(table)) // redevenu administrateur : tout sera relu
+  await db.transaction('rw', db.table(table), db.outbox, async () => {
+    const pending = new Set((await db.outbox.where('table').equals(table).toArray()).map((i) => i.rowId))
+    const sent = ((await db.table(table).toCollection().primaryKeys()) as string[]).filter((id) => !pending.has(id))
+    if (sent.length) await db.table(table).bulkDelete(sent)
+  })
+}
+
+/*
  * Ligne refusée à chaque envoi (donnée invalide…) : après MAX_FAILURES échecs, elle est mise de côté
  * (gardée dans la file mais plus envoyée, jusqu'à « Synchroniser maintenant » ou au prochain lancement)
  * pour ne pas bloquer toute la synchronisation.
@@ -338,8 +366,8 @@ async function pull(uid: string) {
    * leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
    */
   const per: Partial<Record<SyncTable, TableProgress>> = {}
-  const fresh = SYNC_TABLES.filter((t) => !localStorage.getItem(PULL_KEY(t)))
-  const first = fresh.length === SYNC_TABLES.length
+  const fresh = SYNC_TABLES.filter((t) => readsTable(t) && !localStorage.getItem(PULL_KEY(t)))
+  const first = fresh.length === SYNC_TABLES.filter(readsTable).length
   await Promise.all(fresh.map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
   if (fresh.length) setProgress(aggregate(per, null, first))
   try {
@@ -353,6 +381,11 @@ async function pull(uid: string) {
           localStorage.removeItem(PULL_KEY('groups'))
           localStorage.removeItem(PULL_KEY('rewatch'))
         }
+      }
+      // Écriture seule (journal des questions, hors administrateurs) : rien à recevoir ; lignes envoyées retirées.
+      if (!readsTable(table)) {
+        await forgetWriteOnly(table)
+        continue
       }
       await pullTable(table, per, first)
     }

@@ -137,6 +137,9 @@ Deno.serve(async (req) => {
   if (new URL(req.url).searchParams.get('mode') === 'avis') return await avisVocal(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'question') return await questionRecette(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'sql') return await requeteSql(req, db, userId, cle, maxMois, maxJour, json)
+  // Mode que cette version ne connaît pas : « mode_inconnu » (l'appli relit alors les modes annoncés par le GET).
+  const modeDemande = new URL(req.url).searchParams.get('mode')
+  if (modeDemande && modeDemande !== 'dictee') return json({ error: 'mode_inconnu' }, 400)
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_OCTETS + 64 * 1024) return json({ error: 'trop_gros' }, 413)
 
@@ -548,11 +551,14 @@ RÈGLES
 - Vus : « vus », « ont été vus », « déjà vus » sans nombre → op ">=" n 1 ; « vu une fois », « une seule fois » → "=" 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
 - Période : SEULEMENT si la phrase en dit une, sinon omets periode (l'appli prend la saison en cours et l'affiche). « cette saison » → saison ; « dans l'année », « sur un an », « 12 derniers mois » → 12mois ; « depuis toujours », « jamais » → toujours ; « depuis septembre », « depuis le 1er janvier 2026 » → periode depuis + depuis (mois dit ou date AAAA-MM-JJ).
 - Avis : « en défense », « défenseurs » → moyenne de la catégorie Défense ; « note générale » → sur global ; notes sur 5. Un critère nommé (« vitesse », « explosivité ») → sur critere avec son nom.
+- Notes une par une : « jamais plus de 3 (en défense) », « jamais au-dessus de 3 », « toutes ses notes à 3 au plus » → avis {"calcul":"max","op":"<=","valeur":3} ; « toujours au moins 4 » → {"calcul":"min","op":">=","valeur":4}. Jamais une moyenne à la place.
 - Plusieurs qualités à la fois (« les plus rapides et les plus malins ») → moyenne {"sur":"combine","nom":[noms de critères ou de catégories]} (score combiné).
+- Mesures et âge : « taille moyenne », « moyenne de taille / de poids / au sprint » → valeur "moyenne_mesure" et mesure (nom de mesuresPossibles) ; « âge moyen », « moyenne d'âge » → valeur "age_moyen". Avec « par … » : tableau ; sinon : nombre.
+- NE REMPLACE JAMAIS une grandeur demandée (taille, âge, poids, une mesure) par une moyenne d'avis ni par autre chose : si elle n'est ni dans mesuresPossibles ni l'âge, mets-la dans "nonGere".
 - « les meilleurs », « les mieux notés », « les plus … » → tri moyenne, ordre decroissant, limite 20 (ou le nombre dit) ; « les moins bien notés » → tri moyenne, ordre croissant.
 - « progressé », « progression », « évolution entre deux avis » → tri progression, ordre decroissant.
 - « prioritaires », « à aller voir en priorité », « qui aller voir » → tri priorite (l'appli applique sa règle et l'explique), limite 20.
-- Sortie : « combien », « nombre de » → nombre ; « par club », « par département », « par région », « par génération », « par poste », « par sexe » → tableau + par ; « carte » → carte ; sinon liste. « part », « pourcentage de vus » → valeur part_vus.
+- Sortie : « combien », « nombre de » → nombre ; « par club », « par département », « par région », « par génération », « par poste », « par sexe » → tableau + par ; « par événement », « à chaque événement » → tableau par evenement (les joueurs vus à chaque événement) ; « carte » → carte ; sinon liste. « part », « pourcentage de vus » → valeur part_vus.
 - « compare A et B » (filles et garçons, postes, générations) → tableau par la dimension comparée (sexe, poste, annee), sans la fixer dans population.
 - « quel département / club / région est le plus en retard », « le moins vu », « où aller » → tableau, valeur part_vus, tri part_vus, ordre croissant ; « le plus vu », « le plus en avance » → ordre decroissant.
 - « quel coach », « qui du staff », « quel observateur » a vu le plus de joueurs → tableau par staff, tri vus ; « a écrit le plus d'avis » → tri nbAvis. Jamais de nom de personne.
@@ -585,7 +591,12 @@ EXEMPLES
 « si je n'ai qu'un week-end, quels joueurs prioritaires je dois aller voir en Bretagne ? » → {"recette":{"population":{"regions":["Bretagne"]},"sortie":{"type":"liste","tri":"priorite","limite":20}},"nonGere":[]}
 « combien de joueurs s'appellent Lucas » → {"recette":{"population":{"noms":["Lucas"]},"sortie":{"type":"nombre"}},"nonGere":[]}
 « quel club a le plus de pivots gauchers » → {"recette":{"population":{"postes":["PIV"],"lateralite":"gaucher"},"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant"}},"nonGere":[]}
-« quels joueurs ont changé de club cette année ? » → {"recette":{},"nonGere":["changé de club"]}`
+« quels joueurs ont changé de club cette année ? » → {"recette":{},"nonGere":["changé de club"]}
+« quelle est la taille moyenne par poste chez les garçons nés en 2010 ? » → {"recette":{"population":{"sexe":"M","annee":2010},"sortie":{"type":"tableau","par":"poste","valeur":"moyenne_mesure","mesure":"Taille"}},"nonGere":[]}
+« quelle est la taille moyenne des gardiennes nées en 2011 ? » → {"recette":{"population":{"sexe":"F","annee":2011,"postes":["GB"]},"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"nonGere":[]}
+« quel est l'âge moyen des joueurs vus à chaque événement, et combien de joueurs par événement ? » → {"recette":{"sortie":{"type":"tableau","par":"evenement","valeur":"age_moyen"}},"nonGere":[]}
+« les joueurs vus par au moins 3 coachs mais jamais plus de 3 en défense » → {"recette":{"vus":{"compter":"personnes","op":">=","n":3},"avis":[{"sur":"categorie","nom":"Défense","calcul":"max","op":"<=","valeur":3}],"sortie":{"type":"liste"}},"nonGere":[]}
+« le nombre moyen de buts marqués par les pivots » → {"recette":{},"nonGere":["buts marqués : pas dans les données"]}`
 
 async function questionRecette(
   req: Request,

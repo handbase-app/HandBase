@@ -17,6 +17,7 @@ import {
   applyVars,
   avgText,
   avisCategories,
+  outValueText,
   avisCriteria,
   buildIndex,
   defaultSort,
@@ -53,6 +54,7 @@ import {
   type Recipe,
   type SavedQuestion,
   type SortBy,
+  type Stat,
   type VarKey,
   type VarValues,
 } from '../recipe'
@@ -60,6 +62,8 @@ import { deleteQuestion, saveQuestion, useSavedQuestions } from '../savedQuestio
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
 import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult, type MirrorSource } from '../components/SqlAnswer'
+import { logQuestion } from '../questionLog'
+import type { RecipeStatus } from '../questionLogCore'
 import { useDictation } from '../dictation/useDictation'
 import { decodeSqlSpec, encodeSqlSpec, type SqlSpec } from '../sqlGuard'
 import { ask } from '../components/Confirm'
@@ -83,9 +87,14 @@ import PlayerDetail from './PlayerDetail'
  *  - réponse : nombre, liste de joueurs (lignes standard, fiche dans son contexte), tableau (une ligne ouvre sa liste),
  *    ou carte de France (part de la population qui répond, région → département → club → joueurs, comme le bilan) ;
  *  - « Enregistrer cette question » (nom, valeurs qui deviennent des variables) → « Mes questions », relancées sans envoi ;
- *  - MODE AVANCÉ (src/components/SqlAnswer.tsx) : /bilan/question?s=<requête> ; quand la recette ne sait rien répondre
- *    (« Je ne sais pas encore… »), bascule automatique ; quand une partie n'est pas prise en compte, bouton « Essayer en mode
- *    avancé ». Requête SQLite écrite par le modèle, exécutée seulement sur une copie locale jetable (jamais sur Supabase).
+ *  - MODE AVANCÉ (src/components/SqlAnswer.tsx) : /bilan/question?s=<requête>. BASCULE AUTOMATIQUE dès que la recette n'a
+ *    pas TOUT appliqué (« Non appliqué », « Pas pris en compte », approximation signalée, grandeur demandée non calculée :
+ *    src/recipe.ts checkQuantities) ou ne comprend pas : la réponse du mode avancé devient la réponse principale, avec un lien
+ *    discret « Voir la réponse simplifiée » (la recette partielle). La recette n'est la réponse principale que si elle a tout
+ *    appliqué. Mode avancé indisponible : la recette partielle et son bandeau, comme avant. Requête SQLite écrite par le
+ *    modèle, exécutée seulement sur une copie locale jetable (jamais sur Supabase).
+ *  - JOURNAL DES QUESTIONS (src/questionLog.ts) : chaque question posée y est notée (anonymisée, jamais le résultat), avec ce
+ *    qu'en a fait la recette et, s'il a été lancé, le mode avancé ; rien pendant « Voir comme… ».
  * Ordinateur : question et « Mes questions » à gauche (1/3), réponse à droite (2/3). Uniquement des formulations
  * positives ou neutres sur les jeunes (« pas encore vus », tri croissant / décroissant).
  */
@@ -233,8 +242,21 @@ function useQuestionModel() {
 }
 
 type Model = ReturnType<typeof useQuestionModel>
-/** autoSql : la recette n'a rien su répondre, bascule en mode avancé (une fois) ; advanced : réponse venue du mode avancé. */
-type HistState = Partial<AskState> & { notes?: string[]; unsupported?: string[]; saved?: string; autoSql?: boolean; advanced?: 'auto' | 'button' }
+/**
+ * autoSql : la recette n'a pas tout appliqué, bascule en mode avancé (une fois) ; advanced : réponse venue du mode avancé ;
+ * recipeStatus : ce qu'a fait la recette (journal) ; simplified : recette partielle (adresse), lien « Voir la réponse
+ * simplifiée » ; fromAdvanced : on regarde cette réponse simplifiée (retour : la réponse du mode avancé).
+ */
+type HistState = Partial<AskState> & {
+  notes?: string[]
+  unsupported?: string[]
+  saved?: string
+  autoSql?: boolean
+  advanced?: 'auto' | 'button'
+  recipeStatus?: RecipeStatus
+  simplified?: string
+  fromAdvanced?: boolean
+}
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
 const encSql = (s: SqlSpec) => `s=${encodeURIComponent(encodeSqlSpec(s))}`
@@ -280,29 +302,49 @@ export default function Question() {
   const [saving, setSaving] = useState(false)
   const { sqlReady } = useDictation()
   const adv = useAdvancedAsk(model.source, model.data?.criteria ?? [], model.index?.data.zoneOf ?? undefined)
-  /** Mode avancé : la requête prête remplace (bascule automatique) ou s'ajoute à (bouton) l'historique. */
-  const advanced = async (how: 'auto' | 'button') => {
-    const spec = await adv.ask(st.heard, how, st.unsupported)
-    if (spec) nav(`/bilan/question?${encSql(spec)}`, { replace: how === 'auto', state: { heard: st.heard, advanced: how } satisfies HistState })
-  }
-
-  // Recette brute qui vient d'arriver (AskQuestion) : relue avec les listes de l'appli, puis mise dans l'adresse.
-  const pending = !params.get('r') && st.raw !== undefined
-  useEffect(() => {
-    if (!pending || !model.ctx) return
-    const it = interpretRecipe(st.raw, st.nonGere, model.ctx)
-    nav(`/bilan/question?${enc(it.recipe)}`, {
-      replace: true,
-      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql: answersNothing(it.recipe, it.unsupported) } satisfies HistState,
-    })
-  }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Ce que la recette n'a pas appliqué (journal, bandeau).
+  const missing = [...(st.unsupported ?? []), ...(st.notes ?? [])]
 
   // Ni population, ni condition, ni tri parlant : « Je ne sais pas encore répondre », jamais une liste par défaut.
   const nothing = !!recipe && answersNothing(recipe, st.unsupported)
-  const answer = useMemo(() => (model.index && recipe && !nothing && !sqlSpec ? runRecipe(model.index, recipe) : null), [model.index, recipe, nothing, sqlSpec])
 
-  // La recette ne sait rien répondre : bascule automatique en mode avancé (un appel de plus), une fois par arrivée.
-  const autoNow = !!recipe && nothing && !!st.autoSql && sqlReady && !!model.source && !!st.heard
+  /**
+   * Mode avancé : la requête prête remplace (bascule automatique) ou s'ajoute à (bouton) l'historique. Bascule automatique
+   * d'une recette partielle : son adresse est gardée pour « Voir la réponse simplifiée ».
+   */
+  const advanced = async (how: 'auto' | 'button') => {
+    const spec = await adv.ask(st.heard, how, { recipe: st.recipeStatus ?? (nothing ? 'pas_comprise' : 'partielle'), missing })
+    if (spec)
+      nav(`/bilan/question?${encSql(spec)}`, {
+        replace: how === 'auto',
+        state: {
+          heard: st.heard,
+          advanced: how,
+          ...(how === 'auto' && recipe && !nothing ? { simplified: encodeRecipe(recipe), notes: st.notes, unsupported: st.unsupported, recipeStatus: st.recipeStatus } : {}),
+        } satisfies HistState,
+      })
+  }
+
+  // Recette brute qui vient d'arriver (AskQuestion) : relue avec les listes de l'appli (et la phrase : grandeurs demandées),
+  // mise dans l'adresse ; notée au journal (sauf si le mode avancé suit : noté avec son résultat).
+  const pending = !params.get('r') && st.raw !== undefined
+  useEffect(() => {
+    if (!pending || !model.ctx) return
+    const it = interpretRecipe(st.raw, st.nonGere, model.ctx, st.heard)
+    const status: RecipeStatus = answersNothing(it.recipe, it.unsupported) ? 'pas_comprise' : it.notes.length || it.unsupported.length ? 'partielle' : 'complete'
+    const autoSql = status !== 'complete' && sqlReady && !!st.heard
+    if (!autoSql && st.heard) void logQuestion({ phrase: st.heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes] }, model.source?.() ?? null)
+    nav(`/bilan/question?${enc(it.recipe)}`, {
+      replace: true,
+      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status } satisfies HistState,
+    })
+  }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // La recette n'a pas tout appliqué : bascule automatique en mode avancé (un appel de plus), une fois par arrivée.
+  const autoNow = !!recipe && !sqlSpec && !!st.autoSql && sqlReady && !!model.source && !!st.heard
+  // En attendant (et pendant) le mode avancé : pas de réponse partielle à l'écran.
+  const waiting = adv.busy || (autoNow && !autoStarted.has(loc.key))
+  const answer = useMemo(() => (model.index && recipe && !nothing && !sqlSpec ? runRecipe(model.index, recipe) : null), [model.index, recipe, nothing, sqlSpec])
   useEffect(() => {
     if (!autoNow || autoStarted.has(loc.key)) return
     autoStarted.add(loc.key)
@@ -316,8 +358,22 @@ export default function Question() {
     <div className="flex flex-col gap-3">
       <AskQuestion />
       {sqlSpec ? (
-        <SqlExplain key={sqlSpec.sql} spec={sqlSpec} advanced={st.advanced} heard={st.heard} saved={st.saved} />
-      ) : adv.busy ? (
+        <SqlExplain
+          key={sqlSpec.sql}
+          spec={sqlSpec}
+          advanced={st.advanced}
+          heard={st.heard}
+          saved={st.saved}
+          onSimplified={
+            st.simplified
+              ? () =>
+                  nav(`/bilan/question?r=${encodeURIComponent(st.simplified!)}`, {
+                    state: { heard: st.heard, notes: st.notes, unsupported: st.unsupported, recipeStatus: st.recipeStatus, fromAdvanced: true } satisfies HistState,
+                  })
+              : undefined
+          }
+        />
+      ) : waiting ? (
         <AdvancedBusy heard={st.heard} onCancel={adv.cancel} />
       ) : recipe && nothing ? (
         <>
@@ -333,15 +389,32 @@ export default function Question() {
           <div className="flex flex-col gap-1">
             {st.heard && <p className="text-[11px] text-muted">Entendu : « {st.heard} »</p>}
             {st.saved && <p className="text-[11px] text-muted">Ma question : « {st.saved} »</p>}
-            <RecipeChips recipe={recipe} names={model.names} model={model} onChange={(r) => set(r, r.out.type === 'map')} />
-            {!!st.unsupported?.length && (
-              <div className="flex flex-col items-start gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
+            {st.fromAdvanced && (
+              <div className="flex flex-col items-start gap-1 rounded-md border border-line px-2 py-1.5 text-[11px]" role="note">
                 <p>
-                  <b>Pas pris en compte :</b> {st.unsupported.join(' ; ')}
+                  <b>Réponse simplifiée</b> : la recette n’a appliqué qu’une partie de la question ; la réponse en mode avancé est plus juste.
                 </p>
-                {sqlReady && st.heard && model.source && (
+                <button type="button" className="min-h-9 text-[11px] font-bold underline" onClick={() => nav(-1)}>
+                  Revenir à la réponse en mode avancé
+                </button>
+              </div>
+            )}
+            <RecipeChips recipe={recipe} names={model.names} model={model} onChange={(r) => set(r, r.out.type === 'map')} />
+            {!!missing.length && (
+              <div className="flex flex-col items-start gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
+                {!!st.unsupported?.length && (
+                  <p>
+                    <b>Pas pris en compte :</b> {st.unsupported.join(' ; ')}
+                  </p>
+                )}
+                {!!st.notes?.length && (
+                  <p>
+                    <b>Non appliqué :</b> {st.notes.join(' ; ')}
+                  </p>
+                )}
+                {sqlReady && st.heard && model.source && !st.fromAdvanced && (
                   <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => void advanced('button')}>
-                    <span aria-hidden>✨</span> Essayer en mode avancé
+                    <span aria-hidden>✨</span> {adv.error ? 'Réessayer en mode avancé' : 'Essayer en mode avancé'}
                   </button>
                 )}
                 {adv.error && (
@@ -351,7 +424,6 @@ export default function Question() {
                 )}
               </div>
             )}
-            {!!st.notes?.length && <p className="text-[11px] text-muted">Non appliqué : {st.notes.join(' ; ')}</p>}
           </div>
           {saving ? (
             <SaveForm recipe={recipe} names={model.names} phrase={st.heard} onDone={() => setSaving(false)} />
@@ -381,7 +453,7 @@ export default function Question() {
         </aside>
         <section className="min-w-0">
           {sqlSpec && <SqlAnswerView spec={sqlSpec} source={model.source} byId={model.byId} search={search} />}
-          {!sqlSpec && recipe && answer && model.index && (
+          {!sqlSpec && !waiting && recipe && answer && model.index && (
             <AnswerView recipe={recipe} answer={answer} model={model} index={model.index} params={params} search={search} setRecipe={set} setMap={setMap} />
           )}
         </section>
@@ -591,6 +663,21 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
       const a = r.avis[idx]
       body = (
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Select<'avg' | 'max' | 'min'>
+            label="Calcul"
+            value={a.agg ?? 'avg'}
+            onChange={(v) =>
+              apply((x) => {
+                if (v === 'avg') delete x.avis[idx].agg
+                else x.avis[idx].agg = v
+              })
+            }
+            options={[
+              { value: 'avg', label: 'Moyenne' },
+              { value: 'max', label: 'Meilleure note' },
+              { value: 'min', label: 'Plus basse note' },
+            ]}
+          />
           <TargetPicker value={a.target} model={model} onChange={(t) => apply((x) => (x.avis[idx].target = t))} />
           <Select label="Opérateur" value={a.op} options={OPS2} onChange={(op) => apply((x) => (x.avis[idx].op = op))} />
           <NumberInput label="Note sur 5" value={a.value} min={0} max={5} step={0.1} onChange={(n) => apply((x) => (x.avis[idx].value = n))} className="w-16" />
@@ -642,16 +729,31 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
     case 'value':
       body = (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Select<'count' | 'seen' | 'avg'>
+          <Select<'count' | 'seen' | 'avg' | 'measure' | 'age'>
             label="Colonne"
             value={r.out.value ?? 'count'}
-            onChange={(v) => apply((x) => (x.out.value = v))}
+            onChange={(v) =>
+              apply((x) => {
+                x.out.value = v
+                if (v === 'measure') x.out.measure ??= x.measures[0]?.id ?? measureCriteria(model.data?.criteria ?? [])[0]?.id
+              })
+            }
             options={[
               { value: 'count', label: 'Nombre seulement' },
-              { value: 'seen', label: 'Part vue' },
+              ...(r.out.type === 'table' && r.out.groupBy !== 'event' ? [{ value: 'seen' as const, label: 'Part vue' }] : []),
               { value: 'avg', label: 'Moyenne d’avis' },
+              ...(measureCriteria(model.data?.criteria ?? []).length ? [{ value: 'measure' as const, label: 'Moyenne d’une mesure' }] : []),
+              { value: 'age', label: 'Âge moyen' },
             ]}
           />
+          {r.out.value === 'measure' && (
+            <Select
+              label="Mesure"
+              value={r.out.measure ?? ''}
+              onChange={(m) => apply((x) => (x.out.measure = m))}
+              options={measureCriteria(model.data?.criteria ?? []).map((c) => ({ value: c.id, label: c.label }))}
+            />
+          )}
           {r.out.value === 'seen' && !r.seen && <PeriodPicker value={r.out.period ?? { kind: 'season' }} onChange={(p) => apply((x) => (x.out.period = p))} />}
           {r.out.value === 'avg' && <TargetPicker value={r.out.avg ?? r.avis[0]?.target ?? { on: 'global' }} model={model} onChange={(t) => apply((x) => (x.out.avg = t))} />}
         </div>
@@ -675,6 +777,8 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
               { value: 'share', label: r.out.value === 'seen' || !hasConditions(r) ? 'Part vue' : 'Part qui répond' },
               { value: 'count', label: 'Nombre de joueurs' },
               { value: 'avg', label: 'Moyenne d’avis' },
+              ...(r.out.value === 'measure' ? [{ value: 'measure' as const, label: outValueText(r, model.names) }] : []),
+              ...(r.out.value === 'age' ? [{ value: 'age' as const, label: 'Âge moyen' }] : []),
             ]
           : [
               { value: 'name', label: 'Nom' },
@@ -749,6 +853,7 @@ const GROUP_OPTIONS: { value: GroupBy; label: string }[] = [
   { value: 'position', label: 'par poste' },
   { value: 'sex', label: 'par sexe' },
   { value: 'staff', label: 'par personne du staff' },
+  { value: 'event', label: 'par événement' },
 ]
 
 // ---------- Réponse ----------
@@ -803,6 +908,7 @@ function AnswerView({
             </span>
           )}
           {cond && <Bar t={{ seen: answer.count, total: answer.total || 1 }} className="mt-1 w-full" />}
+          {answer.stat && <span className="mt-1 text-sm font-bold">{statText(recipe, model.names, answer.stat, true)}</span>}
         </div>
         {answer.count > 0 && (
           <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => open({ ...recipe, out: { type: 'list' } })}>
@@ -908,7 +1014,8 @@ function AnswerView({
           rows.map((row) => {
             const label = groupLabel(by, row.key, model)
             const t: Tally = { seen: row.match, total: row.total }
-            const go = row.key ? () => open(restrict(recipe, by, row.key)) : undefined
+            // Par événement : pas de liste à ouvrir (un joueur y est compté s'il y a été vu ; le filtre d'événement compte aussi sa liste).
+            const go = row.key && by !== 'event' ? () => open(restrict(recipe, by, row.key)) : undefined
             return (
               <button key={row.key || '?'} type="button" disabled={!go} onClick={go} className="card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent disabled:opacity-80">
                 <span className="min-w-0 flex-1">
@@ -930,6 +1037,7 @@ function AnswerView({
                         </>
                       )}
                       {row.avg !== undefined && ` · moyenne ${row.avg === null ? '–' : fr(row.avg, 2)}`}
+                      {row.stat && ` · ${statText(recipe, model.names, row.stat)}`}
                     </span>
                     {cond && <Bar t={t} className="w-12 sm:w-20" />}
                     {row.seen && !cond && <Bar t={row.seen} className="w-12 sm:w-20" />}
@@ -966,6 +1074,19 @@ function valueText(r: Recipe, names: Names, v: number | null | undefined, tag?: 
   return ''
 }
 
+/** Moyenne d'une mesure, âge moyen ou moyenne d'avis, en clair : « moyenne Taille 182,5 cm (de 175 à 190 ; 4 mesurés) ». */
+function statText(r: Recipe, names: Names, st: Stat, long = false): string {
+  const what = outValueText(r, names)
+  if (st.avg === null) return `${what} : pas encore de valeur`
+  const v = r.out.value
+  const d = v === 'age' ? 1 : 2
+  const unit = v === 'measure' && r.out.measure ? names.unit?.(r.out.measure) : v === 'age' ? 'ans' : v === 'avg' ? 'sur 5' : undefined
+  const u = unit ? ` ${unit}` : ''
+  const range = st.n > 1 && st.min !== undefined && st.max !== undefined ? `de ${fr(st.min, d)} à ${fr(st.max, d)} ; ` : ''
+  const n = `${fr(st.n)} ${v === 'measure' ? (st.n > 1 ? 'mesurés' : 'mesuré') : v === 'age' ? 'avec date de naissance' : 'avec avis'}`
+  return `${long ? what.replace(/^./, (c) => c.toUpperCase()) : what} ${fr(st.avg, d)}${u} (${range}${n})`
+}
+
 function groupLabel(by: GroupBy, key: string, model: Model): string {
   if (by === 'club') return key ? model.names.club(key) : 'Club non renseigné'
   if (by === 'dept') return key ? model.names.dept(key) : 'Département non renseigné'
@@ -973,6 +1094,10 @@ function groupLabel(by: GroupBy, key: string, model: Model): string {
   if (by === 'year') return key || 'Année inconnue'
   if (by === 'position') return key ? model.names.position(key as Position) : 'Sans poste'
   if (by === 'staff') return model.names.staff?.(key) ?? 'Personne du staff'
+  if (by === 'event') {
+    const ev = model.data?.events.find((e) => e.id === key)
+    return ev ? `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` : 'Événement'
+  }
   return key === 'M' ? 'Garçons' : key === 'F' ? 'Filles' : 'Sexe non renseigné'
 }
 

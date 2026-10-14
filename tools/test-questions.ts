@@ -3,14 +3,18 @@
 // textes piégés), exécution sur un jeu fictif (vus par événement / par personne, périodes, saison, moyennes,
 // regroupements, carte, tableau du staff, score combiné, progression, « à voir en priorité », tri des tableaux par part),
 // question pas comprise, « nonGere », parts en clair, exemples des consignes de la fonction (chacun accepté par l'appli,
-// avec l'effet attendu), questions enregistrées, et performance sur 40 000 joueurs fictifs. Faux fetch : aucun appel réseau, rien ne part chez Mistral.
+// avec l'effet attendu), moyennes de mesures et âge moyen (tableau, nombre), tableau par événement, notes une par une
+// (« jamais plus de N »), PAS DE SUBSTITUTION (checkQuantities : grandeur demandée non calculée → « Pas pris en compte »),
+// questions enregistrées, et performance sur 40 000 joueurs fictifs. Faux fetch : aucun appel réseau, rien ne part chez Mistral.
 //
 //   npx jiti tools/test-questions.ts
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  ageOf,
   answersNothing,
   applyVars,
+  checkQuantities,
   buildIndex,
   buildQuestionSchema,
   cleanRecipe,
@@ -34,7 +38,7 @@ import {
   type QuestionContext,
   type Recipe,
 } from '../src/recipe'
-import { understandQuestion, requestAccess, type Endpoint } from '../src/dictation/transcribe'
+import { modeCode, understandQuestion, understandSql, requestAccess, type Endpoint } from '../src/dictation/transcribe'
 import { categoryKind, type RadarZone } from '../src/radarZones'
 
 const TODAY = '2026-10-14'
@@ -50,6 +54,8 @@ const POSITIONS = [
 const REGIONS: Record<string, string> = { '83': 'region-sud', '13': 'region-sud', '06': 'region-sud', '75': 'region-idf', '35': 'region-bre' }
 const CRITERIA: QCriterion[] = [
   { id: 'taille', label: 'Taille', category: 'Gabarit', kind: 'factual', scale: 'number', unit: 'cm' },
+  // Deux mesures qui partagent un mot (« taille ») : la question « taille moyenne » vise Taille, pas Taille assise.
+  { id: 'taille_assise', label: 'Taille assise', category: 'Gabarit', kind: 'factual', scale: 'number', unit: 'cm' },
   { id: 'cmj_hauteur', label: 'CMJ – hauteur', category: 'Sauts (plateforme)', kind: 'factual', scale: 'number', unit: 'cm' },
   { id: 'sprint_10', label: 'Sprint 10 m', category: 'Vitesse & endurance', kind: 'factual', scale: 'number', unit: 's' },
   { id: 'agressivite', label: 'Agressivité défensive', category: 'Défense', kind: 'subjective', scale: 'score5' },
@@ -525,14 +531,58 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
   'quels joueurs ont changé de club cette année ?': (r) => {
     assert.ok(answersNothing(r, ['changé de club']), 'pas compris : « Je ne sais pas encore répondre »')
   },
+  // (a) Jamais une moyenne d'avis à la place de la taille : la colonne « moyenne Taille » (aucun 2010 mesuré dans le jeu).
+  'quelle est la taille moyenne par poste chez les garçons nés en 2010 ?': (r, a) => {
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'position', value: 'measure', measure: 'taille' })
+    assert.equal(recipeText(r, names), 'Garçons · nés en 2010 · par poste · moyenne Taille')
+    assert.deepEqual(a.table!.map((x) => [x.key, x.total, x.stat]), [['ARD', 1, { avg: null, n: 0 }], ['PIV', 1, { avg: null, n: 0 }]])
+    // Même question sur les 2009 (deux gardiens mesurés : 188 et 186, dernière mesure).
+    const t = runRecipe(ix, { ...r, pop: { sex: 'M', years: [2009, 2009] } }).table!
+    assert.deepEqual(t.map((x) => [x.key, x.stat]), [['GB', { avg: 187, min: 186, max: 188, n: 2 }]])
+  },
+  'quelle est la taille moyenne des gardiennes nées en 2011 ?': (r, a) => {
+    assert.deepEqual(r.out, { type: 'count', value: 'measure', measure: 'taille' })
+    assert.equal(recipeText(r, names), 'Joueuses · nées en 2011 · Gardien · combien ? · moyenne Taille')
+    assert.deepEqual([a.count, a.stat], [1, { avg: 172, min: 172, max: 172, n: 1 }])
+  },
+  // (b) Par événement (joueurs VUS à chaque événement, le plus récent d'abord), avec l'âge moyen.
+  "quel est l'âge moyen des joueurs vus à chaque événement, et combien de joueurs par événement ?": (r, a) => {
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'event', value: 'age' })
+    assert.equal(recipeText(r, names), 'par événement · âge moyen')
+    assert.deepEqual(a.table!.map((x) => [x.key, x.total]), [
+      ['e-cannes-26', 2],
+      ['ev1', 2],
+      ['e-stage', 1],
+      ['ev2', 1],
+      ['ev0', 1],
+      ['e-cannes-25', 1],
+      ['ev-old', 1],
+    ], 'liste de l’événement non comptée (a), jour d’observation sans événement écarté (i)')
+    const age = (id: string) => ageOf(players.find((p) => p.id === id)!, TODAY)!
+    const c26 = a.table![0].stat!
+    assert.ok(Math.abs(c26.avg! - (age('b') + age('e')) / 2) < 1e-9 && c26.n === 2, 'âge moyen de b et e')
+    assert.ok(c26.min! > 15 && c26.max! < 17)
+  },
+  // (d) « jamais plus de 3 en défense » : toutes les notes de défense à 3 au plus (pas une moyenne).
+  'les joueurs vus par au moins 3 coachs mais jamais plus de 3 en défense': (r, a) => {
+    assert.deepEqual(r.seen, { by: 'person', op: 'gte', n: 3, period: { kind: 'season' } })
+    assert.deepEqual(r.avis, [{ target: def, op: 'lte', value: 3, agg: 'max' }])
+    assert.equal(recipeText(r, names), 'vus par au moins 3 personnes du staff · cette saison (2026-2027) · notes Défense toutes ≤ 3 · liste · tri : moyenne Défense ↓ · 50 premiers')
+    assert.equal(a.count, 0, 'e : vu par 3 personnes, mais des notes de défense à 4 et 5')
+  },
+  'le nombre moyen de buts marqués par les pivots': (r) => {
+    assert.ok(answersNothing(r, ['buts marqués : pas dans les données']), 'pas dans les données : « nonGere »')
+  },
 }
+const UNSUPPORTED_EXAMPLES = ['Nationale', 'changé', 'buts marqués']
 for (const { phrase, answer } of examples) {
   assert.ok(expect[phrase], `effet attendu décrit pour « ${phrase} »`)
   for (const k of Object.keys(answer.recette as object)) assert.ok(keysOfSchema.has(k), `${phrase} : clé ${k}`)
-  const it = interpretRecipe(answer.recette, answer.nonGere, ctx)
+  // Avec la phrase : la relecture « pas de substitution » ne signale rien sur un exemple.
+  const it = interpretRecipe(answer.recette, answer.nonGere, ctx, phrase)
   const allowed = phrase.includes('Cannes') ? 1 : 0 // deux tournois du même nom : le plus récent, signalé
   assert.equal(it.notes.length, allowed, `${phrase} : ${it.notes.join(' | ')}`)
-  assert.equal(it.unsupported.length, phrase.includes('Nationale') || phrase.includes('changé') ? 1 : 0, `${phrase} : ${it.unsupported}`)
+  assert.equal(it.unsupported.length, UNSUPPORTED_EXAMPLES.some((w) => phrase.includes(w)) ? 1 : 0, `${phrase} : ${it.unsupported}`)
   // Recette → adresse → recette : identique.
   assert.deepEqual(decodeRecipe(encodeRecipe(it.recipe)), it.recipe, phrase)
   expect[phrase](it.recipe, runRecipe(ix, it.recipe))
@@ -540,6 +590,125 @@ for (const { phrase, answer } of examples) {
   const text = recipeText(it.recipe, names)
   assert.ok(!/mauvais|nul|faible|pire|pas retenu|insuffisant|régress/i.test(text), text)
 }
+// ---------- Pas de substitution : réponses réelles de Mistral qui avaient l'air justes ----------
+{
+  // (a) « taille moyenne par poste » rendue en moyenne générale des avis.
+  const a = interpretRecipe(
+    { population: { sexe: 'M', annee: 2010 }, sortie: { type: 'tableau', par: 'poste', valeur: 'moyenne' } },
+    [],
+    ctx,
+    'Quelle est la taille moyenne par poste chez les garçons nés en 2010 ?',
+  )
+  assert.deepEqual(a.unsupported, ['moyenne de taille : pas calculée par la recette'])
+  // (b) âge moyen par événement rendu « par club · moyenne générale » (et des champs inventés).
+  const b = interpretRecipe(
+    { sortie: { type: 'tableau', par: 'club', valeur: 'moyenne', valeur2: 'compte', regroupement: 'evenements' } },
+    [],
+    ctx,
+    'Quel est l’âge moyen des joueurs vus à chaque événement, et combien de joueurs par événement ?',
+  )
+  assert.ok(b.notes.length >= 2, b.notes.join(' | '))
+  assert.deepEqual(b.unsupported, ['âge moyen : pas calculé par la recette'])
+  // (d) « jamais plus de 3 en défense » rendu en « moyenne Défense ≤ 3 ».
+  const d = interpretRecipe(
+    { vus: { compter: 'personnes', op: '>=', n: 3 }, avis: [{ sur: 'categorie', nom: 'Défense', op: '<=', valeur: 3 }] },
+    [],
+    ctx,
+    'vus par au moins 3 coachs mais jamais plus de 3 en défense',
+  )
+  assert.deepEqual(d.unsupported, ['« jamais plus de » : note par note, pas une moyenne'])
+  // Mêmes phrases, recettes justes : rien à signaler.
+  const ok = (raw: unknown, phrase: string) => assert.deepEqual(interpretRecipe(raw, [], ctx, phrase).unsupported, [], phrase)
+  ok({ sortie: { type: 'tableau', par: 'poste', valeur: 'moyenne_mesure', mesure: 'Taille' } }, 'la taille moyenne par poste')
+  ok({ sortie: { type: 'tableau', par: 'poste', tri: 'taille', ordre: 'decroissant' } }, 'les postes classés par taille')
+  ok({ sortie: { type: 'liste', tri: 'taille' } }, 'les joueurs classés par taille')
+  ok({ population: { annee: 2010 } }, 'les joueurs âgés de 16 ans nés en 2010')
+  ok({ avis: [{ sur: 'categorie', nom: 'Défense', op: '>=', valeur: 4 }], vus: { op: '<=', n: 2 } }, 'jamais vus plus de 2 fois avec au moins 4 en défense')
+  ok({ avis: [{ sur: 'categorie', nom: 'Défense', op: '>=', valeur: 4, calcul: 'min' }] }, 'toujours au moins 4 en défense')
+  // Grandeur dite mais absente de la recette.
+  const miss = (raw: unknown, phrase: string) => interpretRecipe(raw, [], ctx, phrase).unsupported
+  assert.deepEqual(miss({ population: { postes: ['GB'] } }, 'la taille des gardiens'), ['taille : pas dans la recette'])
+  assert.deepEqual(miss({ population: { postes: ['GB'] } }, 'les gardiens âgés de 15 ans'), ['âge : pas dans la recette'])
+  assert.deepEqual(miss({ sortie: { type: 'tableau', par: 'club', valeur: 'moyenne_mesure', mesure: 'CMJ' } }, 'la moyenne au sprint par club'), [
+    'moyenne de sprint 10 m : pas calculée par la recette',
+  ], 'une autre mesure à la place : signalé')
+  assert.deepEqual(miss({ sortie: { type: 'tableau', par: 'poste', valeur: 'moyenne_mesure', mesure: 'Taille' } }, 'la taille assise moyenne par poste'), [
+    'moyenne de taille assise : pas calculée par la recette',
+  ], 'mesure dite en entier : celle-là')
+  // Mesures réelles de l'appli (libellés des réglages) : aucun exemple des consignes, aucune phrase courante signalée à tort
+  // (« temps moyen » du RSA, « Grand saut », « au-dessus de la tête »…).
+  const REAL = [
+    'CMJ bras libres – hauteur', 'CMJ – hauteur', 'CMJ – puissance relative', 'CMJ – RSI modifié', 'Drop jump 30 cm – hauteur', 'Dorsiflexion cheville D',
+    'Empan', 'Envergure', 'EUR (CMJ / SJ)', 'Illinois (agilité)', 'Méd. ball concentrique', 'Poids', 'Épaulé (1 RM)', 'Développé couché', 'Squat',
+    'RSA – indice de fatigue', 'RSA (RAST 6×35 m) – temps moyen', 'RSI drop jump 30 cm', 'Grand saut bilatéral', 'Saut à la largeur D',
+    'Shirado (gainage abdos)', 'SJ – hauteur', 'Sprint 10 m', 'Sprint 30 m', 'T-Test', 'Taille', 'Taille assise', '30-15 IFT (VIFT)', 'VMA',
+    'Squat bras au-dessus de la tête', 'Détente', 'Explosivité', 'Puissance', 'Tir', 'Vitesse',
+  ]
+  const realCtx: QuestionContext = {
+    ...ctx,
+    criteria: [
+      ...CRITERIA.filter((c) => c.kind === 'subjective'),
+      ...REAL.map((label, i): QCriterion => ({ id: i === 25 ? 'taille' : `m${i}`, label, category: 'Mesures', kind: 'factual', scale: i >= 30 ? 'score5' : 'number' })),
+    ],
+  }
+  for (const { phrase, answer } of examples) {
+    const extra = checkQuantities(phrase, interpretRecipe(answer.recette, answer.nonGere, realCtx).recipe, realCtx)
+    assert.deepEqual(extra, [], `mesures réelles : ${phrase}`)
+  }
+  assert.deepEqual(checkQuantities('l’âge moyen par club', cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'club', value: 'age' } }), realCtx), [], 'âge moyen : pas le RSA « temps moyen »')
+  assert.deepEqual(checkQuantities('le club qui a le plus grand nombre de joueurs', cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' } } }), realCtx), [])
+  assert.deepEqual(checkQuantities('le poids moyen par poste', cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'position', value: 'avg' } }), realCtx), [
+    'moyenne de poids : pas calculée par la recette',
+  ])
+  // Fonction seule (sans relecture) : même règle.
+  assert.deepEqual(checkQuantities('âge moyen par club', cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'club', value: 'age' } }), ctx), [])
+}
+
+// ---------- Moyennes de mesures, âge, par événement, notes une par une ----------
+{
+  // Moyenne d'une mesure sans mesure connue : écartée et signalée (jamais une autre valeur à la place).
+  const noM = interpretRecipe({ sortie: { type: 'tableau', par: 'club', valeur: 'moyenne_mesure' } }, [], ctx)
+  assert.equal(noM.recipe.out.value, undefined)
+  assert.ok(noM.notes.some((x) => x.includes('moyenne de mesure')), noM.notes.join(' | '))
+  // « valeur : taille » : la mesure Taille.
+  assert.deepEqual(interpretRecipe({ sortie: { type: 'nombre', valeur: 'taille' } }, [], ctx).recipe.out, { type: 'count', value: 'measure', measure: 'taille' })
+  // Tableau trié par taille : la colonne moyenne Taille, triée.
+  const byH = interpretRecipe({ sortie: { type: 'tableau', par: 'poste', tri: 'taille', ordre: 'decroissant' } }, [], ctx).recipe
+  assert.deepEqual(byH.out, { type: 'table', groupBy: 'position', value: 'measure', measure: 'taille', sort: { by: 'measure', dir: 'desc' } })
+  const rowsH = runRecipe(ix, byH).table!
+  assert.deepEqual(rowsH[0].stat, { avg: (188 + 186 + 172) / 3, min: 172, max: 188, n: 3 })
+  assert.deepEqual(rowsH.slice(1).map((x) => [x.key, x.stat!.avg]), [['PIV', null], ['AD', null], ['AG', null], ['ARD', null], ['DC', null]], 'sans mesure : à la fin')
+  // Âge moyen par génération, trié par âge ; nombre avec âge moyen.
+  const ages = runRecipe(ix, cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'year', value: 'age', sort: { by: 'age', dir: 'asc' } } })).table!
+  assert.deepEqual(ages.map((x) => x.key), ['2012', '2011', '2010', '2009'])
+  const cnt = runRecipe(ix, cleanRecipe({ pop: { years: [2009, 2009] }, avis: [], measures: [], out: { type: 'count', value: 'age' } }))
+  assert.equal(cnt.stat!.n, 2)
+  assert.ok(Math.abs(cnt.stat!.avg! - (ageOf({ birthDate: '2009-09-09' }, TODAY)! + ageOf({ birthDate: '2009-06-06' }, TODAY)!) / 2) < 1e-9)
+  assert.equal(ageOf({ birthDate: '2010-10-14' }, TODAY)!.toFixed(2), '16.00')
+  assert.equal(ageOf({ birthDate: 'inconnue' }, TODAY), null)
+  // Nombre avec moyenne d'avis.
+  assert.equal(runRecipe(ix, cleanRecipe({ pop: { years: [2010, 2010] }, avis: [], measures: [], out: { type: 'count', value: 'avg', avg: def } })).stat!.avg, (3.75 + 5) / 2)
+  // Notes une par une : meilleure note et plus basse note (critères du poste seulement).
+  const max = (op: 'gte' | 'lte', value: number) => ids(run({ avis: [{ target: def, op, value, agg: 'max' }] }).match)
+  const min = (op: 'gte' | 'lte', value: number) => ids(run({ avis: [{ target: def, op, value, agg: 'min' }] }).match)
+  assert.deepEqual(max('lte', 5), ['e', 'f'], 'sans note de défense (ou gardien) : pas dans la réponse')
+  assert.deepEqual(max('lte', 4), [])
+  assert.deepEqual(min('gte', 4), ['f'], 'e : une note de défense à 3')
+  assert.deepEqual(min('lte', 3), ['e'])
+  // Chips, adresse : calcul gardé ; score combiné : moyenne (pas de note par note).
+  const agg = cleanRecipe({ pop: {}, avis: [{ target: def, op: 'gte', value: 4, agg: 'min' }], measures: [], out: { type: 'list' } })
+  assert.deepEqual(decodeRecipe(encodeRecipe(agg)), agg)
+  assert.equal(recipeChips(agg, names).find((c) => c.key === 'avis.0')!.label, 'notes Défense toutes ≥ 4')
+  assert.equal(cleanRecipe({ pop: {}, avis: [{ target: { on: 'mix', parts: [def, { on: 'global' }] }, op: 'gte', value: 4, agg: 'max' }], measures: [], out: { type: 'list' } }).avis[0].agg, undefined)
+  assert.ok(interpretRecipe({ avis: [{ sur: 'categorie', nom: 'Défense', op: '>=', valeur: 4, calcul: 'mediane' }] }, [], ctx).notes.some((x) => x.includes('calcul')))
+  // Par événement : pas de part vue ; adresse : regroupement et valeur gardés.
+  const ev = cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'event', value: 'seen' } })
+  assert.deepEqual(ev.out, { type: 'table', groupBy: 'event' })
+  const evAge = cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'event', value: 'age' } })
+  assert.deepEqual(decodeRecipe(encodeRecipe(evAge)), evAge)
+  assert.deepEqual(interpretRecipe({ sortie: { type: 'tableau', par: 'événements' } }, [], ctx).recipe.out, { type: 'table', groupBy: 'event' })
+}
+
 // ---------- Recherche par prénom ou nom (sans accents, mots entiers) ----------
 {
   const named = buildIndex({
@@ -625,6 +794,14 @@ assert.deepEqual(q.recette, { population: { annee: 2011 } })
 await assert.rejects(understandQuestion(ep, 'x'.repeat(301), schema), /300 caractères/)
 const errEp: Endpoint = { ...ep, fetch: (async () => new Response(JSON.stringify({ error: 'reponse_illisible' }), { status: 502 })) as unknown as typeof fetch }
 await assert.rejects(understandQuestion(errEp, 'une question', schema), /reformulez/)
+// Mode inconnu de la fonction déployée (ou version qui prend l'appel pour une dictée) : code « mode_inconnu » (l'appli relit
+// alors les modes annoncés, src/dictation/useDictation.ts).
+for (const error of ['mode_inconnu', 'requete_illisible', 'son_absent']) {
+  const old: Endpoint = { ...ep, fetch: (async () => new Response(JSON.stringify({ error }), { status: 400 })) as unknown as typeof fetch }
+  await assert.rejects(understandQuestion(old, 'une question', schema), (e: { code?: string }) => e.code === 'mode_inconnu', error)
+  await assert.rejects(understandSql(old, 'une question', {}), (e: { code?: string }) => e.code === 'mode_inconnu', error)
+}
+assert.equal(modeCode('quota_atteint'), 'quota_atteint')
 // Accès : le mode « question » annoncé par la fonction.
 const acc = await requestAccess({ ...ep, fetch: (async () => new Response(JSON.stringify({ pret: true, modes: ['dictee', 'filtres', 'question'] }))) as unknown as typeof fetch })
 assert.ok(acc.modes?.includes('question'))
@@ -640,6 +817,9 @@ assert.ok(qFn.includes('temperature: 0') && qFn.includes("response_format: { typ
 for (const line of qFn.split('\n').filter((l) => l.includes('console.'))) assert.ok(!/phrase|texte|sortie|recette|schema/.test(line), `rien de la phrase journalisé : ${line}`)
 // Modes déjà existants : toujours là.
 for (const mode of ["=== 'filtres'", "=== 'avis'"]) assert.ok(fn.includes(mode), mode)
+// Mode inconnu : réponse claire (pas une dictée sans son).
+assert.ok(fn.includes("if (modeDemande && modeDemande !== 'dictee') return json({ error: 'mode_inconnu' }, 400)"), 'mode inconnu')
+assert.ok(fn.indexOf("error: 'mode_inconnu'") < fn.indexOf('await req.formData()'), 'avant la lecture du son')
 
 // ---------- Questions enregistrées ----------
 const saved = parseSaved([
@@ -689,6 +869,11 @@ const recipes: Recipe[] = [
   ...(['name', 'avg', 'progress', 'priority', 'seen'] as const).map((by) => cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'list', sort: { by, dir: 'desc' } } })),
   cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'list', sort: { by: 'avg', dir: 'desc' }, avg: { on: 'mix', parts: [{ on: 'criterion', id: 'vitesse' }, { on: 'category', name: 'Défense' }] } } }),
   cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'staff' } }),
+  // Moyennes de mesures, âge, par événement, notes une par une : sur toute la base.
+  cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'sex', value: 'measure', measure: 'taille' } }),
+  cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'club', value: 'age', sort: { by: 'age', dir: 'desc' } } }),
+  cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'event', value: 'age' } }),
+  cleanRecipe({ pop: {}, avis: [{ target: { on: 'category', name: 'Défense' }, op: 'lte', value: 3, agg: 'max' }], measures: [], out: { type: 'count', value: 'age' } }),
 ]
 let worst = 0
 for (const r of recipes) {

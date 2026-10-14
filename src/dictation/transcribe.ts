@@ -46,7 +46,14 @@ export const ERROR_TEXT: Record<string, string> = {
   phrase_absente: 'Tapez ou dictez une phrase d’abord.',
   question_illisible: 'Question pas comprise pour l’instant : reformulez-la, ou réessayez.',
   sql_illisible: 'Mode avancé : réponse pas comprise pour l’instant. Reformulez la question, ou réessayez.',
+  mode_inconnu: 'Cette fonction n’est pas (ou plus) disponible sur le serveur : réessayez dans un instant.',
 }
+
+/**
+ * Appel à un mode JSON (?mode=…) : « mode inconnu » de la fonction, ou réponse d'une version qui ne connaît pas ce mode (elle
+ * le prend pour une dictée et ne trouve pas de son : requete_illisible, son_absent). L'appli relit alors les modes annoncés.
+ */
+export const modeCode = (code: string) => (code === 'requete_illisible' || code === 'son_absent' ? 'mode_inconnu' : code)
 
 export class DictationError extends Error {
   code: string
@@ -190,7 +197,7 @@ export async function understandFilters(
     /* réponse vide */
   }
   if (!res.ok) {
-    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    const code = modeCode(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur'))
     throw new DictationError(code)
   }
   const nonGere = Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : []
@@ -236,7 +243,7 @@ export async function understandQuestion(ep: Endpoint, phrase: string, schema: R
     /* réponse vide */
   }
   if (!res.ok) {
-    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    const code = modeCode(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur'))
     throw new DictationError(code === 'reponse_illisible' ? 'question_illisible' : code)
   }
   return {
@@ -286,7 +293,7 @@ export async function understandSql(ep: Endpoint, phrase: string, schema: Record
     /* réponse vide */
   }
   if (!res.ok) {
-    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    const code = modeCode(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur'))
     throw new DictationError(code === 'reponse_illisible' ? 'sql_illisible' : code)
   }
   return {

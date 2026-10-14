@@ -11,7 +11,7 @@
 // Rien n'est enregistré ici : les propositions s'affichent sur la fiche, le coach les accepte ou les écarte, puis enregistre.
 
 import { scaleMax, scaleMin, criterionApplies, type Criterion, type Position } from '../db'
-import { DictationError, ERROR_TEXT, type Endpoint } from './transcribe'
+import { DictationError, ERROR_TEXT, modeCode, type Endpoint } from './transcribe'
 
 /** Texte dicté : 60 s de parole font environ 1 000 caractères ; marge pour un texte tapé ou corrigé. */
 export const MAX_AVIS_TEXTE = 2000
@@ -304,7 +304,7 @@ export async function understandAvis(ep: Endpoint, texte: string, criteres: Avis
   } catch {
     /* réponse vide */
   }
-  if (!res.ok) throw err(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur'))
+  if (!res.ok) throw err(modeCode(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')))
   const { notes, pointsForts, axes, ambigus } = d
   return { raw: { notes, pointsForts, axes, ambigus }, ms: d.ms, restantMois: d.restant_mois, restantJour: d.restant_jour }
 }
