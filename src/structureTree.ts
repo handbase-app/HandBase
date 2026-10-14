@@ -28,6 +28,17 @@ export interface UnitFields {
   departments?: string[]
   /** Clubs (noms ou numéros), facultatif. */
   clubs?: string[]
+  /**
+   * Clé stable posée par « Importer une structure (CSV) » (src/structureImport.ts) : « ligue:51 », « comite:51:01 »,
+   * « club:<numéro> »… Sert à reconnaître l'unité au prochain import (mise à jour sans doublon). Absente : unité saisie à la main.
+   */
+  code?: string
+  /** Club : numéro d'affiliation, code postal, ville, coordonnées (import). Facultatifs. */
+  clubNumber?: string
+  postalCode?: string
+  city?: string
+  lat?: number
+  lng?: number
 }
 export interface AssignmentFields {
   userId: string
@@ -72,20 +83,29 @@ export function ancestors(units: readonly UnitRow[], id: string): UnitRow[] {
   return out
 }
 
-/** Toutes les unités sous une unité (enfants, petits-enfants…), sans elle-même. */
-export function descendants(units: readonly UnitRow[], id: string): UnitRow[] {
-  const all = live(units)
+/** Index parent → enfants (unités non supprimées). */
+export function childrenIndex<T extends UnitRow>(units: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const u of units) {
+    if (u.deleted || !u.parentId) continue
+    const list = out.get(u.parentId)
+    if (list) list.push(u)
+    else out.set(u.parentId, [u])
+  }
+  return out
+}
+
+/** Toutes les unités sous une unité (enfants, petits-enfants…), sans elle-même. Linéaire (milliers d'unités importées). */
+export function descendants(units: readonly UnitRow[], id: string, index = childrenIndex(units)): UnitRow[] {
   const out: UnitRow[] = []
   const seen = new Set([id])
   const queue = [id]
-  while (queue.length) {
-    const p = queue.shift()!
-    for (const u of all) {
-      if (u.parentId === p && !seen.has(u.id)) {
-        seen.add(u.id)
-        out.push(u)
-        queue.push(u.id)
-      }
+  for (let i = 0; i < queue.length; i++) {
+    for (const u of index.get(queue[i]) ?? []) {
+      if (seen.has(u.id)) continue
+      seen.add(u.id)
+      out.push(u)
+      queue.push(u.id)
     }
   }
   return out
@@ -111,7 +131,7 @@ export function wouldCycle(units: readonly UnitRow[], id: string, parentId?: str
 }
 
 /** Parents possibles pour une unité : toutes les autres sauf ses descendantes (aucun cycle possible). */
-export function parentChoices(units: readonly UnitRow[], id?: string): UnitRow[] {
+export function parentChoices<T extends UnitRow>(units: readonly T[], id?: string): T[] {
   const all = live(units)
   if (!id) return all
   const banned = new Set([id, ...descendants(all, id).map((u) => u.id)])
@@ -140,20 +160,44 @@ export interface TreeNode<T extends UnitRow = UnitRow> {
  */
 export function buildTree<T extends UnitRow>(units: readonly T[], levels: readonly LevelRow[] = []): TreeNode<T>[] {
   const all = live(units)
-  const ids = new Set(all.map((u) => u.id))
+  const byId = new Map(all.map((u) => [u.id, u]))
   const rank = new Map(sortLevels(levels).map((l, i) => [l.id, i]))
   const cmp = (a: T, b: T) => (rank.get(a.levelId) ?? 99) - (rank.get(b.levelId) ?? 99) || a.name.localeCompare(b.name, 'fr')
-  const isRoot = (u: T) => !u.parentId || !ids.has(u.parentId) || wouldCycle(all, u.id, u.parentId)
+  // Même règle que wouldCycle (remontée depuis le parent), avec une seule table : linéaire, même pour des milliers d'unités.
+  const chainBad = (u: T) => {
+    const seen = new Set<string>()
+    let cur: string | undefined = u.parentId
+    while (cur) {
+      if (cur === u.id || seen.has(cur)) return true
+      seen.add(cur)
+      cur = byId.get(cur)?.parentId
+    }
+    return false
+  }
+  const rootIds = new Set(all.filter((u) => !u.parentId || !byId.has(u.parentId) || chainBad(u)).map((u) => u.id))
+  const kids = childrenIndex(all.filter((u) => !rootIds.has(u.id)))
   const placed = new Set<string>()
   const node = (u: T, depth: number): TreeNode<T> => {
     placed.add(u.id)
-    const children = all.filter((c) => c.parentId === u.id && !placed.has(c.id) && !isRoot(c)).sort(cmp)
+    const children = (kids.get(u.id) ?? []).filter((c) => !placed.has(c.id)).sort(cmp)
     return { unit: u, depth, children: children.map((c) => node(c, depth + 1)) }
   }
-  const roots = all.filter(isRoot).sort(cmp).map((u) => node(u, 0))
+  const roots = all.filter((u) => rootIds.has(u.id)).sort(cmp).map((u) => node(u, 0))
   // Restes (cycle entier sans entrée) : en tête aussi.
   for (const u of all.filter((x) => !placed.has(x.id)).sort(cmp)) roots.push(node(u, 0))
   return roots
+}
+
+/** Nombre de sous-unités (tous niveaux) de chaque nœud de l'arbre. */
+export function subtreeCounts<T extends UnitRow>(tree: TreeNode<T>[]): Map<string, number> {
+  const out = new Map<string, number>()
+  const walk = (n: TreeNode<T>): number => {
+    const c = n.children.reduce((s, k) => s + 1 + walk(k), 0)
+    out.set(n.unit.id, c)
+    return c
+  }
+  tree.forEach(walk)
+  return out
 }
 
 /** L'arbre à plat (ordre d'affichage), avec la profondeur. */

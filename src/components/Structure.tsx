@@ -4,7 +4,9 @@ import { useAssignments, useConfigRows, useLevels, useSportConfig, useUnits } fr
 import { departmentLabel, regionOfDept, useDepartments, useRegions } from '../lists'
 import { ROLE_LABEL, type Role } from '../roles'
 import { CONFIG_KEYS, HANDBALL, type PositionDef } from '../sportConfig'
+import { findUnits } from '../structureImport'
 import {
+  ancestors,
   ASSIGNMENT_ROLES,
   assignmentsIn,
   buildTree,
@@ -14,10 +16,13 @@ import {
   HANDBALL_LEVELS,
   levelInUse,
   parentChoices,
+  subtreeCounts,
   wouldCycle,
+  type TreeNode,
 } from '../structureTree'
 import { supabase } from '../sync'
 import { ask, inform } from './Confirm'
+import { StructureImport } from './StructureImport'
 import { department, fold } from './PlayerFilter'
 import { useOnline } from './TransferGroup'
 import { SectionTitle } from './ui'
@@ -29,6 +34,8 @@ import { SectionTitle } from './ui'
  */
 
 const TAP = 'min-h-11 min-w-11'
+/** Au-delà, l'arbre est replié au départ (structure importée : des milliers d'unités). */
+const SMALL_TREE = 40
 
 export function StructureSettings({ editable }: { editable: boolean }) {
   return (
@@ -266,37 +273,118 @@ function UnitsSection({ editable }: { editable: boolean }) {
   const units = useUnits()
   const assignments = useAssignments()
   const [open, setOpen] = useState<string | null>(null)
-  const rows = useMemo(() => flatten(buildTree(units, levels)), [units, levels])
+  // Unités dépliées. Petit arbre (saisi à la main) : tout est déplié ; grand arbre (import) : tout est replié au départ.
+  const [expanded, setExpanded] = useState<Set<string> | null>(null)
+  const [q, setQ] = useState('')
+  const tree = useMemo(() => buildTree(units, levels), [units, levels])
+  const counts = useMemo(() => subtreeCounts(tree), [tree])
+  const peopleBy = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const a of assignments) m.set(a.unitId, (m.get(a.unitId) ?? 0) + 1)
+    return m
+  }, [assignments])
+  const small = units.length <= SMALL_TREE
+  const isExpanded = (id: string) => (expanded ? expanded.has(id) : small)
+  // Lignes visibles seulement (une unité repliée ne dessine pas ses milliers de sous-unités).
+  const rows = useMemo(() => {
+    const out: { unit: Unit; depth: number; kids: number }[] = []
+    const walk = (ns: TreeNode<Unit>[]) => {
+      for (const n of ns) {
+        out.push({ unit: n.unit, depth: n.depth, kids: n.children.length })
+        if (n.children.length && (expanded ? expanded.has(n.unit.id) : small)) walk(n.children)
+      }
+    }
+    walk(tree)
+    return out
+  }, [tree, expanded, small])
   const levelName = (id: string) => levels.find((l) => l.id === id)?.name ?? 'Niveau supprimé'
   const members = useMembers(editable)
+  const found = useMemo(() => findUnits(units, q), [units, q])
+
+  const toggle = (id: string) => {
+    const next = new Set(expanded ?? (small ? flatten(tree).map((r) => r.unit.id) : []))
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setExpanded(next)
+  }
+  /** Montre une unité trouvée : ses parents dépliés, sa fiche ouverte. */
+  const reveal = (id: string) => {
+    const next = new Set(expanded ?? (small ? flatten(tree).map((r) => r.unit.id) : []))
+    ancestors(units, id).forEach((a) => next.add(a.id))
+    setExpanded(next)
+    setOpen(id)
+    setQ('')
+    setTimeout(() => document.getElementById(`unite-${id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+  }
+  const path = (u: Unit) =>
+    ancestors(units, u.id)
+      .reverse()
+      .map((a) => a.name)
+      .join(' › ')
 
   return (
     <section className="card flex flex-col gap-2 p-4">
       <SectionTitle info="L’arbre de l’organisation : chaque unité (une ligue, un comité, un pôle…) a un niveau, une unité parente (sauf en tête), un territoire facultatif (départements) et des personnes affectées, chacune avec son rôle. Une personne peut être affectée à plusieurs unités.">
-        Unités
+        Unités{units.length ? ` (${units.length.toLocaleString('fr-FR')})` : ''}
       </SectionTitle>
       {editable && <Prefill />}
+      {editable && <StructureImport />}
+      {units.length > SMALL_TREE / 2 && (
+        <div className="flex flex-col gap-1">
+          <input className="field min-h-11 py-1.5 text-xs" placeholder="Trouver une unité : nom, ville, code postal, numéro…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Trouver une unité" />
+          {q.trim() && (
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-line">
+              {found.map((u) => (
+                <button key={u.id} className="flex min-h-11 w-full flex-col justify-center border-b border-line px-3 py-1 text-left last:border-0" onClick={() => reveal(u.id)}>
+                  <span className="truncate text-sm font-bold">{u.name}</span>
+                  <span className="truncate text-[11px] text-muted">{[levelName(u.levelId), u.city, path(u)].filter(Boolean).join(' · ')}</span>
+                </button>
+              ))}
+              {!found.length && <div className="p-3 text-center text-xs text-muted">Aucune unité ne correspond.</div>}
+              {found.length >= 30 && <div className="p-2 text-center text-[11px] text-muted">30 premières : précise la recherche.</div>}
+            </div>
+          )}
+        </div>
+      )}
       <div className="divide-y divide-line rounded-lg border border-line">
-        {rows.map(({ unit, depth }) => {
-          const people = assignmentsIn(assignments, unit.id)
+        {rows.map(({ unit, depth, kids }) => {
+          const people = peopleBy.get(unit.id) ?? 0
           const isOpen = open === unit.id
+          const sub = counts.get(unit.id) ?? 0
           return (
-            <div key={unit.id}>
-              <button
-                className={`flex min-h-11 w-full items-center gap-2 py-1.5 pr-3 text-left ${isOpen ? 'bg-accent/10' : ''}`}
-                style={{ paddingLeft: 12 + Math.min(depth, 5) * 14 }}
-                onClick={() => setOpen(isOpen ? null : unit.id)}
-              >
-                {depth > 0 && <span className="text-muted">└</span>}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-bold">{unit.name}</span>
-                  <span className="block truncate text-[11px] text-muted">
-                    {[levelName(unit.levelId), unit.departments?.length ? unit.departments.join(', ') : '', people.length ? plural(people.length, 'personne') : ''].filter(Boolean).join(' · ')}
+            <div key={unit.id} id={`unite-${unit.id}`}>
+              <div className={`flex items-center ${isOpen ? 'bg-accent/10' : ''}`} style={{ paddingLeft: 4 + Math.min(depth, 5) * 14 }}>
+                {kids ? (
+                  <button
+                    className={`${TAP} flex shrink-0 items-center justify-center text-muted`}
+                    aria-label={isExpanded(unit.id) ? `Replier ${unit.name}` : `Déplier ${unit.name}`}
+                    aria-expanded={isExpanded(unit.id)}
+                    onClick={() => toggle(unit.id)}
+                  >
+                    <span className={`transition ${isExpanded(unit.id) ? 'rotate-90' : ''}`}>▸</span>
+                  </button>
+                ) : (
+                  <span className="w-11 shrink-0 text-center text-muted">{depth > 0 ? '·' : ''}</span>
+                )}
+                <button className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-1.5 pr-3 text-left" onClick={() => setOpen(isOpen ? null : unit.id)}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold">{unit.name}</span>
+                    <span className="block truncate text-[11px] text-muted">
+                      {[
+                        levelName(unit.levelId),
+                        unit.departments?.length ? unit.departments.join(', ') : '',
+                        unit.city ?? '',
+                        sub ? plural(sub, 'sous-unité') : '',
+                        people ? plural(people, 'personne') : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
                   </span>
-                </span>
-                <span className={`text-muted transition ${isOpen ? 'rotate-90' : ''}`}>›</span>
-              </button>
-              {isOpen && <UnitDetail unit={unit} editable={editable} members={members} onDeleted={() => setOpen(null)} onOpen={setOpen} />}
+                  <span className={`text-muted transition ${isOpen ? 'rotate-90' : ''}`}>›</span>
+                </button>
+              </div>
+              {isOpen && <UnitDetail unit={unit} editable={editable} members={members} onDeleted={() => setOpen(null)} onOpen={(id) => reveal(id)} />}
             </div>
           )
         })}
@@ -363,14 +451,24 @@ function UnitDetail({
   const units = useUnits()
   const assignments = useAssignments()
   const people = assignmentsIn(assignments, unit.id)
-  const parents = parentChoices(units, unit.id)
+  const indent = useMemo(() => new Map(flatten(buildTree(units, levels)).map((r, i) => [r.unit.id, { depth: r.depth, pos: i }])), [units, levels])
+  // Parents possibles, dans l'ordre de l'arbre. Grand arbre (import) : seulement les niveaux au-dessus (sinon des milliers de
+  // clubs dans la liste), plus le parent actuel.
+  const parents = useMemo(() => {
+    const rank = new Map(levels.map((l, i) => [l.id, i]))
+    const mine = rank.get(unit.levelId)
+    return parentChoices(units, unit.id)
+      .filter((u) => units.length <= SMALL_TREE || mine === undefined || u.id === unit.parentId || (rank.get(u.levelId) ?? -1) < mine)
+      .sort((a, b) => (indent.get(a.id)?.pos ?? 0) - (indent.get(b.id)?.pos ?? 0))
+  }, [units, levels, unit.id, unit.levelId, unit.parentId, indent])
   const blocker = deleteBlocker(units, assignments, unit.id)
-  const indent = useMemo(() => new Map(flatten(buildTree(units, levels)).map((r) => [r.unit.id, r.depth])), [units, levels])
   const update = (patch: Partial<Unit>) => save<Unit>('units', { ...unit, ...patch })
 
+  const club = <ClubInfo unit={unit} />
   if (!editable)
     return (
       <div className="flex flex-col gap-1 bg-panel-2/50 px-4 py-3 text-xs">
+        {club}
         {unit.departments?.length ? <div>Territoire : {unit.departments.map((d) => departmentLabel(d)).join(', ')}</div> : null}
         {people.length ? (
           people.map((a) => (
@@ -387,6 +485,7 @@ function UnitDetail({
   return (
     <div className="flex flex-col gap-3 bg-panel-2/50 px-3 py-3">
       <NameField key={unit.name} value={unit.name} onSave={(name) => void update({ name })} />
+      {club}
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1">
           <span className="label mb-0">Niveau</span>
@@ -415,7 +514,7 @@ function UnitDetail({
             <option value="">— Aucune (en tête) —</option>
             {parents.map((u) => (
               <option key={u.id} value={u.id}>
-                {'\u00a0\u00a0'.repeat(indent.get(u.id) ?? 0)}
+                {'\u00a0\u00a0'.repeat(indent.get(u.id)?.depth ?? 0)}
                 {u.name}
               </option>
             ))}
@@ -437,6 +536,22 @@ function UnitDetail({
       >
         {blocker ? `Suppression impossible : ${blocker}` : 'Supprimer l’unité'}
       </button>
+    </div>
+  )
+}
+
+/** Informations reprises de l'import (club : numéro, code postal, ville, coordonnées). */
+function ClubInfo({ unit }: { unit: Unit }) {
+  const parts = [
+    unit.clubNumber && `N° ${unit.clubNumber}`,
+    [unit.postalCode, unit.city].filter(Boolean).join(' '),
+    unit.lat !== undefined && unit.lng !== undefined && `${unit.lat.toFixed(4)}, ${unit.lng.toFixed(4)}`,
+  ].filter(Boolean)
+  if (!parts.length && !unit.code) return null
+  return (
+    <div className="text-[11px] text-muted">
+      {parts.join(' · ')}
+      {unit.code ? `${parts.length ? ' · ' : ''}importée` : ''}
     </div>
   )
 }
