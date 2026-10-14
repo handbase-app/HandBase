@@ -637,8 +637,8 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
   const free = (members.list ?? []).filter((m) => !people.some((a) => a.userId === m.user_id)).sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
   const words = fold(q).split(/\s+/).filter(Boolean)
   const found = words.length ? free.filter((m) => words.every((w) => fold(`${m.full_name ?? ''} ${m.email ?? ''}`).includes(w))) : free
-  // Des milliers de comptes à terme : on n'affiche que les premiers (le téléphone reste fluide), la recherche fait le reste.
-  const MAX = 100
+  // Liste courte (6 lignes) : la recherche fait le reste, même avec des milliers de comptes.
+  const MAX = 6
   const picked = chosen.map((id) => known.get(id)).filter((m): m is Member => !!m)
   const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))
   async function add() {
@@ -724,7 +724,7 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                 </label>
               ))}
               {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ici.'}</p>}
-              {found.length > MAX && <p className="p-2 text-[11px] text-muted">{found.length - MAX} autres : tape un nom pour les voir.</p>}
+              {found.length > MAX && <p className="p-2 text-[11px] text-muted">+ {found.length - MAX} autres : précise la recherche.</p>}
             </div>
           )}
           <div className="flex flex-wrap gap-2">
