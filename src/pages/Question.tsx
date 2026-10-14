@@ -47,6 +47,7 @@ import { ask } from '../components/Confirm'
 import { ContextBar, ContextRoster, useLeaveTo } from '../components/ContextRoster'
 import { FollowStar } from '../components/Follow'
 import { FranceMap } from '../components/FranceMap'
+import { showOtherOM } from '../outreMer'
 import MasterDetail from '../components/MasterDetail'
 import { PlayerRow } from '../components/PlayerRow'
 import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
@@ -684,6 +685,11 @@ function MapAnswer({
             touch="select"
             className="side:max-h-[calc(100dvh-var(--hdr)-16rem)]"
             ariaLabel="Part des joueurs qui répondent à la question, par région et par département"
+            others={showOtherOM(t.byDept)}
+            label={(code) => {
+              const x = t.byDept.get(code)
+              return `${model.names.dept(code)} : ${x?.total ? share(x) : 'aucun joueur dans cette population'}`
+            }}
             tip={({ code, isRegion }) => {
               const x = isRegion ? t.byRegion.get(code) : t.byDept.get(code)
               return (

@@ -2,6 +2,7 @@ import { geoConicConformal, geoPath } from 'd3-geo'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { regionOfDept, useDepartments } from '../lists'
+import { insetPaths, OTHER_OM, OUTRE_MER, type OutreMerGeo } from '../outreMer'
 
 /*
  * Carte de France des départements du bilan de détection (src/pages/Coverage.tsx, tous ses onglets) et de la réponse
@@ -11,25 +12,13 @@ import { regionOfDept, useDepartments } from '../lists'
  * Contours des départements : france-geojson de Grégoire David (departements-version-simplifiee.geojson,
  * https://github.com/gregoiredavid/france-geojson), issus d'Admin Express IGN — Licence Ouverte Etalab.
  * Coordonnées arrondies à 3 décimales (src/assets/departements.json, ~220 Ko), chargées à la demande.
+ * Contours de l'outre-mer : src/assets/outre-mer.json (sources et licences dans src/outreMer.ts), chargés de même.
  */
 
-// Carte : métropole + Corse, et une case pour l'outre-mer. Toucher une région la montre de plus près
-// (projection recalée sur ses départements) ; on y touche ensuite un département.
+// Carte : métropole + Corse, et sous elle une rangée d'encarts pour l'outre-mer (src/outreMer.ts). Toucher une région
+// la montre de plus près (projection recalée sur ses départements) ; on y touche ensuite un département.
 // La largeur est fixée ; la hauteur suit celle du pays, et reste la même quand on zoome sur une région.
 const W = 600
-const DOM_W = 132
-const DOM_H = 62
-/** Territoires ultramarins (pas sur la carte) : une case chacun, dans l'encadré « Ultramarins ». */
-const DOM_CODES: [string, string][] = [
-  ['971', 'GP'],
-  ['972', 'MQ'],
-  ['973', 'GF'],
-  ['974', 'RE'],
-  ['976', 'YT'],
-  ['988', 'NC'],
-  // Ultramarin sans territoire précis (n° de club « 97… » : department() donne « 97 »).
-  ['97', 'OM'],
-]
 /** Corse : un seul département pour nous (n° de club « 20 »). */
 const codeOf = (c: string) => (c === '2A' || c === '2B' ? '20' : c)
 
@@ -44,6 +33,25 @@ interface Shape {
 // Fichier à part (pas dans le démarrage de l'appli), lu une seule fois ; mis en cache par le service worker.
 let geoLoad: Promise<Geo> | null = null
 const loadGeo = () => (geoLoad ??= import('../assets/departements.json?raw').then((m) => JSON.parse(m.default) as Geo))
+
+let omLoad: Promise<OutreMerGeo> | null = null
+const loadOutreMer = () => (omLoad ??= import('../assets/outre-mer.json?raw').then((m) => JSON.parse(m.default) as OutreMerGeo))
+
+/** Encarts ultramarins : tracés pour la petite taille (rangée sous la carte) et la grande (ligue ultramarine choisie). */
+const INSET = { small: [60, 40], big: [150, 110] } as const
+function useInsets() {
+  const [paths, setPaths] = useState<{ small: Map<string, string>; big: Map<string, string> } | null>(null)
+  useEffect(() => {
+    let alive = true
+    void loadOutreMer().then((g) => {
+      if (alive) setPaths({ small: insetPaths(g, ...INSET.small), big: insetPaths(g, ...INSET.big) })
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+  return paths
+}
 
 export function useGeo() {
   const [geo, setGeo] = useState<Geo | null>(null)
@@ -144,6 +152,8 @@ export function FranceMap({
   tip: tipContent,
   className = '',
   ariaLabel,
+  label,
+  others = false,
 }: {
   /** Région montrée de plus près ('' : toute la France). */
   region: string
@@ -164,8 +174,13 @@ export function FranceMap({
   ariaLabel?: string
   /** Classes de l'image (hauteur maximale…). */
   className?: string
+  /** Nom d'un encart ultramarin pour les lecteurs d'écran, avec son chiffre (par défaut : le nom du territoire). */
+  label?: (code: string) => string
+  /** Montre la pastille « Autres outre-mer » (« 97 » : joueurs ultramarins sans territoire précis). */
+  others?: boolean
 }) {
   const geo = useGeo()
+  const insetD = useInsets()
   const lists = useDepartments()
 
   // Départements de chaque région et contour des régions : une fois par fichier (et par liste des départements,
@@ -213,10 +228,9 @@ export function FranceMap({
       }),
       // France : contour de chaque région (plus marqué que celui des départements). Région : son seul contour.
       outlines: [...regionGeo.lines].filter(([r]) => !zoomed || r === region).map(([r, g]) => ({ region: r, d: path(g) ?? '' })),
-      dom: { x: 8, y: h - 8 - DOM_H, w: DOM_W, h: DOM_H },
     }
   }, [geo, regionGeo, region])
-  // Région sans contour sur la carte (outre-mer) : une grande case au centre.
+  // Région sans contour sur la carte (ligue ultramarine) : ses seuls encarts, en grand.
   const domOnly = !!region && !!shapes && !shapes.zoomed
 
   // Survol (souris) ou appui (téléphone) : bulle d'info. France : un appui sur une région la montre de plus près.
@@ -247,7 +261,8 @@ export function FranceMap({
       if (e.pointerType === 'mouse') setTip(null)
     },
     onClick: (e: React.MouseEvent) => {
-      if (pointer.current === 'mouse') onDept(code)
+      // Souris, ou clavier (encarts ultramarins : boutons ; detail = 0) : tout de suite.
+      if (pointer.current === 'mouse' || e.detail === 0) onDept(code)
       else if (touch === 'select') {
         onDept(code)
         place(e, code, true)
@@ -276,14 +291,17 @@ export function FranceMap({
         : // Voisins estompés : un appui passe à leur région.
           { fill: 'var(--color-panel-2)', opacity: 0.5, stroke: 'var(--color-line)', strokeWidth: 0.8, className: 'cursor-pointer', ...regionHandlers(regionOfDept(s.code)) }
 
-  const dom = domOnly ? { x: W / 2 - 120, y: (shapes?.h ?? 0) / 2 - 60, w: 240, h: 120 } : shapes?.dom
+  // Encarts ultramarins : à la vue France (rangée sous la carte) ou seuls, en grand, pour une ligue ultramarine.
+  const insets = !shapes || (shapes.zoomed && !domOnly) ? [] : [...OUTRE_MER, ...(others ? [OTHER_OM] : [])].filter((t) => !domOnly || regionOfDept(t.code) === region)
+  const big = domOnly
+  const [iw, ih] = big ? INSET.big : INSET.small
   const tipIsRegion = !!tip?.code.startsWith('region-')
 
   return (
     <div ref={box} className="relative" onPointerLeave={() => !tip?.pinned && setTip(null)}>
       {!shapes ? (
         <div className="flex aspect-square items-center justify-center text-xs text-muted">Chargement de la carte…</div>
-      ) : (
+      ) : domOnly ? null : (
         <svg
           viewBox={`0 0 ${W} ${shapes.h}`}
           className={`block h-auto w-full select-none ${className}`}
@@ -294,79 +312,66 @@ export function FranceMap({
             if (e.target === e.currentTarget) setTip(null)
           }}
         >
-          {!domOnly && (
+          {shapes.main.map((s, i) => (
+            <path key={i} d={s.d} {...pathProps(s)} />
+          ))}
+          {shapes.outlines.map((o) => (
+            <path
+              key={o.region}
+              d={o.d}
+              fill="none"
+              stroke="var(--color-fg)"
+              strokeOpacity={shapes.zoomed ? 0.6 : 0.45}
+              strokeWidth={shapes.zoomed ? 1.6 : 1.1}
+              strokeLinejoin="round"
+              pointerEvents="none"
+            />
+          ))}
+          {shapes.zoomed ? (
             <>
-              {shapes.main.map((s, i) => (
-                <path key={i} d={s.d} {...pathProps(s)} />
-              ))}
-              {shapes.outlines.map((o) => (
-                <path
-                  key={o.region}
-                  d={o.d}
-                  fill="none"
-                  stroke="var(--color-fg)"
-                  strokeOpacity={shapes.zoomed ? 0.6 : 0.45}
-                  strokeWidth={shapes.zoomed ? 1.6 : 1.1}
-                  strokeLinejoin="round"
-                  pointerEvents="none"
-                />
-              ))}
-              {shapes.zoomed ? (
-                <>
-                  <Outline shapes={shapes.main} code={selected} width={2.6} />
-                  {tip?.code !== selected && <Outline shapes={shapes.main} code={tip?.code} />}
-                </>
-              ) : (
-                // Vue France : contour de la région survolée.
-                shapes.outlines
-                  .filter((o) => o.region === tip?.code)
-                  .map((o) => <path key={o.region} d={o.d} fill="none" stroke="var(--color-fg)" strokeWidth={2.2} strokeLinejoin="round" pointerEvents="none" />)
-              )}
+              <Outline shapes={shapes.main} code={selected} width={2.6} />
+              {tip?.code !== selected && <Outline shapes={shapes.main} code={tip?.code} />}
             </>
+          ) : (
+            // Vue France : contour de la région survolée.
+            shapes.outlines
+              .filter((o) => o.region === tip?.code)
+              .map((o) => <path key={o.region} d={o.d} fill="none" stroke="var(--color-fg)" strokeWidth={2.2} strokeLinejoin="round" pointerEvents="none" />)
           )}
-          {/* Ultramarins : une case par territoire (Antilles = Guadeloupe + Martinique), ou seulement ceux de la ligue choisie. */}
-          {dom &&
-            (domOnly || !shapes.zoomed) &&
-            (() => {
-              const cells = DOM_CODES.filter(([c]) => !domOnly || regionOfDept(c) === region)
-              const cols = Math.min(4, cells.length)
-              const rows = Math.ceil(cells.length / cols)
-              const cw = (dom.w - 16 - (cols - 1) * 4) / cols
-              const ch = (dom.h - 28 - (rows - 1) * 4) / rows
-              return (
-                <>
-                  <rect x={dom.x} y={dom.y} width={dom.w} height={dom.h} rx={8} fill="var(--color-panel)" stroke="var(--color-line)" />
-                  <text x={dom.x + 8} y={dom.y + 13} fontSize={10} fontWeight={700} fill="var(--color-muted)">
-                    Ultramarins
-                  </text>
-                  {cells.map(([code, abbr], i) => {
-                    const x = dom.x + 8 + (i % cols) * (cw + 4)
-                    const y = dom.y + 20 + Math.floor(i / cols) * (ch + 4)
-                    const on = tip?.code === code || selected === code
-                    return (
-                      <g key={code}>
-                        <rect
-                          x={x}
-                          y={y}
-                          width={cw}
-                          height={ch}
-                          rx={4}
-                          fill={fill(code)}
-                          stroke={on ? 'var(--color-fg)' : 'var(--color-line)'}
-                          strokeWidth={selected === code ? 2 : 1}
-                          className="cursor-pointer transition-[fill] duration-300"
-                          {...deptHandlers(code)}
-                        />
-                        <text x={x + cw / 2} y={y + ch / 2 + 3} fontSize={8} fontWeight={700} textAnchor="middle" fill="var(--color-muted)" pointerEvents="none">
-                          {abbr}
-                        </text>
-                      </g>
-                    )
-                  })}
-                </>
-              )
-            })()}
         </svg>
+      )}
+      {insets.length > 0 && (
+        <div role="group" aria-label="Outre-mer" className={`flex flex-wrap justify-center gap-1 ${big ? 'py-6' : 'pt-1'}`}>
+          {insets.map((t) => {
+            const d = insetD?.[big ? 'big' : 'small'].get(t.code)
+            const sel = selected === t.code
+            const on = sel || tip?.code === t.code
+            return (
+              <button
+                key={t.code}
+                type="button"
+                aria-label={label?.(t.code) ?? t.name}
+                aria-pressed={sel}
+                className={`flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md bg-panel px-0.5 pt-1 pb-0.5 transition ${big ? 'w-36' : 'w-16'} ${
+                  sel ? 'border-2 border-fg' : on ? 'border border-fg' : 'border border-line hover:border-muted'
+                }`}
+                {...deptHandlers(t.code)}
+              >
+                {d !== undefined ? (
+                  <svg viewBox={`0 0 ${iw} ${ih}`} className={`pointer-events-none block w-full ${big ? 'h-28' : 'h-9'}`} aria-hidden="true">
+                    <path d={d} fill={fill(t.code)} stroke="var(--color-fg)" strokeOpacity={0.45} strokeWidth={big ? 0.8 : 0.5} strokeLinejoin="round" className="transition-[fill] duration-300" />
+                  </svg>
+                ) : (
+                  // « Autres outre-mer » (pas de contour), ou contours pas encore chargés : une pastille de la couleur.
+                  <span className={`pointer-events-none flex items-center justify-center ${big ? 'h-28' : 'h-9'}`} aria-hidden="true">
+                    <span className="block size-6 rounded-full border border-line transition-[background] duration-300" style={{ background: fill(t.code) }} />
+                  </span>
+                )}
+                <span className={`pointer-events-none w-full truncate text-center leading-tight font-bold text-muted ${big ? 'text-xs' : 'text-[9px]'}`}>{big ? t.name : t.short}</span>
+              </button>
+            )
+          })}
+        </div>
       )}
       {tip && (
         <div

@@ -39,6 +39,7 @@ import { MQ, useMedia } from '../layout'
 import { can, useRole } from '../roles'
 import { scoutId } from '../scouting'
 import { FranceMap, useDeptName } from '../components/FranceMap'
+import { showOtherOM } from '../outreMer'
 import { department } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
@@ -904,8 +905,13 @@ export default function Coverage() {
               onRegion={pickRegion}
               onDept={pickDept}
               touch="select"
-              className="side:max-h-[calc(100dvh-var(--hdr)-15rem)]"
+              className="side:max-h-[calc(100dvh-var(--hdr)-19rem)]"
               ariaLabel={`${tab.label}${where ? ` : ${where}` : ' par région et par département'}`}
+              others={showOtherOM(byPlace.byDept)}
+              label={(code) => {
+                const t = byPlace.byDept.get(code)
+                return `${deptText(code)} : ${t?.total ? `${headline(o, t)} ${unit(o, t)}` : 'aucun joueur avec ces filtres'}`
+              }}
               tip={({ code, isRegion }) => {
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
                 return (
