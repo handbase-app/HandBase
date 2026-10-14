@@ -629,23 +629,25 @@ function TerritoryPicker({ unit, onChange }: { unit: Unit; onChange: (d: string[
 }
 
 function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assignment[]; members: ReturnType<typeof useMembers> }) {
-  const [userId, setUserId] = useState('')
+  const [chosen, setChosen] = useState<string[]>([])
   const [role, setRole] = useState<Role>('preparateur')
   const [q, setQ] = useState('')
   const known = new Map((members.list ?? []).map((m) => [m.user_id, m]))
-  const free = (members.list ?? []).filter((m) => !people.some((a) => a.userId === m.user_id))
-  // Recherche par nom, prénom ou email (tous les mots, dans n'importe quel ordre, sans accents) : des milliers de comptes à terme.
+  // Comptes pas encore affectés ici, triés par nom ; la recherche (nom, prénom ou email, tous les mots, sans accents) réduit la liste.
+  const free = (members.list ?? []).filter((m) => !people.some((a) => a.userId === m.user_id)).sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
   const words = fold(q).split(/\s+/).filter(Boolean)
-  const found = words.length
-    ? free.filter((m) => words.every((w) => fold(`${m.full_name ?? ''} ${m.email ?? ''}`).includes(w))).sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
-    : []
-  const MAX = 20
-  const picked = userId ? known.get(userId) : undefined
+  const found = words.length ? free.filter((m) => words.every((w) => fold(`${m.full_name ?? ''} ${m.email ?? ''}`).includes(w))) : free
+  // Des milliers de comptes à terme : on n'affiche que les premiers (le téléphone reste fluide), la recherche fait le reste.
+  const MAX = 100
+  const picked = chosen.map((id) => known.get(id)).filter((m): m is Member => !!m)
+  const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))
   async function add() {
-    const m = known.get(userId)
-    if (!m) return
-    await save<Assignment>('assignments', { id: newId(), userId, unitId: unit.id, role, userName: memberName(m) })
-    setUserId('')
+    if (!picked.length) return
+    await saveMany<Assignment>(
+      'assignments',
+      picked.map((m) => ({ id: newId(), userId: m.user_id, unitId: unit.id, role, userName: memberName(m) })),
+    )
+    setChosen([])
     setQ('')
   }
   return (
@@ -685,49 +687,58 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
       ) : members.err ? (
         <p className="text-[11px] text-red-300">{members.err}</p>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {picked ? (
-            <button
-              className={`${TAP} field flex min-w-0 flex-1 items-center justify-between gap-2 py-1 text-left text-xs`}
-              aria-label={`Compte choisi : ${memberName(picked)}. Changer`}
-              onClick={() => setUserId('')}
-            >
-              <span className="truncate font-bold">{memberName(picked)}</span>
-              <span className="shrink-0 text-muted">✕</span>
-            </button>
-          ) : (
-            <input
-              className="field min-h-11 min-w-0 flex-1 py-1 text-xs"
-              type="search"
-              value={q}
-              aria-label="Chercher un compte"
-              placeholder={members.list ? 'Chercher un compte (nom, prénom, email)…' : 'Chargement…'}
-              disabled={!members.list}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          )}
-          <select className="field min-h-11 w-36 shrink-0 py-1 text-xs" value={role} aria-label="Rôle" onChange={(e) => setRole(e.target.value as Role)}>
-            {ASSIGNMENT_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABEL[r]}
-              </option>
-            ))}
-          </select>
-          <button className={`btn-primary ${TAP} shrink-0 px-3 text-xs`} disabled={!userId} onClick={() => void add()}>
-            Affecter
-          </button>
-          {!picked && words.length > 0 && (
-            <div className="flex max-h-64 w-full flex-col overflow-y-auto rounded-md border border-line bg-panel">
-              {found.slice(0, MAX).map((m) => (
-                <button key={m.user_id} className={`${TAP} flex flex-col items-start justify-center px-2 py-1 text-left text-xs hover:bg-panel-2`} onClick={() => setUserId(m.user_id)}>
-                  <span className="truncate font-bold">{memberName(m)}</span>
-                  {m.full_name && m.email && <span className="truncate text-[10px] text-muted">{m.email}</span>}
+        <div className="flex flex-col gap-2 rounded-md border border-line bg-panel-2 p-2">
+          <span className="text-[11px] font-bold text-muted">Ajouter des personnes</span>
+          {picked.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {picked.map((m) => (
+                <button
+                  key={m.user_id}
+                  className="inline-flex min-h-9 items-center gap-1 rounded-full border border-accent bg-accent/15 px-2.5 text-xs font-bold"
+                  aria-label={`Décocher ${memberName(m)}`}
+                  onClick={() => toggle(m.user_id)}
+                >
+                  {memberName(m)} <span className="opacity-70">✕</span>
                 </button>
               ))}
-              {!found.length && <p className="p-2 text-[11px] text-muted">Aucun compte ne correspond (ou déjà affecté ici).</p>}
-              {found.length > MAX && <p className="p-2 text-[11px] text-muted">{found.length - MAX} autres : précise la recherche.</p>}
             </div>
           )}
+          <input
+            className="field min-h-11 py-1 text-xs"
+            type="search"
+            value={q}
+            aria-label="Chercher un compte"
+            placeholder={members.list ? `Chercher parmi ${free.length} comptes (nom, prénom, email)…` : 'Chargement…'}
+            disabled={!members.list}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          {members.list && (
+            <div className="flex max-h-72 flex-col overflow-y-auto rounded-md border border-line bg-panel">
+              {found.slice(0, MAX).map((m) => (
+                <label key={m.user_id} className="flex min-h-11 cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-panel-2">
+                  <input type="checkbox" className="h-4 w-4 shrink-0 accent-[var(--color-accent)]" checked={chosen.includes(m.user_id)} onChange={() => toggle(m.user_id)} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-bold">{memberName(m)}</span>
+                    {m.full_name && m.email && <span className="truncate text-[10px] text-muted">{m.email}</span>}
+                  </span>
+                </label>
+              ))}
+              {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ici.'}</p>}
+              {found.length > MAX && <p className="p-2 text-[11px] text-muted">{found.length - MAX} autres : tape un nom pour les voir.</p>}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <select className="field min-h-11 min-w-0 flex-1 py-1 text-xs" value={role} aria-label="Rôle" onChange={(e) => setRole(e.target.value as Role)}>
+              {ASSIGNMENT_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABEL[r]}
+                </option>
+              ))}
+            </select>
+            <button className={`btn-primary ${TAP} shrink-0 px-3 text-xs`} disabled={!picked.length} onClick={() => void add()}>
+              {picked.length ? `Affecter ${plural(picked.length, 'personne')}` : 'Affecter'}
+            </button>
+          </div>
         </div>
       )}
     </div>
