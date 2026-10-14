@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useAlerts } from '../alerts'
 import { BackButton } from '../backNav'
+import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
 import { alive, db, fmtDate, plural, today, type Player, type Rewatch } from '../db'
 import {
   birthYear,
@@ -516,9 +517,20 @@ export const tabsFor = (national: boolean): Onglet[] => (national ? [...ONGLETS]
  * sur les fiches ouvertes depuis le bilan (/bilan/joueurs/:pid?…), pour y revenir à l'identique. Un onglet que ce rôle
  * ne voit pas (adresse partagée, ancienne vue nationale) revient à « Vus ».
  */
+/** État d'historique d'une entrée du bilan : clés des lieux des entrées du bilan en dessous (src/bilanNav.ts). */
+type BilanNavState = { bilanChain?: string[] } | null
+/** Retour remontant de plusieurs étages : après le saut dans l'historique, filtres à remettre et étages à empiler. */
+let pendingPlace: { next: BilanState; push: Place[] } | null = null
+/** Dernier état affiché : ses filtres (onglet, sexe, période…) suivent le retour, seul le lieu change. */
+let lastBilan: BilanState | null = null
+
 export function useBilanState() {
   const national = can.nationalView(useRole())
   const [params, setParams] = useSearchParams()
+  const loc = useLocation()
+  const nav = useNavigate()
+  const navType = useNavigationType()
+  const chain = (loc.state as BilanNavState)?.bilanChain
   const raw = params.toString()
   // Adresse sans paramètre (menu, accueil) : derniers choix de la session.
   const saved = raw ? null : sessionQuery()
@@ -554,9 +566,64 @@ export function useBilanState() {
         } catch {
           /* stockage indisponible */
         }
-    setParams(new URLSearchParams(bilanQuery({ ...st, ...patch })), { replace: true })
+    const next = { ...st, ...patch }
+    if (samePlace(st, next)) setParams(new URLSearchParams(bilanQuery(next)), { replace: true, state: loc.state })
+    else goPlace(next)
   }
-  return { st, set, search: `?${bilanQuery(st)}`, national }
+  // Lieu changé : l'historique reste la chaîne des étages (France → région → département → club), le retour remonte d'un étage.
+  const withPlace = (next: BilanState, p: Place): BilanState => ({ ...next, region: p.region, dept: p.dept, club: p.club, seenOpen: samePlace(p, next) ? next.seenOpen : false })
+  const stack = (next: BilanState, below: string[], top: Place, push: Place[]) => {
+    let c = below
+    for (const p of push) {
+      c = [...c, placeKey(top)]
+      nav({ pathname: loc.pathname, search: `?${bilanQuery(withPlace(next, p))}` }, { state: { bilanChain: c } })
+      top = p
+    }
+  }
+  const goPlace = (next: BilanState) => {
+    const below = chain ?? []
+    const plan = placePlan(below, st, next)
+    if (plan.pop) {
+      pendingPlace = { next, push: plan.push }
+      nav(-plan.pop)
+      return
+    }
+    if (plan.replace) nav({ pathname: loc.pathname, search: `?${bilanQuery(withPlace(next, plan.replace))}` }, { replace: true, state: { bilanChain: below } })
+    stack(next, below, plan.replace ?? st, plan.push)
+  }
+  useEffect(() => {
+    if (loc.pathname !== '/bilan' || !raw) return
+    const pend = pendingPlace
+    pendingPlace = null
+    const prev = lastBilan
+    lastBilan = st
+    if (pend) {
+      // Arrivé sur le parent commun : ses filtres deviennent ceux choisis, puis les étages en dessous.
+      const here = withPlace(pend.next, st)
+      if (bilanQuery(here) !== bilanQuery(st)) nav({ pathname: loc.pathname, search: `?${bilanQuery(here)}` }, { replace: true, state: loc.state })
+      stack(pend.next, chain ?? [], st, pend.push)
+      return
+    }
+    if (!chain) {
+      // Bilan ouvert directement sur un lieu (menu, lien) : on pose les étages au-dessus, pour que le retour y remonte.
+      if (placeDepth(st) === 0) nav({ pathname: loc.pathname, search: loc.search }, { replace: true, state: { bilanChain: [] } })
+      else {
+        const line = [...placeParents(st), st]
+        nav({ pathname: loc.pathname, search: `?${bilanQuery(withPlace(st, line[0]))}` }, { replace: true, state: { bilanChain: [] } })
+        stack(st, [], line[0], line.slice(1))
+      }
+      return
+    }
+    // Retour du navigateur sur un étage du bilan : on garde les filtres choisis entre-temps.
+    if (navType === 'POP' && prev) {
+      const merged = withPlace(prev, st)
+      if (bilanQuery(merged) !== bilanQuery(st)) setParams(new URLSearchParams(bilanQuery(merged)), { replace: true, state: loc.state })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.key])
+  /** Étage au-dessus du lieu affiché (undefined : la France, on quitte le bilan). */
+  const up = placeParent(st)
+  return { st, set, search: `?${bilanQuery(st)}`, national, up: up && (() => goPlace({ ...st, ...up, seenOpen: false })), upPlace: up }
 }
 
 /**
@@ -654,7 +721,7 @@ export default function Coverage() {
   const regionLabel = useRegionLabel()
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
-  const { st, set, search, national } = useBilanState()
+  const { st, set, search, national, up, upPlace } = useBilanState()
   const { onglet: o, sex, period, view, mapBy, year, region, dept } = st
   const { data, last, nat, byPlace, years, clubs, kpis, allYears, club, yearText } = useBilanModel(st)
   const side = useMedia(MQ.side)
@@ -884,7 +951,14 @@ export default function Coverage() {
     <WhoCtx.Provider value={who}>
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <BackButton fallback="/" label="ACCUEIL" className="self-start" />
+        {/* Sur un lieu, le retour remonte d'un étage (club → département → région → France) ; depuis la France, on quitte le bilan. */}
+        {up && upPlace ? (
+          <button onClick={up} className="min-w-0 self-start truncate text-left text-xs font-bold text-muted">
+            ← {(upPlace.dept ? deptText(upPlace.dept) : upPlace.region ? regionLabel(upPlace.region) : 'France').toUpperCase()}
+          </button>
+        ) : (
+          <BackButton fallback="/" label="ACCUEIL" className="self-start" />
+        )}
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-lg font-extrabold">Bilan de détection</h1>
