@@ -427,6 +427,79 @@ t('pôles : « Annuler l’import » les retire aussi, avant leurs ligues', () =
   for (const r of u.remove) if (r.parentId && pos.has(r.parentId)) assert.ok(pos.get(r.parentId)! > pos.get(r.id)!, 'ligue retirée avant son pôle')
 })
 
+// ---------- Comités saisis avant l'import (« Pré-remplir les comités ») ; comités ultramarins sans nom ----------
+
+const PREFILL_CSV = [
+  HEAD,
+  '71;Ligue fictive insulaire;2A;Comité fictif 2A;7100001;CLUB FICTIF Q1;20000;VILLE Q1;;',
+  '71;Ligue fictive insulaire;2B;Comité fictif 2B;7100002;CLUB FICTIF Q2;20200;VILLE Q2;;',
+  '72;Ligue fictive de l’ouest;35;Comité fictif 35;7200001;CLUB FICTIF Q3;35000;VILLE Q3;;',
+  ';;986;;7300001;CLUB FICTIF Q4;98600;VILLE Q4;;',
+  ';;987;;7300002;CLUB FICTIF Q5;98700;VILLE Q5;;',
+  '74;Ligue fictive Pacifique;988;;7400001;CLUB FICTIF Q6;98800;VILLE Q6;;',
+].join('\n')
+const NO_POLES: ImportOptions = { ...DEFAULT_OPTIONS, poles: false }
+const PREFILLED: U[] = [
+  { id: 'pre-20', levelId: 'niveau-comite', name: 'Comité Corse (20)', departments: ['20'], updatedAt: 1 },
+  { id: 'pre-97', levelId: 'niveau-comite', name: 'Comité Ultramarins (non précisé) (97)', departments: ['97'], updatedAt: 1 },
+  { id: 'pre-22', levelId: 'niveau-comite', name: 'Comité fictif 22', departments: ['22'], updatedAt: 1 },
+  { id: 'pre-48', levelId: 'niveau-comite', name: 'Comité fictif 48', departments: ['48'], updatedAt: 1 },
+  { id: 'pre-35', levelId: 'niveau-comite', name: 'Comité du 35', departments: ['35'], updatedAt: 1 },
+  { id: 'pre-rangé', levelId: 'niveau-comite', name: 'Comité fictif 29', departments: ['29'], parentId: 'pre-22', updatedAt: 1 },
+]
+let prePlan: ReturnType<typeof planImport>
+let preUnits: U[] = []
+const pre = (id: string) => preUnits.find((u) => u.id === id)!
+const preCode = (code: string) => preUnits.find((u) => u.code === code)!
+
+t('comités pré-remplis hors du fichier : rangés sous la ligue de leur région, sinon la fédération ; rien de supprimé', () => {
+  prePlan = run(PREFILLED, PREFILL_CSV, NO_POLES)
+  preUnits = apply(PREFILLED, prePlan, 7000).units
+  assert.equal(preUnits.filter((u) => u.deleted).length, 0)
+  // « 20 » : sous la ligue qui contient 2A/2B.
+  assert.equal(pre('pre-20').parentId, preCode('ligue:71').id)
+  assert.equal(pre('pre-20').code, undefined) // reste une unité saisie à la main
+  // « 97 » : sous la fédération, signalé à part.
+  assert.equal(pre('pre-97').parentId, preCode('federation').id)
+  const g = Object.fromEntries(groupAnomalies(prePlan.anomalies).map((x) => [x.type, x.items]))
+  assert.equal(g.comiteOutreMer.length, 1)
+  assert.match(g.comiteOutreMer[0].detail, /Ultramarins/)
+  // Bretagne (22) : sous la ligue du 35 ; Occitanie (48) absente du fichier : sous la fédération.
+  assert.equal(pre('pre-22').parentId, preCode('ligue:72').id)
+  assert.equal(pre('pre-48').parentId, preCode('federation').id)
+  assert.equal(g.comiteRange.length, 3)
+  // Département présent dans le fichier : repris comme avant ; comité déjà rangé : pas touché.
+  assert.equal(pre('pre-35').code, 'comite:72:35')
+  assert.equal(pre('pre-rangé').parentId, 'pre-22')
+  assert.ok(!prePlan.writes.some((w) => w.row.id === 'pre-rangé'))
+})
+
+t('comités sans nom : territoire proposé (986, 987, 988), anomalie gardée', () => {
+  assert.equal(preCode('comite::986').name, 'Wallis-et-Futuna')
+  assert.equal(preCode('comite::987').name, 'Polynésie française')
+  assert.equal(preCode('comite:74:988').name, 'Nouvelle-Calédonie')
+  const sansNom = prePlan.anomalies.filter((a) => a.type === 'comiteSansNom').map((a) => a.detail)
+  assert.ok(sansNom.some((d) => d.includes('« Wallis-et-Futuna »')))
+  assert.equal(sansNom.length, 3)
+})
+
+t('comités pré-remplis : réimport sans changement ; annulation = parent d’avant', () => {
+  assert.equal(run(preUnits, PREFILL_CSV, NO_POLES).writes.length, 0)
+  const { units: after, record } = apply(PREFILLED, prePlan, 8000)
+  const u = planUndo(record, after, [])
+  assert.ok(u.ok)
+  for (const id of ['pre-20', 'pre-97', 'pre-22', 'pre-48']) {
+    const r = u.restore.find((x) => x.id === id)!
+    assert.equal(r.parentId, undefined)
+    assert.ok(!u.remove.some((x) => x.id === id))
+  }
+  // Sans fédération : le « 97 » reste en tête, signalé quand même.
+  const q = run(PREFILLED, PREFILL_CSV, { ...NO_POLES, root: false })
+  assert.ok(!q.writes.some((w) => w.row.id === 'pre-97'))
+  assert.ok(q.anomalies.some((a) => a.type === 'comiteOutreMer'))
+  assert.equal(q.writes.find((w) => w.row.id === 'pre-20')!.row.parentId, q.writes.find((w) => w.row.code === 'ligue:71')!.row.id)
+})
+
 if (failed) {
   console.log(`\n${failed} test(s) en échec`)
   process.exit(1)
