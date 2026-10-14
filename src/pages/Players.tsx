@@ -7,7 +7,8 @@ import { PlayerRow, playerSub } from '../components/PlayerRow'
 import { RewatchToggle } from '../components/Scouting'
 import { FollowStar } from '../components/Follow'
 import { ReviewBadge } from '../components/Review'
-import { arrowNav, fold, usePlayerFilter, useSessionState } from '../components/PlayerFilter'
+import { arrowNav, fold, useSessionState } from '../components/PlayerFilter'
+import { usePlayersQuery } from '../components/PlayersQuery'
 import { exportCsv } from '../export'
 import { TabBackButton } from '../backNav'
 import { AddToGroupDialog, GroupNotice } from '../components/Groups'
@@ -40,8 +41,10 @@ export default function Players() {
   )
   // Ordinateur : joueur ouvert dans le panneau de droite (surligné). La colonne de filtres se replie alors
   // (bouton « Filtres » au-dessus de la liste) pour laisser la place à la liste et à la fiche.
+  // Filtres = recette (même moteur que « Poser une question ») : champ « Filtrer ou poser une question… », micro ✨,
+  // pastilles, filtres rapides, conditions et tri (src/components/PlayersQuery.tsx).
   const selected = useSelected('/joueurs')
-  const { filtered, ui, side, signature: filterSig, group } = usePlayerFilter(players, 'joueurs', selected ? FOLDED : DOCK)
+  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading } = usePlayersQuery(players, { dock: !selected })
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -137,9 +140,10 @@ export default function Players() {
       {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
       <div className="md-box">
       {ui && <div className="mb-3">{ui}</div>}
+      <div className="mb-2 flex flex-col gap-2 empty:hidden">{top}</div>
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
-          {plural(filtered.length, 'joueur')}
+          {loading ? 'Chargement…' : plural(filtered.length, 'joueur')}
           {group && (
             <>
               {' '}
@@ -158,13 +162,15 @@ export default function Players() {
         <GroupNotice msg={groupMsg.text} groupId={groupMsg.groupId} />
       </div>
 
-      {shown.length === 0 ? (
+      {loading ? null : shown.length === 0 ? (
         <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>
       ) : (
         <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
           {shown.map((p) => {
             const l = latest.get(p.id)
             const a = age(p.birthDate)
+            // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
+            const v = valueOf(p)
             return (
               <PlayerRow
                 key={p.id}
@@ -175,16 +181,21 @@ export default function Players() {
                 badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                 sub={playerSub(p, a !== null && `${a} ans`)}
                 lines={
-                  (l?.get('taille') || l?.get('poids') || p.laterality) && (
-                    <span className="truncate text-[10px] text-muted">
-                      {[
-                        l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
-                        l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
-                        lateralityLabel(p.laterality, p.sex),
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
+                  (l?.get('taille') || l?.get('poids') || p.laterality || v) && (
+                    <>
+                      {(l?.get('taille') || l?.get('poids') || p.laterality) && (
+                        <span className="truncate text-[10px] text-muted">
+                          {[
+                            l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
+                            l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
+                            lateralityLabel(p.laterality, p.sex),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                      {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
+                    </>
                   )
                 }
                 rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
@@ -207,10 +218,6 @@ export default function Players() {
 
 /** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
 const PAGE = 60
-/** Grand écran : filtres dans une colonne toujours ouverte, à gauche de la liste (repliés quand une fiche est ouverte). */
-// Recherche en langage naturel (bouton « micro ✨ ») : seulement sur la liste Joueurs.
-const DOCK = { dock: true, voice: true }
-const FOLDED = { dock: false, voice: true }
 const SCROLL_KEY = 'handbase.joueurs.scroll'
 
 export { fold }

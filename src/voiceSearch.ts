@@ -26,7 +26,6 @@ import {
   type Interpretation as GenericInterpretation,
   type ModelAnswer,
   type Outcome as GenericOutcome,
-  type VoicePage,
 } from './voiceFilters'
 
 // Outils communs à toutes les pages (src/voiceFilters.ts), repris ici pour la liste Joueurs.
@@ -457,14 +456,3 @@ export const keyOf = (v: unknown) => keyOfWith({ fields: KEY_FIELDS, aliases: KE
 
 /** Applique la réponse du modèle aux filtres actuels de la liste Joueurs (voir applyWith). */
 export const applyAnswer = (answer: ModelAnswer, current: FilterValues, ctx: SearchContext): Outcome => applyWith(playerRules(ctx), answer, current)
-
-/** Recherche vocale des listes de joueurs (Joueurs) : consignes de la liste Joueurs (mode « filtres »). */
-export function playerVoicePage(ctx: SearchContext): VoicePage<FilterValues> {
-  return {
-    id: 'joueurs',
-    schema: () => buildSchema(ctx),
-    current: (v) => currentForModel(v, ctx),
-    rules: playerRules(ctx),
-    hint: 'les gauchers nés en 2010 qui mesurent plus d’1 m 80 », « ajoute le Var », « efface tout',
-  }
-}

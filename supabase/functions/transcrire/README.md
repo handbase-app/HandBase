@@ -100,6 +100,8 @@ npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 
 Puis, dans l'appli (site de démo, compte administrateur) : se déconnecter et se reconnecter, ou ouvrir un nouvel onglet
 (l'accès est gardé pour la session), ouvrir Joueurs : le micro et « ✨ » apparaissent à côté de « Rechercher… ».
+Depuis que les filtres de la liste Joueurs sont une recette (section 10), la liste Joueurs passe par `?mode=question` ;
+les consignes « filtres » de la liste Joueurs restent pour les versions plus anciennes de l'appli.
 
 ### Autres pages : vue nationale, bilan de détection, Événements, Groupes (champ `page`)
 
@@ -246,3 +248,36 @@ npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 ```
 
 Le mode avancé est proposé dans « Poser une question » au plus tard 10 minutes après (ou en revenant sur l'onglet).
+
+## 10. Liste Joueurs : les filtres sont une recette (`?mode=question`, contexte `joueurs`)
+
+Sur la liste Joueurs, un seul champ « Filtrer ou poser une question… » et un micro ✨ (à la place du micro « Filtrer ») :
+un simple nom (« Martin », une licence) reste une recherche locale, **sans appel** ; une phrase part au mode `question`,
+comme au bilan, et la recette rendue **filtre ou trie la liste sur place** (`src/playerQuery.ts`,
+`src/components/PlayersQuery.tsx`). Les filtres s'affichent en pastilles ; le bouton « Filtres » construit la même recette
+à la main (filtres rapides, « + Ajouter une condition », « Trier par »).
+
+- Requête : `POST ?mode=question`, JSON `{ phrase, schema, contexte: "joueurs", actuels }` : `actuels` = les **noms** des
+  filtres posés (`sexe`, `annee`, `taille`, `recherche`…, 40 au plus), **jamais leurs valeurs ni un nom de joueur** (le nom
+  cherché : sa présence seulement, `recherche`). La fonction ajoute alors ses consignes « liste Joueurs »
+  (`CONSIGNES_JOUEURS` dans `index.ts`, 8 exemples) et le message devient `Actuels [...] ; « phrase »`.
+- Réponse : `{ recette, nonGere, action, retirer, ms, model, restant_mois, restant_jour }` ; `action` : `ajouter` (par
+  défaut), `retirer` (clés dans `retirer`) ou `effacer` ; sans `contexte`, la réponse est la même qu'avant (bilan).
+- **Règle de combinaison** (appliquée par l'appli, `mergeQuery`) : une nouvelle phrase **ajoute** à la sélection (filtres
+  posés à la main ou par une phrase d'avant) ; une clé redite prend la nouvelle valeur (« seulement les filles ») ; on
+  n'efface que si c'est dit (« efface tout et… », « recommence ») — l'appli le vérifie dans la phrase et ne laisse jamais le
+  modèle remplacer les filtres sans ce mot ; « enlève la taille », « peu importe le poste » : retrait (sans appel quand
+  c'est évident). Question de calcul (« quelle est la taille moyenne ? », « combien par club ? ») : calculée **sur la
+  sélection**, affichée au-dessus de la liste, qui reste filtrée. « Annuler » remet les filtres d'avant.
+- Recette incomplète : bascule automatique en **mode avancé** (`?mode=sql`, section 9) ; la liste devient les joueurs du
+  résultat s'il a une colonne `joueur_id`, sinon le résultat s'affiche en tête. Journal des questions comme au bilan.
+- Le GET annonce `question_joueurs` dans `modes`. **Rétrocompatible** : une fonction déployée plus ancienne ignore
+  `contexte` et `actuels` ; l'appli décide alors l'action elle-même d'après la phrase (ajout par défaut).
+- Test (sans appel réseau) : `npx jiti tools/test-filtres-recette.ts` (fusion, calcul sur la sélection, exemples des
+  consignes « joueurs », mêmes joueurs retenus que les anciens filtres rapides, 40 000 fiches en moins de 150 ms).
+
+Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
+
+```sh
+npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
+```

@@ -2,25 +2,23 @@ import { useAlerts } from '../alerts'
 import { useFollows } from '../follows'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { allDepts, departmentLabel, officialRegions, regionOfDept, useDepartments, useRegionLabel, useRegions } from '../lists'
+import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
 import { can, groupTag } from '../roles'
 import { loadTeams } from '../teams'
 import { birthQuarter, Icon } from './ui'
 import { CourtFilter } from './CourtPicker'
-import { MQ, useMedia } from '../layout'
 import { alive, db, poleStatus, POSITIONS, type Laterality, type Measurement, type Player, type Position } from '../db'
-import { VoiceSearch } from './VoiceSearch'
-import { playerVoicePage, type FilterValues, type PoleValue, type SearchContext } from '../voiceSearch'
 import { nameTokens, playerHaystack, searchByName } from '../nameMatch'
+import { JOUEURS_KEYS, type JoueursQuery } from '../playerQuery'
 
 // Textes de recherche de chaque joueur, calculés à la première recherche et gardés tant que la fiche ne change pas.
 const hays = new WeakMap<Player, string>()
-const hayOf = (p: Player) => {
+export const hayOf = (p: Player) => {
   let h = hays.get(p)
   if (h === undefined) hays.set(p, (h = playerHaystack(p)))
   return h
 }
-const tokensOf = (p: Player) => nameTokens(p)
+export const tokensOf = (p: Player) => nameTokens(p)
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>
@@ -57,12 +55,21 @@ const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.
 export type SexFilter = 'all' | 'M' | 'F'
 
 const SEX_KEY = 'handbase.sexFilter'
-const readSex = (): SexFilter => {
+/** Choix Garçons / Filles mémorisé sur l'appareil (commun aux listes de joueurs). */
+export const readSex = (): SexFilter => {
   try {
     const v = localStorage.getItem(SEX_KEY)
     return v === 'M' || v === 'F' ? v : 'all'
   } catch {
     return 'all'
+  }
+}
+
+export function writeSex(v: SexFilter) {
+  try {
+    localStorage.setItem(SEX_KEY, v)
+  } catch {
+    /* stockage indisponible */
   }
 }
 
@@ -90,22 +97,17 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 }
 
 /**
- * Filtres communs (groupe, sexe, région, département, club, année de naissance, poste, recherche) pour parcourir des milliers
- * de joueurs. Le choix Garçons / Filles est mémorisé sur l'appareil ; les autres filtres le sont
- * pendant la session, séparément pour chaque écran (`scope`).
+ * Filtres rapides (groupe, sexe, région, département, club, année de naissance, poste, recherche) des listes de joueurs
+ * autres que la liste Joueurs (ajout de joueurs à un événement…). La liste Joueurs a ses filtres en recette
+ * (src/components/PlayersQuery.tsx, mêmes filtres rapides, même rendu). Le choix Garçons / Filles est mémorisé sur
+ * l'appareil ; les autres filtres le sont pendant la session, séparément pour chaque écran (`scope`).
  */
-export function usePlayerFilter(
-  players: Player[] | undefined,
-  scope = 'joueurs',
-  opts: { dock?: boolean; voice?: boolean } = {},
-) {
+export function usePlayerFilter(players: Player[] | undefined, scope: string) {
   const k = (name: string) => `handbase.filter.${scope}.${name}`
-  const wideScreen = useMedia(MQ.xl)
   const regionLabel = useRegionLabel()
   const [region, setRegion] = useSessionState(k('region'), '')
   const [q, setQ] = useSessionState(k('q'), '')
   const [sex, setSexState] = useState<SexFilter>(readSex)
-  const deptList = useDepartments() // noms des départements à jour dans le menu
   const [group, setGroup] = useSessionState(k('group'), '')
   // Profil recherché (alerte enregistrée) : seulement les joueurs qui y correspondent.
   const [profile, setProfile] = useSessionState(k('profile'), '')
@@ -144,11 +146,7 @@ export function usePlayerFilter(
 
   const setSex = (v: SexFilter) => {
     setSexState(v)
-    try {
-      localStorage.setItem(SEX_KEY, v)
-    } catch {
-      /* stockage indisponible */
-    }
+    writeSex(v)
   }
 
   // Groupes (Intercomités, Pôle…) : le groupe choisi limite la liste avant tous les autres filtres.
@@ -253,64 +251,6 @@ export function usePlayerFilter(
     setPosition('all')
     setWithSecondary(false)
   }
-
-  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »).
-  const values: FilterValues = {
-    q,
-    sex,
-    region,
-    dept,
-    club,
-    year,
-    position,
-    withSecondary,
-    hand,
-    quarter,
-    minH,
-    group,
-    profile,
-    followedOnly,
-    pole: pole as PoleValue,
-    videoOnly,
-  }
-  const setValues = (v: FilterValues) => {
-    setQ(v.q)
-    setSex(v.sex)
-    setRegion(v.region)
-    setDept(v.dept)
-    setClub(v.club)
-    setYear(v.year)
-    setPosition(v.position)
-    setWithSecondary(v.withSecondary)
-    setHand(v.hand)
-    setQuarter(v.quarter)
-    setMinH(v.minH)
-    setGroup(v.group)
-    setProfile(v.profile)
-    setFollowedOnly(v.followedOnly)
-    setPole(v.pole)
-    setVideoOnly(v.videoOnly)
-  }
-  // Listes réelles pour la recherche en langage naturel (seulement sur l'écran qui l'affiche).
-  const regionList = useRegions()
-  const voiceCtx = useMemo<SearchContext | null>(() => {
-    if (!opts.voice) return null
-    const regs = regionList.length ? regionList.map((r) => ({ id: r.id, name: r.name })) : officialRegions()
-    const clubs = [...new Set((players ?? []).map((p) => p.club).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'fr'))
-    const names = new Map(deptList.map((d) => [d.code!, d.name]))
-    const codes = [...new Set([...allDepts(), ...deptList.map((d) => d.code!), ...(players ?? []).map((p) => department(p)).filter((c): c is string => !!c)])]
-    return {
-      positions: POSITIONS.map((p) => ({ id: p.id, label: p.label })),
-      regions: regs,
-      depts: codes.map((code) => ({ code, name: names.get(code) })),
-      clubs,
-      groups: groups.map((g) => ({ id: g.id, name: g.name })),
-      profiles: (profiles ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
-      regionOfDept,
-      thisYear: new Date().getFullYear(),
-    }
-  }, [opts.voice, regionList, deptList, players, groups, profiles])
-  const voicePage = useMemo(() => (voiceCtx ? playerVoicePage(voiceCtx) : null), [voiceCtx])
 
   // Filtres repliés par défaut : la recherche et les postes restent visibles, les filtres actifs
   // s'affichent en pastilles qu'on retire d'un appui.
@@ -496,44 +436,25 @@ export function usePlayerFilter(
         </div>
   )
 
-  // Grand écran (opts.dock) : le panneau est toujours ouvert, dans une colonne à côté de la liste (`side`).
-  // Sans `dock` (fiche ouverte à droite), il redevient repliable au-dessus de la liste.
-  const docked = !!opts.dock && wideScreen
-  const search = <input className="field min-w-0 flex-1" placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
-  // Ligne de recherche : avec le bouton « micro ✨ » (recherche vocale en langage naturel) quand l'écran le demande et que c'est disponible.
-  const approxNote = approx && (
-    <div className="text-[11px] text-muted" role="status">
-      Résultats approchants pour « {q.trim()} »
-    </div>
-  )
-  const searchRow = (after?: React.ReactNode) => (
-    <>
-      {voicePage ? (
-        <VoiceSearch values={values} apply={setValues} page={voicePage} input={search} after={after} />
-      ) : (
-        <div className="flex gap-2">
-          {search}
-          {after}
+  const search = <input className="field min-w-0 flex-1" data-search placeholder="Rechercher…" title="Nom, club ou licence" value={q} onChange={(e) => setQ(e.target.value)} />
+  const ui = (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">
+        {search}
+        <button
+          onClick={() => setOpen(!open)}
+          className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+        >
+          Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
+        </button>
+      </div>
+      {approx && (
+        <div className="text-[11px] text-muted" role="status">
+          Résultats approchants pour « {q.trim()} »
         </div>
       )}
-      {approxNote}
-    </>
-  )
-  // Panneau ancré : la recherche passe en tête de la colonne de filtres, rien au-dessus de la liste.
-  const ui = docked ? null : (
-    <div className="flex flex-col gap-2">
-      {searchRow(
-        !docked && (
-          <button
-            onClick={() => setOpen(!open)}
-            className={`shrink-0 rounded-md border px-3 text-xs font-bold ${open || chips.length ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-          >
-            Filtres{chips.length > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{chips.length}</span>} {open ? '▴' : '▾'}
-          </button>
-        ),
-      )}
-      {open && !docked && panel}
-      {(chips.length > 0 || active) && !open && !docked && (
+      {open && panel}
+      {(chips.length > 0 || active) && !open && (
         <div className="flex flex-wrap items-center gap-1.5">
           {chips.map((c) => (
             <button key={c.label} onClick={c.clear} className="rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-bold">
@@ -547,35 +468,21 @@ export function usePlayerFilter(
           )}
         </div>
       )}
-      {open && active && !docked && (
+      {open && active && (
         <button className="self-start text-[11px] font-bold text-muted underline" onClick={reset}>
           Effacer les filtres
         </button>
       )}
     </div>
   )
-  const side = docked ? (
-    <div className="flex flex-col gap-2">
-      {searchRow()}
-      <div className="flex items-center justify-between gap-2">
-        <span className="section-title mb-0">Filtres{chips.length > 0 && ` (${chips.length})`}</span>
-        {active && (
-          <button className="text-[11px] font-bold text-muted underline" onClick={reset}>
-            Effacer les filtres
-          </button>
-        )}
-      </div>
-      {panel}
-    </div>
-  ) : null
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
   const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, followedOnly, pole, videoOnly, region, dept, club, year, position, withSecondary])
-  return { filtered, ui, side, active, reset, signature, group: current }
+  return { filtered, ui, active, reset, signature, group: current }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
-function ClubPicker({
+export function ClubPicker({
   clubs,
   total,
   value,
@@ -679,7 +586,7 @@ export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: stri
   const i = items.indexOf(target)
   if (i < 0) {
     // Depuis le champ de recherche (ou ailleurs dans la zone) : ↓ va au premier joueur.
-    if (e.key === 'ArrowDown' && target.matches('input[placeholder^="Rechercher"]')) {
+    if (e.key === 'ArrowDown' && target.matches(SEARCH_FIELD)) {
       e.preventDefault()
       items[0].focus()
     }
@@ -698,18 +605,21 @@ export function arrowNav(e: React.KeyboardEvent<HTMLElement>, itemSelector: stri
   }
   if (e.key === 'ArrowDown') items[Math.min(i + cols, items.length - 1)].focus()
   else if (i - cols >= 0) items[i - cols].focus()
-  else root.querySelector<HTMLInputElement>('input[placeholder^="Rechercher"]')?.focus()
+  else root.querySelector<HTMLInputElement>(SEARCH_FIELD)?.focus()
 }
 
-/** Ouvre la liste Joueurs filtrée sur un groupe (le filtre est gardé pendant la session). */
+/** Champ de recherche d'une liste (↓ va au premier élément, ↑ sur le premier y revient). */
+const SEARCH_FIELD = 'input[data-search], input[placeholder^="Rechercher"]'
+
+/** Ouvre la liste Joueurs filtrée sur un groupe (seul filtre gardé : Garçons / Filles ; gardé pendant la session). */
 export function showGroupInPlayers(groupId: string) {
   try {
-    sessionStorage.setItem('handbase.filter.joueurs.group', JSON.stringify(groupId))
-    for (const f of ['region', 'dept', 'club', 'year', 'q']) sessionStorage.setItem(`handbase.filter.joueurs.${f}`, JSON.stringify(''))
-    sessionStorage.setItem('handbase.filter.joueurs.position', JSON.stringify('all'))
-    sessionStorage.setItem('handbase.filter.joueurs.hand', JSON.stringify('all'))
-    sessionStorage.setItem('handbase.filter.joueurs.quarter', JSON.stringify(0))
-    sessionStorage.setItem('handbase.filter.joueurs.followed', JSON.stringify(false))
+    const sex = readSex()
+    const qy: JoueursQuery = { recipe: { pop: { groups: [groupId], ...(sex !== 'all' ? { sex } : {}) }, avis: [], measures: [], out: { type: 'list' } }, q: '' }
+    sessionStorage.setItem(JOUEURS_KEYS.query, JSON.stringify(qy))
+    sessionStorage.setItem(JOUEURS_KEYS.text, JSON.stringify(''))
+    sessionStorage.removeItem(JOUEURS_KEYS.result)
+    sessionStorage.removeItem(JOUEURS_KEYS.sql)
   } catch {
     /* stockage indisponible */
   }

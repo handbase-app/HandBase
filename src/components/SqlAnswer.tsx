@@ -272,7 +272,23 @@ export function SqlExplain({
 
 // ---------- Réponse ----------
 
-export function SqlAnswerView({ spec, source, byId, search }: { spec: SqlSpec; source: MirrorSource; byId: Map<string, Player>; search: string }) {
+export function SqlAnswerView({
+  spec,
+  source,
+  byId,
+  search,
+  playerLink = (id) => `/bilan/question/joueurs/${id}${search}`,
+  hidePlayers,
+}: {
+  spec: SqlSpec
+  source: MirrorSource
+  byId: Map<string, Player>
+  search: string
+  /** Fiche d'un joueur du résultat (liste Joueurs : /joueurs/:id). */
+  playerLink?: (id: string) => string
+  /** Résultat en joueurs montré ailleurs (liste Joueurs : la liste elle-même) : rien ici. */
+  hidePlayers?: boolean
+}) {
   const st = useSqlResult(spec, source)
   if (st.error) return <Empty>Le calcul n’a pas abouti. {st.error}</Empty>
   if (!st.res)
@@ -306,6 +322,7 @@ export function SqlAnswerView({ spec, source, byId, search }: { spec: SqlSpec; s
 
   // Joueurs : lignes standard, fiche dans le contexte de la réponse (le retour revient ici).
   const { players, extra } = sqlPlayers(res, byId)
+  if (players.length && hidePlayers) return null
   if (players.length)
     return (
       <div className="flex flex-col gap-2">
@@ -314,7 +331,7 @@ export function SqlAnswerView({ spec, source, byId, search }: { spec: SqlSpec; s
           <PlayerRow
             key={p.id}
             p={p}
-            link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
+            link={{ to: playerLink(p.id) }}
             sub={[p.birthDate?.slice(0, 4), p.club, extra.get(p.id)].filter(Boolean).join(' · ')}
             follow={<FollowStar id={p.id} />}
           />

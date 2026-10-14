@@ -19,7 +19,7 @@ import {
   type EventsVoice,
   type GroupsVoice,
 } from '../src/voicePages'
-import { applyAnswer, buildSchema, EMPTY_FILTERS, playerVoicePage, type SearchContext } from '../src/voiceSearch'
+import { applyAnswer, buildSchema, EMPTY_FILTERS, type SearchContext } from '../src/voiceSearch'
 import { requestAccess, understandFilters, type Endpoint } from '../src/dictation/transcribe'
 
 const REGIONS: Record<string, string> = { '83': 'region-sud', '13': 'region-sud', '06': 'region-sud', '75': 'region-idf', '35': 'region-bre', '29': 'region-bre' }
@@ -250,8 +250,8 @@ const pctx: SearchContext = {
 assert.ok('departement' in buildSchema(pctx) && 'region' in buildSchema(pctx), 'région et département dans le schéma')
 const n = applyAnswer({ action: 'remplacer', filtres: { region: 'Bretagne', sexe: 'F' } }, EMPTY_FILTERS, pctx)
 assert.deepEqual(n.values, { ...EMPTY_FILTERS, region: 'region-bre', sex: 'F' })
-assert.equal(playerVoicePage(pctx).mode, undefined, 'liste Joueurs : mode « filtres » suffit')
-assert.equal(playerVoicePage(pctx).id, 'joueurs')
+// La liste Joueurs n'a plus de micro « Filtrer » : ses filtres sont une recette (src/playerQuery.ts, tools/test-filtres-recette.ts) ;
+// les consignes « filtres » de la liste Joueurs restent dans la fonction pour les versions plus anciennes de l'appli.
 
 // ---------- Commandes locales des nouvelles pages ----------
 for (const p of ['montre tous les événements', 'affiche tous les groupes', 'efface tout']) assert.equal(localCommand(p), 'effacer', p)
@@ -280,7 +280,7 @@ const acc = await requestAccess({ ...ep, fetch: fake({ pret: true, modes: ['dict
 assert.deepEqual([acc.filtres, acc.modes], [true, ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes']])
 const old = await requestAccess({ ...ep, fetch: fake({ pret: true, modes: ['dictee', 'filtres', 'avis'] }) })
 assert.ok(old.filtres && !old.modes?.includes('filtres_evenements'), 'fonction déployée d’avant : pas de bouton sur Événements ni Groupes')
-assert.deepEqual(fn.match(/modes: \[([^\]]*)\]/)?.[1], `'dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'sql'`)
+assert.deepEqual(fn.match(/modes: \[([^\]]*)\]/)?.[1], `'dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'sql'`)
 // La fonction : page inconnue ou absente → consignes de la liste Joueurs.
 assert.ok(fn.includes("Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES"))
 

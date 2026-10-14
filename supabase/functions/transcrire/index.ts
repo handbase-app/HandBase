@@ -14,7 +14,10 @@
 //   l'appli (src/voiceSearch.ts : clés permises, valeurs possibles). Seuls la phrase, le schéma et les filtres actifs
 //   sont envoyés, jamais de données de joueurs ; l'appli revérifie chaque valeur. Même compte, mêmes plafonds (un appel compté par phrase).
 // - POST ?mode=avis (JSON) : notes proposées d'après un avis dicté (voir plus bas).
-// - POST ?mode=question (JSON) : { phrase, schema } → { recette, nonGere, ms, model, restant_mois, restant_jour } : « Poser une
+// - POST ?mode=question (JSON) : { phrase, schema, contexte?, actuels? } → { recette, nonGere, action?, retirer?, ms, model,
+//   restant_mois, restant_jour } : contexte « joueurs » (liste Joueurs, filtres = recette) : consignes en plus
+//   (CONSIGNES_JOUEURS) et action rendue (ajouter, retirer, effacer) d'après les NOMS des filtres posés (actuels, jamais leurs
+//   valeurs) ; sans contexte, comme avant. « Poser une
 //   question » au bilan de détection (« les joueuses 2011 vues une seule fois cette saison, par département »). Le modèle
 //   (MISTRAL_MODELE_QUESTION, mistral-small-latest par défaut, température 0, JSON) traduit la phrase en RECETTE d'après la
 //   description envoyée par l'appli (src/recipe.ts : clés, opérateurs, valeurs permises). Seuls la phrase et cette
@@ -128,7 +131,8 @@ Deno.serve(async (req) => {
       // Événements et des Groupes, que si leur mode y est : consignes propres à ces pages, champ « page »).
       // « question » : « Poser une question » au bilan de détection (recette calculée par l'appli, POST ?mode=question) ;
       // « sql » : son mode avancé (requête SQLite exécutée par l'appli sur sa copie locale, POST ?mode=sql).
-      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'sql'],
+      // « question_joueurs » : « question » comprend aussi le contexte de la liste Joueurs (champ « contexte », action rendue).
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'sql'],
     })
   }
 
@@ -598,6 +602,29 @@ EXEMPLES
 « les joueurs vus par au moins 3 coachs mais jamais plus de 3 en défense » → {"recette":{"vus":{"compter":"personnes","op":">=","n":3},"avis":[{"sur":"categorie","nom":"Défense","calcul":"max","op":"<=","valeur":3}],"sortie":{"type":"liste"}},"nonGere":[]}
 « le nombre moyen de buts marqués par les pivots » → {"recette":{},"nonGere":["buts marqués : pas dans les données"]}`
 
+// Contexte « joueurs » : la phrase est dite sur la liste Joueurs, dont les filtres SONT une recette. Elle AJOUTE à la
+// sélection par défaut ; « actuels » : les noms des filtres posés (jamais leurs valeurs, jamais un nom de joueur).
+const MAX_ACTUELS_CLES = 40
+const CONSIGNES_JOUEURS = `
+CONTEXTE : LISTE JOUEURS
+La phrase est dite sur la liste Joueurs : la recette FILTRE ou TRIE cette liste, ou CALCULE quelque chose sur les joueurs déjà affichés. "actuels" donne les noms des filtres déjà posés (pas leurs valeurs).
+Réponds par : {"action":"…","recette":{…},"retirer":[…],"nonGere":[…]}
+- "ajouter" (PAR DÉFAUT) : la phrase ajoute ou change des critères ; les filtres actuels restent. « nés en 2010 », « seulement les filles », « et de plus d'1 m 85 », « parmi eux les gauchers ». Un critère déjà posé prend la nouvelle valeur.
+- "retirer" : seulement si la phrase dit d'enlever (« enlève la taille », « peu importe le poste », « sans l'année ») : clés dans "retirer" (noms de "actuels").
+- "effacer" : seulement si la phrase dit d'effacer ou de recommencer (« efface tout », « recommence », « efface les filtres et… ») ; la recette donne ce qui suit (« efface tout et montre les gardiens » → effacer + postes GB).
+- Calcul sur la sélection (« combien sont-ils ? », « quelle est leur taille moyenne ? », « l'âge moyen », « par club ») : action "ajouter", sortie nombre (avec valeur) ou tableau, sans répéter les filtres actuels.
+- Tri (« classe-les par taille », « les mieux notés d'abord ») : sortie liste avec tri.
+- Un nom de personne dit (« Lucas », « les Martin ») → population noms.
+EXEMPLES (contexte joueurs)
+Actuels ["sexe"] ; « nés en 2010 de plus d'1 m 85 » → {"action":"ajouter","recette":{"population":{"annee":2010,"tailleMin":185}},"retirer":[],"nonGere":[]}
+Actuels ["sexe","annee"] ; « quelle est la taille moyenne ? » → {"action":"ajouter","recette":{"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"retirer":[],"nonGere":[]}
+Actuels ["annee","taille"] ; « enlève la taille » → {"action":"retirer","recette":{},"retirer":["taille"],"nonGere":[]}
+Actuels ["sexe","annee"] ; « seulement les filles » → {"action":"ajouter","recette":{"population":{"sexe":"F"}},"retirer":[],"nonGere":[]}
+Actuels ["annee","departements"] ; « efface tout et dis-moi la taille moyenne des joueurs » → {"action":"effacer","recette":{"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"retirer":[],"nonGere":[]}
+Actuels ["annee"] ; « combien sont-ils par club ? » → {"action":"ajouter","recette":{"sortie":{"type":"tableau","par":"club"}},"retirer":[],"nonGere":[]}
+Actuels [] ; « les gauchers vus au moins deux fois, classés par taille » → {"action":"ajouter","recette":{"population":{"lateralite":"gaucher"},"vus":{"op":">=","n":2},"sortie":{"type":"liste","tri":"taille","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
+Actuels ["postes"] ; « peu importe le poste, mais au Pôle » → {"action":"ajouter","recette":{"population":{"pole":"en_cours"}},"retirer":["postes"],"nonGere":[]}`
+
 async function questionRecette(
   req: Request,
   db: Db,
@@ -609,7 +636,7 @@ async function questionRecette(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; contexte?: unknown; actuels?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -618,6 +645,11 @@ async function questionRecette(
   const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
   if (!phrase) return json({ error: 'phrase_absente' }, 400)
   if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
+  // Liste Joueurs : noms des filtres posés seulement (mots courts), jamais leurs valeurs.
+  const joueurs = entree.contexte === 'joueurs'
+  const actuels = joueurs && Array.isArray(entree.actuels)
+    ? entree.actuels.filter((k): k is string => typeof k === 'string' && /^[A-Za-z]{1,30}$/.test(k)).slice(0, MAX_ACTUELS_CLES)
+    : []
   // Description de la recette : une ligne « clé : valeurs » par clé (textes seulement), rien d'autre.
   const schema =
     entree.schema && typeof entree.schema === 'object' && !Array.isArray(entree.schema)
@@ -644,8 +676,8 @@ async function questionRecette(
       max_tokens: 700,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES_QUESTION}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
-        { role: 'user', content: `« ${phrase} »` },
+        { role: 'system', content: `${CONSIGNES_QUESTION}${joueurs ? `\n${CONSIGNES_JOUEURS}` : ''}\n\nSCHÉMA (clé : valeurs)\n${schema}` },
+        { role: 'user', content: joueurs ? `Actuels ${JSON.stringify(actuels)} ; « ${phrase} »` : `« ${phrase} »` },
       ],
     }),
   }))
@@ -672,14 +704,18 @@ async function questionRecette(
   if (!objet(sortie)) return json({ error: 'reponse_illisible', ...restants }, 502)
   // « nonGere » : à côté de la recette ; s'il est dedans (petits modèles), il en est sorti ; un texte seul est accepté.
   const brute = objet(sortie.recette) ? sortie.recette : sortie
-  const recette = Object.fromEntries(Object.entries(brute).filter(([k]) => k !== 'nonGere'))
+  const recette = Object.fromEntries(Object.entries(brute).filter(([k]) => k !== 'nonGere' && k !== 'action' && k !== 'retirer'))
   if (JSON.stringify(recette).length > MAX_RECETTE) return json({ error: 'reponse_illisible', ...restants }, 502)
   const liste = (v: unknown): unknown[] => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : [])
   const nonGere = [...liste(sortie.nonGere), ...(brute !== sortie ? liste(brute.nonGere) : [])]
     .filter((x): x is string => typeof x === 'string' && !!x.trim())
     .map((x) => x.trim().slice(0, 80))
     .slice(0, 10)
-  return json({ recette, nonGere, ms, model: modele, ...restants })
+  if (!joueurs) return json({ recette, nonGere, ms, model: modele, ...restants })
+  // Liste Joueurs : action (ajouter par défaut) et noms des filtres à retirer.
+  const action = ['ajouter', 'retirer', 'effacer', 'remplacer'].includes(sortie.action as string) ? sortie.action : 'ajouter'
+  const retirer = liste(sortie.retirer).filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 30)).slice(0, 16)
+  return json({ recette, nonGere, action, retirer, ms, model: modele, ...restants })
 }
 
 // ---------- « Poser une question », mode avancé : requête SQLite (POST ?mode=sql) ----------

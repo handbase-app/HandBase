@@ -213,13 +213,29 @@ export async function understandFilters(
 }
 
 /** Recette rendue pour « Poser une question » (brute : l'appli revérifie chaque champ, src/recipe.ts). */
-export type QuestionAnswer = { recette: unknown; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
+export type QuestionAnswer = {
+  recette: unknown
+  nonGere: string[]
+  /** Liste Joueurs (contexte « joueurs ») : ajouter, retirer, effacer ou remplacer, et les clés à retirer ; absent d'une version plus ancienne. */
+  action?: string
+  retirer?: unknown[]
+  ms?: number
+  restantMois?: number
+  restantJour?: number
+}
+/**
+ * Contexte d'une question posée depuis la liste Joueurs : la fonction y ajoute ses consignes (« la phrase ajoute à la
+ * sélection, sauf si elle dit d'effacer, de retirer… ») et rend une action. `actuels` : NOMS des filtres posés seulement
+ * (« sexe », « annee », « recherche »…), jamais leurs valeurs ni un nom de joueur. Une version qui ne connaît pas ce
+ * contexte l'ignore (l'appli décide alors de l'action elle-même).
+ */
+export type QuestionExtra = { contexte: 'joueurs'; actuels: string[] }
 
 /**
  * « Poser une question » au bilan de détection (POST ?mode=question, JSON) : envoie seulement la phrase et la description
  * de la recette (src/recipe.ts, buildQuestionSchema), jamais de données de joueurs. La réponse est calculée par l'appli.
  */
-export async function understandQuestion(ep: Endpoint, phrase: string, schema: Record<string, string>, signal?: AbortSignal): Promise<QuestionAnswer> {
+export async function understandQuestion(ep: Endpoint, phrase: string, schema: Record<string, string>, signal?: AbortSignal, extra?: QuestionExtra): Promise<QuestionAnswer> {
   const text = phrase.replace(/\s+/g, ' ').trim()
   if (!text) throw new DictationError('phrase_absente')
   if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
@@ -229,14 +245,14 @@ export async function understandQuestion(ep: Endpoint, phrase: string, schema: R
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=question', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: text, schema }),
+      body: JSON.stringify(extra ? { phrase: text, schema, contexte: extra.contexte, actuels: extra.actuels.slice(0, 40) } : { phrase: text, schema }),
       signal,
     })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Question annulée.')
     throw new DictationError('reseau')
   }
-  let d: { recette?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  let d: { recette?: unknown; nonGere?: unknown; action?: unknown; retirer?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
   try {
     d = await res.json()
   } catch {
@@ -249,6 +265,8 @@ export async function understandQuestion(ep: Endpoint, phrase: string, schema: R
   return {
     recette: d.recette ?? {},
     nonGere: Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : [],
+    ...(typeof d.action === 'string' ? { action: d.action } : {}),
+    ...(Array.isArray(d.retirer) ? { retirer: d.retirer.slice(0, 20) } : {}),
     ms: d.ms,
     restantMois: d.restant_mois,
     restantJour: d.restant_jour,

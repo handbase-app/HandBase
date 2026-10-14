@@ -33,7 +33,7 @@ import { MQ, useMedia } from './layout'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
-const PlayerDetail = lazy(() => import('./pages/PlayerDetail'))
+const JoueurFiche = lazy(() => import('./pages/JoueurFiche'))
 const ReviewPage = lazy(() => import('./pages/Review'))
 const Missed = lazy(() => import('./pages/Missed'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -258,7 +258,7 @@ export default function App() {
           {/* Listes en maître-détail : /joueurs/:id = liste + fiche sur ordinateur, fiche seule sur téléphone. */}
           <Route path="/joueurs" element={<MasterDetail base="/joueurs" list={<Players />} listCol={PLAYERS_COL} />}>
             <Route index element={null} />
-            <Route path=":id" element={<PlayerDetail />} />
+            <Route path=":id" element={<JoueurFiche />} />
           </Route>
           <Route path="/joueurs/nouveau" element={<PlayerForm />} />
           <Route path="/joueurs/:id/modifier" element={<PlayerForm />} />

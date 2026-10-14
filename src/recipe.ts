@@ -19,7 +19,7 @@
 import type { Laterality, Player, Position } from './db'
 import { birthYear, clubKey, seasonOf, type Tally } from './coverage'
 import { categoryKind, isRadarZone, RADAR_ZONES, type RadarZone } from './radarZones'
-import { asText, bestMatch, matchDept, matchRegion, normalize, parseSex, quote, type Places } from './voiceFilters'
+import { asText, bestMatch, isTrue, matchDept, matchRegion, normalize, parseSex, quote, type Places } from './voiceFilters'
 import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSearch'
 import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
@@ -69,6 +69,19 @@ export type Population = {
   pole?: PoleWanted
   /** Prénoms ou noms dits (« s'appellent Lucas ») : chaque mot est un mot du prénom ou du nom, sans accents ni majuscules. */
   names?: string[]
+  // Filtres rapides de la liste Joueurs (src/playerQuery.ts), aussi compris par « Poser une question ».
+  /** Trimestre de naissance (1 = janvier–mars … 4 = octobre–décembre). */
+  quarter?: number
+  /** Postes : compter aussi les postes secondaires. */
+  secondary?: boolean
+  /** Seulement les joueurs sans poste. */
+  noPosition?: boolean
+  /** Seulement mes joueurs suivis (QData.followed). */
+  followed?: boolean
+  /** Seulement les joueurs qui ont au moins une vidéo (QData.videos). */
+  video?: boolean
+  /** Profils recherchés (identifiants d'alertes, QData.profileMembers). */
+  profiles?: string[]
 }
 
 export type SeenRule = {
@@ -145,6 +158,8 @@ export type QuestionContext = Places & {
   zoneOf?: (category: string) => RadarZone | null
   /** Jour (AAAA-MM-JJ) : saison en cours, « depuis septembre ». */
   today: string
+  /** Profils recherchés visibles par ce compte (retrouvés ici, jamais envoyés). */
+  profiles?: { id: string; name: string }[]
 }
 
 const isScore = (scale: string) => scale === 'score5' || scale === 'score3' || scale === 'score2'
@@ -175,7 +190,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
   return {
     aujourdhui: `${ctx.today} (saison ${s.label} : du 1er septembre au 31 août)`,
     population:
-      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees {de, a}, postes [codes], clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous)',
+      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees {de, a}, trimestre (1 à 4 : trimestre de naissance), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
     vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
     avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5), calcul (moyenne par défaut | max : la meilleure note, une par une | min : la plus basse)} ; score combiné : sur "combine", nom [liste de noms]',
@@ -293,7 +308,10 @@ export type Interpreted = {
 }
 
 const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie', 'nonGere']
-const KNOWN_POP = ['noms', 'nom', 'prenom', 'prenoms', 'sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax', 'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole']
+const KNOWN_POP = [
+  'noms', 'nom', 'prenom', 'prenoms', 'sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax',
+  'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole', 'trimestre', 'postesSecondaires', 'sansPoste', 'suivis', 'avecVideo', 'profils', 'profil',
+]
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
 
@@ -543,6 +561,22 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     if (v) r.pop.pole = v
     else skip(`Pôle ${quote(p.pole)}`, 'valeur inconnue')
   }
+  if (present(p.trimestre)) {
+    const m = /^(?:q|t)?\s*([1-4])(?:er|e|eme)?$/.exec(normalize(asText(p.trimestre)))
+    if (m) r.pop.quarter = Number(m[1])
+    else skip(`trimestre ${quote(p.trimestre)}`, 'de 1 à 4')
+  }
+  if (isTrue(p.postesSecondaires) && r.pop.positions) r.pop.secondary = true
+  if (isTrue(p.sansPoste) && !r.pop.positions) r.pop.noPosition = true
+  if (isTrue(p.suivis)) r.pop.followed = true
+  if (isTrue(p.avecVideo)) r.pop.video = true
+  const profiles: string[] = []
+  for (const v of [...asList(p.profils), ...asList(p.profil)]) {
+    const m = bestMatch(asText(v), ctx.profiles ?? [], (x) => [x.name])
+    if ('found' in m) profiles.push(m.found.id)
+    else skip(`profil ${quote(v)}`, 'ambiguous' in m ? 'plusieurs profils possibles' : 'introuvable')
+  }
+  if (profiles.length) r.pop.profiles = [...new Set(profiles)]
 
   // Condition « vu ».
   if (isObj(top.vus) && Object.values(top.vus).some(present)) {
@@ -871,7 +905,7 @@ export function cleanRecipe(v: unknown): Recipe {
   }
   const pos = ids(p.positions).filter((x): x is Position => POS_IDS.includes(x as Position))
   if (pos.length) pop.positions = pos
-  for (const k of ['clubs', 'regions', 'depts', 'groups', 'events'] as const) {
+  for (const k of ['clubs', 'regions', 'depts', 'groups', 'events', 'profiles'] as const) {
     const xs = ids(p[k])
     if (xs.length) pop[k] = xs
   }
@@ -885,6 +919,12 @@ export function cleanRecipe(v: unknown): Recipe {
   if (pole) pop.pole = pole
   const nm = (Array.isArray(p.names) ? p.names : []).filter((x): x is string => okId(x) && x.length <= MAX_NAME && !!nameKey(x)).slice(0, MAX_NAMES_POP)
   if (nm.length) pop.names = nm
+  const quarter = int(p.quarter, [1, 4])
+  if (quarter) pop.quarter = quarter
+  if (p.secondary === true && pop.positions) pop.secondary = true
+  if (p.noPosition === true && !pop.positions) pop.noPosition = true
+  if (p.followed === true) pop.followed = true
+  if (p.video === true) pop.video = true
   const r: Recipe = { pop, avis: [], measures: [], out: { type: oneOf(isObj(o.out) ? o.out.type : undefined, ['count', 'list', 'table', 'map'] as const) ?? 'list' } }
   if (isObj(o.seen)) {
     const by = oneOf(o.seen.by, ['event', 'person'] as const) ?? 'event'
@@ -965,6 +1005,12 @@ export type QData<P extends QPlayer> = {
   regionOf: (dept: string) => string | undefined
   zoneOf?: (category: string) => RadarZone | null
   today: string
+  /** Mes joueurs suivis, joueurs avec une vidéo, joueurs de chaque profil recherché (filtres rapides de la liste Joueurs). */
+  followed?: ReadonlySet<string>
+  videos?: ReadonlySet<string>
+  profileMembers?: ReadonlyMap<string, ReadonlySet<string>>
+  /** Garder les fiches hors cadre (liste Joueurs, onglet « Hors cadre ») ; sinon écartées. */
+  includeRefused?: boolean
 }
 
 /** `name` : nom puis prénom repliés (sans accents, minuscules) pour trier vite par nom. */
@@ -995,7 +1041,7 @@ const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => {
 
 /** Index par joueur (une fois par changement des données) : passages, avis, dernières mesures, groupes, événements. */
 export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
-  const players = data.players.filter((p) => !p.deleted && !p.mergedInto && p.review !== 'refused')
+  const players = data.players.filter((p) => !p.deleted && !p.mergedInto && (data.includeRefused || p.review !== 'refused'))
   const info = new Map<string, PlayerInfo>()
   const names = new Map<string, Map<string, number>>()
   for (const p of players) {
@@ -1262,7 +1308,16 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
     const y = Number(i.year)
     if (!i.year || y < pop.years[0] || y > pop.years[1]) return false
   }
-  if (pop.positions && !(p.position && pop.positions.includes(p.position))) return false
+  if (pop.positions && !(p.position && pop.positions.includes(p.position)) && !(pop.secondary && p.secondaryPositions?.some((x) => pop.positions!.includes(x))))
+    return false
+  if (pop.noPosition && p.position) return false
+  if (pop.quarter) {
+    const m = /^\d{4}-(\d{2})/.exec(p.birthDate ?? '')
+    if (!m || Math.ceil(Number(m[1]) / 3) !== pop.quarter) return false
+  }
+  if (pop.followed && !ix.data.followed?.has(p.id)) return false
+  if (pop.video && !ix.data.videos?.has(p.id)) return false
+  if (pop.profiles && !pop.profiles.some((a) => ix.data.profileMembers?.get(a)?.has(p.id))) return false
   if (pop.depts && !(i.dept && pop.depts.includes(i.dept))) return false
   if (pop.regions && !(i.region && pop.regions.includes(i.region))) return false
   if (pop.clubs && !pop.clubs.includes(i.club)) return false
@@ -1314,7 +1369,7 @@ const inRange = (day: string | undefined, range?: { from: string; to: string }) 
  * Exécute une recette (lecture seule) : population, puis conditions (vu, avis, nombre d'avis, mesures), puis la sortie
  * demandée (nombre, liste triée et limitée, tableau groupé, ou joueurs pour la carte).
  */
-export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P> {
+export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe, opts: { all?: boolean } = {}): Answer<P> {
   const t0 = now()
   const today = ix.data.today
   const pop = ix.players.filter((p) => inPopulation(ix, r.pop, p))
@@ -1363,7 +1418,8 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
 
   if (r.out.type === 'list') {
     const sort = defaultSort(r)
-    const limit = r.out.limit ?? DEFAULT_LIMIT
+    // opts.all : toute la liste (liste Joueurs triée), sans limite.
+    const limit = opts.all ? Infinity : (r.out.limit ?? DEFAULT_LIMIT)
     if (sort.by === 'priority') {
       ans.rows = priorityRows(ix, match, scorer(ix, avgTarget), outRange, byName)
       ans.missing = match.length - ans.rows.length
@@ -1558,6 +1614,8 @@ export type Names = {
   position: (id: Position) => string
   /** Personne du staff (nom lu sur l'appareil, jamais envoyé). */
   staff?: (id: string) => string
+  /** Profil recherché (alerte). */
+  profile?: (id: string) => string
   today: string
 }
 
@@ -1579,6 +1637,7 @@ const GROUP_TEXT: Record<GroupBy, string> = {
   event: 'par événement',
 }
 const POLE_TEXT: Record<PoleWanted, string> = { current: 'au Pôle Espoirs', past: 'sortis du Pôle Espoirs', any: 'passés par le Pôle Espoirs' }
+const QUARTER_TEXT = ['janv.–mars', 'avril–juin', 'juil.–sept.', 'oct.–déc.']
 
 export function periodText(p: Period, today: string): string {
   if (p.kind === 'season') return `cette saison (${seasonOf(today).label})`
@@ -1652,6 +1711,12 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   if (p.groups) c.push({ key: 'groups', label: `groupe : ${list(p.groups.map(names.group))}`, removable: true })
   if (p.events) c.push({ key: 'events', label: `événement : ${list(p.events.map(names.event))}`, removable: true })
   if (p.pole) c.push({ key: 'pole', label: POLE_TEXT[p.pole], removable: true })
+  if (p.quarter) c.push({ key: 'quarter', label: `Q${p.quarter} · ${QUARTER_TEXT[p.quarter - 1]}`, removable: true })
+  if (p.secondary) c.push({ key: 'secondary', label: '+ postes secondaires', removable: true })
+  if (p.noPosition) c.push({ key: 'noPosition', label: 'sans poste', removable: true })
+  if (p.followed) c.push({ key: 'followed', label: 'mes suivis', removable: true })
+  if (p.video) c.push({ key: 'video', label: 'avec une vidéo', removable: true })
+  if (p.profiles) c.push({ key: 'profiles', label: `profil : ${list(p.profiles.map((id) => names.profile?.(id) ?? 'profil recherché'))}`, removable: true })
   if (r.seen) {
     const s = r.seen
     const unit = s.by === 'event' ? (s.n > 1 ? 'événements' : 'événement') : s.n > 1 ? 'personnes du staff' : 'personne du staff'
@@ -1736,6 +1801,8 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
 /** La recette en une phrase (« Joueuses · nées en 2011 · vues à 1 événement · cette saison · par département »). */
 export const recipeText = (r: Recipe, names: Names) => recipeChips(r, names).map((c) => c.label).join(' · ')
 
+const POP_KEYS: (keyof Population)[] = ['sex', 'names', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole', 'quarter', 'secondary', 'noPosition', 'followed', 'video', 'profiles']
+
 /** Retire une pastille (clé de recipeChips). */
 export function removeChip(r: Recipe, key: string): Recipe {
   const x = cleanRecipe(r)
@@ -1743,7 +1810,10 @@ export function removeChip(r: Recipe, key: string): Recipe {
   if (k === 'height') {
     delete x.pop.hMin
     delete x.pop.hMax
-  } else if (k in x.pop || ['sex', 'names', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole'].includes(k)) delete x.pop[k as keyof Population]
+  } else if (k === 'positions') {
+    delete x.pop.positions
+    delete x.pop.secondary
+  } else if (k in x.pop || POP_KEYS.includes(k as keyof Population)) delete x.pop[k as keyof Population]
   else if (k === 'seen') delete x.seen
   else if (k === 'avis') x.avis.splice(Number(i), 1)
   else if (k === 'measure') x.measures.splice(Number(i), 1)

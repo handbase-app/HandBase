@@ -24,6 +24,7 @@ import {
   type Endpoint,
   type FilterAnswer,
   type QuestionAnswer,
+  type QuestionExtra,
   type SqlAnswer,
   type SqlRetry,
   type Transcript,
@@ -227,11 +228,11 @@ export function useDictation() {
 }
 
 /** « Poser une question » : la phrase et la description de la recette seulement (src/recipe.ts), jamais de données de joueur. */
-export async function sendQuestionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal): Promise<QuestionAnswer> {
+export async function sendQuestionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal, extra?: QuestionExtra): Promise<QuestionAnswer> {
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandQuestion(ep, phrase, schema, signal)
+    const r = await understandQuestion(ep, phrase, schema, signal, extra)
     afterCall(ep.uid, r)
     return r
   } catch (e) {
