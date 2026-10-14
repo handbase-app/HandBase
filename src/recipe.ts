@@ -1366,6 +1366,23 @@ export function groupKey<P extends QPlayer>(ix: QIndex<P>, by: GroupBy, p: P): s
 const inRange = (day: string | undefined, range?: { from: string; to: string }) => !range || !day || (day >= range.from && day <= range.to)
 
 /**
+ * Valeur d'un joueur pour la colonne (ou le nombre) : moyenne d'avis, dernière valeur d'une mesure, âge ; undefined : la
+ * recette ne demande pas de valeur. Aussi pour le bilan de détection (src/bilanQuestion.ts).
+ */
+export function outValueFn<P extends QPlayer>(ix: QIndex<P>, r: Recipe): ((p: P) => number | null) | undefined {
+  if (r.out.value === 'avg') {
+    const sc = scorer(ix, r.out.avg ?? r.avis[0]?.target ?? { on: 'global' })
+    return (p) => sc(p.id)
+  }
+  if (r.out.value === 'measure' && r.out.measure) {
+    const by = ix.last.get(r.out.measure)
+    return (p) => by?.get(p.id) ?? null
+  }
+  if (r.out.value === 'age') return (p) => ageOf(p, ix.data.today)
+  return undefined
+}
+
+/**
  * Exécute une recette (lecture seule) : population, puis conditions (vu, avis, nombre d'avis, mesures), puis la sortie
  * demandée (nombre, liste triée et limitée, tableau groupé, ou joueurs pour la carte).
  */
@@ -1391,19 +1408,7 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe, opts: { a
   const matchIds = new Set(match.map((p) => p.id))
   const ans: Answer<P> = { total: pop.length, count: match.length, match, matchIds, pop, ms: 0 }
   const avgTarget = r.out.avg ?? r.avis[0]?.target ?? { on: 'global' as const }
-  // Valeur d'un joueur pour la colonne (ou le nombre) : moyenne d'avis, dernière valeur d'une mesure, âge.
-  const valueFn = (): ((p: P) => number | null) | undefined => {
-    if (r.out.value === 'avg') {
-      const sc = scorer(ix, avgTarget)
-      return (p) => sc(p.id)
-    }
-    if (r.out.value === 'measure' && r.out.measure) {
-      const by = ix.last.get(r.out.measure)
-      return (p) => by?.get(p.id) ?? null
-    }
-    if (r.out.value === 'age') return (p) => ageOf(p, today)
-    return undefined
-  }
+  const valueFn = () => outValueFn(ix, r)
   if (r.out.type === 'count') {
     const f = valueFn()
     if (f) ans.stat = statOf(match.map(f).filter((v): v is number => v !== null))

@@ -52,7 +52,8 @@ import MasterDetail from '../components/MasterDetail'
 import { PlayerRow } from '../components/PlayerRow'
 import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
-import { Bar, Crumbs, fillOf, MapLegend, scaleOf } from './Coverage'
+import { Bar, bilanQuestionSearch, Crumbs, fillOf, MapLegend, scaleOf } from './Coverage'
+import { goesToBilan, splitPlace } from '../bilanQuestion'
 import PlayerDetail from './PlayerDetail'
 
 type Model = QuestionModel
@@ -77,6 +78,11 @@ const recipeModel = (m: Model): RecipeModel => ({ names: m.names, criteria: m.da
  *    modèle, exécutée seulement sur une copie locale jetable (jamais sur Supabase).
  *  - JOURNAL DES QUESTIONS (src/questionLog.ts) : chaque question posée y est notée (anonymisée, jamais le résultat), avec ce
  *    qu'en a fait la recette et, s'il a été lancé, le mode avancé ; rien pendant « Voir comme… ».
+ *  - RÉPONSE GÉOGRAPHIQUE (carte, tableau par club, département ou région, nombre limité à un lieu : src/bilanQuestion.ts) :
+ *    elle reste sur le bilan (/bilan?q=…, src/pages/Coverage.tsx), ouvert sur le lieu de la question, avec sa carte et
+ *    ses clubs colorés par la valeur de la question ; seulement quand la recette a tout appliqué (sinon ici, avec ce qui
+ *    n'a pas été appliqué et le mode avancé). Le retour revient au bilan d'avant la question. « Ouvrir en détail »
+ *    (bandeau du bilan) ramène ici, avec le lieu affiché.
  * Ordinateur : question et « Mes questions » à gauche (1/3), réponse à droite (2/3). Uniquement des formulations
  * positives ou neutres sur les jeunes (« pas encore vus », tri croissant / décroissant).
  */
@@ -98,6 +104,9 @@ type HistState = Partial<AskState> & {
 }
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
+/** Lieu de départ du bilan pour une réponse géographique (département d'un club : celui de la plupart de ses joueurs). */
+const bilanTarget = (r: Recipe, model?: Model, clubDept?: (k: string) => string | undefined) =>
+  splitPlace(r, (d) => regionOfDept(d), (k) => clubDept?.(k) ?? model?.ctx?.clubs.find((c) => c.key === k)?.dept)
 const encSql = (s: SqlSpec) => `s=${encodeURIComponent(encodeSqlSpec(s))}`
 /** Bascules automatiques déjà lancées (une par arrivée, même si l'écran est rendu deux fois). */
 const autoStarted = new Set<string>()
@@ -173,6 +182,12 @@ export default function Question() {
     const status: RecipeStatus = answersNothing(it.recipe, it.unsupported) ? 'pas_comprise' : it.notes.length || it.unsupported.length ? 'partielle' : 'complete'
     const autoSql = status !== 'complete' && sqlReady && !!st.heard
     if (!autoSql && st.heard) void logQuestion({ phrase: st.heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes] }, model.source?.() ?? null)
+    // Réponse géographique, recette appliquée en entier : sur le bilan, ouvert sur le lieu de la question.
+    if (status === 'complete' && goesToBilan(it.recipe)) {
+      const to = bilanTarget(it.recipe, model)
+      nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { replace: true, state: { bilanChain: [], heard: st.heard } })
+      return
+    }
     nav(`/bilan/question?${enc(it.recipe)}`, {
       replace: true,
       state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status } satisfies HistState,
@@ -792,15 +807,22 @@ function VarForm({ q, onLaunch, onCancel }: { q: SavedQuestion; onLaunch: (v: Va
 }
 
 /** « Mes questions » : relance sans appel au modèle ; les variables se choisissent avant. */
-export function SavedQuestions({ model, open: startOpen = false }: { model?: Model; open?: boolean }) {
+export function SavedQuestions({ model, open: startOpen = false, clubDept }: { model?: Model; open?: boolean; clubDept?: (club: string) => string | undefined }) {
   const saved = useSavedQuestions()
   const nav = useNavigate()
   const [open, setOpen] = useState(startOpen)
   const [asking, setAsking] = useState<string | null>(null)
   if (!saved.length) return null
-  const launch = (q: SavedQuestion, v: VarValues = {}) => (
-    setAsking(null), nav(`/bilan/question?${q.sql ? encSql(q.sql) : enc(applyVars(q.recipe, v))}`, { state: { saved: q.name } satisfies HistState })
-  )
+  const launch = (q: SavedQuestion, v: VarValues = {}) => {
+    setAsking(null)
+    const r = applyVars(q.recipe, v)
+    // Réponse géographique : sur le bilan, ouvert sur le lieu de la question (le retour revient ici).
+    if (!q.sql && goesToBilan(r)) {
+      const to = bilanTarget(r, model, clubDept)
+      return nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { state: { bilanChain: [] } })
+    }
+    nav(`/bilan/question?${q.sql ? encSql(q.sql) : enc(r)}`, { state: { saved: q.name } satisfies HistState })
+  }
   return (
     <section className="card flex flex-col gap-2 p-3">
       <button type="button" className="flex min-h-9 items-center gap-2 text-left text-sm font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>

@@ -54,6 +54,10 @@ import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
 import { SavedQuestions } from './Question'
+import { decodeRecipe, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Recipe } from '../recipe'
+import { aggregate, aggValue, bilanOutput, isShareKind, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
+import { useQuestionModel } from '../questionModel'
+import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChips'
 
 /*
  * Bilan de détection (/bilan) : UNE carte de France (src/components/FranceMap.tsx) et des onglets de mesure, dans l'adresse
@@ -72,7 +76,10 @@ import { SavedQuestions } from './Question'
  * choix que les boutons et la carte (l'adresse suit).
  * « Poser une question » (src/components/AskQuestion.tsx, src/recipe.ts) : une question libre (« les joueuses 2011 vues
  * une seule fois cette saison, par département ») dont la réponse est calculée sur l'appareil (src/pages/Question.tsx) ;
- * « Mes questions » : celles qu'on a enregistrées, relancées sans envoi.
+ * « Mes questions » : celles qu'on a enregistrées, relancées sans envoi. Réponse géographique (carte, tableau par club,
+ * département ou région, nombre dans un lieu : src/bilanQuestion.ts) : elle reste ICI (?q=<recette>), un bandeau
+ * « ✨ question ✕ » à la place des onglets ; carte, points des clubs et listes colorés et triés par la valeur de la question
+ * (nombre, part, part vue, moyenne, âge) ; changer de lieu garde la question, ✕ la ferme (remplace l'adresse).
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », pas encore mesuré « à mesurer ».
  */
 
@@ -312,7 +319,8 @@ const TEAL = '#14b8a6'
 const NO_PLAYER = 'var(--color-panel-2)'
 /** Point d'un club sans joueur avec ces filtres (carte d'un département) : gris neutre, visible sur le fond du département. */
 const MUTED_DOT = 'color-mix(in srgb, var(--color-muted) 40%, var(--color-panel))'
-export type Scale = { lo: number; hi: number; count?: boolean }
+/** `count` : nombres (racine carrée) ; `digits` : valeurs (moyenne, mesure, âge), linéaire, avec leur unité. */
+export type Scale = { lo: number; hi: number; count?: boolean; digits?: number; unit?: string }
 const FULL: Scale = { lo: 0, hi: 1 }
 const share = (t: Tally) => t.seen / t.total
 const tr = (v: number, sc: Scale) => (sc.count ? Math.sqrt(v) : v)
@@ -335,6 +343,13 @@ export function scaleOfValues(values: Iterable<number>, count = false): Scale {
   }
   return { lo, hi }
 }
+/** Échelle de valeurs (moyenne d'avis, d'une mesure, âge moyen) : de la plus petite à la plus grande. */
+export function scaleOfNumbers(values: number[], digits: number, unit?: string): Scale {
+  if (!values.length) return { lo: 0, hi: 1, digits, unit }
+  const hi = Math.max(...values)
+  const lo = Math.min(...values)
+  return { lo: hi - lo < 1e-9 ? hi - 1 : lo, hi, digits, unit }
+}
 /** Échelle de la part des joueurs vus des zones affichées. */
 export const scaleOf = (ts: Iterable<Tally>): Scale => scaleOfValues([...ts].filter((t) => t.total).map(share))
 
@@ -348,13 +363,18 @@ export function fillAt(v: number | undefined, sc: Scale = FULL) {
 /** Couleur de la part des joueurs vus d'une zone. */
 export const fillOf = (t?: Tally, sc: Scale = FULL) => fillAt(t?.total ? share(t) : undefined, sc)
 
-export function MapLegend({ sc, note = 'du moins vu au plus vu' }: { sc: Scale; note?: string }) {
+export function MapLegend({ sc, note = 'du moins vu au plus vu', title }: { sc: Scale; note?: string; title?: string }) {
   // Graduations régulières sur la teinte (en racine carrée pour les nombres), avec leur vraie valeur.
   const at = (k: number) => (sc.count ? (Math.sqrt(sc.lo) + k * (Math.sqrt(sc.hi) - Math.sqrt(sc.lo))) ** 2 : sc.lo + k * (sc.hi - sc.lo))
   // Nombres : chaque graduation une seule fois (petits effectifs : 0, 1, 2…).
-  const ticks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((k) => (sc.count ? fmt(Math.round(at(k))) : `${Math.round(100 * at(k))} %`)))]
-  const adjusted = sc.count || sc.lo > 0 || sc.hi < 1
+  const num = (v: number) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: sc.digits })}${sc.unit ? ` ${sc.unit}` : ''}`
+  const ticks = [
+    ...new Set([0, 0.25, 0.5, 0.75, 1].map((k) => (sc.count ? fmt(Math.round(at(k))) : sc.digits !== undefined ? num(at(k)) : `${Math.round(100 * at(k))} %`))),
+  ]
+  const adjusted = sc.count || sc.digits !== undefined || sc.lo > 0 || sc.hi < 1
   return (
+    <div className="flex flex-col gap-1">
+    {title && <div className="text-[11px] font-bold">{title}</div>}
     <div className="flex items-start gap-3 text-[10px] text-muted">
       <span className="flex shrink-0 items-center gap-1">
         <span className="h-3 w-4 rounded-sm border border-line" style={{ background: NO_PLAYER }} />
@@ -369,6 +389,7 @@ export function MapLegend({ sc, note = 'du moins vu au plus vu' }: { sc: Scale; 
         </div>
         {adjusted && <div className="mt-0.5">Échelle ajustée aux zones affichées, {note}.</div>}
       </div>
+    </div>
     </div>
   )
 }
@@ -401,29 +422,81 @@ export function Crumbs({ steps }: { steps: { label: string; go?: () => void }[] 
 /** Barre des licenciés : par rapport à la plus grande zone de la liste ; sinon la part comptée. */
 const ratioOf = (o: Onglet, t: Tally, max: number) => (o === 'licencies' ? t.total / (max || 1) : undefined)
 
-/** Ligne d'une région ou d'un département : valeur de l'onglet, barre, badge ; un toucher l'ouvre. */
-function PlaceRow({ o, label, t, color, max, onClick }: { o: Onglet; label: string; t: Tally; color: string; max: number; onClick: () => void }) {
+/**
+ * Ce que montrent la carte et les listes : la valeur d'un onglet, ou celle d'une question posée au bilan (questionLens).
+ * `value` : couleur et classement ; `row` / `club` : ligne d'une zone ou d'un club ; `bar` : barre (null : aucune) ;
+ * `tip` : bulle de la carte ; `label` : valeur en mots (lecteurs d'écran).
+ */
+type Lens = {
+  name: string
+  value: (t?: Tally) => number | undefined
+  scale: (values: number[]) => Scale
+  rank: <T extends Tally>(rows: Iterable<[string, T]>) => [string, T][]
+  row: (t: Tally) => ReactNode
+  club: (t: Tally) => ReactNode
+  bar: (t: Tally, max: number) => { t: Tally; ratio?: number } | null
+  badge: (t: Tally) => ReactNode
+  tip: (t?: Tally) => ReactNode
+  label: (t: Tally) => string
+  /** Légende : ce que dit la couleur, et l'ordre de l'échelle. */
+  title?: string
+  note?: string
+}
+
+const noPlayerTip = <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
+
+/** Valeur d'un onglet du bilan. */
+function ongletLens(o: Onglet): Lens {
+  const tab = TAB[o]
+  return {
+    name: tab.label,
+    value: (t) => (t ? measureOf(o, t) : undefined),
+    scale: (v) => scaleOfValues(v, !isShare(o)),
+    rank: (rows) => rankBy(o, rows),
+    row: (t) =>
+      o === 'licencies' ? (
+        <>
+          <b className="text-fg">{fmt(t.total)}</b> joueur{s(t.total)}
+        </>
+      ) : (
+        <>
+          <b className="text-fg">{headline(o, t)}</b> · {detail(o, t)}
+        </>
+      ),
+    club: (t) => detail(o, t),
+    bar: (t, max) => ({ t, ratio: ratioOf(o, t, max) }),
+    badge: (t) => <LeftBadge t={t} o={o} />,
+    tip: (t) =>
+      t?.total ? (
+        <>
+          <div className="mt-1">
+            <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t)}</span>
+          </div>
+          {o !== 'licencies' && <div className="text-muted">{detail(o, t)}</div>}
+          {tab.todo && <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>{t.total > t.seen ? `${fmt(t.total - t.seen)} ${tab.todo}` : tab.done}</div>}
+        </>
+      ) : (
+        noPlayerTip
+      ),
+    label: (t) => `${headline(o, t)} ${unit(o, t)}`,
+    note: o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur',
+  }
+}
+
+/** Ligne d'une région ou d'un département : valeur montrée, barre, badge ; un toucher l'ouvre. */
+function PlaceRow({ lens, label, t, color, max, onClick }: { lens: Lens; label: string; t: Tally; color: string; max: number; onClick: () => void }) {
+  const bar = lens.bar(t, max)
   return (
     <button onClick={onClick} className="card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent">
       <span className="h-8 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{label}</span>
         <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
-          <span className="shrink-0">
-            {o === 'licencies' ? (
-              <>
-                <b className="text-fg">{fmt(t.total)}</b> joueur{s(t.total)}
-              </>
-            ) : (
-              <>
-                <b className="text-fg">{headline(o, t)}</b> · {detail(o, t)}
-              </>
-            )}
-          </span>
-          <Bar t={t} ratio={ratioOf(o, t, max)} className="w-12 sm:w-20" />
+          <span className="min-w-0 truncate">{lens.row(t)}</span>
+          {bar && <Bar t={bar.t} ratio={bar.ratio} className="w-12 shrink-0 sm:w-20" />}
         </span>
       </span>
-      <LeftBadge t={t} o={o} />
+      {lens.badge(t)}
       <span className="shrink-0 text-muted">›</span>
     </button>
   )
@@ -459,6 +532,8 @@ export type BilanState = {
   dept: string
   club: string | null
   seenOpen: boolean
+  /** Question posée au bilan (réponse géographique, src/bilanQuestion.ts) : recette sans son lieu, que porte le bilan ; null aucune. */
+  q: Recipe | null
 }
 
 function parseBilan(q: URLSearchParams): BilanState {
@@ -481,6 +556,7 @@ function parseBilan(q: URLSearchParams): BilanState {
     dept: q.get('d') ?? '',
     club: q.get('c'),
     seenOpen: q.get('vus') === '1',
+    q: decodeRecipe(q.get('q')),
   }
 }
 
@@ -498,7 +574,18 @@ function bilanQuery(st: BilanState): string {
   if (st.dept) q.set('d', st.dept)
   if (st.club !== null) q.set('c', st.club)
   if (st.seenOpen) q.set('vus', '1')
+  if (st.q) q.set('q', encodeRecipe(st.q))
   return q.toString()
+}
+
+/**
+ * Adresse du bilan ouvert sur une question (« Poser une question », « Mes questions ») : derniers choix de la session
+ * (onglet, sexe…), le lieu de la question, la carte. À ouvrir avec l'état { bilanChain: [] } : le retour revient au bilan
+ * d'avant la question (les étages au-dessus ne sont pas posés).
+ */
+export function bilanQuestionSearch(q: Recipe, p: Place): string {
+  const base = parseBilan(new URLSearchParams(sessionQuery() ?? ''))
+  return bilanQuery({ ...base, q, region: p.region, dept: p.dept, club: p.club, seenOpen: false, view: 'map' })
 }
 
 function sessionQuery(): string | null {
@@ -545,7 +632,10 @@ export function useBilanState() {
   useEffect(() => {
     if (!raw) return
     try {
-      sessionStorage.setItem(QUERY_KEY, raw)
+      // La question n'est pas gardée : le bilan rouvert depuis le menu revient à ses onglets.
+      const keep = new URLSearchParams(raw)
+      keep.delete('q')
+      sessionStorage.setItem(QUERY_KEY, keep.toString())
     } catch {
       /* stockage indisponible */
     }
@@ -616,7 +706,7 @@ export function useBilanState() {
     }
     // Retour du navigateur sur un étage du bilan : on garde les filtres choisis entre-temps.
     if (navType === 'POP' && prev) {
-      const merged = withPlace(prev, st)
+      const merged = { ...withPlace(prev, st), q: st.q }
       if (bilanQuery(merged) !== bilanQuery(st)) setParams(new URLSearchParams(bilanQuery(merged)), { replace: true, state: loc.state })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -706,8 +796,154 @@ export function useBilanModel(st: BilanState) {
   }
 }
 
+// ---------- Question posée au bilan ----------
+
+/**
+ * Question posée au bilan (st.q, src/bilanQuestion.ts) : réponse calculée sur l'appareil (src/recipe.ts), totaux par
+ * région, département et club du lieu affiché, clubs dans l'ordre de la question, valeur de chaque joueur qui répond.
+ * Les données de la question ne sont lues que lorsqu'une question est posée.
+ */
+export function useBilanQuestion(st: BilanState) {
+  const model = useQuestionModel(!!st.q)
+  const { index, names } = model
+  const recipe = st.q
+  const answer = useMemo(() => (index && recipe ? runRecipe(index, recipe) : null), [index, recipe])
+  const points = useMemo(() => (index && recipe && answer ? questionPoints(index, recipe, answer) : null), [index, recipe, answer])
+  const { region, dept } = st
+  const agg = useMemo(() => (points && index ? aggregate(points, { region, dept }, (k) => index.clubNames.get(k) ?? k) : null), [points, index, region, dept])
+  const kind = recipe ? valueKind(recipe) : 'count'
+  const dir = recipe ? rankDir(recipe) : 'desc'
+  const clubs = useMemo(() => (agg ? rankAgg(kind, agg.clubs.map((c) => [c.key, c] as [string, QClub<Player>]), dir).map(([, c]) => c) : []), [agg, kind, dir])
+  const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
+  const texts = useMemo(() => (recipe ? questionTexts(recipe, names) : null), [recipe, names])
+  // Valeur de chaque joueur qui répond (moyenne, mesure, âge ; part vue : vu ou à voir).
+  const byPlayer = useMemo(() => new Map((points ?? []).filter((x) => x.match).map((x) => [x.p.id, x])), [points])
+  /** Joueurs d'un club qui répondent : par valeur (moyenne, mesure, âge), sinon par nom. */
+  const order = (c: ClubCoverage<Player>) => {
+    const byName = (a: Player, b: Player) => a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr')
+    const v = (p: Player) => byPlayer.get(p.id)?.value ?? null
+    const k = dir === 'asc' ? 1 : -1
+    return [...c.seenPlayers].sort((a, b) => {
+      const x = v(a)
+      const y = v(b)
+      return (x === null ? (y === null ? 0 : 1) : y === null ? -1 : k * (x - y)) || byName(a, b)
+    })
+  }
+  const playerText = (p: { id: string }) => {
+    const x = byPlayer.get(p.id)
+    return x && texts ? texts.player(x) : ''
+  }
+  return { ready: !!agg && !!texts, model, recipe, answer, agg, kind, dir, clubs, club, texts, order, playerText }
+}
+
+/** Textes d'une question : ce que dit la valeur (bannière, légende, lignes, bulles, joueurs). Positifs ou neutres seulement. */
+function questionTexts(r: Recipe, names: Names) {
+  const kind = valueKind(r)
+  const cond = hasConditions(r)
+  const f = r.pop.sex === 'F'
+  const e = f ? 'e' : ''
+  const players = (n: number) => `${f ? 'joueuse' : 'joueur'}${s(n)}`
+  const who = (n: number) => `${fmt(n)} ${players(n)}`
+  const digits = kind === 'age' ? 1 : 2
+  const vUnit = kind === 'measure' ? (names.unit?.(r.out.measure ?? '') ?? '') : kind === 'age' ? 'ans' : kind === 'avg' ? 'sur 5' : ''
+  const num = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigits: digits })
+  const period = periodText(r.out.period ?? r.seen?.period ?? { kind: 'season' }, names.today)
+  const valueName = kind === 'avg' || kind === 'measure' || kind === 'age' ? outValueText(r, names) : ''
+  /** « Nombre de joueuses », « Part qui répond », « Part vue », « Moyenne Défense », « Âge moyen ». */
+  const what =
+    kind === 'count' ? `Nombre de ${f ? 'joueuses' : 'joueurs'}` : kind === 'share' ? 'Part qui répond' : kind === 'seen' ? 'Part vue' : valueName.replace(/^./, (c) => c.toUpperCase())
+  const legend =
+    kind === 'count'
+      ? `Couleur : nombre de ${f ? 'joueuses' : 'joueurs'}${cond ? ' qui répondent' : ''}`
+      : kind === 'share'
+        ? 'Couleur : part de la population qui répond'
+        : kind === 'seen'
+          ? `Couleur : part vue (${period})`
+          : `Couleur : ${valueName}`
+  const q = (t: Tally) => t as QAgg
+  const big = (t: Tally) => {
+    const v = aggValue(kind, t)
+    if (kind === 'count') return fmt(t.seen)
+    if (kind === 'share') return shareText(t.seen, t.total)
+    if (v === undefined) return '–'
+    return kind === 'seen' ? shareText(q(t).vus, t.seen) : `${num(v)}${vUnit ? ` ${vUnit}` : ''}`
+  }
+  const small = (t: Tally) =>
+    kind === 'count'
+      ? `${players(t.seen)}${cond ? ` · sur ${fmt(t.total)} (${shareText(t.seen, t.total)})` : ''}`
+      : kind === 'share'
+        ? `${fmt(t.seen)} sur ${fmt(t.total)}`
+        : kind === 'seen'
+          ? `${fmt(q(t).vus)} vu${e}${s(q(t).vus)} sur ${who(t.seen)}`
+          : q(t).n
+            ? `sur ${who(q(t).n)}`
+            : 'pas encore de valeur'
+  const line = (t: Tally) => (
+    <>
+      <b className="text-fg">{big(t)}</b> {small(t)}
+    </>
+  )
+  const lens: Lens = {
+    name: what,
+    value: (t) => aggValue(kind, t),
+    scale: (v) => (kind === 'count' ? scaleOfValues(v, true) : isShareKind(kind) ? scaleOfValues(v) : scaleOfNumbers(v, digits, vUnit || undefined)),
+    rank: (rows) => rankAgg(kind, rows, rankDir(r)),
+    row: line,
+    club: line,
+    bar: (t) => (kind === 'share' || (kind === 'count' && cond) ? { t } : kind === 'seen' ? { t: { seen: q(t).vus, total: t.seen } } : null),
+    badge: () => null,
+    tip: (t) =>
+      t?.total ? (
+        <>
+          <div className="mt-1">
+            <b className="text-base">{big(t)}</b>
+          </div>
+          <div className="text-muted">{small(t)}</div>
+        </>
+      ) : (
+        noPlayerTip
+      ),
+    label: (t) => `${big(t)} ${small(t)}`,
+    title: legend,
+    note: 'de la plus faible à la plus forte valeur',
+  }
+  /** Ce que la question dit d'un joueur qui répond. */
+  const player = (x: QPoint<unknown>) =>
+    kind === 'seen'
+      ? x.vu
+        ? `vu${e} (${period})`
+        : `à voir (${period})`
+      : valueName && x.value !== undefined && x.value !== null
+        ? `${valueName} ${num(x.value)}${vUnit ? ` ${vUnit}` : ''}`
+        : ''
+  /** Total du lieu affiché : « 371 joueurs répondent », puis « sur 1 200 (30 %) », « moyenne Taille 178 cm ». */
+  const total = (t: QAgg) => ({
+    head: cond ? `${who(t.seen)} répond${t.seen > 1 ? 'ent' : ''}` : who(t.seen),
+    rest: [
+      cond ? `sur ${fmt(t.total)} (${shareText(t.seen, t.total)})` : '',
+      kind === 'seen' && t.seen ? `${shareText(t.vus, t.seen)} vu${e}s (${period})` : '',
+      valueName && t.n ? `${valueName} ${num(t.sum / t.n)}${vUnit ? ` ${vUnit}` : ''}` : '',
+    ].filter(Boolean),
+  })
+  // Pastilles de la question, sans la sortie (le bilan la montre) ; le sexe est déjà dans « Nombre de joueuses ».
+  const hidden = new Set(['out', 'sort', 'value', 'keep', 'limit', 'outPeriod', ...(kind === 'count' ? ['sex'] : [])])
+  const conditions = recipeChips(r, names)
+    .filter((c) => !hidden.has(c.key))
+    .map((c) => c.label)
+  return { kind, cond, what, lens, player, total, conditions }
+}
+
 /** Ce que les listes « Qui ? » du bilan partagent : onglet, état de l'adresse (pour les fiches) et « Déjà vus » ouvert. */
-const WhoCtx = createContext<{ o: Onglet; search: string; seenOpen: boolean; setSeenOpen: (v: boolean) => void }>({
+const WhoCtx = createContext<{
+  o: Onglet
+  search: string
+  seenOpen: boolean
+  setSeenOpen: (v: boolean) => void
+  /** Valeur montrée (onglet ou question) ; absente : celle de l'onglet. */
+  lens?: Lens
+  /** Question posée : joueurs du club qui répondent, à la place de « Qui ? ». */
+  qWho?: (club: ClubCoverage<Player>) => ReactNode
+}>({
   o: 'vus',
   search: '',
   seenOpen: false,
@@ -718,15 +954,26 @@ const WhoCtx = createContext<{ o: Onglet; search: string; seenOpen: boolean; set
 
 export default function Coverage() {
   const role = useRole()
+  const loc = useLocation()
   const regionLabel = useRegionLabel()
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
   const { st, set, search, national, up, upPlace } = useBilanState()
-  const { onglet: o, sex, period, view, mapBy, year, region, dept } = st
-  const { data, last, nat, byPlace, years, clubs, kpis, allYears, club, yearText } = useBilanModel(st)
+  const { onglet: o, sex, period, mapBy, year, region, dept } = st
+  const bilan = useBilanModel(st)
+  const { data, last, nat, years, kpis, allYears, yearText } = bilan
+  // Question posée au bilan : carte, listes et clubs montrent sa valeur (sur la carte seulement, sans les filtres du bilan).
+  const bq = useBilanQuestion(st)
+  const Q = st.q && bq.ready && bq.agg && bq.texts ? { ...bq, agg: bq.agg, texts: bq.texts } : null
+  const view: View = st.q ? 'map' : st.view
+  const byPlace = Q ? { ...Q.agg.all, byDept: Q.agg.byDept, byRegion: Q.agg.byRegion, noDept: Q.agg.noDept } : bilan.byPlace
+  const clubs: ClubCoverage<Player>[] = Q ? Q.clubs : bilan.clubs
+  const club: ClubCoverage<Player> | undefined = Q ? Q.club : bilan.club
+  const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o), [Q?.texts, o]) // eslint-disable-line react-hooks/exhaustive-deps
   const side = useMedia(MQ.side)
   const whereRef = useRef<HTMLDivElement>(null)
-  const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }) }), [o, search]) // eslint-disable-line react-hooks/exhaustive-deps
+  const qWho = Q ? (c: ClubCoverage<Player>) => <QuestionWho club={c} players={Q.order(c)} text={Q.playerText} what={Q.texts} /> : undefined
+  const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }), lens, qWho }), [o, search, lens, Q?.agg]) // eslint-disable-line react-hooks/exhaustive-deps
   // Recherche vocale (« micro ✨ Filtrer ») : filtres du bilan (sexe, période, génération, lieu de la carte, club, vue). Clubs et
   // lieux sont retrouvés ici ; seuls la phrase, le schéma et les filtres actifs partent (src/voicePages.ts).
   const voiceClubs = useMemo(() => {
@@ -750,10 +997,7 @@ export default function Coverage() {
     if (!dept || dept === NO_DEPT || dept === OTHER_OM.code || !hasPlacedClubs(units)) return null
     const r = clubDots(clubs, units, dept, (n) => department({ clubCode: n }))
     if (!r.dots.length) return null
-    const sc = scaleOfValues(
-      r.dots.map((d) => (d.club ? measureOf(o, d.club) : undefined)).filter((v): v is number => v !== undefined),
-      !isShare(o),
-    )
+    const sc = lens.scale(r.dots.map((d) => (d.club ? lens.value(d.club) : undefined)).filter((v): v is number => v !== undefined))
     const max = Math.max(0, ...r.dots.map((d) => d.club?.total ?? 0))
     const items = r.dots.map(
       (d): MapDot => ({
@@ -761,13 +1005,13 @@ export default function Coverage() {
         lat: d.lat,
         lng: d.lng,
         r: d.club ? dotRadius(d.club.total, max) : 3.5,
-        fill: d.club ? fillAt(measureOf(o, d.club), sc) : MUTED_DOT,
+        fill: d.club ? fillAt(lens.value(d.club), sc) : MUTED_DOT,
         muted: !d.club,
-        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? `${headline(o, d.club)} ${unit(o, d.club)}` : 'aucun joueur avec ces filtres'}`,
+        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? lens.label(d.club) : 'aucun joueur avec ces filtres'}`,
       }),
     )
     return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])), color: new Map(items.filter((d) => !d.muted).map((d) => [d.id, d.fill])) }
-  }, [dept, units, clubs, o])
+  }, [dept, units, clubs, lens])
   const places = useVoicePlaces()
   const voicePage = useMemo(
     () => bilanVoicePage({ ...places, clubs: voiceClubs, thisYear: new Date().getFullYear(), view, season: seasonOf(today()).label }),
@@ -775,7 +1019,7 @@ export default function Coverage() {
   )
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
-  if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  if (!data || (st.q && !Q)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   const tab = TAB[o]
   const total = totalOf(clubs)
@@ -822,7 +1066,7 @@ export default function Coverage() {
     </div>
   )
   const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
-  const clubsTitle = o === 'vus' ? 'Où aller ?' : 'Clubs'
+  const clubsTitle = o === 'vus' && !Q ? 'Où aller ?' : 'Clubs'
   // Point de la carte touché : comme le club choisi dans la liste ; au téléphone, on descend jusqu'à sa ligne.
   const pickDot = (id: string) => {
     if (!clubMap?.byId.get(id)?.club) return
@@ -836,7 +1080,7 @@ export default function Coverage() {
   const clubList = (inline: boolean, linked = false) =>
     clubs.length ? (
       <ClubList
-        key={`${o}|${sex}|${year}|${region}|${dept}|${period}`}
+        key={`${o}|${sex}|${year}|${region}|${dept}|${period}|${st.q ? encodeRecipe(st.q) : ''}`}
         clubs={clubs}
         inline={inline}
         selected={club?.key}
@@ -854,44 +1098,31 @@ export default function Coverage() {
   // Échelle des couleurs : zones affichées (régions de France, départements de la région ou de France).
   const byRegionView = !region && mapBy === 'region'
   const shown = byRegionView ? [...byPlace.byRegion.values()] : region ? [...byPlace.byDept].filter(([d]) => regionOfDept(d) === region).map(([, t]) => t) : [...byPlace.byDept.values()]
-  const valueOf = (t?: Tally) => (t ? measureOf(o, t) : undefined)
-  const sc = scaleOfValues(
-    shown.map(valueOf).filter((v): v is number => v !== undefined),
-    !isShare(o),
-  )
+  const valueOf = lens.value
+  const sc = lens.scale(shown.map(valueOf).filter((v): v is number => v !== undefined))
   const colorOf = (t?: Tally) => fillAt(valueOf(t), sc)
   const fill = (code: string) => colorOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
   // À côté de la carte : le classement des régions (France), des départements (région), des clubs (département).
-  const deptRows = rankBy(o, [...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
-  const regionRows = rankBy(o, byPlace.byRegion)
+  const deptRows = lens.rank([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
+  const regionRows = lens.rank(byPlace.byRegion)
   const maxOf = (rows: [string, Tally][]) => Math.max(0, ...rows.map(([, t]) => t.total))
-  // Bulle d'une zone ou d'un club : valeur de l'onglet, détail, ce qui reste.
-  const tipValue = (t?: Tally) =>
-    t?.total ? (
-      <>
-        <div className="mt-1">
-          <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t)}</span>
-        </div>
-        {o !== 'licencies' && <div className="text-muted">{detail(o, t)}</div>}
-        {tab.todo && <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>{t.total > t.seen ? `${fmt(t.total - t.seen)} ${tab.todo}` : tab.done}</div>}
-      </>
-    ) : (
-      <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
-    )
+  // Bulle d'une zone ou d'un club : valeur montrée, détail, ce qui reste.
+  const tipValue = lens.tip
+  const order = Q ? 'dans l’ordre de la question' : tab.order
   const side2 = dept ? (
     <section>
-      <SectionTitle info={`Clubs du département, ${tab.order}. Touche un club pour la liste des joueurs.`}>
-        {clubsTitle} · {yearText}
+      <SectionTitle info={`Clubs du département, ${order}. Touche un club pour la liste des joueurs.`}>
+        {clubsTitle} · {Q ? Q.texts.what : yearText}
       </SectionTitle>
       {clubList(true, true)}
     </section>
   ) : region ? (
     <section>
-      <SectionTitle info={`Départements de la région, ${tab.order}. Touche un département (ou la carte) pour ses clubs.`}>Départements · {regionLabel(region)}</SectionTitle>
+      <SectionTitle info={`Départements de la région, ${order}. Touche un département (ou la carte) pour ses clubs.`}>Départements · {regionLabel(region)}</SectionTitle>
       {deptRows.length ? (
         <div className="flex flex-col gap-2">
           {deptRows.map(([d, t]) => (
-            <PlaceRow key={d} o={o} label={deptText(d)} t={t} color={colorOf(t)} max={maxOf(deptRows)} onClick={() => pickDept(d)} />
+            <PlaceRow key={d} lens={lens} label={deptText(d)} t={t} color={colorOf(t)} max={maxOf(deptRows)} onClick={() => pickDept(d)} />
           ))}
         </div>
       ) : (
@@ -900,18 +1131,18 @@ export default function Coverage() {
     </section>
   ) : (
     <section>
-      <SectionTitle info={`Régions, ${tab.order}. Touche une région (ou la carte) pour ses départements.`}>Régions</SectionTitle>
+      <SectionTitle info={`Régions, ${order}. Touche une région (ou la carte) pour ses départements.`}>Régions</SectionTitle>
       {byPlace.total ? (
         <div className="flex flex-col gap-2">
           {regionRows.map(([r, t]) => (
-            <PlaceRow key={r} o={o} label={regionLabel(r)} t={t} color={colorOf(t)} max={maxOf(regionRows)} onClick={() => pickRegion(r)} />
+            <PlaceRow key={r} lens={lens} label={regionLabel(r)} t={t} color={colorOf(t)} max={maxOf(regionRows)} onClick={() => pickRegion(r)} />
           ))}
           {/* Départements hors découpage (numéro inconnu) et joueurs sans département : choisis directement. */}
           {deptRows.map(([d, t]) => (
-            <PlaceRow key={d} o={o} label={deptText(d)} t={t} color={colorOf(t)} max={maxOf(regionRows)} onClick={() => pickDept(d)} />
+            <PlaceRow key={d} lens={lens} label={deptText(d)} t={t} color={colorOf(t)} max={maxOf(regionRows)} onClick={() => pickDept(d)} />
           ))}
           {byPlace.noDept.total > 0 && (
-            <PlaceRow o={o} label={deptText(NO_DEPT)} t={byPlace.noDept} color={fillAt(undefined)} max={maxOf(regionRows)} onClick={() => pickDept(NO_DEPT)} />
+            <PlaceRow lens={lens} label={deptText(NO_DEPT)} t={byPlace.noDept} color={fillAt(undefined)} max={maxOf(regionRows)} onClick={() => pickDept(NO_DEPT)} />
           )}
         </div>
       ) : (
@@ -971,7 +1202,9 @@ export default function Coverage() {
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». */}
         <AskQuestion />
-        <SavedQuestions />
+        <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
+        {/* Question posée : ses propres filtres (pastilles), pas ceux du bilan. */}
+        {!Q && (
         <VoiceSearch<BilanVoice>
           values={{ sex, period, year, region, dept, club: st.club, view }}
           apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
@@ -983,8 +1216,25 @@ export default function Coverage() {
             </div>
           }
         />
+        )}
+        {/* Question posée : un bandeau à la place des onglets (✕ revient aux onglets). */}
+        {Q && st.q && (
+          <QuestionBanner
+            recipe={st.q}
+            texts={Q.texts}
+            names={Q.model.names}
+            criteria={Q.model.data?.criteria ?? []}
+            events={Q.model.data?.events}
+            place={{ region, dept, club: st.club }}
+            placeText={st.club !== null && club ? clubLabel(club.name) : dept ? deptText(dept) : region ? regionLabel(region) : 'France'}
+            level={dept ? 'par club' : region || mapBy === 'dept' ? 'par département' : 'par région'}
+            heard={(loc.state as { heard?: string } | null)?.heard}
+            onChange={(r) => set({ q: r })}
+            onClose={() => set({ q: null })}
+          />
+        )}
         {/* Onglets de mesure (administrateurs) : chacun montre sa valeur pour les filtres et le lieu choisis (chiffres clés). */}
-        {national && (
+        {national && !Q && (
           <div role="tablist" aria-label="Ce que montre la carte" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {tabsFor(national).map((k) => {
               const on = k === o
@@ -1007,6 +1257,7 @@ export default function Coverage() {
         )}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <Crumbs steps={crumbs} />
+          {!Q && (
           <div className="sm:w-64 [&_button]:min-h-8">
             <Segmented<View>
               value={view}
@@ -1017,7 +1268,21 @@ export default function Coverage() {
               ]}
             />
           </div>
+          )}
         </div>
+        {Q ? (
+          // Question : son total au lieu affiché (« 371 joueurs répondent · sur 1 200 (30 %) »).
+          <div className="flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
+            <span className="min-w-0 shrink">
+              <b className="text-sm">{Q.texts.total(Q.agg.here).head}</b>{' '}
+              <span className="text-muted">
+                {Q.texts.total(Q.agg.here).rest.map((x) => `· ${x} `)}· {plural(Q.agg.clubs.filter((c) => c.key && c.seen).length, 'club')}
+                {!dept && ` · ${plural(Q.agg.depts, 'département')}`}
+              </span>
+            </span>
+            {Q.texts.cond && <Bar t={Q.agg.here} className="min-w-12 flex-1" />}
+          </div>
+        ) : (
         <div className="flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
           <span className="min-w-0 shrink">
             <b className="text-sm">
@@ -1032,6 +1297,7 @@ export default function Coverage() {
           </span>
           {o !== 'licencies' && <Bar t={total} className="min-w-12 flex-1" />}
         </div>
+        )}
       </div>
 
       {view === 'map' ? (
@@ -1039,8 +1305,8 @@ export default function Coverage() {
           {clubsAsList && club ? (
             <section data-keep-scroll="bilan-clubs" className="flex flex-col gap-2 side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
               {clubsAsSwitch}
-              <SectionTitle info={`Clubs du département, ${tab.order}. Touche un autre club pour changer, ou « Carte » pour revoir les clubs sur la carte.`}>
-                {clubsTitle} · {deptText(dept)} · {yearText}
+              <SectionTitle info={`Clubs du département, ${order}. Touche un autre club pour changer, ou « Carte » pour revoir les clubs sur la carte.`}>
+                {clubsTitle} · {deptText(dept)} · {Q ? Q.texts.what : yearText}
               </SectionTitle>
               {clubList(false)}
             </section>
@@ -1067,11 +1333,11 @@ export default function Coverage() {
               onDept={pickDept}
               touch="select"
               className="side:max-h-[calc(100dvh-var(--hdr)-19rem)]"
-              ariaLabel={`${tab.label}${where ? ` : ${where}` : ' par région et par département'}`}
+              ariaLabel={`${lens.name}${where ? ` : ${where}` : ' par région et par département'}`}
               others={showOtherOM(byPlace.byDept)}
               label={(code) => {
                 const t = byPlace.byDept.get(code)
-                return `${deptText(code)} : ${t?.total ? `${headline(o, t)} ${unit(o, t)}` : 'aucun joueur avec ces filtres'}`
+                return `${deptText(code)} : ${t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
               }}
               tip={({ code, isRegion }) => {
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
@@ -1108,7 +1374,7 @@ export default function Coverage() {
                   : undefined
               }
             />
-            <MapLegend sc={clubMap?.sc ?? sc} note={o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur'} />
+            <MapLegend sc={clubMap?.sc ?? sc} note={lens.note} title={lens.title} />
             {clubMap && (
               <p className="flex items-start gap-1.5 text-[10px] text-muted">
                 <span className="mt-0.5 size-2.5 shrink-0 rounded-full border border-muted/60" style={{ background: MUTED_DOT }} />
@@ -1119,7 +1385,7 @@ export default function Coverage() {
               </p>
             )}
             <p className="text-[10px] text-muted">
-              {explain}{' '}
+              {!Q && explain}{' '}
               {clubMap
                 ? `Toucher un point pour voir les joueurs du club${OUTRE_MER.some((t) => t.code === dept) ? '' : ', ou un département voisin pour changer'}.`
                 : dept
@@ -1132,7 +1398,11 @@ export default function Coverage() {
           )}
           <div ref={whereRef}>
             {clubMode && club ? (
-              <Who club={club} label={yearText} last={last} rewatch={data.rewatch} />
+              Q ? (
+                <QuestionWho club={club} players={Q.order(club)} text={Q.playerText} what={Q.texts} />
+              ) : (
+                <Who club={club} label={yearText} last={last} rewatch={data.rewatch} />
+              )
             ) : (
               side2
             )}
@@ -1196,6 +1466,112 @@ export default function Coverage() {
   )
 }
 
+// ---------- Question posée au bilan : bandeau et joueurs d'un club ----------
+
+type QuestionTexts = ReturnType<typeof questionTexts>
+
+/**
+ * Bandeau d'une question posée au bilan, à la place des onglets : « ✨ Nombre de joueurs par club · Var (83) ✕ » (une
+ * ligne, coupée au téléphone). Dessous : « Modifier » (pastilles de la question, src/components/RecipeChips.tsx), « Ouvrir
+ * en détail » (/bilan/question, avec le lieu affiché) et « Enregistrer cette question » (avec le lieu affiché). Une
+ * pastille qui donne une réponse non géographique (liste de joueurs, tableau par génération…) ouvre /bilan/question.
+ */
+function QuestionBanner({
+  recipe,
+  texts,
+  names,
+  criteria,
+  events,
+  place,
+  placeText,
+  level,
+  heard,
+  onChange,
+  onClose,
+}: {
+  recipe: Recipe
+  texts: QuestionTexts
+  names: Names
+  criteria: RecipeModel['criteria']
+  events?: RecipeModel['events']
+  place: Place
+  placeText: string
+  level: string
+  heard?: string
+  onChange: (r: Recipe) => void
+  onClose: () => void
+}) {
+  const nav = useNavigate()
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const text = [`${texts.what} ${level}`, ...texts.conditions, placeText].join(' · ')
+  const full = recipeAt(recipe, place)
+  const detailUrl = (r: Recipe) => `/bilan/question?r=${encodeURIComponent(encodeRecipe(r))}`
+  const change = (r: Recipe) => (bilanOutput(r.out) ? onChange(r) : nav(detailUrl(recipeAt(r, place))))
+  const small = 'flex min-h-8 items-center gap-1 rounded px-1.5 font-bold'
+  return (
+    <section aria-label="Question posée au bilan" className="flex flex-col gap-1">
+      <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-accent bg-accent/10 pl-3">
+        <span aria-hidden>✨</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-bold" title={text}>
+          {text}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Fermer la question et revenir aux onglets du bilan"
+          title="Fermer la question"
+          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-r-lg text-base text-muted hover:text-fg"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center text-[11px]">
+        <button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)} className={`${small} text-accent`}>
+          Modifier <span aria-hidden>{editing ? '▴' : '▾'}</span>
+        </button>
+        <Link to={detailUrl(full)} className={`${small} text-muted underline decoration-dotted underline-offset-2 hover:text-fg`}>
+          Ouvrir en détail
+        </Link>
+        <button type="button" aria-expanded={saving} onClick={() => setSaving(!saving)} className={`${small} text-muted hover:text-fg`}>
+          <Icon name="star" className="h-3 w-3" />
+          Enregistrer<span className="hidden sm:inline"> cette question</span>
+        </button>
+      </div>
+      {editing && (
+        <div className="card flex flex-col gap-1.5 p-2">
+          {heard && <p className="text-[11px] text-muted">Entendu : « {heard} »</p>}
+          <RecipeChips recipe={recipe} names={names} model={{ names, criteria, events }} onChange={change} />
+          <p className="text-[10px] text-muted">Le lieu se choisit sur la carte ; la question le garde.</p>
+        </div>
+      )}
+      {saving && <SaveForm recipe={full} names={names} phrase={heard} onDone={() => setSaving(false)} />}
+    </section>
+  )
+}
+
+/** Joueurs d'un club qui répondent à la question (à la place de « Qui ? ») ; fiche ouverte dans le bilan. */
+function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>; players: Player[]; text: (p: Player) => string; what: QuestionTexts }) {
+  const { search } = useContext(WhoCtx)
+  const t = what.total(club as QClub<Player>)
+  const year = (p: Player) => p.birthDate?.slice(0, 4) ?? ''
+  return (
+    <div className="card flex flex-col gap-2 p-3">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-extrabold">{clubLabel(club.name)}</div>
+        <div className="text-[11px] text-muted">{[t.head, ...t.rest].join(' · ')}</div>
+      </div>
+      {players.length ? (
+        players.map((p) => (
+          <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} follow={<FollowStar id={p.id} />} />
+        ))
+      ) : (
+        <Empty>Personne dans ce club ne répond à la question.</Empty>
+      )}
+    </div>
+  )
+}
+
 // ---------- Clubs ----------
 
 /** Nombre de clubs montrés d'abord (toute la France, toutes les années : des centaines). */
@@ -1227,7 +1603,8 @@ function ClubList({
   /** Couleur du point d'un club sur la carte (absent : club sans position connue). */
   dotColor?: (key: string) => string | undefined
 }) {
-  const { o } = useContext(WhoCtx)
+  const { o, lens: given } = useContext(WhoCtx)
+  const lens = given ?? ongletLens(o)
   const [more, setMore] = useState(CLUBS_STEP)
   // Club choisi plus bas (point de la carte, adresse) : la liste va au moins jusqu'à lui.
   const limit = Math.max(more, clubs.findIndex((c) => c.key === selected) + 1)
@@ -1237,6 +1614,7 @@ function ClubList({
       {clubs.slice(0, limit).map((c) => {
         const on = c.key === selected
         const dot = dotColor && c.key ? dotColor(c.key) : undefined
+        const bar = lens.bar(c, max)
         return (
           <div key={c.key || 'aucun'} data-club={c.key} className="flex scroll-mt-24 flex-col gap-2">
             <button
@@ -1260,11 +1638,11 @@ function ClubList({
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-sm font-bold ${c.key ? '' : 'text-muted italic'}`}>{clubLabel(c.name)}</span>
                 <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
-                  <span className="shrink-0">{detail(o, c)}</span>
-                  <Bar t={c} ratio={ratioOf(o, c, max)} className="w-16 sm:w-24" />
+                  <span className="min-w-0 truncate">{lens.club(c)}</span>
+                  {bar && <Bar t={bar.t} ratio={bar.ratio} className="w-16 shrink-0 sm:w-24" />}
                 </span>
               </span>
-              <LeftBadge t={c} o={o} />
+              {lens.badge(c)}
               {inline && <span className={`shrink-0 text-muted transition ${on ? 'rotate-90' : ''}`}>›</span>}
             </button>
             {on && inline && <Who club={c} label={label} last={last} rewatch={rewatch} />}
@@ -1296,8 +1674,10 @@ export const sightText = (s?: Sight) => (s ? `vu le ${fmtDate(s.day)}${s.by ? `,
 function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
   const role = useRole()
   // « Déjà vus » ouvert et état du bilan : dans l'adresse (retrouvés au retour d'une fiche).
-  const { o, search, seenOpen: showRest, setSeenOpen: setShowRest } = useContext(WhoCtx)
+  const { o, search, seenOpen: showRest, setSeenOpen: setShowRest, qWho } = useContext(WhoCtx)
   const [adding, setAdding] = useState<string[] | null>(null)
+  // Question posée : les joueurs du club qui y répondent.
+  if (qWho) return qWho(club)
   const { main, rest } = whoOrder(club, o)
   const tab = TAB[o]
   // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou ‹ › (téléphone), retour à l'identique.
