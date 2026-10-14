@@ -38,8 +38,10 @@ import { useThrottledQuery } from '../live'
 import { MQ, useMedia } from '../layout'
 import { can, useRole } from '../roles'
 import { scoutId } from '../scouting'
-import { FranceMap, useDeptName } from '../components/FranceMap'
-import { showOtherOM } from '../outreMer'
+import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
+import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
+import { clubDots, dotRadius, hasPlacedClubs } from '../clubMap'
+import { useUnits } from '../installation'
 import { department } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
@@ -61,6 +63,9 @@ import { SavedQuestions } from './Question'
  *    y mène) : nombre de joueurs, part des joueurs avec une mesure du staff, nombre de joueurs d'au moins un profil recherché.
  * Pour tous les onglets : mêmes filtres (sexe, génération ; période pour « Vus »), même descente région → département →
  * club → joueurs, même échelle de couleurs adaptative ; à côté de la carte, le classement des zones suit l'onglet.
+ * Département choisi et structure importée (clubs avec coordonnées, src/clubMap.ts) : la carte se recale sur lui, un point
+ * par club (taille : nombre de joueurs, couleur : valeur de l'onglet) ; toucher un point = choisir le club dans la liste,
+ * et survoler l'un met l'autre en avant. Sans structure, la carte reste celle de la région.
  * Recherche vocale « micro ✨ Filtrer » à côté des filtres (src/components/VoiceSearch.tsx, schéma : src/voicePages.ts) :
  * « les filles de 2011 dans le Var », « depuis toujours », « le club de Toulon », « efface tout » ; elle change les mêmes
  * choix que les boutons et la carte (l'adresse suit).
@@ -304,6 +309,8 @@ function Filters({
  */
 const TEAL = '#14b8a6'
 const NO_PLAYER = 'var(--color-panel-2)'
+/** Point d'un club sans joueur avec ces filtres (carte d'un département) : gris neutre, visible sur le fond du département. */
+const MUTED_DOT = 'color-mix(in srgb, var(--color-muted) 40%, var(--color-panel))'
 export type Scale = { lo: number; hi: number; count?: boolean }
 const FULL: Scale = { lo: 0, hi: 1 }
 const share = (t: Tally) => t.seen / t.total
@@ -663,6 +670,31 @@ export default function Coverage() {
     const top = (x: Map<string, number>) => [...x].sort((a, b) => b[1] - a[1])[0]?.[0]
     return [...m].map(([key, c]) => ({ key, name: top(c.names)!, dept: top(c.depts) }))
   }, [data])
+  // Clubs du département sur la carte (structure importée) : points, échelle de couleurs des clubs, clubs sans position.
+  const units = useUnits()
+  const [hot, setHot] = useState<string | null>(null)
+  const clubMap = useMemo(() => {
+    if (!dept || dept === NO_DEPT || dept === OTHER_OM.code || !hasPlacedClubs(units)) return null
+    const r = clubDots(clubs, units, dept, (n) => department({ clubCode: n }))
+    if (!r.dots.length) return null
+    const sc = scaleOfValues(
+      r.dots.map((d) => (d.club ? measureOf(o, d.club) : undefined)).filter((v): v is number => v !== undefined),
+      !isShare(o),
+    )
+    const max = Math.max(0, ...r.dots.map((d) => d.club?.total ?? 0))
+    const items = r.dots.map(
+      (d): MapDot => ({
+        id: d.id,
+        lat: d.lat,
+        lng: d.lng,
+        r: d.club ? dotRadius(d.club.total, max) : 3.5,
+        fill: d.club ? fillAt(measureOf(o, d.club), sc) : MUTED_DOT,
+        muted: !d.club,
+        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? `${headline(o, d.club)} ${unit(o, d.club)}` : 'aucun joueur avec ces filtres'}`,
+      }),
+    )
+    return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])), color: new Map(items.filter((d) => !d.muted).map((d) => [d.id, d.fill])) }
+  }, [dept, units, clubs, o])
   const places = useVoicePlaces()
   const voicePage = useMemo(
     () => bilanVoicePage({ ...places, clubs: voiceClubs, thisYear: new Date().getFullYear(), view, season: seasonOf(today()).label }),
@@ -704,9 +736,29 @@ export default function Coverage() {
   const clubMode = side && !!dept && !!club
   const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
   const clubsTitle = o === 'vus' ? 'Où aller ?' : 'Clubs'
-  const clubList = (inline: boolean) =>
+  // Point de la carte touché : comme le club choisi dans la liste ; au téléphone, on descend jusqu'à sa ligne.
+  const pickDot = (id: string) => {
+    if (!clubMap?.byId.get(id)?.club) return
+    const opening = club?.key !== id
+    pickClub(id)
+    if (opening && !side)
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })),
+      )
+  }
+  const clubList = (inline: boolean, linked = false) =>
     clubs.length ? (
-      <ClubList key={`${o}|${sex}|${year}|${region}|${dept}|${period}`} clubs={clubs} inline={inline} selected={club?.key} onPick={pickClub} label={yearText} last={last} rewatch={data.rewatch} />
+      <ClubList
+        key={`${o}|${sex}|${year}|${region}|${dept}|${period}`}
+        clubs={clubs}
+        inline={inline}
+        selected={club?.key}
+        onPick={pickClub}
+        label={yearText}
+        last={last}
+        rewatch={data.rewatch}
+        {...(linked && clubMap ? { hot, onHot: setHot, dotColor: (k: string) => clubMap.color.get(k) } : {})}
+      />
     ) : (
       <Empty>Aucun joueur ici avec ces filtres.</Empty>
     )
@@ -726,12 +778,25 @@ export default function Coverage() {
   const deptRows = rankBy(o, [...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
   const regionRows = rankBy(o, byPlace.byRegion)
   const maxOf = (rows: [string, Tally][]) => Math.max(0, ...rows.map(([, t]) => t.total))
+  // Bulle d'une zone ou d'un club : valeur de l'onglet, détail, ce qui reste.
+  const tipValue = (t?: Tally) =>
+    t?.total ? (
+      <>
+        <div className="mt-1">
+          <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t)}</span>
+        </div>
+        {o !== 'licencies' && <div className="text-muted">{detail(o, t)}</div>}
+        {tab.todo && <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>{t.total > t.seen ? `${fmt(t.total - t.seen)} ${tab.todo}` : tab.done}</div>}
+      </>
+    ) : (
+      <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
+    )
   const side2 = dept ? (
     <section>
       <SectionTitle info={`Clubs du département, ${tab.order}. Touche un club pour la liste des joueurs.`}>
         {clubsTitle} · {yearText}
       </SectionTitle>
-      {clubList(true)}
+      {clubList(true, true)}
     </section>
   ) : region ? (
     <section>
@@ -917,27 +982,55 @@ export default function Coverage() {
                 return (
                   <>
                     <div className="font-bold">{isRegion ? regionLabel(code) : deptText(code)}</div>
-                    {t?.total ? (
-                      <>
-                        <div className="mt-1">
-                          <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t)}</span>
-                        </div>
-                        {o !== 'licencies' && <div className="text-muted">{detail(o, t)}</div>}
-                        {tab.todo && (
-                          <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>{t.total > t.seen ? `${fmt(t.total - t.seen)} ${tab.todo}` : tab.done}</div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
-                    )}
+                    {tipValue(t)}
                     {isRegion && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses départements</div>}
                   </>
                 )
               }}
+              dots={
+                clubMap
+                  ? {
+                      items: clubMap.items,
+                      active: hot,
+                      picked: club?.key,
+                      onActive: setHot,
+                      onPick: pickDot,
+                      tip: (id) => {
+                        const d = clubMap.byId.get(id)
+                        if (!d) return null
+                        const at = [d.number && `N° ${d.number}`, d.city].filter(Boolean).join(' · ')
+                        return (
+                          <>
+                            <div className="font-bold">{clubLabel(d.name)}</div>
+                            {at && <div className="text-[10px] text-muted">{at}</div>}
+                            {tipValue(d.club)}
+                            {d.club && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>}
+                          </>
+                        )
+                      },
+                    }
+                  : undefined
+              }
             />
-            <MapLegend sc={sc} note={o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur'} />
+            <MapLegend sc={clubMap?.sc ?? sc} note={o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur'} />
+            {clubMap && (
+              <p className="flex items-start gap-1.5 text-[10px] text-muted">
+                <span className="mt-0.5 size-2.5 shrink-0 rounded-full border border-muted/60" style={{ background: MUTED_DOT }} />
+                <span>
+                  Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : aucun joueur avec ces filtres.
+                  {clubMap.unplaced.length > 0 && ` ${plural(clubMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
+                </span>
+              </p>
+            )}
             <p className="text-[10px] text-muted">
-              {explain} {dept ? 'Toucher un autre département pour changer.' : region ? 'Toucher un département pour voir ses clubs.' : 'Toucher une région pour la voir de plus près.'}
+              {explain}{' '}
+              {clubMap
+                ? `Toucher un point pour voir les joueurs du club${OUTRE_MER.some((t) => t.code === dept) ? '' : ', ou un département voisin pour changer'}.`
+                : dept
+                  ? 'Toucher un autre département pour changer.'
+                  : region
+                    ? 'Toucher un département pour voir ses clubs.'
+                    : 'Toucher une région pour la voir de plus près.'}
             </p>
           </section>
           )}
@@ -1021,6 +1114,9 @@ function ClubList({
   label,
   last,
   rewatch,
+  hot,
+  onHot,
+  dotColor,
 }: {
   clubs: ClubCoverage<Player>[]
   inline: boolean
@@ -1029,21 +1125,42 @@ function ClubList({
   label: string
   last: Map<string, Sight>
   rewatch: Map<string, Rewatch[]>
+  /** Club mis en avant (son point survolé sur la carte) ; `onHot` : survol d'une ligne (son point est mis en avant). */
+  hot?: string | null
+  onHot?: (key: string | null) => void
+  /** Couleur du point d'un club sur la carte (absent : club sans position connue). */
+  dotColor?: (key: string) => string | undefined
 }) {
   const { o } = useContext(WhoCtx)
-  const [limit, setLimit] = useState(() => Math.max(CLUBS_STEP, clubs.findIndex((c) => c.key === selected) + 1))
+  const [more, setMore] = useState(CLUBS_STEP)
+  // Club choisi plus bas (point de la carte, adresse) : la liste va au moins jusqu'à lui.
+  const limit = Math.max(more, clubs.findIndex((c) => c.key === selected) + 1)
   const max = Math.max(0, ...clubs.map((c) => c.total))
   return (
     <div className="flex flex-col gap-2">
       {clubs.slice(0, limit).map((c) => {
         const on = c.key === selected
+        const dot = dotColor && c.key ? dotColor(c.key) : undefined
         return (
-          <div key={c.key || 'aucun'} className="flex flex-col gap-2">
+          <div key={c.key || 'aucun'} data-club={c.key} className="flex scroll-mt-24 flex-col gap-2">
             <button
               onClick={() => onPick(c.key)}
               aria-expanded={on}
-              className={`card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
+              {...(onHot && c.key
+                ? {
+                    onPointerEnter: (e: React.PointerEvent) => e.pointerType === 'mouse' && onHot(c.key),
+                    onPointerLeave: (e: React.PointerEvent) => e.pointerType === 'mouse' && onHot(null),
+                  }
+                : {})}
+              className={`card flex min-h-11 items-center gap-3 px-3 py-2 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : hot && c.key === hot ? 'border-accent' : ''}`}
             >
+              {dotColor &&
+                // Pastille du point sur la carte ; cercle en pointillés : club sans position connue (pas sur la carte).
+                (dot ? (
+                  <span className="size-3 shrink-0 rounded-full border border-fg/50" style={{ background: dot }} aria-hidden="true" />
+                ) : (
+                  <span className="size-3 shrink-0 rounded-full border border-dashed border-muted" aria-hidden="true" />
+                ))}
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-sm font-bold ${c.key ? '' : 'text-muted italic'}`}>{clubLabel(c.name)}</span>
                 <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
@@ -1059,7 +1176,7 @@ function ClubList({
         )
       })}
       {clubs.length > limit && (
-        <button className="btn-ghost min-h-8 py-1.5 text-xs" onClick={() => setLimit(limit + CLUBS_STEP * 2)}>
+        <button className="btn-ghost min-h-8 py-1.5 text-xs" onClick={() => setMore(limit + CLUBS_STEP * 2)}>
           Afficher plus de clubs ({fmt(clubs.length - limit)} autres)
         </button>
       )}
