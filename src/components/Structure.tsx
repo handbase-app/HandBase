@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { db, newId, plural, remove, save, saveMany, type Assignment, type ConfigItem, type Level, type Unit } from '../db'
+import { newId, plural, remove, save, saveMany, type Assignment, type ConfigItem, type Level, type Unit } from '../db'
 import { useAssignments, useConfigRows, useLevels, useSportConfig, useUnits } from '../installation'
-import { departmentLabel, regionOfDept, useDepartments, useRegions } from '../lists'
+import { departmentLabel, useDepartments } from '../lists'
 import { ROLE_LABEL, type Role } from '../roles'
 import { CONFIG_KEYS, HANDBALL, type PositionDef } from '../sportConfig'
 import { findUnits } from '../structureImport'
@@ -10,7 +10,6 @@ import {
   ASSIGNMENT_ROLES,
   assignmentsIn,
   buildTree,
-  comitesToCreate,
   deleteBlocker,
   flatten,
   HANDBALL_LEVELS,
@@ -23,7 +22,7 @@ import {
 import { supabase } from '../sync'
 import { ask, inform } from './Confirm'
 import { StructureImport } from './StructureImport'
-import { department, fold } from './PlayerFilter'
+import { fold } from './PlayerFilter'
 import { useOnline } from './TransferGroup'
 import { SectionTitle } from './ui'
 
@@ -327,7 +326,6 @@ function UnitsSection({ editable }: { editable: boolean }) {
       <SectionTitle info="L’arbre de l’organisation : chaque unité (une ligue, un comité, un pôle…) a un niveau, une unité parente (sauf en tête), un territoire facultatif (départements) et des personnes affectées, chacune avec son rôle. Une personne peut être affectée à plusieurs unités.">
         Unités{units.length ? ` (${units.length.toLocaleString('fr-FR')})` : ''}
       </SectionTitle>
-      {editable && <Prefill />}
       {editable && <StructureImport />}
       {units.length > SMALL_TREE / 2 && (
         <div className="flex flex-col gap-1">
@@ -681,48 +679,5 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
         </div>
       )}
     </div>
-  )
-}
-
-/** « Pré-remplir les comités depuis les départements des joueurs » : un comité par département qui n'en a pas encore. */
-function Prefill() {
-  const levels = useLevels()
-  const units = useUnits()
-  const regions = useRegions()
-  const depts = useDepartments()
-  const comite = levels.find((l) => fold(l.name).startsWith('comite'))
-  const ligue = levels.find((l) => fold(l.name).startsWith('ligue'))
-  if (!comite) return null
-
-  async function run() {
-    const players = await db.players.toArray()
-    const regionName = (id?: string) => regions.find((r) => r.id === id)?.name
-    // Ligue de la région du département : une unité du niveau « Ligue » dont le nom contient celui de la région.
-    const parentFor = (code: string) => {
-      const rn = regionName(regionOfDept(code))
-      if (!rn || !ligue) return undefined
-      return units.find((u) => u.levelId === ligue.id && fold(u.name).includes(fold(rn)))?.id
-    }
-    const playerDepartments = players.filter((p) => !p.deleted && !p.mergedInto).map((p) => department(p))
-    if (!playerDepartments.some(Boolean)) return inform('Aucun joueur n’a de département connu (n° de club, licence ou département saisi).')
-    const todo = comitesToCreate({
-      playerDepartments,
-      units,
-      levelId: comite!.id,
-      deptName: (code) => `${comite!.name} ${depts.find((d) => d.code === code)?.name ?? code} (${code})`,
-      parentFor,
-    })
-    if (!todo.length) return inform(`Chaque département où il y a des joueurs a déjà son unité « ${comite!.name} ».`)
-    const ok = await ask(
-      `Créer ${plural(todo.length, 'unité')} « ${comite!.name} » (${todo.map((t) => t.departments![0]).join(', ')}) ? Chacune couvre son département${ligue ? ' et se range sous la ligue de sa région quand elle existe' : ''}. Tout reste modifiable.`,
-      { ok: 'Créer', danger: false },
-    )
-    if (ok) await saveMany<Unit>('units', todo.map((t) => ({ ...t, id: newId() })))
-  }
-
-  return (
-    <button className={`btn-ghost ${TAP} text-xs`} onClick={() => void run()}>
-      Pré-remplir les comités depuis les départements des joueurs
-    </button>
   )
 }

@@ -24,7 +24,6 @@ import {
   assignmentsIn,
   assignmentsOf,
   buildTree,
-  comitesToCreate,
   deleteBlocker,
   descendants,
   flatten,
@@ -207,22 +206,6 @@ t('suppression : seulement une unité vide ; niveau seulement s\'il n\'est plus 
   assert.equal(deleteBlocker(units, assignments, 'club'), null, 'affectation supprimée : ne bloque pas')
   assert.equal(levelInUse(units, 'niveau-comite'), 2)
   assert.equal(levelInUse(units, 'niveau-inconnu'), 0)
-})
-
-// ---------- 5. Pré-remplissage des comités ----------
-
-t('un comité par département de joueurs qui n\'en a pas, rangé sous la ligue de sa région', () => {
-  const todo = comitesToCreate({
-    playerDepartments: ['83', '83', '06', '13', undefined, '84'],
-    units,
-    levelId: 'niveau-comite',
-    deptName: (c) => `Comité ${c}`,
-    parentFor: (c) => (c === '13' ? 'ligue' : undefined),
-  })
-  assert.deepEqual(todo, [
-    { levelId: 'niveau-comite', name: 'Comité 13', departments: ['13'], parentId: 'ligue' },
-    { levelId: 'niveau-comite', name: 'Comité 84', departments: ['84'] },
-  ])
 })
 
 console.log(`\n${n} tests réussis.`)

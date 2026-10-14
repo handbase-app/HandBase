@@ -237,24 +237,3 @@ export function unitDepartments(units: readonly UnitRow[], id: string): string[]
   const all = [self, ...descendants(units, id)].flatMap((u) => u?.departments ?? [])
   return [...new Set(all)].sort()
 }
-
-/**
- * « Pré-remplir les comités » : un comité par département où il y a des joueurs et qui n'a pas encore d'unité de ce niveau
- * couvrant ce département. Renvoie les unités à créer (sans identifiant), rangées sous la ligue de la région quand une
- * unité de ce nom existe (sinon, en tête).
- */
-export function comitesToCreate(input: {
-  playerDepartments: readonly (string | undefined)[]
-  units: readonly UnitRow[]
-  levelId: string
-  deptName: (code: string) => string
-  /** Unité parente proposée pour un département (ligue de sa région), ou rien. */
-  parentFor?: (code: string) => string | undefined
-}): UnitFields[] {
-  const taken = new Set(live(input.units).filter((u) => u.levelId === input.levelId).flatMap((u) => u.departments ?? []))
-  const codes = [...new Set(input.playerDepartments.filter((d): d is string => !!d))].filter((d) => !taken.has(d)).sort()
-  return codes.map((code) => {
-    const parentId = input.parentFor?.(code)
-    return { levelId: input.levelId, name: input.deptName(code), departments: [code], ...(parentId ? { parentId } : {}) }
-  })
-}

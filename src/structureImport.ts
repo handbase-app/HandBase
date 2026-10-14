@@ -402,7 +402,7 @@ export function planImport(input: {
     return found
   }
 
-  // 4) Comités saisis avant l'import (« Pré-remplir les comités »…), en tête de l'arbre, dont le département n'est pas dans le
+  // 4) Comités saisis avant l'import (ancien bouton « Pré-remplir les comités »…), en tête de l'arbre, dont le département n'est pas dans le
   // fichier (« 20 » quand le fichier a 2A/2B, « 97 » ultramarin non précisé) : rangés sous la ligue de leur région, sinon sous
   // la fédération ; signalés. Rien n'est supprimé, la clé reste vide (unité saisie à la main) ; l'annulation remet le parent d'avant.
   if (options.comites) {
