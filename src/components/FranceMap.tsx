@@ -1,13 +1,15 @@
 import { geoConicConformal, geoPath } from 'd3-geo'
 import type { FeatureCollection, Geometry } from 'geojson'
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { focusProjection, spreadDots } from '../clubMap'
 import { regionOfDept, useDepartments } from '../lists'
 import { insetPaths, OTHER_OM, OUTRE_MER, type OutreMerGeo } from '../outreMer'
 
 /*
  * Carte de France des départements du bilan de détection (src/pages/Coverage.tsx, tous ses onglets) et de la réponse
  * à une question (src/pages/Question.tsx). La page donne la couleur de chaque département et le contenu de la bulle ; la carte gère
- * le tracé, le zoom sur une région, le survol et les appuis.
+ * le tracé, le zoom sur une région, le survol et les appuis. Avec des points (`dots` : les clubs d'un département, src/clubMap.ts),
+ * la carte se recale sur le département choisi et y pose un point par club.
  *
  * Contours des départements : france-geojson de Grégoire David (departements-version-simplifiee.geojson,
  * https://github.com/gregoiredavid/france-geojson), issus d'Admin Express IGN — Licence Ouverte Etalab.
@@ -39,18 +41,22 @@ const loadOutreMer = () => (omLoad ??= import('../assets/outre-mer.json?raw').th
 
 /** Encarts ultramarins : tracés pour la petite taille (rangée sous la carte) et la grande (ligue ultramarine choisie). */
 const INSET = { small: [60, 40], big: [150, 110] } as const
-function useInsets() {
-  const [paths, setPaths] = useState<{ small: Map<string, string>; big: Map<string, string> } | null>(null)
+/** Contours de l'outre-mer (encarts, et territoire choisi recalé à plein cadre avec ses clubs). */
+function useOutreMer() {
+  const [geo, setGeo] = useState<OutreMerGeo | null>(null)
   useEffect(() => {
     let alive = true
     void loadOutreMer().then((g) => {
-      if (alive) setPaths({ small: insetPaths(g, ...INSET.small), big: insetPaths(g, ...INSET.big) })
+      if (alive) setGeo(g)
     })
     return () => {
       alive = false
     }
   }, [])
-  return paths
+  return geo
+}
+function useInsets(om: OutreMerGeo | null) {
+  return useMemo(() => (om ? { small: insetPaths(om, ...INSET.small), big: insetPaths(om, ...INSET.big) } : null), [om])
 }
 
 export function useGeo() {
@@ -142,6 +148,34 @@ export interface MapTip {
   pinned: boolean
 }
 
+/** Point posé sur la carte d'un département (un club). */
+export interface MapDot {
+  id: string
+  lat: number
+  lng: number
+  /** Rayon à l'écran (px), avant resserrement des départements très fournis. */
+  r: number
+  fill: string
+  /** Nom et valeur, pour les lecteurs d'écran. */
+  label: string
+  /** Point neutre (aucun joueur avec ces filtres) : dessiné dessous, plus discret. */
+  muted?: boolean
+}
+export interface MapDots {
+  items: MapDot[]
+  /** Point mis en avant (survolé ici ou dans la liste) : sa bulle s'affiche. */
+  active?: string | null
+  /** Point choisi (club ouvert) : cerclé. */
+  picked?: string
+  onActive: (id: string | null) => void
+  onPick: (id: string) => void
+  /** Contenu de la bulle d'un point. */
+  tip: (id: string) => ReactNode
+}
+
+/** Zone d'appui minimale d'un point (rayon, px à l'écran) : 24 px de diamètre au moins. */
+const HIT = 12
+
 export function FranceMap({
   region,
   selected,
@@ -154,6 +188,7 @@ export function FranceMap({
   ariaLabel,
   label,
   others = false,
+  dots,
 }: {
   /** Région montrée de plus près ('' : toute la France). */
   region: string
@@ -178,9 +213,12 @@ export function FranceMap({
   label?: (code: string) => string
   /** Montre la pastille « Autres outre-mer » (« 97 » : joueurs ultramarins sans territoire précis). */
   others?: boolean
+  /** Points du département choisi (`selected`) : la carte se recale sur lui (sans eux : sur sa région). */
+  dots?: MapDots
 }) {
   const geo = useGeo()
-  const insetD = useInsets()
+  const om = useOutreMer()
+  const insetD = useInsets(om)
   const lists = useDepartments()
 
   // Départements de chaque région et contour des régions : une fois par fichier (et par liste des départements,
@@ -198,14 +236,35 @@ export function FranceMap({
     return { by, lines: new Map([...by].map(([r, fs]) => [r, outline(fs)])) }
   }, [geo, lists]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Tracés : France entière, ou la région choisie à plein cadre (ses voisins estompés autour).
-  // Recalculés seulement quand la région change ; les couleurs changent seules.
+  // Tracés : France entière, ou la région choisie à plein cadre (ses voisins estompés autour), ou le département
+  // choisi à plein cadre quand il a des points (métropole : voisins estompés ; outre-mer : le territoire seul).
+  // Recalculés seulement quand la région (le département) change ; les couleurs changent seules.
+  const focusCode = dots && selected ? selected : ''
   const shapes = useMemo(() => {
     if (!geo || !regionGeo) return null
     const conic = () => geoConicConformal().parallels([44, 49]).rotate([-3, 0])
     const france = conic().fitWidth(W - 16, geo)
     france.translate([france.translate()[0] + 8, france.translate()[1] + 8])
     const h = Math.ceil(geoPath(france).bounds(geo)[1][1]) + 8
+    if (focusCode) {
+      const mine = geo.features.filter((f) => codeOf(f.properties.code) === focusCode)
+      const omOnes = (om?.features ?? []).filter((f) => f.properties.code === focusCode)
+      const overseas = !mine.length
+      if (mine.length || omOnes.length) {
+        const proj = focusProjection({ type: 'FeatureCollection', features: overseas ? omOnes : mine }, W, h, 24, overseas)
+        const path = geoPath(proj)
+        return {
+          h,
+          zoomed: true,
+          proj,
+          main: (overseas ? omOnes : geo.features).map((f): Shape & { inside: boolean } => {
+            const code = codeOf(f.properties.code)
+            return { code, d: path(f) ?? '', inside: code === focusCode }
+          }),
+          outlines: [] as { region: string; d: string }[],
+        }
+      }
+    }
     const inRegion = region ? (regionGeo.by.get(region) ?? []) : []
     const zoomed = inRegion.length > 0
     const path = geoPath(
@@ -222,6 +281,7 @@ export function FranceMap({
     return {
       h,
       zoomed,
+      proj: null,
       main: geo.features.map((f): Shape & { inside: boolean } => {
         const code = codeOf(f.properties.code)
         return { code, d: path(f) ?? '', inside: !zoomed || regionOfDept(code) === region }
@@ -229,7 +289,8 @@ export function FranceMap({
       // France : contour de chaque région (plus marqué que celui des départements). Région : son seul contour.
       outlines: [...regionGeo.lines].filter(([r]) => !zoomed || r === region).map(([r, g]) => ({ region: r, d: path(g) ?? '' })),
     }
-  }, [geo, regionGeo, region])
+  }, [geo, regionGeo, region, focusCode, om])
+  const focused = !!shapes?.proj
   // Région sans contour sur la carte (ligue ultramarine) : ses seuls encarts, en grand.
   const domOnly = !!region && !!shapes && !shapes.zoomed
 
@@ -283,7 +344,13 @@ export function FranceMap({
     },
   })
   const pathProps = (s: Shape & { inside: boolean }) =>
-    !shapes?.zoomed
+    focused
+      ? s.inside
+        ? // Département recalé : fond neutre sous les points des clubs, sans bulle (celles des points suffisent).
+          { fill: 'color-mix(in srgb, var(--color-panel-2) 70%, var(--color-panel))', stroke: 'var(--color-fg)', strokeOpacity: 0.6, strokeWidth: 1.6, pointerEvents: 'none' as const }
+        : // Voisins estompés : un appui choisit ce département.
+          { fill: 'var(--color-panel-2)', opacity: 0.45, stroke: 'var(--color-line)', strokeWidth: 0.8, className: 'cursor-pointer', ...deptHandlers(s.code) }
+      : !shapes?.zoomed
       ? { fill: fill(s.code), stroke: 'var(--color-bg)', strokeWidth: 0.5, className: 'cursor-pointer transition-[fill] duration-300', ...regionHandlers(regionOfDept(s.code)) }
       : s.inside
         ? // Région agrandie : limites des départements bien visibles.
@@ -291,8 +358,42 @@ export function FranceMap({
         : // Voisins estompés : un appui passe à leur région.
           { fill: 'var(--color-panel-2)', opacity: 0.5, stroke: 'var(--color-line)', strokeWidth: 0.8, className: 'cursor-pointer', ...regionHandlers(regionOfDept(s.code)) }
 
+  // Points des clubs : tailles en px à l'écran, converties dans le repère de la carte (`fit.s` : px par unité ; la carte
+  // peut être réduite en hauteur, elle est alors centrée). Mesuré à chaque changement de taille.
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [fit, setFit] = useState({ s: 1, ox: 0, oy: 0 })
+  useLayoutEffect(() => {
+    const el = svgRef.current
+    if (!focused || !el || !shapes) return
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      const b = box.current?.getBoundingClientRect()
+      if (!r.width || !b) return
+      const sc = Math.min(r.width / W, r.height / shapes.h || Infinity)
+      setFit({ s: sc, ox: r.left - b.left + (r.width - W * sc) / 2, oy: r.top - b.top + (r.height - shapes.h * sc) / 2 })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [focused, shapes])
+  const items = dots?.items
+  const placed = useMemo(() => {
+    if (!shapes?.proj || !items) return []
+    const k = 1 / fit.s
+    // Beaucoup de clubs : points un peu plus petits ; puis écartés pour ne pas se recouvrir.
+    const dense = items.length > 60 ? 0.7 : items.length > 30 ? 0.85 : 1
+    const pts = items.flatMap((d) => {
+      const xy = shapes.proj!([d.lng, d.lat])
+      return xy ? [{ ...d, x: xy[0], y: xy[1], r: Math.max(3, d.r * dense) * k }] : []
+    })
+    // Dessin : neutres dessous, puis du plus gros au plus petit (les petits restent touchables).
+    return spreadDots(pts, 1.5 * k).sort((a, b) => Number(!!b.muted) - Number(!!a.muted) || b.r - a.r)
+  }, [shapes, items, fit.s])
+  const activeDot = dots?.active ? placed.find((d) => d.id === dots.active) : undefined
+
   // Encarts ultramarins : à la vue France (rangée sous la carte) ou seuls, en grand, pour une ligue ultramarine.
-  const insets = !shapes || (shapes.zoomed && !domOnly) ? [] : [...OUTRE_MER, ...(others ? [OTHER_OM] : [])].filter((t) => !domOnly || regionOfDept(t.code) === region)
+  const insets = !shapes || focused || (shapes.zoomed && !domOnly) ? [] : [...OUTRE_MER, ...(others ? [OTHER_OM] : [])].filter((t) => !domOnly || regionOfDept(t.code) === region)
   const big = domOnly
   const [iw, ih] = big ? INSET.big : INSET.small
   const tipIsRegion = !!tip?.code.startsWith('region-')
@@ -303,13 +404,18 @@ export function FranceMap({
         <div className="flex aspect-square items-center justify-center text-xs text-muted">Chargement de la carte…</div>
       ) : domOnly ? null : (
         <svg
+          ref={svgRef}
           viewBox={`0 0 ${W} ${shapes.h}`}
           className={`block h-auto w-full select-none ${className}`}
-          role="img"
+          // Avec des points (boutons) : un groupe, pour que les lecteurs d'écran les atteignent.
+          role={focused ? 'group' : 'img'}
           aria-label={ariaLabel ?? (region ? 'Carte des départements de la région' : 'Carte des régions et des départements')}
-          // Appui hors d'un département : la bulle se ferme.
+          // Appui hors d'un département (ou d'un point) : la bulle se ferme.
           onClick={(e) => {
-            if (e.target === e.currentTarget) setTip(null)
+            if (e.target === e.currentTarget) {
+              setTip(null)
+              dots?.onActive(null)
+            }
           }}
         >
           {shapes.main.map((s, i) => (
@@ -327,7 +433,56 @@ export function FranceMap({
               pointerEvents="none"
             />
           ))}
-          {shapes.zoomed ? (
+          {focused ? (
+            dots &&
+            placed.map((d) => {
+              const on = d.id === dots.active || d.id === dots.picked
+              const k = 1 / fit.s
+              return (
+                <g
+                  key={d.id}
+                  transform={`translate(${d.x.toFixed(1)},${d.y.toFixed(1)})`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={d.label}
+                  aria-pressed={d.id === dots.picked}
+                  className={`outline-none ${d.muted ? '' : 'cursor-pointer'}`}
+                  onPointerEnter={(e) => {
+                    if (e.pointerType === 'mouse') dots.onActive(d.id)
+                  }}
+                  onPointerLeave={(e) => {
+                    if (e.pointerType === 'mouse') dots.onActive(null)
+                  }}
+                  onFocus={() => dots.onActive(d.id)}
+                  onBlur={() => dots.onActive(null)}
+                  onClick={() => {
+                    setTip(null)
+                    dots.onActive(d.id)
+                    dots.onPick(d.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      dots.onPick(d.id)
+                    }
+                  }}
+                >
+                  {/* Zone d'appui invisible, plus grande que le point. */}
+                  <circle r={Math.max(HIT * k, d.r + 3 * k)} fill="transparent" />
+                  {on && <circle r={d.r + 3 * k} fill="none" stroke="var(--color-fg)" strokeWidth={2 * k} pointerEvents="none" />}
+                  <circle
+                    r={d.r}
+                    fill={d.fill}
+                    stroke={d.muted ? 'var(--color-muted)' : 'var(--color-fg)'}
+                    strokeOpacity={d.muted ? 0.5 : 0.55}
+                    strokeWidth={k}
+                    pointerEvents="none"
+                    className="transition-[fill] duration-300"
+                  />
+                </g>
+              )
+            })
+          ) : shapes.zoomed ? (
             <>
               <Outline shapes={shapes.main} code={selected} width={2.6} />
               {tip?.code !== selected && <Outline shapes={shapes.main} code={tip?.code} />}
@@ -371,6 +526,25 @@ export function FranceMap({
               </button>
             )
           })}
+        </div>
+      )}
+      {focused && activeDot && dots && !tip && (
+        // Bulle d'un point (survolé, touché, ou sa ligne survolée dans la liste) : au-dessus ou au-dessous du point.
+        <div
+          className="pointer-events-none absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl"
+          style={(() => {
+            const x = fit.ox + activeDot.x * fit.s
+            const y = fit.oy + activeDot.y * fit.s
+            const below = y < (shapes?.h ?? 0) * fit.s * 0.4
+            const w = box.current?.clientWidth ?? 0
+            return {
+              left: Math.min(Math.max(x - 104, 0), Math.max(0, w - 208)),
+              top: below ? y + activeDot.r * fit.s + 10 : y - activeDot.r * fit.s - 10,
+              transform: below ? undefined : 'translateY(-100%)',
+            }
+          })()}
+        >
+          {dots.tip(activeDot.id)}
         </div>
       )}
       {tip && (
