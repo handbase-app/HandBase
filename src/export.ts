@@ -107,6 +107,10 @@ export async function exportBackup() {
     videos: await db.videos.toArray(),
     seen: await db.seen.toArray(),
     rewatch: await db.rewatch.toArray(),
+    config: await db.config.toArray(),
+    levels: await db.levels.toArray(),
+    units: await db.units.toArray(),
+    assignments: await db.assignments.toArray(),
   }
   download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
@@ -114,7 +118,7 @@ export async function exportBackup() {
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos', 'seen', 'rewatch'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []

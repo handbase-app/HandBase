@@ -1,4 +1,5 @@
-import type { Criterion, CriterionKind, CriterionScale, Position } from './db'
+import type { Criterion, CriterionKind, CriterionScale } from './db'
+import { positionCodes, type Position } from './sportConfig'
 import type { Cell, Sheet } from './xlsx'
 
 /*
@@ -22,14 +23,13 @@ export const COLUMNS = [
   { field: 'unit', head: 'unité', keys: ['unite', 'unit'], help: 'Pour l’échelle number : cm, kg, s, km/h…' },
   { field: 'options', head: 'options', keys: ['options'], help: 'Pour l’échelle choice : au moins 2 options, séparées par « | ».' },
   { field: 'description', head: 'description', keys: ['description', 'definition'], help: 'Ce qu’on observe ou mesure (facultatif).' },
-  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés, séparés par des virgules (GB, AG, ARG, DC, ARD, AD, PIV) ; vide = tous.' },
+  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés : leurs codes, séparés par des virgules (handball : GB, AG, ARG, DC, ARD, AD, PIV) ; vide = tous.' },
   { field: 'quick', head: 'mode rapide', keys: ['moderapide', 'rapide', 'quick'], help: 'oui : fait partie de l’évaluation rapide (critères subjectifs).' },
   { field: 'active', head: 'actif', keys: ['actif', 'active'], help: 'non : critère masqué (son historique est gardé). Vide = oui.' },
   { field: 'order', head: 'ordre', keys: ['ordre', 'order'], help: 'Rang d’affichage (nombre). Vide = rang de la ligne dans le fichier.' },
 ] as const satisfies readonly { field: keyof CriterionFields; head: string; keys: readonly string[]; help: string }[]
 
 export const SCALE_VALUES: CriterionScale[] = ['score5', 'score3', 'score2', 'number', 'choice', 'text']
-const POSITION_IDS: Position[] = ['GB', 'AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV']
 
 /** Identifiant accepté : lettres, chiffres, « _ », « - », « . », « : » (les critères créés dans l'appli ont un UUID). */
 const ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/
@@ -100,9 +100,11 @@ export function parseRows(table: Cell[][]): ParsedFile {
     const options = [...new Set(str(get('options')).split('|').map((x) => x.trim()).filter(Boolean))]
     if (scale === 'choice' && ix.options >= 0 && options.length < 2) return fail('échelle choice : indique au moins 2 options séparées par « | »')
 
-    const posList = str(get('positions')).split(/[\s,;/|]+/).map((x) => x.toUpperCase()).filter(Boolean)
-    const badPos = posList.filter((x) => !POSITION_IDS.includes(x as Position))
-    if (badPos.length) return fail(`poste${badPos.length > 1 ? 's' : ''} inconnu${badPos.length > 1 ? 's' : ''} : ${badPos.join(', ')} (${POSITION_IDS.join(', ')})`)
+    // Codes des postes de l'installation (src/sportConfig.ts ; handball par défaut), sans tenir compte de la casse.
+    const codes = positionCodes()
+    const posList = str(get('positions')).split(/[\s,;/|]+/).filter(Boolean).map((x) => codes.find((c) => c.toUpperCase() === x.toUpperCase()) ?? x.toUpperCase())
+    const badPos = posList.filter((x) => !codes.includes(x))
+    if (badPos.length) return fail(`poste${badPos.length > 1 ? 's' : ''} inconnu${badPos.length > 1 ? 's' : ''} : ${badPos.join(', ')} (${codes.join(', ')})`)
 
     const bool = (f: 'quick' | 'active', dflt: boolean) => {
       const v = get(f)

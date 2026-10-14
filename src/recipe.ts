@@ -23,6 +23,7 @@ import { asText, bestMatch, isTrue, matchDept, matchRegion, normalize, parseSex,
 import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSearch'
 import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
+import { isKeeper, positionCodes } from './sportConfig'
 
 // ---------- Recette ----------
 
@@ -862,7 +863,6 @@ export function usesOutPeriod(r: Recipe): boolean {
 
 // ---------- 3. Recette lue dans l'adresse ou le stockage ----------
 
-const POS_IDS: Position[] = ['GB', 'AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV']
 // Identifiant ou nom : texte court, sans caractère de contrôle.
 const okId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_ID && [...v].every((c) => c.charCodeAt(0) >= 32)
 const ids = (v: unknown) => (Array.isArray(v) ? [...new Set(v.filter(okId))].slice(0, MAX_ITEMS) : [])
@@ -903,7 +903,7 @@ export function cleanRecipe(v: unknown): Recipe {
     const b = int(p.years[1], LIMITS.year)
     if (a !== undefined && b !== undefined) pop.years = a <= b ? [a, b] : [b, a]
   }
-  const pos = ids(p.positions).filter((x): x is Position => POS_IDS.includes(x as Position))
+  const pos = ids(p.positions).filter((x): x is Position => positionCodes().includes(x))
   if (pos.length) pop.positions = pos
   for (const k of ['clubs', 'regions', 'depts', 'groups', 'events', 'profiles'] as const) {
     const xs = ids(p[k])
@@ -1097,7 +1097,7 @@ export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
     // Sans postes réglés, moyenne d'une catégorie ou d'une zone : un gardien n'y est pas classé sur la défense ou l'attaque
     // des joueurs de champ, un joueur de champ pas sur les catégories de gardien.
     const k = critKind.get(cid)
-    return pos === 'GB' ? k !== 'defense' && k !== 'attaque' : k !== 'gardien' && k !== 'gardien-arrets'
+    return isKeeper(pos) ? k !== 'defense' && k !== 'attaque' : k !== 'gardien' && k !== 'gardien-arrets'
   }
   return { data, players, info, sights, evals, last, groupMembers, eventMembers, norm, applies, clubNames }
 }

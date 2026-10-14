@@ -38,6 +38,10 @@ const TABLES: Record<string, string> = {
   seen: 'Vu (repérage)',
   rewatch: 'À revoir',
   question_log: 'Journal des questions',
+  config: 'Configuration (sport, postes)',
+  levels: 'Niveau de structure',
+  units: 'Unité de structure',
+  assignments: 'Affectation',
   profiles: 'Membre du staff',
 }
 

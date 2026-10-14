@@ -15,6 +15,7 @@ import { QuestionLogView } from '../components/QuestionLogView'
 import { canUseQuestionLog } from '../questionLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
+import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { AdminTools } from '../components/ViewAs'
@@ -94,6 +95,12 @@ export default function Settings() {
       </Fold>
 
       {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
+      {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
+      {!admin && (
+        <Fold id="structure" icon="globe" title="Structure et sport" summary="Niveaux, unités, postes (lecture seule)">
+          <StructureSettings editable={false} />
+        </Fold>
+      )}
       </div>
 
       {admin && (
@@ -120,6 +127,9 @@ export default function Settings() {
               <Members />
             </Fold>
           )}
+          <Fold id="structure" icon="globe" title="Structure et sport" summary="Postes, niveaux, unités, affectations">
+            <StructureSettings editable={can.editStructure(role)} />
+          </Fold>
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
             {can.editCriteria(role) && <CriteriaTransfer />}
             <CriteriaEditor />

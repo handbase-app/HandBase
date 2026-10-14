@@ -1,4 +1,5 @@
 import { poleName, type PolePeriod, type Player } from './db'
+import { positionCodes, positionFull } from './sportConfig'
 
 /*
  * Export d'un groupe en PDF (n'importe quel groupe ; ex. « Pôle Saint-Raph 2027-2028 » envoyé à la ligue) : calculs purs
@@ -105,19 +106,8 @@ export const COLUMNS = [
 ] as const
 export type ColumnId = (typeof COLUMNS)[number]['id']
 
-const POSTE: Record<string, string> = {
-  GB: 'Gardien de but',
-  AG: 'Ailier gauche',
-  AD: 'Ailier droit',
-  ARG: 'Arrière gauche',
-  ARD: 'Arrière droit',
-  DC: 'Demi-centre',
-  PIV: 'Pivot',
-}
-/** Ordre du terrain, pour trier par poste. */
-const POSTE_ORDER = ['GB', 'AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV']
-/** Poste en toutes lettres : « Gardien de but », « Ailier gauche », « Arrière droit », « Demi-centre », « Pivot ». */
-export const posteLabel = (p?: string | null) => (p && POSTE[p]) || ''
+/** Poste en toutes lettres (configuration de l'installation, src/sportConfig.ts) : « Gardien de but », « Ailier gauche »… */
+export const posteLabel = (p?: string | null) => positionFull(p)
 /** « Droite », « Gauche », « Ambidextre ». */
 export const lateraliteLabel = (l?: string | null) => (l === 'droitier' ? 'Droite' : l === 'gaucher' ? 'Gauche' : l === 'ambidextre' ? 'Ambidextre' : '')
 export const birthYear = (p: Pick<Player, 'birthDate'>) => (/^\d{4}/.test(p.birthDate ?? '') ? p.birthDate!.slice(0, 4) : '')
@@ -187,7 +177,8 @@ export function sortRows<T extends Row>(rows: T[], by: SortBy, today: string): T
   const val = (r: T): string | number | undefined => {
     if (by.key === 'taille') return r.height || undefined
     if (by.key === 'naissance' || by.key === 'annee') return r.p.birthDate || undefined
-    if (by.key === 'poste') return r.p.position && POSTE_ORDER.includes(r.p.position) ? POSTE_ORDER.indexOf(r.p.position) : undefined
+    // Ordre des postes de l'installation (handball : ordre du terrain).
+    if (by.key === 'poste') return r.p.position && positionCodes().includes(r.p.position) ? positionCodes().indexOf(r.p.position) : undefined
     return cellText(r, by.key, today) || undefined
   }
   const s = by.dir === 'asc' ? 1 : -1

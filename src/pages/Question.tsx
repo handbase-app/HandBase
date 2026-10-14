@@ -768,7 +768,7 @@ function VarForm({ q, onLaunch, onCancel }: { q: SavedQuestion; onLaunch: (v: Va
           {k === 'region' && <Select label="Région" value={v.region ?? ''} onChange={(region) => set({ region })} options={lists.regions.map((r) => ({ value: r.id, label: r.name }))} />}
           {k === 'dept' && <Select label="Département" value={v.dept ?? ''} onChange={(dept) => set({ dept })} options={lists.depts.map((d) => ({ value: d.code, label: `${d.code} · ${d.name}` }))} />}
           {k === 'position' && (
-            <Select<Position> label="Poste" value={v.position ?? 'GB'} onChange={(position) => set({ position })} options={POSITIONS.map((p) => ({ value: p.id, label: p.label }))} />
+            <Select<Position> label="Poste" value={v.position ?? POSITIONS[0]?.id} onChange={(position) => set({ position })} options={POSITIONS.map((p) => ({ value: p.id, label: p.label }))} />
           )}
           {k === 'group' && <Select label="Groupe" value={v.group ?? ''} onChange={(group) => set({ group })} options={lists.groups.map((g) => ({ value: g.id, label: g.name }))} />}
         </div>

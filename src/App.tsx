@@ -7,6 +7,7 @@ import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
 import { db, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
+import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
 import Home from './pages/Home'
 import PlayerForm from './pages/PlayerForm'
@@ -218,6 +219,8 @@ export default function App() {
   }, [toReview, alerts])
   // Noms des départements (liste modifiable) : toute l'appli se redessine quand ils changent.
   useDepartments()
+  // Sport et postes de l'installation (table hb_config, handball par défaut) : redessin quand ils changent.
+  useSportConfig()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
   // Notifications : l'abonnement de ce téléphone est réenregistré sur le serveur à chaque ouverture.

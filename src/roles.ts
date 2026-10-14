@@ -47,7 +47,10 @@ const write = (k: string, v: string | null) => {
 // Sans serveur (mode local), l'unique utilisateur a tous les droits.
 let role: Role = supabase ? ((read(ROLE_KEY) as Role | null) ?? 'observateur') : 'admin'
 let userId: string | null = read(UID_KEY)
-/** Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. */
+/**
+ * Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. Plus tard (structure, supabase/044), ce secteur
+ * sera lu dans l'arbre des unités où le compte est affecté (src/structureTree.ts, unitDepartments) au lieu de cette liste.
+ */
 let departments: string[] = (() => {
   try {
     return JSON.parse(read(DEPTS_KEY) ?? '[]') as string[]
@@ -224,6 +227,12 @@ export const can = {
    */
   calibrateMatch: (r: Role, _ctx?: { eventId?: string; playerId?: string }) => r === 'admin',
   editCriteria: (r: Role) => r === 'admin',
+  /**
+   * Structure et sport (supabase/044_structure.sql : postes, niveaux, unités, affectations) : administrateurs ; les autres
+   * comptes lisent. ÉTAPE 1 : la structure ne donne encore aucun droit ; le secteur reste myDepartments() (profil). Plus
+   * tard, reviewDept et le secteur liront l'arbre (src/structureTree.ts, unitDepartments) à la place de cette liste.
+   */
+  editStructure: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
   /**

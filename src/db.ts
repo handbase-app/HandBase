@@ -5,19 +5,12 @@ import type { QuestionLogFields } from './questionLogCore'
 
 // ---------- Types ----------
 
-export type Position = 'GB' | 'AG' | 'ARG' | 'DC' | 'ARD' | 'AD' | 'PIV'
-
-export const POSITIONS: { id: Position; label: string; short: string }[] = [
-  { id: 'GB', label: 'Gardien', short: 'Gardien' },
-  { id: 'AG', label: 'Ailier gauche', short: 'Ailier G.' },
-  { id: 'ARG', label: 'Arrière gauche', short: 'Arrière G.' },
-  { id: 'DC', label: 'Demi-centre', short: 'Demi-centre' },
-  { id: 'ARD', label: 'Arrière droit', short: 'Arrière D.' },
-  { id: 'AD', label: 'Ailier droit', short: 'Ailier D.' },
-  { id: 'PIV', label: 'Pivot', short: 'Pivot' },
-]
-
-export const positionLabel = (p?: Position | null) => POSITIONS.find((x) => x.id === p)?.short ?? '—'
+// Postes : configuration de l'installation (src/sportConfig.ts, table hb_config ; handball par défaut). Les codes stockés
+// dans les fiches (GB, AG…) ne changent pas ; POSITIONS est tenu à jour sur place quand la configuration change.
+export { POSITIONS, positionLabel, type Position } from './sportConfig'
+import type { Position } from './sportConfig'
+import { isKeeper } from './sportConfig'
+import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -486,6 +479,20 @@ export interface ListItem extends Syncable {
  */
 export interface QuestionLog extends Syncable, QuestionLogFields {}
 
+/**
+ * Configuration de l'installation (supabase/044_structure.sql, src/sportConfig.ts) : une ligne par clé (identifiant = clé :
+ * « sport », « postes »…), valeur libre. Table vide : valeurs par défaut handball. Lecture : tous ; écriture : administrateurs.
+ */
+export interface ConfigItem extends Syncable {
+  key: string
+  value: unknown
+}
+
+/** Structure (supabase/044_structure.sql, src/structureTree.ts) : niveaux, unités, affectations. Écriture : administrateurs. */
+export interface Level extends Syncable, LevelFields {}
+export interface Unit extends Syncable, UnitFields {}
+export interface Assignment extends Syncable, AssignmentFields {}
+
 export interface OutboxItem {
   seq?: number
   table: SyncTable
@@ -494,8 +501,9 @@ export interface OutboxItem {
 
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
 // Vidéos, « vu » et « à revoir » en dernier : le serveur vérifie que le joueur, l'événement ou le groupe visé existe
-// (envoyé juste avant). Journal des questions avancées (043) : indépendant du reste, à la fin.
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'question_log'] as const
+// (envoyé juste avant). Structure (044) : niveaux avant unités avant affectations (le serveur vérifie que le niveau, le
+// parent, l'unité visés existent). Journal des questions avancées (043) : indépendant du reste, à la fin.
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -521,6 +529,10 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   seen: EntityTable<Seen, 'id'>
   rewatch: EntityTable<Rewatch, 'id'>
   question_log: EntityTable<QuestionLog, 'id'>
+  config: EntityTable<ConfigItem, 'id'>
+  levels: EntityTable<Level, 'id'>
+  units: EntityTable<Unit, 'id'>
+  assignments: EntityTable<Assignment, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -586,6 +598,14 @@ db.version(14).stores({ seen: 'id, eventId, playerId, updatedAt', rewatch: 'id, 
 
 // v15 : journal des questions avancées (supabase/043_journal_questions.sql).
 db.version(15).stores({ question_log: 'id, at, updatedAt' })
+
+// v16 : configuration de l'installation et structure (supabase/044_structure.sql).
+db.version(16).stores({
+  config: 'id, updatedAt',
+  levels: 'id, updatedAt',
+  units: 'id, parentId, levelId, updatedAt',
+  assignments: 'id, unitId, userId, updatedAt',
+})
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
@@ -681,10 +701,10 @@ export const fmtDate = (d?: string) => (d ? new Date(d + 'T00:00:00').toLocaleDa
 
 /**
  * Le critère concerne-t-il ce poste ? Joueur sans poste renseigné : on montre tous les critères de joueur de champ
- * (seuls ceux réservés aux gardiens sont écartés), plutôt que de n'en garder que quelques-uns.
+ * (seuls ceux réservés aux gardiens, famille « gardien » de la configuration, sont écartés), plutôt que de n'en garder que quelques-uns.
  */
 export const criterionApplies = (c: Criterion, pos?: Position) =>
-  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : c.positions.some((p) => p !== 'GB'))
+  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : c.positions.some((p) => !isKeeper(p)))
 
 export function scaleMax(scale: CriterionScale) {
   return scale === 'score5' ? 5 : scale === 'score3' ? 3 : scale === 'score2' ? 2 : null

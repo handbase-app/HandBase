@@ -192,9 +192,10 @@ const PUSH_CHUNK = 400
 
 /**
  * Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. Leurs lignes
- * restent dans la file d'envoi et partent dès que le script est passé (ex. journal des questions avancées, 043).
+ * restent dans la file d'envoi et partent dès que le script est passé (ex. journal des questions avancées, 043 ; configuration
+ * et structure, 044 : sans la table, l'appli garde les valeurs par défaut handball).
  */
-const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch', 'question_log']
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log']
 
 let rejectedCount = 0
 

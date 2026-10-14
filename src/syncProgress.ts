@@ -45,6 +45,10 @@ export const TABLE_LABELS: Record<SyncTable, string> = {
   videos: 'vidéos',
   seen: '« vu »',
   rewatch: '« à revoir »',
+  config: 'configuration',
+  levels: 'niveaux',
+  units: 'unités',
+  assignments: 'affectations',
   question_log: 'journal des questions',
 }
 

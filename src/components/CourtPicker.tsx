@@ -3,7 +3,9 @@ import { choose } from './Confirm'
 
 // Positions en attaque, vues de derrière l'attaque (but en haut) : la gauche du joueur est à gauche.
 // Terrain à l'échelle : 1 m = 15 px, ligne de but à y = 14, poteaux à x = 127,5 et 172,5.
-const SPOTS: Record<Position, { x: number; y: number; tag: string }> = {
+// Terrain de handball : les postes de la configuration par défaut (src/sportConfig.ts). Une installation dont les postes
+// n'ont pas tous une place ici (autre sport) voit une simple liste de boutons (PositionButtons).
+const SPOTS: Partial<Record<string, { x: number; y: number; tag: string }>> = {
   GB: { x: 150, y: 24, tag: 'G' },
   AG: { x: 20, y: 34, tag: 'ALG' },
   AD: { x: 280, y: 34, tag: 'ALD' },
@@ -83,6 +85,7 @@ function Court({
   counts?: Record<string, number>
   className?: string
 }) {
+  if (!POSITIONS.every((p) => SPOTS[p.id])) return <PositionButtons value={value} sec={sec} onTap={onTap} counts={counts} />
   return (
     <svg viewBox="0 0 300 200" className={`w-full rounded-lg border border-line bg-panel-2 ${className}`}>
       {/* ligne de but et but de 3 m */}
@@ -96,7 +99,7 @@ function Court({
       <line x1="142.5" y1="119" x2="157.5" y2="119" className="stroke-muted" strokeWidth="2" />
       <line x1="146" y1="74" x2="154" y2="74" className="stroke-muted" strokeWidth="1.5" />
       {POSITIONS.map((p) => {
-        const s = SPOTS[p.id]
+        const s = SPOTS[p.id]!
         const on = value === p.id
         const sub = sec.includes(p.id)
         return (
@@ -129,6 +132,30 @@ function Court({
         )
       })}
     </svg>
+  )
+}
+
+/** Postes sans terrain dessiné (autre sport que le handball) : un bouton par poste, même logique que le terrain. */
+function PositionButtons({ value, sec, onTap, counts }: { value?: Position; sec: Position[]; onTap?: (pos: Position) => void; counts?: Record<string, number> }) {
+  return (
+    <div className="flex w-full flex-wrap justify-center gap-2">
+      {POSITIONS.map((p) => {
+        const on = value === p.id
+        const sub = sec.includes(p.id)
+        return (
+          <button
+            key={p.id}
+            type="button"
+            disabled={!onTap}
+            onClick={onTap && (() => onTap(p.id))}
+            className={`min-h-11 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : sub ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel text-fg'} ${counts && !counts[p.id] && !on ? 'opacity-40' : ''}`}
+          >
+            {p.short}
+            {counts && <span className="ml-1 text-[10px] opacity-70">{counts[p.id] ?? 0}</span>}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
