@@ -6,6 +6,8 @@ import { saveSqlQuestion } from '../savedQuestions'
 import { holdMirror, runSql, SqlRunError, type SqlResult } from '../sqlClient'
 import { cleanSqlSpec, columnLabel, guardSql, type SqlSpec } from '../sqlGuard'
 import { buildSqlSchema, type MirrorInput } from '../sqlMirror'
+import { logAdvancedQuestion, type AdvancedTrace } from '../questionLog'
+import type { QuestionStatus } from '../questionLogCore'
 import { FollowStar } from './Follow'
 import { PlayerRow } from './PlayerRow'
 import { Empty, Icon, SectionTitle } from './ui'
@@ -88,6 +90,13 @@ export function useSqlResult(spec: SqlSpec | null, source: MirrorSource) {
 
 const isNegative = (s: string) => /pas retenu|mauvais|faible/i.test(s)
 
+/** Statut du journal pour une erreur qui interrompt le mode avancé. */
+function failStatus(e: unknown): QuestionStatus {
+  if (e instanceof SqlRunError) return e.kind === 'delai' ? 'delai' : e.kind === 'invalide' ? 'refuse' : 'erreur'
+  if (e instanceof DictationError) return e.code === 'annule' ? 'annule' : e.code === 'reseau' ? 'reseau' : 'erreur'
+  return 'erreur'
+}
+
 export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof buildSqlSchema>[0]['criteria'], zoneOf?: (c: string) => string | null | undefined) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -95,33 +104,48 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
   useEffect(() => () => abort.current?.abort(), [])
   useEffect(() => holdMirror(), [])
 
-  /** Requête prête (essayée sur la copie), ou null (message dans `error`). */
-  async function ask(phrase: string | undefined): Promise<SqlSpec | null> {
+  /**
+   * Requête prête (essayée sur la copie), ou null (message dans `error`). how et recipeMissing (ce que la recette n'a pas su
+   * faire) : pour le journal des questions avancées (src/questionLog.ts), qui garde chaque passage, anonymisé.
+   */
+  async function ask(phrase: string | undefined, how: 'auto' | 'button' = 'button', recipeMissing?: string[]): Promise<SqlSpec | null> {
     const said = (phrase ?? '').replace(/\s+/g, ' ').trim()
     if (!said || !source || abort.current) return null
     setBusy(true)
     setError('')
     const ctrl = new AbortController()
     abort.current = ctrl
+    // Ce qui part au journal : jamais le résultat, seulement le nombre de lignes.
+    const trace: AdvancedTrace = { how, phrase: said, recipeMissing, status: 'erreur' }
     try {
       const schema = buildSqlSchema({ criteria, positions: POSITIONS, zoneOf, today: today() })
       let ans = await sendSqlRequest(said, schema, undefined, ctrl.signal)
       for (let attempt = 0; ; attempt++) {
+        if (attempt === 0) trace.sql = ans.sql
+        else trace.sqlRetry = ans.sql
+        if (ans.nonGere.length) trace.modelMissing = [...new Set([...(trace.modelMissing ?? []), ...ans.nonGere])]
+        trace.display = ans.affichage
         if (!ans.sql.trim()) {
+          trace.status = 'sans_requete'
           const why = ans.nonGere.filter((x) => !isNegative(x)).join(' ; ')
           setError(`Je ne sais pas encore répondre à cette question, même en mode avancé${why ? ` (${why})` : ''}.`)
           return null
         }
         const g = guardSql(ans.sql)
         let problem = g.ok ? '' : g.error
+        trace.status = g.ok ? 'erreur_sql' : 'refuse'
         if (g.ok)
           try {
-            await runSql(g.sql, source)
+            const res = await runSql(g.sql, source)
+            trace.status = 'ok'
+            trace.rows = res.rows.length
+            trace.detail = undefined
             return cleanSqlSpec({ sql: g.sql, explanation: ans.explication, display: ans.affichage })
           } catch (e) {
             if (!(e instanceof SqlRunError) || e.kind !== 'sql') throw e
             problem = e.message
           }
+        trace.detail = problem
         if (attempt >= 1 || ctrl.signal.aborted) {
           setError('Le mode avancé n’a pas trouvé de requête qui marche pour cette question. Reformulez-la, ou essayez plus simple.')
           return null
@@ -130,12 +154,15 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
         ans = await sendSqlRequest(said, schema, { sql: ans.sql, erreur: problem }, ctrl.signal)
       }
     } catch (e) {
+      trace.status = failStatus(e)
+      trace.detail = e instanceof DictationError ? e.code : e instanceof SqlRunError ? e.message : 'erreur inattendue'
       if (e instanceof DictationError && e.code === 'annule') return null
       setError(e instanceof DictationError ? e.message : e instanceof SqlRunError ? e.message : ERROR_TEXT.mistral_erreur)
       return null
     } finally {
       if (abort.current === ctrl) abort.current = null
       setBusy(false)
+      void logAdvancedQuestion(trace, source())
     }
   }
   return { ask, busy, error, cancel: () => abort.current?.abort() }

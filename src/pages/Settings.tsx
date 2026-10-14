@@ -11,6 +11,8 @@ import { categoryList, resolveCategory, type ParsedFile } from '../criteriaForma
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
 import { ActivityLog } from '../components/ActivityLog'
+import { QuestionLogView } from '../components/QuestionLogView'
+import { canUseQuestionLog } from '../questionLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
 import { ask, inform } from '../components/Confirm'
@@ -186,6 +188,12 @@ export default function Settings() {
               </section>
               )}
           </Fold>
+          {/* Administrateur réel seulement (table réservée aux administrateurs), absent pendant « Voir comme… ». */}
+          {canUseQuestionLog() && (
+            <Fold id="questions-avancees" icon="message" title="Journal des questions avancées" summary="Questions passées en mode avancé, pour écrire de nouvelles recettes">
+              <QuestionLogView />
+            </Fold>
+          )}
           {supabase && (
             <Fold id="journal" icon="clock" title="Historique" summary="Qui a créé, modifié ou supprimé quoi">
               <ActivityLog />

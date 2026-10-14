@@ -37,6 +37,7 @@ const TABLES: Record<string, string> = {
   videos: 'Vidéo',
   seen: 'Vu (repérage)',
   rewatch: 'À revoir',
+  question_log: 'Question avancée (journal)',
   profiles: 'Membre du staff',
 }
 

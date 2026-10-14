@@ -282,7 +282,7 @@ export default function Question() {
   const adv = useAdvancedAsk(model.source, model.data?.criteria ?? [], model.index?.data.zoneOf ?? undefined)
   /** Mode avancé : la requête prête remplace (bascule automatique) ou s'ajoute à (bouton) l'historique. */
   const advanced = async (how: 'auto' | 'button') => {
-    const spec = await adv.ask(st.heard)
+    const spec = await adv.ask(st.heard, how, st.unsupported)
     if (spec) nav(`/bilan/question?${encSql(spec)}`, { replace: how === 'auto', state: { heard: st.heard, advanced: how } satisfies HistState })
   }
 

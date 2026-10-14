@@ -189,8 +189,11 @@ async function run() {
 
 const PUSH_CHUNK = 400
 
-/** Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. */
-const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch']
+/**
+ * Tables que le serveur peut ne pas encore connaître (script SQL pas encore passé) : ignorées sans erreur. Leurs lignes
+ * restent dans la file d'envoi et partent dès que le script est passé (ex. journal des questions avancées, 043).
+ */
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch', 'question_log']
 
 let rejectedCount = 0
 

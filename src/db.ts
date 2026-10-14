@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { guardWrite } from './spy'
 import type { MatchSheet } from './matchSheet'
+import type { QuestionLogFields } from './questionLogCore'
 
 // ---------- Types ----------
 
@@ -479,6 +480,12 @@ export interface ListItem extends Syncable {
   order: number
 }
 
+/**
+ * « Journal des questions avancées » (supabase/043_journal_questions.sql, src/questionLog.ts) : un passage de « Poser une
+ * question » en mode avancé. Phrase et requête anonymisées, jamais de résultat ni de donnée de joueur. Administrateurs seulement.
+ */
+export interface QuestionLog extends Syncable, QuestionLogFields {}
+
 export interface OutboxItem {
   seq?: number
   table: SyncTable
@@ -487,8 +494,8 @@ export interface OutboxItem {
 
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
 // Vidéos, « vu » et « à revoir » en dernier : le serveur vérifie que le joueur, l'événement ou le groupe visé existe
-// (envoyé juste avant).
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch'] as const
+// (envoyé juste avant). Journal des questions avancées (043) : indépendant du reste, à la fin.
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'question_log'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -513,6 +520,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   videos: EntityTable<Video, 'id'>
   seen: EntityTable<Seen, 'id'>
   rewatch: EntityTable<Rewatch, 'id'>
+  question_log: EntityTable<QuestionLog, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -575,6 +583,9 @@ db.version(13).stores({ videos: 'id, targetId, updatedAt' })
 
 // v14 : « vu » et « à revoir » (supabase/041_reperage_tournoi.sql).
 db.version(14).stores({ seen: 'id, eventId, playerId, updatedAt', rewatch: 'id, playerId, *events, *groups, updatedAt' })
+
+// v15 : journal des questions avancées (supabase/043_journal_questions.sql).
+db.version(15).stores({ question_log: 'id, at, updatedAt' })
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 

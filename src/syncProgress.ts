@@ -45,6 +45,7 @@ export const TABLE_LABELS: Record<SyncTable, string> = {
   videos: 'vidéos',
   seen: '« vu »',
   rewatch: '« à revoir »',
+  question_log: 'questions avancées',
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')
