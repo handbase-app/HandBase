@@ -10,6 +10,7 @@
  * tard, ce secteur sera lu dans l'arbre : départements des unités où il est affecté et de leurs descendantes
  * (unitDepartments ci-dessous).
  */
+import type { PoleProgramme } from './db'
 
 /** Rôles d'une affectation : les mêmes valeurs que les rôles actuels (src/roles.ts). */
 export type AssignmentRole = 'admin' | 'preparateur' | 'observateur'
@@ -39,6 +40,10 @@ export interface UnitFields {
   city?: string
   lat?: number
   lng?: number
+  /** Pôle Espoirs ajouté par l'import (src/poles.ts) : sexe, site et niveaux du PPF. Facultatifs. */
+  poleSex?: 'M' | 'F'
+  poleSite?: string
+  poleLevels?: PoleProgramme[]
 }
 export interface AssignmentFields {
   userId: string

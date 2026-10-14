@@ -18,6 +18,7 @@ import {
   type Kind,
   type Mapping,
 } from '../structureImport'
+import { POLE_SITES } from '../poles'
 import { ask, inform } from './Confirm'
 
 /*
@@ -28,7 +29,7 @@ import { ask, inform } from './Confirm'
 
 const TAP = 'min-h-11 min-w-11'
 const BATCH = 250
-const KINDS: Kind[] = ['root', 'ligue', 'comite', 'club']
+const KINDS: Kind[] = ['root', 'ligue', 'comite', 'pole', 'club']
 
 // Trace du dernier import : sur cet appareil (une par base locale).
 const recordKey = () => `hb-structure-import:${db.name}`
@@ -110,7 +111,7 @@ export function StructureImport() {
     const created = KINDS.reduce((s, k) => s + c[k].create, 0)
     const updated = KINDS.reduce((s, k) => s + c[k].update, 0)
     const ok = await ask(
-      `Importer : ${[created && `${plural(created, 'unité à créer', 'unités à créer')}`, updated && `${plural(updated, 'unité à mettre à jour', 'unités à mettre à jour')}`].filter(Boolean).join(' et ')} ? Les unités saisies à la main (pôles…) ne sont pas touchées. « Annuler l’import » reste possible tant que rien n’a changé.`,
+      `Importer : ${[created && `${plural(created, 'unité à créer', 'unités à créer')}`, updated && `${plural(updated, 'unité à mettre à jour', 'unités à mettre à jour')}`].filter(Boolean).join(' et ')} ? Les unités saisies à la main ne sont pas touchées. « Annuler l’import » reste possible tant que rien n’a changé.`,
       { ok: 'Importer', danger: false },
     )
     if (!ok) return
@@ -193,7 +194,8 @@ export function StructureImport() {
         </button>
       </div>
       <p className="text-[11px] text-muted">
-        Ligues, comités et clubs d’un fichier CSV (séparateur « ; » ou « , »), par exemple la liste officielle de la fédération. Rien
+        Ligues, comités et clubs d’un fichier CSV (séparateur « ; » ou « , »), par exemple la liste officielle de la fédération, et
+        les Pôles Espoirs si la case est cochée. Rien
         n’est écrit avant « Importer » ; réimporter le même fichier met à jour sans créer de doublon.
       </p>
       <label className={`btn-primary ${TAP} cursor-pointer justify-center text-xs ${progress ? 'pointer-events-none opacity-60' : ''}`}>
@@ -299,7 +301,7 @@ function MappingEditor({ table, mapping, onChange }: { table: CsvTable; mapping:
 }
 
 function OptionsEditor({ options, onChange }: { options: ImportOptions; onChange: (o: ImportOptions) => void }) {
-  const box = (k: 'ligues' | 'comites' | 'clubs' | 'root', label: string) => (
+  const box = (k: 'ligues' | 'comites' | 'clubs' | 'poles' | 'root', label: string) => (
     <label className={`flex ${TAP} cursor-pointer items-center gap-2 text-xs`}>
       <input type="checkbox" className="h-4 w-4 accent-[var(--color-accent)]" checked={options[k]} onChange={(e) => onChange({ ...options, [k]: e.target.checked })} />
       {label}
@@ -313,6 +315,7 @@ function OptionsEditor({ options, onChange }: { options: ImportOptions; onChange
         {box('comites', 'Comités')}
         {box('clubs', 'Clubs')}
       </div>
+      {box('poles', `Ajouter les Pôles Espoirs (${POLE_SITES.length} sites, chacun sous la ligue de sa région)`)}
       {box('root', 'Ranger les ligues sous une unité Fédération (créée si absente)')}
       {options.root && (
         <input

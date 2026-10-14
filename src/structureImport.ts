@@ -8,14 +8,19 @@
  * (saveMany + synchro hb_upsert) : src/components/StructureImport.tsx.
  *
  * Idempotent : chaque unité importée porte une clé stable (champ `code`) : « ligue:<code_ligue> », « comite:<code_ligue>:<département> »,
- * « club:<numéro> » (sinon « club:<nom>|<code postal> »), « federation » pour la tête. Réimporter le même fichier ne change
- * rien ; un nom changé met l'unité à jour, sans doublon. Les unités saisies à la main (pôles…) ne sont jamais touchées ;
+ * « club:<numéro> » (sinon « club:<nom>|<code postal> »), « federation » pour la tête, « pole:<région>:<sexe>:<site> » pour les
+ * Pôles Espoirs (case « Ajouter les Pôles Espoirs » : liste de src/poles.ts, chaque pôle rangé DIRECTEMENT sous la ligue de
+ * sa région, retrouvée par ses départements dans le fichier, sinon par son nom). Réimporter le même fichier ne change
+ * rien ; un nom changé met l'unité à jour, sans doublon. Les unités saisies à la main (pôles…) ne sont jamais touchées
+ * (sauf un pôle portant exactement le nom d'un Pôle Espoirs de la liste : repris, comme une ligue) ;
  * une ligue, un comité ou un club déjà saisi à la main est repris (même nom de ligue, même département de comité, même nom
  * de club) plutôt que dédoublé.
  *
  * Aucune donnée réelle ici ni dans les tests : le fichier de la fédération reste sur l'ordinateur de l'administrateur.
  */
 import { parseCsv } from './criteriaFormat'
+import { POLE_SITES, type PoleSite } from './poles'
+import { OFFICIAL_REGIONS, REGION_FALLBACK } from './regionsOfficial'
 import { HANDBALL_LEVELS, type LevelRow, type UnitRow } from './structureTree'
 
 // ---------- Lecture et correspondance des colonnes ----------
@@ -93,11 +98,12 @@ export function guessMapping(headers: readonly string[]): Mapping {
 
 // ---------- Aperçu ----------
 
-export type Kind = 'root' | 'ligue' | 'comite' | 'club'
+export type Kind = 'root' | 'ligue' | 'comite' | 'pole' | 'club'
 export const KIND_LABELS: Record<Kind, [string, string]> = {
   root: ['fédération', 'fédérations'],
   ligue: ['ligue', 'ligues'],
   comite: ['comité', 'comités'],
+  pole: ['pôle', 'pôles'],
   club: ['club', 'clubs'],
 }
 
@@ -105,13 +111,15 @@ export interface ImportOptions {
   ligues: boolean
   comites: boolean
   clubs: boolean
+  /** Ajouter les Pôles Espoirs (src/poles.ts), chacun sous la ligue de sa région. */
+  poles: boolean
   /** Ranger les ligues (et les lignes sans ligue) sous une unité Fédération, créée si absente. */
   root: boolean
   rootName: string
 }
-export const DEFAULT_OPTIONS: ImportOptions = { ligues: true, comites: true, clubs: true, root: true, rootName: 'Fédération française de handball' }
+export const DEFAULT_OPTIONS: ImportOptions = { ligues: true, comites: true, clubs: true, poles: true, root: true, rootName: 'Fédération française de handball' }
 
-export type AnomalyType = 'sansLigue' | 'comiteSansNom' | 'sansDepartement' | 'clubSansNumero' | 'doublon' | 'nomDifferent' | 'ligneIgnoree' | 'cycle' | 'garde'
+export type AnomalyType = 'sansLigue' | 'comiteSansNom' | 'sansDepartement' | 'clubSansNumero' | 'doublon' | 'nomDifferent' | 'ligneIgnoree' | 'cycle' | 'garde' | 'poleSansLigue'
 /** Libellés neutres : ce que l'import a fait de la ligne. */
 export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   sansLigue: 'Lignes sans ligue',
@@ -123,6 +131,7 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   ligneIgnoree: 'Lignes sans nom de club (laissées de côté)',
   cycle: 'Rattachements laissés tels quels (une unité ne peut pas être rangée sous elle-même)',
   garde: 'Unités déjà rangées plus finement (sous un pôle…) : place gardée',
+  poleSansLigue: 'Pôles Espoirs dont la ligue n’est pas dans le fichier (rangés sous la fédération)',
 }
 
 export interface Anomaly {
@@ -172,12 +181,23 @@ const num = (raw: string) => {
 const cut = (s: string, n = 100) => (s.length > n ? s.slice(0, n).trim() : s)
 
 /** Niveau d'un type d'unité, reconnu à son nom (Fédération, Ligue, Comité, Club). */
-const LEVEL_PREFIX: Record<Kind, string> = { root: 'federation', ligue: 'ligue', comite: 'comite', club: 'club' }
-const HANDBALL_ID: Record<Kind, string> = { root: 'niveau-federation', ligue: 'niveau-ligue', comite: 'niveau-comite', club: 'niveau-club' }
+const LEVEL_PREFIX: Record<Kind, string> = { root: 'federation', ligue: 'ligue', comite: 'comite', pole: 'pole', club: 'club' }
+const HANDBALL_ID: Record<Kind, string> = { root: 'niveau-federation', ligue: 'niveau-ligue', comite: 'niveau-comite', pole: 'niveau-pole', club: 'niveau-club' }
 
 /** Champs comparés pour décider « mise à jour » ou « inchangé ». */
-const COMPARED: (keyof UnitRow)[] = ['name', 'levelId', 'parentId', 'code', 'departments', 'clubNumber', 'postalCode', 'city', 'lat', 'lng']
+const COMPARED: (keyof UnitRow)[] = ['name', 'levelId', 'parentId', 'code', 'departments', 'clubNumber', 'postalCode', 'city', 'lat', 'lng', 'poleSex', 'poleSite', 'poleLevels']
 const same = (a: UnitRow, b: UnitRow) => COMPARED.every((k) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null))
+
+// ---------- Pôles Espoirs ----------
+
+const slug = (s: string) => fold(s).replace(/ /g, '-')
+/** Clé stable d'un pôle : « pole:region-sud:M:saint-raphael ». */
+export const poleCode = (p: PoleSite) => `pole:${p.regions[0]}:${p.sex}:${slug(p.site)}`
+/** « Pôle Saint-Raphaël (garçons) », « Pôle Aix-en-Provence – Luynes (filles) ». */
+export function poleName(p: PoleSite) {
+  const site = p.site.replace(/\s*\(([^)]+)\)\s*$/, ' – $1')
+  return `Pôle ${site} (${p.sex === 'M' ? 'garçons' : 'filles'})`
+}
 
 export function planImport(input: {
   table: CsvTable
@@ -188,20 +208,21 @@ export function planImport(input: {
   newId: () => string
 }): ImportPlan {
   const { table, mapping, options } = input
-  const counts: Counts = { root: { create: 0, update: 0, same: 0 }, ligue: { create: 0, update: 0, same: 0 }, comite: { create: 0, update: 0, same: 0 }, club: { create: 0, update: 0, same: 0 } }
+  const zero = () => ({ create: 0, update: 0, same: 0 })
+  const counts: Counts = { root: zero(), ligue: zero(), comite: zero(), pole: zero(), club: zero() }
   const anomalies: Anomaly[] = []
   const empty: ImportPlan = { counts, anomalies, writes: [], levelsToCreate: [], lines: table.rows.length }
   if (mapping.club === undefined && options.clubs) return { ...empty, blocker: 'Choisis la colonne « Nom du club » (ou décoche les clubs).' }
   if (mapping.ligue === undefined && mapping.code_ligue === undefined && options.ligues) return { ...empty, blocker: 'Choisis la colonne « Nom de la ligue » ou « Code de la ligue » (ou décoche les ligues).' }
   if (mapping.departement === undefined && options.comites) return { ...empty, blocker: 'Choisis la colonne « Département » (ou décoche les comités).' }
-  if (!options.ligues && !options.comites && !options.clubs) return { ...empty, blocker: 'Coche au moins les ligues, les comités ou les clubs.' }
+  if (!options.ligues && !options.comites && !options.clubs && !options.poles) return { ...empty, blocker: 'Coche au moins les ligues, les comités, les pôles ou les clubs.' }
 
   // Niveaux : ceux de l'installation, reconnus à leur nom ; absents : créés (niveaux du handball).
   const live = input.levels.filter((l) => !l.deleted)
   const levelsToCreate: LevelRow[] = []
   const levelId = {} as Record<Kind, string>
   const maxOrder = Math.max(0, ...live.map((l) => l.order))
-  const needed: Kind[] = [...(options.root ? (['root'] as Kind[]) : []), 'ligue', 'comite', 'club']
+  const needed: Kind[] = [...(options.root ? (['root'] as Kind[]) : []), 'ligue', 'comite', ...(options.poles ? (['pole'] as Kind[]) : []), 'club']
   for (const k of needed) {
     const found = live.find((l) => fold(l.name).startsWith(LEVEL_PREFIX[k]))
     if (found) levelId[k] = found.id
@@ -346,6 +367,45 @@ export function planImport(input: {
       plan('club', key, fields, () => adopt((u) => u.levelId === levelId.club && fold(u.name) === fold(name)))
     })
 
+  // 4) Pôles Espoirs : sous la ligue de leur région (première de la liste : Corse → Région Sud, Antilles-Guyane → Antilles,
+  // Réunion-Mayotte → Réunion). Ligue retrouvée par ses départements dans le fichier (celle qui compte le plus de lignes
+  // pour le premier département connu de la région), sinon par son nom ; introuvable : sous la fédération, signalé.
+  if (options.poles) {
+    const deptLigues = new Map<string, Map<string, number>>()
+    for (const r of table.rows) {
+      const d = cleanDept(get(r, 'departement'))
+      const key = ligueKey(r)
+      if (!d || !key) continue
+      const m = deptLigues.get(d) ?? new Map<string, number>()
+      m.set(key, (m.get(key) ?? 0) + 1)
+      deptLigues.set(d, m)
+    }
+    const ligueOfRegion = new Map<string, UnitRow | undefined>()
+    const findLigue = (region: string): UnitRow | undefined => {
+      for (const d of (OFFICIAL_REGIONS[region] ?? '').split(' ').filter(Boolean)) {
+        const m = deptLigues.get(d)
+        if (!m) continue
+        const best = [...m.entries()].sort((a, b) => b[1] - a[1])[0][0]
+        const u = unitOf(best)
+        if (u) return u
+      }
+      const name = fold(REGION_FALLBACK[region] ?? '')
+      if (!name) return undefined
+      const hit = [...ligueNames.entries()].find(([, n]) => fold(n).includes(name))
+      return (hit && unitOf(hit[0])) || units.find((u) => u.levelId === levelId.ligue && fold(u.name).includes(name))
+    }
+    for (const p of POLE_SITES) {
+      const region = p.regions[0]
+      if (!ligueOfRegion.has(region)) ligueOfRegion.set(region, findLigue(region))
+      const ligue = ligueOfRegion.get(region)
+      const name = poleName(p)
+      if (!ligue) anomalies.push({ type: 'poleSansLigue', detail: `${name} (${REGION_FALLBACK[region] ?? region}) : ${top ? 'rangé sous la fédération' : 'laissé en tête, à ranger'}` })
+      plan('pole', poleCode(p), { name, parentId: ligue?.id ?? top, poleSex: p.sex, poleSite: p.site, ...(p.levels.length ? { poleLevels: [...p.levels] } : {}) }, () =>
+        adopt((u) => u.levelId === levelId.pole && fold(u.name) === fold(name)),
+      )
+    }
+  }
+
   // Rattachements : une unité existante déjà rangée plus finement (sous un pôle du bon comité…) garde sa place ; une unité
   // sans parent prévu garde le sien ; jamais de cycle (même règle que le serveur).
   const parentOf = new Map<string, string | undefined>(units.map((u) => [u.id, u.parentId]))
@@ -391,7 +451,7 @@ export function planImport(input: {
     }
   }
 
-  const rank: Record<Kind, number> = { root: 0, ligue: 1, comite: 2, club: 3 }
+  const rank: Record<Kind, number> = { root: 0, ligue: 1, comite: 2, pole: 3, club: 4 }
   const writes: Write[] = []
   for (const key of order.map((k) => planned.get(k)!).sort((a, b) => rank[a.kind] - rank[b.kind]).map((w) => w.row.code!)) {
     const w = planned.get(key)!
@@ -456,7 +516,7 @@ export function planUndo(record: ImportRecord, units: readonly (UnitRow & { upda
     const { updatedAt: _u, ...rest } = u
     return rest as UnitRow
   }
-  const rank: Record<Kind, number> = { club: 0, comite: 1, ligue: 2, root: 3 }
+  const rank: Record<Kind, number> = { club: 0, pole: 1, comite: 2, ligue: 3, root: 4 }
   return {
     ok: true,
     restore: record.items.filter((i) => i.before).map((i) => strip(i.before as UnitRow & { updatedAt?: number })),
