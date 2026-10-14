@@ -45,6 +45,7 @@ export const ERROR_TEXT: Record<string, string> = {
   phrase_trop_longue: 'Phrase trop longue : 300 caractères au plus.',
   phrase_absente: 'Tapez ou dictez une phrase d’abord.',
   question_illisible: 'Question pas comprise pour l’instant : reformulez-la, ou réessayez.',
+  sql_illisible: 'Mode avancé : réponse pas comprise pour l’instant. Reformulez la question, ou réessayez.',
 }
 
 export class DictationError extends Error {
@@ -240,6 +241,58 @@ export async function understandQuestion(ep: Endpoint, phrase: string, schema: R
   }
   return {
     recette: d.recette ?? {},
+    nonGere: Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : [],
+    ms: d.ms,
+    restantMois: d.restant_mois,
+    restantJour: d.restant_jour,
+  }
+}
+
+/** Réponse du mode avancé (POST ?mode=sql) : requête brute (l'appli la recontrôle, src/sqlGuard.ts), explication, affichage. */
+export type SqlAnswer = { sql: string; explication: string; affichage: string; nonGere: string[]; ms?: number; restantMois?: number; restantJour?: number }
+/** Correction demandée après une erreur de SQLite : la requête et le message d'erreur seulement, jamais de données. */
+export type SqlRetry = { sql: string; erreur: string }
+
+/**
+ * « Poser une question », mode avancé (POST ?mode=sql, JSON) : envoie seulement la phrase, la DESCRIPTION des tables de la
+ * copie locale (src/sqlMirror.ts, buildSqlSchema) et, pour une correction, la requête précédente avec l'erreur de SQLite.
+ * Aucune donnée de joueur ; la requête est exécutée par l'appli sur sa copie locale, jamais sur le serveur.
+ */
+export async function understandSql(ep: Endpoint, phrase: string, schema: Record<string, string>, precedent?: SqlRetry, signal?: AbortSignal): Promise<SqlAnswer> {
+  const text = phrase.replace(/\s+/g, ' ').trim()
+  if (!text) throw new DictationError('phrase_absente')
+  if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
+  const f = ep.fetch ?? fetch
+  let res: Response
+  try {
+    res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=sql', {
+      method: 'POST',
+      headers: { ...ep.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phrase: text,
+        schema,
+        ...(precedent ? { precedent: { sql: precedent.sql.slice(0, 4200), erreur: precedent.erreur.replace(/\s+/g, ' ').slice(0, 300) } } : {}),
+      }),
+      signal,
+    })
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Question annulée.')
+    throw new DictationError('reseau')
+  }
+  let d: { sql?: unknown; explication?: unknown; affichage?: unknown; nonGere?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  try {
+    d = await res.json()
+  } catch {
+    /* réponse vide */
+  }
+  if (!res.ok) {
+    const code = d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur')
+    throw new DictationError(code === 'reponse_illisible' ? 'sql_illisible' : code)
+  }
+  return {
+    sql: typeof d.sql === 'string' ? d.sql : '',
+    explication: typeof d.explication === 'string' ? d.explication : '',
+    affichage: typeof d.affichage === 'string' ? d.affichage : 'tableau',
     nonGere: Array.isArray(d.nonGere) ? d.nonGere.filter((x): x is string => typeof x === 'string') : [],
     ms: d.ms,
     restantMois: d.restant_mois,

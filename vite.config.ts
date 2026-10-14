@@ -57,6 +57,13 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: { cacheName: 'pdfjs', expiration: { maxEntries: 6 } },
           },
+          // SQLite WASM (mode avancé de « Poser une question », ~650 Ko) : jamais installé d'avance, gardé en cache au
+          // premier usage (les questions enregistrées se relancent ensuite hors ligne).
+          {
+            urlPattern: ({ url }) => /\/assets\/sql-wasm[\w.-]*\.wasm$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: { cacheName: 'sqlite-wasm', expiration: { maxEntries: 2 } },
+          },
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
             handler: 'CacheFirst',

@@ -59,6 +59,9 @@ import {
 import { deleteQuestion, saveQuestion, useSavedQuestions } from '../savedQuestions'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
+import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult, type MirrorSource } from '../components/SqlAnswer'
+import { useDictation } from '../dictation/useDictation'
+import { decodeSqlSpec, encodeSqlSpec, type SqlSpec } from '../sqlGuard'
 import { ask } from '../components/Confirm'
 import { ContextBar, ContextRoster, useLeaveTo } from '../components/ContextRoster'
 import { FollowStar } from '../components/Follow'
@@ -79,7 +82,10 @@ import PlayerDetail from './PlayerDetail'
  *    « Retirer » ; chaque changement remplace l'adresse (pas de nouvelle entrée d'historique) ;
  *  - réponse : nombre, liste de joueurs (lignes standard, fiche dans son contexte), tableau (une ligne ouvre sa liste),
  *    ou carte de France (part de la population qui répond, région → département → club → joueurs, comme le bilan) ;
- *  - « Enregistrer cette question » (nom, valeurs qui deviennent des variables) → « Mes questions », relancées sans envoi.
+ *  - « Enregistrer cette question » (nom, valeurs qui deviennent des variables) → « Mes questions », relancées sans envoi ;
+ *  - MODE AVANCÉ (src/components/SqlAnswer.tsx) : /bilan/question?s=<requête> ; quand la recette ne sait rien répondre
+ *    (« Je ne sais pas encore… »), bascule automatique ; quand une partie n'est pas prise en compte, bouton « Essayer en mode
+ *    avancé ». Requête SQLite écrite par le modèle, exécutée seulement sur une copie locale jetable (jamais sur Supabase).
  * Ordinateur : question et « Mes questions » à gauche (1/3), réponse à droite (2/3). Uniquement des formulations
  * positives ou neutres sur les jeunes (« pas encore vus », tri croissant / décroissant).
  */
@@ -138,6 +144,8 @@ function useQuestionData() {
         criteria: alive(criteria),
         groups: alive(groups).filter((g) => can.seeGroup(g)),
         events: alive(events),
+        // Mode avancé (copie locale en tables, src/sqlMirror.ts) : avis tels quels, en attente compris (colonne « valide »).
+        rawEvals: evals.filter((e) => !e.deleted && e.review !== 'refused' && !(e.eventId && dead.has(e.eventId))),
       }
     },
     [],
@@ -197,13 +205,41 @@ function useQuestionModel() {
     }),
     [index, data, regionLabel, deptName],
   )
-  return { data, index, ctx, names }
+  const byId = useMemo(() => new Map((data?.players ?? []).map((p) => [p.id, p])), [data])
+  // Mode avancé : données de la copie locale (construite seulement à la première requête, src/sqlClient.ts).
+  const source = useMemo<MirrorSource>(
+    () =>
+      data && index
+        ? () => ({
+            players: data.players,
+            sights: data.sights,
+            evals: data.rawEvals,
+            measures: data.measures,
+            criteria: data.criteria,
+            groups: data.groups,
+            events: data.events,
+            deptOf: department,
+            regionOf: (d) => regionOfDept(d),
+            regionName: names.region,
+            deptName: (c) => names.dept(c).replace(/ \([^)]*\)$/, ''),
+            zoneOf: index.data.zoneOf,
+            staffName: names.staff!,
+            today: today(),
+          })
+        : null,
+    [data, index, names],
+  )
+  return { data, index, ctx, names, byId, source }
 }
 
 type Model = ReturnType<typeof useQuestionModel>
-type HistState = Partial<AskState> & { notes?: string[]; unsupported?: string[]; saved?: string }
+/** autoSql : la recette n'a rien su répondre, bascule en mode avancé (une fois) ; advanced : réponse venue du mode avancé. */
+type HistState = Partial<AskState> & { notes?: string[]; unsupported?: string[]; saved?: string; autoSql?: boolean; advanced?: 'auto' | 'button' }
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
+const encSql = (s: SqlSpec) => `s=${encodeURIComponent(encodeSqlSpec(s))}`
+/** Bascules automatiques déjà lancées (une par arrivée, même si l'écran est rendu deux fois). */
+const autoStarted = new Set<string>()
 const fr = (n: number, d = 0) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
 
 /** Recette de l'adresse, et ses changements (sans nouvelle entrée d'historique : le retour reste sur cette réponse). */
@@ -212,6 +248,8 @@ function useRecipeParam() {
   const loc = useLocation()
   const raw = params.get('r')
   const recipe = useMemo(() => decodeRecipe(raw), [raw])
+  const rawSql = params.get('s')
+  const sqlSpec = useMemo(() => decodeSqlSpec(rawSql), [rawSql])
   const set = (r: Recipe, keepMap = false) => {
     const q = new URLSearchParams()
     q.set('r', encodeRecipe(r))
@@ -226,7 +264,7 @@ function useRecipeParam() {
     }
     setParams(q, { replace: true, state: loc.state })
   }
-  return { recipe, params, set, setMap, search: `?${params.toString()}` }
+  return { recipe, sqlSpec, params, set, setMap, search: `?${params.toString()}` }
 }
 
 // ---------- Page ----------
@@ -237,21 +275,39 @@ export default function Question() {
   const nav = useNavigate()
   const st = (loc.state ?? {}) as HistState
   const model = useQuestionModel()
-  const { recipe, params, set, setMap, search } = useRecipeParam()
+  const { recipe, sqlSpec, params, set, setMap, search } = useRecipeParam()
   const side = useMedia(MQ.side)
   const [saving, setSaving] = useState(false)
+  const { sqlReady } = useDictation()
+  const adv = useAdvancedAsk(model.source, model.data?.criteria ?? [], model.index?.data.zoneOf ?? undefined)
+  /** Mode avancé : la requête prête remplace (bascule automatique) ou s'ajoute à (bouton) l'historique. */
+  const advanced = async (how: 'auto' | 'button') => {
+    const spec = await adv.ask(st.heard)
+    if (spec) nav(`/bilan/question?${encSql(spec)}`, { replace: how === 'auto', state: { heard: st.heard, advanced: how } satisfies HistState })
+  }
 
   // Recette brute qui vient d'arriver (AskQuestion) : relue avec les listes de l'appli, puis mise dans l'adresse.
   const pending = !params.get('r') && st.raw !== undefined
   useEffect(() => {
     if (!pending || !model.ctx) return
     const it = interpretRecipe(st.raw, st.nonGere, model.ctx)
-    nav(`/bilan/question?${enc(it.recipe)}`, { replace: true, state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported } satisfies HistState })
+    nav(`/bilan/question?${enc(it.recipe)}`, {
+      replace: true,
+      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql: answersNothing(it.recipe, it.unsupported) } satisfies HistState,
+    })
   }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ni population, ni condition, ni tri parlant : « Je ne sais pas encore répondre », jamais une liste par défaut.
   const nothing = !!recipe && answersNothing(recipe, st.unsupported)
-  const answer = useMemo(() => (model.index && recipe && !nothing ? runRecipe(model.index, recipe) : null), [model.index, recipe, nothing])
+  const answer = useMemo(() => (model.index && recipe && !nothing && !sqlSpec ? runRecipe(model.index, recipe) : null), [model.index, recipe, nothing, sqlSpec])
+
+  // La recette ne sait rien répondre : bascule automatique en mode avancé (un appel de plus), une fois par arrivée.
+  const autoNow = !!recipe && nothing && !!st.autoSql && sqlReady && !!model.source && !!st.heard
+  useEffect(() => {
+    if (!autoNow || autoStarted.has(loc.key)) return
+    autoStarted.add(loc.key)
+    void advanced('auto')
+  }, [autoNow, loc.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!model.index || pending) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -259,8 +315,19 @@ export default function Question() {
   const left = (
     <div className="flex flex-col gap-3">
       <AskQuestion />
-      {recipe && nothing ? (
-        <NotUnderstood heard={st.heard} unsupported={st.unsupported} />
+      {sqlSpec ? (
+        <SqlExplain key={sqlSpec.sql} spec={sqlSpec} advanced={st.advanced} heard={st.heard} saved={st.saved} />
+      ) : adv.busy ? (
+        <AdvancedBusy heard={st.heard} onCancel={adv.cancel} />
+      ) : recipe && nothing ? (
+        <>
+          {adv.error && (
+            <p className="text-[11px] text-red-300" role="alert">
+              {adv.error}
+            </p>
+          )}
+          <NotUnderstood heard={st.heard} unsupported={st.unsupported} />
+        </>
       ) : recipe ? (
         <>
           <div className="flex flex-col gap-1">
@@ -268,9 +335,21 @@ export default function Question() {
             {st.saved && <p className="text-[11px] text-muted">Ma question : « {st.saved} »</p>}
             <RecipeChips recipe={recipe} names={model.names} model={model} onChange={(r) => set(r, r.out.type === 'map')} />
             {!!st.unsupported?.length && (
-              <p className="rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
-                <b>Pas pris en compte :</b> {st.unsupported.join(' ; ')}
-              </p>
+              <div className="flex flex-col items-start gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
+                <p>
+                  <b>Pas pris en compte :</b> {st.unsupported.join(' ; ')}
+                </p>
+                {sqlReady && st.heard && model.source && (
+                  <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => void advanced('button')}>
+                    <span aria-hidden>✨</span> Essayer en mode avancé
+                  </button>
+                )}
+                {adv.error && (
+                  <span className="text-red-300" role="alert">
+                    {adv.error}
+                  </span>
+                )}
+              </div>
             )}
             {!!st.notes?.length && <p className="text-[11px] text-muted">Non appliqué : {st.notes.join(' ; ')}</p>}
           </div>
@@ -301,7 +380,8 @@ export default function Question() {
           {left}
         </aside>
         <section className="min-w-0">
-          {recipe && answer && model.index && (
+          {sqlSpec && <SqlAnswerView spec={sqlSpec} source={model.source} byId={model.byId} search={search} />}
+          {!sqlSpec && recipe && answer && model.index && (
             <AnswerView recipe={recipe} answer={answer} model={model} index={model.index} params={params} search={search} setRecipe={set} setMap={setMap} />
           )}
         </section>
@@ -593,6 +673,7 @@ function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: Chip; re
         : table
           ? [
               { value: 'share', label: r.out.value === 'seen' || !hasConditions(r) ? 'Part vue' : 'Part qui répond' },
+              { value: 'count', label: 'Nombre de joueurs' },
               { value: 'avg', label: 'Moyenne d’avis' },
             ]
           : [
@@ -1208,7 +1289,9 @@ export function SavedQuestions({ model, open: startOpen = false }: { model?: Mod
   const [open, setOpen] = useState(startOpen)
   const [asking, setAsking] = useState<string | null>(null)
   if (!saved.length) return null
-  const launch = (q: SavedQuestion, v: VarValues = {}) => (setAsking(null), nav(`/bilan/question?${enc(applyVars(q.recipe, v))}`, { state: { saved: q.name } satisfies HistState }))
+  const launch = (q: SavedQuestion, v: VarValues = {}) => (
+    setAsking(null), nav(`/bilan/question?${q.sql ? encSql(q.sql) : enc(applyVars(q.recipe, v))}`, { state: { saved: q.name } satisfies HistState })
+  )
   return (
     <section className="card flex flex-col gap-2 p-3">
       <button type="button" className="flex min-h-9 items-center gap-2 text-left text-sm font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -1223,7 +1306,7 @@ export function SavedQuestions({ model, open: startOpen = false }: { model?: Mod
               <span className="min-w-[11rem] flex-1">
                 <span className="block text-xs font-bold">{q.name}</span>
                 <span className="block text-[10px] text-muted">
-                  {model ? recipeText(q.recipe, model.names) : q.phrase}
+                  {q.sql ? `Mode avancé · ${q.sql.explanation}` : model ? recipeText(q.recipe, model.names) : q.phrase}
                   {q.vars.length > 0 && ` · à choisir : ${q.vars.map((v) => VAR_TEXT[v]).join(', ')}`}
                 </span>
               </span>
@@ -1275,14 +1358,21 @@ export function QuestionPlayers() {
   const role = useRole()
   const split = useMedia(MQ.split)
   const model = useQuestionModel()
-  const { recipe, params, search } = useRecipeParam()
-  const answer = useMemo(() => (model.index && recipe ? runRecipe(model.index, recipe) : null), [model.index, recipe])
-  const players = useMemo(() => answerIds(recipe, answer, model.index, params), [recipe, answer, model.index, params])
+  const { recipe, sqlSpec, params, search } = useRecipeParam()
+  const answer = useMemo(() => (model.index && recipe && !sqlSpec ? runRecipe(model.index, recipe) : null), [model.index, recipe, sqlSpec])
+  // Mode avancé : les joueurs de la requête (même résultat, gardé en mémoire), avec ses colonnes en clair.
+  const sqlRes = useSqlResult(sqlSpec, model.source)
+  const sqlRows = useMemo(() => sqlPlayers(sqlRes.res ?? null, model.byId), [sqlRes.res, model.byId])
+  const players = useMemo(
+    () => (sqlSpec ? sqlRows.players : answerIds(recipe, answer, model.index, params)),
+    [sqlSpec, sqlRows, recipe, answer, model.index, params],
+  )
   const leave = useLeaveTo(`/bilan/question${search}`, 'QUESTION')
   const value = useMemo(() => {
+    if (sqlSpec) return (p: Player) => sqlRows.extra.get(p.id) ?? ''
     const m = new Map((answer?.rows ?? []).map((r) => [r.p.id, r]))
     return (p: Player) => (recipe ? valueText(recipe, model.names, m.get(p.id)?.value, m.get(p.id)?.tag) : '')
-  }, [answer, recipe, model.names])
+  }, [answer, recipe, model.names, sqlSpec, sqlRows])
   const base = '/bilan/question/joueurs'
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!pid) return <Navigate to={`/bilan/question${search}`} replace />
@@ -1308,7 +1398,7 @@ export function QuestionPlayers() {
             search={search}
             back={leave}
             count={players.length ? `${players.length.toLocaleString('fr-FR')} dans la réponse` : ''}
-            sections={[{ heading: recipe ? recipeText(recipe, model.names) : null, players }]}
+            sections={[{ heading: sqlSpec ? sqlSpec.explanation : recipe ? recipeText(recipe, model.names) : null, players }]}
             detail={(p) => [p.birthDate?.slice(0, 4), value(p)].filter(Boolean).join(' · ')}
             actions={(p) => ({ follow: <FollowStar id={p.id} /> })}
           />

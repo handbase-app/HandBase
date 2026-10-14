@@ -1,8 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import { parseSaved, type Recipe, type SavedQuestion, type VarKey } from './recipe'
+import { cleanRecipe, parseSaved, type Recipe, type SavedQuestion, type VarKey } from './recipe'
+import type { SqlSpec } from './sqlGuard'
 
 /*
- * « Mes questions » (bilan de détection) : questions enregistrées, relancées sans appel au modèle (la recette suffit).
+ * « Mes questions » (bilan de détection) : questions enregistrées, relancées sans appel au modèle (la recette suffit ; mode
+ * avancé : la requête SQL, recontrôlée et relancée sur la copie locale, sans variables).
  * Gardées SUR CET APPAREIL (localStorage) : aucune table synchronisée ne convient sans changer la base (les profils
  * recherchés, `alerts`, sont des filtres partagés d'une autre forme). Chaque lecture est revérifiée (parseSaved) ;
  * stockage indisponible (navigation privée) : gardées jusqu'au rechargement.
@@ -61,6 +63,21 @@ export function saveQuestion(name: string, recipe: Recipe, vars: VarKey[], phras
     vars,
     ...(phrase ? { phrase: phrase.slice(0, 300) } : {}),
     at: Date.now(),
+  }
+  write([q, ...read()])
+  return q
+}
+
+/** Question du mode avancé : la requête (déjà contrôlée) et son explication ; relancée telle quelle, sans appel. */
+export function saveSqlQuestion(name: string, sql: SqlSpec, phrase?: string): SavedQuestion {
+  const q: SavedQuestion = {
+    id: `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    name: name.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Ma question',
+    recipe: cleanRecipe({}),
+    vars: [],
+    ...(phrase ? { phrase: phrase.slice(0, 300) } : {}),
+    at: Date.now(),
+    sql,
   }
   write([q, ...read()])
   return q

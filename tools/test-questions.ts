@@ -510,6 +510,18 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
     assert.deepEqual(r.out, { type: 'list', sort: { by: 'priority', dir: 'desc' }, limit: 20 })
     assert.equal(recipeText(r, names), 'Bretagne · liste · cette saison (2026-2027) · tri : à voir en priorité · 20 premiers')
   },
+  "combien de joueurs s'appellent Lucas": (r, a) => {
+    assert.deepEqual(r.pop, { names: ['Lucas'] })
+    assert.equal(r.out.type, 'count')
+    assert.equal(recipeText(r, names), 'prénom ou nom : Lucas · combien ?')
+    assert.equal(a.count, 0, 'aucun Lucas dans le jeu fictif')
+    assert.ok(!answersNothing(r), 'une population : réponse')
+  },
+  'quel club a le plus de pivots gauchers': (r, a) => {
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' } })
+    assert.equal(recipeText(r, names), 'Pivot · gauchers · par club · tri : nombre de joueurs ↓')
+    assert.deepEqual(a.table!.map((x) => [x.key, x.match]), [['as fictive', 1], ['hbc exemple', 1]])
+  },
   'quels joueurs ont changé de club cette année ?': (r) => {
     assert.ok(answersNothing(r, ['changé de club']), 'pas compris : « Je ne sais pas encore répondre »')
   },
@@ -528,6 +540,53 @@ for (const { phrase, answer } of examples) {
   const text = recipeText(it.recipe, names)
   assert.ok(!/mauvais|nul|faible|pire|pas retenu|insuffisant|régress/i.test(text), text)
 }
+// ---------- Recherche par prénom ou nom (sans accents, mots entiers) ----------
+{
+  const named = buildIndex({
+    ...data,
+    players: [
+      ...players,
+      pl('l1', '2010-01-01', 'M', 'HBC Exemple', '83', { firstName: 'Lúcas', lastName: 'Martin' }),
+      pl('l2', '2011-01-01', 'M', 'AS Fictive', '83', { firstName: 'Lucas', lastName: 'Lefèvre-Dubois' }),
+      pl('l3', '2011-01-01', 'M', 'AS Fictive', '83', { firstName: 'Lucasio', lastName: 'Martinez' }),
+      pl('l4', '2011-01-01', 'F', 'AS Fictive', '83', { firstName: 'Jean-Pierre', lastName: 'Lucas' }),
+    ],
+  })
+  const byName = (raw: unknown) => {
+    const it = interpretRecipe({ population: raw, sortie: { type: 'liste' } }, [], ctx)
+    assert.equal(it.notes.length, 0, it.notes.join(' | '))
+    return ids(runRecipe(named, it.recipe).match)
+  }
+  assert.deepEqual(byName({ noms: ['Lucas'] }), ['l1', 'l2', 'l4'], 'prénom ou nom, sans accents, mot entier (pas « Lucasio »)')
+  assert.deepEqual(byName({ nom: 'lucas martin' }), ['l1'], 'tous les mots')
+  assert.deepEqual(byName({ noms: ['Lefevre'] }), ['l2'], 'nom composé, sans accents')
+  assert.deepEqual(byName({ prenom: 'Jean Pierre' }), ['l4'], 'trait d’union = espace')
+  assert.deepEqual(byName({ prenom: 'Jeanpierre' }), ['l4'], 'prénom composé écrit collé')
+  assert.deepEqual(byName({ noms: ['Lucas'], sexe: 'F' }), ['l4'])
+  const r = interpretRecipe({ population: { noms: ['Lucas'] }, sortie: { type: 'nombre' } }, [], ctx).recipe
+  assert.deepEqual(decodeRecipe(encodeRecipe(r)), r, 'nom dans l’adresse')
+  assert.equal(removeChip(r, 'names').pop.names, undefined)
+  assert.equal(cleanRecipe({ pop: { names: ['x'.repeat(41), 3, ''] } }).pop.names, undefined, 'noms illisibles écartés')
+}
+
+// ---------- Tri des tableaux par nombre (« le club qui a le plus de… ») ----------
+{
+  const ask = (sortie: Record<string, unknown>) => interpretRecipe({ sortie }, [], ctx)
+  for (const tri of ['compte', 'nombre', 'effectif', 'nombre de joueurs']) {
+    const it = ask({ type: 'tableau', par: 'club', tri, ordre: 'decroissant' })
+    assert.deepEqual(it.unsupported, [], `tri « ${tri} » reconnu`)
+    assert.deepEqual(it.recipe.out.sort, { by: 'count', dir: 'desc' })
+  }
+  const asc = ask({ type: 'tableau', par: 'departement', tri: 'compte', ordre: 'croissant' })
+  const rows = runRecipe(ix, asc.recipe).table!
+  assert.deepEqual(rows.map((x) => x.key), ['75', '13', '83'], 'du plus petit au plus grand nombre')
+  assert.deepEqual(ask({ type: 'tableau', par: 'club', ordre: 'decroissant' }).recipe.out.sort, { by: 'count', dir: 'desc' }, 'ordre seul sur un tableau : par nombre')
+  // Liste : tri par nombre sans objet, ignoré sans « Pas pris en compte ».
+  const l = ask({ type: 'liste', tri: 'compte' })
+  assert.deepEqual(l.unsupported, [])
+  assert.equal(l.recipe.out.sort, undefined)
+}
+
 const chars = consignes.length + Object.entries(schema).map(([k, v]) => `${k} : ${v}`).join('\n').length
 console.log(`Consignes « question » : ${examples.length} exemples, ≈ ${chars} caractères avec la description (≈ ${Math.round(chars / 3.5)} jetons)`)
 assert.ok(chars < 16000, 'consignes compactes')
@@ -572,7 +631,7 @@ assert.ok(acc.modes?.includes('question'))
 
 // ---------- Fonction : garde-fous du mode ----------
 const qFn = fn.slice(fn.indexOf('async function questionRecette'))
-assert.ok(fn.includes("'filtres_groupes', 'question']"), 'GET : modes annonce « question »')
+assert.ok(fn.includes("'filtres_groupes', 'question', 'sql']"), 'GET : modes annonce « question » (et « sql », mode avancé)')
 assert.ok(fn.includes("searchParams.get('mode') === 'question') return await questionRecette"), 'routage du mode')
 assert.ok(qFn.includes("hb_transcription_compter"), 'un appel compté')
 assert.ok(qFn.includes('avecRelance('), 'relance sur 429')

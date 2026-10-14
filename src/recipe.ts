@@ -21,6 +21,8 @@ import { birthYear, clubKey, seasonOf, type Tally } from './coverage'
 import { categoryKind, isRadarZone, RADAR_ZONES, type RadarZone } from './radarZones'
 import { asText, bestMatch, matchDept, matchRegion, normalize, parseSex, quote, type Places } from './voiceFilters'
 import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSearch'
+import { nameKey, nameTokens } from './nameMatch'
+import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
 
 // ---------- Recette ----------
 
@@ -38,9 +40,9 @@ export type GroupBy = 'club' | 'dept' | 'region' | 'year' | 'position' | 'sex' |
 /**
  * Tri. Liste : nom, année, taille, vus, moyenne (ou score combiné), nombre d'avis, mesure, progression (écart entre les
  * deux derniers avis), priorité (« à voir en priorité », règle fixe expliquée à l'écran). Tableau : part (part vue, ou
- * part qui répond), moyenne, vus et avis (staff).
+ * part qui répond), nombre de joueurs qui répondent (« le club qui a le plus de… »), moyenne, vus et avis (staff).
  */
-export type SortBy = 'name' | 'year' | 'height' | 'seen' | 'avg' | 'nbAvis' | 'measure' | 'progress' | 'priority' | 'share'
+export type SortBy = 'name' | 'year' | 'height' | 'seen' | 'avg' | 'nbAvis' | 'measure' | 'progress' | 'priority' | 'share' | 'count'
 export type OutType = 'count' | 'list' | 'table' | 'map'
 export type PoleWanted = 'current' | 'past' | 'any'
 
@@ -61,6 +63,8 @@ export type Population = {
   groups?: string[]
   events?: string[]
   pole?: PoleWanted
+  /** Prénoms ou noms dits (« s'appellent Lucas ») : chaque mot est un mot du prénom ou du nom, sans accents ni majuscules. */
+  names?: string[]
 }
 
 export type SeenRule = {
@@ -110,6 +114,8 @@ export const DEFAULT_LIMIT = 50
 export const HEIGHT_ID = 'taille'
 const MAX_ITEMS = 20
 const MAX_ID = 120
+const MAX_NAME = 40
+const MAX_NAMES_POP = 5
 
 // ---------- Contexte de l'appli (listes réelles, jamais envoyées hors schéma) ----------
 
@@ -156,7 +162,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
   return {
     aujourdhui: `${ctx.today} (saison ${s.label} : du 1er septembre au 31 août)`,
     population:
-      'objet, clés facultatives : sexe (M ou F), annee (entier) ou annees {de, a}, postes [codes], clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous)',
+      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees {de, a}, postes [codes], clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous)',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
     vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
     avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5)} ; score combiné : sur "combine", nom [liste de noms]',
@@ -167,7 +173,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
     mesures: 'liste facultative : {critere (nom de mesure), op (>= | <=), valeur}',
     mesuresPossibles: names(mes) || 'aucune',
     sortie:
-      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe | staff), valeur (compte | part_vus | moyenne), garder (certains | tous | aucun), tri (part_vus | moyenne | vus | nbAvis), ordre ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure | progression | priorite), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} (ou {sur:"combine", nom:[noms]}) et mesure (nom) pour le tri ou la colonne ; periode (de la part vue, du staff, de la priorité)',
+      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe | staff), valeur (compte | part_vus | moyenne), garder (certains | tous | aucun), tri (compte | part_vus | moyenne | vus | nbAvis), ordre ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure | progression | priorite), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} (ou {sur:"combine", nom:[noms]}) et mesure (nom) pour le tri ou la colonne ; periode (de la part vue, du staff, de la priorité)',
   }
 }
 
@@ -274,7 +280,7 @@ export type Interpreted = {
 }
 
 const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie', 'nonGere']
-const KNOWN_POP = ['sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax', 'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole']
+const KNOWN_POP = ['noms', 'nom', 'prenom', 'prenoms', 'sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax', 'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole']
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
 
@@ -380,6 +386,7 @@ const SORT_WORDS: Record<string, SortBy> = {
   moyenne: 'avg', note: 'avg', notes: 'avg', avis: 'avg', score: 'avg', nbavis: 'nbAvis', 'nb avis': 'nbAvis', 'nombre d avis': 'nbAvis', mesure: 'measure', mesures: 'measure',
   progression: 'progress', progres: 'progress', evolution: 'progress', priorite: 'priority', prioritaire: 'priority', prioritaires: 'priority', 'a voir': 'priority',
   part: 'share', 'part vus': 'share', 'part vue': 'share', pourcentage: 'share', taux: 'share',
+  compte: 'count', nombre: 'count', effectif: 'count', effectifs: 'count', count: 'count', 'nombre de joueurs': 'count', joueurs: 'count', nb: 'count',
 }
 
 /**
@@ -406,6 +413,14 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   // Population.
   const p = isObj(top.population) ? top.population : {}
   unknown(p, KNOWN_POP, 'population ')
+  // Prénoms ou noms : recopiés tels que dits, cherchés sans accents (mots entiers du prénom ou du nom).
+  const nameList: string[] = []
+  for (const v of [...asList(p.noms), ...asList(p.nom), ...asList(p.prenom), ...asList(p.prenoms)]) {
+    const t = asText(v).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME)
+    if (!t || !nameKey(t)) skip(`nom ${quote(v)}`, 'illisible')
+    else if (!nameList.some((x) => nameKey(x) === nameKey(t))) nameList.push(t)
+  }
+  if (nameList.length) r.pop.names = nameList.slice(0, MAX_NAMES_POP)
   if (present(p.sexe)) {
     const v = parseSex(p.sexe)
     if (v) r.pop.sex = v
@@ -629,7 +644,11 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     const o = normalize(asText(s.ordre))
     const dir = /^(croiss|asc|du plus petit|du moins)/.test(o) ? 'asc' : /^(decroiss|desc|du plus grand|du plus haut)/.test(o) ? 'desc' : undefined
     if (!dir) skip(`ordre ${quote(s.ordre)}`, 'valeur inconnue')
-    else r.out.sort = { by: r.out.sort?.by ?? (r.out.avg || r.avis.length ? 'avg' : r.out.type === 'table' && r.out.value === 'seen' ? 'share' : 'name'), dir }
+    else
+      r.out.sort = {
+        by: r.out.sort?.by ?? (r.out.avg || r.avis.length ? 'avg' : r.out.type === 'table' ? (r.out.value === 'seen' ? 'share' : 'count') : 'name'),
+        dir,
+      }
   }
   if (present(s.limite)) {
     const n = parseNumber(s.limite)
@@ -642,7 +661,7 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
 
 /** Tris possibles d'une liste et d'un tableau. */
 const LIST_SORTS: readonly SortBy[] = ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure', 'progress', 'priority']
-const TABLE_SORTS: readonly SortBy[] = ['share', 'avg']
+const TABLE_SORTS: readonly SortBy[] = ['share', 'avg', 'count']
 const STAFF_SORTS: readonly SortBy[] = ['seen', 'nbAvis']
 
 export const hasConditions = (r: Recipe) => !!(r.seen || r.avis.length || r.nbAvis || r.measures.length)
@@ -756,6 +775,8 @@ export function cleanRecipe(v: unknown): Recipe {
   if (hand) pop.hand = hand
   const pole = oneOf(p.pole, ['current', 'past', 'any'] as const)
   if (pole) pop.pole = pole
+  const nm = (Array.isArray(p.names) ? p.names : []).filter((x): x is string => okId(x) && x.length <= MAX_NAME && !!nameKey(x)).slice(0, MAX_NAMES_POP)
+  if (nm.length) pop.names = nm
   const r: Recipe = { pop, avis: [], measures: [], out: { type: oneOf(isObj(o.out) ? o.out.type : undefined, ['count', 'list', 'table', 'map'] as const) ?? 'list' } }
   if (isObj(o.seen)) {
     const by = oneOf(o.seen.by, ['event', 'person'] as const) ?? 'event'
@@ -787,7 +808,7 @@ export function cleanRecipe(v: unknown): Recipe {
   const keep = oneOf(out.keep, ['some', 'all', 'none'] as const)
   if (keep && keep !== 'some') r.out.keep = keep
   if (isObj(out.sort)) {
-    const by = oneOf(out.sort.by, ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure', 'progress', 'priority', 'share'] as const)
+    const by = oneOf(out.sort.by, ['name', 'year', 'height', 'seen', 'avg', 'nbAvis', 'measure', 'progress', 'priority', 'share', 'count'] as const)
     const dir = oneOf(out.sort.dir, ['asc', 'desc'] as const)
     if (by && dir) r.out.sort = { by, dir }
   }
@@ -1075,6 +1096,7 @@ const now = () => (typeof performance !== 'undefined' ? performance.now() : Date
 function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): boolean {
   const i = ix.info.get(p.id)!
   if (pop.sex && p.sex !== pop.sex) return false
+  if (pop.names && !namesMatch(pop.names, p)) return false
   if (pop.years) {
     const y = Number(i.year)
     if (!i.year || y < pop.years[0] || y > pop.years[1]) return false
@@ -1095,6 +1117,15 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
     if (pop.pole === 'any' ? !st : st !== pop.pole) return false
   }
   return true
+}
+
+/** Chaque mot de chaque nom dit est un mot entier du prénom ou du nom (sans accents ; « Jean-Pierre » = « jean pierre »). */
+function namesMatch(names: string[], p: QPlayer): boolean {
+  const toks = new Set(nameTokens(p))
+  // Prénom ou nom composé écrit collé (« Jeanpierre »).
+  toks.add(nameKey(p.firstName ?? '').replace(/ /g, ''))
+  toks.add(nameKey(p.lastName ?? '').replace(/ /g, ''))
+  return names.every((n) => nameKey(n).split(' ').every((w) => toks.has(w)))
 }
 
 /** Pôle Espoirs (même règle que db.ts poleStatus, sans la base). */
@@ -1233,6 +1264,7 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe): Answer<P
       // Inconnu (club non renseigné, année inconnue…) à la fin ; années : la plus récente d'abord.
       if (!a.key !== !b.key) return !a.key ? 1 : -1
       if (sort?.by === 'share') return cmp(shareOf(a), shareOf(b)) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
+      if (sort?.by === 'count') return k * (a.match - b.match) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
       if (sort?.by === 'avg' || r.out.value === 'avg') return (sort ? cmp(a.avg, b.avg) : (b.avg ?? -1) - (a.avg ?? -1)) || b.match - a.match
       if (by === 'year') return b.key.localeCompare(a.key)
       return (keep === 'some' ? b.match - a.match : 0) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
@@ -1387,6 +1419,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   const e = f ? 'es' : 's'
   const p = r.pop
   if (p.sex) c.push({ key: 'sex', label: f ? 'Joueuses' : 'Garçons', edit: 'sex', removable: true })
+  if (p.names) c.push({ key: 'names', label: `prénom ou nom : ${list(p.names)}`, removable: true })
   if (p.years)
     c.push({ key: 'years', label: p.years[0] === p.years[1] ? `né${e} en ${p.years[0]}` : `né${e} de ${p.years[0]} à ${p.years[1]}`, edit: 'years', removable: true })
   if (p.positions) c.push({ key: 'positions', label: list(p.positions.map(names.position)), removable: true })
@@ -1447,7 +1480,18 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   if (usesOutPeriod(r) && !(o.type === 'table' && o.value === 'seen'))
     c.push({ key: 'outPeriod', label: periodText(o.period ?? r.seen?.period ?? { kind: 'season' }, names.today), edit: 'outPeriod', removable: false })
   if (o.type === 'table' && o.sort) {
-    const what = o.groupBy === 'staff' ? (o.sort.by === 'nbAvis' ? 'avis écrits' : 'joueurs vus') : o.sort.by === 'avg' ? avgText(avgT, names) : o.value === 'seen' ? 'part vue' : 'part qui répond'
+    const what =
+      o.groupBy === 'staff'
+        ? o.sort.by === 'nbAvis'
+          ? 'avis écrits'
+          : 'joueurs vus'
+        : o.sort.by === 'count'
+          ? 'nombre de joueurs'
+          : o.sort.by === 'avg'
+            ? avgText(avgT, names)
+            : o.value === 'seen'
+              ? 'part vue'
+              : 'part qui répond'
     c.push({ key: 'sort', label: `tri : ${what} ${arrow(o.sort.dir)}`, edit: 'sort', removable: true })
   }
   if (o.type === 'list') {
@@ -1463,6 +1507,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
       progress: `évolution entre les deux derniers avis (${avgText(avgT, names)})`,
       priority: 'à voir en priorité',
       share: 'part',
+      count: 'nombre',
     }
     c.push({ key: 'sort', label: s.by === 'priority' ? `tri : ${what.priority}` : `tri : ${what[s.by]} ${arrow(s.dir)}`, edit: 'sort', removable: !!o.sort })
     c.push({ key: 'limit', label: `${o.limit ?? DEFAULT_LIMIT} premiers`, edit: 'limit', removable: false })
@@ -1480,7 +1525,7 @@ export function removeChip(r: Recipe, key: string): Recipe {
   if (k === 'height') {
     delete x.pop.hMin
     delete x.pop.hMax
-  } else if (k in x.pop || ['sex', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole'].includes(k)) delete x.pop[k as keyof Population]
+  } else if (k in x.pop || ['sex', 'names', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole'].includes(k)) delete x.pop[k as keyof Population]
   else if (k === 'seen') delete x.seen
   else if (k === 'avis') x.avis.splice(Number(i), 1)
   else if (k === 'measure') x.measures.splice(Number(i), 1)
@@ -1559,7 +1604,8 @@ export function applyVars(r: Recipe, v: VarValues): Recipe {
   return cleanRecipe(x)
 }
 
-export type SavedQuestion = { id: string; name: string; recipe: Recipe; vars: VarKey[]; phrase?: string; at: number }
+/** Question enregistrée : une recette, ou (mode avancé) une requête SQL relancée telle quelle sur la copie locale, sans variables. */
+export type SavedQuestion = { id: string; name: string; recipe: Recipe; vars: VarKey[]; phrase?: string; at: number; sql?: SqlSpec }
 const VAR_KEYS = Object.keys(VAR_TEXT) as VarKey[]
 
 /** « Mes questions » lues dans le stockage : chaque question revérifiée, les illisibles ignorées. */
@@ -1568,15 +1614,19 @@ export function parseSaved(raw: unknown): SavedQuestion[] {
   const out: SavedQuestion[] = []
   for (const q of raw.slice(0, 100)) {
     if (!isObj(q) || !okId(q.id) || typeof q.name !== 'string' || !q.name.trim()) continue
-    const recipe = cleanRecipe(q.recipe)
+    // Mode avancé : requête recontrôlée ; illisible ou refusée : question écartée.
+    const sql = q.sql === undefined ? undefined : cleanSqlSpec(q.sql)
+    if (sql === null) continue
+    const recipe = sql ? cleanRecipe({}) : cleanRecipe(q.recipe)
     const can = possibleVars(recipe)
     out.push({
       id: q.id,
       name: q.name.replace(/\s+/g, ' ').trim().slice(0, 80),
       recipe,
-      vars: Array.isArray(q.vars) ? q.vars.filter((v): v is VarKey => VAR_KEYS.includes(v as VarKey) && can.includes(v as VarKey)) : [],
+      vars: !sql && Array.isArray(q.vars) ? q.vars.filter((v): v is VarKey => VAR_KEYS.includes(v as VarKey) && can.includes(v as VarKey)) : [],
       ...(typeof q.phrase === 'string' && q.phrase.trim() ? { phrase: q.phrase.slice(0, 300) } : {}),
       at: typeof q.at === 'number' && Number.isFinite(q.at) ? q.at : 0,
+      ...(sql ? { sql } : {}),
     })
   }
   return out

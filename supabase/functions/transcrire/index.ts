@@ -20,6 +20,13 @@
 //   description envoyée par l'appli (src/recipe.ts : clés, opérateurs, valeurs permises). Seuls la phrase et cette
 //   description partent : aucune donnée de joueur, aucun nom de club, de lieu, de groupe ou d'événement (recopiés tels que
 //   dits, retrouvés par l'appli). L'appli revérifie chaque champ et calcule la réponse sur l'appareil. Un appel compté.
+// - POST ?mode=sql (JSON) : { phrase, schema, precedent? } → { sql, explication, affichage, nonGere, ms, model, restant_mois,
+//   restant_jour } : « mode avancé » de « Poser une question », quand la recette ne sait pas répondre. Le modèle
+//   (MISTRAL_MODELE_SQL, codestral-latest par défaut, température 0, JSON) écrit UNE requête SQLite en lecture d'après la
+//   DESCRIPTION des tables de la copie locale (src/sqlMirror.ts : colonnes, valeurs possibles ; aucune donnée, aucun nom).
+//   L'appli recontrôle la requête et l'exécute seulement dans le navigateur, sur une copie jetable de ses données locales :
+//   jamais de SQL sur la base Supabase. `precedent` { sql, erreur } : une seule correction après une erreur SQLite (la
+//   requête et le message d'erreur, jamais de données). Un appel compté.
 // - Plafonds : TRANSCRIRE_QUOTA_MOIS appels par mois civil (heure de Paris, 2000 par défaut) pour tous,
 //   TRANSCRIRE_QUOTA_JOUR appels par jour et par compte (200 par défaut) ; au-delà : erreur « quota_atteint »
 //   ou « quota_jour_atteint ». Compteurs : supabase/042_quota_transcription.sql (des nombres seulement).
@@ -27,7 +34,7 @@
 //
 // Secrets (Edge Functions > Secrets) : MISTRAL_API_KEY ; facultatifs : TRANSCRIRE_QUOTA_MOIS, TRANSCRIRE_QUOTA_JOUR,
 // MISTRAL_MODELE (voxtral-mini-latest par défaut), MISTRAL_MODELE_FILTRES, MISTRAL_MODELE_AVIS et MISTRAL_MODELE_QUESTION
-// (mistral-small-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
+// (mistral-small-latest par défaut), MISTRAL_MODELE_SQL (codestral-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 // Déploiement : voir README.md à côté.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -119,8 +126,9 @@ Deno.serve(async (req) => {
       max_octets: MAX_OCTETS,
       // Modes de POST connus de cette version (l'appli n'affiche la recherche vocale que si « filtres » y est ; celle des
       // Événements et des Groupes, que si leur mode y est : consignes propres à ces pages, champ « page »).
-      // « question » : « Poser une question » au bilan de détection (recette calculée par l'appli, POST ?mode=question).
-      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question'],
+      // « question » : « Poser une question » au bilan de détection (recette calculée par l'appli, POST ?mode=question) ;
+      // « sql » : son mode avancé (requête SQLite exécutée par l'appli sur sa copie locale, POST ?mode=sql).
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'sql'],
     })
   }
 
@@ -128,6 +136,7 @@ Deno.serve(async (req) => {
   if (filtres) return await rechercheFiltres(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'avis') return await avisVocal(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'question') return await questionRecette(req, db, userId, cle, maxMois, maxJour, json)
+  if (new URL(req.url).searchParams.get('mode') === 'sql') return await requeteSql(req, db, userId, cle, maxMois, maxJour, json)
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_OCTETS + 64 * 1024) return json({ error: 'trop_gros' }, 413)
 
@@ -534,6 +543,7 @@ RÈGLES
 - Seulement les clés et les valeurs du SCHÉMA ; omets ce qui n'est pas demandé ; n'invente aucune valeur.
 - Clubs, régions, départements, groupes, événements : recopie le nom dit (« Var », « 83 », « PACA », « Toulon »).
 - « nés en 2010 », « les 2010 » → annee 2010 ; « 2010 et 2011 », « de 2010 à 2012 » → annees {"de":…,"a":…}. « filles », « joueuses » → sexe F ; « garçons » → M ; « joueurs » seul ne fixe pas le sexe.
+- Prénom ou nom : « s'appellent Lucas », « les Martin », « prénommées Léa » → noms ["Lucas"] (recopié tel que dit).
 - Taille : « 1 m 85 », « 1,85 » → 185 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax.
 - Vus : « vus », « ont été vus », « déjà vus » sans nombre → op ">=" n 1 ; « vu une fois », « une seule fois » → "=" 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
 - Période : SEULEMENT si la phrase en dit une, sinon omets periode (l'appli prend la saison en cours et l'affiche). « cette saison » → saison ; « dans l'année », « sur un an », « 12 derniers mois » → 12mois ; « depuis toujours », « jamais » → toujours ; « depuis septembre », « depuis le 1er janvier 2026 » → periode depuis + depuis (mois dit ou date AAAA-MM-JJ).
@@ -547,6 +557,7 @@ RÈGLES
 - « quel département / club / région est le plus en retard », « le moins vu », « où aller » → tableau, valeur part_vus, tri part_vus, ordre croissant ; « le plus vu », « le plus en avance » → ordre decroissant.
 - « quel coach », « qui du staff », « quel observateur » a vu le plus de joueurs → tableau par staff, tri vus ; « a écrit le plus d'avis » → tri nbAvis. Jamais de nom de personne.
 - « les clubs où personne n'a été vu » → vus aucun, tableau par club, garder tous.
+- « quel club (département, génération…) a le plus de … » → tableau par cette dimension, tri compte, ordre decroissant (« le moins de » : croissant).
 - Ce qui ne rentre dans aucune clé va dans "nonGere" (à côté de "recette", jamais dedans) en quelques mots. Si rien n'est traduisible : "recette":{}.
 
 EXEMPLES
@@ -572,6 +583,8 @@ EXEMPLES
 « la région où les 2011 sont le plus vus » → {"recette":{"population":{"annee":2011},"sortie":{"type":"tableau","par":"region","valeur":"part_vus","tri":"part_vus","ordre":"decroissant"}},"nonGere":[]}
 « les joueurs qui ont le plus progressé entre leurs deux derniers avis » → {"recette":{"sortie":{"type":"liste","tri":"progression","ordre":"decroissant","limite":20}},"nonGere":[]}
 « si je n'ai qu'un week-end, quels joueurs prioritaires je dois aller voir en Bretagne ? » → {"recette":{"population":{"regions":["Bretagne"]},"sortie":{"type":"liste","tri":"priorite","limite":20}},"nonGere":[]}
+« combien de joueurs s'appellent Lucas » → {"recette":{"population":{"noms":["Lucas"]},"sortie":{"type":"nombre"}},"nonGere":[]}
+« quel club a le plus de pivots gauchers » → {"recette":{"population":{"postes":["PIV"],"lateralite":"gaucher"},"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant"}},"nonGere":[]}
 « quels joueurs ont changé de club cette année ? » → {"recette":{},"nonGere":["changé de club"]}`
 
 async function questionRecette(
@@ -656,4 +669,145 @@ async function questionRecette(
     .map((x) => x.trim().slice(0, 80))
     .slice(0, 10)
   return json({ recette, nonGere, ms, model: modele, ...restants })
+}
+
+// ---------- « Poser une question », mode avancé : requête SQLite (POST ?mode=sql) ----------
+// Entrée (JSON) : { phrase, schema, precedent? } : la phrase (300 caractères au plus), la DESCRIPTION des tables de la copie
+// locale construite par l'appli (src/sqlMirror.ts, buildSqlSchema : colonnes, valeurs possibles, postes, catégories et
+// critères des réglages, date du jour ; aucune donnée, aucun nom de joueur, de club, de lieu ou de personne) et, pour une
+// seule correction, la requête précédente avec le message d'erreur de SQLite (jamais de lignes de résultat).
+// Sortie : { sql, explication, affichage, nonGere, ms, model, restant_mois, restant_jour }. La requête n'est JAMAIS exécutée
+// ici ni sur la base Supabase : l'appli la recontrôle (src/sqlGuard.ts : un seul SELECT / WITH, aucun mot qui écrit,
+// LIMIT 500) et l'exécute dans le navigateur, sur une copie jetable en lecture seule de ses données locales.
+// Modèle : MISTRAL_MODELE_SQL (codestral-latest par défaut), température 0, JSON. Les exemples sont exécutés par
+// tools/test-sql.ts sur un jeu fictif (résultat attendu pour chacun). Ni la phrase ni la réponse ne sont journalisées.
+
+const MAX_SQL = 4_000
+const MAX_ERREUR = 300
+const AFFICHAGES = ['nombre', 'liste', 'tableau', 'carte']
+
+const CONSIGNES_SQL = `Tu écris UNE requête SQLite pour répondre à la question d'un entraîneur de handball (détection de jeunes). L'appli l'exécute elle-même, en lecture seule, sur une copie locale de ses données : tu ne vois aucune donnée.
+Réponds seulement par ce JSON : {"sql":"…","explication":"…","affichage":"nombre|liste|tableau|carte","nonGere":[]}
+
+RÈGLES
+- SQLite seulement ; une seule instruction SELECT (ou WITH … SELECT), sans point-virgule, sans commentaire ; seulement les tables et colonnes du SCHÉMA, n'en invente aucune.
+- Jamais PRAGMA, ATTACH, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, REPLACE (ni la fonction replace()), VACUUM ; pas de paramètre (?).
+- LIMIT 500 au plus ; mets LIMIT quand tu listes ou classes.
+- Joueurs listés : toujours la colonne joueur_id (joueurs.id AS joueur_id), puis nom, prenom et les valeurs utiles.
+- Noms dits (prénom, nom, club, région, département, groupe, événement, catégorie, critère, personne du staff) : compare sans accents ni majuscules, sans_accents(colonne) = 'lucas' ou sans_accents(colonne) LIKE '%toulon%' (texte écrit sans accents, en minuscules).
+- Département dit par son nom : sans_accents(departement_nom) ; par son numéro : departement = '83'.
+- Moyennes d'avis : notes.note_sur5 avec notes.valide = 1 ; catégorie (« en défense ») : jointure criteres sur critere_id et sans_accents(criteres.categorie) LIKE '%defens%' ; critère nommé : sans_accents(criteres.libelle).
+- Dates en texte AAAA-MM-JJ ; « cette saison » : entre les dates de la saison en cours (aujourdhui) ; jamais date('now') : prends la date d'aujourdhui donnée (les dates des exemples sont celles de la saison 2026-2027).
+- « vu par N coachs » : COUNT(DISTINCT vus.staff) ; « vu à N événements » : COUNT(DISTINCT vus.evenement_id).
+- Colonnes calculées : noms courts en minuscules avec _ (nb_joueurs, moyenne_defense, taille_moyenne_cm).
+- explication : une phrase courte en français qui dit ce qui est compté, positive ou neutre (jamais « mauvais », « faible », « nul », « pas retenu » : dis « pas encore », « au plus », « moins de »).
+- affichage : nombre (une seule valeur), liste (des joueurs), tableau (lignes regroupées), carte (par département : colonne departement et une valeur).
+- Si les tables ne permettent pas de répondre : "sql":"" et la raison en quelques mots dans "nonGere".
+- Si on te donne une requête précédente et l'erreur de SQLite : corrige cette requête.
+
+EXEMPLES
+« combien de joueurs s'appellent Lucas » → {"sql":"SELECT COUNT(*) AS nb_joueurs FROM joueurs WHERE sans_accents(prenom) = 'lucas'","explication":"Nombre de joueurs dont le prénom est Lucas (sans tenir compte des accents).","affichage":"nombre","nonGere":[]}
+« quel club a le plus de pivots gauchers » → {"sql":"SELECT club, COUNT(*) AS nb_joueurs FROM joueurs WHERE poste = 'PIV' AND lateralite = 'gaucher' AND club IS NOT NULL GROUP BY club ORDER BY nb_joueurs DESC, club LIMIT 10","explication":"Clubs classés par nombre de pivots gauchers.","affichage":"tableau","nonGere":[]}
+« les joueurs vus par 3 coachs différents mais jamais notés au-dessus de 3 en défense » → {"sql":"SELECT j.id AS joueur_id, j.nom, j.prenom, COUNT(DISTINCT v.staff) AS nb_coachs FROM joueurs j JOIN vus v ON v.joueur_id = j.id WHERE v.staff IS NOT NULL GROUP BY j.id HAVING COUNT(DISTINCT v.staff) >= 3 AND NOT EXISTS (SELECT 1 FROM notes n JOIN criteres c ON c.id = n.critere_id WHERE n.joueur_id = j.id AND sans_accents(c.categorie) LIKE '%defens%' AND n.note_sur5 > 3) ORDER BY nb_coachs DESC, j.nom LIMIT 500","explication":"Joueurs vus par au moins 3 personnes du staff, dont les notes de défense restent à 3 sur 5 au plus (ou pas encore notés en défense).","affichage":"liste","nonGere":[]}
+« moyenne de taille par poste chez les 2010 » → {"sql":"SELECT poste, ROUND(AVG(taille_cm), 1) AS taille_moyenne_cm, COUNT(*) AS nb_joueurs FROM joueurs WHERE annee = 2010 AND taille_cm IS NOT NULL GROUP BY poste ORDER BY taille_moyenne_cm DESC","explication":"Taille moyenne des joueurs nés en 2010 qui ont une taille mesurée, par poste.","affichage":"tableau","nonGere":[]}
+« les joueurs qui peuvent aussi jouer pivot » → {"sql":"SELECT id AS joueur_id, nom, prenom, poste FROM joueurs WHERE ',' || postes_secondaires || ',' LIKE '%,PIV,%' ORDER BY nom, prenom LIMIT 500","explication":"Joueurs qui ont pivot dans leurs postes secondaires.","affichage":"liste","nonGere":[]}
+« quel coach a vu le plus de joueurs différents dans le Var » → {"sql":"SELECT v.staff, COUNT(DISTINCT v.joueur_id) AS nb_joueurs FROM vus v JOIN joueurs j ON j.id = v.joueur_id WHERE j.departement = '83' AND v.staff IS NOT NULL GROUP BY v.staff ORDER BY nb_joueurs DESC LIMIT 10","explication":"Personnes du staff classées par nombre de joueurs différents du Var vus.","affichage":"tableau","nonGere":[]}
+« la moyenne en attaque des joueuses 2011 par club » → {"sql":"SELECT j.club, ROUND(AVG(n.note_sur5), 2) AS moyenne_attaque, COUNT(DISTINCT j.id) AS nb_joueuses FROM joueurs j JOIN notes n ON n.joueur_id = j.id JOIN criteres c ON c.id = n.critere_id WHERE j.sexe = 'F' AND j.annee = 2011 AND n.valide = 1 AND sans_accents(c.categorie) LIKE '%attaque%' GROUP BY j.club ORDER BY moyenne_attaque DESC","explication":"Moyenne des notes d'attaque (sur 5) des joueuses nées en 2011, par club.","affichage":"tableau","nonGere":[]}
+« combien d'avis ont été écrits chaque mois depuis le 1er septembre 2026 » → {"sql":"SELECT substr(date, 1, 7) AS mois, COUNT(*) AS nb_avis FROM avis WHERE date >= '2026-09-01' GROUP BY mois ORDER BY mois","explication":"Nombre d'avis écrits par mois depuis le 1er septembre 2026.","affichage":"tableau","nonGere":[]}
+« les joueurs du groupe Intercomités qui n'ont pas encore de mesure de CMJ » → {"sql":"SELECT j.id AS joueur_id, j.nom, j.prenom FROM joueurs j JOIN groupe_joueurs gj ON gj.joueur_id = j.id JOIN groupes g ON g.id = gj.groupe_id WHERE sans_accents(g.nom) LIKE '%intercomites%' AND NOT EXISTS (SELECT 1 FROM mesures m JOIN criteres c ON c.id = m.critere_id WHERE m.joueur_id = j.id AND sans_accents(c.libelle) LIKE 'cmj%') ORDER BY j.nom, j.prenom LIMIT 500","explication":"Joueurs du groupe Intercomités sans mesure de CMJ pour l'instant.","affichage":"liste","nonGere":[]}
+« quelle génération compte le plus de gauchers » → {"sql":"SELECT annee, COUNT(*) AS nb_gauchers FROM joueurs WHERE lateralite = 'gaucher' AND annee IS NOT NULL GROUP BY annee ORDER BY nb_gauchers DESC, annee DESC","explication":"Nombre de gauchers par année de naissance.","affichage":"tableau","nonGere":[]}
+« le gardien le plus grand de chaque département » → {"sql":"SELECT joueur_id, nom, prenom, departement, taille_cm FROM (SELECT id AS joueur_id, nom, prenom, departement, taille_cm, ROW_NUMBER() OVER (PARTITION BY departement ORDER BY taille_cm DESC) AS rang FROM joueurs WHERE poste = 'GB' AND taille_cm IS NOT NULL AND departement IS NOT NULL) WHERE rang = 1 ORDER BY departement LIMIT 500","explication":"Dans chaque département, le gardien avec la plus grande taille mesurée.","affichage":"liste","nonGere":[]}
+« combien de joueurs par département ont été vus cette saison » → {"sql":"SELECT j.departement, COUNT(DISTINCT j.id) AS nb_joueurs FROM joueurs j JOIN vus v ON v.joueur_id = j.id WHERE v.date BETWEEN '2026-09-01' AND '2027-08-31' AND j.departement IS NOT NULL GROUP BY j.departement ORDER BY nb_joueurs DESC","explication":"Nombre de joueurs différents vus cette saison, par département.","affichage":"carte","nonGere":[]}
+« quels joueurs ont changé de club cette année ? » → {"sql":"","explication":"","affichage":"tableau","nonGere":["l'historique des clubs n'est pas dans les données"]}`
+
+async function requeteSql(
+  req: Request,
+  db: Db,
+  userId: string,
+  cle: string,
+  maxMois: number,
+  maxJour: number,
+  json: (body: unknown, status?: number) => Response,
+): Promise<Response> {
+  const taille = Number(req.headers.get('content-length') ?? 0)
+  if (taille > MAX_SCHEMA + MAX_SQL + 8192) return json({ error: 'trop_gros' }, 413)
+  let entree: { phrase?: unknown; schema?: unknown; precedent?: unknown }
+  try {
+    entree = await req.json()
+  } catch {
+    return json({ error: 'requete_illisible' }, 400)
+  }
+  const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
+  if (!phrase) return json({ error: 'phrase_absente' }, 400)
+  if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
+  // Description des tables : une ligne « table : colonnes » par entrée (textes seulement), rien d'autre.
+  const schema =
+    entree.schema && typeof entree.schema === 'object' && !Array.isArray(entree.schema)
+      ? Object.entries(entree.schema as Record<string, unknown>)
+          .filter(([, v]) => typeof v === 'string')
+          .map(([k, v]) => `${k.slice(0, 40)} : ${v}`)
+          .join('\n')
+      : ''
+  if (!schema || schema.length > MAX_SCHEMA) return json({ error: 'schema_invalide' }, 400)
+  // Correction (une seule, décidée par l'appli) : la requête précédente et le message de SQLite, rien d'autre.
+  const p = entree.precedent && typeof entree.precedent === 'object' && !Array.isArray(entree.precedent) ? (entree.precedent as Record<string, unknown>) : null
+  const precedent =
+    p && typeof p.sql === 'string' && typeof p.erreur === 'string' && p.sql.length <= MAX_SQL + 200
+      ? { sql: p.sql.trim(), erreur: p.erreur.replace(/\s+/g, ' ').trim().slice(0, MAX_ERREUR) }
+      : null
+
+  // Plafonds : un appel compté par requête (correction comprise).
+  const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
+  if (quotaError) return json({ error: 'quota_indisponible' }, 500)
+  if (!quota?.ok) return json({ error: quota?.raison ?? 'quota_atteint', restant_mois: quota?.restant_mois ?? 0, restant_jour: quota?.restant_jour ?? 0 }, 429)
+
+  const modele = Deno.env.get('MISTRAL_MODELE_SQL') || 'codestral-latest'
+  const t0 = performance.now()
+  const question = precedent
+    ? `« ${phrase} »\nRequête précédente :\n${precedent.sql}\nErreur de SQLite : ${precedent.erreur}\nCorrige la requête.`
+    : `« ${phrase} »`
+  const res = await avecRelance(() => fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modele,
+      temperature: 0,
+      max_tokens: 1200,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${CONSIGNES_SQL}\n\nSCHÉMA (table : colonnes)\n${schema}` },
+        { role: 'user', content: question },
+      ],
+    }),
+  }))
+  const ms = Math.round(performance.now() - t0)
+  const restants = { restant_mois: quota.restant_mois, restant_jour: quota.restant_jour }
+  if (!res.ok) {
+    console.error('transcrire (sql) : Mistral a répondu', res.status)
+    await res.body?.cancel()
+    const error = res.status === 429 ? 'mistral_limite' : res.status === 401 ? 'mistral_cle' : 'mistral_erreur'
+    return json({ error, status: res.status, ...restants }, 502)
+  }
+  // La réponse du modèle n'est jamais journalisée (elle reprend la phrase).
+  let sortie: Record<string, unknown> = {}
+  try {
+    const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
+    const contenu = out.choices?.[0]?.message?.content
+    const texte = typeof contenu === 'string' ? contenu : Array.isArray(contenu) ? contenu.map((c) => (c as { text?: string })?.text ?? '').join('') : ''
+    sortie = JSON.parse(texte.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+  } catch {
+    return json({ error: 'reponse_illisible', ...restants }, 502)
+  }
+  if (!sortie || typeof sortie !== 'object' || Array.isArray(sortie)) return json({ error: 'reponse_illisible', ...restants }, 502)
+  // Forme seulement (l'appli recontrôle tout) : une requête qui commence par SELECT ou WITH, de taille raisonnable.
+  let sql = typeof sortie.sql === 'string' ? sortie.sql.trim().replace(/^```(?:sql)?\s*|\s*```$/g, '') : ''
+  if (sql.length > MAX_SQL || (sql && !/^(select|with)\b/i.test(sql))) sql = ''
+  const liste = (v: unknown): unknown[] => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : [])
+  const nonGere = liste(sortie.nonGere)
+    .filter((x): x is string => typeof x === 'string' && !!x.trim())
+    .map((x) => x.trim().slice(0, 120))
+    .slice(0, 5)
+  const explication = typeof sortie.explication === 'string' ? sortie.explication.replace(/\s+/g, ' ').trim().slice(0, 400) : ''
+  const affichage = AFFICHAGES.includes(sortie.affichage as string) ? sortie.affichage : 'tableau'
+  return json({ sql, explication, affichage, nonGere, ms, model: modele, ...restants })
 }

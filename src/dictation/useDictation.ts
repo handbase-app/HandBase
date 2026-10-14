@@ -16,11 +16,14 @@ import {
   transcribe,
   understandFilters,
   understandQuestion,
+  understandSql,
   type Access,
   type AccessStatus,
   type Endpoint,
   type FilterAnswer,
   type QuestionAnswer,
+  type SqlAnswer,
+  type SqlRetry,
   type Transcript,
 } from './transcribe'
 
@@ -175,6 +178,8 @@ export function useDictation() {
     avisReady: ready && !!access?.value.avis,
     // « Poser une question » au bilan : comme la recherche vocale, et la fonction déployée annonce « question ».
     questionReady: searchReady && !!access?.value.modes?.includes('question'),
+    // Mode avancé de « Poser une question » (requête SQL exécutée sur la copie locale) : la fonction annonce « sql ».
+    sqlReady: searchReady && !!access?.value.modes?.includes('question') && !!access?.value.modes?.includes('sql'),
     enabled,
     access: allowed ? access?.value : undefined,
     setEnabled: setDictationEnabled,
@@ -187,6 +192,23 @@ export async function sendQuestionRequest(phrase: string, schema: Record<string,
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandQuestion(ep, phrase, schema, signal)
+    if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
+    return r
+  } catch (e) {
+    const code = e instanceof DictationError ? e.code : ''
+    const lost: Record<string, AccessStatus> = { pas_admin: 'pas_admin', absent: 'absent', cle_absente: 'sans_cle' }
+    if (lost[code]) remember(ep.uid, { status: lost[code] })
+    if (code === 'quota_atteint' && access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: 0 })
+    throw e
+  }
+}
+
+/** « Poser une question », mode avancé : la phrase, la description des tables et (correction) la requête avec l'erreur SQLite. */
+export async function sendSqlRequest(phrase: string, schema: Record<string, string>, precedent?: SqlRetry, signal?: AbortSignal): Promise<SqlAnswer> {
+  const ep = await endpoint()
+  if (!ep) throw new DictationError('non_connecte')
+  try {
+    const r = await understandSql(ep, phrase, schema, precedent, signal)
     if (access?.uid === ep.uid) remember(ep.uid, { ...access.value, restantMois: r.restantMois, restantJour: r.restantJour })
     return r
   } catch (e) {

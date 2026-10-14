@@ -33,7 +33,8 @@ Supabase (projet de test) → *Edge Functions* → *Secrets* → *Add new secret
   `TRANSCRIRE_QUOTA_JOUR` (appels par jour et par compte, 200 par défaut),
   `MISTRAL_MODELE` (`voxtral-mini-latest` par défaut),
   `MISTRAL_MODELE_FILTRES` (`mistral-small-latest` par défaut, recherche de joueurs),
-  `MISTRAL_MODELE_AVIS` et `MISTRAL_MODELE_QUESTION` (`mistral-small-latest` par défaut : avis vocal, « Poser une question »).
+  `MISTRAL_MODELE_AVIS` et `MISTRAL_MODELE_QUESTION` (`mistral-small-latest` par défaut : avis vocal, « Poser une question »),
+  `MISTRAL_MODELE_SQL` (`codestral-latest` par défaut : mode avancé de « Poser une question »).
 
 ## 4. Déploiement
 
@@ -171,7 +172,9 @@ personne depuis septembre »… La **réponse est calculée sur l'appareil** (do
   population, sans condition ni tri parlant affiche « Je ne sais pas encore répondre à … » avec des exemples, jamais une
   liste par défaut ; une question comprise en partie affiche la réponse et « Pas pris en compte : … ».
 - Modèle : `mistral-small-latest` (secret facultatif `MISTRAL_MODELE_QUESTION`), température 0, réponse JSON ; consignes
-  courtes en français avec 23 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 10 500 caractères avec la description).
+  courtes en français avec 25 exemples (`CONSIGNES_QUESTION` dans `index.ts`, ≈ 11 100 caractères avec la description).
+- Recherche par prénom ou nom (« combien de joueurs s'appellent Lucas » → `population.noms`, cherché sans accents, mots
+  entiers du prénom ou du nom) ; tri des tableaux par nombre (« quel club a le plus de pivots gauchers » → `tri: compte`).
 - Mêmes garde-fous : administrateur connecté, JWT, un appel compté (`hb_transcription_compter`), relance sur 429, ni la
   phrase ni la réponse journalisées. Erreurs en plus : `phrase_absente`, `phrase_trop_longue`, `schema_invalide`,
   `reponse_illisible`.
@@ -188,3 +191,44 @@ npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
 ```
 
 Puis se déconnecter et se reconnecter (ou nouvel onglet) : « Poser une question » apparaît dans le bilan de détection.
+
+## 9. « Poser une question », mode avancé (`?mode=sql`)
+
+Quand la recette ne sait pas répondre (« Je ne sais pas encore répondre à… »), l'appli bascule **automatiquement** en mode
+avancé (un appel de plus) ; quand elle a répondu en partie (« Pas pris en compte : … »), un bouton « Essayer en mode
+avancé » le propose. Le modèle écrit une **requête SQLite**, que l'appli exécute **uniquement dans le navigateur**, sur une
+**copie jetable** de ses données locales. **Jamais de SQL sur la base Supabase** ; IndexedDB n'est jamais modifiée.
+
+- Requête : `POST ?mode=sql`, JSON `{ phrase, schema, precedent? }` : la phrase (300 caractères au plus) et la
+  **description des tables** de la copie (`src/sqlMirror.ts`, `buildSqlSchema` : colonnes, postes, catégories et critères
+  des réglages, types d'événements, date du jour). **Aucune donnée, aucun nom** de joueur, de club, de lieu, de groupe,
+  d'événement ou de personne. `precedent` `{ sql, erreur }` : **une seule** correction après une erreur de SQLite (la
+  requête et le message d'erreur, jamais de lignes de résultat).
+- Réponse : `{ sql, explication, affichage, nonGere, ms, model, restant_mois, restant_jour }` ; `affichage` : `nombre`,
+  `liste`, `tableau` ou `carte`. La fonction ne garde que la forme (une requête qui commence par SELECT ou WITH, 4 000
+  caractères au plus) ; `sql` vide et `nonGere` si les tables ne permettent pas de répondre.
+- Modèle : `codestral-latest` (secret facultatif `MISTRAL_MODELE_SQL`), température 0, réponse JSON ; consignes en français
+  avec 13 exemples (`CONSIGNES_SQL` dans `index.ts`, ≈ 9 800 caractères avec la description) : SQLite seulement, une seule
+  instruction SELECT / WITH, LIMIT 500 au plus, colonne `joueur_id` quand on liste des joueurs, comparaison des noms par
+  `sans_accents(…)`, explication courte positive ou neutre.
+- Dans l'appli : la requête est **recontrôlée** (`src/sqlGuard.ts` : une seule instruction, commence par SELECT ou WITH,
+  refus d'ATTACH, PRAGMA, INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, REPLACE, VACUUM, des fonctions de chargement et des
+  tables internes, LIMIT 500 ajouté ou ramené), puis exécutée dans un **Web Worker** (sql.js, SQLite WASM ≈ 330 Ko
+  compressé, chargé seulement au premier usage) sur la copie **en lecture seule** (`PRAGMA query_only`), coupée au-delà de
+  3 secondes. Copie construite à la première requête (≈ 0,6 s pour 40 000 joueurs), gardée tant qu'on reste dans le bilan,
+  refaite quand les données changent. Pas de commentaires ni de textes libres des coachs dans la copie.
+- Écran : « Réponse en mode avancé », « Ce que j'ai calculé : … », résultat (nombre, joueurs cliquables vers leur fiche avec
+  Retour exact, ou tableau), « Voir la requête » ; « Enregistrer cette question » : relancée ensuite sans appel.
+- Mêmes garde-fous : administrateur connecté, JWT, un appel compté par requête (correction comprise,
+  `hb_transcription_compter`), relance sur 429, rien journalisé. Le GET annonce `sql` dans `modes` : sans lui, l'appli
+  garde « Je ne sais pas encore répondre » (rétrocompatible).
+- Test (sans appel réseau) : `npx jiti tools/test-sql.ts` (copie construite depuis un jeu fictif, contrôle des requêtes,
+  chaque exemple des consignes exécuté avec le résultat attendu, 40 000 joueurs, aucune donnée dans ce qui part).
+
+Redéploiement (base de test, depuis la racine du dépôt ; aucun secret ni SQL en plus) :
+
+```sh
+npx supabase functions deploy transcrire --project-ref ieatjtylxjoxiuewecuh
+```
+
+Puis se déconnecter et se reconnecter (ou nouvel onglet) : le mode avancé est proposé dans « Poser une question ».
