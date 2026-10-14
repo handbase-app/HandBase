@@ -85,6 +85,7 @@ function PositionsEditor({ editable }: { editable: boolean }) {
       <SectionTitle info="Libellés affichés partout (fiches, listes, filtres, exports, questions). Les codes sont ceux enregistrés dans les fiches : ils ne changent jamais.">
         Sport : {cfg.sportName}
       </SectionTitle>
+      <Fold summary={`Postes : ${cfg.positions.map((p) => p.short || p.code).join(' · ')}`} editable={editable} keepOpen={changed}>
       <p className="text-[11px] text-muted">
         Postes. Les codes ({draft.map((p) => p.code).join(', ')}) restent les mêmes : seuls le libellé, le libellé court, l’ordre
         et la famille (gardien / champ) se règlent.
@@ -150,6 +151,7 @@ function PositionsEditor({ editable }: { editable: boolean }) {
           )}
         </div>
       )}
+      </Fold>
     </section>
   )
 }
@@ -180,6 +182,7 @@ function LevelsSection({ editable }: { editable: boolean }) {
       <SectionTitle info="Les échelons de l’organisation, du plus large au plus local (Fédération, Ligue, Comité, Pôle, Club…). L’ordre sert à ranger l’arbre ; une unité peut être rattachée à n’importe quel niveau au-dessus (un pôle directement à la ligue).">
         Niveaux
       </SectionTitle>
+      <Fold summary={levels.map((l) => l.name).join(' › ')} editable={editable} keepOpen={!levels.length}>
       <div className="divide-y divide-line rounded-lg border border-line">
         {levels.map((l, i) => (
           <LevelRow key={`${l.id}:${l.name}`} l={l} editable={editable} used={levelInUse(units, l.id)} first={i === 0} last={i === levels.length - 1} onMove={(d) => void move(i, d)} />
@@ -199,7 +202,23 @@ function LevelsSection({ editable }: { editable: boolean }) {
           </button>
         </div>
       )}
+      </Fold>
     </section>
+  )
+}
+
+/** Réglage rarement modifié (rempli d'avance pour le handball) : une ligne résumé, dépliée à la demande. */
+function Fold({ summary, editable, keepOpen, children }: { summary: string; editable: boolean; keepOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  if (keepOpen) return <>{children}</>
+  return (
+    <>
+      <button className={`btn-ghost ${TAP} justify-between gap-2 text-left text-xs`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="truncate">{summary}</span>
+        <span className="shrink-0 text-muted">{open ? 'Replier' : editable ? 'Modifier' : 'Voir'}</span>
+      </button>
+      {open && children}
+    </>
   )
 }
 
