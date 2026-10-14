@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
+import { fold } from './PlayerFilter'
 import { Icon, SectionTitle, Segmented } from './ui'
 import { ZonePicker } from './ZonePicker'
 
@@ -242,7 +243,11 @@ export function Members() {
   const seenOf = (id: string) => (seen ? (seen[id] ?? null) : undefined)
 
   const admins = list?.filter((p) => p.role === 'admin') ?? []
-  const staff = list?.filter((p) => p.role !== 'admin') ?? []
+  const [q, setQ] = useState('')
+  // Recherche par nom, prénom ou email (tous les mots, sans accents) : des milliers de comptes à terme. Le membre ouvert reste affiché.
+  const words = fold(q).split(/\s+/).filter(Boolean)
+  const allStaff = list?.filter((p) => p.role !== 'admin') ?? []
+  const staff = allStaff.filter((p) => p.user_id === open || words.every((w) => fold(`${p.full_name ?? ''} ${p.email ?? ''}`).includes(w)))
 
   return (
     <section className="card flex flex-col gap-2 p-4">
@@ -293,6 +298,17 @@ export function Members() {
         )
       )}
 
+      {list && allStaff.length > 8 && (
+        <input
+          className="field min-h-11 py-1 text-xs"
+          type="search"
+          value={q}
+          aria-label="Chercher un membre"
+          placeholder={`Chercher parmi ${allStaff.length} membres (nom, prénom, email)…`}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      )}
+      {list && words.length > 0 && !staff.length && <p className="text-[11px] text-muted">Aucun membre ne correspond.</p>}
       {list && (
         <div className="divide-y divide-line rounded-lg border border-line">
           {staff.map((p) =>
