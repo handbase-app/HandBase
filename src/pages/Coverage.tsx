@@ -434,6 +434,7 @@ type View = 'map' | 'years'
 const VIEW_KEY = 'handbase.bilan.view'
 /** Vue France : couleur par région (celle qu'on touche) ou par département. */
 const MAP_BY_KEY = 'handbase.bilan.mapBy'
+const CLUBS_AS_KEY = 'handbase.bilan.clubsAs'
 /** Derniers choix de la session (adresse du bilan sans paramètre : menu, accueil). */
 const QUERY_KEY = 'handbase.bilan.q'
 const UNKNOWN_YEAR = 'inconnue'
@@ -450,6 +451,8 @@ export type BilanState = {
   period: CoveragePeriod
   view: View
   mapBy: 'region' | 'dept'
+  /** Ordinateur, un club choisi dans un département avec ses clubs sur la carte : à gauche, la carte (points) ou la liste des clubs. */
+  clubsAs: 'map' | 'list'
   year: string | null
   region: string
   dept: string
@@ -471,6 +474,7 @@ function parseBilan(q: URLSearchParams): BilanState {
     period: p === 'saison' ? 'season' : p === 'tout' ? 'all' : readKey<CoveragePeriod>(PERIOD_KEY, ['season', 'all'], 'season'),
     view: v === 'carte' ? 'map' : v === 'generations' ? 'years' : readKey<View>(VIEW_KEY, ['map', 'years'], 'map'),
     mapBy: one(q.get('m'), ['region', 'dept'] as const, MAP_BY_KEY, 'region'),
+    clubsAs: q.get('cl') === 'liste' ? 'list' : q.get('cl') === 'carte' ? 'map' : readKey<'map' | 'list'>(CLUBS_AS_KEY, ['map', 'list'], 'map'),
     year: a === null ? null : a === UNKNOWN_YEAR ? '' : a,
     region: q.get('r') ?? '',
     dept: q.get('d') ?? '',
@@ -487,6 +491,7 @@ function bilanQuery(st: BilanState): string {
   q.set('p', st.period === 'season' ? 'saison' : 'tout')
   q.set('v', st.view === 'map' ? 'carte' : 'generations')
   if (st.mapBy === 'dept') q.set('m', 'dept')
+  if (st.clubsAs === 'list') q.set('cl', 'liste')
   if (st.year !== null) q.set('a', st.year || UNKNOWN_YEAR)
   if (st.region) q.set('r', st.region)
   if (st.dept) q.set('d', st.dept)
@@ -540,6 +545,7 @@ export function useBilanState() {
       ['period', PERIOD_KEY],
       ['view', VIEW_KEY],
       ['mapBy', MAP_BY_KEY],
+      ['clubsAs', CLUBS_AS_KEY],
     ]
     for (const [k, key] of keep)
       if (patch[k] !== undefined)
@@ -731,9 +737,23 @@ export default function Coverage() {
     ...(dept ? [{ label: deptText(dept), go: club ? closeClub : undefined }] : []),
     ...(dept && club ? [{ label: clubLabel(club.name) }] : []),
   ]
-  // Ordinateur, un club choisi dans un département : la liste des clubs remplace la carte (à gauche), ses joueurs
-  // passent à droite. Le fil (ou un nouveau toucher sur le club) ramène à la carte.
+  // Ordinateur, un club choisi dans un département : ses joueurs passent à droite ; à gauche, la carte des clubs reste
+  // (choix « Carte / Liste » au-dessus), ou la liste des clubs quand on la choisit ou que les clubs n'ont pas de position.
+  // Le fil (ou un nouveau toucher sur le club) referme le club.
   const clubMode = side && !!dept && !!club
+  const clubsAsList = clubMode && (st.clubsAs === 'list' || !clubMap)
+  const clubsAsSwitch = clubMode && clubMap && (
+    <div className="[&_button]:min-h-8">
+      <Segmented<'map' | 'list'>
+        value={st.clubsAs}
+        onChange={(v) => set({ clubsAs: v })}
+        options={[
+          { value: 'map', label: 'Carte', icon: 'map' },
+          { value: 'list', label: 'Liste', icon: 'list' },
+        ]}
+      />
+    </div>
+  )
   const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
   const clubsTitle = o === 'vus' ? 'Où aller ?' : 'Clubs'
   // Point de la carte touché : comme le club choisi dans la liste ; au téléphone, on descend jusqu'à sa ligne.
@@ -942,15 +962,17 @@ export default function Coverage() {
 
       {view === 'map' ? (
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-          {clubMode && club ? (
-            <section data-keep-scroll="bilan-clubs" className="side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
-              <SectionTitle info={`Clubs du département, ${tab.order}. Touche un autre club pour changer, ou le département dans le fil pour revenir à la carte.`}>
+          {clubsAsList && club ? (
+            <section data-keep-scroll="bilan-clubs" className="flex flex-col gap-2 side:sticky side:top-[calc(var(--hdr)+1rem)] side:max-h-[calc(100dvh-var(--hdr)-2rem)] side:overflow-y-auto">
+              {clubsAsSwitch}
+              <SectionTitle info={`Clubs du département, ${tab.order}. Touche un autre club pour changer, ou « Carte » pour revoir les clubs sur la carte.`}>
                 {clubsTitle} · {deptText(dept)} · {yearText}
               </SectionTitle>
               {clubList(false)}
             </section>
           ) : (
           <section className="card flex flex-col gap-2 p-3 side:sticky side:top-[calc(var(--hdr)+1rem)]">
+            {clubsAsSwitch}
             {!region && (
               <div className="[&_button]:min-h-8">
                 <Segmented<'region' | 'dept'>
