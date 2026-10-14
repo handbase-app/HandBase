@@ -180,7 +180,7 @@ function previousPath(key: string, pathname: string): string | undefined {
 // Onglets de la barre du bas : on y revient par la barre, pas besoin de bouton retour vers eux.
 const TABS = new Set(['/', '/joueurs', '/evenements', '/groupes', '/parametres'])
 
-/** Bouton retour pour un onglet (ex. Joueurs) : seulement si l'on vient d'un autre écran que les onglets (vue nationale, groupe…). */
+/** Bouton retour pour un onglet (ex. Joueurs) : seulement si l'on vient d'un autre écran que les onglets (bilan de détection, groupe…). */
 export function TabBackButton({ className = '' }: { className?: string }) {
   const loc = useLocation()
   const prev = previousPath(loc.key, loc.pathname)
@@ -232,7 +232,6 @@ const STATIC: Record<string, string> = {
   '/parametres': 'RÉGLAGES',
   '/confidentialite': 'CONFIDENTIALITÉ',
   '/evaluer': 'ÉVALUER',
-  '/national': 'VUE NATIONALE',
   '/suivis': 'MES SUIVIS',
   '/staffs': 'MES STAFFS',
   '/comparer': 'COMPARAISON',

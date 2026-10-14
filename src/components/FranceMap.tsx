@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { regionOfDept, useDepartments } from '../lists'
 
 /*
- * Carte de France des départements, partagée par la vue nationale (src/pages/National.tsx) et le bilan de détection
- * (src/pages/Coverage.tsx). La page donne la couleur de chaque département et le contenu de la bulle ; la carte gère
+ * Carte de France des départements du bilan de détection (src/pages/Coverage.tsx, tous ses onglets) et de la réponse
+ * à une question (src/pages/Question.tsx). La page donne la couleur de chaque département et le contenu de la bulle ; la carte gère
  * le tracé, le zoom sur une région, le survol et les appuis.
  *
  * Contours des départements : france-geojson de Grégoire David (departements-version-simplifiee.geojson,

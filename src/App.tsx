@@ -2,7 +2,7 @@ import { applyUpdate, useUpdateReady } from './pwa'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
 import { db, TRIAL, TRIAL_LABEL } from './db'
@@ -48,7 +48,6 @@ const GroupPlayer = lazy(() => import('./pages/GroupPlayers').then((m) => ({ def
 const NewGroup = lazy(() => import('./pages/Groups').then((m) => ({ default: m.NewGroup })))
 const Alerts = lazy(() => import('./pages/Alerts'))
 const AlertDetail = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.AlertDetail })))
-const National = lazy(() => import('./pages/National'))
 const NewAlert = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.NewAlert })))
 const Follows = lazy(() => import('./pages/Follows'))
 const Teams = lazy(() => import('./pages/Teams'))
@@ -292,7 +291,8 @@ export default function App() {
           <Route path="/alertes" element={<Alerts />} />
           <Route path="/alertes/nouvelle" element={<NewAlert />} />
           <Route path="/alertes/:id" element={<AlertDetail />} />
-          <Route path="/national" element={<National />} />
+          {/* Ancienne vue nationale : onglets du bilan de détection (liens et favoris gardés). */}
+          <Route path="/national" element={<Navigate to="/bilan?onglet=licencies" replace />} />
           <Route path="/comparer" element={<Compare />} />
           <Route path="/a-revoir" element={<RewatchPage />} />
           <Route path="/bilan" element={<Coverage />} />

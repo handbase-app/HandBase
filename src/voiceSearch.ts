@@ -105,11 +105,6 @@ export type SearchContext = {
   regionOfDept?: (code: string) => string | undefined
   /** Année en cours (années de naissance possibles). */
   thisYear: number
-  /**
-   * Clés absentes de l'écran (vue nationale : la carte choisit le département) : ni dans le schéma ni appliquées ; une
-   * valeur rendue pour elles est signalée.
-   */
-  exclude?: { key: string; why: string }[]
 }
 
 // ---------- Schéma envoyé avec la phrase ----------
@@ -145,7 +140,6 @@ export function buildSchema(ctx: SearchContext): Record<string, string> {
   if (ctx.profiles.length)
     s.profil = ctx.profiles.length <= MAX_NAMES ? `profil recherché, un de : ${ctx.profiles.map((p) => p.name).join(' | ')}` : 'nom du profil recherché tel que dit'
   s.recherche = 'nom et/ou prénom d’une personne, tel que dit ; ou numéro de licence'
-  for (const x of ctx.exclude ?? []) delete s[x.key]
   return s
 }
 
@@ -253,14 +247,8 @@ const POLE_TEXT: Record<string, string> = { current: 'au Pôle Espoirs', past: '
 const HAND_TEXT: Record<string, string> = { droitier: 'droitiers', gaucher: 'gauchers', ambidextre: 'ambidextres' }
 const QUARTER_SHORT = ['janv.–mars', 'avril–juin', 'juil.–sept.', 'oct.–déc.']
 export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchContext): Interpretation {
-  const excluded = new Map((ctx.exclude ?? []).map((x) => [x.key, x.why]))
   const r = startReading(raw, nonGere, KNOWN_KEYS)
   const { f, understood, notFound, unsupported, skip } = r
-  // Clé absente de l'écran : la valeur rendue est écartée et signalée (« département « Var » (choisissez-le sur la carte) »).
-  for (const [k, why] of excluded) {
-    if (r.has(k)) skip(`${KEY_TEXT[k] ?? k} ${quote(f[k])}`, why)
-    delete f[k]
-  }
   const has = r.has
   const values: FilterValues = { ...EMPTY_FILTERS }
 
@@ -470,7 +458,7 @@ export const keyOf = (v: unknown) => keyOfWith({ fields: KEY_FIELDS, aliases: KE
 /** Applique la réponse du modèle aux filtres actuels de la liste Joueurs (voir applyWith). */
 export const applyAnswer = (answer: ModelAnswer, current: FilterValues, ctx: SearchContext): Outcome => applyWith(playerRules(ctx), answer, current)
 
-/** Recherche vocale des listes de joueurs (Joueurs, vue nationale) : consignes de la liste Joueurs (mode « filtres »). */
+/** Recherche vocale des listes de joueurs (Joueurs) : consignes de la liste Joueurs (mode « filtres »). */
 export function playerVoicePage(ctx: SearchContext): VoicePage<FilterValues> {
   return {
     id: 'joueurs',

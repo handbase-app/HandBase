@@ -97,15 +97,10 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
 export function usePlayerFilter(
   players: Player[] | undefined,
   scope = 'joueurs',
-  opts: { hide?: ('dept' | 'region')[]; dock?: boolean; voice?: boolean } = {},
+  opts: { dock?: boolean; voice?: boolean } = {},
 ) {
   const k = (name: string) => `handbase.filter.${scope}.${name}`
   const wideScreen = useMedia(MQ.xl)
-  // Filtres gérés par l'écran lui-même (Vue nationale : la carte choisit la région et le département) :
-  // absents du panneau, des pastilles et de « Tout effacer ». Un département masqué n'est jamais appliqué ;
-  // une région masquée l'est (l'écran la change avec `setRegion`).
-  const hideDept = !!opts.hide?.includes('dept')
-  const hideRegion = !!opts.hide?.includes('region')
   const regionLabel = useRegionLabel()
   const [region, setRegion] = useSessionState(k('region'), '')
   const [q, setQ] = useSessionState(k('q'), '')
@@ -119,8 +114,7 @@ export function usePlayerFilter(
   // Pôle Espoirs : '' (tous), 'current' (en cours), 'past' (sortis), 'any' (en cours ou passés).
   const [pole, setPole] = useSessionState(k('pole'), '')
   const [videoOnly, setVideoOnly] = useSessionState(k('video'), false)
-  const [deptState, setDept] = useSessionState(k('dept'), '')
-  const dept = hideDept ? '' : deptState
+  const [dept, setDept] = useSessionState(k('dept'), '')
   const [club, setClub] = useSessionState(k('club'), '')
   const [year, setYear] = useSessionState(k('year'), '')
   const [position, setPosition] = useSessionState<Position | 'all' | 'none'>(k('position'), 'all')
@@ -240,9 +234,9 @@ export function usePlayerFilter(
   )
 
   const active =
-    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!profile || followedOnly || !!pole || videoOnly || (!hideRegion && !!region) || !!dept || !!club || !!year || position !== 'all' || withSecondary
+    !!q || sex !== 'all' || hand !== 'all' || !!quarter || !!lo || !!group || !!profile || followedOnly || !!pole || videoOnly || !!region || !!dept || !!club || !!year || position !== 'all' || withSecondary
   const reset = () => {
-    if (!hideRegion) setRegion('')
+    setRegion('')
     setQ('')
     setSex('all')
     setHand('all')
@@ -260,8 +254,7 @@ export function usePlayerFilter(
     setWithSecondary(false)
   }
 
-  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »). Région masquée (vue nationale) :
-  // c'est celle de la carte, que la voix peut aussi choisir (« montre la Bretagne ») ; un département masqué n'est jamais appliqué.
+  // Tous les filtres d'un coup (recherche en langage naturel : remplacer, puis « Annuler »).
   const values: FilterValues = {
     q,
     sex,
@@ -284,7 +277,7 @@ export function usePlayerFilter(
     setQ(v.q)
     setSex(v.sex)
     setRegion(v.region)
-    if (!hideDept) setDept(v.dept)
+    setDept(v.dept)
     setClub(v.club)
     setYear(v.year)
     setPosition(v.position)
@@ -315,9 +308,8 @@ export function usePlayerFilter(
       profiles: (profiles ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
       regionOfDept,
       thisYear: new Date().getFullYear(),
-      ...(hideDept ? { exclude: [{ key: 'departement', why: 'choisissez-le sur la carte' }] } : {}),
     }
-  }, [opts.voice, regionList, deptList, players, groups, profiles, hideDept])
+  }, [opts.voice, regionList, deptList, players, groups, profiles])
   const voicePage = useMemo(() => (voiceCtx ? playerVoicePage(voiceCtx) : null), [voiceCtx])
 
   // Filtres repliés par défaut : la recherche et les postes restent visibles, les filtres actifs
@@ -329,14 +321,14 @@ export function usePlayerFilter(
     !!quarter && { label: `Q${quarter}`, clear: () => setQuarter(0) },
     !!lo && { label: `≥ ${lo} cm`, clear: () => setMinH('') },
     hand !== 'all' && { label: hand === 'droitier' ? 'Droitiers' : hand === 'gaucher' ? 'Gauchers' : 'Ambidextres', clear: () => setHand('all') },
-    !hideRegion && region && { label: regionLabel(region), clear: () => (setRegion(''), setDept(''), setClub('')) },
+    region && { label: regionLabel(region), clear: () => (setRegion(''), setDept(''), setClub('')) },
     dept && { label: departmentLabel(dept), clear: () => (setDept(''), setClub('')) },
     club && { label: club, clear: () => setClub('') },
     followedOnly && { label: 'Suivis', clear: () => setFollowedOnly(false) },
     pole && { label: POLE_LABEL[pole] ?? 'Pôle', clear: () => setPole('') },
     videoOnly && { label: 'Avec vidéo', clear: () => setVideoOnly(false) },
     currentProfile && { label: `Profil : ${currentProfile.alert.name}`, clear: () => setProfile('') },
-    current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), !hideRegion && setRegion(''), setDept(''), setClub('')) },
+    current && { label: `Groupe : ${current.name}`, clear: () => (setGroup(''), setRegion(''), setDept(''), setClub('')) },
     position !== 'all' && { label: position === 'none' ? 'Sans poste' : (POSITIONS.find((x) => x.id === position)?.label ?? position), clear: () => setPosition('all') },
     withSecondary && { label: '+ postes secondaires', clear: () => setWithSecondary(false) },
   ].filter((c): c is { label: string; clear: () => void } => !!c)
@@ -403,7 +395,7 @@ export function usePlayerFilter(
               </button>
             ))}
           </div>
-          {!hideRegion && (regionCounts.length > 1 || region) ? (
+          {regionCounts.length > 1 || region ? (
             <select
               className={`field py-1.5 text-xs ${region ? 'border-accent font-bold' : ''}`}
               value={region}
@@ -419,7 +411,7 @@ export function usePlayerFilter(
                 ))}
             </select>
           ) : null}
-          {!hideDept && (depts.length > 1 || dept) ? (
+          {depts.length > 1 || dept ? (
             <select className="field py-1.5 text-xs" value={dept} onChange={(e) => (setDept(e.target.value), setClub(''))}>
               <option value="">Tous les départements ({deptBase.length.toLocaleString('fr-FR')})</option>
               {depts.map(([d, n]) => (
@@ -465,7 +457,7 @@ export function usePlayerFilter(
             <select
               className={`field py-1.5 text-xs ${group ? 'border-accent font-bold' : ''}`}
               value={group}
-              onChange={(e) => (setGroup(e.target.value), !hideRegion && setRegion(''), setDept(''), setClub(''))}
+              onChange={(e) => (setGroup(e.target.value), setRegion(''), setDept(''), setClub(''))}
             >
               <option value="">Tous les joueurs (sans groupe choisi)</option>
               {groups.map((g) => (
@@ -579,7 +571,7 @@ export function usePlayerFilter(
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
   const signature = JSON.stringify([q, sex, hand, quarter, lo, group, profile, followedOnly, pole, videoOnly, region, dept, club, year, position, withSecondary])
-  return { filtered, ui, side, active, reset, signature, group: current, region, setRegion, regionCounts }
+  return { filtered, ui, side, active, reset, signature, group: current }
 }
 
 /** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
@@ -723,24 +715,4 @@ export function showGroupInPlayers(groupId: string) {
   }
 }
 
-/** Filtres d'un écran (hors département et repli/dépli). */
 const POLE_LABEL: Record<string, string> = { current: 'Au Pôle Espoirs (en cours)', past: 'Sortis du Pôle Espoirs', any: 'Passés par le Pôle Espoirs (en cours ou sortis)' }
-
-const FILTER_KEYS = ['q', 'group', 'region', 'club', 'year', 'position', 'withSecondary', 'hand', 'quarter', 'minH', 'profile', 'followed', 'pole', 'video'] as const
-
-/**
- * Ouvre la liste Joueurs avec les filtres d'un autre écran (`from`, région comprise), plus un département.
- * Le choix Garçons / Filles est déjà commun à tous les écrans.
- */
-export function showDeptInPlayers(from: string, dept: string) {
-  try {
-    for (const f of FILTER_KEYS) {
-      const v = sessionStorage.getItem(`handbase.filter.${from}.${f}`)
-      if (v === null) sessionStorage.removeItem(`handbase.filter.joueurs.${f}`)
-      else sessionStorage.setItem(`handbase.filter.joueurs.${f}`, v)
-    }
-    sessionStorage.setItem('handbase.filter.joueurs.dept', JSON.stringify(dept))
-  } catch {
-    /* stockage indisponible */
-  }
-}

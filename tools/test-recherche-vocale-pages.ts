@@ -1,5 +1,5 @@
 // Test de la recherche vocale « micro ✨ » des autres pages (src/voicePages.ts, src/voiceFilters.ts) : bilan de
-// détection, Événements, Groupes, et vue nationale (filtres de joueurs sans département). Schémas envoyés (aucune donnée
+// détection, Événements, Groupes, et la liste Joueurs (page « joueurs »). Schémas envoyés (aucune donnée
 // de joueur, aucun nom d'événement, de groupe ou de club), relecture des réponses du modèle (valeurs revérifiées),
 // actions (remplacer, ajouter, retirer, effacer), exemples des consignes de la fonction « transcrire » pour chaque page,
 // champ « page » et modes annoncés (faux fetch : aucun appel réseau, rien n'est envoyé à Mistral).
@@ -238,7 +238,7 @@ checkExamples('groupes', groups, (a) => {
   return a.recherche ? { ...v, q: 'pole' } : v
 })
 
-// ---------- Vue nationale : filtres de joueurs, la carte choisit le département ----------
+// ---------- Liste Joueurs : page « joueurs », mode « filtres » ----------
 const pctx: SearchContext = {
   positions: [{ id: 'DC', label: 'Demi-centre' }],
   ...places,
@@ -246,15 +246,11 @@ const pctx: SearchContext = {
   groups: [],
   profiles: [],
   thisYear: 2026,
-  exclude: [{ key: 'departement', why: 'choisissez-le sur la carte' }],
 }
-assert.ok(!('departement' in buildSchema(pctx)), 'département absent du schéma de la vue nationale')
-assert.ok('region' in buildSchema(pctx), 'la région (celle de la carte) reste')
-let n = applyAnswer({ action: 'remplacer', filtres: { annee: 2010, departement: 'Var' } }, EMPTY_FILTERS, pctx)
-assert.deepEqual([n.values, notFoundText(n), unsupportedText(n)], [{ ...EMPTY_FILTERS, year: '2010' }, 'Non appliqué : département « Var » (choisissez-le sur la carte)', ''])
-n = applyAnswer({ action: 'remplacer', filtres: { region: 'Bretagne', sexe: 'F' } }, EMPTY_FILTERS, pctx)
+assert.ok('departement' in buildSchema(pctx) && 'region' in buildSchema(pctx), 'région et département dans le schéma')
+const n = applyAnswer({ action: 'remplacer', filtres: { region: 'Bretagne', sexe: 'F' } }, EMPTY_FILTERS, pctx)
 assert.deepEqual(n.values, { ...EMPTY_FILTERS, region: 'region-bre', sex: 'F' })
-assert.equal(playerVoicePage(pctx).mode, undefined, 'vue nationale : mode « filtres » suffit')
+assert.equal(playerVoicePage(pctx).mode, undefined, 'liste Joueurs : mode « filtres » suffit')
 assert.equal(playerVoicePage(pctx).id, 'joueurs')
 
 // ---------- Commandes locales des nouvelles pages ----------
@@ -288,4 +284,4 @@ assert.deepEqual(fn.match(/modes: \[([^\]]*)\]/)?.[1], `'dictee', 'filtres', 'av
 // La fonction : page inconnue ou absente → consignes de la liste Joueurs.
 assert.ok(fn.includes("Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES"))
 
-console.log('Recherche vocale des pages (bilan, vue nationale, Événements, Groupes) : tous les tests passent.')
+console.log('Recherche vocale des pages (bilan, Joueurs, Événements, Groupes) : tous les tests passent.')

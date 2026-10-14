@@ -6,26 +6,33 @@ import { FollowStar } from '../components/Follow'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon } from '../components/ui'
 import { fmtDate, plural, type Player, type Rewatch } from '../db'
-import type { ClubCoverage, Sight } from '../coverage'
+import type { ClubCoverage, Onglet, Sight } from '../coverage'
 import { MQ, useMedia } from '../layout'
 import { can, useRole } from '../roles'
 import PlayerDetail from './PlayerDetail'
-import { AddToEventDialog, useBilanModel, useBilanState, whoOrder } from './Coverage'
+import { AddToEventDialog, sightText, TAB, useBilanModel, useBilanState, whoOrder, whoSummary } from './Coverage'
 
 /*
  * Fiche d'un joueur ouverte depuis le bilan de détection : /bilan/joueurs/:pid?<état du bilan> (partageable), comme
  * depuis un événement ou un groupe (EventPlayers.tsx, GroupPlayers.tsx). La liste d'origine : les joueurs du club
- * choisi, avec les filtres du bilan (à voir, puis déjà vus, même ordre que « Qui ? »), pas toute la base.
+ * choisi, avec l'onglet et les filtres du bilan (même ordre que « Qui ? » : à voir puis déjà vus ; à mesurer puis
+ * déjà mesurés ; profils repérés puis les autres ; licenciés : tous), pas toute la base.
  * Ordinateur : ces joueurs à gauche, la fiche à droite ; « Fermer » (Échap) revient au bilan tel qu'on l'a laissé.
  * Téléphone : fiche en plein écran sous la barre « club · 3 / 16 » (‹ ›, retour au bilan à la même position).
- * Uniquement des marques positives ou neutres : « vu le …, par … », ou « à voir ».
+ * Uniquement des marques positives ou neutres : « vu le …, par … », « à voir », « à mesurer », « profil repéré ».
  */
 
 const clubLabel = (name: string) => name || 'Club non renseigné'
 const year = (p: Player) => p.birthDate?.slice(0, 4) ?? ''
-const seenText = (s?: Sight) => (s ? `vu le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}` : '')
 
-type Ctx = { club?: ClubCoverage<Player>; yearText: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }
+type Ctx = {
+  o: Onglet
+  club?: ClubCoverage<Player>
+  yearText: string
+  last: Map<string, Sight>
+  hit: { has(id: string): boolean }
+  rewatch: Map<string, Rewatch[]>
+}
 const BilanCtx = createContext<Ctx | null>(null)
 
 export default function CoveragePlayers() {
@@ -33,18 +40,20 @@ export default function CoveragePlayers() {
   const role = useRole()
   const split = useMedia(MQ.split)
   const { st, search } = useBilanState()
-  const { data, club, last, yearText } = useBilanModel(st)
+  const o = st.onglet
+  const { data, club, last, hit, yearText } = useBilanModel(st)
   const name = club ? clubLabel(club.name) : 'Bilan de détection'
   const leave = useLeaveTo(`/bilan${search}`, name)
-  const order = useMemo(() => (club ? whoOrder(club) : { toSee: [], seen: [] }), [club])
-  const ctx = useMemo<Ctx | null>(() => (data ? { club, yearText, last, rewatch: data.rewatch } : null), [data, club, yearText, last])
+  const order = useMemo(() => (club ? whoOrder(club, o) : { main: [], rest: [] }), [club, o])
+  const ctx = useMemo<Ctx | null>(() => (data ? { o, club, yearText, last, hit, rewatch: data.rewatch } : null), [o, data, club, yearText, last, hit])
   const base = '/bilan/joueurs'
 
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   // Sans joueur choisi : le bilan lui-même.
   if (!pid) return <Navigate to={`/bilan${search}`} replace />
   if (!data || !ctx) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const ids = [...order.toSee, ...order.seen].map((p) => p.id)
+  const ids = [...order.main, ...order.rest].map((p) => p.id)
+  const tab = TAB[o]
 
   if (!split)
     return (
@@ -65,14 +74,14 @@ export default function CoveragePlayers() {
             base={base}
             search={search}
             back={leave}
-            count={club ? `${plural(ids.length, 'joueur')} · ${order.toSee.length ? `${order.toSee.length} à voir` : 'tous vus ✓'}` : ''}
+            count={club ? (o === 'licencies' ? whoSummary(o, ids.length) : `${plural(ids.length, 'joueur')} · ${whoSummary(o, order.main.length)}`) : ''}
             sections={[
-              { heading: order.toSee.length ? `À voir · ${yearText}` : null, players: order.toSee },
-              { heading: order.seen.length ? `Déjà vus (${order.seen.length})` : null, players: order.seen },
+              { heading: order.main.length ? `${tab.main} · ${yearText}` : null, players: order.main },
+              { heading: order.rest.length ? `${tab.rest} (${order.rest.length})` : null, players: order.rest },
             ]}
-            detail={(p) => [year(p), seenText(last.get(p.id))].filter(Boolean).join(' · ')}
+            detail={(p) => [year(p), o === 'vus' && sightText(last.get(p.id))].filter(Boolean).join(' · ')}
             actions={(p) => ({
-              rewatch: last.has(p.id) ? undefined : <RewatchToggle playerId={p.id} rows={data.rewatch.get(p.id)} />,
+              rewatch: o !== 'vus' || last.has(p.id) ? undefined : <RewatchToggle playerId={p.id} rows={data.rewatch.get(p.id)} />,
               follow: <FollowStar id={p.id} />,
             })}
           />
@@ -89,8 +98,12 @@ export function CoveragePlayer() {
   const role = useRole()
   const split = useMedia(MQ.split)
   const [adding, setAdding] = useState(false)
+  const o = ctx?.o ?? 'vus'
   const s = ctx?.last.get(pid)
+  const counted = !!ctx?.hit.has(pid)
   const club = ctx?.club
+  // Joueur encore « à voir » / « à mesurer » (onglets en part) : actions rapides pour aller le voir.
+  const todo = (o === 'vus' && !s) || (o === 'mesures' && !counted)
   return (
     <div key={pid} className="flex flex-col gap-3">
       {ctx && (
@@ -99,25 +112,34 @@ export function CoveragePlayer() {
             {/* Téléphone : le club est déjà dans la barre du haut. */}
             {split && club && <span className="block truncate font-bold">{clubLabel(club.name)}</span>}
             <span className="block text-[11px]">
-              {s ? (
+              {o === 'vus' && s ? (
                 <span className="text-accent">
                   <Icon name="eye" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
                   Vu le {fmtDate(s.day)}
                   {s.by ? `, par ${s.by}` : ''}
                 </span>
+              ) : o === 'mesures' && counted ? (
+                <span className="text-accent">Mesuré par le staff</span>
+              ) : o === 'reperes' && counted ? (
+                <span className="text-accent">
+                  <Icon name="target" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
+                  Profil repéré
+                </span>
+              ) : todo ? (
+                <span className="font-bold text-sky-300">{o === 'vus' ? 'À voir' : 'À mesurer'}</span>
               ) : (
-                <span className="font-bold text-sky-300">À voir</span>
+                <span className="font-bold">{TAB[o].label}</span>
               )}
               <span className="text-muted"> · Bilan de détection, {ctx.yearText.toLowerCase()}</span>
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-1">
-            {!s && (
+            {o === 'vus' && !s && (
               <span className="flex items-center text-[11px] text-muted">
                 <RewatchToggle playerId={pid} rows={ctx.rewatch.get(pid)} />à revoir
               </span>
             )}
-            {!s && can.manageEvents(role) && (
+            {todo && can.manageEvents(role) && (
               <button type="button" className="btn-ghost ml-1 min-h-8 px-2.5 py-1 text-xs" onClick={() => setAdding(true)} title="Ajouter ce joueur à un événement à venir">
                 <Icon name="calendar" className="h-3.5 w-3.5" />
                 Ajouter à un événement

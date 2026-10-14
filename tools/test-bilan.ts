@@ -2,7 +2,7 @@
 //
 //   npx jiti tools/test-bilan.ts
 import assert from 'node:assert/strict'
-import { byLeftToSee, coverageByClub, coverageByPlace, coverageByYear, fedReport, filterPlayers, lastSights, NO_DEPT, percent, seasonOf, toSights, totalOf } from '../src/coverage'
+import { byLeftToSee, coverageByClub, coverageByPlace, coverageByYear, DECLARED, fedReport, filterPlayers, isShare, lastSights, measureOf, NO_DEPT, percent, rankBy, seasonOf, sortClubs, staffMeasured, tallest, toSights, totalOf } from '../src/coverage'
 
 // Saison : 1er septembre → 31 août.
 assert.deepEqual(seasonOf('2026-10-12'), { from: '2026-09-01', to: '2027-08-31', label: '2026-2027' })
@@ -151,5 +151,50 @@ assert.deepEqual(
   ],
 )
 assert.deepEqual(rep.regions, []) // sans `place` : pas de régions
+
+// ---------- Onglets de la carte : vus, licenciés, mesurés par le staff, profils repérés ----------
+assert.deepEqual([isShare('vus'), isShare('mesures'), isShare('licencies'), isShare('reperes')], [true, true, false, false])
+const t = { seen: 3, total: 12 }
+assert.deepEqual([measureOf('vus', t), measureOf('mesures', t), measureOf('licencies', t), measureOf('reperes', t)], [0.25, 0.25, 12, 3])
+assert.equal(measureOf('licencies', { seen: 0, total: 0 }), undefined) // aucun joueur : gris sur la carte
+// Classement : parts → le plus de joueurs restant à voir ; nombres → la plus grande valeur, puis le plus de joueurs.
+const rows: [string, { seen: number; total: number }][] = [
+  ['83', { seen: 1, total: 10 }],
+  ['13', { seen: 5, total: 20 }],
+  ['06', { seen: 5, total: 8 }],
+]
+assert.deepEqual(rankBy('vus', rows).map(([k]) => k), ['13', '83', '06'])
+assert.deepEqual(rankBy('licencies', rows).map(([k]) => k), ['13', '83', '06'])
+assert.deepEqual(rankBy('reperes', rows).map(([k]) => k), ['13', '06', '83'])
+const cl = [
+  { key: '', name: '', seen: 9, total: 9 },
+  { key: 'a', name: 'A', seen: 1, total: 5 },
+  { key: 'b', name: 'B', seen: 2, total: 3 },
+]
+assert.deepEqual(sortClubs('reperes', cl).map((c) => c.key), ['b', 'a', ''])
+assert.deepEqual(sortClubs('licencies', cl).map((c) => c.key), ['a', 'b', ''])
+assert.equal(sortClubs('vus', cl), cl) // parts : l'ordre de coverageByClub
+// Par onglet, coverageByClub range ses joueurs : « comptés » (seenPlayers) et les autres (toSee).
+const staff = new Set(['a', 'c'])
+const byClubStaff = coverageByClub(filterPlayers(players as TP[], {}), staff)
+assert.deepEqual(byClubStaff.find((c) => c.key === 'hbc exemple')!.seenPlayers.map((p) => p.id), ['a'])
+
+// Mesurés par le staff : les tailles déclarées à la licence ne comptent pas ; dernière taille connue.
+const M = (playerId: string, value: number, date: string, author?: string, extra = {}) => ({ playerId, criterionId: 'taille', value, date, updatedAt: 0, author, ...extra })
+const sm = staffMeasured([
+  M('a', 170, '2026-01-01', 'Sophie'),
+  M('a', 172, '2026-06-01', 'Sophie'),
+  M('b', 180, '2026-01-01', DECLARED), // déclarée : pas une mesure du staff
+  M('c', 160, '2026-01-01', 'Paul', { deleted: true }), // supprimée
+])
+assert.deepEqual([...sm.staff], ['a'])
+assert.deepEqual([...sm.height], [
+  ['a', 172],
+  ['b', 180],
+])
+// Repli des profils repérés : 90e centile de la génération et du sexe (au moins 10 joueurs mesurés).
+const gen = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, birthDate: '2011-01-01', sex: 'M' as const }))
+const tall = tallest([...gen, { id: 'f1', birthDate: '2011-01-01', sex: 'F' }], new Map([...gen.map((p, i) => [p.id, 170 + i] as [string, number]), ['f1', 200]]))
+assert.deepEqual([...tall], ['p8', 'p9']) // seuil : 178 ; la fille seule (groupe de 1) n'est pas comptée
 
 console.log('Bilan de détection : tous les tests passent.')

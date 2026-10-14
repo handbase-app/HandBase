@@ -30,7 +30,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
   const actions: { to: string; title: string; icon: string; main?: boolean }[] = ACTIONS
   return (
     // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
-    // la largeur (tuiles et Vue nationale sur une rangée), fil en dessous.
+    // la largeur (tuiles et bilan de détection sur une rangée), fil en dessous.
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 rail:grid rail:max-w-5xl rail:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] rail:items-start rail:gap-6 rail:pt-0 side:max-w-6xl side:gap-5">
       <div className="flex flex-col gap-4 side:grid side:grid-cols-5 side:gap-x-4 side:gap-y-5">
       <div className="text-center side:col-span-full side:flex side:items-baseline side:gap-3 side:text-left">
@@ -44,7 +44,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
       </div>
 
       <div
-        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} ${can.nationalView(role) ? 'side:col-span-3' : 'side:col-span-full'}`}
+        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} ${can.viewCoverage(role) ? 'side:col-span-3' : 'side:col-span-full'}`}
       >
         {actions.map((t) => (
           <Link
@@ -69,30 +69,20 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
             )}
           </Link>
         ))}
-        {/* Bilan de détection (administrateurs et encadrants) : sous « Mes à revoir », toute la largeur des tuiles. */}
-        {can.viewCoverage(role) && (
-          <Link to="/bilan" className="card group col-span-full flex items-center gap-3 px-3 py-2.5 transition hover:border-accent">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
-              <Icon name="check" className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs font-bold">Bilan de détection</span>
-              <span className="block truncate text-[11px] text-muted">Qui a été vu, par génération et par club</span>
-            </span>
-            <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
-          </Link>
-        )}
       </div>
 
-      {/* Vue nationale : carte des départements (administrateurs). */}
-      {can.nationalView(role) && (
-        <Link to="/national" className="card group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
+      {/* Bilan de détection (administrateurs et encadrants) : la carte de France ; onglets licenciés, mesures et profils
+          repérés en plus pour les administrateurs. */}
+      {can.viewCoverage(role) && (
+        <Link to="/bilan" className="card group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
             <Icon name="map" className="h-6 w-6" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-extrabold">Vue nationale</span>
-            <span className="block text-[11px] text-muted">Carte des départements : joueurs, mesures, profils repérés</span>
+            <span className="block text-sm font-extrabold">Bilan de détection</span>
+            <span className="block text-[11px] text-muted">
+              {can.nationalView(role) ? 'Carte de France : joueurs vus, licenciés, mesures, profils repérés' : 'Qui a été vu, par génération et par club'}
+            </span>
           </span>
           <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
         </Link>

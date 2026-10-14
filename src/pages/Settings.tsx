@@ -97,13 +97,13 @@ export default function Settings() {
       {admin && (
         <div className="flex flex-col gap-3">
           <div className="mt-3 text-[10px] side:mt-1 font-extrabold tracking-wider text-muted uppercase">Administration</div>
-          <Link to="/national" className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
+          <Link to="/bilan?onglet=licencies" className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
               <Icon name="map" className="h-5 w-5" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold">Vue nationale</span>
-              <span className="block truncate text-[11px] text-muted">Carte des départements, chiffres clés</span>
+              <span className="block text-sm font-bold">Bilan de détection</span>
+              <span className="block truncate text-[11px] text-muted">Carte : licenciés, mesures, profils repérés, chiffres clés</span>
             </span>
             <span className="text-muted">›</span>
           </Link>
@@ -356,7 +356,7 @@ function DictationSetting() {
         )}
         {search && (
           <p className="text-[11px] text-muted">
-            Le même bouton se trouve dans la vue nationale et le bilan de détection (« les filles de 2011 dans le Var », « depuis
+            Le même bouton (« Filtrer ») se trouve dans le bilan de détection (« les filles de 2011 dans le Var », « depuis
             toujours », « le club de Toulon »){access?.modes?.includes('filtres_evenements') ? ', dans Événements (« les tournois de 2025 »)' : ''}
             {access?.modes?.includes('filtres_groupes') ? ' et dans Groupes (« les groupes de filles du Var »)' : ''}. Les noms d’événements, de
             groupes et de clubs ne sont pas envoyés : ce que vous dites est retrouvé sur l’appareil.

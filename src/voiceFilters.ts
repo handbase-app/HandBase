@@ -1,4 +1,4 @@
-// Recherche vocale « micro ✨ » : ce qui est commun à toutes les pages (Joueurs, vue nationale, bilan de détection,
+// Recherche vocale « micro ✨ » : ce qui est commun à toutes les pages (Joueurs, bilan de détection,
 // Événements, Groupes). Fonctions pures, sans dépendance à l'appli (testées dans tools/test-recherche-vocale.ts).
 //  - une page décrit ses filtres (VoicePage) : schéma envoyé au modèle (clés, valeurs permises), filtres actifs sous ces
 //    clés, et la relecture de la réponse (chaque valeur revérifiée d'après les vraies listes de l'appli) ;

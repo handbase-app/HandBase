@@ -231,7 +231,10 @@ export const can = {
    * de décision pour la page, sa tuile d'accueil et ses liens. Pour l'instant administrateurs et encadrants ; droits à affiner.
    */
   viewCoverage: (r: Role) => r === 'admin' || r === 'preparateur',
-  /** Vue nationale (carte des départements) : administrateurs. */
+  /**
+   * Onglets « Licenciés », « Mesurés par le staff » et « Profils repérés » du bilan de détection (ancienne vue nationale,
+   * /national y mène) : administrateurs.
+   */
   nationalView: (r: Role) => r === 'admin',
   /** Sauvegarde complète de la base (JSON) : administrateurs seulement. */
   exportAll: (r: Role) => r === 'admin',

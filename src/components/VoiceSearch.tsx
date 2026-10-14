@@ -7,8 +7,8 @@ import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, 
 
 /*
  * Recherche en langage naturel (essai) : « tous les joueurs nés en 2010 qui mesurent plus d'1 m 80 », puis « ajoute le Var »,
- * « enlève la taille », « efface la sélection ». Même bouton sur chaque page qui a des filtres (Joueurs, vue nationale,
- * bilan de détection, Événements, Groupes) : la page décrit ses filtres (`page` : schéma, filtres actifs, relecture ;
+ * « enlève la taille », « efface la sélection ». Même bouton sur chaque page qui a des filtres (Joueurs,
+ * bilan de détection — libellé « Filtrer », la page ayant aussi « Poser une question » —, Événements, Groupes) : la page décrit ses filtres (`page` : schéma, filtres actifs, relecture ;
  * src/voiceSearch.ts, src/voicePages.ts) et les applique (`apply`).
  *  - un seul bouton « micro ✨ » à côté de « Rechercher… » : un appui, on dicte (Voxtral, comme les commentaires), un nouvel
  *    appui (ou relâcher après l'avoir maintenu) arrête ; la phrase transcrite est appliquée aux filtres directement. Pas de
@@ -34,12 +34,15 @@ export function VoiceSearch<V extends object>({
   page,
   input,
   after,
+  label,
 }: {
   values: V
   apply: (v: V) => void
   page: VoicePage<V>
   input: ReactNode
   after?: ReactNode
+  /** Mot affiché à côté du micro (« Filtrer ») quand la page a un autre micro ✨ (bilan : « Poser une question »). */
+  label?: string
 }) {
   const { searchReady, searchModes } = useDictation()
   const [busy, setBusy] = useState('')
@@ -102,7 +105,7 @@ export function VoiceSearch<V extends object>({
         <button
           type="button"
           data-noswipe
-          aria-label={rec ? 'Recherche vocale : arrêter et chercher' : sending ? 'Recherche vocale en cours' : 'Recherche vocale'}
+          aria-label={rec ? 'Recherche vocale : arrêter et chercher' : sending ? 'Recherche vocale en cours' : label ? `${label} à la voix` : 'Recherche vocale'}
           aria-pressed={rec}
           title={
             rec
@@ -127,6 +130,7 @@ export function VoiceSearch<V extends object>({
               </span>
             </>
           )}
+          {label && <span className="pr-1 pl-2 text-xs font-bold">{rec ? 'Arrêter' : label}</span>}
         </button>
         {after}
       </div>
