@@ -485,7 +485,12 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
     await db.transaction('rw', db.table(table), async () => {
       const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
       // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
-      const newer = data.filter((r, i) => !locals[i] || r.data?.purged === true || (r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0))
+      // Ligne identique à celle de l'appareil (relue par le recouvrement du curseur) : pas réécrite, sinon chaque synchro
+      // relancerait tous les calculs qui lisent la table (40 000 joueurs relus sur un téléphone).
+      const same = (r: { data: { updatedAt?: number } }, l: { updatedAt?: number }) => (r.data.updatedAt ?? 0) === (l.updatedAt ?? 0) && JSON.stringify(r.data) === JSON.stringify(l)
+      const newer = data.filter(
+        (r, i) => !locals[i] || r.data?.purged === true || ((r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0) && !same(r, locals[i]!)),
+      )
       if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
     })
     const last: { id: string; server_updated_at: string } = data[data.length - 1]
