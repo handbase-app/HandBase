@@ -209,6 +209,14 @@ export default function Compare() {
           <section className="card p-3">
             <div className="section-title">Radar des avis</div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
+              {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
+              <button
+                onClick={() => setFocus(null)}
+                aria-pressed={focus === null}
+                className={`flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === null ? 'border-fg/40 bg-panel-2' : 'border-line'}`}
+              >
+                {nWord === 'deux' ? 'Les deux' : 'Tous'}
+              </button>
               {ps.map((p, i) => (
                 <button
                   key={p.id}
@@ -233,7 +241,7 @@ export default function Compare() {
                   <CompareRadar rows={radarData} colors={colors} focus={focus} />
                 </Suspense>
                 <p className="text-[10px] text-muted">
-                  Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant.
+                  Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : 'Tous'} » les superpose à nouveau.
                 </p>
               </>
             )}
