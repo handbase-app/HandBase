@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { db, type Video } from '../db'
 import { momentAction, simultaneous, stepIn, timeline, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
 import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync, type SyncChange, type UndoEntry } from '../matchSync'
@@ -105,6 +105,16 @@ const readFilter = (): Filter => {
     return FILTERS.some((f) => f.k === v) ? (v as Filter) : 'all'
   } catch {
     return 'all'
+  }
+}
+
+/** Aide « Comment caler » : ouverte la première fois, puis repliée une fois qu'on l'a refermée (gardé sur l'appareil). */
+const HELP_KEY = 'handbase.frise.aide'
+const readHelpSeen = () => {
+  try {
+    return localStorage.getItem(HELP_KEY) === 'vue'
+  } catch {
+    return false
   }
 }
 
@@ -250,6 +260,19 @@ export default function MatchTimeline({
     } catch {
       /* stockage indisponible */
     }
+  }
+  const [helpOpen, setHelpOpenState] = useState(() => !readHelpSeen())
+  // Vue : une fois refermée, ou après un premier « C'est ici ! » (elle reste ouverte jusqu'à la prochaine fois).
+  const helpSeen = () => {
+    try {
+      localStorage.setItem(HELP_KEY, 'vue')
+    } catch {
+      /* stockage indisponible */
+    }
+  }
+  const setHelpOpen = (v: boolean) => {
+    setHelpOpenState(v)
+    if (!v) helpSeen()
   }
   const [drag, setDrag] = useState<{ id: string; v: number; start: number }>()
   const [msg, setMsg] = useState('')
@@ -453,6 +476,7 @@ export default function MatchTimeline({
   const here = async (s: Sel) => {
     const t = api.time()
     if (t === undefined) return setMsg('Lance la vidéo d’abord (le lecteur n’est pas encore prêt).')
+    helpSeen()
     await place(s, t)
     await goNext(s, true)
   }
@@ -517,6 +541,18 @@ export default function MatchTimeline({
   const anyFixedSel = sel ? ('key' in sel ? fixedSel : fixKeys(sel).some((k) => fix[k] !== undefined)) : false
   keys.current = calib && sel && !busy ? { enter: () => void here(sel), next: pass } : { next: sel ? pass : undefined }
   const small = 'flex h-8 min-w-8 items-center justify-center rounded border border-line bg-panel px-2 text-[11px] font-bold hover:border-accent disabled:opacity-40'
+  // Mode édition : petit libellé visible sous un bouton à icône (sur téléphone, pas de survol pour lire son title).
+  const named = (button: ReactNode, name: string) =>
+    calib ? (
+      <span className="flex flex-col items-center gap-0.5">
+        {button}
+        <span className="text-[10px] leading-none text-muted" aria-hidden>
+          {name}
+        </span>
+      </span>
+    ) : (
+      button
+    )
 
   return (
     <div className="flex flex-col gap-1.5 px-3 pt-2 pb-2 text-[11px]">
@@ -533,16 +569,42 @@ export default function MatchTimeline({
         )}
         {!anchored && !calib && <span className="text-muted">Pas encore calée sur la vidéo.</span>}
         <span className="ml-auto flex items-center gap-1">
-          <button className={small} title="Élargir la fenêtre" aria-label="Élargir la fenêtre" disabled={span >= SPANS.at(-1)!} onClick={() => setSpan(SPANS[SPANS.indexOf(span) + 1] ?? span)}>
-            −
-          </button>
+          {named(
+            <button className={small} title="Élargir la fenêtre" aria-label="Élargir la fenêtre" disabled={span >= SPANS.at(-1)!} onClick={() => setSpan(SPANS[SPANS.indexOf(span) + 1] ?? span)}>
+              −
+            </button>,
+            'Élargir',
+          )}
           <span className="w-12 text-center text-muted tabular-nums">{span >= 60 ? `${Math.round(span / 60 * 10) / 10} min`.replace('.', ',') : `${span} s`}</span>
-          <button className={small} title="Rapprocher" aria-label="Rapprocher" disabled={span <= SPANS[0]} onClick={() => setSpan(SPANS[SPANS.indexOf(span) - 1] ?? span)}>
-            +
-          </button>
+          {named(
+            <button className={small} title="Rapprocher" aria-label="Rapprocher" disabled={span <= SPANS[0]} onClick={() => setSpan(SPANS[SPANS.indexOf(span) - 1] ?? span)}>
+              +
+            </button>,
+            'Rapprocher',
+          )}
         </span>
       </div>
       {marks.s1 === undefined && calib && <p className="text-[10px] text-muted">Mets la vidéo sur le coup d’envoi du match puis touche « Coup d’envoi ici » : toutes les actions seront estimées.</p>}
+      {/* Mode édition : « Comment caler ? », ouvert la première fois, repliable (mémorisé sur l'appareil). */}
+      {calib && (
+        <div className="rounded-md border border-line bg-panel-2/60">
+          <button type="button" className="flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-[11px] font-bold" aria-expanded={helpOpen} onClick={() => setHelpOpen(!helpOpen)}>
+            <span className="flex-1">Comment caler ?</span>
+            <span className={`text-muted transition ${helpOpen ? 'rotate-90' : ''}`} aria-hidden>
+              ›
+            </span>
+          </button>
+          {helpOpen && (
+            <div className="flex flex-col gap-1 px-2 pb-2 text-[11px] text-muted">
+              <p>
+                Touche un repère : la vidéo va à son temps estimé. Laisse défiler et touche « C’est ici ! » au moment exact de l’action ; le repère suivant
+                est choisi tout seul. « Passer » (N) va au suivant sans caler, −2 s / +2 s ajuste, et un repère se fait aussi glisser.
+              </p>
+              <p>Plein = calé, pointillé = estimé · épingle : but (« 7 » : sur 7 m) · « 2’ » : exclusion · carton jaune, rouge, bleu · « T » : temps mort · point : autre action.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filtres et légende des équipes. */}
       <div className="flex flex-wrap gap-1" role="group" aria-label="Actions affichées">
@@ -681,9 +743,12 @@ export default function MatchTimeline({
       {sel && selMk ? (
         <div className="flex flex-col gap-1.5 rounded-md border border-accent/50 bg-panel-2 p-2">
           <div className="flex items-center gap-1.5">
-            <button className={small} title="Action précédente" aria-label="Action précédente" disabled={!stepIn(mks, selId(sel), -1)} onClick={() => step(-1)}>
-              <Icon name="prev" className="h-3.5 w-3.5" />
-            </button>
+            {named(
+              <button className={small} title="Action précédente" aria-label="Action précédente" disabled={!stepIn(mks, selId(sel), -1)} onClick={() => step(-1)}>
+                <Icon name="prev" className="h-3.5 w-3.5" />
+              </button>,
+              'Préc.',
+            )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-bold">{labelOf(sel)}</div>
               <div className="flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted">
@@ -697,9 +762,12 @@ export default function MatchTimeline({
                 <span className="tabular-nums">à {fmtMoment(Math.round(selMk.v))}</span>
               </div>
             </div>
-            <button className={small} title="Action suivante" aria-label="Action suivante" disabled={!stepIn(mks, selId(sel), 1)} onClick={() => step(1)}>
-              <Icon name="next" className="h-3.5 w-3.5" />
-            </button>
+            {named(
+              <button className={small} title="Action suivante" aria-label="Action suivante" disabled={!stepIn(mks, selId(sel), 1)} onClick={() => step(1)}>
+                <Icon name="next" className="h-3.5 w-3.5" />
+              </button>,
+              'Suiv.',
+            )}
           </div>
           {calib && (
             <div className="flex flex-wrap items-center gap-1.5">
