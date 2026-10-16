@@ -21,17 +21,28 @@ export interface Palette {
   line: string
   muted: string
   fg: string
-  /** Accent (fonds, bordures, onglet actif). */
+  /**
+   * Couleur de l'appli (--color-accent) : choix sélectionnés (pastilles, segmentés, cases), bordures au survol, barres
+   * de progression, courbes. Sport, Officiel, Salle : couleur d'encre de la marque (bleu nuit, marine, ardoise ; claire
+   * en version sombre), pour que la couleur vive ne serve qu'à quelques endroits (voir brand).
+   */
   accent: string
-  /** Accent écrit en texte (liens, titres de section, onglet actif) : assez contrasté sur le fond et les cartes. */
+  /** Accent écrit en texte (liens, titres de section) : assez contrasté sur le fond et les cartes. */
   accentText: string
-  /** Texte posé sur l'accent (pastilles, boutons). */
+  /** Texte posé sur l'accent (pastilles et segmentés sélectionnés). */
   onAccent: string
-  /** Boutons principaux (sinon l'accent). */
+  /**
+   * Couleur vive de la marque (orange, rouge, jaune), réservée : action principale (btn-primary), onglet actif du menu,
+   * chiffre clé du bandeau (emph.accent) et échelle de la carte (scale).
+   */
+  brand: string
+  /** Couleur vive écrite en texte (onglet actif du menu) : assez contrastée sur le fond. */
+  brandText: string
+  /** Texte posé sur la couleur vive. */
+  onBrand: string
+  /** Boutons principaux (sinon la couleur vive). */
   primary?: string
   onPrimary?: string
-  /** Couleur secondaire (style Sombre : ambre), pour les chiffres des blocs mis en avant. */
-  secondary?: string
   /** Blocs mis en avant : fond, fond des cartes dedans, texte, texte atténué, accent, bordure. */
   emph: { bg: string; bg2: string; fg: string; muted: string; accent: string; onAccent: string; line: string }
   /** En-tête coloré (style Officiel). */
@@ -82,9 +93,12 @@ export const STYLES: UiStyle[] = [
       line: '#cdd5e1',
       muted: '#4a5a72',
       fg: '#0b1f3a',
-      accent: '#ff5a1f',
-      accentText: '#c2410c',
-      onAccent: '#0b1f3a',
+      accent: '#0b1f3a',
+      accentText: '#1c3d6e',
+      onAccent: '#ffffff',
+      brand: '#ff5a1f',
+      brandText: '#c2410c',
+      onBrand: '#0b1f3a',
       emph: { bg: '#0b1f3a', bg2: '#11294a', fg: '#ffffff', muted: '#b4c2d8', accent: '#ff5a1f', onAccent: '#0b1f3a', line: '#2a4670' },
       map: { bg: '#0b1f3a', panel: '#0b1f3a', panel2: '#183559', fg: '#ffffff', muted: '#a9b8cf', line: '#2a4670' },
       scale: '#ff5a1f',
@@ -96,9 +110,12 @@ export const STYLES: UiStyle[] = [
       line: '#24426c',
       muted: '#a3b4cd',
       fg: '#eef2f8',
-      accent: '#ff5a1f',
-      accentText: '#ff7a45',
+      accent: '#dce5f2',
+      accentText: '#bccbe2',
       onAccent: '#0b1f3a',
+      brand: '#ff5a1f',
+      brandText: '#ff7a45',
+      onBrand: '#0b1f3a',
       emph: { bg: '#123462', bg2: '#173c70', fg: '#ffffff', muted: '#c3d0e3', accent: '#ff9466', onAccent: '#0b1f3a', line: '#2f5690' },
       map: { bg: '#0b1f3a', panel: '#0b1f3a', panel2: '#183559', fg: '#ffffff', muted: '#a9b8cf', line: '#2a4670' },
       scale: '#ff5a1f',
@@ -123,13 +140,15 @@ export const STYLES: UiStyle[] = [
       line: '#d2d8e2',
       muted: '#4f5b70',
       fg: '#12285c',
-      accent: '#c8102e',
-      accentText: '#c8102e',
+      accent: '#12285c',
+      accentText: '#2a4a94',
       onAccent: '#ffffff',
-      primary: '#12285c',
-      onPrimary: '#ffffff',
-      emph: { bg: '#12285c', bg2: '#1b3672', fg: '#ffffff', muted: '#c3cde2', accent: '#ffffff', onAccent: '#12285c', line: '#2e4a8a' },
+      brand: '#c8102e',
+      brandText: '#c8102e',
+      onBrand: '#ffffff',
+      emph: { bg: '#12285c', bg2: '#1b3672', fg: '#ffffff', muted: '#c3cde2', accent: '#ff8f9c', onAccent: '#12285c', line: '#2e4a8a' },
       header: { bg: '#12285c', fg: '#ffffff', muted: '#c3cde2', line: '#2e4a8a', panel: '#1b3672' },
+      // Carte en marine (pas en rouge : sur une carte de couverture, le rouge se lirait comme une alerte).
       scale: '#12285c',
     },
     dark: {
@@ -139,55 +158,62 @@ export const STYLES: UiStyle[] = [
       line: '#28385e',
       muted: '#a4b0c8',
       fg: '#eef1f7',
-      accent: '#ff5c70',
-      accentText: '#ff7585',
+      accent: '#dfe6f5',
+      accentText: '#b3c3e6',
       onAccent: '#0a1226',
-      primary: '#3d63c4',
-      onPrimary: '#ffffff',
-      emph: { bg: '#1b3672', bg2: '#244590', fg: '#ffffff', muted: '#c9d3e8', accent: '#ffffff', onAccent: '#12285c', line: '#3a5aa6' },
+      brand: '#ff5c70',
+      brandText: '#ff7585',
+      onBrand: '#0a1226',
+      emph: { bg: '#1b3672', bg2: '#244590', fg: '#ffffff', muted: '#c9d3e8', accent: '#ffa5b0', onAccent: '#12285c', line: '#3a5aa6' },
       header: { bg: '#12285c', fg: '#ffffff', muted: '#c3cde2', line: '#2e4a8a', panel: '#1b3672' },
       scale: '#7aa2ff',
     },
   },
   {
+    // Identifiant « sombre » gardé (valeur déjà enregistrée dans hb_config) ; affiché « Salle ».
     id: 'sombre',
-    label: 'Sombre tableau de bord',
-    note: 'tableau de bord, cyan et ambre',
+    label: 'Salle',
+    note: 'la salle en soirée : ardoise, jaune des lignes du terrain, chiffres du tableau de score',
     fonts: {
-      body: `"Space Grotesk", ${SYS}`,
-      heading: `"Space Grotesk", ${SYS}`,
-      figures: `"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace`,
-      href: `${GF}family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap`,
-      names: 'Space Grotesk · IBM Plex Mono',
+      body: `"Sofia Sans", ${SYS}`,
+      heading: `"Sofia Sans", ${SYS}`,
+      figures: `"Sofia Sans Condensed", "Arial Narrow", ${SYS}`,
+      href: `${GF}family=Sofia+Sans:wght@400;500;600;700;800&family=Sofia+Sans+Condensed:wght@600;700;800&display=swap`,
+      names: 'Sofia Sans · Sofia Sans Condensed',
     },
-    radius: { sm: '6px', md: '8px', lg: '10px', xl: '12px', '2xl': '16px' },
+    radius: { sm: '4px', md: '6px', lg: '8px', xl: '8px', '2xl': '10px' },
     light: {
-      bg: '#f1f3f6',
+      bg: '#eef1f4',
       panel: '#ffffff',
-      panel2: '#e6eaf0',
-      line: '#cfd5df',
-      muted: '#505a6a',
-      fg: '#0e1116',
-      accent: '#0b7d7b',
-      accentText: '#0a6f6d',
+      panel2: '#e3e8ee',
+      line: '#c9d2dc',
+      muted: '#4b5a6b',
+      fg: '#17212b',
+      accent: '#17212b',
+      accentText: '#2b4a6a',
       onAccent: '#ffffff',
-      secondary: '#9a5b00',
-      emph: { bg: '#0e1116', bg2: '#171b23', fg: '#e8ecf2', muted: '#a3acbb', accent: '#3ddbd9', onAccent: '#0e1116', line: '#2c3442' },
-      scale: '#0b7d7b',
+      brand: '#f5c518',
+      brandText: '#7a5a00',
+      onBrand: '#17212b',
+      emph: { bg: '#17212b', bg2: '#213040', fg: '#ffffff', muted: '#b3c1d0', accent: '#f5c518', onAccent: '#17212b', line: '#34465a' },
+      // Jaune foncé : le jaune des lignes ne se voit pas assez sur une carte blanche.
+      scale: '#c28800',
     },
     dark: {
-      bg: '#0e1116',
-      panel: '#171b23',
-      panel2: '#1f2530',
-      line: '#2c3442',
-      muted: '#9ba5b6',
-      fg: '#e8ecf2',
-      accent: '#3ddbd9',
-      accentText: '#3ddbd9',
-      onAccent: '#0e1116',
-      secondary: '#ffb547',
-      emph: { bg: '#171b23', bg2: '#1f2530', fg: '#e8ecf2', muted: '#a3acbb', accent: '#ffb547', onAccent: '#0e1116', line: '#ffb54766' },
-      scale: '#3ddbd9',
+      bg: '#17212b',
+      panel: '#1f2b37',
+      panel2: '#283644',
+      line: '#374759',
+      muted: '#9fb0c3',
+      fg: '#edf1f5',
+      accent: '#e3e9ef',
+      accentText: '#c5d3e2',
+      onAccent: '#17212b',
+      brand: '#f5c518',
+      brandText: '#f5c518',
+      onBrand: '#17212b',
+      emph: { bg: '#101a24', bg2: '#182634', fg: '#ffffff', muted: '#aebdcc', accent: '#f5c518', onAccent: '#17212b', line: '#2b3d51' },
+      scale: '#f5c518',
     },
   },
 ]
@@ -263,9 +289,10 @@ export function styleLook(s: UiStyle, light: boolean): StyleLook {
     '--color-accent-soft': p.accent + '22',
     '--color-accent-text': p.accentText,
     '--color-on-accent': p.onAccent,
-    '--color-primary': p.primary ?? p.accent,
-    '--color-on-primary': p.onPrimary ?? p.onAccent,
-    '--color-secondary': p.secondary ?? p.accentText,
+    '--color-brand': p.brand,
+    '--color-brand-text': p.brandText,
+    '--color-primary': p.primary ?? p.brand,
+    '--color-on-primary': p.onPrimary ?? p.onBrand,
     '--color-scale': p.scale,
     '--emph-bg': p.emph.bg,
     '--emph-bg2': p.emph.bg2,
@@ -333,8 +360,10 @@ export function textPairs(p: Palette): [string, string, string][] {
     ['atténué / carte 2', p.muted, p.panel2],
     ['accent (texte) / fond', p.accentText, p.bg],
     ['accent (texte) / carte', p.accentText, p.panel],
-    ['sur accent / accent', p.onAccent, p.accent],
-    ['bouton principal', p.onPrimary ?? p.onAccent, p.primary ?? p.accent],
+    ['sélection : texte / fond', p.onAccent, p.accent],
+    ['marque (texte, onglet actif) / fond', p.brandText, p.bg],
+    ['marque (texte, onglet actif) / carte', p.brandText, p.panel],
+    ['bouton principal', p.onPrimary ?? p.onBrand, p.primary ?? p.brand],
     ['mis en avant : texte', p.emph.fg, p.emph.bg],
     ['mis en avant : atténué', p.emph.muted, p.emph.bg],
     ['mis en avant : texte / carte', p.emph.fg, p.emph.bg2],
@@ -343,7 +372,6 @@ export function textPairs(p: Palette): [string, string, string][] {
     ['mis en avant : accent / carte', p.emph.accent, p.emph.bg2],
     ['mis en avant : sur accent', p.emph.onAccent, p.emph.accent],
   ]
-  if (p.secondary) pairs.push(['secondaire / carte', p.secondary, p.panel])
   if (p.header) pairs.push(['en-tête : texte', p.header.fg, p.header.bg], ['en-tête : atténué', p.header.muted, p.header.bg])
   if (p.map) pairs.push(['carte : texte', p.map.fg, p.map.panel], ['carte : atténué', p.map.muted, p.map.panel])
   return pairs.map(([n, fg, bg]) => [n, flatten(fg, bg), bg])

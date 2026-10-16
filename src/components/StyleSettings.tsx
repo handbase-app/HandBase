@@ -99,7 +99,7 @@ function ModePicker({ style }: { style: UiStyle }) {
               <span className="flex h-8 w-full flex-col justify-between overflow-hidden rounded-md border p-1" style={{ background: p.bg, borderColor: p.line }}>
                 <span className="h-2 rounded-sm" style={{ background: p.panel }} />
                 <span className="flex items-center gap-1">
-                  <span className="h-2 w-4 rounded-sm" style={{ background: p.accent }} />
+                  <span className="h-2 w-4 rounded-sm" style={{ background: p.brand }} />
                   <span className="h-1 flex-1 rounded-sm" style={{ background: p.muted }} />
                 </span>
               </span>
@@ -145,7 +145,7 @@ function StyleTile({ s, on, light, onPick }: { s: UiStyle; on: boolean; light: b
           <span className="h-1 flex-1 rounded-full" style={{ background: emph.fg, opacity: 0.4 }} />
         </span>
         <span className="flex items-center gap-1">
-          <span className="px-1.5 text-[9px] font-bold" style={{ background: p?.primary ?? c.accent, color: p?.onPrimary ?? c.onAccent, borderRadius: r.sm }}>
+          <span className="px-1.5 text-[9px] font-bold" style={{ background: p ? (p.primary ?? p.brand) : c.accent, color: p ? (p.onPrimary ?? p.onBrand) : c.onAccent, borderRadius: r.sm }}>
             OK
           </span>
           <span className="h-3 flex-1 border" style={{ background: c.panel, borderColor: c.line, borderRadius: r.sm }} />

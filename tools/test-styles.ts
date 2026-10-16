@@ -79,6 +79,28 @@ for (const s of STYLES.filter((x) => x.id !== 'actuel')) {
 assert.equal(styleLook(STYLES.find((s) => s.id === 'officiel')!, true).attrs['data-header'], true, 'Officiel : en-tête coloré')
 assert.equal(styleLook(STYLES.find((s) => s.id === 'sport')!, false).attrs['data-map'], true, 'Sport : carte sur fond bleu nuit')
 assert.equal(styleLook(STYLES.find((s) => s.id === 'sport')!, true).attrs['data-upper'], true, 'Sport : titres en capitales')
+assert.equal(STYLES.find((s) => s.id === 'sombre')?.label, 'Salle', 'style « sombre » : identifiant gardé, affiché « Salle »')
+assert.deepEqual(cleanAppearance({ style: 'sombre' }), { style: 'sombre' }, 'valeur déjà enregistrée « sombre » relue')
+
+// ---------- Couleur vive réservée ----------
+// Choix sélectionnés (pastilles, segmentés), barres, bordures : couleur d'encre (--color-accent) ; la couleur vive
+// (--color-brand) ne sert qu'au bouton principal, à l'onglet actif du menu, au chiffre clé du bandeau et à la carte.
+const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+assert.match(css, /nav\[aria-label="Menu principal"\] a\[aria-current="page"\] \{\s*--color-accent: var\(--color-brand\);/, 'onglet actif : couleur vive')
+assert.match(css, /\.btn-primary \{ background-color: var\(--color-primary\)/, 'bouton principal : couleur vive')
+for (const s of STYLES.filter((x) => x.id !== 'actuel')) {
+  for (const light of [true, false]) {
+    const p = paletteOf(s, light)!
+    const look = styleLook(s, light)
+    assert.notEqual(p.accent.toLowerCase(), p.brand.toLowerCase(), `${s.id} : sélection ≠ couleur vive`)
+    assert.equal(look.vars['--color-primary'], p.primary ?? p.brand, `${s.id} : bouton principal en couleur vive`)
+    assert.equal(look.vars['--color-brand-text'], p.brandText)
+    // Chiffre clé du bandeau : la couleur vive (ou sa version éclaircie sur le bloc foncé), pas l'encre.
+    assert.notEqual(p.emph.accent.toLowerCase(), p.accent.toLowerCase(), `${s.id} : chiffre clé ≠ encre`)
+    // En sombre, la sélection est claire (texte foncé dessus) ; en clair, foncée (texte blanc).
+    assert.equal(contrast(p.accent, '#ffffff') > contrast(p.accent, '#000000'), light, `${s.id} ${light ? 'clair' : 'sombre'} : sélection ${light ? 'foncée' : 'claire'}`)
+  }
+}
 
 // ---------- Contrastes ----------
 // Couleurs d'état (src/index.css : version foncée sur les thèmes clairs, Tailwind 300/400 sur les sombres), avis des
@@ -110,8 +132,10 @@ for (const s of STYLES.filter((x) => x.id !== 'actuel')) {
     for (const c of light ? STATUS_LIGHT : STATUS_DARK) check(s.id, mode, `état ${c}`, c, p.panel, 4.5)
     for (const c of light ? arr(op, 'COLORS_LIGHT') : arr(op, 'COLORS_DARK')) check(s.id, mode, `avis ${c}`, c, p.panel, 3)
     for (const c of light ? arr(cmp, 'COLORS_LIGHT') : arr(cmp, 'COLORS_DARK')) check(s.id, mode, `comparaison ${c}`, c, p.panel, 3)
-    // Accent (onglet actif, bordures) et échelle de la carte (teinte pleine) : éléments graphiques, 3:1 sur leur fond.
-    check(s.id, mode, 'accent (graphique) / carte', p.accent, p.panel, 3)
+    // Sélection (pastilles, segmentés, barres, bordures) et échelle de la carte (teinte pleine) : éléments graphiques,
+    // 3:1 sur leur fond.
+    check(s.id, mode, 'sélection (graphique) / carte', p.accent, p.panel, 3)
+    check(s.id, mode, 'sélection (graphique) / carte 2', p.accent, p.panel2, 3)
     check(s.id, mode, 'échelle (100 %) / fond de carte', p.scale, p.map?.panel ?? p.panel, 3)
     // Radar : secteurs teintés, contour du joueur en couleur du texte ; points de couleur : 2:1 au moins (repérage, la
     // légende et les libellés portent l'information).

@@ -140,10 +140,16 @@ body {
 :root[data-upper] h1 { font-size: 1.375rem; line-height: 1.1; }
 :root[data-upper] .section-title { font-size: 0.8125rem; letter-spacing: 0.06em; }
 :root[data-style] .tabular-nums { font-family: var(--font-figures); }
-/* Accent en texte : version assez contrastée (l'orange vif du style Sport reste pour les fonds et les bordures). */
+/* Accent : couleur d'encre de la marque (choix sélectionnés, bordures, barres) ; en texte, sa version contrastée. */
 :root[data-style] :is(.text-accent, .section-title) { color: var(--color-accent-text); }
 :root[data-style] .bg-accent { color: var(--color-on-accent); }
+/* Couleur vive de la marque, à quatre endroits seulement : action principale, onglet actif du menu, chiffre clé du
+   bandeau (blocs mis en avant, plus bas) et échelle de la carte (--color-scale). */
 :root[data-style] .btn-primary { background-color: var(--color-primary); color: var(--color-on-primary); }
+:root[data-style] nav[aria-label="Menu principal"] a[aria-current="page"] {
+  --color-accent: var(--color-brand);
+  --color-accent-text: var(--color-brand-text);
+}
 
 /* Blocs mis en avant (bande des chiffres clés du bilan, carte « Bilan de détection » de l'accueil) : fond plein. Les
    variables sont redéfinies dans le bloc, les classes de l'appli (text-muted, bg-panel, border-accent…) suivent. */
@@ -163,8 +169,8 @@ body {
 :root[data-emph] .emph-band { padding: 0.5rem; border-radius: var(--radius-lg); }
 :root[data-emph] .emph-band .card { border-color: transparent; }
 :root[data-emph] .emph-band .card[aria-selected="true"] { border-color: var(--emph-accent); }
-:root[data-style="sombre"] :is(.emph, .emph-band) .tabular-nums { color: var(--color-secondary); }
-:root[data-style="sombre"]:not([data-light]) :is(.emph, .emph-band) .tabular-nums { color: var(--emph-accent); }
+/* Salle (identifiant « sombre ») : tuile active comme un tableau de score, sans voile jaune (qui virait à l'olive). */
+:root[data-style="sombre"] .emph-band .card[aria-selected="true"] { background-color: var(--emph-bg2); }
 
 /* En-tête coloré (style Officiel). */
 :root[data-header] .app-header {
