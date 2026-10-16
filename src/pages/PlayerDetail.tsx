@@ -24,6 +24,8 @@ import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
+import { PageHeader } from '../components/PageHeader'
+import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
 import { spyTarget } from '../spy'
@@ -176,27 +178,25 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        {panel ? <PanelClose /> : hideBack ? <span /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
-        <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
-        {can.exportPlayer(role) && (
-          <button
-            onClick={() => void exportPlayer(p.id)}
-            className="text-[11px] font-bold text-muted hover:text-accent"
-            title="Copie de toutes ses données (demande d’un joueur ou de ses parents)"
-          >
-            ⤓ Ses données
-          </button>
-        )}
-        {can.deletePlayers(role) && (
-        <button onClick={() => void del()} className="text-muted hover:text-red-400" title="Supprimer">
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3" />
-          </svg>
-        </button>
-        )}
-        </div>
-      </div>
+      {/* En-tête : retour, puis les actions de la fiche dans le ⋮ (Supprimer en dernier, avec confirmation). */}
+      <PageHeader
+        back={panel ? <PanelClose /> : hideBack ? <span /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
+        menu={{
+          title: playerName(p),
+          subtitle: [p.club, a !== null ? `${a} ans` : ''].filter(Boolean).join(' · ') || undefined,
+          items: [
+            can.editPlayer(role, p) && { label: can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition', icon: 'pencil', onSelect: () => nav(`/joueurs/${p.id}/modifier`) },
+            can.exportPlayer(role) && {
+              label: 'Ses données',
+              icon: 'download',
+              hint: 'copie de toutes ses données (demande du joueur ou de ses parents)',
+              onSelect: () => void exportPlayer(p.id),
+            },
+            { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
+            can.deletePlayers(role) && { label: 'Supprimer la fiche', icon: 'trash', danger: true, onSelect: () => void del() },
+          ],
+        }}
+      />
 
       <div className="flex items-center gap-4">
         <Avatar p={p} size={64} />
@@ -379,7 +379,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {tab === 'avis' && (
         <div className="card p-4">
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
-            <span className="text-accent">★</span> Avis des observateurs
+            <span className="text-accent">★</span> Avis du staff
           </div>
           <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} />
         </div>

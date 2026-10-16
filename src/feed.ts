@@ -149,7 +149,7 @@ export async function buildFeed({
       key: `e|${k}`,
       kind: 'evaluations',
       time: latest(rs),
-      author: who.length <= 3 ? who.map(([, n]) => n).join(', ') : `${who.length} observateurs`,
+      author: who.length <= 3 ? who.map(([, n]) => n).join(', ') : `${who.length} personnes`,
       authorId: who.length === 1 ? who[0][0] : undefined,
       text: `${plural(rs.length, 'avis', 'avis')} · ${ev ? ev.name : rs.length === 1 ? contextLabel(rs[0]) : 'avis spontanés'}`,
       detail: [`${plural(pids.length, 'joueur')} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),

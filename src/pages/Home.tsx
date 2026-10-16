@@ -12,7 +12,8 @@ const ACTIONS = [
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
   { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
   // Joueurs que mon staff veut revoir, pas encore revus (supabase/041).
-  { to: '/a-revoir', title: 'Mes à revoir', icon: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z' },
+  // Horloge bleu ciel, comme partout ailleurs pour « à revoir » (l'œil veut dire « vu »).
+  { to: '/a-revoir', title: 'Mes à revoir', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', tone: 'bg-sky-500/10 text-sky-300' },
 ]
 
 /** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */
@@ -27,7 +28,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
     ['players', 'evaluations'],
   )
   const rewatch = useThrottledQuery(countOpenRewatch, [], ['rewatch', 'seen', 'evaluations', 'teams'], undefined, 0)
-  const actions: { to: string; title: string; icon: string; main?: boolean }[] = ACTIONS
+  const actions: { to: string; title: string; icon: string; main?: boolean; tone?: string }[] = ACTIONS
   return (
     // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
     // la largeur (tuiles et bilan de détection sur une rangée), fil en dessous.
@@ -37,8 +38,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
         <h1 className="text-xl font-extrabold">Collecte & suivi</h1>
         {counts && (
           <p className="mt-0.5 text-[11px] text-muted side:mt-0">
-            {counts.players.toLocaleString('fr-FR')} joueur{counts.players > 1 ? 's' : ''} · {counts.evals.toLocaleString('fr-FR')} évaluation
-            {counts.evals > 1 ? 's' : ''}
+            {counts.players.toLocaleString('fr-FR')} joueur{counts.players > 1 ? 's' : ''} · {counts.evals.toLocaleString('fr-FR')} avis
           </p>
         )}
       </div>
@@ -52,7 +52,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
             to={t.to}
             className={`card relative flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center side:py-4 transition hover:border-accent ${t.main ? 'border-accent/60' : ''}`}
           >
-            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${t.main ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${t.main ? 'bg-accent text-white' : (t.tone ?? 'bg-panel-2 text-muted')}`}>
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d={t.icon} />
               </svg>

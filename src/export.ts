@@ -228,10 +228,10 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans HandBase, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
 <h2>Fiche</h2>${table(['Information', 'Valeur'], info.filter(([, v]) => v !== undefined && v !== null && v !== ''))}
 <h2>Mesures et tests (${meas.length})</h2>${table(['Date', 'Test', 'Valeur', 'Commentaire', 'Saisi par'], meas)}
-<h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
+<h2>Avis du staff (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
 <h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
 <h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
-<h2>Vu par les observateurs (${sights.length})</h2>${table(['Date', 'Événement', 'Observateur'], sights)}
+<h2>Vu lors d’événements (${sights.length})</h2>${table(['Date', 'Événement', 'Vu par'], sights)}
 <h2>À revoir (${revisits.length})</h2>${table(['Le', 'Repéré à', 'À revoir à', 'Commentaire', 'Par', 'Revu'], revisits)}
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 </body></html>`

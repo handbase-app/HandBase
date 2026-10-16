@@ -18,7 +18,7 @@ export function PrivacyText() {
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>
         HandBase est l’outil du staff de détection pour suivre les jeunes joueuses et joueurs de handball : tests physiques, avis
-        des observateurs, participation aux rassemblements. Cette page explique quelles données sont enregistrées, pourquoi, qui
+        du staff, participation aux rassemblements. Cette page explique quelles données sont enregistrées, pourquoi, qui
         les voit et comment exercer vos droits (Règlement général sur la protection des données, RGPD).
       </p>
 
@@ -33,7 +33,7 @@ export function PrivacyText() {
         <li>Identité et licence : nom, prénom, sexe, date de naissance, nationalité, club, numéro et état de licence (issus de Gest’Hand, la base de la Fédération).</li>
         <li>Profil sportif : poste(s), latéralité, groupes, rassemblements suivis.</li>
         <li>Mesures et tests physiques : taille, poids, envergure, tests de vitesse, de saut, de force… et, si elles sont données, les tailles des parents (pour estimer la taille adulte).</li>
-        <li>Avis des observateurs : notes et commentaires sur le jeu, signés par leur auteur.</li>
+        <li>Avis du staff : notes et commentaires sur le jeu, signés par leur auteur.</li>
       </ul>
       <p>
         Aucune donnée de santé (blessures, maladies, traitements) n’est enregistrée, ni aucune information sur les origines, la

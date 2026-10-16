@@ -36,6 +36,7 @@ import { CompareBar, CompareToggle, PickBox, useComparePick } from '../component
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
+import { PageHeader } from '../components/PageHeader'
 
 /** Liste des groupes (Intercomités, Pôle, Sport-études…). */
 export default function Groups() {
@@ -522,6 +523,41 @@ export function NewGroup() {
   )
 }
 
+/** « Exporter ▾ » de la page d'un groupe : tableur (CSV) ou liste à imprimer (PDF, identité seulement, ex. pour la ligue). */
+function GroupExport({ g, players, className = '' }: { g: PlayerGroup; players: Player[]; className?: string }) {
+  const nav = useNavigate()
+  const menu = useRowMenu()
+  const n = players.length
+  return (
+    <>
+      <button
+        className={`btn-ghost text-xs ${className}`}
+        disabled={!n}
+        aria-haspopup="menu"
+        aria-expanded={!!menu.anchor}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          menu.open({ x: r.left, y: r.bottom, top: r.top })
+        }}
+      >
+        Exporter ▾
+      </button>
+      {menu.anchor && (
+        <ItemMenu
+          anchor={menu.anchor}
+          title="Exporter"
+          subtitle={`${g.name} · ${n} joueur${n > 1 ? 's' : ''}`}
+          items={[
+            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: () => void exportCsv(players) },
+            { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
+          ]}
+          onClose={menu.close}
+        />
+      )}
+    </>
+  )
+}
+
 export function GroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -603,47 +639,43 @@ export function GroupDetail() {
   return (
     <PlayerMenuScope.Provider value={{ pick }}>
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
-        {!editing && (
-          <div className="flex flex-wrap gap-3">
-            {/* Liste des joueurs à imprimer ou enregistrer en PDF (identité seulement), ex. pour la ligue. */}
-            <Link to={`/groupes/${g.id}/rapport`} className="text-xs text-muted hover:text-fg">
-              Exporter en PDF
-            </Link>
-            {/* Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence. */}
-            <button
-              className="text-xs text-muted hover:text-fg"
-              onClick={async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`)}
-            >
-              Dupliquer
-            </button>
-            {manage && (
-              <>
-                <button className="text-xs text-muted hover:text-fg" onClick={() => setEditing(true)}>
-                  Modifier
-                </button>
-                <button className="text-xs text-muted hover:text-fg" onClick={() => void save<PlayerGroup>('groups', { ...g, archived: !g.archived })}>
-                  {g.archived ? 'Désarchiver' : 'Archiver'}
-                </button>
-                <button
-                  className="text-xs text-muted hover:text-red-400"
-                  onClick={async () => {
-                    if (await deleteGroup(g)) nav('/groupes', { replace: true })
-                  }}
-                >
-                  Supprimer
-                </button>
-              </>
-            )}
-            {canTransferGroup(role) && (
-              <button className="text-xs text-muted hover:text-fg" aria-expanded={transferring} onClick={() => setTransferring((t) => !t)}>
-                Réattribuer…
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+      {/* En-tête : retour, puis les actions du groupe dans le ⋮ (Supprimer en dernier, avec confirmation). */}
+      <PageHeader
+        back={panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
+        menu={
+          editing
+            ? undefined
+            : {
+                title: g.name,
+                subtitle: `${g.playerIds.length} joueur${g.playerIds.length > 1 ? 's' : ''}${g.archived ? ' · archivé' : ''}`,
+                items: [
+                  // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
+                  { label: 'Dupliquer', icon: 'list', hint: 'avec ses joueurs', onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+                  manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+                  canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
+                  players.length > 0 && {
+                    label: 'Voir dans Joueurs',
+                    icon: 'user',
+                    hint: 'la liste Joueurs filtrée sur ce groupe',
+                    onSelect: () => {
+                      showGroupInPlayers(g.id)
+                      nav('/joueurs')
+                    },
+                  },
+                  { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
+                  manage && {
+                    label: 'Supprimer',
+                    icon: 'trash',
+                    danger: true,
+                    onSelect: async () => {
+                      if (await deleteGroup(g)) nav('/groupes', { replace: true })
+                    },
+                  },
+                ],
+              }
+        }
+      />
 
       {transferring && !editing && canTransferGroup(role) && (
         <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={() => nav('/groupes', { replace: true })} />
@@ -701,42 +733,25 @@ export function GroupDetail() {
         </div>
       )}
 
-      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-3 gap-2'}>
-        {bar && (manage || contribute) && (
-          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAdding(true)}>
+      {/* Barre d'actions : « + Ajouter des joueurs » (principal), « Créer un événement », « Exporter ▾ » (CSV / PDF).
+          Téléphone : le bouton principal sur toute la largeur, les deux autres côte à côte dessous. */}
+      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-2 gap-2'}>
+        {(manage || contribute) && (
+          <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : 'col-span-2'}`} onClick={() => setAdding(true)}>
             + Ajouter des joueurs
           </button>
         )}
-        <button
-          className={`btn-ghost text-xs ${bar ? 'px-3 py-1.5' : 'px-2'}`}
-          disabled={!players.length}
-          onClick={() => {
-            showGroupInPlayers(g.id)
-            nav('/joueurs')
-          }}
-        >
-          Voir dans Joueurs
-        </button>
-        <button className={`btn-ghost text-xs ${bar ? 'px-3 py-1.5' : 'px-2'}`} disabled={!players.length} onClick={() => void exportCsv(players)}>
-          Exporter ({players.length})
-        </button>
-        {can.manageEvents(role) ? (
+        {can.manageEvents(role) && (
           <Link
             to={`/evenements?groupe=${g.id}`}
-            className={`btn-primary text-center text-xs ${bar ? 'px-3 py-1.5' : 'px-2'} ${players.length ? '' : 'pointer-events-none opacity-50'}`}
+            aria-disabled={!players.length || undefined}
+            className={`btn-ghost text-center text-xs ${bar ? 'px-3 py-1.5' : 'px-2'} ${players.length ? '' : 'pointer-events-none opacity-50'}`}
           >
             Créer un événement
           </Link>
-        ) : (
-          !bar && <span />
         )}
+        <GroupExport g={g} players={players} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
       </div>
-
-      {!bar && (manage || contribute) && (
-        <button className="btn-ghost" onClick={() => setAdding(true)}>
-          + Ajouter des joueurs (par filtres ou un par un)
-        </button>
-      )}
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des joueurs et retirer ceux que tu as ajoutés.</p>}
 
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted">

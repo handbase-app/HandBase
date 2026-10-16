@@ -56,7 +56,7 @@ export default function Settings() {
       <div className="mt-1 text-[10px] font-extrabold tracking-wider text-muted uppercase">Mon espace</div>
       <Fold id="compte" icon="user" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
         <section className="card flex flex-col gap-2 p-4">
-          <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
+          <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les avis. Avec un compte, il est lié à ce compte.">
             Mon nom (observateur)
           </SectionTitle>
           {supabase ? (
