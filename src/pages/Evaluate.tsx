@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
@@ -1017,8 +1017,11 @@ function SpontaneousContext({
 /** Une valeur d'avis renseignée : note, option choisie ou texte non vide. */
 const isFilled = (v: unknown): v is number | string => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')
 
-/** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
-export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void }) {
+/**
+ * Création d'un événement, ou modification de `event` (nom, type, date, lieu). `extra` : actions rangées au bas du
+ * formulaire de modification (ex. « + Importer une feuille de match (PDF) » sur la page de l'événement).
+ */
+export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void; extra?: ReactNode }) {
   // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g)))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
@@ -1110,6 +1113,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           Annuler
         </button>
       </div>
+      {extra}
     </div>
   )
 }

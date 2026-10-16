@@ -22,6 +22,7 @@ import {
 } from '../videos'
 import { ask } from './Confirm'
 import { Icon, InfoButton, playerName } from './ui'
+import { useSessionState } from './PlayerFilter'
 import type { PlayerTools } from './VideoPlayer'
 import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
 
@@ -127,6 +128,7 @@ export function VideoSection({
   tools,
   bar,
   sheet,
+  fold = false,
   children,
 }: {
   kind: Video['targetKind']
@@ -144,6 +146,11 @@ export function VideoSection({
   sheet?: { ms: MatchSheet; canEdit: boolean }
   /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
   children?: ReactNode
+  /**
+   * Sans vidéo : section repliée en une ligne « Vidéos (0) › » (page d'un événement : les joueurs d'abord). Dépliée,
+   * elle le reste pendant la session (retour d'une fiche : même écran).
+   */
+  fold?: boolean
 }) {
   const role = useRole()
   const online = useOnline()
@@ -157,6 +164,7 @@ export function VideoSection({
   // Formulaire : null = fermé, 'new' = ajout, sinon le lien modifié.
   const [form, setForm] = useState<'new' | Video | null>(null)
   const [note, setNote] = useState('')
+  const [unfolded, setUnfolded] = useSessionState(`handbase.videos.deplie.${kind}:${targetId}`, false)
   // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite) : le lecteur est posé à la racine de l'appli
   // (VideoDock.tsx), il survit à cette section quand la page se redessine (téléphone tourné).
   const owner = `${kind}:${targetId}`
@@ -236,11 +244,28 @@ export function VideoSection({
   if (!videos) return null
 
   const what = kind === 'player' ? 'ce joueur' : 'cet événement'
+  if (fold && !videos.length && !unfolded && form === null)
+    return (
+      <button type="button" className="card flex w-full items-center gap-2 px-4 py-2.5 text-left" aria-expanded={false} onClick={() => setUnfolded(true)}>
+        <Icon name="video" className="h-3.5 w-3.5 shrink-0 text-muted" />
+        <span className="flex-1 text-xs font-bold text-muted">
+          Vidéos <span className="font-normal">(0)</span>
+        </span>
+        <span className="shrink-0 text-muted" aria-hidden>
+          ›
+        </span>
+      </button>
+    )
   return (
     <div className="card p-4">
       <div className="section-title flex items-center gap-2">
         <Icon name="video" className="h-3.5 w-3.5" />
         Vidéos{videos.length > 0 && <span className="text-muted">({videos.length})</span>}
+        {fold && !videos.length && (
+          <button type="button" className="ml-auto order-last px-1 text-muted hover:text-fg" aria-expanded title="Replier" onClick={() => (setUnfolded(false), setForm(null))}>
+            <span className="inline-block rotate-90">›</span>
+          </button>
+        )}
         <InfoButton title="Vidéos">
           <p>
             Un lien vers une vidéo où l’on voit {what} : Rematch, YouTube, Handball TV, Facebook… Pour le regarder quelques minutes avant de décider
