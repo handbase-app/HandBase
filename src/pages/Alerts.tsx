@@ -8,6 +8,7 @@ import { Empty, Icon, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { FollowStar } from '../components/Follow'
+import { PageHeader } from '../components/PageHeader'
 import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
@@ -137,24 +138,28 @@ export function AlertDetail() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />
-        {manage && (
-          <div className="flex gap-4">
-            <button className="text-xs text-muted hover:text-fg" onClick={() => setParams({ modifier: '' }, { replace: true })}>
-              Modifier
-            </button>
-            <button
-              className="text-xs text-muted hover:text-red-400"
-              onClick={async () => {
-                if (await deleteAlert(alert)) nav('/alertes', { replace: true })
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-        )}
-      </div>
+      {/* En-tête : retour, puis Modifier et Supprimer (en dernier, avec confirmation) dans le ⋮. */}
+      <PageHeader
+        back={<BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />}
+        menu={
+          manage
+            ? {
+                title: alert.name,
+                items: [
+                  { label: 'Modifier', icon: 'pencil', onSelect: () => setParams({ modifier: '' }, { replace: true }) },
+                  {
+                    label: 'Supprimer',
+                    icon: 'trash',
+                    danger: true,
+                    onSelect: async () => {
+                      if (await deleteAlert(alert)) nav('/alertes', { replace: true })
+                    },
+                  },
+                ],
+              }
+            : undefined
+        }
+      />
       <div>
         <h1 className="flex items-center gap-2 text-lg font-extrabold">
           {alert.private && <Icon name="lock" className="h-4 w-4 text-muted" />}

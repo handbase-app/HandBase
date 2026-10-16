@@ -23,6 +23,7 @@ import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_GROUPS, ROSTER_SORTS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort, type RosterSort } from '../rosterOrder'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
+import { PageHeader } from '../components/PageHeader'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
@@ -63,6 +64,9 @@ export default function Events() {
   const [creating, setCreating] = useState(!!fromGroup)
   const [fromSheet, setFromSheet] = useState(false)
   const nav = useNavigate()
+  // Ordinateur, événement ouvert à droite : son bouton « Évaluer » est le seul bouton principal de l'écran ;
+  // « + Événement » passe en secondaire.
+  const detailOpen = !!useSelected('/evenements')
   // Tout afficher, archivés : retrouvés au retour (pendant la session), comme les filtres.
   const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
   const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
@@ -88,7 +92,7 @@ export default function Events() {
             <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
               + Feuille de match
             </button>
-            <button className="btn-primary whitespace-nowrap px-3 py-1.5 text-xs" onClick={() => setCreating(true)}>
+            <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating(true)}>
               + Événement
             </button>
           </div>
@@ -571,42 +575,39 @@ export function EventDetail() {
   return (
     <PlayerMenuScope.Provider value={{ pick, eventId: ev.id }}>
     <div ref={boxRef} className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        {avisPlayer && panel ? (
-          // Avis ouverts en pleine largeur : on revient à la liste des événements en fermant les avis.
-          <button onClick={() => showAvis(null)} title="Fermer les avis et afficher la liste des événements (Échap)" className="text-left text-xs font-bold text-muted hover:text-fg">
-            ← LISTE DES ÉVÉNEMENTS
-          </button>
-        ) : panel ? (
-          <PanelClose />
-        ) : (
-          <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
-        )}
-        {manage && (
-          <div className="flex gap-4">
-            {!editing && (
-              <button className="text-xs text-muted hover:text-fg" onClick={() => setEditing(true)}>
-                Modifier
-              </button>
-            )}
-            {/* Archiver : retiré des listes (Évaluer, événements), avis conservés. */}
-            <button
-              className="text-xs text-muted hover:text-fg"
-              onClick={() => void toggleArchiveEvent(ev)}
-            >
-              {ev.archived ? 'Désarchiver' : 'Archiver'}
+      {/* En-tête : retour, puis les actions de l'événement dans le ⋮ (Supprimer en dernier, avec confirmation). */}
+      <PageHeader
+        back={
+          avisPlayer && panel ? (
+            // Avis ouverts en pleine largeur : on revient à la liste des événements en fermant les avis.
+            <button onClick={() => showAvis(null)} title="Fermer les avis et afficher la liste des événements (Échap)" className="text-left text-xs font-bold text-muted hover:text-fg">
+              ← LISTE DES ÉVÉNEMENTS
             </button>
-            <button
-              className="text-xs text-muted hover:text-red-400"
-              onClick={async () => {
+          ) : panel ? (
+            <PanelClose />
+          ) : (
+            <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
+          )
+        }
+        menu={{
+          title: ev.name,
+          subtitle: [typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · '),
+          items: [
+            manage && !editing && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+            // Archiver : retiré des listes (Évaluer, événements), avis conservés.
+            manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
+            { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
+            manage && {
+              label: 'Supprimer',
+              icon: 'trash',
+              danger: true,
+              onSelect: async () => {
                 if (await deleteEvent(ev, role)) nav('/evenements', { replace: true })
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-        )}
-      </div>
+              },
+            },
+          ],
+        }}
+      />
       {editing ? (
         <div className="card p-3">
           <NewEventForm event={ev} onDone={() => setEditing(false)} />
@@ -736,7 +737,7 @@ export function EventDetail() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
                   {(manage || contribute) && settled.length > 0 && (
-                    <button className="btn-primary px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...settled.map((p) => p.id)])}>
+                    <button className="btn-ghost px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...settled.map((p) => p.id)])}>
                       Ajouter {settled.length > 1 ? `les ${settled.length}` : 'le joueur'} à la liste
                     </button>
                   )}

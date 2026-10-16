@@ -15,6 +15,7 @@ import { TransferGroup, useOnline } from './TransferGroup'
 import { Empty, Icon } from './ui'
 import { PlayerRow } from './PlayerRow'
 import { FollowStar } from './Follow'
+import { PageHeader } from './PageHeader'
 
 /*
  * « Voir tous les groupes » (administrateurs, supabase/039_admin_groupes.sql) : les groupes privés et « Mon staff » des
@@ -279,17 +280,18 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {back}
-        <div className="flex flex-wrap gap-3">
-          <button className="text-xs text-muted hover:text-fg" aria-expanded={transferring} onClick={() => setTransferring((t) => !t)}>
-            Réattribuer…
-          </button>
-          <button className="text-xs text-muted hover:text-red-400" disabled={busy} onClick={() => void del()}>
-            Supprimer
-          </button>
-        </div>
-      </div>
+      {/* En-tête : retour, puis Réattribuer et Supprimer (en dernier, avec confirmation) dans le ⋮. */}
+      <PageHeader
+        back={back}
+        menu={{
+          title: g.name,
+          subtitle: g.ownerLabel,
+          items: [
+            { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
+            !busy && { label: 'Supprimer', icon: 'trash', danger: true, onSelect: () => void del() },
+          ],
+        }}
+      />
 
       {transferring && (
         <TransferGroup
