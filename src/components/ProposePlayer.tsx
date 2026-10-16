@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { newId, POSITIONS, save, type Player, type Position } from '../db'
 import { can, myDepartments, useRole } from '../roles'
 import { departmentChoices } from '../lists'
 import { Segmented } from './ui'
+import { usePerimeter } from '../installation'
+import { deptInPerimeter, perimeterDepts } from '../perimeter'
 
 /**
  * Fiche minimale d'un joueur absent de la base (UNSS, sans licence…). Créée par un observateur, elle
@@ -22,12 +24,21 @@ export function ProposePlayer({
   const [p, setP] = useState<Partial<Player>>(() =>
     initial?.id ? initial : { department: myDepartments().length === 1 ? myDepartments()[0] : undefined, ...initial },
   )
+  // Sans secteur : le département de mon périmètre (supabase/046), s'il n'y en a qu'un (lu une fois la structure chargée).
+  const per = usePerimeter()
+  useEffect(() => {
+    if (!per || per.all || initial?.id) return
+    const only = perimeterDepts(per)
+    if (only.length === 1) setP((x) => (x.department ? x : { ...x, department: only[0] }))
+  }, [per, initial?.id])
   const [otherDeptChosen, setOtherDept] = useState(false)
   // Département hors de la liste (déjà saisi, ou « Autre… » choisi) : champ libre.
   const otherDept = otherDeptChosen || (!!p.department && !departmentChoices().some((d) => d.value === p.department))
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
   const editing = !!p.id
-  const ok = !!p.firstName?.trim() && !!p.lastName?.trim() && !!p.department?.trim()
+  // Département hors de mon périmètre : le serveur refuserait la fiche (046) ; on le dit avant, rien n'est perdu.
+  const outside = !!per && !!p.department?.trim() && !editing && !deptInPerimeter(per, p.department.trim())
+  const ok = !!p.firstName?.trim() && !!p.lastName?.trim() && !!p.department?.trim() && !outside
 
   async function submit() {
     if (!ok) return
@@ -125,7 +136,11 @@ export function ProposePlayer({
           Annuler
         </button>
       </div>
-      {!ok && <p className="text-[10px] text-muted">Prénom, nom et département obligatoires.</p>}
+      {outside ? (
+        <p className="text-[10px] text-muted">Ce département est hors de ton périmètre : choisis-en un de ton périmètre, ou demande à un administrateur de créer la fiche.</p>
+      ) : (
+        !ok && <p className="text-[10px] text-muted">Prénom, nom et département obligatoires.</p>
+      )}
     </div>
   )
 }

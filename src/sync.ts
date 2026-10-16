@@ -5,6 +5,7 @@ import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
 import { questionLogRights } from './questionLogCore'
+import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -373,6 +374,7 @@ async function pull(uid: string) {
   if (fresh.length) setProgress(aggregate(per, null, first))
   try {
     const teamsBefore = await myTeams(uid)
+    let structureRows = 0
     for (const table of SYNC_TABLES) {
       // Staffs changés : les groupes « Mon staff » et les « à revoir » (041, visibles par le staff de leur auteur) qu'ils
       // ouvrent sont relus en entier.
@@ -388,14 +390,17 @@ async function pull(uid: string) {
         await forgetWriteOnly(table)
         continue
       }
-      await pullTable(table, per, first)
+      const n = await pullTable(table, per, first)
+      if (table === 'levels' || table === 'units' || table === 'assignments') structureRows += n
     }
+    structureChanged = structureChanged || structureRows > 0
   } finally {
     if (progress) setProgress(null)
   }
   // Critères jamais publiés de l'appareil : retirés dès que la base partagée tient la liste (criteriaImport.ts).
   await retireUnpublishedCriteria()
   await forgetHidden()
+  await checkPerimeter(uid)
 }
 
 /*
@@ -414,7 +419,7 @@ async function pull(uid: string) {
 const FORGET_EVERY_MS = 10 * 60_000
 let lastForget = 0
 
-type ForgetTable = 'groups' | 'teams' | 'rewatch'
+type ForgetTable = 'groups' | 'teams' | 'rewatch' | 'players'
 
 /** Identifiants visibles d'une table (null : erreur, ou table inconnue du serveur). */
 async function visibleIds(table: ForgetTable) {
@@ -446,6 +451,7 @@ async function forgetRows(table: ForgetTable, visible: Set<string>) {
  */
 export function syncAndForgetHidden() {
   lastForget = 0
+  lastScopeCheck = 0
   return syncNow()
 }
 
@@ -463,11 +469,71 @@ async function forgetHidden() {
   await forgetRows('groups', groups)
 }
 
+/*
+ * Périmètre (supabase/046_perimetre.sql) : le serveur n'envoie que les joueurs du périmètre du compte (unités où il est
+ * affecté + sous-unités) et ce qui leur est rattaché. Deux problèmes quand ce périmètre change (affectation ajoutée ou
+ * retirée, unité déplacée, rôle changé) :
+ *  1. PLUS VISIBLES : le serveur ne renvoie rien (pas même une suppression) : la copie resterait sur l'appareil.
+ *     → on relit la liste des joueurs visibles (identifiants seulement, par pages) et on retire les autres, puis les lignes
+ *     rattachées à un joueur absent (sauf les siennes) ; jamais une ligne qui attend d'être envoyée.
+ *  2. DEVENUS VISIBLES : ces lignes n'ont pas changé, leur heure serveur est ancienne : la synchronisation par curseur
+ *     (« ce qui a changé depuis la dernière fois ») ne les ramènerait JAMAIS.
+ *     → on efface le curseur des tables du périmètre : elles sont relues depuis le début (une ligne déjà identique sur
+ *     l'appareil n'est pas réécrite, voir pullTable).
+ * Le périmètre appliqué est lu au serveur (hb_my_perimeter) : après une synchronisation qui a reçu des changements de
+ * structure (niveaux, unités, affectations), sinon toutes les 10 minutes (rôle changé…). Sa signature est gardée sur
+ * l'appareil ; le plan (src/perimeter.ts, planScopeChange, testé) décide. Un joueur qui mute hors du périmètre (le
+ * serveur ne prévient pas) : vérification complète une fois par jour. Fonction absente (046 pas encore passé) : rien.
+ * Un joueur qui ENTRE dans le périmètre (mutation) change, lui : il arrive par le curseur, ses lignes rattachées aussi
+ * (le serveur les fait suivre, hb_scope_cascade).
+ */
+const SCOPE_KEY = `handbase${TRIAL ? '-essai' : ''}.perimetre`
+const SCOPE_FORGET_KEY = `handbase${TRIAL ? '-essai' : ''}.perimetre.verifie`
+let lastScopeCheck = 0
+let structureChanged = false
+
+async function checkPerimeter(uid: string) {
+  if (!structureChanged && Date.now() - lastScopeCheck < FORGET_EVERY_MS) return
+  const { data, error } = await supabase!.rpc('hb_my_perimeter')
+  if (error || !data || typeof data !== 'object') return // 046 pas passé, ou réseau : on réessaiera
+  lastScopeCheck = Date.now()
+  structureChanged = false
+  const scope = data as ServerScope
+  const plan = planScopeChange(store.get(SCOPE_KEY), scope, Number(store.get(SCOPE_FORGET_KEY) ?? 0), Date.now())
+  if (plan.forget) {
+    const visible = await visibleIds('players')
+    if (!visible) return // erreur : on garde l'ancienne signature, tout sera refait la prochaine fois
+    await forgetRows('players', visible)
+    await forgetOrphans(uid)
+    store.set(SCOPE_FORGET_KEY, String(Date.now()))
+  }
+  if (plan.resetCursors) {
+    for (const t of SCOPED_TABLES) localStorage.removeItem(PULL_KEY(t))
+    again = true // nouvelle synchronisation juste après celle-ci : relit les tables depuis le début
+  }
+  store.set(SCOPE_KEY, scopeSignature(scope))
+}
+
+/** Lignes rattachées à un joueur qui n'est plus sur l'appareil (sauf les siennes et celles à envoyer). */
+async function forgetOrphans(uid: string) {
+  for (const table of SCOPED_TABLES) {
+    if (table === 'players') continue
+    await db.transaction('rw', db.players, db.table(table), db.outbox, async () => {
+      const players = new Set((await db.players.toCollection().primaryKeys()) as string[])
+      const pending = new Set((await db.outbox.where('table').equals(table).toArray()).map((i) => i.rowId))
+      const gone = orphanIds(table, await db.table(table).toArray(), players, pending, uid)
+      if (gone.length) await db.table(table).bulkDelete(gone)
+    })
+  }
+}
+
 /** Table inconnue du serveur (Postgres 42P01, ou cache de PostgREST : PGRST205). */
 const missingTable = (e: { code?: string }) => e.code === '42P01' || e.code === 'PGRST205'
 
-async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean) {
+/** Reçoit les lignes changées depuis le curseur de la table ; renvoie le nombre de lignes reçues. */
+async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean): Promise<number> {
   const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
+  let received = 0
   const at = new Date(since).getTime()
   const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
   let after: { at: string; id: string } | null = null
@@ -478,9 +544,10 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
       : base.gte('server_updated_at', start)
     const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
     // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
-    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) return
+    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) return received
     if (error) throw error
     if (!data?.length) break
+    received += data.length
     // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
     await db.transaction('rw', db.table(table), async () => {
       const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
@@ -509,6 +576,7 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
   if (per[table]) per[table]!.total = per[table]!.done
   // Table vide sur le serveur : curseur posé quand même, pour ne plus la recompter à chaque synchro.
   if (!localStorage.getItem(PULL_KEY(table))) localStorage.setItem(PULL_KEY(table), since)
+  return received
 }
 
 // Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation.

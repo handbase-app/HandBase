@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Player } from '../db'
 import { nameTokens, playerHaystack } from '../nameMatch'
 import { JOUEURS_KEYS, type JoueursQuery } from '../playerQuery'
+import { playerDepartment } from '../perimeter'
 
 // Textes de recherche de chaque joueur, calculés à la première recherche et gardés tant que la fiche ne change pas.
 const hays = new WeakMap<Player, string>()
@@ -23,20 +24,11 @@ export const fold = (s: string) =>
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
 
-/** Ligues ultramarines : un seul territoire, son n° de département (le n° de club donne « 01 » après la ligue). */
-const OUTRE_MER_LIGUE: Record<string, string> = { '64': '971', '65': '973', '66': '972', '67': '988', '69': '974', '70': '976' }
-
 /**
- * Département du club, lu dans le numéro FFHB : 63 = ligue, 83 = département…
- * (N° club 6383015, licence 6383015xxxxxx). Ligues ultramarines (64 à 70) : le territoire (6401xxx → 971).
- * Le n° de club est prioritaire : il est toujours renseigné. Joueur sans licence (fiche proposée) : département saisi à la main.
- * Même règle côté serveur : hb_player_dept (supabase/010_secteurs.sql, 045_departement_outre_mer.sql).
+ * Département du club, lu dans le numéro FFHB (6383015 → 83 ; outre-mer : 6401xxx → 971) ; à défaut, département saisi.
+ * La règle est dans src/perimeter.ts (playerDepartment, testée) : la même sert au périmètre de chaque compte (046).
  */
-export function department(p: Pick<Player, 'clubCode' | 'license' | 'department'>): string | undefined {
-  const code = /^\d{7}$/.test(p.clubCode ?? '') ? p.clubCode : /^\d{13}$/.test(p.license ?? '') ? p.license : undefined
-  if (!code) return p.department || undefined
-  return OUTRE_MER_LIGUE[code.slice(0, 2)] ?? code.slice(2, 4)
-}
+export const department = (p: Pick<Player, 'clubCode' | 'license' | 'department'>): string | undefined => playerDepartment(p)
 
 export type SexFilter = 'all' | 'M' | 'F'
 

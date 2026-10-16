@@ -20,6 +20,8 @@ import { ask, inform } from '../components/Confirm'
 import { can, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { AdminTools } from '../components/ViewAs'
 import { departmentLabel } from '../lists'
+import { usePerimeter } from '../installation'
+import { perimeterText } from '../perimeter'
 import { STAFF } from '../staffLabels'
 import { useTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
@@ -72,6 +74,7 @@ export default function Settings() {
           )}
         </section>
         <Account />
+        <PerimeterInfo />
         {supabase && <PasswordChange />}
       </Fold>
       {supabase && (
@@ -484,6 +487,40 @@ function Fold({ id, icon, title, summary, children }: { id: string; icon: IconNa
   )
 }
 
+/**
+ * Périmètre du compte (supabase/046_perimetre.sql) : les joueurs reçus sur l'appareil. Lu dans la structure (unités où il est
+ * affecté + sous-unités), comme le serveur.
+ */
+function PerimeterInfo() {
+  const per = usePerimeter()
+  if (!per) return null
+  const text = perimeterText(per)
+  return (
+    <section className="card flex flex-col gap-2 p-4" data-testid="perimetre">
+      <SectionTitle
+        info={
+          <>
+            <p>
+              Les joueurs que tu reçois sur cet appareil, avec leurs avis, mesures, « vu » et « à revoir » : ceux des unités où un administrateur t’a
+              affecté (Structure et sport) et de leurs sous-unités. Les fiches que tu as créées restent toujours visibles.
+            </p>
+            <p>Événements et groupes restent communs à tout le staff : un joueur hors de ton périmètre y est compté, sans son nom.</p>
+          </>
+        }
+      >
+        Mon périmètre
+      </SectionTitle>
+      {text ? (
+        <p className="text-xs">
+          <b className="text-accent">{text}</b>
+        </p>
+      ) : (
+        <p className="text-xs text-muted">Pas encore de périmètre : un administrateur doit t’affecter à une unité (Réglages → Structure et sport). En attendant, aucun joueur n’est visible.</p>
+      )}
+    </section>
+  )
+}
+
 function Account() {
   const { state, lastError } = useSyncState()
   const [email, setEmail] = useState('')
@@ -544,7 +581,7 @@ function Account() {
       </p>
       {role !== 'admin' && (
         <p className="text-xs">
-          Secteur :{' '}
+          Secteur (validations) :{' '}
           <b>{myDepartments().length ? myDepartments().map(departmentLabel).join(', ') : role === 'preparateur' ? 'tous les départements' : 'non attribué'}</b>
         </p>
       )}
