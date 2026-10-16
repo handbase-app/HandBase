@@ -419,8 +419,12 @@ async function pull(uid: string) {
  *    ouverts par un staff dont il est sorti (034).
  *  - « à revoir » (041) d'un staff dont il est sorti (ou dont l'auteur est sorti).
  *  - événements (supabase/048_evenements_organisateur.sql) dont l'organisateur est sorti de mes territoires (unité
- *    changée, unité déplacée, affectation retirée) ou dont je ne suis plus participant. Avant 048, le serveur les montre
- *    tous : rien n'est retiré. Leurs avis restent (filtrés par le joueur, 046), comme ceux d'un événement supprimé.
+ *    changée, unité déplacée, affectation retirée), dont je ne suis plus participant, ou où plus aucun de mes joueurs
+ *    n'est inscrit (retiré de la liste, joueur muté ou supprimé). Avant 048, le serveur les montre tous : rien n'est
+ *    retiré. Leurs avis restent (filtrés par le joueur, 046), comme ceux d'un événement supprimé.
+ *    (Dans l'autre sens, rien à faire : un joueur de mon périmètre inscrit à un événement, ou un joueur inscrit qui entre
+ *    dans mon périmètre, réécrit l'événement sur le serveur (liste changée, ou recalcul de players_dept / players_club en
+ *    fin de transaction) : nouvelle heure serveur, il arrive par le curseur.)
  * Au lancement puis toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs
  * identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une
  * modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et supprime l'ancien, voir
