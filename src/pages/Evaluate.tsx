@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
@@ -11,7 +11,7 @@ import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
-import { supabase } from '../sync'
+import { supabase, useSyncState } from '../sync'
 import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { DictationTextarea } from '../components/MicButton'
@@ -744,7 +744,8 @@ export default function Evaluate() {
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
         </div>
           {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
-          <div className={`sticky bottom-[var(--nav-b)] z-10 flex items-center gap-2 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
+          <div className={`sticky bottom-[var(--nav-b)] z-10 flex flex-col gap-1 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
+          <div className="flex items-center gap-2">
             {existing && !dirty && nextTodo ? (
               // Avis enregistré et rien de modifié : le bouton principal passe au joueur suivant à noter.
               <button className="btn-primary min-h-11 min-w-0 flex-1" onClick={() => void go('joueur', nextTodo.id)}>
@@ -767,6 +768,8 @@ export default function Evaluate() {
                 Annuler
               </button>
             )}
+          </div>
+          <OfflineNote show={dirty || !!existing} />
           </div>
         </div>
   )
@@ -1242,4 +1245,35 @@ function fingerprint(d: Partial<Evaluation>) {
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
   return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
+}
+
+/**
+ * Hors ligne, avis en cours ou enregistré : une ligne discrète sous « Enregistrer / Suivant » rassure (l'avis part
+ * tout seul au retour du réseau, sync.ts). Sa hauteur est publiée dans --save-extra : les boutons flottants de l'avis
+ * vocal (AvisVocal.tsx) remontent d'autant et ne la recouvrent pas.
+ */
+function OfflineNote({ show }: { show: boolean }) {
+  const { state } = useSyncState()
+  const on = show && state === 'offline'
+  const ref = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    const root = document.documentElement.style
+    if (!on || !el) return
+    const set = () => root.setProperty('--save-extra', `${el.offsetHeight + 4}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.removeProperty('--save-extra')
+    }
+  }, [on])
+  if (!on) return null
+  return (
+    <p ref={ref} className="text-xs leading-snug text-muted" role="status">
+      <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-400 align-middle" aria-hidden />
+      Hors ligne : ton avis est gardé sur le téléphone et partira tout seul.
+    </p>
+  )
 }

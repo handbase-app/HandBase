@@ -129,7 +129,7 @@ export function AvisVocal({
       {!topVisible &&
         (rec || working || left > 0) &&
         createPortal(
-          <div data-noswipe className="fixed right-4 bottom-[calc(var(--nav-b)+4.5rem)] z-40 flex items-center gap-2">
+          <div data-noswipe className="fixed right-4 bottom-[calc(var(--nav-b)+4.5rem+var(--save-extra,0px))] z-40 flex items-center gap-2">
             {rec ? (
               <button
                 type="button"
