@@ -5,10 +5,9 @@
  * Fichier pur (ni Dexie ni React) : calculs de l'arbre, contrôle anti-cycle (le même que celui du serveur, hb_structure_ok),
  * pré-remplissage des comités. Les écrans : src/components/Structure.tsx.
  *
- * ÉTAPE 1 : la structure est saisie et synchronisée, mais elle NE CHANGE ENCORE RIEN à qui voit quoi. Le secteur d'un
- * encadrant reste la liste de départements de son profil (hb_profiles.departments, src/roles.ts myDepartments) ; plus
- * tard, ce secteur sera lu dans l'arbre : départements des unités où il est affecté et de leurs descendantes
- * (unitDepartments ci-dessous).
+ * ÉTAPE 2 (supabase/046_perimetre.sql) : la structure décide QUI VOIT QUELS JOUEURS. Périmètre d'un compte = unités où il
+ * est affecté + leurs sous-unités (règle : src/perimeter.ts, perimeterOf). Le secteur de validation d'un encadrant reste la
+ * liste de départements de son profil (hb_profiles.departments, src/roles.ts myDepartments).
  */
 import type { PoleProgramme } from './db'
 
@@ -229,8 +228,8 @@ export const assignmentsOf = <T extends AssignmentRow>(assignments: readonly T[]
 export const assignmentsIn = <T extends AssignmentRow>(assignments: readonly T[], unitId: string) => live(assignments).filter((a) => a.unitId === unitId)
 
 /**
- * Départements couverts par une unité : les siens et ceux de ses descendantes. Préparé pour l'étape suivante (secteur lu
- * dans l'arbre) : PAS encore utilisé pour les droits.
+ * Départements saisis sur une unité et ses descendantes (sans ceux tirés des n° de clubs). Pour le périmètre complet d'un
+ * compte (n° de clubs, unités de club, fédération) : src/perimeter.ts, perimeterOf.
  */
 export function unitDepartments(units: readonly UnitRow[], id: string): string[] {
   const self = live(units).find((u) => u.id === id)

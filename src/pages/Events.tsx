@@ -8,6 +8,7 @@ import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { type Role } from '../roles'
 import { FollowStar } from '../components/Follow'
+import { HiddenPlayers } from '../components/HiddenPlayers'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
@@ -394,7 +395,11 @@ export function EventDetail() {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
     const ids = [...new Set([...(ev?.playerIds ?? []), ...evals.map((e) => e.playerId)])]
-    const players = alive((await db.players.bulkGet(ids)).filter((p): p is Player => !!p))
+    const got = (await db.players.bulkGet(ids)).filter((p): p is Player => !!p)
+    const players = alive(got)
+    // Joueurs de la liste absents de l'appareil : hors du périmètre du compte (supabase/046), comptés sans leur nom.
+    const onDevice = new Set(got.map((p) => p.id))
+    const hidden = (ev?.playerIds ?? []).filter((pid) => !onDevice.has(pid))
     // Critères (libellés à jour) pour détailler les notes des avis.
     const criteria = alive(await db.criteria.orderBy('order').toArray())
     // Repérage (supabase/041) : « vu » de l'équipe ; « à revoir » repérés ici (origine) ou qui visent cet événement.
@@ -403,7 +408,7 @@ export function EventDetail() {
     const known = new Set(players.map((p) => p.id))
     const extra = alive((await db.players.bulkGet([...new Set(rewatch.map((r) => r.playerId))].filter((x) => !known.has(x)))).filter((p): p is Player => !!p))
     const origins = (await db.events.bulkGet([...new Set(rewatch.map((r) => r.originEventId).filter((x): x is string => !!x))])).filter((e): e is HBEvent => !!e)
-    return { ev, evals, players, criteria, seen, rewatch, extra, origins }
+    return { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden }
   }, [id])
 
   // Retour d'une fiche ouverte depuis la liste : même position qu'avant.
@@ -475,7 +480,7 @@ export function EventDetail() {
   }, [autoEv, autoEdit])
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { ev, evals, players, criteria, seen, rewatch, extra, origins } = data
+  const { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden } = data
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
 
   const byId = new Map(players.map((p) => [p.id, p]))
@@ -769,8 +774,9 @@ export function EventDetail() {
                 )}
               </div>
             )}
+            <HiddenPlayers count={hidden.length} />
             {roster.length === 0 ? (
-              offList.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
+              offList.length || hidden.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
             ) : (
               <>
                 <CoverageBar
@@ -788,7 +794,7 @@ export function EventDetail() {
                     {manage && roster.length > 1 && removing && (
                       <button
                         className="text-[11px] font-bold text-muted underline"
-                        onClick={async () => (await ask(`Retirer les ${roster.length} joueurs de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster([])}
+                        onClick={async () => (await ask(`Retirer les ${roster.length} joueurs de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster(hidden)}
                       >
                         Vider la liste
                       </button>

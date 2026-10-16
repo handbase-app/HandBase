@@ -21,7 +21,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
   preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis ; valide les avis spontanés et fiches proposées de son secteur.',
-  observateur: 'Consulte tout et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
+  observateur: 'Consulte les joueurs de son périmètre et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
 }
 
 const ROLE_KEY = 'handbase.role'
@@ -48,8 +48,10 @@ const write = (k: string, v: string | null) => {
 let role: Role = supabase ? ((read(ROLE_KEY) as Role | null) ?? 'observateur') : 'admin'
 let userId: string | null = read(UID_KEY)
 /**
- * Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. Plus tard (structure, supabase/044), ce secteur
- * sera lu dans l'arbre des unités où le compte est affecté (src/structureTree.ts, unitDepartments) au lieu de cette liste.
+ * Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. Sert aux VALIDATIONS (avis spontanés, fiches
+ * proposées : can.reviewDept, comme hb_can_review côté serveur) et aux filtres par défaut (fil d'actualité, département
+ * d'une fiche proposée). Ce que le compte VOIT, lui, est son périmètre (supabase/046, src/perimeter.ts) : le serveur
+ * n'envoie que les joueurs du périmètre ; ce secteur ne fait que trier parmi eux.
  */
 let departments: string[] = (() => {
   try {
@@ -229,8 +231,8 @@ export const can = {
   editCriteria: (r: Role) => r === 'admin',
   /**
    * Structure et sport (supabase/044_structure.sql : postes, niveaux, unités, affectations) : administrateurs ; les autres
-   * comptes lisent. ÉTAPE 1 : la structure ne donne encore aucun droit ; le secteur reste myDepartments() (profil). Plus
-   * tard, reviewDept et le secteur liront l'arbre (src/structureTree.ts, unitDepartments) à la place de cette liste.
+   * comptes lisent. Les affectations décident du périmètre (joueurs reçus, supabase/046) ; le secteur de validation reste
+   * myDepartments() (profil).
    */
   editStructure: (r: Role) => r === 'admin',
   manageRoles: (r: Role) => r === 'admin',

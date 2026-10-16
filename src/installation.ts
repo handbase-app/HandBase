@@ -1,7 +1,9 @@
 import { liveQuery } from 'dexie'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { alive, db, type Assignment, type ConfigItem, type Level, type Unit } from './db'
+import { perimeterOf, type Perimeter } from './perimeter'
+import { currentUserId, useRole } from './roles'
 import { applySportConfig, currentSport, resolveSportConfig, type SportConfig } from './sportConfig'
 import { sortLevels } from './structureTree'
 
@@ -45,3 +47,15 @@ export const useLevels = () => useLiveQuery(() => db.levels.toArray().then((ls) 
 export const useUnits = () => useLiveQuery(() => db.units.toArray().then(alive), [], [] as Unit[])
 /** Affectations (non supprimées). */
 export const useAssignments = () => useLiveQuery(() => db.assignments.toArray().then(alive), [], [] as Assignment[])
+
+/**
+ * Périmètre du compte (supabase/046_perimetre.sql, règle dans src/perimeter.ts), calculé sur la structure de l'appareil :
+ * affichage (« Ton périmètre : … »), bilan ouvert dessus, zones grisées. Le serveur, lui, filtre les données ; l'appareil ne
+ * fait que le montrer. « Voir comme… » : celui du membre simulé. undefined pendant le chargement.
+ */
+export function usePerimeter(): Perimeter | undefined {
+  const role = useRole()
+  const uid = currentUserId()
+  const data = useLiveQuery(async () => ({ units: await db.units.toArray(), levels: await db.levels.toArray(), assignments: await db.assignments.toArray() }), [])
+  return useMemo(() => (data ? perimeterOf({ userId: uid, admin: role === 'admin', ...data }) : undefined), [data, uid, role])
+}

@@ -22,6 +22,8 @@ import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
 import { PlayerRow } from '../components/PlayerRow'
+import { HiddenPlayers } from '../components/HiddenPlayers'
+import { hiddenCount } from '../perimeter'
 import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import type { Role } from '../roles'
@@ -554,8 +556,10 @@ export function GroupDetail() {
   const data = useLiveQuery(async () => {
     const teams = await loadTeams()
     const g = await db.groups.get(id!)
-    const players = alive((await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p))
-    return { g, players, teams }
+    const got = (await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p)
+    // Joueurs du groupe absents de l'appareil : hors du périmètre du compte (supabase/046), comptés sans leur nom.
+    const hidden = hiddenCount(g?.playerIds ?? [], new Set(got.map((p) => p.id)))
+    return { g, players: alive(got), teams, hidden }
   }, [id])
 
   // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
@@ -563,7 +567,7 @@ export function GroupDetail() {
 
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
   if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { g, players, teams } = data
+  const { g, players, teams, hidden } = data
   if (!g || g.deleted || !can.seeGroup(g)) {
     if (allGroups && id) return <OtherGroupDetail key={id} id={id} info={groupInfo} />
     return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
@@ -749,7 +753,8 @@ export function GroupDetail() {
           </button>
         )}
       </div>
-      {!players.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
+      {!players.length && !hidden && <Empty>Aucun joueur dans ce groupe.</Empty>}
+      <HiddenPlayers count={hidden} />
       <div className="cols flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         {sorted.map((p) => (
           // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;

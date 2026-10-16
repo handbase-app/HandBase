@@ -42,7 +42,8 @@ import { scoutId } from '../scouting'
 import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
 import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
 import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
-import { useUnits } from '../installation'
+import { usePerimeter, useUnits } from '../installation'
+import { deptInPerimeter, perimeterDepts, perimeterPlace, perimeterText } from '../perimeter'
 import { department } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
@@ -319,6 +320,8 @@ const TEAL = '#14b8a6'
 const NO_PLAYER = 'var(--color-panel-2)'
 /** Point d'un club sans joueur avec ces filtres (carte d'un département) : gris neutre, visible sur le fond du département. */
 const MUTED_DOT = 'color-mix(in srgb, var(--color-muted) 40%, var(--color-panel))'
+/** Zone hors du périmètre du compte (aucune donnée reçue) : neutre, plus pâle qu'une zone sans joueur. */
+const OUTSIDE = 'color-mix(in srgb, var(--color-muted) 12%, var(--color-bg))'
 /** `count` : nombres (racine carrée) ; `digits` : valeurs (moyenne, mesure, âge), linéaire, avec leur unité. */
 export type Scale = { lo: number; hi: number; count?: boolean; digits?: number; unit?: string }
 const FULL: Scale = { lo: 0, hi: 1 }
@@ -629,8 +632,11 @@ export function useBilanState() {
   const navType = useNavigationType()
   const chain = (loc.state as BilanNavState)?.bilanChain
   const raw = params.toString()
-  // Adresse sans paramètre (menu, accueil) : derniers choix de la session.
-  const saved = raw ? null : sessionQuery()
+  // Périmètre du compte (supabase/046) : sans autre choix, le bilan s'ouvre dessus (un comité : son département).
+  const per = usePerimeter()
+  const home = useMemo(() => (per ? perimeterPlace(per, regionOfDept) : null), [per])
+  // Adresse sans paramètre (menu, accueil) : derniers choix de la session, sinon le périmètre.
+  const saved = raw ? null : (sessionQuery() ?? (home ? bilanQuery({ ...parseBilan(new URLSearchParams()), region: home.region, dept: home.dept }) : null))
   const query = saved ?? raw
   const st = useMemo(() => {
     const p = parseBilan(new URLSearchParams(query))
@@ -976,6 +982,7 @@ export default function Coverage() {
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
   const { st, set, search, national, up, upPlace } = useBilanState()
+  const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, year, region, dept } = st
   const bilan = useBilanModel(st)
   const { data, last, nat, years, kpis, allYears, yearText } = bilan
@@ -1156,7 +1163,14 @@ export default function Coverage() {
   const valueOf = lens.value
   const sc = lens.scale(shown.map(valueOf).filter((v): v is number => v !== undefined))
   const colorOf = (t?: Tally) => fillAt(valueOf(t), sc)
-  const fill = (code: string) => colorOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
+  // Hors du périmètre du compte (supabase/046 : aucun joueur reçu) : zone neutre, grisée, et dite comme telle.
+  const perRegions = new Set(per && !per.all ? perimeterDepts(per).map(regionOfDept) : [])
+  const outsideDept = (d: string) => !!per && !per.all && !deptInPerimeter(per, d)
+  const outsideRegion = (r: string | undefined) => !!per && !per.all && !perRegions.has(r)
+  const fill = (code: string) =>
+    (byRegionView ? outsideRegion(regionOfDept(code)) : outsideDept(code))
+      ? OUTSIDE
+      : colorOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
   // À côté de la carte : le classement des régions (France), des départements (région), des clubs (département).
   const deptRows = lens.rank([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
   const regionRows = lens.rank(byPlace.byRegion)
@@ -1427,14 +1441,14 @@ export default function Coverage() {
               others={showOtherOM(byPlace.byDept)}
               label={(code) => {
                 const t = byPlace.byDept.get(code)
-                return `${deptText(code)} : ${t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
+                return `${deptText(code)} : ${outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
               }}
               tip={({ code, isRegion }) => {
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
                 return (
                   <>
                     <div className="font-bold">{isRegion ? regionLabel(code) : deptText(code)}</div>
-                    {tipValue(t)}
+                    {(isRegion ? outsideRegion(code) : outsideDept(code)) ? <div className="text-muted">Hors de ton périmètre</div> : tipValue(t)}
                     {isRegion && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses départements</div>}
                   </>
                 )
@@ -1468,6 +1482,12 @@ export default function Coverage() {
               <p className="text-[10px] text-muted">
                 {topMap?.items.length ? `Un point par club parmi ${Q!.texts.top}, à son adresse (taille : nombre de joueurs).` : ''}
                 {topMap && topMap.unplaced.length > 0 && ` ${plural(topMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
+              </p>
+            )}
+            {per && !per.all && (
+              <p className="flex items-start gap-1.5 text-[10px] text-muted" data-testid="hors-perimetre">
+                <span className="mt-0.5 size-2.5 shrink-0 rounded-sm border border-line" style={{ background: OUTSIDE }} />
+                <span>Zones pâles : hors de ton périmètre{perimeterText(per) ? ` (${perimeterText(per)})` : ''}, pas de joueurs reçus.</span>
               </p>
             )}
             {clubMap && (
