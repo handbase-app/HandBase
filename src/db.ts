@@ -244,6 +244,14 @@ export interface HBEvent extends Syncable {
    * de la liste, équipes confiées à chaque observateur. Facultative : sans elle, tout le monde voit tout.
    */
   tournament?: Tournament
+  /**
+   * Unité organisatrice (structure, hb_units ; src/eventOrganizer.ts, supabase/048_evenements_organisateur.sql) : décide
+   * qui voit l'événement (son territoire et les unités au-dessus, plus créateur et participants). Facultative : les
+   * événements d'avant n'en ont pas (« Organisateur non précisé », visibles par tout le staff).
+   */
+  organizerUnitId?: string
+  /** Nom de l'unité organisatrice au moment du choix (affichage si l'unité n'est pas sur l'appareil), comme `names`. */
+  organizerName?: string
 }
 
 /** Équipe engagée dans un tournoi (identifiant court, propre à l'événement). */

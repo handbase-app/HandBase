@@ -11,6 +11,7 @@ import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
+import { OrganizerField, type OrganizerValue } from '../components/OrganizerField'
 import { supabase, useSyncState } from '../sync'
 import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
@@ -1033,6 +1034,8 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
   const [type, setType] = useState<EventType>(event?.type ?? 'match')
   const [date, setDate] = useState(event?.date ?? today())
   const [place, setPlace] = useState(event?.place ?? '')
+  // Unité organisatrice (src/eventOrganizer.ts) : à la création, celle du créateur, posée d'office ; modifiable.
+  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: event?.organizerUnitId ?? '', name: event?.organizerName })
   // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
   const [editors, setEditors] = useState<string[]>(event?.editors ?? [])
   // Staffs choisis (supabase/034) : leurs membres du moment co-organisent. Ceux que je ne vois pas restent tels quels.
@@ -1049,6 +1052,7 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />
       </div>
+      <OrganizerField value={organizer} onChange={setOrganizer} auto={!event} />
       {!event && groups.length > 0 && (
         <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
@@ -1087,6 +1091,8 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
               type,
               date,
               place: place || undefined,
+              organizerUnitId: organizer.id || undefined,
+              organizerName: organizer.id ? organizer.name : undefined,
               editors,
               teams: teams.length ? teams : undefined,
               names: { ...event?.names, ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])) },

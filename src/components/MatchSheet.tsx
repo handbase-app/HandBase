@@ -22,6 +22,7 @@ import { can, currentUserId, useRole } from '../roles'
 import { teamsFromSheet } from '../scouting'
 import { fmtMoment } from '../videos'
 import { ask } from './Confirm'
+import { OrganizerField, type OrganizerValue } from './OrganizerField'
 import { actionLabel, calibrated, plural, sideName, useActionWho } from './matchLabels'
 import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
@@ -118,6 +119,9 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
   const [target, setTarget] = useState('')
   const [dup, setDup] = useState<HBEvent[]>([])
   const [busy, setBusy] = useState(false)
+  // Nouveau match : unité organisatrice, celle du créateur posée d'office (src/eventOrganizer.ts). Les clubs de la feuille
+  // n'y entrent pas : l'événement, c'est l'observation de notre staff, pas le match du club qui reçoit.
+  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: '' })
   const base = useLiveQuery(async () => {
     const id = event?.id ?? target
     return id ? db.events.get(id) : undefined
@@ -185,6 +189,8 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
           playerIds: add,
           tournament: teamsFromSheet(undefined, stored, add),
           editors: [],
+          organizerUnitId: organizer.id || undefined,
+          organizerName: organizer.id ? organizer.name : undefined,
           matchSheet: stored,
         })
         onClose(ev.id)
@@ -296,6 +302,11 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
               <input type="radio" name="target" checked={!target} onChange={() => setTarget('')} />
               Créer quand même un nouvel événement
             </label>
+          </div>
+        )}
+        {!event && !target && (
+          <div className="flex flex-col gap-2">
+            <OrganizerField value={organizer} onChange={setOrganizer} auto />
           </div>
         )}
         {replacing && (
