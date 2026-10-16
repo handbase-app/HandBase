@@ -13,11 +13,13 @@
  * Un compte voit l'événement (serveur, règle de lecture de 048 ; appli, filtre « Mes territoires ») si : il voit tout
  * (administrateur, niveau Fédération) ; l'événement n'a pas d'organisateur (ou une unité inconnue) ; le territoire de
  * l'organisateur est ENTIÈREMENT dans son périmètre (la Ligue voit les événements de ses comités ; un comité ne voit pas
- * ceux de la Ligue) ; ou il en est créateur ou participant.
+ * ceux de la Ligue) ; au moins un de SES joueurs y est inscrit (un club voit le stage du comité où sont deux de ses joueurs,
+ * un comité le stage de Ligue de ses jeunes : en lecture seule, il n'y voit que ses joueurs) ; ou il en est créateur ou
+ * participant.
  *
  * Fichier pur (ni Dexie ni React) : testé par tools/test-evenement-organisateur.ts.
  */
-import { clubDepartment, perimeterOf, type Perimeter } from './perimeter'
+import { clubDepartment, inPerimeter, perimeterOf, type Perimeter } from './perimeter'
 import { type AssignmentRow, type LevelRow, type UnitRow } from './structureTree'
 
 export interface StructureInput {
@@ -132,13 +134,25 @@ export type TerritoryFilter = 'tous' | 'mes'
  */
 export const DEFAULT_TERRITORY_FILTER: TerritoryFilter = 'tous'
 
+/** Joueur tel que le filtre le lit (fiche présente sur l'appareil). */
+export interface TerritoryPlayer {
+  clubCode?: string
+  license?: string
+  department?: string
+  deleted?: boolean
+}
+
 export interface TerritoryContext {
   per: Perimeter
   userId: string | null | undefined
   units: readonly UnitRow[]
   /** Le compte est-il participant de cet événement (editors ou staff choisi) ? (src/roles.ts, isParticipant) */
   participant: (ev: { editors?: string[]; teams?: string[] }) => boolean
+  /** Fiche d'un joueur présente sur l'appareil (règle « un de mes joueurs y est inscrit ») ; absent : règle ignorée. */
+  player?: (id: string) => TerritoryPlayer | undefined
 }
+
+type TerritoryEvent = { organizerUnitId?: string; createdBy?: string; editors?: string[]; teams?: string[]; playerIds?: string[] }
 
 /** Le territoire de l'organisateur est-il entièrement dans le périmètre ? */
 export function territoryCovered(t: { depts: string[]; clubs: string[] }, per: Perimeter): boolean {
@@ -147,12 +161,23 @@ export function territoryCovered(t: { depts: string[]; clubs: string[] }, per: P
   return t.clubs.length > 0 && t.clubs.every((c) => per.clubs.includes(c))
 }
 
-/** L'événement est-il dans « Mes territoires » ? */
-export function inMyTerritories(
-  ev: { organizerUnitId?: string; createdBy?: string; editors?: string[]; teams?: string[] },
-  ctx: TerritoryContext,
-  cache?: Map<string, { depts: string[]; clubs: string[] }>,
-): boolean {
+/**
+ * Joueurs de l'événement qui sont dans mon périmètre (fiches présentes sur l'appareil, non supprimées) : même règle que
+ * players_dept / players_club de 048 (département ou club du joueur ; une fiche créée par moi hors de mon périmètre ne
+ * compte pas, le serveur ne la compte pas non plus).
+ */
+export function myPlayersIn(ev: { playerIds?: string[] }, ctx: Pick<TerritoryContext, 'per' | 'player'>): number {
+  if (!ctx.player || !ev.playerIds?.length) return 0
+  let n = 0
+  for (const id of new Set(ev.playerIds)) {
+    const p = ctx.player(id)
+    if (p && !p.deleted && inPerimeter(ctx.per, p)) n++
+  }
+  return n
+}
+
+/** Visible sans compter les joueurs : tout, sans organisateur, organisateur couvert, créateur ou participant. */
+function visibleByOrganizer(ev: TerritoryEvent, ctx: TerritoryContext, cache?: Map<string, { depts: string[]; clubs: string[] }>): boolean {
   if (ctx.per.all) return true
   if (!ev.organizerUnitId) return true
   // Unité supprimée ou inconnue de l'appareil : comme sans organisateur (le serveur fait de même).
@@ -165,4 +190,18 @@ export function inMyTerritories(
     cache?.set(ev.organizerUnitId, t)
   }
   return territoryCovered(t, ctx.per)
+}
+
+/** L'événement est-il dans « Mes territoires » ? (Aussi : au moins un de mes joueurs y est inscrit.) */
+export function inMyTerritories(ev: TerritoryEvent, ctx: TerritoryContext, cache?: Map<string, { depts: string[]; clubs: string[] }>): boolean {
+  return visibleByOrganizer(ev, ctx, cache) || myPlayersIn(ev, ctx) > 0
+}
+
+/**
+ * Événement vu SEULEMENT grâce à mes joueurs (organisateur hors de mes territoires, ni créateur ni participant) : le
+ * nombre de mes joueurs inscrits, pour la mention « Tu vois cet événement parce que… » ; 0 sinon.
+ */
+export function seenThroughMyPlayers(ev: TerritoryEvent, ctx: TerritoryContext): number {
+  if (visibleByOrganizer(ev, ctx)) return 0
+  return myPlayersIn(ev, ctx)
 }

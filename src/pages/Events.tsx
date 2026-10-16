@@ -14,7 +14,7 @@ import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, isParticipant, useRole } from '../roles'
 import { usePerimeter, useUnits } from '../installation'
-import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, type TerritoryFilter } from '../eventOrganizer'
+import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughMyPlayers, type TerritoryFilter, type TerritoryPlayer } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
 import { usePlayersQuery } from '../components/PlayersQuery'
@@ -55,12 +55,28 @@ export default function Events() {
   const per = usePerimeter()
   const territoryOn = !!per && !per.all && per.units.length > 0
   const [territory, setTerritory] = useSessionState<TerritoryFilter>('handbase.evenements.territoires', DEFAULT_TERRITORY_FILTER)
+  const territoryActive = !!per && territoryOn && territory === 'mes'
+  // « Mes territoires » compte aussi les événements où est inscrit un de mes joueurs (048, règle (d)) : fiches des joueurs
+  // inscrits, lues seulement quand le filtre est actif.
+  const eventPlayers = useLiveQuery(async () => {
+    if (!territoryActive || !allEvents) return undefined
+    const ids = [...new Set(allEvents.flatMap((e) => e.playerIds ?? []))]
+    const m = new Map<string, TerritoryPlayer>()
+    for (const p of await db.players.bulkGet(ids)) if (p) m.set(p.id, p)
+    return m
+  }, [territoryActive, allEvents])
   const events = useMemo(() => {
-    if (!allEvents || !per || !territoryOn || territory !== 'mes') return allEvents
+    if (!allEvents || !per || !territoryActive) return allEvents
     const cache = new Map<string, { depts: string[]; clubs: string[] }>()
-    const ctx = { per, userId: currentUserId(), units, participant: (x: { editors?: string[]; teams?: string[] }) => isParticipant(x) }
+    const ctx = {
+      per,
+      userId: currentUserId(),
+      units,
+      participant: (x: { editors?: string[]; teams?: string[] }) => isParticipant(x),
+      player: (pid: string) => eventPlayers?.get(pid),
+    }
     return allEvents.filter((e) => inMyTerritories(e, ctx, cache))
-  }, [allEvents, per, territoryOn, territory, units])
+  }, [allEvents, per, territoryActive, units, eventPlayers])
   // Avis comptés une fois par événement (et non pour chaque ligne de la liste).
   const stats = useLiveQuery(async () => {
     const m = new Map<string, EventStats>()
@@ -388,6 +404,7 @@ export function EventDetail() {
   const role = useRole()
   const teams = useTeams() ?? []
   const units = useUnits()
+  const per = usePerimeter()
   // Onglet et avis dépliés : retrouvés au retour d'une fiche (pendant la session).
   const [tab, setTab] = useSessionState<'joueurs' | 'classement'>('handbase.evenement.onglet', 'joueurs')
   // « Ajouter des joueurs », « Modifier » depuis le menu d'une ligne de la liste : ?ajout=1, ?modifier=1 (comme les groupes).
@@ -577,6 +594,11 @@ export function EventDetail() {
   const settled = offList.filter((p) => !pendingOff.some((e) => e.playerId === p.id) && evals.some((e) => e.playerId === p.id && counts(e)))
   const manage = can.editEvent(role, ev)
   const organizerName = organizerLabel(ev, units)
+  // Vu seulement grâce à mes joueurs (048, règle (d) : organisateur hors de mes territoires, ni créateur ni participant) :
+  // lecture seule, mention discrète sous « Organisé par ».
+  const viaMyPlayers = per
+    ? seenThroughMyPlayers(ev, { per, userId: currentUserId(), units, participant: (x) => isParticipant(x), player: (pid) => byId.get(pid) })
+    : 0
   // Participant (supabase/024) : ajoute des joueurs, retire les siens, co-organise les avis hors liste.
   const contribute = can.contributeEvent(role, ev)
   const who = (uid?: string) => (uid ? (ev.names?.[uid] ?? (uid === ev.createdBy ? ev.createdByName : undefined)) : undefined)
@@ -700,6 +722,11 @@ export function EventDetail() {
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
           <div className="text-[11px] text-muted">{organizerName ? `Organisé par : ${organizerName}` : 'Organisateur non précisé'}</div>
+          {viaMyPlayers > 0 && (
+            <div className="text-[11px] italic text-muted" data-testid="vu-par-mes-joueurs">
+              Tu vois cet événement parce que {viaMyPlayers === 1 ? '1 de tes joueurs y est inscrit' : `${viaMyPlayers} de tes joueurs y sont inscrits`}
+            </div>
+          )}
           {observers.length > 0 &&<div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
           <Participants
             x={ev}

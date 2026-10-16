@@ -1,7 +1,7 @@
 // Test de l'unité organisatrice d'un événement (src/eventOrganizer.ts, même règle que supabase/048_evenements_organisateur.sql) :
 // unité proposée d'office (une unité, plusieurs, administrateur, feuille de match, aucune), unités proposées, territoire d'une
 // unité, filtre « Mes territoires » (la Ligue voit ceux de ses comités, pas l'inverse ; créateur, participant, sans
-// organisateur). Données fictives seulement.
+// organisateur ; un de mes joueurs inscrit). Données fictives seulement.
 //
 //   npx jiti tools/test-evenement-organisateur.ts
 import assert from 'node:assert/strict'
@@ -12,8 +12,11 @@ import {
   inMyTerritories,
   lowestFirst,
   organizerChoices,
+  myPlayersIn,
   organizerLabel,
+  seenThroughMyPlayers,
   unitTerritory,
+  type TerritoryPlayer,
 } from '../src/eventOrganizer'
 import { perimeterOf } from '../src/perimeter'
 import type { AssignmentRow, LevelRow, UnitRow } from '../src/structureTree'
@@ -166,6 +169,66 @@ t('unité organisatrice supprimée ou inconnue : comme sans organisateur (le ser
   assert.deepEqual(seen('u', as('u', 'clA'), false, undefined, [ev('a', 'old'), ev('b', 'inconnue')]), ['a', 'b'])
 })
 
+// ---------- Un de mes joueurs inscrit (048, règle (d)) ----------
+
+// Joueurs fictifs : n° de club → département (6383001 → 83), licence, département saisi (fiche sans club).
+const PLAYERS: Record<string, TerritoryPlayer> = {
+  pA1: { clubCode: '6383001' },
+  pA2: { license: '6383001123456' },
+  pB: { clubCode: '6383002' },
+  p13: { clubCode: '6313005' },
+  p59: { clubCode: '6259001' },
+  pLibre: { department: '83' },
+  pSuppr: { clubCode: '6383001', deleted: true },
+}
+const evp = (id: string, organizerUnitId: string | undefined, playerIds: string[], extra: { createdBy?: string; editors?: string[] } = {}) => ({
+  id,
+  organizerUnitId,
+  playerIds,
+  ...extra,
+})
+const withPlayers = (userId: string, assignments: AssignmentRow[], events: ReturnType<typeof evp>[]) => {
+  const per = perimeterOf({ userId, admin: false, units, levels, assignments })
+  const ctx = { per, userId, units, participant: () => false, player: (id: string) => PLAYERS[id] }
+  return events.filter((e) => inMyTerritories(e, ctx)).map((e) => e.id)
+}
+
+t('club : voit l’événement du comité où sont deux de ses joueurs (et pas celui où il n’en a aucun)', () => {
+  const evs = [evp('stage-83', 'c83', ['pA1', 'pA2', 'pB']), evp('stage-83-sans', 'c83', ['pB', 'p13'])]
+  assert.deepEqual(withPlayers('u', as('u', 'clA'), evs), ['stage-83'])
+})
+t('comité : voit le stage de Ligue où sont ses jeunes ; club : le rassemblement fédéral de son joueur', () => {
+  const ligue = [evp('stage-ligue', 'sud', ['p13', 'pB']), evp('stage-ligue-13', 'sud', ['p13'])]
+  assert.deepEqual(withPlayers('u', as('u', 'c83'), ligue), ['stage-ligue'])
+  assert.deepEqual(withPlayers('u', as('u', 'clA'), [evp('edf', 'fed', ['p59', 'pA2'])]), ['edf'])
+  // Joueur sans club, département saisi : compte pour le comité, pas pour un club.
+  assert.deepEqual(withPlayers('u', as('u', 'c83'), [evp('x', 'sud', ['pLibre'])]), ['x'])
+  assert.deepEqual(withPlayers('u', as('u', 'clA'), [evp('x', 'sud', ['pLibre'])]), [])
+})
+t('aucun joueur à lui (ou joueurs absents de l’appareil) : ne voit pas', () => {
+  assert.deepEqual(withPlayers('u', as('u', 'c13'), [evp('a', 'c83', ['pA1', 'pB']), evp('b', 'sud', ['inconnu']), evp('c', 'sud', [])]), [])
+  assert.deepEqual(withPlayers('u', [], [evp('a', 'c83', ['pA1'])]), [])
+})
+t('joueur supprimé : ne compte pas', () => {
+  assert.deepEqual(withPlayers('u', as('u', 'clA'), [evp('a', 'c83', ['pSuppr', 'pB'])]), [])
+  assert.deepEqual(withPlayers('u', as('u', 'clA'), [evp('a', 'c83', ['pSuppr', 'pA1'])]), ['a'])
+})
+t('pôle sans territoire : ses joueurs sont ceux de sa ligue (047)', () => {
+  assert.deepEqual(withPlayers('u', as('u', 'pole'), [evp('edf', 'fed', ['p13']), evp('edf2', 'fed', ['p59'])]), ['edf'])
+})
+t('mention « Tu vois cet événement parce que… » : seulement quand rien d’autre ne le montre', () => {
+  const per = perimeterOf({ userId: 'u', admin: false, units, levels, assignments: as('u', 'clA') })
+  const ctx = { per, userId: 'u', units, participant: (e: { editors?: string[] }) => !!e.editors?.includes('u'), player: (id: string) => PLAYERS[id] }
+  assert.equal(seenThroughMyPlayers(evp('a', 'c83', ['pA1', 'pA2', 'pB', 'pA1']), ctx), 2) // doublon compté une fois
+  assert.equal(seenThroughMyPlayers(evp('a', 'clA', ['pA1']), ctx), 0) // son club organise
+  assert.equal(seenThroughMyPlayers(evp('a', undefined, ['pA1']), ctx), 0) // sans organisateur : visible par tous
+  assert.equal(seenThroughMyPlayers(evp('a', 'c83', ['pA1'], { createdBy: 'u' }), ctx), 0)
+  assert.equal(seenThroughMyPlayers(evp('a', 'c83', ['pA1'], { editors: ['u'] }), ctx), 0)
+  assert.equal(seenThroughMyPlayers(evp('a', 'c83', ['pB']), ctx), 0)
+  // Sans fiches (contexte sans « player ») : la règle est ignorée.
+  assert.equal(myPlayersIn(evp('a', 'c83', ['pA1']), { per }), 0)
+})
+
 // ---------- Affichage ----------
 
 t('nom de l’organisateur : l’unité du moment, à défaut la copie gardée', () => {
@@ -184,6 +247,14 @@ t('048 : règle de lecture, déclencheurs, relançable, contrôle final en lectu
     'scope_dept is null',
     'scope_dept <@ (select public.hb_scope_depts())::text[]',
     'scope_club <@ (select public.hb_scope_clubs())::text[]',
+    'players_dept && (select public.hb_scope_depts())::text[]',
+    'players_club && (select public.hb_scope_clubs())::text[]',
+    'add column if not exists players_dept text[]',
+    "using gin ((data -> 'playerIds'))",
+    "(ev.data -> 'playerIds') ?| p_ids",
+    'and not pl.deleted',
+    'perform public.hb_events_players_rescope(null);',
+    'create constraint trigger hb_events_players_upd after update on public.hb_players',
     "data ->> 'createdBy' = (select auth.uid())::text",
     'public.hb_is_participant(data)',
     'public.hb_unit_empty(up.id)',
