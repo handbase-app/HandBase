@@ -807,7 +807,7 @@ export function ScoutHistory({ playerId }: { playerId: string }) {
         date: ev.date,
         node: (
           <Link to={`/evenements/${eid}`} className="hover:underline">
-            Vu à <b>{ev.name}</b> (par {who.size} personne{who.size > 1 ? 's' : ''})
+            Vu à <b>{ev.name}</b> ({who.size} obs.)
           </Link>
         ),
       }
