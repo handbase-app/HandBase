@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from './ui'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
@@ -80,6 +81,17 @@ export function AvisVocal({
   }
 
   const mic = useMicRecorder((text) => void analyse(text))
+  // Bouton « Terminer » flottant : on parle en faisant défiler les critères, le bouton du haut sort de l'écran.
+  const mainBtn = useRef<HTMLButtonElement>(null)
+  const [mainVisible, setMainVisible] = useState(true)
+  const recording = mic.phase === 'recording' || mic.phase === 'opening'
+  useEffect(() => {
+    const el = mainBtn.current
+    if (!recording || !el || typeof IntersectionObserver === 'undefined') return setMainVisible(true)
+    const io = new IntersectionObserver(([e]) => setMainVisible(e.isIntersecting))
+    io.observe(el)
+    return () => io.disconnect()
+  }, [recording])
   const usable = criteria.length > 0 && buildAvisPayload(criteria, position).criteres.length > 0
   if (!avisReady || !usable) return null
 
@@ -93,6 +105,7 @@ export function AvisVocal({
     <div className="flex flex-col gap-2" data-noswipe>
       <div className="flex items-center gap-3">
         <button
+          ref={mainBtn}
           type="button"
           aria-pressed={rec}
           aria-label={rec ? 'Finir l’avis vocal' : 'Avis vocal : parler du joueur pour obtenir des notes proposées'}
@@ -114,6 +127,21 @@ export function AvisVocal({
         </button>
         {!rec && !working && <span className="min-w-0 text-[11px] text-muted">Parlez du joueur : je propose des notes, vous validez.</span>}
       </div>
+      {rec &&
+        !mainVisible &&
+        createPortal(
+          <button
+            type="button"
+            data-noswipe
+            onClick={() => mic.finish()}
+            aria-label="Finir l’avis vocal"
+            className="fixed right-4 bottom-[calc(var(--nav-b)+4.5rem)] z-40 flex min-h-12 items-center gap-2 rounded-full border-2 border-red-300 bg-red-600 px-4 text-sm font-extrabold text-white shadow-[0_0_0_6px_rgba(220,38,38,0.35)]"
+          >
+            <span className="h-4 w-4 rounded-sm bg-white" />
+            Terminer · {Math.floor(mic.seconds)} s
+          </button>,
+          document.body,
+        )}
       {rec || mic.phase === 'sending' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (

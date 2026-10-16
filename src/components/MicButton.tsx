@@ -202,7 +202,7 @@ export function useMicRecorder(onText: (text: string) => void) {
     }
   }, [phase])
 
-  return { phase, seconds, error, held, buttonProps, cancel: () => stop(true), clearError: () => setError('') }
+  return { phase, seconds, error, held, buttonProps, finish: () => stop(), cancel: () => stop(true), clearError: () => setError('') }
 }
 
 const fmtSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
