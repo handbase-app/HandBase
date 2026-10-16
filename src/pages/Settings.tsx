@@ -1109,7 +1109,7 @@ function CriteriaEditor() {
               <b>Subjectifs</b> : notés par chaque observateur ; « Mode rapide » = inclus dans l’évaluation rapide.
             </p>
             <p>
-              <b>Factuels</b> : une seule valeur par date, saisie par le préparateur physique, avec historique.
+              <b>Factuels</b> : une seule valeur par date, saisie par un encadrant (préparateur physique…), avec historique.
             </p>
             <p>Masquer un critère (décocher « Actif ») conserve son historique.</p>
           </>
@@ -1122,7 +1122,7 @@ function CriteriaEditor() {
         onChange={setKind}
         options={[
           { value: 'subjective', label: 'Subjectifs (plusieurs avis)' },
-          { value: 'factual', label: 'Factuels (préparateur)' },
+          { value: 'factual', label: 'Factuels (encadrant)' },
         ]}
       />
 

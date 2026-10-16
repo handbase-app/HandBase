@@ -161,7 +161,7 @@ export async function loadDemo() {
       adducteur: Math.round(between(0.8, 3.4)),
     }
     const add = (criterionId: string, value: number, date: string) =>
-      measurements.push({ id: `${id}-${criterionId}-${date}`, playerId: id, criterionId, value, date, author: 'Préparateur (démo)', updatedAt: now })
+      measurements.push({ id: `${id}-${criterionId}-${date}`, playerId: id, criterionId, value, date, author: 'Encadrant (démo)', updatedAt: now })
 
     for (const [k, v] of Object.entries({ ...t1, ...scores })) add(k, v, '2026-06-15')
     // Rentrée : petite progression (croissance, travail estival)

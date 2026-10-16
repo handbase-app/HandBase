@@ -80,7 +80,8 @@ export default function Events() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      {/* Téléphone étroit : les boutons passent sous le titre plutôt que d'être coupés à droite. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
           <div className="flex gap-2">
