@@ -135,7 +135,7 @@ export default function Events() {
           {!results.length && !filterLoading && <Empty>Aucun événement ne correspond.</Empty>}
         </>
       ) : events.length === 0 ? (
-        <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs évaluateurs puissent y noter les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
+        <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs personnes puissent y donner leur avis sur les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
         <>
           <div className="section-title mt-1 mb-0">À venir</div>
@@ -621,7 +621,7 @@ export function EventDetail() {
             {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
-          {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Évaluateurs : {observers.join(', ')}</div>}
+          {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
           <Participants
             x={ev}
             teams={teams}

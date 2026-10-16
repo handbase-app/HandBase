@@ -18,7 +18,7 @@ export const COLUMNS = [
   { field: 'id', head: 'id', keys: ['id', 'identifiant'], help: 'Identifiant fixe (lettres minuscules, chiffres, « _ »). Ne jamais le changer : mesures et avis y sont rattachés.' },
   { field: 'category', head: 'catégorie', keys: ['categorie', 'category'], help: 'Rubrique d’affichage (Gabarit, Défense…).' },
   { field: 'label', head: 'libellé', keys: ['libelle', 'label', 'nom'], help: 'Nom affiché.' },
-  { field: 'kind', head: 'type', keys: ['type', 'kind'], help: '« factuel » (test, une valeur par date) ou « subjectif » (avis des observateurs).' },
+  { field: 'kind', head: 'type', keys: ['type', 'kind'], help: '« factuel » (test, une valeur par date) ou « subjectif » (noté dans les avis).' },
   { field: 'scale', head: 'échelle', keys: ['echelle', 'scale'], help: 'score5 (1 à 5), score3 (0 à 3), score2 (0 à 2), number (valeur avec unité), choice (options), text (texte libre).' },
   { field: 'unit', head: 'unité', keys: ['unite', 'unit'], help: 'Pour l’échelle number : cm, kg, s, km/h…' },
   { field: 'options', head: 'options', keys: ['options'], help: 'Pour l’échelle choice : au moins 2 options, séparées par « | ».' },

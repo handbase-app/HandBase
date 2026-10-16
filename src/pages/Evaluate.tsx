@@ -178,7 +178,7 @@ export default function Evaluate() {
     return (
       <div className="mx-auto flex max-w-sm flex-col gap-3 pt-10">
         <h1 className="text-lg font-extrabold">Qui évalue ?</h1>
-        <p className="text-xs text-muted">Ton nom sera associé à tes avis pour pouvoir les comparer à ceux des autres observateurs.</p>
+        <p className="text-xs text-muted">Ton nom sera associé à tes avis pour pouvoir les comparer à ceux des autres membres du staff.</p>
         <input className="field" placeholder="Prénom Nom" value={meDraft} onChange={(e) => setMeDraft(e.target.value)} />
         <button className="btn-primary" disabled={!meDraft.trim()} onClick={() => setMe(meDraft.trim())}>
           Continuer
@@ -412,7 +412,7 @@ export default function Evaluate() {
           <BackButton fallback="/avis-spontanes" label="PROPOSITIONS" />
         )}
         <span className="shrink-0 text-[11px] text-muted">
-          Observateur : <b className="text-fg">{me}</b>
+          Avis de : <b className="text-fg">{me}</b>
         </span>
       </div>
       )}
@@ -876,7 +876,7 @@ function RosterList({
         <BackButton fallback={`/evenements/${event.id}`} label={event.name} className="block w-full hover:text-fg" />
         <div className="truncate text-[10px] text-muted rail:hidden">
           {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
-          {event.place ? ` · ${event.place}` : ''} · Observateur : <b className="text-fg">{me}</b>
+          {event.place ? ` · ${event.place}` : ''} · Avis de : <b className="text-fg">{me}</b>
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 text-[11px]">

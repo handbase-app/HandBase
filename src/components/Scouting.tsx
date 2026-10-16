@@ -94,7 +94,7 @@ export function SeenBy({ list }: { list: Sighting[] }) {
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (stop(e), setOpen(!open))}
     >
       <Icon name="eye" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
-      {open ? sightingNames(list.map((s) => (s.noted ? { ...s, name: `${s.name} (noté)` } : s))) : `vu par ${n === 1 ? (list[0].mine ? 'toi' : list[0].name) : `${n} observateurs`}`}
+      {open ? sightingNames(list.map((s) => (s.noted ? { ...s, name: `${s.name} (noté)` } : s))) : `vu par ${n === 1 ? (list[0].mine ? 'toi' : list[0].name) : `${n} personnes`}`}
     </span>
   )
 }
@@ -807,7 +807,7 @@ export function ScoutHistory({ playerId }: { playerId: string }) {
         date: ev.date,
         node: (
           <Link to={`/evenements/${eid}`} className="hover:underline">
-            Vu à <b>{ev.name}</b> ({who.size} obs.)
+            Vu à <b>{ev.name}</b> (par {who.size} personne{who.size > 1 ? 's' : ''})
           </Link>
         ),
       }

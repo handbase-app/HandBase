@@ -338,7 +338,7 @@ function AskName() {
         }}
       >
         <div className="text-sm font-extrabold">Ton nom</div>
-        <p className="text-[11px] text-muted">Il signera tes avis et tes mesures, pour que le staff puisse comparer les évaluations.</p>
+        <p className="text-[11px] text-muted">Il signera tes avis et tes mesures, pour que le staff puisse comparer les avis.</p>
         <input className="field" placeholder="Prénom Nom" value={name} onChange={(e) => setName(e.target.value)} required />
         <button className="btn-primary" disabled={!name.trim()}>
           Continuer

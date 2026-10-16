@@ -37,8 +37,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
         <h1 className="text-xl font-extrabold">Collecte & suivi</h1>
         {counts && (
           <p className="mt-0.5 text-[11px] text-muted side:mt-0">
-            {counts.players.toLocaleString('fr-FR')} joueur{counts.players > 1 ? 's' : ''} · {counts.evals.toLocaleString('fr-FR')} évaluation
-            {counts.evals > 1 ? 's' : ''}
+            {counts.players.toLocaleString('fr-FR')} joueur{counts.players > 1 ? 's' : ''} · {counts.evals.toLocaleString('fr-FR')} avis
           </p>
         )}
       </div>

@@ -408,7 +408,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
       </div>
 
       <div className="card flex flex-col gap-2 p-4">
-        <div className="section-title mb-0">Avis des observateurs</div>
+        <div className="section-title mb-0">Avis du staff</div>
         {(r.avis ?? []).map((a, i) => (
           <div key={i} className="flex items-center gap-2">
             <select

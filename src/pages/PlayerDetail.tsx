@@ -379,7 +379,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {tab === 'avis' && (
         <div className="card p-4">
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
-            <span className="text-accent">★</span> Avis des observateurs
+            <span className="text-accent">★</span> Avis du staff
           </div>
           <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} />
         </div>

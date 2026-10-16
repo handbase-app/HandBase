@@ -202,7 +202,7 @@ export function Opinions({
         {/* Sur l'événement, la synthèse tient sur une ligne. */}
         {locked && (
           <div className="text-[11px] text-muted">
-            <b className="text-fg">{evs.length}</b> avis · <b className="text-fg">{observers.length}</b> obs.
+            <b className="text-fg">{evs.length}</b> avis · <b className="text-fg">{observers.length}</b> personne{observers.length > 1 ? 's' : ''}
             {overall !== null && (
               <>
                 {' '}
@@ -234,7 +234,7 @@ export function Opinions({
       {!locked && (
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="Avis" value={String(evs.length)} />
-          <Stat label="Observateurs" value={String(observers.length)} />
+          <Stat label={observers.length > 1 ? 'Personnes' : 'Personne'} value={String(observers.length)} />
           <Stat label="Moyenne" value={overall === null ? '—' : `${f1(overall)}/5`} />
         </div>
       )}
@@ -581,7 +581,7 @@ export function EventAvis({ player, evals, criteria, event, wide }: { player: Pl
         <span>
           {notes.length > 0 && (
             <>
-              Note par évaluateur :{' '}
+              Note par personne :{' '}
               {notes.map(([o, v], i) => (
                 <Fragment key={o}>
                   {i > 0 && ' · '}
