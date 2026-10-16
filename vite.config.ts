@@ -67,7 +67,8 @@ export default defineConfig({
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
             handler: 'CacheFirst',
-            options: { cacheName: 'google-fonts', expiration: { maxEntries: 20, maxAgeSeconds: 31536000 } },
+            // Polices des styles de l'installation (src/uiStyle.ts) en plus de JetBrains Mono : de la place pour leurs fichiers.
+            options: { cacheName: 'google-fonts', expiration: { maxEntries: 60, maxAgeSeconds: 31536000 } },
           },
         ],
       },

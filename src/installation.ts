@@ -9,9 +9,12 @@ import { setViewAsScope } from './viewAsFilter'
 import { perimeterSignature } from './viewAsScope'
 import { applySportConfig, currentSport, resolveSportConfig, type SportConfig } from './sportConfig'
 import { sortLevels } from './structureTree'
+import { setInstallationAppearance } from './theme'
+import { resolveAppearance } from './uiStyle'
 
 /*
- * Configuration de l'installation (supabase/044_structure.sql) : sport et postes (table hb_config, src/sportConfig.ts),
+ * Configuration de l'installation (supabase/044_structure.sql) : sport et postes (table hb_config, src/sportConfig.ts), style
+ * de l'interface (clé « apparence », src/uiStyle.ts),
  * structure (niveaux, unités, affectations ; src/structureTree.ts).
  *
  * La configuration est lue en continu dans la base locale : à chaque changement, POSITIONS (src/sportConfig.ts) est mis à
@@ -21,6 +24,8 @@ import { sortLevels } from './structureTree'
 const listeners = new Set<() => void>()
 liveQuery(() => db.config.toArray()).subscribe({
   next: (rows: ConfigItem[]) => {
+    // Style de l'installation (polices, arrondis, couleurs ; src/uiStyle.ts) : posé tout de suite sur la page.
+    setInstallationAppearance(resolveAppearance(rows))
     if (applySportConfig(resolveSportConfig(rows))) listeners.forEach((l) => l())
   },
   error: () => {

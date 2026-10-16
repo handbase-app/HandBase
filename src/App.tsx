@@ -20,7 +20,7 @@ import Feed from './pages/Feed'
 import { useAlertCount } from './alerts'
 import { useFollowNewsCount } from './follows'
 import { Icon } from './components/ui'
-import { useThemeVersion } from './theme'
+import { currentAppearance, useThemeVersion } from './theme'
 import { syncNow, useSyncState } from './sync'
 import { SyncProgressBar } from './components/SyncProgress'
 import { percent, showProgress } from './syncProgress'
@@ -136,9 +136,13 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 
 /** Nom de l'appli (en-tête ; en haut du menu de gauche sur ordinateur). */
 function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
+  useThemeVersion()
+  const { name, logo } = currentAppearance()
   return (
     <GuardedLink to="/" className={`text-sm font-extrabold tracking-widest ${className}`}>
-      HAND<span className="text-accent">BASE</span>
+      {/* Nom et petit logo de l'installation (Réglages → Style de l'installation) ; sans nom : HANDBASE. */}
+      {logo && <img src={logo} alt="" className={`h-7 w-auto max-w-28 object-contain ${stacked ? 'mb-1.5 block' : 'mr-2 inline-block align-middle'}`} />}
+      {name ? <span className={`max-w-[60vw] truncate align-middle uppercase side:max-w-full ${stacked ? 'block' : 'inline-block'}`}>{name}</span> : <>HAND<span className="text-accent">BASE</span></>}
       {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
       {TRIAL && (
         <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black ${stacked ? 'mt-1 block w-fit' : 'ml-2'}`}>{TRIAL_LABEL}</span>
@@ -236,7 +240,7 @@ export default function App() {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
         ref={header}
-        className={`sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
+        className={`app-header sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
         <Logo className="side:hidden" />
         <div className="flex items-center gap-3">

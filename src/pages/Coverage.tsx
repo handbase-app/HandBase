@@ -316,7 +316,8 @@ function Filters({
  * quand toutes les zones sont proches (ex. régions entre 38 et 47 %) ; la légende donne les vraies valeurs. Nombres
  * (licenciés, repérés) : échelle en racine carrée, pour que Paris et le Nord n'écrasent pas le reste.
  */
-const TEAL = '#14b8a6'
+// Teinte de l'échelle : variable du style de l'installation (src/index.css, src/uiStyle.ts ; #14b8a6 par défaut).
+const TEAL = 'var(--color-scale)'
 const NO_PLAYER = 'var(--color-panel-2)'
 /** Point d'un club sans joueur avec ces filtres (carte d'un département) : gris neutre, visible sur le fond du département. */
 const MUTED_DOT = 'color-mix(in srgb, var(--color-muted) 40%, var(--color-panel))'
@@ -376,7 +377,7 @@ export function MapLegend({ sc, note = 'du moins vu au plus vu', title }: { sc: 
   ]
   const adjusted = sc.count || sc.digits !== undefined || sc.lo > 0 || sc.hi < 1
   return (
-    <div className="flex flex-col gap-1">
+    <div className="map-legend flex flex-col gap-1">
     {title && <div className="text-[11px] font-bold">{title}</div>}
     <div className="flex items-start gap-3 text-[10px] text-muted">
       <span className="flex shrink-0 items-center gap-1">
@@ -1339,7 +1340,7 @@ export default function Coverage() {
         )}
         {/* Onglets de mesure (administrateurs) : chacun montre sa valeur pour les filtres et le lieu choisis (chiffres clés). */}
         {national && !Q && (
-          <div role="tablist" aria-label="Ce que montre la carte" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div role="tablist" aria-label="Ce que montre la carte" className="emph-band grid grid-cols-2 gap-2 sm:grid-cols-4">
             {tabsFor(national).map((k) => {
               const on = k === o
               const t = kpis.tabs[k]

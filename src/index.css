@@ -41,6 +41,9 @@
 
 html, body, #root { min-height: 100%; }
 
+/* Teinte de l'échelle de la carte du bilan (src/pages/Coverage.tsx) ; les styles de l'installation la changent. */
+:root { --color-scale: #14b8a6; }
+
 /* Place prise par la navigation : en bas (barre d'onglets) ou à gauche (colonne). Les barres d'action
    collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
 :root {
@@ -95,7 +98,8 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-fg);
-  font-family: var(--font-mono);
+  /* Police du texte : celle du style de l'installation (src/uiStyle.ts), sinon celle d'origine. */
+  font-family: var(--font-body, var(--font-mono));
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -127,6 +131,68 @@ body {
   .text-teal-300 { color: #0f766e; }
   .hover\:text-red-400:hover { color: #b91c1c; }
 }
+
+/* Styles de l'installation (src/uiStyle.ts, posés par src/theme.ts) : rien ici ne s'applique au style « Actuel » (aucun
+   attribut data-style), qui reste l'appli d'origine. Règles hors couche (@layer) : elles passent devant les classes Tailwind.
+   Polices : texte (body, plus haut), titres, chiffres. */
+:root[data-style] :is(h1, h2, h3, .section-title, .label) { font-family: var(--font-heading); }
+:root[data-upper] :is(h1, h2, h3) { text-transform: uppercase; letter-spacing: 0.01em; font-weight: 800; }
+:root[data-upper] h1 { font-size: 1.375rem; line-height: 1.1; }
+:root[data-upper] .section-title { font-size: 0.8125rem; letter-spacing: 0.06em; }
+:root[data-style] .tabular-nums { font-family: var(--font-figures); }
+/* Accent en texte : version assez contrastée (l'orange vif du style Sport reste pour les fonds et les bordures). */
+:root[data-style] :is(.text-accent, .section-title) { color: var(--color-accent-text); }
+:root[data-style] .bg-accent { color: var(--color-on-accent); }
+:root[data-style] .btn-primary { background-color: var(--color-primary); color: var(--color-on-primary); }
+
+/* Blocs mis en avant (bande des chiffres clés du bilan, carte « Bilan de détection » de l'accueil) : fond plein. Les
+   variables sont redéfinies dans le bloc, les classes de l'appli (text-muted, bg-panel, border-accent…) suivent. */
+:root[data-emph] :is(.emph, .emph-band) {
+  --color-fg: var(--emph-fg);
+  --color-muted: var(--emph-muted);
+  --color-line: var(--emph-line);
+  --color-panel: var(--emph-bg2);
+  --color-panel-2: var(--emph-bg2);
+  --color-accent: var(--emph-accent);
+  --color-accent-text: var(--emph-accent);
+  --color-on-accent: var(--emph-on-accent);
+  background: var(--emph-bg);
+  color: var(--emph-fg);
+  border-color: var(--emph-line);
+}
+:root[data-emph] .emph-band { padding: 0.5rem; border-radius: var(--radius-lg); }
+:root[data-emph] .emph-band .card { border-color: transparent; }
+:root[data-emph] .emph-band .card[aria-selected="true"] { border-color: var(--emph-accent); }
+:root[data-style="sombre"] :is(.emph, .emph-band) .tabular-nums { color: var(--color-secondary); }
+:root[data-style="sombre"]:not([data-light]) :is(.emph, .emph-band) .tabular-nums { color: var(--emph-accent); }
+
+/* En-tête coloré (style Officiel). */
+:root[data-header] .app-header {
+  --color-fg: var(--header-fg);
+  --color-muted: var(--header-muted);
+  --color-line: var(--header-line);
+  --color-panel: var(--header-panel);
+  --color-panel-2: var(--header-panel);
+  --color-accent-text: var(--header-fg);
+  background: var(--header-bg);
+  color: var(--header-fg);
+  border-bottom-color: var(--header-line);
+}
+
+/* Carte du bilan sur fond propre (style Sport : bleu nuit, échelle orange) ; la légende suit. */
+:root[data-map] :is(.map-surface, .map-legend) {
+  --color-bg: var(--map-bg);
+  --color-panel: var(--map-panel);
+  --color-panel-2: var(--map-panel-2);
+  --color-fg: var(--map-fg);
+  --color-muted: var(--map-muted);
+  --color-line: var(--map-line);
+  background: var(--map-bg);
+  color: var(--map-fg);
+  border-radius: var(--radius-lg);
+}
+:root[data-map] .map-surface { padding: 0.5rem; }
+:root[data-map] .map-legend { padding: 0.375rem 0.5rem; }
 
 /* Téléphone réglé sur « Réduire les animations » : on change de joueur sans glissement. */
 @media (prefers-reduced-motion: reduce) {

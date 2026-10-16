@@ -74,7 +74,7 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
       {/* Bilan de détection (administrateurs et encadrants) : la carte de France ; onglets licenciés, mesures et profils
           repérés en plus pour les administrateurs. */}
       {can.viewCoverage(role) && (
-        <Link to="/bilan" className="card group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
+        <Link to="/bilan" className="card emph group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
             <Icon name="map" className="h-6 w-6" />
           </span>

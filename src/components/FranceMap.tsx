@@ -471,7 +471,7 @@ export function FranceMap({
   const tipIsRegion = !!tip?.code.startsWith('region-')
 
   return (
-    <div ref={box} className="relative" onPointerLeave={() => !tip?.pinned && setTip(null)}>
+    <div ref={box} className="map-surface relative" onPointerLeave={() => !tip?.pinned && setTip(null)}>
       {!shapes ? (
         <div className="flex aspect-square items-center justify-center text-xs text-muted">Chargement de la carte…</div>
       ) : domOnly ? null : (
