@@ -354,7 +354,7 @@ export default function Compare() {
               </ScrollTable>
             )}
             <p className="mt-2 text-[10px] text-muted">
-              Moyenne de chaque critère : chaque observateur pèse pareil. En <b className="text-emerald-300">vert</b>, le meilleur des {nWord} et son avance
+              Moyenne de chaque critère : chaque personne pèse pareil. En <b className="text-emerald-300">vert</b>, le meilleur des {nWord} et son avance
               {n > 2 ? ' sur le deuxième' : ''} ; écart sous {f1(TIE)} : égalité{n > 2 ? ' en tête, rien en vert' : ''}. Moyenne générale calculée comme le classement.
             </p>
           </section>
@@ -428,7 +428,7 @@ function PlayerHead({ p, color, compact, evs, observers, ms }: { p: Player; colo
       <div className="text-[11px]">
         {evs ? (
           <>
-            <b>{evs}</b> avis · <b>{observers}</b> observateur{observers > 1 ? 's' : ''}
+            <b>{evs}</b> avis · <b>{observers}</b> personne{observers > 1 ? 's' : ''}
           </>
         ) : (
           <span className="text-muted">Aucun avis validé</span>
