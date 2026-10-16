@@ -83,6 +83,20 @@ export default function Compare() {
   }, [ids.join(','), eventId])
 
   const back = <BackButton fallback={eventId ? `/evenements/${eventId}` : '/joueurs'} label={eventId ? 'ÉVÉNEMENT' : 'JOUEURS'} />
+  // Aucun joueur (ou un seul) dans l'adresse : on explique comment en choisir, plutôt qu'une page vide.
+  if (ids.filter(Boolean).length < 2)
+    return (
+      <div className="flex flex-col gap-4">
+        {back}
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">
+          <p className="font-bold text-fg">Choisis 2 ou 3 joueurs pour les comparer.</p>
+          <p className="text-xs">Dans la liste des joueurs, ouvre le menu ⋮ d’un joueur (ou appui long), puis « Comparer » ; une barre en bas de l’écran lance la comparaison.</p>
+          <Link to="/joueurs" className="btn-primary">
+            Choisir dans la liste des joueurs
+          </Link>
+        </div>
+      </div>
+    )
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const found = data.players.filter((p): p is Player => !!p && !p.deleted)
   if (found.length < data.players.length || new Set(ids).size < ids.length)

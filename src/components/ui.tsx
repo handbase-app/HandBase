@@ -162,12 +162,15 @@ export function CriterionInput({
   value,
   onChange,
   suggested,
+  wide = false,
 }: {
   c: Criterion
   value: number | string | undefined
   onChange: (v: number | string | undefined) => void
   /** Note proposée par l'« avis vocal » (src/components/AvisVocal.tsx) : contour vif et ✨ ; la toucher l'accepte. */
   suggested?: number
+  /** Écran de notation : notes en zones tactiles de 44 px de haut, réparties sur toute la largeur (plafonnée sur ordinateur). */
+  wide?: boolean
 }) {
   const max = scaleMax(c.scale)
   if (max !== null) {
@@ -175,14 +178,14 @@ export function CriterionInput({
     const opts = Array.from({ length: max - min + 1 }, (_, i) => min + i)
     const hint = suggested !== undefined && suggested !== value
     return (
-      <div className={`flex ${hint ? 'gap-1.5' : 'gap-1'}`}>
+      <div className={`flex ${hint ? 'gap-1.5' : wide ? 'gap-1.5' : 'gap-1'} ${wide ? 'w-full max-w-xl' : ''}`}>
         {opts.map((n) => (
           <button
             key={n}
             type="button"
             aria-label={hint && n === suggested ? `${n} (note proposée : toucher pour l’accepter)` : undefined}
             onClick={() => onChange(value === n && !(hint && n === suggested) ? undefined : n)}
-            className={`relative rounded-md border text-xs font-bold transition ${hint ? 'h-11 w-11' : 'h-8 w-8'} ${
+            className={`relative rounded-md border font-bold transition ${wide ? 'h-11 min-w-0 flex-1 text-sm' : 'text-xs'} ${wide ? '' : hint ? 'h-11 w-11' : 'h-8 w-8'} ${
               value === n
                 ? 'border-accent bg-accent text-white'
                 : hint && n === suggested

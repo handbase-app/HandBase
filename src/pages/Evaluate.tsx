@@ -13,6 +13,7 @@ import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { supabase } from '../sync'
 import { MQ, useMedia } from '../layout'
+import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { DictationTextarea } from '../components/MicButton'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
@@ -69,6 +70,8 @@ export default function Evaluate() {
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
+  // Menu « ⋮ » de l'avis (« Retirer mon avis »), loin du bouton « Enregistrer / Suivant ».
+  const avisMenu = useRowMenu()
   // Sens de l'animation au changement de joueur par glissement.
   // Joueur qui arrive après un glissement (ou une flèche), et de quel côté : seule sa fiche s'anime.
   const [enter, setEnter] = useState<{ id: string; dir: 'left' | 'right' } | null>(null)
@@ -617,17 +620,33 @@ export default function Evaluate() {
                 </button>
               )}
             </div>
-            <div className={listMode ? 'w-36 shrink-0' : 'w-44'}>
-              <Segmented
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: 'rapide', label: 'Rapide' },
-                  { value: 'complet', label: 'Complet' },
-                ]}
-              />
+            <div className={`flex items-center gap-1 ${listMode ? 'shrink-0' : ''}`}>
+              {/* Avec le « ⋮ » : bascule un peu plus étroite, pour tenir en 360 px de large. */}
+              <div className={listMode ? 'w-36 shrink-0' : existing ? 'w-40' : 'w-44'}>
+                <Segmented
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'rapide', label: 'Rapide' },
+                    { value: 'complet', label: 'Complet' },
+                  ]}
+                />
+              </div>
+              {existing && (
+                <span data-noswipe className="contents">
+                  <MenuButton label="Autres actions sur mon avis" open={!!avisMenu.anchor} className="-mr-2" onOpen={avisMenu.open} />
+                </span>
+              )}
             </div>
           </div>
+          {existing && avisMenu.anchor && (
+            <ItemMenu
+              anchor={avisMenu.anchor}
+              title={`Mon avis sur ${playerName(player)}`}
+              items={[{ label: 'Retirer mon avis', icon: 'trash', danger: true, onSelect: () => void withdraw() }]}
+              onClose={avisMenu.close}
+            />
+          )}
           {existing && !saved && (
             <div className="text-[11px] text-muted">
               {spontaneous ? (
@@ -663,12 +682,12 @@ export default function Evaluate() {
                   const sug = pendingSuggestion(avis, player.id, c.id)
                   return (
                     // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
-                    <div key={c.id} className="flex flex-col items-start gap-1.5">
+                    <div key={c.id} className="flex flex-col items-stretch gap-1.5">
                       <div className="min-w-0">
                         <div className="text-xs font-bold">{c.label}</div>
                         {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
                       </div>
-                      <CriterionInput c={c} value={draft.scores?.[c.id]} suggested={sug?.value} onChange={(v) => setScore(c.id, v)} />
+                      <CriterionInput c={c} value={draft.scores?.[c.id]} suggested={sug?.value} wide onChange={(v) => setScore(c.id, v)} />
                       {sug && (
                         <SuggestionNote s={sug} onDismiss={() => setAvis((a) => a && { ...a, pending: a.pending.filter((x) => x !== c.id) })} />
                       )}
@@ -726,23 +745,27 @@ export default function Evaluate() {
         </div>
           {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
           <div className={`sticky bottom-[var(--nav-b)] z-10 flex items-center gap-2 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
-            <button
-              className="btn-primary flex-1"
-              disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
-              onClick={() => void submit()}
-            >
-              {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
-            </button>
-            {dirty ? (
+            {existing && !dirty && nextTodo ? (
+              // Avis enregistré et rien de modifié : le bouton principal passe au joueur suivant à noter.
+              <button className="btn-primary min-h-11 min-w-0 flex-1" onClick={() => void go('joueur', nextTodo.id)}>
+                <span className="truncate">
+                  Suivant : {nextTodo.firstName} {(nextTodo.lastName ?? '').charAt(0).toUpperCase()}
+                  {nextTodo.lastName ? '.' : ''} →
+                </span>
+              </button>
+            ) : (
+              <button
+                className="btn-primary min-h-11 flex-1"
+                disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
+                onClick={() => void submit()}
+              >
+                {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
+              </button>
+            )}
+            {dirty && (
               <button className="btn shrink-0 text-xs text-muted" onClick={revert} title="Oublier les modifications">
                 Annuler
               </button>
-            ) : (
-              existing && (
-                <button className="btn shrink-0 text-xs text-muted hover:text-red-400" onClick={() => void withdraw()}>
-                  Retirer mon avis
-                </button>
-              )
             )}
           </div>
         </div>
