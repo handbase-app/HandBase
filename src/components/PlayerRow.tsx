@@ -12,8 +12,9 @@ import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
  * - photo : 44 px (ligne pleine), 34 px (colonne de contexte, fiche ouverte à droite) ;
  * - nom : NOM Prénom en gras, jamais coupé avant les pastilles si on peut l'éviter (les pastilles passent à la ligne) ;
  * - pastilles : Pôle, poste, postes secondaires, trimestre (Q1…Q4), puis celles propres à la liste ;
- * - ligne secondaire : (numéro, équipe ·) année · club, 11 px (10 px en compact), grise ;
+ * - ligne secondaire : (numéro, équipe ·) année · club, 11 px (12 px sous 400 px, 10 px en compact), grise ;
  * - icônes au bout : œil « vu », horloge « à revoir », étoile « suivre », « ⋮ » (16 px dans 32 px), puis les actions de la liste ;
+ *   sous 400 px, deux icônes au plus avant « ⋮ » (l'étoile cède la place quand l'œil et l'horloge sont là, elle reste au menu) ;
  * - menu de la ligne (PlayerMenu) : appui long sur téléphone, clic droit sur ordinateur, touche « menu » ou Maj+F10,
  *   ou « ⋮ » (ligne pleine ; en colonne de contexte, faute de place, seulement les gestes). Un toucher ou un clic
  *   normal garde son effet (fiche, évaluation) ; après un appui long, le clic du relâchement est ignoré.
@@ -30,7 +31,10 @@ export function playerSub(p: Pick<Player, 'birthDate' | 'club'>, ...before: (str
   return [...before, p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')
 }
 
-/** NOM Prénom (gras) puis les pastilles, qui passent à la ligne plutôt que de couper le nom. */
+/**
+ * NOM Prénom (gras) puis les pastilles, qui passent à la ligne plutôt que de couper le nom. Téléphone étroit (< 400 px) :
+ * le nom n'est jamais coupé, il passe à la ligne s'il le faut.
+ */
 export function PlayerNameLine({
   p,
   compact = false,
@@ -45,7 +49,7 @@ export function PlayerNameLine({
 }) {
   return (
     <span className={`flex min-w-0 flex-wrap items-center gap-y-0.5 font-bold ${compact ? 'gap-x-1.5 text-xs' : 'gap-x-2 text-sm'}`}>
-      <span className="max-w-full truncate">
+      <span className="max-w-full truncate max-[400px]:break-words max-[400px]:whitespace-normal">
         {p.lastName.toUpperCase()} {p.firstName}
       </span>
       <span className="flex max-w-full flex-wrap items-center gap-1 whitespace-nowrap empty:hidden">
@@ -138,7 +142,7 @@ function Row({
     <span className="flex min-w-0 flex-1 flex-col">
       <PlayerNameLine p={p} compact={compact} quarter={quarter} badges={badges} />
       {sub !== '' && (
-        <span className={`truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{sub === undefined ? playerSub(p) : sub}</span>
+        <span className={`truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px] max-[400px]:text-xs'}`}>{sub === undefined ? playerSub(p) : sub}</span>
       )}
       {lines}
     </span>
@@ -184,7 +188,9 @@ function Row({
         <span className="flex shrink-0 items-center">
           {seen}
           {rewatch}
-          {follow}
+          {/* Téléphone étroit : deux icônes au plus (événement : œil + horloge ; listes : horloge + étoile) ; « Suivre » reste
+              dans le menu de la ligne (⋮, appui long). */}
+          {seen && rewatch && follow ? <span className="contents max-[400px]:hidden">{follow}</span> : follow}
           {!compact && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour ${p.lastName.toUpperCase()} ${p.firstName}`} />}
         </span>
       )}

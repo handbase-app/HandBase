@@ -540,6 +540,35 @@ export function EventDetail() {
     })
   }
 
+  // « Évaluer » ouvre le premier joueur à noter ; « + Ajouter des joueurs » devient le geste principal quand la liste est vide.
+  const canAdd = manage || contribute
+  const addFirst = canAdd && roster.length === 0
+  const evaluate = (cls: string) => (
+    <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className={cls}>
+      {filtered
+        ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
+        : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
+    </Link>
+  )
+  const addButton = (cls: string, label = '+ Ajouter des joueurs') => (
+    <button className={cls} onClick={() => setAdding(true)}>
+      {label}
+    </button>
+  )
+  // Feuille de match : importée depuis le formulaire « Modifier » (plus de bouton au premier écran).
+  const importSheet = !ev.matchSheet && manage && (
+    <button
+      type="button"
+      className="btn-ghost w-full py-1.5 text-xs"
+      onClick={() => {
+        setEditing(false)
+        setImporting(true)
+      }}
+    >
+      + Importer une feuille de match (PDF)
+    </button>
+  )
+
   const tabs = (cls = '') => (
     <div className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
       {(
@@ -609,7 +638,7 @@ export function EventDetail() {
       </div>
       {editing ? (
         <div className="card p-3">
-          <NewEventForm event={ev} onDone={() => setEditing(false)} />
+          <NewEventForm event={ev} onDone={() => setEditing(false)} extra={importSheet} />
         </div>
       ) : (
         <div>
@@ -641,6 +670,7 @@ export function EventDetail() {
 
       {!editing && (
         <VideoSection
+          fold
           kind="event"
           targetId={ev.id}
           sheet={ev.matchSheet ? { ms: ev.matchSheet, canEdit: can.calibrateMatch(role, { eventId: ev.id }) } : undefined}
@@ -662,13 +692,7 @@ export function EventDetail() {
                 )
               : undefined
           }
-        >
-          {!ev.matchSheet && manage && (
-            <button className="btn-ghost mt-2 w-full py-1.5 text-xs" onClick={() => setImporting(true)}>
-              + Importer une feuille de match (PDF)
-            </button>
-          )}
-        </VideoSection>
+        />
       )}
       {!editing && ev.matchSheet && (
         <Suspense fallback={null}>
@@ -684,22 +708,27 @@ export function EventDetail() {
         <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
       )}
 
-      {/* Téléphone : boutons pleine largeur, l'un sous l'autre ; ordinateur : une barre d'actions compacte. */}
-      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'contents'}>
-        <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : ''}`}>
-          {filtered
-            ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
-            : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
-        </Link>
-        {bar && tab === 'joueurs' && !adding && (manage || contribute) && (
-          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAdding(true)}>
-            + Ajouter des joueurs
-          </button>
-        )}
-        {bar && tabs('ml-auto w-64')}
-      </div>
+      {/* Ordinateur : une barre d'actions compacte. Liste vide : « + Ajouter des joueurs » passe en bouton principal. */}
+      {bar && (
+        <div className="flex flex-wrap items-center gap-2">
+          {addFirst && tab === 'joueurs' && !adding ? (
+            <>
+              {addButton('btn-primary px-3 py-1.5 text-xs')}
+              {evaluate('btn-ghost px-3 py-1.5 text-xs')}
+            </>
+          ) : (
+            <>
+              {evaluate('btn-primary px-3 py-1.5 text-xs')}
+              {tab === 'joueurs' && !adding && canAdd && addButton('btn-ghost px-3 py-1.5 text-xs')}
+            </>
+          )}
+          {tabs('ml-auto w-64')}
+        </div>
+      )}
 
+      {/* Téléphone : les joueurs d'abord ; « Évaluer » vient juste au-dessus de la liste, après la couverture. */}
       {!bar && tabs()}
+      {!bar && tab === 'classement' && evaluate('btn-primary')}
 
       {tab === 'joueurs' ? (
         adding ? (
@@ -717,11 +746,10 @@ export function EventDetail() {
                 {evals.length ? 'Choisis « avis » sur la ligne d’un joueur : ses avis et son radar s’affichent à droite.' : 'Aucun avis pour l’instant sur cet événement.'}
               </p>
             )}
-            {!bar && (manage || contribute) && (
-              <button className="btn-ghost text-xs" onClick={() => setAdding(true)}>
-                + Ajouter des joueurs (par groupe ou un par un)
-              </button>
-            )}
+            {!bar &&
+              canAdd &&
+              (addFirst ? addButton('btn-primary') : addButton('btn-ghost text-xs', '+ Ajouter des joueurs (par groupe ou un par un)'))}
+            {!bar && roster.length === 0 && evaluate(addFirst ? 'btn-ghost text-xs' : 'btn-primary')}
             <RewatchInEvent
               ev={ev}
               rows={rewatch.filter((r) => r.events?.includes(ev.id))}
@@ -789,6 +817,7 @@ export function EventDetail() {
                   filter={cover}
                   setFilter={setCover}
                 />
+                {!bar && evaluate('btn-primary')}
                 {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
                   <div className="flex items-center justify-end gap-3">
                     {roster.length > 1 && !removing && <CompareToggle pick={pick} className="mr-auto" />}
