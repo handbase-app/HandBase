@@ -54,6 +54,7 @@ import { VoiceSearch } from '../components/VoiceSearch'
 import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
+import { useDictation } from '../dictation/useDictation'
 import { SavedQuestions } from './Question'
 import { decodeRecipe, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Recipe } from '../recipe'
 import { aggregate, aggValue, bilanOutput, isShareKind, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
@@ -304,6 +305,52 @@ function Filters({
         </select>
       )}
     </div>
+  )
+}
+
+/** Téléphone tenu droit : le bilan replie ses filtres et ses actions (voir Coverage). */
+const PHONE = '(max-width: 639.98px)'
+
+/**
+ * Téléphone : les filtres du bilan résumés en une ligne de pastilles (« Tous · Saison 2026-2027 · Toutes les années ▾ ») ;
+ * un toucher ouvre ou referme le panneau des filtres. Une pastille qui n'est pas le choix par défaut est soulignée d'accent.
+ */
+function FilterSummary({ sex, period, showPeriod, yearText, yearPicked, open, onToggle }: {
+  sex: CoverageSex
+  period: CoveragePeriod
+  showPeriod: boolean
+  yearText: string
+  yearPicked: boolean
+  open: boolean
+  onToggle: () => void
+}) {
+  const pills: { text: string; on: boolean }[] = [
+    { text: sex === 'M' ? 'Garçons' : sex === 'F' ? 'Filles' : 'Tous', on: sex !== 'all' },
+    // Saison en court (« 2026-27 ») : la ligne tient sur un téléphone.
+    ...(showPeriod ? [{ text: period === 'all' ? 'Depuis toujours' : `Saison ${seasonOf(today()).label.replace(/^(\d{4})-\d{2}(\d{2})$/, '$1-$2')}`, on: period === 'all' }] : []),
+    { text: yearText, on: yearPicked },
+  ]
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls="bilan-filtres"
+      aria-label={`Filtres : ${pills.map((p) => p.text).join(', ')}. ${open ? 'Replier' : 'Modifier'}`}
+      onClick={onToggle}
+      className={`flex min-h-10 w-full min-w-0 items-center gap-1 rounded-md border px-2 py-1 text-left text-xs font-bold transition ${open ? 'border-accent' : 'border-line bg-panel-2'}`}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+        {pills.map((p, i) => (
+          <span key={i} className={`flex items-center gap-1 ${i === pills.length - 1 ? 'min-w-0' : 'shrink-0'}`}>
+            {i > 0 && <span className="text-muted" aria-hidden>·</span>}
+            <span className={`truncate rounded-full border py-0.5 ${p.on ? 'border-accent px-1.5' : 'border-transparent px-0.5'}`}>{p.text}</span>
+          </span>
+        ))}
+      </span>
+      <span className={`shrink-0 text-muted transition ${open ? 'rotate-180' : ''}`} aria-hidden>
+        ▾
+      </span>
+    </button>
   )
 }
 
@@ -996,6 +1043,21 @@ export default function Coverage() {
   const club: ClubCoverage<Player> | undefined = Q ? Q.club : bilan.club
   const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o), [Q?.texts, o]) // eslint-disable-line react-hooks/exhaustive-deps
   const side = useMedia(MQ.side)
+  // Téléphone (< 640 px) : filtres repliés sous une ligne de pastilles, tuiles en bandeau qui défile, carte juste dessous,
+  // « Rapport Fédé » et « Poser une question » dans une barre d'actions en bas. Ordinateur et tablette : inchangés.
+  const phone = useMedia(PHONE)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [askOpen, setAskOpen] = useState(false)
+  const { questionReady } = useDictation()
+  const tilesRef = useRef<HTMLDivElement>(null)
+  // Bandeau des tuiles (téléphone) : la tuile active reste visible (sans faire défiler la page).
+  useEffect(() => {
+    const band = tilesRef.current
+    const on = band?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!phone || !band || !on) return
+    const left = on.offsetLeft - band.offsetLeft
+    if (left < band.scrollLeft || left + on.offsetWidth > band.scrollLeft + band.clientWidth) band.scrollLeft = left - 8
+  }, [phone, o, !!data, !!st.q]) // eslint-disable-line react-hooks/exhaustive-deps
   const whereRef = useRef<HTMLDivElement>(null)
   const qWho = Q ? (c: ClubCoverage<Player>) => <QuestionWho club={c} players={Q.order(c)} text={Q.playerText} what={Q.texts} /> : undefined
   const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }), lens, qWho }), [o, search, lens, Q?.agg]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1283,6 +1345,22 @@ export default function Coverage() {
           ? 'Joueurs avec au moins une mesure prise par le staff.'
           : 'Joueurs correspondant à mes profils recherchés.'
 
+  // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
+  const filtersBlock = (
+    <VoiceSearch<BilanVoice>
+      values={{ sex, period, year, region, dept, club: st.club, view }}
+      apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
+      page={voicePage}
+      label="Filtrer"
+      input={
+        <div className="min-w-0 flex-1">
+          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} year={year} setYear={pickYear} />
+        </div>
+      }
+    />
+  )
+  const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
+
   return (
     <WhoCtx.Provider value={who}>
     <div className="flex flex-col gap-4">
@@ -1300,27 +1378,38 @@ export default function Coverage() {
             <h1 className="text-lg font-extrabold">Bilan de détection</h1>
             <p className="text-[11px] text-muted">{subtitle}</p>
           </div>
+          {!phone && (
           <Link to="/bilan/rapport" className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
             <Icon name="list" className="h-3.5 w-3.5" />
             Rapport Fédé
           </Link>
+          )}
         </div>
-        {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». */}
-        <AskQuestion />
-        <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
+        {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
+            dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
+        {!phone && <AskQuestion />}
+        {!(phone && questionReady) && savedQuestions}
+        {/* Téléphone : les filtres résumés en pastilles ; un toucher ouvre le panneau des filtres. */}
+        {phone && !Q && (
+          <FilterSummary
+            sex={sex}
+            period={period}
+            showPeriod={o === 'vus'}
+            yearText={yearText}
+            yearPicked={year !== null}
+            open={filtersOpen}
+            onToggle={() => setFiltersOpen(!filtersOpen)}
+          />
+        )}
         {/* Question posée : ses propres filtres (pastilles), pas ceux du bilan. */}
-        {!Q && (
-        <VoiceSearch<BilanVoice>
-          values={{ sex, period, year, region, dept, club: st.club, view }}
-          apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
-          page={voicePage}
-          label="Filtrer"
-          input={
-            <div className="min-w-0 flex-1">
-              <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} year={year} setYear={pickYear} />
-            </div>
-          }
-        />
+        {!Q && (!phone || filtersOpen) && (
+        phone ? (
+          <div id="bilan-filtres" className="card p-2">
+            {filtersBlock}
+          </div>
+        ) : (
+          filtersBlock
+        )
         )}
         {/* Question posée : un bandeau à la place des onglets (✕ revient aux onglets). */}
         {Q && st.q && (
@@ -1340,7 +1429,12 @@ export default function Coverage() {
         )}
         {/* Onglets de mesure (administrateurs) : chacun montre sa valeur pour les filtres et le lieu choisis (chiffres clés). */}
         {national && !Q && (
-          <div role="tablist" aria-label="Ce que montre la carte" className="emph-band grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div
+            ref={tilesRef}
+            role="tablist"
+            aria-label="Ce que montre la carte"
+            className={phone ? 'emph-band flex snap-x gap-2 overflow-x-auto [scrollbar-width:none]' : 'emph-band grid grid-cols-2 gap-2 sm:grid-cols-4'}
+          >
             {tabsFor(national).map((k) => {
               const on = k === o
               const t = kpis.tabs[k]
@@ -1351,7 +1445,7 @@ export default function Coverage() {
                   role="tab"
                   aria-selected={on}
                   onClick={() => setOnglet(k)}
-                  className={`card flex min-h-11 min-w-0 flex-col items-start px-3 py-1.5 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
+                  className={`card flex min-h-11 min-w-0 flex-col items-start px-3 py-1.5 text-left transition hover:border-accent ${phone ? 'w-max min-w-[7.5rem] shrink-0 snap-start' : ''} ${on ? 'border-accent bg-accent/10' : ''}`}
                 >
                   <span className={`text-base leading-tight font-extrabold tabular-nums ${on ? 'text-accent' : ''}`}>{!ready ? '…' : t.total ? headline(k, t) : '—'}</span>
                   <span className="w-full truncate text-[10px] font-bold tracking-wider text-muted uppercase">{TAB[k].label}</span>
@@ -1360,10 +1454,11 @@ export default function Coverage() {
             })}
           </div>
         )}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {/* Téléphone, en France : le fil (« France ») et « Carte / Générations » sur une ligne ; plus bas, le fil a sa ligne. */}
+        <div className={phone && crumbs.length === 1 ? 'flex items-center justify-between gap-2' : 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'}>
           <Crumbs steps={crumbs} />
           {!Q && (
-          <div className="sm:w-64 [&_button]:min-h-8">
+          <div className={phone && crumbs.length === 1 ? 'shrink-0 [&_button]:min-h-8' : 'sm:w-64 [&_button]:min-h-8'}>
             <Segmented<View>
               value={view}
               onChange={setView}
@@ -1576,6 +1671,36 @@ export default function Coverage() {
             )}
           </div>
         </>
+      )}
+      {/* Téléphone : barre d'actions en bas d'écran, juste au-dessus de la barre de navigation. « Poser une question »
+          ouvre, au-dessus des boutons, le champ de question et « Mes questions ». */}
+      {phone && (
+        <div className="sticky bottom-[var(--nav-b)] z-20 -mx-4 flex flex-col gap-2 border-t border-line bg-bg px-4 py-2">
+          {askOpen && questionReady && (
+            <div id="bilan-question" className="flex max-h-[55dvh] flex-col gap-2 overflow-y-auto">
+              <AskQuestion />
+              {savedQuestions}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Link to="/bilan/rapport" className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
+              <Icon name="list" className="h-3.5 w-3.5" />
+              Rapport Fédé
+            </Link>
+            {questionReady && (
+              <button
+                type="button"
+                aria-expanded={askOpen}
+                aria-controls="bilan-question"
+                onClick={() => setAskOpen(!askOpen)}
+                className={`flex min-h-11 flex-[1.4] items-center justify-center gap-1.5 rounded-md border-2 px-3 text-xs font-bold transition ${askOpen ? 'border-accent bg-accent text-white' : 'border-accent/60 bg-accent/10 text-fg'}`}
+              >
+                <span aria-hidden>✨</span>
+                {askOpen ? 'Fermer la question' : 'Poser une question'}
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
     </WhoCtx.Provider>
