@@ -4,7 +4,7 @@
 //
 //   npx jiti tools/test-bilan-question.ts
 import assert from 'node:assert/strict'
-import { aggregate, aggValue, goesToBilan, questionPoints, rankAgg, recipeAt, splitPlace, valueKind, bilanOutput } from '../src/bilanQuestion'
+import { aggregate, aggValue, goesToBilan, isTopClubs, limitClubs, questionPoints, rankAgg, recipeAt, splitPlace, topClubsPlace, valueKind, bilanOutput } from '../src/bilanQuestion'
 import { buildIndex, cleanRecipe, runRecipe, type QPlayer, type Recipe } from '../src/recipe'
 
 const TODAY = '2026-10-14'
@@ -149,5 +149,54 @@ assert.equal(aggValue('seen', a.byDept.get('06')), 1)
 // Club non renseigné : en fin de classement.
 a = run(R({ out: { type: 'table' } }))
 assert.equal(rankAgg('count', a.clubs.map((c) => [c.key, c] as [string, typeof c])).at(-1)![0], '', 'club non renseigné à la fin')
+
+// ---------- « Le club qui a le plus de… » : tableau par club limité aux N premiers ----------
+const top = (limit: number, dir: 'asc' | 'desc' = 'desc', extra: Partial<Recipe['out']> = {}) =>
+  R({ out: { type: 'table', groupBy: 'club', sort: { by: 'count', dir }, limit, ...extra } })
+assert.equal(isTopClubs(top(1)), true)
+assert.equal(isTopClubs(R({ out: { type: 'table', groupBy: 'club' } })), false, 'sans limite')
+assert.equal(isTopClubs(R({ out: { type: 'table', groupBy: 'dept', limit: 3 } })), false, 'par département')
+assert.equal(goesToBilan(top(1)), true, 'reste une réponse géographique')
+{
+  // France : HBC Exemple (3 joueurs), puis trois clubs à 1 ; le club non renseigné n'est jamais classé.
+  const q = top(1)
+  const b = run(q)
+  const ranked = rankAgg('count', b.clubs.map((c) => [c.key, c] as [string, typeof c])).map(([, c]) => c)
+  assert.deepEqual(limitClubs(q, 'count', ranked).map((c) => c.key), ['hbc exemple'])
+  assert.deepEqual(limitClubs(top(2), 'count', ranked).map((c) => c.key), ['hbc exemple', 'as fictive', 'club imaginaire', 'entente fictive'], 'ex aequo du 2e compris')
+  assert.equal(limitClubs(R({ out: { type: 'table', groupBy: 'club' } }), 'count', ranked), ranked, 'sans limite : tous')
+  // Département d'un club : celui de ses joueurs.
+  assert.equal(b.clubs.find((c) => c.key === 'hbc exemple')!.dept, '83')
+  assert.equal(b.clubs.find((c) => c.key === '')!.dept, undefined)
+  // « Le club qui en a le moins », parmi ceux qui ont des joueuses 2011 vues : seulement ceux qui répondent.
+  const q2 = R({ pop: { sex: 'F' }, seen: { by: 'event', op: 'gte', n: 1, period: { kind: 'season' } }, out: { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'asc' }, limit: 1 } })
+  const b2 = run(q2)
+  const r2 = rankAgg('count', b2.clubs.map((c) => [c.key, c] as [string, typeof c]), 'asc').map(([, c]) => c)
+  assert.deepEqual(limitClubs(q2, 'count', r2).map((c) => c.key), ['hbc exemple', 'club imaginaire'], 'à 0 : pas classés ; à égalité (1) : les deux')
+}
+
+// Lieu de départ : un seul club → son département, club choisi ; plusieurs dans un département → lui ; une région → elle.
+const FR = { region: '', dept: '', club: null }
+assert.deepEqual(topClubsPlace(FR, ['hbc exemple'], regionOf, clubDept), { region: 'region-sud', dept: '83', club: 'hbc exemple' })
+assert.deepEqual(topClubsPlace(FR, ['hbc exemple', 'as fictive'], regionOf, clubDept), { region: 'region-sud', dept: '83', club: null })
+assert.deepEqual(topClubsPlace(FR, ['hbc exemple', 'club imaginaire'], regionOf, clubDept), { region: 'region-sud', dept: '', club: null })
+assert.deepEqual(topClubsPlace(FR, ['hbc exemple', 'entente fictive'], regionOf, clubDept), FR, 'deux régions : la France')
+assert.deepEqual(topClubsPlace(FR, ['club perdu'], regionOf, clubDept), FR, 'département inconnu : lieu de la question')
+assert.deepEqual(topClubsPlace(FR, [], regionOf, clubDept), FR)
+// Jamais plus large que le lieu de la question, jamais en dehors.
+const VAR = { region: 'region-sud', dept: '83', club: null }
+assert.deepEqual(topClubsPlace(VAR, ['as fictive'], regionOf, clubDept), { region: 'region-sud', dept: '83', club: 'as fictive' })
+assert.deepEqual(topClubsPlace(VAR, ['entente fictive'], regionOf, clubDept), VAR, 'hors du Var : le Var')
+const SUD = { region: 'region-sud', dept: '', club: null }
+assert.deepEqual(topClubsPlace(SUD, ['club imaginaire'], regionOf, clubDept), { region: 'region-sud', dept: '06', club: 'club imaginaire' })
+const ONE = { region: 'region-sud', dept: '83', club: 'hbc exemple' }
+assert.equal(topClubsPlace(ONE, ['as fictive'], regionOf, clubDept), ONE, 'club déjà choisi : gardé')
+// De bout en bout : recette (sans lieu) → premier club → son département, club choisi.
+{
+  const q = top(1)
+  const keys = (runRecipe(ix, q).table ?? []).map((x) => x.key).filter(Boolean)
+  const to = splitPlace(q, regionOf, clubDept)
+  assert.deepEqual(topClubsPlace(to.place, keys, regionOf, clubDept), { region: 'region-sud', dept: '83', club: 'hbc exemple' })
+}
 
 console.log('tout bon')

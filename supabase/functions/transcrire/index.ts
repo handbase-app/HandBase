@@ -572,6 +572,8 @@ RÈGLES
 - « quel coach », « qui du staff », « quel observateur » a vu le plus de joueurs → tableau par staff, tri vus ; « a écrit le plus d'avis » → tri nbAvis. Jamais de nom de personne.
 - « les clubs où personne n'a été vu » → vus aucun, tableau par club, garder tous.
 - « quel club (département, génération…) a le plus de … » → tableau par cette dimension, tri compte, ordre decroissant (« le moins de » : croissant).
+- UN SEUL demandé (« quel club », « le club qui », « quelle région ») → limite 1 ; « les 5 clubs », « les 3 départements » → limite 5, 3 ; « quels clubs », « classement des clubs » → pas de limite. Toujours une recette, jamais rien dans "nonGere" pour cela (l'appli place les clubs sur la carte).
+- « licenciés », « inscrits », « joueurs de la base » → tous les joueurs (rien à mettre : chaque joueur de la base est licencié). « en France », « au niveau national », « partout » → aucun lieu (omets regions et departements).
 - Ce qui ne rentre dans aucune clé va dans "nonGere" (à côté de "recette", jamais dedans) en quelques mots. Si rien n'est traduisible : "recette":{}.
 
 EXEMPLES
@@ -598,7 +600,9 @@ EXEMPLES
 « les joueurs qui ont le plus progressé entre leurs deux derniers avis » → {"recette":{"sortie":{"type":"liste","tri":"progression","ordre":"decroissant","limite":20}},"nonGere":[]}
 « si je n'ai qu'un week-end, quels joueurs prioritaires je dois aller voir en Bretagne ? » → {"recette":{"population":{"regions":["Bretagne"]},"sortie":{"type":"liste","tri":"priorite","limite":20}},"nonGere":[]}
 « combien de joueurs s'appellent Lucas » → {"recette":{"population":{"noms":["Lucas"]},"sortie":{"type":"nombre"}},"nonGere":[]}
-« quel club a le plus de pivots gauchers » → {"recette":{"population":{"postes":["PIV"],"lateralite":"gaucher"},"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant"}},"nonGere":[]}
+« quel club a le plus de pivots gauchers » → {"recette":{"population":{"postes":["PIV"],"lateralite":"gaucher"},"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant","limite":1}},"nonGere":[]}
+« quel club en France a le plus de licenciés ? » → {"recette":{"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant","limite":1}},"nonGere":[]}
+« les 5 clubs du Var avec le plus de joueuses vues cette saison » → {"recette":{"population":{"sexe":"F","departements":["Var"]},"vus":{"op":">=","n":1,"periode":"saison"},"sortie":{"type":"tableau","par":"club","tri":"compte","ordre":"decroissant","limite":5}},"nonGere":[]}
 « quels joueurs ont changé de club cette année ? » → {"recette":{},"nonGere":["changé de club"]}
 « quelle est la taille moyenne par poste chez les garçons nés en 2010 ? » → {"recette":{"population":{"sexe":"M","annee":2010},"sortie":{"type":"tableau","par":"poste","valeur":"moyenne_mesure","mesure":"Taille"}},"nonGere":[]}
 « quelle est la taille moyenne des gardiennes nées en 2011 ? » → {"recette":{"population":{"sexe":"F","annee":2011,"postes":["GB"]},"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"nonGere":[]}
@@ -802,6 +806,7 @@ RÈGLES
 - Colonnes calculées : noms courts en minuscules avec _ (nb_joueurs, moyenne_defense, taille_moyenne_cm).
 - explication : une phrase courte en français qui dit ce qui est compté, positive ou neutre (jamais « mauvais », « faible », « nul », « pas retenu » : dis « pas encore », « au plus », « moins de »).
 - affichage : nombre (une seule valeur), liste (des joueurs), tableau (lignes regroupées), carte (par département : colonne departement et une valeur).
+- Réponse par club : garde la colonne club (nom, tel quel) dans le résultat ; l'appli place les clubs sur une carte.
 - Si les tables ne permettent pas de répondre : "sql":"" et la raison en quelques mots dans "nonGere".
 - Si on te donne une requête précédente et l'erreur de SQLite : corrige cette requête.
 

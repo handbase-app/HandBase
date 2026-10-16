@@ -119,7 +119,7 @@ export type Output = {
   measure?: string
   /** Période de la part vue (tableau), du tableau du staff, du tri par « vus » ou par priorité ; défaut : celle de la condition « vu », sinon la saison (affichée). */
   period?: Period
-  /** Liste : nombre de joueurs montrés. */
+  /** Liste : nombre de joueurs montrés ; tableau : seulement les N premières lignes, après le tri (« les 5 clubs qui ont le plus de… »). */
   limit?: number
 }
 
@@ -202,7 +202,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
     mesures: 'liste facultative : {critere (nom de mesure), op (>= | <=), valeur}',
     mesuresPossibles: names(mes) || 'aucune',
     sortie:
-      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe | staff | evenement), valeur (compte | part_vus | moyenne | moyenne_mesure | age_moyen), garder (certains | tous | aucun), tri (compte | part_vus | moyenne | mesure | age | vus | nbAvis), ordre ; nombre : valeur (moyenne | moyenne_mesure | age_moyen) facultative ; moyenne_mesure : avec mesure (nom) ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure | progression | priorite), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} (ou {sur:"combine", nom:[noms]}) et mesure (nom) pour le tri ou la colonne ; periode (de la part vue, du staff, de la priorité)',
+      'objet : type (nombre | liste | tableau | carte) ; tableau : par (club | departement | region | annee | poste | sexe | staff | evenement), valeur (compte | part_vus | moyenne | moyenne_mesure | age_moyen), garder (certains | tous | aucun), tri (compte | part_vus | moyenne | mesure | age | vus | nbAvis), ordre, limite (1 à 500 : seulement les N premières lignes, après le tri ; « le club qui a le plus de… » : 1) ; nombre : valeur (moyenne | moyenne_mesure | age_moyen) facultative ; moyenne_mesure : avec mesure (nom) ; liste : tri (nom | annee | taille | vus | moyenne | nbAvis | mesure | progression | priorite), ordre (croissant | decroissant), limite (1 à 500) ; moyenne {sur, nom} (ou {sur:"combine", nom:[noms]}) et mesure (nom) pour le tri ou la colonne ; periode (de la part vue, du staff, de la priorité)',
   }
 }
 
@@ -311,8 +311,11 @@ export type Interpreted = {
 const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie', 'nonGere']
 const KNOWN_POP = [
   'noms', 'nom', 'prenom', 'prenoms', 'sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax',
-  'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole', 'trimestre', 'postesSecondaires', 'sansPoste', 'suivis', 'avecVideo', 'profils', 'profil',
+  'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole', 'trimestre', 'postesSecondaires', 'sansPoste', 'suivis', 'avecVideo', 'profils', 'profil', 'pays',
 ]
+/** « en France », « toute la France », « au niveau national » : tous les lieux (aucune limite, rien d'écarté). */
+const WHOLE_COUNTRY = /^(?:(?:en|dans|de|sur) )?(?:toute )?(?:la )?(?:france(?: entiere| metropolitaine)?|national|niveau national|au niveau national|pays|tout le pays|partout)$/
+export const isWholeCountry = (v: unknown) => WHOLE_COUNTRY.test(normalize(asText(v)))
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
 
@@ -495,7 +498,9 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   if (positions.length) r.pop.positions = positions
   // Lieux : départements puis régions (une région qui ne contient aucun des départements dits est écartée).
   const depts: string[] = []
+  if (present(p.pays) && !asList(p.pays).every(isWholeCountry)) skip(`pays ${quote(p.pays)}`, 'seulement la France')
   for (const v of [...asList(p.departements), ...asList(p.departement)]) {
+    if (isWholeCountry(v)) continue
     const m = matchDept(v, ctx)
     if ('found' in m) {
       if (!depts.includes(m.found.code)) depts.push(m.found.code)
@@ -503,6 +508,7 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   }
   const regions: string[] = []
   for (const v of [...asList(p.regions), ...asList(p.region)]) {
+    if (isWholeCountry(v)) continue
     const m = matchRegion(v, ctx)
     if ('found' in m) {
       if (depts.length && ctx.regionOfDept && !depts.some((d) => ctx.regionOfDept!(d) === m.found.id)) skip(`région ${quote(m.found.name)}`, 'ne contient pas le département choisi')
@@ -722,7 +728,7 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     if (n !== undefined && Number.isFinite(n) && n >= 1) r.out.limit = clamp(Math.round(n), LIMITS.limit)
     else skip(`limite ${quote(s.limite)}`, `de ${LIMITS.limit[0]} à ${LIMITS.limit[1]}`)
   }
-  if (r.out.limit && r.out.type !== 'list') delete r.out.limit
+  if (r.out.limit && r.out.type !== 'list' && r.out.type !== 'table') delete r.out.limit
   const recipe = settle(r, notes)
   // Grandeur demandée que la recette ne calcule pas (remplacée par autre chose, ou oubliée) : dite, jamais approximée.
   if (phrase) for (const x of checkQuantities(phrase, recipe, ctx)) if (!unsupported.includes(x)) unsupported.push(x)
@@ -842,7 +848,7 @@ function settle(r: Recipe, notes?: string[]): Recipe {
   if (out.type === 'list' && out.sort && !LIST_SORTS.includes(out.sort.by)) delete out.sort
   if (out.type === 'count' && out.value === 'measure' && !out.measure) delete out.value
   if (out.type !== 'list') {
-    delete out.limit
+    if (out.type !== 'table') delete out.limit
     if (out.value !== 'measure') delete out.measure
     if (out.type !== 'table') delete out.sort
     if ((out.type !== 'table' && out.type !== 'count') || (out.value !== 'avg' && out.sort?.by !== 'avg')) delete out.avg
@@ -1462,6 +1468,7 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe, opts: { a
     }
   } else if (r.out.type === 'table' && r.out.groupBy === 'staff') {
     ans.table = staffRows(ix, match, outRange, r.out.sort)
+    if (r.out.limit) ans.table = topWithTies(ans.table, r.out.limit, (x) => (r.out.sort?.by === 'nbAvis' ? x.staff?.avis : x.staff?.players))
   } else if (r.out.type === 'table') {
     const by = r.out.groupBy ?? 'club'
     const rows = new Map<string, TableRow>()
@@ -1526,9 +1533,37 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe, opts: { a
       if (by === 'year') return b.key.localeCompare(a.key)
       return (keep === 'some' ? b.match - a.match : 0) || b.total - a.total || a.key.localeCompare(b.key, 'fr')
     })
+    // « Les 5 clubs qui ont le plus de… » : les N premières lignes, ex aequo du dernier compris.
+    if (r.out.limit) {
+      const v = (x: TableRow): number | null | undefined =>
+        sort?.by === 'share'
+          ? shareOf(x)
+          : sort?.by === 'avg' || (!sort && r.out.value === 'avg')
+            ? x.avg
+            : sort?.by === 'measure' || sort?.by === 'age'
+              ? x.stat?.avg
+              : by === 'event' || by === 'year'
+                ? undefined
+                : x.match
+      ans.table = topWithTies(ans.table, r.out.limit, v)
+    }
   }
   ans.ms = Math.round(now() - t0)
   return ans
+}
+
+/**
+ * Les `n` premières lignes d'un classement déjà trié, et celles ex aequo avec la dernière (même valeur) : « le club qui a
+ * le plus de… » montre les deux clubs à égalité, jamais un seul au hasard. Sans valeur (undefined, null) : coupé net.
+ * 500 lignes au plus.
+ */
+export function topWithTies<T>(rows: readonly T[], n: number, value: (x: T) => number | null | undefined): T[] {
+  if (n <= 0) return []
+  let end = Math.min(n, rows.length)
+  const last = end ? value(rows[end - 1]) : undefined
+  if (last !== undefined && last !== null)
+    while (end < rows.length && end < LIMITS.limit[1] && Math.abs((value(rows[end]) ?? NaN) - last) < 1e-9) end++
+  return rows.slice(0, end)
 }
 
 /** Tri effectif d'une liste : celui de la recette, sinon moyenne (s'il y a une moyenne en jeu), sinon nom. */
@@ -1781,6 +1816,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
               : 'part qui répond'
     c.push({ key: 'sort', label: `tri : ${what} ${arrow(o.sort.dir)}`, edit: 'sort', removable: true })
   }
+  if (o.type === 'table' && o.limit) c.push({ key: 'limit', label: o.limit === 1 ? 'le premier' : `les ${o.limit} premiers`, edit: 'limit', removable: true })
   if (o.type === 'list') {
     const s = defaultSort(r)
     const what: Record<SortBy, string> = {
@@ -1826,6 +1862,7 @@ export function removeChip(r: Recipe, key: string): Recipe {
   else if (k === 'value') delete x.out.value
   else if (k === 'keep') delete x.out.keep
   else if (k === 'sort') delete x.out.sort
+  else if (k === 'limit' && x.out.type === 'table') delete x.out.limit
   return cleanRecipe(x)
 }
 

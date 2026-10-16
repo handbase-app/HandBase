@@ -408,7 +408,16 @@ export function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: C
     case 'limit':
       body = (
         <div className="flex items-center gap-2 text-xs">
-          Montrer les <NumberInput label="Nombre de joueurs montrés" value={r.out.limit ?? DEFAULT_LIMIT} min={1} max={LIMITS.limit[1]} onChange={(n) => apply((x) => (x.out.limit = n))} className="w-20" /> premiers
+          Montrer les{' '}
+          <NumberInput
+            label={r.out.type === 'table' ? 'Nombre de lignes montrées' : 'Nombre de joueurs montrés'}
+            value={r.out.limit ?? DEFAULT_LIMIT}
+            min={1}
+            max={LIMITS.limit[1]}
+            onChange={(n) => apply((x) => (x.out.limit = n))}
+            className="w-20"
+          />{' '}
+          premiers{r.out.type === 'table' ? ' (lignes du tableau, après le tri)' : ''}
         </div>
       )
       break

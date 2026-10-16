@@ -91,6 +91,36 @@ export function clubDots<C extends ClubLike>(
 }
 
 /**
+ * Clubs de plusieurs départements sur une même carte (France, région) : chacun placé comme dans son département
+ * (clubDots : n° de club, sinon nom replié unique du département), sans les points neutres. `dept` : département du club
+ * (celui de la plupart de ses joueurs) ; sans département ou sans unité placée : `unplaced`.
+ */
+export function placedClubs<C extends ClubLike & { dept?: string }>(
+  clubs: readonly C[],
+  units: readonly Unitish[],
+  deptOf: (clubNumber: string) => string | undefined,
+): { dots: ClubDot<C>[]; unplaced: C[] } {
+  const byDept = new Map<string, C[]>()
+  const unplaced: C[] = []
+  for (const c of clubs) {
+    if (!c.key) continue
+    if (!c.dept) unplaced.push(c)
+    else byDept.set(c.dept, [...(byDept.get(c.dept) ?? []), c])
+  }
+  const dots: ClubDot<C>[] = []
+  if (!hasPlacedClubs(units)) return { dots, unplaced: clubs.filter((c) => c.key) as C[] }
+  for (const [d, cs] of byDept) {
+    const r = clubDots(cs, units, d, deptOf)
+    dots.push(...r.dots.filter((x) => x.club))
+    unplaced.push(...r.unplaced)
+  }
+  // Dans l'ordre reçu (classement de la réponse).
+  const rank = new Map(clubs.map((c, i) => [c.key, i]))
+  dots.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+  return { dots, unplaced }
+}
+
+/**
  * Projection recalée sur un département (cadre w × h, marge `pad`) : la même conique que la carte de France pour la
  * métropole, Mercator pour un territoire ultramarin (contour de src/assets/outre-mer.json).
  */

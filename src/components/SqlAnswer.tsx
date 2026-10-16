@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { POSITIONS, today, type Player } from '../db'
 import { sendSqlRequest } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
@@ -8,6 +8,8 @@ import { cleanSqlSpec, columnLabel, guardSql, type SqlSpec } from '../sqlGuard'
 import { buildSqlSchema, type MirrorInput } from '../sqlMirror'
 import { logQuestion, type QuestionTrace } from '../questionLog'
 import type { AdvancedStatus, RecipeStatus } from '../questionLogCore'
+import { clubsInRows, type AnswerClub } from '../answerClubs'
+import { ClubAnswerMap, useClubPlaces, useOpenClub } from './ClubAnswerMap'
 import { FollowStar } from './Follow'
 import { PlayerRow } from './PlayerRow'
 import { Empty, Icon, SectionTitle } from './ui'
@@ -20,7 +22,8 @@ import { Empty, Icon, SectionTitle } from './ui'
  * correction (la requête et le message d'erreur de SQLite seulement, une fois).
  *  - useAdvancedAsk : demande, contrôle, essai sur la copie, une correction au plus ; rend la requête prête à afficher ;
  *  - SqlExplain : « Ce que j'ai calculé : … », « Voir la requête », « Enregistrer cette question » ;
- *  - SqlAnswerView : nombre, joueurs (lignes standard, fiche dans le contexte de la réponse) ou tableau générique.
+ *  - SqlAnswerView : nombre, joueurs (lignes standard, fiche dans le contexte de la réponse) ou tableau générique ; clubs
+ *    nommés dans le tableau : carte des clubs, et chaque ligne de club ouvre le bilan sur lui (src/answerClubs.ts).
  */
 
 /** Source de la copie (données déjà lues par l'écran) ; null tant qu'elles se chargent. */
@@ -339,13 +342,45 @@ export function SqlAnswerView({
       </div>
     )
 
-  // Tableau générique, colonnes renommées lisiblement.
+  // Tableau générique, colonnes renommées lisiblement ; clubs nommés : carte et lignes qui ouvrent le bilan.
+  return <SqlTable spec={spec} res={res} byId={byId} meta={meta} />
+
+}
+
+/**
+ * Tableau générique d'une réponse en mode avancé. Lignes qui nomment un club (colonne de noms ou de n° de club retrouvés
+ * parmi les clubs de l'appareil, src/answerClubs.ts) : carte des clubs au-dessus (src/components/ClubAnswerMap.tsx) et
+ * chaque ligne ouvre le bilan sur son club. Aucun club retrouvé : le tableau seul.
+ */
+function SqlTable({ spec, res, byId, meta }: { spec: SqlSpec; res: SqlResult; byId: Map<string, Player>; meta: ReactNode }) {
+  const places = useClubPlaces(byId)
+  const open = useOpenClub()
+  const found = useMemo(() => clubsInRows(res, places.known, places.units, places.deptOf), [res, places.known, places.units]) // eslint-disable-line react-hooks/exhaustive-deps
   const numeric = res.columns.map((_, k) => res.rows.every((r) => r[k] === null || typeof r[k] === 'number'))
+  // Clubs de la carte : un par clé, dans l'ordre du résultat, avec la valeur de leur 1re ligne.
+  const clubs: AnswerClub[] = []
+  const values = new Map<string, number>()
+  for (const [i, c] of (found?.rows ?? []).entries()) {
+    if (!c || clubs.some((x) => x.key === c.key)) continue
+    clubs.push(c)
+    const v = found!.value !== undefined ? res.rows[i][found!.value] : undefined
+    if (typeof v === 'number') values.set(c.key, v)
+  }
+  const vCol = found?.value !== undefined ? res.columns[found.value] : undefined
   return (
     <div className="flex flex-col gap-2">
       {meta}
-      {spec.display === 'carte' && <p className="text-[11px] text-muted">Carte pas encore disponible en mode avancé : le résultat est en tableau.</p>}
-      <SectionTitle>Résultat</SectionTitle>
+      {spec.display === 'carte' && !clubs.length && <p className="text-[11px] text-muted">Carte pas encore disponible en mode avancé : le résultat est en tableau.</p>}
+      {clubs.length > 0 && (
+        <ClubAnswerMap
+          clubs={clubs}
+          values={values}
+          valueLabel={vCol ? columnLabel(vCol).toLowerCase() : undefined}
+          valueText={(k) => (vCol && values.has(k) ? `${columnLabel(vCol)} : ${cellText(vCol, values.get(k))}` : '')}
+          onOpen={open}
+        />
+      )}
+      <SectionTitle info={clubs.length ? 'Touchez une ligne de club pour l’ouvrir dans le bilan (le retour revient ici).' : undefined}>Résultat</SectionTitle>
       <div className="card overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
@@ -358,15 +393,34 @@ export function SqlAnswerView({
             </tr>
           </thead>
           <tbody>
-            {res.rows.map((r, i) => (
-              <tr key={i} className="border-t border-line">
-                {r.map((v, k) => (
-                  <td key={k} className={`px-3 py-2 ${numeric[k] ? 'text-right tabular-nums' : ''}`}>
-                    {cellText(res.columns[k], v)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {res.rows.map((r, i) => {
+              const c = found?.rows[i]
+              const go = c?.dept ? () => open(c) : undefined
+              return (
+                <tr key={i} className={`border-t border-line ${go ? 'cursor-pointer hover:bg-accent/10' : ''}`} onClick={go}>
+                  {r.map((v, k) => (
+                    <td key={k} className={`px-3 py-2 ${numeric[k] ? 'text-right tabular-nums' : ''}`}>
+                      {go && k === found!.col ? (
+                        // Bouton (clavier, lecteurs d'écran) : la ligne entière s'ouvre aussi d'un toucher.
+                        <button
+                          type="button"
+                          className="min-h-9 text-left font-bold text-accent underline decoration-dotted underline-offset-2"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            go()
+                          }}
+                        >
+                          {cellText(res.columns[k], v)} <span aria-hidden>›</span>
+                          <span className="sr-only"> : ouvrir le club dans le bilan</span>
+                        </button>
+                      ) : (
+                        cellText(res.columns[k], v)
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

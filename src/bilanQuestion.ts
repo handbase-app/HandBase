@@ -5,6 +5,7 @@ import {
   outValueFn,
   periodRange,
   seenCount,
+  topWithTies,
   type Answer,
   type Output,
   type Population,
@@ -139,7 +140,7 @@ function add(a: QAgg, x: QPoint<unknown>) {
 }
 
 /** Club de la réponse, comme un club du bilan (ClubCoverage : `seenPlayers` = ceux qui répondent, `toSee` = les autres). */
-export type QClub<P> = QAgg & { key: string; name: string; seenPlayers: P[]; toSee: P[] }
+export type QClub<P> = QAgg & { key: string; name: string; seenPlayers: P[]; toSee: P[]; dept?: string }
 
 /** Département non renseigné (même valeur que NO_DEPT, src/coverage.ts). */
 const NO_DEPT = '?'
@@ -155,6 +156,7 @@ export function aggregate<P>(points: readonly QPoint<P>[], at: { region: string;
   const all = emptyAgg()
   const here = emptyAgg()
   const clubs = new Map<string, QClub<P>>()
+  const clubDepts = new Map<string, Map<string, number>>()
   const depts = new Set<string>()
   const get = (m: Map<string, QAgg>, k: string) => {
     let a = m.get(k)
@@ -175,7 +177,14 @@ export function aggregate<P>(points: readonly QPoint<P>[], at: { region: string;
     if (!c) clubs.set(x.club, (c = { ...emptyAgg(), key: x.club, name: x.club ? clubName(x.club) : '', seenPlayers: [], toSee: [] }))
     add(c, x)
     ;(x.match ? c.seenPlayers : c.toSee).push(x.p)
+    if (x.dept) {
+      const m = clubDepts.get(x.club) ?? new Map<string, number>()
+      clubDepts.set(x.club, m)
+      m.set(x.dept, (m.get(x.dept) ?? 0) + 1)
+    }
   }
+  // Département d'un club : celui de la plupart de ses joueurs (à égalité, le plus petit numéro).
+  for (const [k, m] of clubDepts) clubs.get(k)!.dept = [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0]
   return { byDept, byRegion, noDept, all, here, clubs: [...clubs.values()], depts: depts.size }
 }
 
@@ -203,3 +212,46 @@ export function rankAgg<T extends Tally>(k: QValueKind, rows: Iterable<[string, 
 
 /** Sens du classement : celui demandé (« le club qui en a le moins »), sinon du plus au moins. */
 export const rankDir = (r: Recipe): 'asc' | 'desc' => r.out.sort?.dir ?? 'desc'
+
+/** Tableau par club limité aux N premiers (« le club qui a le plus de… », « les 5 clubs du Var… »). */
+export const isTopClubs = (r: Recipe) => r.out.type === 'table' && (r.out.groupBy ?? 'club') === 'club' && !!r.out.limit
+
+/**
+ * Tableau par club limité aux N premiers (« le club qui a le plus de… », « les 5 clubs du Var… ») : seulement eux, dans
+ * l'ordre de la question (`ranked` : rankAgg), ex aequo du dernier compris. Lignes gardées comme le tableau de la recette
+ * (runRecipe) : au moins un joueur qui répond (« tous », « aucun » : garder de la recette ; tri par part : toutes).
+ * Sans limite (ou autre regroupement) : tous les clubs.
+ */
+export function limitClubs<C extends QAgg & { key: string }>(r: Recipe, kind: QValueKind, ranked: readonly C[]): readonly C[] {
+  if (!isTopClubs(r)) return ranked
+  const keep = r.out.keep ?? 'some'
+  const kept = ranked.filter((c) =>
+    !c.key ? false : keep === 'all' ? c.seen === c.total : keep === 'none' ? c.seen === 0 : r.out.sort?.by === 'share' || c.seen > 0,
+  )
+  return topWithTies(kept, r.out.limit!, (c) => aggValue(kind, c))
+}
+
+/**
+ * Lieu de départ d'un tableau par club limité aux N premiers (`top` : leurs clés, dans l'ordre, calculées sur la recette
+ * entière) : un seul club → son département, club choisi (ses joueurs à droite) ; tous dans un département → lui ; dans
+ * une région → elle ; sinon le lieu de la question. Jamais plus large que `place` (lieu tiré de la question).
+ */
+export function topClubsPlace(place: Place, top: readonly string[], regionOf: (dept: string) => string | undefined, clubDept: (club: string) => string | undefined): Place {
+  if (place.club !== null || !top.length || top.length > 50) return place
+  const ds = top.map(clubDept)
+  if (ds.some((d) => !d)) return place
+  const uniq = [...new Set(ds as string[])]
+  const inside = (p: Place) => (!place.dept || p.dept === place.dept) && (!place.region || p.region === place.region)
+  if (uniq.length === 1) {
+    const d = uniq[0]
+    const p: Place = { region: regionOf(d) ?? '', dept: d, club: top.length === 1 ? top[0] : null }
+    return inside(p) ? p : place
+  }
+  if (place.dept) return place
+  const rs = [...new Set(uniq.map(regionOf))]
+  if (rs.length === 1 && rs[0]) {
+    const p: Place = { region: rs[0], dept: '', club: null }
+    return inside(p) ? p : place
+  }
+  return place
+}

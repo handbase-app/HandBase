@@ -41,7 +41,7 @@ import { can, useRole } from '../roles'
 import { scoutId } from '../scouting'
 import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
 import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
-import { clubDots, dotRadius, hasPlacedClubs } from '../clubMap'
+import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
 import { useUnits } from '../installation'
 import { department } from '../components/PlayerFilter'
 import { RewatchToggle } from '../components/Scouting'
@@ -55,7 +55,7 @@ import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
 import { SavedQuestions } from './Question'
 import { decodeRecipe, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Recipe } from '../recipe'
-import { aggregate, aggValue, bilanOutput, isShareKind, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
+import { aggregate, aggValue, bilanOutput, isShareKind, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
 import { useQuestionModel } from '../questionModel'
 import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChips'
 
@@ -588,6 +588,16 @@ export function bilanQuestionSearch(q: Recipe, p: Place): string {
   return bilanQuery({ ...base, q, region: p.region, dept: p.dept, club: p.club, seenOpen: false, view: 'map' })
 }
 
+/**
+ * Adresse du bilan ouvert sur un lieu, sans question (un club nommé dans une réponse de « Poser une question ») : derniers
+ * choix de la session, le lieu, la carte. À ouvrir avec l'état { bilanChain: [] }, comme une question : le retour revient
+ * à la réponse.
+ */
+export function bilanPlaceSearch(p: Place): string {
+  const base = parseBilan(new URLSearchParams(sessionQuery() ?? ''))
+  return bilanQuery({ ...base, q: null, region: p.region, dept: p.dept, club: p.club, seenOpen: false, view: 'map' })
+}
+
 function sessionQuery(): string | null {
   try {
     return sessionStorage.getItem(QUERY_KEY)
@@ -813,8 +823,12 @@ export function useBilanQuestion(st: BilanState) {
   const agg = useMemo(() => (points && index ? aggregate(points, { region, dept }, (k) => index.clubNames.get(k) ?? k) : null), [points, index, region, dept])
   const kind = recipe ? valueKind(recipe) : 'count'
   const dir = recipe ? rankDir(recipe) : 'desc'
-  const clubs = useMemo(() => (agg ? rankAgg(kind, agg.clubs.map((c) => [c.key, c] as [string, QClub<Player>]), dir).map(([, c]) => c) : []), [agg, kind, dir])
-  const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
+  const ranked = useMemo(() => (agg ? rankAgg(kind, agg.clubs.map((c) => [c.key, c] as [string, QClub<Player>]), dir).map(([, c]) => c) : []), [agg, kind, dir])
+  // « Le club qui a le plus de… », « les 5 clubs… » : seulement les N premiers du lieu affiché (ex aequo compris).
+  const clubs = useMemo(() => (recipe ? [...limitClubs(recipe, kind, ranked)] : ranked), [recipe, kind, ranked])
+  const limited = clubs !== ranked
+  // Club choisi : retrouvé parmi tous (un club hors des N premiers reste ouvert, par l'adresse).
+  const club = st.club === null ? undefined : ranked.find((c) => c.key === st.club)
   const texts = useMemo(() => (recipe ? questionTexts(recipe, names) : null), [recipe, names])
   // Valeur de chaque joueur qui répond (moyenne, mesure, âge ; part vue : vu ou à voir).
   const byPlayer = useMemo(() => new Map((points ?? []).filter((x) => x.match).map((x) => [x.p.id, x])), [points])
@@ -833,7 +847,7 @@ export function useBilanQuestion(st: BilanState) {
     const x = byPlayer.get(p.id)
     return x && texts ? texts.player(x) : ''
   }
-  return { ready: !!agg && !!texts, model, recipe, answer, agg, kind, dir, clubs, club, texts, order, playerText }
+  return { ready: !!agg && !!texts, model, recipe, answer, agg, kind, dir, clubs, limited, club, texts, order, playerText }
 }
 
 /** Textes d'une question : ce que dit la valeur (bannière, légende, lignes, bulles, joueurs). Positifs ou neutres seulement. */
@@ -930,7 +944,10 @@ function questionTexts(r: Recipe, names: Names) {
   const conditions = recipeChips(r, names)
     .filter((c) => !hidden.has(c.key))
     .map((c) => c.label)
-  return { kind, cond, what, lens, player, total, conditions }
+  /** Tableau par club limité : « le premier club », « les 5 premiers clubs » (bandeau, titre de la liste). */
+  const n = r.out.type === 'table' && (r.out.groupBy ?? 'club') === 'club' ? r.out.limit : undefined
+  const top = n ? (n === 1 ? 'le premier club' : `les ${n} premiers clubs`) : undefined
+  return { kind, cond, what, lens, player, total, conditions, top }
 }
 
 /** Ce que les listes « Qui ? » du bilan partagent : onglet, état de l'adresse (pour les fiches) et « Déjà vus » ouvert. */
@@ -1007,11 +1024,31 @@ export default function Coverage() {
         r: d.club ? dotRadius(d.club.total, max) : 3.5,
         fill: d.club ? fillAt(lens.value(d.club), sc) : MUTED_DOT,
         muted: !d.club,
-        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? lens.label(d.club) : 'aucun joueur avec ces filtres'}`,
+        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? lens.label(d.club) : Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'}`,
       }),
     )
     return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])), color: new Map(items.filter((d) => !d.muted).map((d) => [d.id, d.fill])) }
-  }, [dept, units, clubs, lens])
+  }, [dept, units, clubs, lens, Q?.limited]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Question « le premier club », « les 5 premiers clubs », vue France ou région : ces clubs en points sur la carte
+  // (à leur adresse, structure importée) et en liste ; un toucher ouvre le club dans son département.
+  const topClubs = Q?.limited && !dept ? Q.clubs : null
+  const topMap = useMemo(() => {
+    if (!topClubs) return null
+    const r = placedClubs(topClubs, units, (n) => department({ clubCode: n }))
+    const sc = lens.scale(topClubs.map((c) => lens.value(c)).filter((v): v is number => v !== undefined))
+    const max = Math.max(0, ...topClubs.map((c) => c.total))
+    const items = r.dots.map(
+      (d): MapDot => ({
+        id: d.id,
+        lat: d.lat,
+        lng: d.lng,
+        r: dotRadius(d.club!.total, max),
+        fill: fillAt(lens.value(d.club), sc),
+        label: `${clubLabel(d.name)} : ${lens.label(d.club!)}`,
+      }),
+    )
+    return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])) }
+  }, [topClubs, units, lens])
   const places = useVoicePlaces()
   const voicePage = useMemo(
     () => bilanVoicePage({ ...places, clubs: voiceClubs, thisYear: new Date().getFullYear(), view, season: seasonOf(today()).label }),
@@ -1077,6 +1114,24 @@ export default function Coverage() {
         requestAnimationFrame(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })),
       )
   }
+  // Bulle d'un point de club : nom, n° et ville, valeur montrée.
+  const dotTip = (d?: ClubDot<ClubCoverage<Player>>) => {
+    if (!d) return null
+    const at = [d.number && `N° ${d.number}`, d.city].filter(Boolean).join(' · ')
+    return (
+      <>
+        <div className="font-bold">{clubLabel(d.name)}</div>
+        {at && <div className="text-[10px] text-muted">{at}</div>}
+        {!d.club && Q?.limited ? <div className="mt-1 text-muted">Pas parmi {Q.texts.top}</div> : tipValue(d.club)}
+        {d.club && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>}
+      </>
+    )
+  }
+  // Un des N premiers clubs (vue France ou région) : ouvert dans son département, ses joueurs à côté.
+  const pickTop = (c: ClubCoverage<Player>) => {
+    const d = (c as QClub<Player>).dept
+    if (d) set({ region: regionOfDept(d) ?? '', dept: d, club: c.key, seenOpen: false })
+  }
   const clubList = (inline: boolean, linked = false) =>
     clubs.length ? (
       <ClubList
@@ -1109,7 +1164,7 @@ export default function Coverage() {
   // Bulle d'une zone ou d'un club : valeur montrée, détail, ce qui reste.
   const tipValue = lens.tip
   const order = Q ? 'dans l’ordre de la question' : tab.order
-  const side2 = dept ? (
+  const side2Base = dept ? (
     <section>
       <SectionTitle info={`Clubs du département, ${order}. Touche un club pour la liste des joueurs.`}>
         {clubsTitle} · {Q ? Q.texts.what : yearText}
@@ -1150,6 +1205,41 @@ export default function Coverage() {
       )}
     </section>
   )
+
+  const topSc = topClubs ? (topMap?.sc ?? lens.scale(topClubs.map((c) => lens.value(c)).filter((v): v is number => v !== undefined))) : null
+  const side2 =
+    topClubs && topSc ? (
+      <div className="flex flex-col gap-4">
+        <section>
+          <SectionTitle info={`Clubs ${region ? 'de la région' : 'de France'}, dans l’ordre de la question (ex aequo compris). Touche un club pour ses joueurs.`}>
+            {Q!.texts.top!.replace(/^./, (x) => x.toUpperCase())} · {Q!.texts.what}
+          </SectionTitle>
+          {topClubs.length ? (
+            <div className="flex flex-col gap-2">
+              {topClubs.map((c) => {
+                const d = (c as QClub<Player>).dept
+                return (
+                  <PlaceRow
+                    key={c.key}
+                    lens={lens}
+                    label={`${clubLabel(c.name)}${d ? ` · ${deptText(d)}` : ''}`}
+                    t={c}
+                    color={fillAt(lens.value(c), topSc)}
+                    max={maxOf(topClubs.map((x) => [x.key, x] as [string, Tally]))}
+                    onClick={() => pickTop(c)}
+                  />
+                )
+              })}
+            </div>
+          ) : (
+            <Empty>Aucun club ne répond ici avec ces filtres.</Empty>
+          )}
+        </section>
+        {side2Base}
+      </div>
+    ) : (
+      side2Base
+    )
 
   const yearsText = year === null ? 'toutes les années' : year ? `nés en ${year}` : 'année de naissance inconnue'
   const explain: ReactNode =
@@ -1357,29 +1447,34 @@ export default function Coverage() {
                       picked: club?.key,
                       onActive: setHot,
                       onPick: pickDot,
-                      tip: (id) => {
-                        const d = clubMap.byId.get(id)
-                        if (!d) return null
-                        const at = [d.number && `N° ${d.number}`, d.city].filter(Boolean).join(' · ')
-                        return (
-                          <>
-                            <div className="font-bold">{clubLabel(d.name)}</div>
-                            {at && <div className="text-[10px] text-muted">{at}</div>}
-                            {tipValue(d.club)}
-                            {d.club && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>}
-                          </>
-                        )
-                      },
+                      tip: (id) => dotTip(clubMap.byId.get(id)),
                     }
-                  : undefined
+                  : topMap?.items.length
+                    ? {
+                        items: topMap.items,
+                        active: hot,
+                        onActive: setHot,
+                        onPick: (id) => {
+                          const c = topMap.byId.get(id)?.club
+                          if (c) pickTop(c)
+                        },
+                        tip: (id) => dotTip(topMap.byId.get(id)),
+                      }
+                    : undefined
               }
             />
             <MapLegend sc={clubMap?.sc ?? sc} note={lens.note} title={lens.title} />
+            {!clubMap && topClubs && (
+              <p className="text-[10px] text-muted">
+                {topMap?.items.length ? `Un point par club parmi ${Q!.texts.top}, à son adresse (taille : nombre de joueurs).` : ''}
+                {topMap && topMap.unplaced.length > 0 && ` ${plural(topMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
+              </p>
+            )}
             {clubMap && (
               <p className="flex items-start gap-1.5 text-[10px] text-muted">
                 <span className="mt-0.5 size-2.5 shrink-0 rounded-full border border-muted/60" style={{ background: MUTED_DOT }} />
                 <span>
-                  Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : aucun joueur avec ces filtres.
+                  Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : {Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'}.
                   {clubMap.unplaced.length > 0 && ` ${plural(clubMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
                 </span>
               </p>
@@ -1504,7 +1599,7 @@ function QuestionBanner({
   const nav = useNavigate()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const text = [`${texts.what} ${level}`, ...texts.conditions, placeText].join(' · ')
+  const text = [texts.top ? `${texts.what} · ${texts.top}` : `${texts.what} ${level}`, ...texts.conditions, placeText].join(' · ')
   const full = recipeAt(recipe, place)
   const detailUrl = (r: Recipe) => `/bilan/question?r=${encodeURIComponent(encodeRecipe(r))}`
   const change = (r: Recipe) => (bilanOutput(r.out) ? onChange(r) : nav(detailUrl(recipeAt(r, place))))

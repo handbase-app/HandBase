@@ -33,6 +33,7 @@ import {
   type QIndex,
   type Recipe,
   type SavedQuestion,
+  type TableRow,
   type VarValues,
 } from '../recipe'
 import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
@@ -53,7 +54,9 @@ import { PlayerRow } from '../components/PlayerRow'
 import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { Bar, bilanQuestionSearch, Crumbs, fillOf, MapLegend, scaleOf } from './Coverage'
-import { goesToBilan, splitPlace } from '../bilanQuestion'
+import { goesToBilan, isTopClubs, splitPlace, topClubsPlace } from '../bilanQuestion'
+import { locateClubs } from '../answerClubs'
+import { ClubAnswerMap, useClubPlaces, useOpenClub } from '../components/ClubAnswerMap'
 import PlayerDetail from './PlayerDetail'
 
 type Model = QuestionModel
@@ -104,9 +107,18 @@ type HistState = Partial<AskState> & {
 }
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
-/** Lieu de départ du bilan pour une réponse géographique (département d'un club : celui de la plupart de ses joueurs). */
-const bilanTarget = (r: Recipe, model?: Model, clubDept?: (k: string) => string | undefined) =>
-  splitPlace(r, (d) => regionOfDept(d), (k) => clubDept?.(k) ?? model?.ctx?.clubs.find((c) => c.key === k)?.dept)
+/**
+ * Lieu de départ du bilan pour une réponse géographique (département d'un club : celui de la plupart de ses joueurs).
+ * « Le club qui a le plus de… » (tableau par club limité aux N premiers) : là où sont ces clubs ; un seul → son
+ * département, club choisi, ses joueurs à côté (src/bilanQuestion.ts topClubsPlace).
+ */
+function bilanTarget(r: Recipe, model?: Model, clubDept?: (k: string) => string | undefined) {
+  const deptOfClub = (k: string) => clubDept?.(k) ?? model?.ctx?.clubs.find((c) => c.key === k)?.dept
+  const to = splitPlace(r, (d) => regionOfDept(d), deptOfClub)
+  if (!isTopClubs(r) || !model?.index) return to
+  const top = (runRecipe(model.index, r).table ?? []).map((x) => x.key).filter(Boolean)
+  return { ...to, place: topClubsPlace(to.place, top, (d) => regionOfDept(d), deptOfClub) }
+}
 const encSql = (s: SqlSpec) => `s=${encodeURIComponent(encodeSqlSpec(s))}`
 /** Bascules automatiques déjà lancées (une par arrivée, même si l'écran est rendu deux fois). */
 const autoStarted = new Set<string>()
@@ -485,8 +497,10 @@ function AnswerView({
     return (
       <div className="flex flex-col gap-2">
         {summary}
+        {by === 'club' && rows.length > 0 && <ClubTableMap rows={rows} recipe={recipe} model={model} />}
         <SectionTitle info="Touchez une ligne pour la liste de ses joueurs (le retour revient à ce tableau).">
           {GROUP_OPTIONS.find((g) => g.value === by)!.label.replace(/^par /, 'Par ')}
+          {recipe.out.limit ? ` · ${recipe.out.limit === 1 ? 'le premier' : `les ${recipe.out.limit} premiers`}` : ''}
         </SectionTitle>
         {!rows.length ? (
           <Empty>Aucune ligne ne répond à cette question pour l’instant.</Empty>
@@ -534,6 +548,31 @@ function AnswerView({
   }
 
   return <MapAnswer answer={answer} model={model} index={index} params={params} search={search} setMap={setMap} summary={summary} />
+}
+
+/**
+ * Tableau par club de la recette (réponse restée ici : recette pas appliquée en entier) : les clubs à leur adresse, couleur
+ * et taille selon le nombre de joueurs qui répondent ; un point ouvre le bilan sur le club (src/components/ClubAnswerMap.tsx).
+ */
+function ClubTableMap({ rows, recipe, model }: { rows: TableRow[]; recipe: Recipe; model: Model }) {
+  const places = useClubPlaces(model.data?.players)
+  const open = useOpenClub()
+  const clubs = useMemo(
+    () => [...locateClubs(rows.map((r) => r.key).filter(Boolean), places.known, places.units, places.deptOf).values()],
+    [rows, places.known, places.units], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const f = recipe.pop.sex === 'F'
+  const values = new Map(rows.map((r) => [r.key, r.match]))
+  if (!clubs.length) return null
+  return (
+    <ClubAnswerMap
+      clubs={clubs}
+      values={values}
+      valueLabel={`nombre de ${f ? 'joueuses' : 'joueurs'}${hasConditions(recipe) ? ' qui répondent' : ''}`}
+      valueText={(k) => `${fr(values.get(k) ?? 0)} ${f ? 'joueuse' : 'joueur'}${(values.get(k) ?? 0) > 1 ? 's' : ''}`}
+      onOpen={open}
+    />
+  )
 }
 
 /** Recette limitée à une ligne du tableau, en liste (part vue : les joueurs à voir en priorité de cette ligne). */

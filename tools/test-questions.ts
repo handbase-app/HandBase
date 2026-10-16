@@ -29,6 +29,7 @@ import {
   recipeText,
   removeChip,
   runRecipe,
+  topWithTies,
   shareText,
   varValues,
   type Names,
@@ -386,7 +387,12 @@ const dirty = {
   out: { type: 'table', groupBy: 'galaxie', limit: 10 },
   extra: 'ignoré',
 }
-assert.deepEqual(cleanRecipe(dirty), { pop: { positions: ['GB'], clubs: ['ok'], hand: 'gaucher' }, avis: [{ target: { on: 'global' }, op: 'gte', value: 3 }], measures: [], out: { type: 'table', groupBy: 'club' } })
+assert.deepEqual(cleanRecipe(dirty), { pop: { positions: ['GB'], clubs: ['ok'], hand: 'gaucher' }, avis: [{ target: { on: 'global' }, op: 'gte', value: 3 }], measures: [], out: { type: 'table', groupBy: 'club', limit: 10 } })
+// Limite : liste et tableau (les N premières lignes) ; jamais ailleurs, toujours dans les bornes.
+assert.equal(cleanRecipe({ ...dirty, out: { type: 'map', limit: 3 } }).out.limit, undefined)
+assert.equal(cleanRecipe({ ...dirty, out: { type: 'count', limit: 3 } }).out.limit, undefined)
+assert.equal(cleanRecipe({ ...dirty, out: { type: 'table', limit: 9999 } }).out.limit, undefined)
+assert.equal(cleanRecipe({ ...dirty, out: { type: 'table', limit: 0 } }).out.limit, undefined)
 assert.equal(decodeRecipe('{pas du json'), null)
 assert.equal(decodeRecipe('x'.repeat(9000)), null)
 const roundTrip = cleanRecipe({ pop: { sex: 'F', years: [2011, 2011] }, seen: { by: 'person', op: 'gte', n: 2, period: { kind: 'since', since: '2026-09-01' } }, avis: [], measures: [], out: { type: 'map' } })
@@ -403,6 +409,31 @@ const names: Names = {
   unit: (id) => CRITERIA.find((c) => c.id === id)?.unit,
   position: (id) => POSITIONS.find((p) => p.id === id)!.label,
   today: TODAY,
+}
+
+// Tableau limité aux N premières lignes, ex aequo du dernier compris ; croissant ; staff.
+{
+  const t = (limit: number, dir: 'asc' | 'desc' = 'desc') =>
+    run({ out: { type: 'table', groupBy: 'club', sort: { by: 'count', dir }, limit } }).table!.map((x) => [x.key, x.match])
+  assert.deepEqual(t(2), [['as fictive', 3], ['hbc exemple', 3]])
+  assert.deepEqual(t(3), [['as fictive', 3], ['hbc exemple', 3], ['handball imaginaire', 2]])
+  assert.deepEqual(t(1, 'asc'), [['entente du nord fictif', 1]], '« le club qui en a le moins »')
+  assert.equal(run({ out: { type: 'table', groupBy: 'club' } }).table!.length, 4, 'sans limite : tous les clubs')
+  assert.equal(run({ out: { type: 'table', groupBy: 'staff', sort: { by: 'seen', dir: 'desc' }, limit: 1 } }).table!.length >= 1, true)
+  assert.deepEqual(topWithTies([5, 4, 4, 4, 2], 2, (x) => x), [5, 4, 4, 4])
+  assert.deepEqual(topWithTies([5, 4, 3], 5, (x) => x), [5, 4, 3])
+  assert.deepEqual(topWithTies([5, 4, 4], 0, (x) => x), [])
+  assert.deepEqual(topWithTies([1, null, null], 2, (x) => x), [1, null], 'sans valeur : coupé net')
+  // Pastille « le premier » : se retire (tous les clubs).
+  const lim = cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' }, limit: 1 } })
+  assert.ok(recipeChips(lim, names).some((c) => c.key === 'limit' && c.label === 'le premier' && c.removable))
+  assert.equal(removeChip(lim, 'limit').out.limit, undefined)
+  // « en France », « toute la France », « pays » : aucun lieu, rien de signalé.
+  for (const x of [{ regions: ['France'] }, { departements: ['toute la France'] }, { pays: 'France' }, { regions: ['au niveau national'] }]) {
+    const it = interpretRecipe({ population: x, sortie: { type: 'tableau', par: 'club' } }, [], ctx)
+    assert.deepEqual([it.recipe.pop, it.notes, it.unsupported], [{}, [], []], JSON.stringify(x))
+  }
+  assert.equal(interpretRecipe({ population: { pays: 'Belgique' } }, [], ctx).notes.length, 1, 'autre pays : signalé')
 }
 
 // ---------- Exemples des consignes de la fonction ----------
@@ -523,10 +554,25 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
     assert.equal(a.count, 0, 'aucun Lucas dans le jeu fictif')
     assert.ok(!answersNothing(r), 'une population : réponse')
   },
+  // « Quel club » : le premier seulement (limite 1), ex aequo compris (jamais un seul au hasard).
   'quel club a le plus de pivots gauchers': (r, a) => {
-    assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' } })
-    assert.equal(recipeText(r, names), 'Pivot · gauchers · par club · tri : nombre de joueurs ↓')
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' }, limit: 1 })
+    assert.equal(recipeText(r, names), 'Pivot · gauchers · par club · tri : nombre de joueurs ↓ · le premier')
     assert.deepEqual(a.table!.map((x) => [x.key, x.match]), [['as fictive', 1], ['hbc exemple', 1]])
+  },
+  // « en France », « licenciés » : tous les joueurs, aucun lieu ; une recette (pas le mode avancé).
+  'quel club en France a le plus de licenciés ?': (r, a) => {
+    assert.deepEqual(r.pop, {})
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' }, limit: 1 })
+    assert.equal(recipeText(r, names), 'par club · tri : nombre de joueurs ↓ · le premier')
+    assert.ok(!answersNothing(r))
+    assert.deepEqual(a.table!.map((x) => [x.key, x.match]), [['as fictive', 3], ['hbc exemple', 3]], 'deux clubs à égalité : les deux')
+  },
+  'les 5 clubs du Var avec le plus de joueuses vues cette saison': (r, a) => {
+    assert.deepEqual(r.pop, { sex: 'F', depts: ['83'] })
+    assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' }, limit: 5 })
+    assert.equal(recipeText(r, names), 'Joueuses · Var (83) · vues à au moins 1 événement · cette saison (2026-2027) · par club · tri : nombre de joueurs ↓ · les 5 premiers')
+    assert.deepEqual(a.table!.map((x) => [x.key, x.match, x.total]), [['hbc exemple', 3, 3]], 'un seul club du Var avec des joueuses vues : moins de 5 lignes')
   },
   'quels joueurs ont changé de club cette année ?': (r) => {
     assert.ok(answersNothing(r, ['changé de club']), 'pas compris : « Je ne sais pas encore répondre »')
