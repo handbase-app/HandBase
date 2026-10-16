@@ -155,10 +155,14 @@ t('boucle dans l’arbre : le calcul s’arrête', () => {
   assert.deepEqual(per('u10', as('u10', 'loopA')).depts, ['99'])
   assert.deepEqual(per('u10', as('u10', 'loopB')).depts, ['99'])
 })
-t('unité sans territoire (pôle sans département) : rien de plus', () => {
+t('unité sans territoire (pôle sans département) : celui de sa ligue', () => {
   const p = per('u11', as('u11', 'pole'))
-  assert.deepEqual(p.depts, [])
-  assert.equal(perimeterText(p), 'Pôle fictif')
+  assert.deepEqual(p.depts, ['06', '13', '83'])
+  assert.equal(p.units[0].name, 'Pôle fictif')
+})
+t('unité sans territoire tout en haut : rien (pas de parent)', () => {
+  const seul: UnitRow[] = [{ id: 'P', levelId: 'niveau-pole', name: 'Pôle seul' }]
+  assert.deepEqual(perimeterOf({ userId: 'a', admin: false, units: seul, levels, assignments: as('a', 'P') }).depts, [])
 })
 t('ligue à beaucoup de départements : le nombre plutôt que la liste', () => {
   const many: UnitRow[] = [{ id: 'L', levelId: 'niveau-ligue', name: 'Grande ligue', departments: ['01', '02', '03', '04', '05', '06', '07', '08', '09'] }]

@@ -119,7 +119,20 @@ export function perimeterOf(input: {
   const depts = new Set<string>()
   const clubs = new Set<string>()
   const shown: PerimeterUnit[] = []
-  for (const root of mine) {
+  // Unité sans territoire (ni département ni club en dessous : un Pôle Espoirs) : celui de son parent le plus proche qui en a
+  // un (le Pôle Aix → la Ligue Région Sud). Même règle que hb_scope_of (supabase/047_perimetre_poles.sql).
+  const empty = (u: UnitRow) => subtree(byParent, u).every((x) => !clubOf(x) && !(x.departments ?? []).some(Boolean))
+  const effective = (u: UnitRow) => {
+    const seen = new Set([u.id])
+    let cur = u
+    while (empty(cur) && cur.parentId && !seen.has(cur.parentId) && byId.has(cur.parentId)) {
+      seen.add(cur.parentId)
+      cur = byId.get(cur.parentId)!
+    }
+    return cur
+  }
+  for (const assigned of mine) {
+    const root = effective(assigned)
     const clubRoot = !!clubOf(root)
     const own = new Set<string>()
     for (const u of subtree(byParent, root)) {
@@ -132,7 +145,7 @@ export function perimeterOf(input: {
       const d = n && clubDepartment(n)
       if (d) (depts.add(d), own.add(d))
     }
-    shown.push({ id: root.id, name: root.name, depts: [...own].sort(), ...(clubRoot ? { club: clubOf(root) } : {}) })
+    shown.push({ id: assigned.id, name: assigned.name, depts: [...own].sort(), ...(clubRoot ? { club: clubOf(root) } : {}) })
   }
   const all = input.admin || mine.some((u) => isFederationLevel(u.levelId, input.levels))
   return {
