@@ -644,15 +644,18 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
     .sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
   const words = fold(q).split(/\s+/).filter(Boolean)
   const found = words.length ? free.filter((m) => words.every((w) => fold(`${m.full_name ?? ''} ${m.email ?? ''}`).includes(w))) : free
-  // Liste courte : la recherche fait le reste, même avec des milliers de comptes.
-  const MAX = 8
-  const shown = found.slice(0, MAX)
+  // Défilement infini : la liste garde sa hauteur ; 50 comptes de plus chaque fois qu'on arrive en bas (rapide même avec
+  // des milliers de comptes). Repart à 50 à chaque frappe.
+  const STEP = 50
+  const [limit, setLimit] = useState(STEP)
+  const shown = found.slice(0, limit)
   const picked = chosen.map((id) => known.get(id)).filter((m): m is Member => !!m)
   const unpick = (id: string) => setChosen((c) => c.filter((x) => x !== id))
   const pick = (m: Member) => {
     setChosen((c) => (c.includes(m.user_id) ? c : [...c, m.user_id]))
     setQ('')
     setActive(0)
+    setLimit(STEP)
     setOpen(false)
   }
   async function add() {
@@ -736,16 +739,26 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
               onChange={(e) => {
                 setQ(e.target.value)
                 setActive(0)
+                setLimit(STEP)
                 setOpen(true)
               }}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowDown') {
                   e.preventDefault()
                   setOpen(true)
-                  setActive((i) => Math.min(i + 1, Math.max(0, shown.length - 1)))
+                  setActive((i) => {
+                    const n = Math.min(i + 1, Math.max(0, found.length - 1))
+                    if (n >= limit) setLimit((l) => l + STEP)
+                    document.getElementById(`${listId}-${n}`)?.scrollIntoView({ block: 'nearest' })
+                    return n
+                  })
                 } else if (e.key === 'ArrowUp') {
                   e.preventDefault()
-                  setActive((i) => Math.max(0, i - 1))
+                  setActive((i) => {
+                    const n = Math.max(0, i - 1)
+                    document.getElementById(`${listId}-${n}`)?.scrollIntoView({ block: 'nearest' })
+                    return n
+                  })
                 } else if (e.key === 'Enter' && open && shown[active]) {
                   e.preventDefault()
                   pick(shown[active])
@@ -757,6 +770,10 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                 id={listId}
                 role="listbox"
                 className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-md border border-line bg-panel shadow-lg"
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  if (limit < found.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 120) setLimit((n) => n + STEP)
+                }}
               >
                 {shown.map((m, i) => (
                   <div
@@ -777,7 +794,7 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                   </div>
                 ))}
                 {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ou choisis.'}</p>}
-                {found.length > MAX && <p className="p-2 text-[11px] text-muted">+ {found.length - MAX} autres : tape un nom pour préciser.</p>}
+                {limit < found.length && <p className="p-2 text-center text-[11px] text-muted">Chargement de la suite…</p>}
               </div>
             )}
           </div>
