@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { newId, plural, remove, save, saveMany, type Assignment, type ConfigItem, type Level, type Unit } from '../db'
 import { useAssignments, useConfigRows, useLevels, useSportConfig, useUnits } from '../installation'
 import { departmentLabel, useDepartments } from '../lists'
@@ -632,15 +632,29 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
   const [chosen, setChosen] = useState<string[]>([])
   const [role, setRole] = useState<Role>('preparateur')
   const [q, setQ] = useState('')
+  // Liste déroulante du champ de recherche : ouverte au toucher ou à la frappe, refermée au choix, à Échap ou en sortant du champ.
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const listId = useId()
   const known = new Map((members.list ?? []).map((m) => [m.user_id, m]))
-  // Comptes pas encore affectés ici, triés par nom ; la recherche (nom, prénom ou email, tous les mots, sans accents) réduit la liste.
-  const free = (members.list ?? []).filter((m) => !people.some((a) => a.userId === m.user_id)).sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
+  // Comptes pas encore affectés ici ni déjà choisis, triés par nom ; la recherche (nom, prénom ou email, tous les mots, sans
+  // accents) réduit la liste.
+  const free = (members.list ?? [])
+    .filter((m) => !people.some((a) => a.userId === m.user_id) && !chosen.includes(m.user_id))
+    .sort((a, b) => memberName(a).localeCompare(memberName(b), 'fr'))
   const words = fold(q).split(/\s+/).filter(Boolean)
   const found = words.length ? free.filter((m) => words.every((w) => fold(`${m.full_name ?? ''} ${m.email ?? ''}`).includes(w))) : free
-  // Liste courte (6 lignes) : la recherche fait le reste, même avec des milliers de comptes.
-  const MAX = 6
+  // Liste courte : la recherche fait le reste, même avec des milliers de comptes.
+  const MAX = 8
+  const shown = found.slice(0, MAX)
   const picked = chosen.map((id) => known.get(id)).filter((m): m is Member => !!m)
-  const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))
+  const unpick = (id: string) => setChosen((c) => c.filter((x) => x !== id))
+  const pick = (m: Member) => {
+    setChosen((c) => (c.includes(m.user_id) ? c : [...c, m.user_id]))
+    setQ('')
+    setActive(0)
+    setOpen(false)
+  }
   async function add() {
     if (!picked.length) return
     await saveMany<Assignment>(
@@ -695,38 +709,78 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                 <button
                   key={m.user_id}
                   className="inline-flex min-h-9 items-center gap-1 rounded-full border border-accent bg-accent/15 px-2.5 text-xs font-bold"
-                  aria-label={`Décocher ${memberName(m)}`}
-                  onClick={() => toggle(m.user_id)}
+                  aria-label={`Retirer ${memberName(m)} du choix`}
+                  onClick={() => unpick(m.user_id)}
                 >
                   {memberName(m)} <span className="opacity-70">✕</span>
                 </button>
               ))}
             </div>
           )}
-          <input
-            className="field min-h-11 py-1 text-xs"
-            type="search"
-            value={q}
-            aria-label="Chercher un compte"
-            placeholder={members.list ? `Chercher parmi ${free.length} comptes (nom, prénom, email)…` : 'Chargement…'}
-            disabled={!members.list}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          {members.list && (
-            <div className="flex max-h-72 flex-col overflow-y-auto rounded-md border border-line bg-panel">
-              {found.slice(0, MAX).map((m) => (
-                <label key={m.user_id} className="flex min-h-11 cursor-pointer items-center gap-2 px-2 py-1 text-xs hover:bg-panel-2">
-                  <input type="checkbox" className="h-4 w-4 shrink-0 accent-[var(--color-accent)]" checked={chosen.includes(m.user_id)} onChange={() => toggle(m.user_id)} />
-                  <span className="flex min-w-0 flex-col">
+          <div className="relative">
+            <input
+              className="field min-h-11 w-full py-1 text-xs"
+              type="search"
+              role="combobox"
+              aria-expanded={open && !!members.list}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={open && shown[active] ? `${listId}-${active}` : undefined}
+              value={q}
+              aria-label="Chercher un compte"
+              placeholder={members.list ? `Choisir un compte (${free.length}) : nom, prénom, email…` : 'Chargement…'}
+              disabled={!members.list}
+              onFocus={() => setOpen(true)}
+              onClick={() => setOpen(true)}
+              onBlur={() => setOpen(false)}
+              onChange={(e) => {
+                setQ(e.target.value)
+                setActive(0)
+                setOpen(true)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setOpen(true)
+                  setActive((i) => Math.min(i + 1, Math.max(0, shown.length - 1)))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setActive((i) => Math.max(0, i - 1))
+                } else if (e.key === 'Enter' && open && shown[active]) {
+                  e.preventDefault()
+                  pick(shown[active])
+                } else if (e.key === 'Escape') setOpen(false)
+              }}
+            />
+            {open && members.list && (
+              <div
+                id={listId}
+                role="listbox"
+                className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-md border border-line bg-panel shadow-lg"
+              >
+                {shown.map((m, i) => (
+                  <div
+                    key={m.user_id}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    aria-selected={i === active}
+                    className={`flex min-h-11 cursor-pointer flex-col justify-center px-3 py-1 text-xs ${i === active ? 'bg-panel-2' : ''}`}
+                    // mousedown : choisi avant que le champ perde la main (sinon la liste se ferme avant le clic).
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pick(m)
+                    }}
+                    onMouseEnter={() => setActive(i)}
+                  >
                     <span className="truncate font-bold">{memberName(m)}</span>
                     {m.full_name && m.email && <span className="truncate text-[10px] text-muted">{m.email}</span>}
-                  </span>
-                </label>
-              ))}
-              {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ici.'}</p>}
-              {found.length > MAX && <p className="p-2 text-[11px] text-muted">+ {found.length - MAX} autres : précise la recherche.</p>}
-            </div>
-          )}
+                  </div>
+                ))}
+                {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ou choisis.'}</p>}
+                {found.length > MAX && <p className="p-2 text-[11px] text-muted">+ {found.length - MAX} autres : tape un nom pour préciser.</p>}
+              </div>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             <select className="field min-h-11 min-w-0 flex-1 py-1 text-xs" value={role} aria-label="Rôle" onChange={(e) => setRole(e.target.value as Role)}>
               {ASSIGNMENT_ROLES.map((r) => (
