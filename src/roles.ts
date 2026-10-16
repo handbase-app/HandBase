@@ -239,9 +239,11 @@ export const can = {
   loadDemo: (r: Role) => r === 'admin',
   /**
    * Bilan de détection (/bilan : joueurs vus par génération et par club, qui reste à voir, rapport chiffré) : POINT UNIQUE
-   * de décision pour la page, sa tuile d'accueil et ses liens. Pour l'instant administrateurs et encadrants ; droits à affiner.
+   * de décision pour la page, sa tuile d'accueil et ses liens. Tous les rôles : chacun ne voit que son périmètre (unités où il
+   * est affecté et en dessous : Fédération → tout, Ligue → ses départements et clubs, Comité → ses clubs ; src/perimeter.ts,
+   * supabase/046_perimetre.sql) ; ce qui est hors périmètre est grisé.
    */
-  viewCoverage: (r: Role) => r === 'admin' || r === 'preparateur',
+  viewCoverage: (_r: Role) => true,
   /**
    * Onglets « Licenciés », « Mesurés par le staff » et « Profils repérés » du bilan de détection (ancienne vue nationale,
    * /national y mène) : administrateurs.
