@@ -450,6 +450,12 @@ export interface MatchSync {
    * repère supplémentaire si son temps de jeu est fiable, repère de ses voisines en retard sinon.
    */
   fix?: Record<string, number>
+  /**
+   * Actions ignorées au séquençage (« Ignorer » : absente de la vidéo ou sans intérêt), clé actionKeys → 1 : plus
+   * proposées par la frise défilante, rétablissables. Jamais retirées de la feuille (document officiel) ; ne sont pas des
+   * repères. Champ facultatif : les calages enregistrés avant lui restent valables.
+   */
+  skip?: Record<string, number>
   /** Moments générés en plus des buts : arrêts (gardiens), tirs. */
   opts?: { saves?: boolean; shots?: boolean }
 }
