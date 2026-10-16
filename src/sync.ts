@@ -6,6 +6,7 @@ import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
+import { spyTarget } from './spy'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -251,6 +252,9 @@ type Payload = { id: string; data: unknown; updated_at_client: number; deleted: 
 const upsert = (table: SyncTable, rows: Payload[]) => supabase!.rpc('hb_upsert', { p_table: table, p_rows: rows })
 
 async function push() {
+  // « Voir comme… » : rien de neuf à envoyer (lecture seule), et les lectures ne voient que le périmètre du membre simulé
+  // (src/viewAsFilter.ts) : une ligne en attente hors de ce périmètre serait prise pour effacée. Envoi à la sortie.
+  if (spyTarget()) return
   const items = (await db.outbox.orderBy('seq').toArray()).filter((i) => !setAside.has(rowKey(i.table, i.rowId)))
   if (!items.length) return
   for (const table of SYNC_TABLES) {

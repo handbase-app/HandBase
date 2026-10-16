@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { alive, db, type Assignment, type ConfigItem, type Level, type Unit } from './db'
 import { perimeterOf, type Perimeter } from './perimeter'
 import { currentUserId, useRole } from './roles'
+import { spyTarget } from './spy'
+import { setViewAsScope } from './viewAsFilter'
+import { perimeterSignature } from './viewAsScope'
 import { applySportConfig, currentSport, resolveSportConfig, type SportConfig } from './sportConfig'
 import { sortLevels } from './structureTree'
 
@@ -58,4 +61,37 @@ export function usePerimeter(): Perimeter | undefined {
   const uid = currentUserId()
   const data = useLiveQuery(async () => ({ units: await db.units.toArray(), levels: await db.levels.toArray(), assignments: await db.assignments.toArray() }), [])
   return useMemo(() => (data ? perimeterOf({ userId: uid, admin: role === 'admin', ...data }) : undefined), [data, uid, role])
+}
+
+/**
+ * « Voir comme… » : calcule le périmètre du membre simulé et le pose sous tous les écrans (src/viewAsFilter.ts), avant le
+ * premier affichage (main.tsx). Suit ensuite la base : joueurs reçus (leurs lignes rattachées deviennent visibles avec
+ * eux) ; structure ou affectations changées au point de changer le périmètre : l'appli est rechargée (tous les écrans
+ * relisent). Sans simulation : rien.
+ */
+export async function startViewAs(): Promise<void> {
+  const t = spyTarget()
+  if (!t) return
+  const perimeter = async () =>
+    perimeterOf({
+      userId: t.uid,
+      admin: t.role === 'admin',
+      units: await db.units.toArray(),
+      levels: await db.levels.toArray(),
+      assignments: await db.assignments.toArray(),
+    })
+  const per = await perimeter()
+  const sig = perimeterSignature(per)
+  liveQuery(perimeter).subscribe({
+    next: (p) => {
+      if (perimeterSignature(p) !== sig) window.location.reload()
+    },
+    error: () => {},
+  })
+  if (per.all) return setViewAsScope(null)
+  // Joueurs d'abord, filtrés sur le seul périmètre (aucune ligne rattachée n'est lue ici).
+  setViewAsScope({ per, uid: t.uid, players: new Set() })
+  const ids = async () => new Set((await db.players.toCollection().primaryKeys()) as string[])
+  setViewAsScope({ per, uid: t.uid, players: await ids() })
+  liveQuery(ids).subscribe({ next: (players) => setViewAsScope({ per, uid: t.uid, players }), error: () => {} })
 }

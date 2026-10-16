@@ -14,6 +14,9 @@ import { TabBackButton } from '../backNav'
 import { AddToGroupDialog, GroupNotice } from '../components/Groups'
 import { can, useRole } from '../roles'
 import { useSelected } from '../components/MasterDetail'
+import { usePerimeter } from '../installation'
+import { hasPerimeter } from '../perimeter'
+import { spyTarget } from '../spy'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -29,6 +32,8 @@ export function latestByPlayer(ms: Measurement[]) {
 
 export default function Players() {
   const role = useRole()
+  // « Voir comme… » un membre sans affectation : liste vide, expliquée.
+  const per = usePerimeter()
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
   // Fiches : la base (fiches proposées comprises) ; les proposées seules ; les fiches hors cadre, gardées pour mémoire.
@@ -163,7 +168,15 @@ export default function Players() {
       </div>
 
       {loading ? null : shown.length === 0 ? (
-        <Empty>{players.length ? 'Aucun joueur ne correspond.' : view === 'base' ? 'Aucun joueur pour l’instant. Inscris le premier !' : 'Aucune fiche.'}</Empty>
+        <Empty>
+          {players.length
+            ? 'Aucun joueur ne correspond.'
+            : spyTarget() && per && !hasPerimeter(per)
+              ? 'Aucune affectation : ce membre ne reçoit aucun joueur (à affecter dans Structure).'
+              : view === 'base'
+                ? 'Aucun joueur pour l’instant. Inscris le premier !'
+                : 'Aucune fiche.'}
+        </Empty>
       ) : (
         <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
           {shown.map((p) => {
