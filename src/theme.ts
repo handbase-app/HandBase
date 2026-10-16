@@ -70,8 +70,32 @@ let org: Appearance = readCachedAppearance()
 /** Aperçu (Réglages, administrateurs) : montré sur cet appareil seulement, tant qu'il n'est pas appliqué. */
 let preview: Appearance | null = null
 
-/** Apparence affichée : l'aperçu en cours, sinon celle de l'installation. */
-export const currentAppearance = (): Appearance => preview ?? org
+/** Style choisi par la personne sur cet appareil (null : celui de l'installation). */
+const PERSONAL_KEY = 'handbase.style'
+export function readPersonalStyle(): StyleId | null {
+  try {
+    const v = localStorage.getItem(PERSONAL_KEY)
+    return v && styleById(v).id === v ? (v as StyleId) : null
+  } catch {
+    return null
+  }
+}
+export function setPersonalStyle(id: StyleId | null) {
+  try {
+    if (id) localStorage.setItem(PERSONAL_KEY, id)
+    else localStorage.removeItem(PERSONAL_KEY)
+  } catch {
+    /* stockage indisponible */
+  }
+  applyTheme()
+}
+
+/** Apparence affichée : l'aperçu en cours, sinon celle de l'installation avec le style choisi par la personne. */
+export const currentAppearance = (): Appearance => {
+  if (preview) return preview
+  const mine = readPersonalStyle()
+  return mine ? { ...org, style: mine } : org
+}
 /** Apparence enregistrée pour l'installation (sans l'aperçu). */
 export const installationAppearance = (): Appearance => org
 

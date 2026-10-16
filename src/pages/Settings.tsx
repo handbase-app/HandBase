@@ -133,7 +133,7 @@ export default function Settings() {
             <StructureSettings editable={can.editStructure(role)} />
           </Fold>
           {/* Style de l'installation (polices, arrondis, couleurs, nom, logo) : configuration partagée, src/uiStyle.ts. */}
-          <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Sombre · nom et logo">
+          <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo">
             <InstallationStyle editable={can.editStructure(role)} />
           </Fold>
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">

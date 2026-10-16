@@ -9,8 +9,10 @@ import {
   installationAppearance,
   LIGHT_CHOICE,
   previewAppearance,
+  readPersonalStyle,
   readThemeChoice,
   resolveTheme,
+  setPersonalStyle,
   setThemeChoice,
   THEMES,
   useThemeVersion,
@@ -30,16 +32,51 @@ import { APPEARANCE_KEY, cleanAppearance, DEFAULT_STYLE, LOGO_MAX_CHARS, NAME_MA
 export function appearanceSummary() {
   const c = readThemeChoice()
   const t = resolveTheme(c)
-  const s = styleById(installationAppearance().style)
+  const s = styleById(currentAppearance().style)
   if (s.id === 'actuel') return c === AUTO ? `Auto (${t.label})` : t.label
   return `${s.label} · ${c === AUTO ? `Auto (${t.light ? 'clair' : 'sombre'})` : t.light ? 'Clair' : 'Sombre'}`
 }
 
-/** Apparence de chacun : style Actuel, les six thèmes ; autre style, Clair / Sombre / Auto. Gardé sur cet appareil. */
+/**
+ * Apparence de chacun, gardée sur cet appareil : son style (ou celui de l'installation), puis, style Actuel, les six
+ * thèmes ; autre style, Clair / Sombre / Auto.
+ */
 export function AppearanceSettings() {
   useThemeVersion()
   const s = styleById(currentAppearance().style)
-  return s.id === 'actuel' ? <ThemePicker /> : <ModePicker style={s} />
+  return (
+    <>
+      <PersonalStylePicker />
+      {s.id === 'actuel' ? <ThemePicker /> : <ModePicker style={s} />}
+    </>
+  )
+}
+
+/** Choix du style par la personne : celui de l'installation (par défaut) ou un des quatre. */
+function PersonalStylePicker() {
+  const mine = readPersonalStyle()
+  const org = styleById(installationAppearance().style)
+  const light = resolveTheme(readThemeChoice()).light
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionTitle>Style</SectionTitle>
+      <button
+        type="button"
+        onClick={() => setPersonalStyle(null)}
+        aria-pressed={!mine}
+        className={`rounded-lg border p-2 text-left text-xs ${!mine ? 'border-accent ring-1 ring-accent' : 'border-line'}`}
+      >
+        <span className="block font-bold">Celui de l’installation</span>
+        <span className="text-[10px] text-muted">{org.label}, choisi par l’organisation</span>
+      </button>
+      <div className="grid grid-cols-2 gap-2">
+        {STYLES.map((st) => (
+          <StyleTile key={st.id} s={st} on={mine === st.id} light={light} onPick={() => setPersonalStyle(st.id)} />
+        ))}
+      </div>
+      <p className="text-[11px] text-muted">Ton style est gardé sur cet appareil ; il ne change rien pour les autres.</p>
+    </section>
+  )
 }
 
 /** Choix du thème (style Actuel) : chaque vignette montre ses couleurs. */
@@ -110,7 +147,7 @@ function ModePicker({ style }: { style: UiStyle }) {
         })}
       </div>
       <p className="text-[11px] text-muted">
-        Style de l’installation : <b>{style.label}</b> (choisi par l’organisation). Clair, Sombre ou Auto : gardé sur cet appareil.
+        Style <b>{style.label}</b>. Clair, Sombre ou Auto : gardé sur cet appareil.
       </p>
     </section>
   )
