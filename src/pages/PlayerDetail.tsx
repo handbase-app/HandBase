@@ -25,6 +25,8 @@ import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
+import { usePerimeter } from '../installation'
+import { spyTarget } from '../spy'
 
 const TABS = [
   { id: 'profil', label: 'Profil' },
@@ -91,6 +93,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const [merging, setMerging] = useState(false)
   // « À revoir » de ce joueur visibles (mon staff) : bouton « à revoir ×2 » (supabase/041).
   const rewatch = usePlayerRewatch(id!)
+  const per = usePerimeter()
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
     if (!player) return null
@@ -117,6 +120,13 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         <Link to={`/joueurs/${data.player.mergedInto}`} replace className="mt-3 inline-block font-bold text-accent">
           Voir la fiche du joueur →
         </Link>
+      </div>
+    )
+  // « Voir comme… » : fiche hors du périmètre du membre simulé (src/viewAsFilter.ts), comme dans les événements et groupes.
+  if (data === null && spyTarget() && per && !per.all)
+    return (
+      <div className="py-20 text-center text-sm text-muted" data-testid="hors-perimetre-fiche">
+        Joueur hors de ton périmètre (fiche non affichée).
       </div>
     )
   if (data === null || data.player.deleted) return <div className="py-20 text-center text-sm text-muted">Joueur introuvable.</div>

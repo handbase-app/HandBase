@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
-import { guardWrite } from './spy'
+import { guardWrite, spyTarget } from './spy'
+import { viewAsMiddleware } from './viewAsFilter'
 import type { MatchSheet } from './matchSheet'
 import type { QuestionLogFields } from './questionLogCore'
 
@@ -606,6 +607,9 @@ db.version(16).stores({
   units: 'id, parentId, levelId, updatedAt',
   assignments: 'id, unitId, userId, updatedAt',
 })
+
+// « Voir comme… » : l'écran ne lit que le périmètre du membre simulé (src/viewAsFilter.ts). Hors simulation : rien.
+if (spyTarget()) db.use(viewAsMiddleware)
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
