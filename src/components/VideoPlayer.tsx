@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Video, VideoMoment } from '../db'
-import { embedOf, fmtMoment, momentLabel, momentsOf, openUrl, sourceLabel, type Embed } from '../videos'
+import { DEFAULT_DUR, embedOf, fmtMoment, momentAt, momentLabel, momentPosition, momentsOf, openUrl, passage, sourceLabel, stepMoment, type Embed } from '../videos'
 import { Icon } from './ui'
 import { useMedia } from '../layout'
 
@@ -34,16 +34,6 @@ interface Ctl {
 }
 
 type AdapterProps = { embed: Embed; start: number; onCtl: (c: Ctl) => void; onFail: () => void }
-
-/** Durée lue pour un moment sans durée : 15 s, ou moins si le moment suivant commence avant. */
-const DEFAULT_DUR = 15
-
-function passage(ms: VideoMoment[], i: number) {
-  const m = ms[i]
-  if (m.dur) return { at: m.at, end: m.at + m.dur }
-  const next = ms[i + 1]
-  return { at: m.at, end: next && next.at > m.at ? Math.min(next.at, m.at + DEFAULT_DUR) : m.at + DEFAULT_DUR }
-}
 
 const SANDBOX = 'allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox'
 const ALLOW = 'autoplay; encrypted-media; fullscreen; picture-in-picture'
@@ -340,7 +330,23 @@ const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' 
  * Nos commandes sous la vidéo (YouTube est intégré sans les siennes, controls=0 ; fichier vidéo : sans celles du
  * navigateur) : lire / pause, −2 s / +2 s, vitesse, temps / durée, plein écran de notre bloc (vidéo, commandes, frise).
  */
-function Controls({ ctl, fs, onFs, big }: { ctl: Ctl; fs: boolean; onFs: () => void; big?: boolean }) {
+function Controls({
+  ctl,
+  fs,
+  onFs,
+  big,
+  step,
+  panel,
+}: {
+  ctl: Ctl
+  fs: boolean
+  onFs: () => void
+  big?: boolean
+  /** Vidéo avec moments : moment précédent / suivant (undefined s'il n'y en a pas) et saut vers lui. */
+  step?: { to: (dir: -1 | 1) => number | undefined; go: (dir: -1 | 1) => void }
+  /** Plein écran avec moments : panneau « Moments » ouvert ou non, et bouton pour l'ouvrir / le fermer. */
+  panel?: { open: boolean; toggle: () => void }
+}) {
   const [, tick] = useState(0)
   const [rate, setRate] = useState(1)
   // Son coupé : retenu sur l'appareil et appliqué à chaque vidéo ouverte.
@@ -383,10 +389,39 @@ function Controls({ ctl, fs, onFs, big }: { ctl: Ctl; fs: boolean; onFs: () => v
       <button className={btn} title={`Avancer de ${SKIP} s (→)`} aria-label={`Avancer de ${SKIP} s`} onClick={() => nudge(ctl, SKIP)}>
         +{SKIP} s
       </button>
+      {step &&
+        ([-1, 1] as const).map((dir) => {
+          const label = dir < 0 ? 'Action précédente' : 'Action suivante'
+          return (
+            <button
+              key={dir}
+              // Zone tactile de 44 px au doigt ; hors plein écran, téléphone droit : masqués (la liste des moments est dessous).
+              className={`${btn} pointer-coarse:h-11 pointer-coarse:min-w-11 disabled:opacity-30 disabled:hover:bg-transparent ${fs ? '' : 'max-sm:portrait:hidden'}`}
+              title={`${label} (${dir < 0 ? 'P' : 'N'})`}
+              aria-label={label}
+              disabled={step.to(dir) === undefined}
+              onClick={() => step.go(dir)}
+            >
+              <Icon name={dir < 0 ? 'prev' : 'next'} className={ico} />
+            </button>
+          )
+        })}
       <span className="ml-1 min-w-0 truncate tabular-nums">
         {clock(t)} <span className="text-white/50">/ {clock(ctl.duration())}</span>
       </span>
-      <button className={`${btn} ml-auto`} title={muted ? 'Remettre le son' : 'Couper le son'} aria-label={muted ? 'Remettre le son' : 'Couper le son'} aria-pressed={muted} onClick={toggleMute}>
+      {panel && (
+        <button
+          className={`${btn} ml-auto gap-1 ${panel.open ? 'bg-white/15' : ''}`}
+          title="Moments à regarder"
+          aria-label="Moments à regarder"
+          aria-expanded={panel.open}
+          onClick={panel.toggle}
+        >
+          <Icon name="rows" className={ico} />
+          <span className="max-sm:hidden">Moments</span>
+        </button>
+      )}
+      <button className={`${btn} ${panel ? '' : 'ml-auto'}`} title={muted ? 'Remettre le son' : 'Couper le son'} aria-label={muted ? 'Remettre le son' : 'Couper le son'} aria-pressed={muted} onClick={toggleMute}>
         <Icon name={muted ? 'mute' : 'volume'} className={ico} />
       </button>
       <select
@@ -583,10 +618,38 @@ export default function VideoPlayer({
     return () => window.clearTimeout(hideTimer.current)
   }, [immersive])
 
+  // Plein écran, vidéo avec moments : panneau « Moments » posé à droite sur la vidéo, refermé avec les commandes (masquées
+  // après inactivité au doigt) et en sortant du plein écran. Placé entre la barre du haut et les commandes posées en bas.
+  const [panel, setPanel] = useState(false)
+  const [panelBox, setPanelBox] = useState({ top: 0, bottom: 0 })
+  const panelRef = useRef(panel)
+  panelRef.current = panel
+  const topBar = useRef<HTMLDivElement>(null)
+  const overlay = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!fs || !chrome) setPanel(false)
+  }, [fs, chrome])
+  const togglePanel = () => {
+    setPanelBox(immersive ? { top: topBar.current?.offsetHeight ?? 0, bottom: overlay.current?.offsetHeight ?? 0 } : { top: 0, bottom: 0 })
+    if (immersive) poke() // panneau ouvert : commandes affichées, masquées ensemble ensuite
+    setPanel((o) => !o)
+  }
+  // Plein écran : moment en cours relu deux fois par seconde (libellé du haut, ligne surlignée du panneau).
+  const hasMoments = moments.length > 0
+  const [, tickFs] = useState(0)
+  useEffect(() => {
+    if (!fs || !hasMoments) return
+    const timer = window.setInterval(() => tickFs((n) => n + 1), 500)
+    return () => window.clearInterval(timer)
+  }, [fs, hasMoments])
+  // Action précédente / suivante (boutons ⏮ ⏭, touches P / N), posé plus bas une fois la lecture possible.
+  const stepRef = useRef<((dir: -1 | 1) => void) | undefined>(undefined)
+
   // Clavier, quel que soit l'élément qui a le focus (frise, repère, bouton…), sauf dans un champ de saisie : Échap ferme (ou
   // quitte le plein écran) ; espace lit / met en pause ; flèches : ±2 s, avec Maj ±0,5 s. Écouté en phase de capture et
   // sans action par défaut : un bouton qui a le focus ne se déclenche pas, la page ne défile pas. La page derrière ne
-  // défile plus. (Entrée et N, propres au calage, sont écoutés par la frise : MatchTimeline.)
+  // défile plus. P / N : action précédente / suivante (vidéo avec moments, hors calage). (Entrée et N, propres au calage,
+  // sont écoutés par la frise : MatchTimeline.)
   useEffect(() => {
     const typing = (t: EventTarget | null) => {
       const el = t as HTMLElement | null
@@ -594,6 +657,12 @@ export default function VideoPlayer({
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Panneau « Moments » ouvert (plein écran) : Échap le referme d'abord.
+        if (panelRef.current) {
+          e.preventDefault()
+          e.stopPropagation()
+          return setPanel(false)
+        }
         if (document.fullscreenElement) return
         if (cssFs) {
           auto.current = false
@@ -619,6 +688,11 @@ export default function VideoPlayer({
         e.stopPropagation()
         const d = e.shiftKey ? 0.5 : SKIP
         nudge(c, e.key === 'ArrowLeft' ? -d : d)
+      } else if ((e.key === 'p' || e.key === 'P' || e.key === 'n' || e.key === 'N') && stepRef.current) {
+        // P / N : action précédente / suivante. Pas avec la frise du match (calage) : N y veut dire « passer ».
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) stepRef.current(e.key.toLowerCase() === 'p' ? -1 : 1)
       }
     }
     // Espace relâché sur un bouton : pas de clic (le bouton aurait été déclenché en plus de lecture / pause).
@@ -721,6 +795,20 @@ export default function VideoPlayer({
     </a>
   )
   const cur = run ? moments[run.i] : undefined
+  // ⏮ ⏭ : depuis le moment lu (passage ou enchaînement), sinon d'après le temps. Pendant « Voir les actions »,
+  // l'enchaînement continue depuis le moment choisi.
+  const stepTo = (dir: -1 | 1) => stepMoment(moments, dir, ctl?.time(), run?.i)
+  const goTo = (i: number) => start({ i, seq: !!run?.seq })
+  const goStep = (dir: -1 | 1) => {
+    const j = stepTo(dir)
+    if (j !== undefined) goTo(j)
+  }
+  const step = canPlay && hasMoments ? { to: stepTo, go: goStep } : undefined
+  // Frise du match (calage) : N y veut dire « passer », les touches restent les siennes.
+  stepRef.current = step && !bar ? goStep : undefined
+  // Plein écran : moment en cours (lu, sinon celui dont le passage contient le temps) pour le libellé et le panneau.
+  const fsCur = fs && hasMoments ? (run?.i ?? momentAt(moments, ctl?.time())) : undefined
+  const fsLabel = fsCur !== undefined && moments[fsCur] ? momentPosition(moments, fsCur) : undefined
   const api: PlayerTools = {
     ready: !!ctl && canPlay,
     time: () => ctl?.time(),
@@ -734,6 +822,19 @@ export default function VideoPlayer({
     moment: last !== undefined ? moments[last] : undefined,
     duration: () => ctl?.duration(),
   }
+
+  // Contenu d'une ligne de moment (liste à droite, panneau du plein écran) : « 5:56 · 12 s · But 1-1 » et sa marque.
+  const momentBody = (m: VideoMoment) => (
+    <>
+      <Icon name="play" className="h-2.5 w-2.5 shrink-0 text-accent" filled />
+      <span className="truncate">
+        <span className="font-bold">{fmtMoment(m.at)}</span>
+        {m.dur ? ` · ${m.dur} s` : ''}
+        {m.note ? ` · ${m.note}` : ''}
+      </span>
+      {badge?.(m)}
+    </>
+  )
 
   // Mode édition : bandeau visible pendant l'édition (sous l'en-tête ; en plein écran, au-dessus de la frise).
   const editBanner = edit?.on && (
@@ -801,6 +902,57 @@ export default function VideoPlayer({
                   onClick={() => (chrome ? (window.clearTimeout(hideTimer.current), setChrome(false)) : poke())}
                 />
               )}
+              {/* Plein écran à la souris : moment en cours, discret, en haut au milieu (titre et boutons de YouTube restent
+                  visibles dans les coins) ; au doigt : dans la barre du haut. */}
+              {fs && !immersive && fsLabel && (
+                <span className="pointer-events-none absolute top-2 left-1/2 z-20 max-w-[40%] -translate-x-1/2 truncate rounded bg-black/60 px-2 py-0.5 text-xs font-bold text-white/90" role="status">
+                  {fsLabel}
+                </span>
+              )}
+              {fs && panel && step && (!immersive || chrome) && (
+                <div
+                  className="absolute right-0 z-30 flex w-80 max-w-[45%] animate-slide-left flex-col border-l border-white/10 bg-black/75 pr-[env(safe-area-inset-right)] text-white backdrop-blur-sm"
+                  style={{ top: panelBox.top, bottom: panelBox.bottom }}
+                  role="dialog"
+                  aria-label="Moments à regarder"
+                  onPointerDownCapture={immersive ? poke : undefined}
+                >
+                  <div className="flex shrink-0 items-center gap-1 px-3 py-1">
+                    <span className="min-w-0 flex-1 truncate text-xs font-bold text-white/80">Moments ({moments.length})</span>
+                    {moments.length > 1 && (
+                      <button
+                        className="inline-flex h-11 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-white/90 hover:bg-white/10"
+                        title="Voir les actions : tous les moments à la suite"
+                        onClick={() => (start({ i: 0, seq: true }), setPanel(false))}
+                      >
+                        <Icon name="play" className="h-3 w-3" filled />
+                        Voir les actions
+                      </button>
+                    )}
+                    <button className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-white/80 hover:bg-white/10" aria-label="Fermer la liste des moments" onClick={() => setPanel(false)}>
+                      <Icon name="close" className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-2 pb-2">
+                    {moments.map((m, i) => {
+                      const active = fsCur === i
+                      return (
+                        <button
+                          key={i}
+                          className={`flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-md border px-2 text-left text-xs ${
+                            active ? 'border-accent bg-accent/25 text-white' : 'border-white/10 bg-white/5 hover:border-accent'
+                          }`}
+                          title={`${momentLabel(m)} — jouer ce passage`}
+                          aria-current={active ? 'true' : undefined}
+                          onClick={() => (goTo(i), setPanel(false))}
+                        >
+                          {momentBody(m)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
             {/* Commandes et frise : sous la vidéo ; plein écran au doigt : posées en bas de la vidéo, masquées en lecture. */}
             <div
@@ -809,22 +961,29 @@ export default function VideoPlayer({
                   ? `absolute inset-x-0 bottom-0 z-20 bg-black/70 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] transition-opacity duration-200 ${chrome ? '' : 'pointer-events-none opacity-0'}`
                   : 'shrink-0'
               }
+              ref={overlay}
               aria-hidden={immersive && !chrome ? true : undefined}
               onPointerDownCapture={immersive ? poke : undefined}
               onKeyDownCapture={immersive ? poke : undefined}
             >
-              {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} big={immersive} />}
+              {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} big={immersive} step={step} panel={fs && step ? { open: panel, toggle: togglePanel } : undefined} />}
               {fs && edit?.on && editBanner}
               {/* Plein écran au doigt : frise limitée (le haut de la vidéo reste visible pendant le calage), défilante. */}
               {bar && <div className={`shrink-0 bg-panel ${immersive ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : ''}`}>{bar(api)}</div>}
             </div>
             {immersive && (
               <div
+                ref={topBar}
                 className={`absolute inset-x-0 top-0 z-20 flex items-center gap-2 bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)] pr-[max(0.5rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] transition-opacity duration-200 ${chrome ? '' : 'pointer-events-none opacity-0'}`}
                 aria-hidden={!chrome ? true : undefined}
                 onPointerDownCapture={poke}
               >
                 <span className="min-w-0 flex-1 truncate text-sm font-bold text-white">{video.title || `Vidéo ${source}`}</span>
+                {fsLabel && (
+                  <span className="max-w-[40%] shrink-0 truncate rounded bg-black/55 px-2 py-0.5 text-xs font-bold text-white/90" role="status">
+                    {fsLabel}
+                  </span>
+                )}
                 <button
                   className="flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-black/60 px-3 text-xs font-bold text-white hover:bg-black/80"
                   aria-label="Quitter le plein écran"
@@ -906,17 +1065,7 @@ export default function VideoPlayer({
                   const cls = `inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] landscape:rounded-md landscape:py-1.5 ${
                     active ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2'
                   }`
-                  const body = (
-                    <>
-                      <Icon name="play" className="h-2.5 w-2.5 shrink-0 text-accent" filled />
-                      <span className="truncate">
-                        <span className="font-bold">{fmtMoment(m.at)}</span>
-                        {m.dur ? ` · ${m.dur} s` : ''}
-                        {m.note ? ` · ${m.note}` : ''}
-                      </span>
-                      {badge?.(m)}
-                    </>
-                  )
+                  const body = momentBody(m)
                   if (canPlay)
                     return (
                       <button key={i} className={`${cls} hover:border-accent hover:text-accent`} title={`${momentLabel(m)} — jouer ce passage`} aria-pressed={active} onClick={() => start({ i, seq: false })}>
