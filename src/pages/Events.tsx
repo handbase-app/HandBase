@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
@@ -12,7 +12,9 @@ import { HiddenPlayers } from '../components/HiddenPlayers'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
-import { can, currentUserId, useRole } from '../roles'
+import { can, currentUserId, isParticipant, useRole } from '../roles'
+import { usePerimeter, useUnits } from '../installation'
+import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, type TerritoryFilter } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
 import { usePlayersQuery } from '../components/PlayersQuery'
@@ -45,7 +47,20 @@ const NO_STATS = new Map<string, EventStats>()
 
 export default function Events() {
   const role = useRole()
-  const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
+  const allEvents = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
+  // Unité organisatrice (src/eventOrganizer.ts) : petite ligne « Organisé par » sur chaque événement, et filtre
+  // « Mes territoires » / « Tous ». Par défaut « Tous » tant que supabase/048 n'est pas passé (DEFAULT_TERRITORY_FILTER) :
+  // rien ne disparaît de la liste par surprise. Filtre proposé seulement à un compte qui ne voit pas tout et a une affectation.
+  const units = useUnits()
+  const per = usePerimeter()
+  const territoryOn = !!per && !per.all && per.units.length > 0
+  const [territory, setTerritory] = useSessionState<TerritoryFilter>('handbase.evenements.territoires', DEFAULT_TERRITORY_FILTER)
+  const events = useMemo(() => {
+    if (!allEvents || !per || !territoryOn || territory !== 'mes') return allEvents
+    const cache = new Map<string, { depts: string[]; clubs: string[] }>()
+    const ctx = { per, userId: currentUserId(), units, participant: (x: { editors?: string[]; teams?: string[] }) => isParticipant(x) }
+    return allEvents.filter((e) => inMyTerritories(e, ctx, cache))
+  }, [allEvents, per, territoryOn, territory, units])
   // Avis comptés une fois par événement (et non pour chaque ligne de la liste).
   const stats = useLiveQuery(async () => {
     const m = new Map<string, EventStats>()
@@ -74,7 +89,9 @@ export default function Events() {
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
   const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
 
-  if (!events) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  if (!events || !allEvents) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  const orgOf = (ev: HBEvent) => organizerLabel(ev, units)
+  const hiddenByTerritory = allEvents.length - events.length
 
   // À venir (aujourd'hui compris) du plus proche au plus lointain ; passés du plus récent au plus ancien.
   const todayIso = new Date().toLocaleDateString('sv')
@@ -120,6 +137,33 @@ export default function Events() {
           />
         </div>
       )}
+      {territoryOn && allEvents.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+          <div role="radiogroup" aria-label="Événements affichés" className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+            {(
+              [
+                ['mes', 'Mes territoires'],
+                ['tous', 'Tous'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                role="radio"
+                aria-checked={territory === v}
+                onClick={() => setTerritory(v)}
+                className={`min-h-9 px-3 ${territory === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted hover:text-fg'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {territory === 'mes' && hiddenByTerritory > 0 && (
+            <span>
+              {hiddenByTerritory > 1 ? `${hiddenByTerritory} autres événements` : '1 autre événement'} dans « Tous »
+            </span>
+          )}
+        </div>
+      )}
       {events.length > 0 && filterUi}
       {filterTop}
       {searching ? (
@@ -129,11 +173,13 @@ export default function Events() {
           </div>
           <div className="cols flex flex-col gap-3">
             {results.map((ev) => (
-              <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
+              <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
             ))}
           </div>
           {!results.length && !filterLoading && <Empty>Aucun événement ne correspond.</Empty>}
         </>
+      ) : events.length === 0 && hiddenByTerritory > 0 ? (
+        <Empty>Aucun événement organisé dans tes territoires, ni où tu es participant. « Tous » affiche les autres.</Empty>
       ) : events.length === 0 ? (
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs personnes puissent y donner leur avis sur les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
@@ -142,7 +188,7 @@ export default function Events() {
           {upcoming.length ? (
             <div className="cols flex flex-col gap-3">
               {upcoming.map((ev) => (
-                <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} upcoming />
+                <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
               ))}
             </div>
           ) : (
@@ -153,7 +199,7 @@ export default function Events() {
               <div className="section-title mt-3 mb-0">Passés</div>
               <div className="cols flex flex-col gap-3">
                 {past.slice(0, showAll ? undefined : 10).map((ev) => (
-                  <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
+                  <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
                 ))}
               </div>
               {past.length > 10 && !showAll && (
@@ -171,7 +217,7 @@ export default function Events() {
               {showArchived && (
                 <div className="cols flex flex-col gap-3">
                   {archived.map((ev) => (
-                    <EventRow key={ev.id} ev={ev} stats={stats.get(ev.id)} />
+                    <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
                   ))}
                 </div>
               )}
@@ -278,7 +324,7 @@ function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMe
   )
 }
 
-function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean }) {
+function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean; organizer?: string }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
   // Ordinateur : événement ouvert dans le panneau de droite.
@@ -307,7 +353,8 @@ function EventRow({ ev, stats, upcoming = false }: { ev: HBEvent; stats?: EventS
           {typeLabel(ev.type)}
           {ev.place ? ` · ${ev.place}` : ''}
         </div>
-        {upcoming && <div className="text-[11px] font-bold text-accent">{inDays(ev.date)}</div>}
+        {organizer && <div className="truncate text-[10px] text-muted">Organisé par : {organizer}</div>}
+        {upcoming &&<div className="text-[11px] font-bold text-accent">{inDays(ev.date)}</div>}
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         {/* Avant l'événement : les convoqués ; dès qu'il y a des avis : joueurs notés et nombre d'avis. */}
@@ -340,6 +387,7 @@ export function EventDetail() {
   const nav = useNavigate()
   const role = useRole()
   const teams = useTeams() ?? []
+  const units = useUnits()
   // Onglet et avis dépliés : retrouvés au retour d'une fiche (pendant la session).
   const [tab, setTab] = useSessionState<'joueurs' | 'classement'>('handbase.evenement.onglet', 'joueurs')
   // « Ajouter des joueurs », « Modifier » depuis le menu d'une ligne de la liste : ?ajout=1, ?modifier=1 (comme les groupes).
@@ -528,6 +576,7 @@ export function EventDetail() {
   const pendingOff = evals.filter((e) => e.review === 'pending' && offList.some((p) => p.id === e.playerId))
   const settled = offList.filter((p) => !pendingOff.some((e) => e.playerId === p.id) && evals.some((e) => e.playerId === p.id && counts(e)))
   const manage = can.editEvent(role, ev)
+  const organizerName = organizerLabel(ev, units)
   // Participant (supabase/024) : ajoute des joueurs, retire les siens, co-organise les avis hors liste.
   const contribute = can.contributeEvent(role, ev)
   const who = (uid?: string) => (uid ? (ev.names?.[uid] ?? (uid === ev.createdBy ? ev.createdByName : undefined)) : undefined)
@@ -650,7 +699,8 @@ export function EventDetail() {
             {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
-          {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
+          <div className="text-[11px] text-muted">{organizerName ? `Organisé par : ${organizerName}` : 'Organisateur non précisé'}</div>
+          {observers.length > 0 &&<div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
           <Participants
             x={ev}
             teams={teams}

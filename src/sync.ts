@@ -387,6 +387,10 @@ async function pull(uid: string) {
         if ([...after].some(([id, v]) => teamsBefore.get(id) !== v)) {
           localStorage.removeItem(PULL_KEY('groups'))
           localStorage.removeItem(PULL_KEY('rewatch'))
+          // Événements (048) : participant par un staff, je vois aussi ceux hors de mes territoires ; l'événement, lui,
+          // n'a pas changé : relu au prochain passage.
+          localStorage.removeItem(PULL_KEY('events'))
+          again = true
         }
       }
       // Écriture seule (journal des questions, hors administrateurs) : rien à recevoir ; lignes envoyées retirées.
@@ -414,7 +418,9 @@ async function pull(uid: string) {
  *  - groupes « Mon staff » dont il a été retiré (ou dont il s'est retiré, supabase/031_groupes_equipe.sql), ou
  *    ouverts par un staff dont il est sorti (034).
  *  - « à revoir » (041) d'un staff dont il est sorti (ou dont l'auteur est sorti).
- * (Les événements sont visibles par tout le staff : rien à oublier ; les droits de participant suivent les staffs.)
+ *  - événements (supabase/048_evenements_organisateur.sql) dont l'organisateur est sorti de mes territoires (unité
+ *    changée, unité déplacée, affectation retirée) ou dont je ne suis plus participant. Avant 048, le serveur les montre
+ *    tous : rien n'est retiré. Leurs avis restent (filtrés par le joueur, 046), comme ceux d'un événement supprimé.
  * Au lancement puis toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs
  * identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une
  * modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et supprime l'ancien, voir
@@ -423,7 +429,7 @@ async function pull(uid: string) {
 const FORGET_EVERY_MS = 10 * 60_000
 let lastForget = 0
 
-type ForgetTable = 'groups' | 'teams' | 'rewatch' | 'players'
+type ForgetTable = 'groups' | 'teams' | 'rewatch' | 'players' | 'events'
 
 /** Identifiants visibles d'une table (null : erreur, ou table inconnue du serveur). */
 async function visibleIds(table: ForgetTable) {
@@ -461,13 +467,15 @@ export function syncAndForgetHidden() {
 
 async function forgetHidden() {
   if (Date.now() - lastForget < FORGET_EVERY_MS) return
-  const [teams, groups, rewatch] = await Promise.all([visibleIds('teams'), visibleIds('groups'), visibleIds('rewatch')])
+  const [teams, groups, rewatch, events] = await Promise.all([visibleIds('teams'), visibleIds('groups'), visibleIds('rewatch'), visibleIds('events')])
   if (!groups) return
   lastForget = Date.now()
   // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence. Aucun staff
   // visible, en revanche, est courant (personne n'en a encore créé) ; table absente du serveur (null) : rien.
   if (!groups.size) return
   if (teams) await forgetRows('teams', teams)
+  // Événements hors de mes territoires (048) ; erreur de lecture (null) : rien.
+  if (events) await forgetRows('events', events)
   // « À revoir » d'un staff dont je suis sorti (041) : aucun visible est courant (personne n'en a encore mis).
   if (rewatch) await forgetRows('rewatch', rewatch)
   await forgetRows('groups', groups)
@@ -513,6 +521,10 @@ async function checkPerimeter(uid: string) {
   }
   if (plan.resetCursors) {
     for (const t of SCOPED_TABLES) localStorage.removeItem(PULL_KEY(t))
+    // Événements (048) : ceux organisés dans le nouveau périmètre n'ont pas changé non plus ; ceux qui en sortent sont
+    // retirés à la synchronisation suivante (forgetHidden, sans attendre les 10 minutes).
+    localStorage.removeItem(PULL_KEY('events'))
+    lastForget = 0
     again = true // nouvelle synchronisation juste après celle-ci : relit les tables depuis le début
   }
   store.set(SCOPE_KEY, scopeSignature(scope))
