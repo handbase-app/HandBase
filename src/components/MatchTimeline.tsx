@@ -1,13 +1,16 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { db, type Video } from '../db'
 import { momentAction, simultaneous, stepIn, timeline, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
 import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync, type SyncChange, type UndoEntry } from '../matchSync'
 import { can, useRole } from '../roles'
+import { pendingOf, seqQueue, stepQueue, type SeqItem } from '../sequencer'
 import { fmtMoment } from '../videos'
 import { actionLabel, calibrated, plural, useActionWho } from './matchLabels'
 import { Icon } from './ui'
 import type { PlayerTools } from './VideoPlayer'
+import Sequencer from './Sequencer'
 import { PlaceMark } from './Videos'
 
 /*
@@ -27,7 +30,13 @@ import { PlaceMark } from './Videos'
  * choisi et la vidéo va à son estimation, 3 s avant, en lecture si elle l'était ; « Passer » y va sans caler ; « Annuler »
  * revient aussi au repère d'avant. Actions simultanées (même temps sur la feuille, matchSheet.ts simultaneous) : un seul
  * repère, toutes listées sur la carte, calées, retirées et annulées ensemble. Clavier (ordinateur) : Entrée = « C'est ici ! »,
- * N = passer ; espace et flèches sont gérés par le lecteur (VideoPlayer). Tout le calcul est dans
+ * N = passer, Z ou Retour arrière = annuler le dernier calage ; espace et flèches sont gérés par le lecteur (VideoPlayer).
+ *
+ * Plein écran en mode édition : séquençage en regardant le match (Sequencer.tsx, frise défilante posée sur la vidéo, dans
+ * l'hôte api.overlay) avec le même repère choisi (sel = action annoncée : on la retrouve en sortant du plein écran) et les
+ * mêmes écritures ; « C'est ici » n'y fait pas sauter la vidéo (on regarde en continu), Suppr / X = ignorer l'action
+ * (sync.skip : absente de la vidéo ou sans intérêt, plus proposée ; « Rétablir » sur sa carte hors plein écran, où elle
+ * reste sur la frise, estompée). Tout le calcul est dans
  * matchSheet.ts, les écritures dans matchSync.ts : ce fichier n'est que l'écran (il peut être remplacé sans y toucher).
  * Calage réservé à can.calibrateMatch, sur une vidéo d'événement en mode édition (Videos.tsx) ; sur une fiche joueur
  * (readOnly) et pour les autres : la frise et le statut seulement.
@@ -118,8 +127,8 @@ const readHelpSeen = () => {
   }
 }
 
-/** Un repère de la frise : action de la feuille (i, type, équipe) ou repère de période (key). */
-type Mk = { id: string; v: number; i?: number; is?: number[]; end?: boolean; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean }
+/** Un repère de la frise : action de la feuille (i, type, équipe) ou repère de période (key) ; ignored : ignorée au séquençage. */
+type Mk = { id: string; v: number; i?: number; is?: number[]; end?: boolean; key?: string; k?: ActionKind; side?: Side; fixed: boolean; mine: boolean; ignored?: boolean }
 /** Repère choisi : action i (ou la fin de ses 2 minutes, end), ou repère de période. */
 type Sel = { i: number; end?: boolean } | { key: string }
 const selId = (s?: Sel) => (!s ? '' : 'i' in s ? `${s.end ? 'f' : 'a'}${s.i}` : `m${s.key}`)
@@ -279,13 +288,20 @@ export default function MatchTimeline({
   const [busy, setBusy] = useState(false)
   const track = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(320)
-  // Entrée = « C'est ici ! », N = passer : écoutés tant que la frise est ouverte, quel que soit le focus (sauf champ de saisie).
-  const keys = useRef<{ enter?: () => void; next?: () => void }>({})
+  // Entrée = « C'est ici ! », N = passer, Z / Retour arrière = annuler, Suppr / X = ignorer (séquençage en plein écran) :
+  // écoutés tant que la frise est ouverte, quel que soit le focus (sauf champ de saisie).
+  const keys = useRef<{ enter?: () => void; next?: () => void; undo?: () => void; ignore?: () => void }>({})
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
       if (e.altKey || e.ctrlKey || e.metaKey || (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable))) return
-      const fn = e.key === 'Enter' ? keys.current.enter : e.key === 'n' || e.key === 'N' ? keys.current.next : undefined
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      const fn =
+        k === 'Enter' ? keys.current.enter
+        : k === 'n' ? keys.current.next
+        : k === 'z' || k === 'Backspace' ? keys.current.undo
+        : k === 'x' || k === 'Delete' ? keys.current.ignore
+        : undefined
       if (!fn) return
       e.preventDefault()
       e.stopPropagation()
@@ -295,6 +311,15 @@ export default function MatchTimeline({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
   const hasMs = !!ms
+  // Séquençage en plein écran (mode édition) : action annoncée = repère choisi (sel), gardée en sortant du plein écran.
+  const calibOk = !readOnly && can.calibrateMatch(role, { eventId, playerId })
+  const seqOn = !!api.overlay && calibOk && !!ms
+  const queue: SeqItem[] = seqOn ? seqQueue(ms!) : []
+  const pending = seqOn ? pendingOf(queue, sel && 'i' in sel && !sel.end ? `a${sel.i}` : undefined, now) : undefined
+  useEffect(() => {
+    if (pending && !(sel && 'i' in sel && !sel.end && sel.i === pending.i)) setSel({ i: pending.i })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending?.id])
 
   // Temps courant et durée, relus 5 fois par seconde.
   useEffect(() => {
@@ -326,11 +351,12 @@ export default function MatchTimeline({
   }, [mNote, mAt, hasMs])
 
   if (!ev || !ms) return null
-  const calib = !readOnly && can.calibrateMatch(role, { eventId, playerId })
+  const calib = calibOk
   const sync = ms.sync
   const tl = timelineOf(ms)
   const marks = sync?.marks ?? {}
   const fix = sync?.fix ?? {}
+  const skip = sync?.skip ?? {}
   const anchored = Object.keys(marks).length + Object.keys(fix).length > 0
   const other = eventVideo && !!sync?.videoId && sync.videoId !== video.id && anchored
 
@@ -379,6 +405,7 @@ export default function MatchTimeline({
       side: ms.actions[lead].side,
       fixed: g.every((j) => fix[tl.keys[j]] !== undefined),
       mine: g.some(isMine),
+      ignored: g.every((j) => skip[tl.keys[j]] !== undefined),
     })
   })
   mks.sort((a, b) => a.v - b.v)
@@ -453,7 +480,22 @@ export default function MatchTimeline({
     const val = v === undefined ? undefined : Math.max(0, Math.round(v * 10) / 10)
     const label = val === undefined ? `retrait ${undoLabel(s)}` : undoLabel(s)
     const ch: SyncChange[] = 'key' in s ? [{ kind: 'mark', key: s.key, v: val }] : fixKeys(s).map((key) => ({ kind: 'fix', key, v: val }))
+    // Calée à la main : une action ignorée est rétablie (même annulation).
+    if ('i' in s && !s.end && val !== undefined) for (const i of membersOf(s)) if (skip[tl.keys[i]] !== undefined) ch.push({ kind: 'skip', key: tl.keys[i] })
     return write(ch, label, val, selId(s))
+  }
+  /** Ignorer (on = true) ou rétablir une action et ses simultanées ; ignorer retire aussi son calage (plus un repère). */
+  async function ignore(s: { i: number }, on: boolean) {
+    const ks = membersOf(s).map((i) => tl.keys[i])
+    const ch: SyncChange[] = ks.map((key) => ({ kind: 'skip', key, v: on ? 1 : undefined }))
+    if (on) for (const key of ks) if (fix[key] !== undefined) ch.push({ kind: 'fix', key })
+    setBusy(true)
+    try {
+      await applyCalibration(eventId, ch, `${on ? 'ignorer' : 'rétablir'} ${undoLabel(s)}`, eventVideo ? video : undefined, selId(s))
+      setMsg(on ? 'Action ignorée (Z pour annuler).' : 'Action rétablie.')
+    } finally {
+      setBusy(false)
+    }
   }
   /** Temps vidéo d'un repère d'après la feuille relue (après un calage, avant que l'écran soit à jour). */
   async function freshV(s: Sel): Promise<number | undefined> {
@@ -539,7 +581,64 @@ export default function MatchTimeline({
   const selFixed = (s: Sel) => ('key' in s ? marks[s.key] !== undefined : fixKeys(s).every((k) => fix[k] !== undefined))
   const fixedSel = sel ? selFixed(sel) : false
   const anyFixedSel = sel ? ('key' in sel ? fixedSel : fixKeys(sel).some((k) => fix[k] !== undefined)) : false
-  keys.current = calib && sel && !busy ? { enter: () => void here(sel), next: pass } : { next: sel ? pass : undefined }
+  const undoKey = calib && lastUndo(eventId) && !busy ? () => void undoLast(eventId).then((e) => void backTo(e)) : undefined
+  keys.current = calib && sel && !busy ? { enter: () => void here(sel), next: pass, undo: undoKey } : { next: sel ? pass : undefined, undo: undoKey }
+
+  // Séquençage en plein écran : on regarde en continu (pas de saut après un calage), l'action suivante est annoncée.
+  if (seqOn && api.overlay) {
+    const after = (it: SeqItem) => stepQueue(queue, it.id, 1)
+    const hereSeq = async (it: SeqItem) => {
+      const t = api.time()
+      if (t === undefined) return setMsg('Lance la vidéo d’abord (le lecteur n’est pas encore prêt).')
+      helpSeen()
+      await place({ i: it.i }, t)
+      const nx = after(it)
+      if (nx) setSel({ i: nx.i })
+    }
+    const passSeq = (it: SeqItem) => {
+      const nx = after(it)
+      setMsg(nx ? '' : 'Dernière action de la feuille.')
+      if (nx) setSel({ i: nx.i })
+    }
+    const ignoreSeq = async (it: SeqItem) => {
+      const nx = after(it)
+      await ignore({ i: it.i }, true)
+      if (nx) setSel({ i: nx.i })
+    }
+    const undoSeq = () =>
+      void undoLast(eventId).then((e) => {
+        setMsg('Annulé.')
+        const s = selFromId(e?.ctx)
+        if (s && 'i' in s && !s.end) setSel(s)
+      })
+    const last = lastUndo(eventId)
+    keys.current =
+      pending && !busy
+        ? { enter: () => void hereSeq(pending), next: () => passSeq(pending), ignore: () => void ignoreSeq(pending), undo: last ? undoSeq : undefined }
+        : { undo: last && !busy ? undoSeq : undefined }
+    return createPortal(
+      <Sequencer
+        ms={ms}
+        base={queue}
+        pending={pending}
+        now={now}
+        api={api}
+        who={who}
+        busy={busy}
+        msg={msg}
+        undo={last ? { label: last.label, run: undoSeq } : undefined}
+        onHere={() => pending && void hereSeq(pending)}
+        onPass={() => pending && passSeq(pending)}
+        onIgnore={() => pending && void ignoreSeq(pending)}
+        onPick={(it) => {
+          setSel({ i: it.i })
+          setMsg('')
+          if (it.v !== undefined) api.seek(Math.max(0, it.v - 3), api.playing())
+        }}
+      />,
+      api.overlay,
+    )
+  }
   const small = 'flex h-8 min-w-8 items-center justify-center rounded border border-line bg-panel px-2 text-[11px] font-bold hover:border-accent disabled:opacity-40'
   // Mode édition : petit libellé visible sous un bouton à icône (sur téléphone, pas de survol pour lire son title).
   const named = (button: ReactNode, name: string) =>
@@ -561,6 +660,7 @@ export default function MatchTimeline({
         <span className="font-bold text-emerald-300 tabular-nums">
           {plural(tl.fixedCount, 'action calée', 'actions calées')} sur {ms.actions.length}
           {tl.endFixedCount > 0 && ` · ${plural(tl.endFixedCount, 'fin de 2’ calée', 'fins de 2’ calées')}`}
+          {mks.some((m) => m.ignored) && <span className="font-normal text-muted"> · {plural(mks.filter((m) => m.ignored).length, 'ignorée')}</span>}
         </span>
         {marks.s1 === undefined && calib && (
           <button className="btn-primary h-8 px-3 text-xs" disabled={!api.ready || busy} title="Mets la vidéo sur le coup d’envoi, puis touche ce bouton" onClick={() => here({ key: 's1' })}>
@@ -665,7 +765,7 @@ export default function MatchTimeline({
           g.length === 1 ? (
             <button
               key={g[0].id}
-              className="absolute top-0 flex h-9 w-8 -translate-x-1/2 items-start justify-center pt-1"
+              className={`absolute top-0 flex h-9 w-8 -translate-x-1/2 items-start justify-center pt-1 ${g[0].ignored ? 'opacity-30' : ''}`}
               style={{ left: xOf(g[0].v) }}
               title={`${g[0].i !== undefined ? labelOf(selOf(g[0])) : PERIOD_MARK[g[0].key!]} — ${g[0].fixed ? 'calé' : 'estimé'} à ${fmtMoment(Math.round(g[0].v))}`}
               aria-label={`${g[0].i !== undefined ? labelOf(selOf(g[0])) : PERIOD_MARK[g[0].key!]}, ${g[0].fixed ? 'calé' : 'estimé'}`}
@@ -758,7 +858,13 @@ export default function MatchTimeline({
                     {tl.late.has(sel.i) ? ' · saisie en retard' : ''}
                   </span>
                 )}
-                {'key' in sel ? <span className="font-bold text-emerald-300">repère posé</span> : <PlaceMark status={fixedSel ? 'fixed' : 'estimated'} />}
+                {'key' in sel ? (
+                  <span className="font-bold text-emerald-300">repère posé</span>
+                ) : selMk.ignored ? (
+                  <span className="font-bold text-muted">ignorée au séquençage</span>
+                ) : (
+                  <PlaceMark status={fixedSel ? 'fixed' : 'estimated'} />
+                )}
                 <span className="tabular-nums">à {fmtMoment(Math.round(selMk.v))}</span>
               </div>
             </div>
@@ -788,6 +894,11 @@ export default function MatchTimeline({
               <button className={small} disabled={busy || !stepIn(mks, selId(sel), 1)} title="Passer au repère suivant sans caler celui-ci (N)" onClick={pass}>
                 Passer
               </button>
+              {'i' in sel && !sel.end && selMk.ignored && (
+                <button className={small} disabled={busy} title="Rétablir cette action : de nouveau proposée au séquençage" onClick={() => void ignore(sel, false)}>
+                  Rétablir
+                </button>
+              )}
               {anyFixedSel && (
                 <button className={`${small} text-muted hover:text-red-400`} disabled={busy} title="Retirer ce repère (l’action redevient estimée)" onClick={() => void place(sel)}>
                   <Icon name="close" className="h-3.5 w-3.5" />
@@ -808,7 +919,7 @@ export default function MatchTimeline({
       )}
       {/* Raccourcis : ordinateur (pointeur précis) seulement. */}
       <p className="hidden text-[10px] text-muted [@media(hover:hover)_and_(pointer:fine)]:block">
-        Espace : lecture · ← → 2 s · Maj 0,5 s{calib ? ' · Entrée : c’est ici' : ''} · N : passer
+        Espace : lecture · ← → 2 s · Maj 0,5 s{calib ? ' · Entrée : c’est ici' : ''} · N : passer{calib ? ' · Z : annuler' : ''}
       </p>
     </div>
   )

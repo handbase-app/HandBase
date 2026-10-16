@@ -462,6 +462,19 @@ export interface PlayerTools {
   moment?: VideoMoment
   /** Durée de la vidéo (s), undefined tant qu'elle n'est pas connue. */
   duration(): number | undefined
+  /**
+   * Plein écran en mode édition : hôte posé en bas de la vidéo (au-dessus des commandes, jamais masqué avec elles) où la
+   * frise défilante du séquençage est rendue (MatchTimeline → Sequencer) ; null hors de ce cas.
+   */
+  overlay: HTMLElement | null
+  /** Au doigt (boutons de 44 px au moins). */
+  touch: boolean
+  /** Téléphone couché : version compacte. */
+  compact: boolean
+  /** Avancer (d > 0) ou reculer de d secondes, comme les flèches. */
+  nudge(d: number): void
+  /** Terminer le mode édition (bandeau du séquençage en plein écran) ; absent hors mode édition. */
+  endEdit?: () => void
 }
 
 /** Passage en cours : moment i, seul ou dans l'enchaînement de tous les moments. */
@@ -532,6 +545,9 @@ export default function VideoPlayer({
   ctlRef.current = ctl
   const editRef = useRef(edit)
   editRef.current = edit
+  // Séquençage en plein écran (mode édition avec la frise du match) : frise défilante posée sur la vidéo, dans seqHost.
+  const seq = fs && !!bar && !!edit?.on
+  const [seqHost, setSeqHost] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
     const el = stage.current
     const on = () => {
@@ -603,8 +619,9 @@ export default function VideoPlayer({
   const poke = () => {
     setChrome(true)
     window.clearTimeout(hideTimer.current)
-    // Frise du match (calage) : pas de masquage tout seul, « C'est ici ! » doit rester à portée du doigt.
-    if (bar) return
+    // Frise du match (calage) : pas de masquage tout seul, « C'est ici ! » doit rester à portée du doigt. Séquençage en
+    // plein écran : la frise défilante et « C'est ici » sont hors des commandes, qui peuvent donc se cacher.
+    if (bar && !seq) return
     const later = () => {
       hideTimer.current = window.setTimeout(() => (ctlRef.current?.playing() ? setChrome(false) : later()), HIDE_AFTER)
     }
@@ -629,6 +646,17 @@ export default function VideoPlayer({
   useEffect(() => {
     if (!fs || !chrome) setPanel(false)
   }, [fs, chrome])
+  // Plein écran au doigt, séquençage : hauteur des commandes posées en bas, pour poser la frise défilante juste au-dessus
+  // (et tout en bas quand elles sont cachées).
+  const [overlayH, setOverlayH] = useState(0)
+  useEffect(() => {
+    const el = overlay.current
+    if (!el || !seq || !immersive) return
+    const ro = new ResizeObserver(() => setOverlayH(el.offsetHeight))
+    ro.observe(el)
+    setOverlayH(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [seq, immersive])
   const togglePanel = () => {
     setPanelBox(immersive ? { top: topBar.current?.offsetHeight ?? 0, bottom: overlay.current?.offsetHeight ?? 0 } : { top: 0, bottom: 0 })
     if (immersive) poke() // panneau ouvert : commandes affichées, masquées ensemble ensuite
@@ -821,6 +849,11 @@ export default function VideoPlayer({
     playing: () => !!ctl?.playing(),
     moment: last !== undefined ? moments[last] : undefined,
     duration: () => ctl?.duration(),
+    overlay: seq && canPlay ? seqHost : null,
+    touch: coarse,
+    compact: phoneLandscape,
+    nudge: (d) => ctl && nudge(ctl, d),
+    endEdit: edit?.on ? () => edit.set(false) : undefined,
   }
 
   // Contenu d'une ligne de moment (liste à droite, panneau du plein écran) : « 5:56 · 12 s · But 1-1 » et sa marque.
@@ -909,6 +942,14 @@ export default function VideoPlayer({
                   {fsLabel}
                 </span>
               )}
+              {/* Séquençage : frise défilante et « C'est ici » (rendus par la frise du match), jamais cachés avec les commandes. */}
+              {seq && (
+                <div
+                  ref={setSeqHost}
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-[25] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] transition-[bottom] duration-200 motion-reduce:transition-none"
+                  style={{ bottom: immersive && chrome ? overlayH : 0 }}
+                />
+              )}
               {fs && panel && step && (!immersive || chrome) && (
                 <div
                   className="absolute right-0 z-30 flex w-80 max-w-[45%] animate-slide-left flex-col border-l border-white/10 bg-black/75 pr-[env(safe-area-inset-right)] text-white backdrop-blur-sm"
@@ -967,7 +1008,7 @@ export default function VideoPlayer({
               onKeyDownCapture={immersive ? poke : undefined}
             >
               {ctl && <Controls ctl={ctl} fs={fs} onFs={toggleFs} big={immersive} step={step} panel={fs && step ? { open: panel, toggle: togglePanel } : undefined} />}
-              {fs && edit?.on && editBanner}
+              {fs && edit?.on && !seq && editBanner}
               {/* Plein écran au doigt : frise limitée (le haut de la vidéo reste visible pendant le calage), défilante. */}
               {bar && <div className={`shrink-0 bg-panel ${immersive ? 'max-h-[40dvh] overflow-y-auto overscroll-contain' : ''}`}>{bar(api)}</div>}
             </div>
