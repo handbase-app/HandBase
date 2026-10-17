@@ -465,7 +465,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         <InfoButton title="Feuille de match">
           <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, joueurs reliés aux fiches et déroulé.</p>
           <p>
-            Calage en regardant : ouvre la vidéo du match dans « Vidéos » (elle s’ouvre en lecture, les actions calées parmi ses moments), touche
+            Calage en regardant : ouvre la vidéo du match dans l’onglet Vidéo de l’événement (elle s’ouvre en lecture, les actions calées parmi ses moments), touche
             « Éditer le séquençage » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action est alors estimée (« ~ estimé ») :
             touche son repère sur la frise et « C’est ici ! » au moment exact de l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale
             aussitôt, moments des fiches compris. « Annuler » reprend le dernier calage ; un repère se retire aussi depuis la liste des actions de
@@ -530,7 +530,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
           </>
         ) : (
           <span className="text-muted">
-            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : « Éditer le séquençage », pose le coup
+            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » ci-dessus (YouTube, Vimeo ou fichier vidéo) et ouvre-la : « Éditer le séquençage », pose le coup
             d’envoi sous le lecteur, puis « C’est ici ! » en regardant les actions.
           </span>
         )}

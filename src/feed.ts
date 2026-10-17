@@ -175,7 +175,7 @@ export async function buildFeed({
       authorId: v.createdBy,
       text: `${rs.length === 1 ? 'nouvelle vidéo' : `${rs.length} nouvelles vidéos`} : ${subject}`,
       detail: rs.map((x) => [x.title || sourceLabel(x.url), momentsShort(x)].filter(Boolean).join(' ')).join(' · '),
-      to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}`,
+      to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}?onglet=video`,
     })
   }
 

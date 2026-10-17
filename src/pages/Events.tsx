@@ -45,6 +45,10 @@ const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?
 
 const NO_STATS = new Map<string, EventStats>()
 
+/** Onglets de la page d'un événement (?onglet=… ; « joueurs » par défaut, sans paramètre). */
+const EVENT_TABS = ['joueurs', 'classement', 'video'] as const
+type EventTab = (typeof EVENT_TABS)[number]
+
 export default function Events() {
   const role = useRole()
   const allEvents = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive))
@@ -405,10 +409,21 @@ export function EventDetail() {
   const teams = useTeams() ?? []
   const units = useUnits()
   const per = usePerimeter()
-  // Onglet et avis dépliés : retrouvés au retour d'une fiche (pendant la session).
-  const [tab, setTab] = useSessionState<'joueurs' | 'classement'>('handbase.evenement.onglet', 'joueurs')
   // « Ajouter des joueurs », « Modifier » depuis le menu d'une ligne de la liste : ?ajout=1, ?modifier=1 (comme les groupes).
   const [params, setParams] = useSearchParams()
+  const loc = useLocation()
+  // Onglet dans l'adresse (?onglet=classement, ?onglet=video ; Joueurs par défaut) : « Retour » depuis une fiche ouverte
+  // ici ramène sur le même onglet, et un lien vers la vidéo d'un événement ouvre directement l'onglet Vidéo.
+  const tab: EventTab = EVENT_TABS.find((t) => t === params.get('onglet')) ?? 'joueurs'
+  const setTab = (t: EventTab) => {
+    if (t === tab) return
+    const next = new URLSearchParams(params)
+    if (t === 'joueurs') next.delete('onglet')
+    else next.set('onglet', t)
+    setParams(next, { replace: true, state: loc.state })
+  }
+  // Infos secondaires (organisateur, avis donnés par, participants, création) : repliées, dépliées pendant la session.
+  const [infos, setInfos] = useSessionState('handbase.evenement.infos', false)
   const [adding, setAdding] = useState(params.has('ajout'))
   const [editing, setEditing] = useState(params.has('modifier'))
   useEffect(() => {
@@ -435,7 +450,6 @@ export function EventDetail() {
   const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
   const [groupBy, setGroupBy] = useRosterGroup(id)
   const panel = usePanel()
-  const loc = useLocation()
   // Ordinateur : boutons en barre d'actions compacte ; et liste des joueurs à gauche, avis du joueur choisi à droite
   // (dans le panneau, qui passe alors en pleine largeur ; sur téléphone, les avis se déplient sous la ligne).
   const bar = useMedia(MQ.side)
@@ -478,7 +492,9 @@ export function EventDetail() {
     const known = new Set(players.map((p) => p.id))
     const extra = alive((await db.players.bulkGet([...new Set(rewatch.map((r) => r.playerId))].filter((x) => !known.has(x)))).filter((p): p is Player => !!p))
     const origins = (await db.events.bulkGet([...new Set(rewatch.map((r) => r.originEventId).filter((x): x is string => !!x))])).filter((e): e is HBEvent => !!e)
-    return { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden }
+    // Vidéos de l'événement (même filtre que la section Vidéos) : nombre affiché sur l'onglet Vidéo.
+    const nVideos = (await db.videos.where('targetId').equals(id!).toArray()).filter((v) => !v.deleted && v.targetKind === 'event' && v.url).length
+    return { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden, nVideos }
   }, [id])
 
   // Retour d'une fiche ouverte depuis la liste : même position qu'avant.
@@ -550,7 +566,7 @@ export function EventDetail() {
   }, [autoEv, autoEdit])
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden } = data
+  const { ev, evals, players, criteria, seen, rewatch, extra, origins, hidden, nVideos } = data
   if (!ev || ev.deleted) return <div className="py-20 text-center text-sm text-muted">Événement introuvable.</div>
 
   const byId = new Map(players.map((p) => [p.id, p]))
@@ -630,7 +646,7 @@ export function EventDetail() {
       {label}
     </button>
   )
-  // Feuille de match : importée depuis le formulaire « Modifier » (plus de bouton au premier écran).
+  // Feuille de match : importée depuis le formulaire « Modifier », ou depuis l'onglet Vidéo tant qu'il n'y en a pas.
   const importSheet = !ev.matchSheet && manage && (
     <button
       type="button"
@@ -644,16 +660,29 @@ export function EventDetail() {
     </button>
   )
 
+  // Onglets : Joueurs, Classement, Vidéo (vidéos et feuille de match). Tout le monde peut ajouter une vidéo : l'onglet
+  // Vidéo est toujours là ; son nombre de vidéos, ou un point discret s'il n'y a qu'une feuille de match.
   const tabs = (cls = '') => (
-    <div className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
+    <div role="tablist" aria-label="Contenu de l’événement" className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
       {(
         [
           ['joueurs', `Joueurs (${roster.length})`],
           ['classement', 'Classement'],
+          ['video', nVideos ? `Vidéo (${nVideos})` : 'Vidéo'],
         ] as const
       ).map(([v, label]) => (
-        <button key={v} onClick={() => setTab(v)} className={`flex-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+        <button
+          key={v}
+          role="tab"
+          aria-selected={tab === v}
+          data-tab={v}
+          onClick={() => setTab(v)}
+          className={`min-w-0 flex-1 truncate px-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+        >
           {label}
+          {v === 'video' && !nVideos && ev.matchSheet && (
+            <span className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${tab === v ? 'bg-white' : 'bg-accent'}`} title="Feuille de match importée" />
+          )}
         </button>
       ))}
     </div>
@@ -721,75 +750,58 @@ export function EventDetail() {
             {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
-          <div className="text-[11px] text-muted">{organizerName ? `Organisé par : ${organizerName}` : 'Organisateur non précisé'}</div>
+          {/* Infos secondaires repliées en une ligne : l'entrée de l'événement va droit aux onglets. */}
+          <button
+            type="button"
+            className="mt-1 flex max-w-full items-center gap-1 text-left text-[11px] text-muted hover:text-fg"
+            aria-expanded={infos}
+            onClick={() => setInfos(!infos)}
+          >
+            <span className="shrink-0 font-bold">Infos</span>
+            {!infos && <span className="min-w-0 truncate">· {organizerName ? `Organisé par : ${organizerName}` : 'organisateur, participants, historique'}</span>}
+            <span className={`shrink-0 transition-transform ${infos ? 'rotate-90' : ''}`} aria-hidden>
+              ›
+            </span>
+          </button>
+          {infos && (
+            <div className="mt-0.5 border-l-2 border-line pl-2" data-testid="infos-evenement">
+              <div className="text-[11px] text-muted">{organizerName ? `Organisé par : ${organizerName}` : 'Organisateur non précisé'}</div>
+              {observers.length > 0 && <div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
+              <Participants
+                x={ev}
+                teams={teams}
+                who={who}
+                onLeave={
+                  contribute
+                    ? async () => {
+                        if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les joueurs que tu as ajoutés restent dans la liste.`, { ok: 'Me retirer' }))) return
+                        const me = currentUserId()
+                        await save<HBEvent>('events', { ...ev, editors: (ev.editors ?? []).filter((u) => u !== me) })
+                      }
+                    : undefined
+                }
+              />
+              <StampLine row={ev} />
+            </div>
+          )}
           {viaMyPlayers > 0 && (
             <div className="text-[11px] italic text-muted" data-testid="vu-par-mes-joueurs">
               Tu vois cet événement parce que {viaMyPlayers === 1 ? '1 de tes joueurs y est inscrit' : `${viaMyPlayers} de tes joueurs y sont inscrits`}
             </div>
           )}
-          {observers.length > 0 &&<div className="mt-1 text-[11px] text-muted">Avis donnés par : {observers.join(', ')}</div>}
-          <Participants
-            x={ev}
-            teams={teams}
-            who={who}
-            onLeave={
-              contribute
-                ? async () => {
-                    if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les joueurs que tu as ajoutés restent dans la liste.`, { ok: 'Me retirer' }))) return
-                    const me = currentUserId()
-                    await save<HBEvent>('events', { ...ev, editors: (ev.editors ?? []).filter((u) => u !== me) })
-                  }
-                : undefined
-            }
-          />
-          <StampLine row={ev} />
         </div>
       )}
 
-      {!editing && (
-        <VideoSection
-          fold
-          kind="event"
-          targetId={ev.id}
-          sheet={ev.matchSheet ? { ms: ev.matchSheet, canEdit: can.calibrateMatch(role, { eventId: ev.id }) } : undefined}
-          tools={
-            ev.matchSheet
-              ? (v, api) => (
-                  <Suspense fallback={null}>
-                    <MatchSyncTools eventId={ev.id} video={v} api={api} />
-                  </Suspense>
-                )
-              : undefined
-          }
-          bar={
-            ev.matchSheet
-              ? (v, api) => (
-                  <Suspense fallback={null}>
-                    <MatchTimeline eventId={ev.id} video={v} eventVideo api={api} />
-                  </Suspense>
-                )
-              : undefined
-          }
-        />
-      )}
-      {!editing && ev.matchSheet && (
-        <Suspense fallback={null}>
-          <MatchSheetCard ev={ev} manage={manage} />
-        </Suspense>
-      )}
       {importing && (
         <Suspense fallback={null}>
           <MatchImport event={ev} onClose={() => setImporting(false)} />
         </Suspense>
       )}
-      {!editing && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
-        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
-      )}
 
       {/* Ordinateur : une barre d'actions compacte. Liste vide : « + Ajouter des joueurs » passe en bouton principal. */}
       {bar && (
         <div className="flex flex-wrap items-center gap-2">
-          {addFirst && tab === 'joueurs' && !adding ? (
+          {tab === 'video' ? null : addFirst && tab === 'joueurs' && !adding ? (
             <>
               {addButton('btn-primary px-3 py-1.5 text-xs')}
               {evaluate('btn-ghost px-3 py-1.5 text-xs')}
@@ -800,7 +812,7 @@ export function EventDetail() {
               {tab === 'joueurs' && !adding && canAdd && addButton('btn-ghost px-3 py-1.5 text-xs')}
             </>
           )}
-          {tabs('ml-auto w-64')}
+          {tabs('ml-auto min-w-64 max-w-80 flex-1')}
         </div>
       )}
 
@@ -808,7 +820,62 @@ export function EventDetail() {
       {!bar && tabs()}
       {!bar && tab === 'classement' && evaluate('btn-primary')}
 
-      {tab === 'joueurs' ? (
+      {/* Joueurs : la répartition par équipe en haut (repliée), puis la liste. */}
+      {tab === 'joueurs' && !adding && !editing && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
+        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
+      )}
+
+      {/* Vidéo : vidéos, feuille de match (calage, moments, déroulé) et son import. Toujours monté, seulement masqué sur
+          les autres onglets : le lecteur (VideoDock), le mode édition du séquençage et l'état des cartes (déroulé ouvert…)
+          ne se ferment ni ne se rechargent en changeant d'onglet. */}
+      {!editing && (
+        <div role="tabpanel" data-testid="onglet-video" aria-hidden={tab !== 'video'} className={tab === 'video' ? 'flex flex-col gap-4' : 'hidden'}>
+          <VideoSection
+            kind="event"
+            targetId={ev.id}
+            sheet={ev.matchSheet ? { ms: ev.matchSheet, canEdit: can.calibrateMatch(role, { eventId: ev.id }) } : undefined}
+            tools={
+              ev.matchSheet
+                ? (v, api) => (
+                    <Suspense fallback={null}>
+                      <MatchSyncTools eventId={ev.id} video={v} api={api} />
+                    </Suspense>
+                  )
+                : undefined
+            }
+            bar={
+              ev.matchSheet
+                ? (v, api) => (
+                    <Suspense fallback={null}>
+                      <MatchTimeline eventId={ev.id} video={v} eventVideo api={api} />
+                    </Suspense>
+                  )
+                : undefined
+            }
+          />
+          {ev.matchSheet ? (
+            <Suspense fallback={null}>
+              <MatchSheetCard ev={ev} manage={manage} />
+            </Suspense>
+          ) : (
+            manage && (
+              <div className="card flex flex-col gap-2 p-4">
+                <div className="section-title flex items-center gap-2">
+                  <Icon name="list" className="h-3.5 w-3.5" />
+                  Feuille de match
+                </div>
+                <p className="text-[11px] text-muted">
+                  Feuille de match électronique FFHB (PDF lu sur l’appareil, jamais gardé) : score, joueurs reliés aux fiches et déroulé, à caler ensuite sur
+                  la vidéo du match.
+                </p>
+                {importSheet}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {tab === 'video' ? null : tab === 'joueurs' ? (
         adding ? (
           <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
