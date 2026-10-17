@@ -11,6 +11,8 @@ const demo = !!process.env.VITE_DEMO
 
 export default defineConfig({
   base: process.env.BASE_PATH || '/',
+  // Date de construction de la version (Réglages → « Version de l'appli »).
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   plugins: [
     react(),
     tailwindcss(),

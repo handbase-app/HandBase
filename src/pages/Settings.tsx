@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
+import { applyUpdate, BUILD_TIME, checkForUpdate, useUpdateReady } from '../pwa'
 import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, type Criterion, type CriterionScale } from '../db'
 import { categoryStyles, defaultColor, defaultZone, RADAR_PALETTE, RADAR_ZONES, styleOf, type RadarZone } from '../radarZones'
 import { clearDemo, loadDemo } from '../demo'
@@ -85,6 +86,7 @@ export default function Settings() {
       )}
       <DictationSetting />
       <ApparenceFold />
+      <UpdateCheck />
       <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Droits des familles, charte du staff">
   <div className="flex gap-2">
           <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
@@ -1408,5 +1410,53 @@ function CriterionEdit({ c, categories, isNew, onDone }: { c: Criterion; categor
         )}
       </div>
     </div>
+  )
+}
+
+/** Version de l'appli et « Vérifier les mises à jour » (src/pwa.ts) : savoir tout de suite si on a la dernière version. */
+function UpdateCheck() {
+  const readyNow = useUpdateReady()
+  const [state, setState] = useState<'idle' | 'busy' | 'ready' | 'latest' | 'offline' | 'unavailable'>('idle')
+  const built = BUILD_TIME ? new Date(BUILD_TIME) : null
+  const when = built && !Number.isNaN(built.getTime())
+    ? `${built.toLocaleDateString('fr-FR')} à ${built.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    : ''
+  const ready = readyNow || state === 'ready'
+  const check = async () => {
+    setState('busy')
+    setState(await checkForUpdate())
+  }
+  return (
+    <section className="card flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
+          <Icon name="download" className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold">Version de l’appli</span>
+          <span className="block text-[11px] text-muted">{when ? `Version du ${when}` : 'Version de développement'}</span>
+        </span>
+        {ready ? (
+          <button type="button" className="btn-primary shrink-0 px-3 py-2 text-xs" onClick={applyUpdate}>
+            Mettre à jour
+          </button>
+        ) : (
+          <button type="button" className="btn-ghost shrink-0 px-3 py-2 text-xs" disabled={state === 'busy'} onClick={() => void check()}>
+            {state === 'busy' ? 'Vérification…' : 'Vérifier'}
+          </button>
+        )}
+      </div>
+      {(ready || state !== 'idle') && state !== 'busy' && (
+        <p className="text-[11px] text-muted" role="status">
+          {ready
+            ? 'Une nouvelle version est prête : « Mettre à jour » la charge sans rien perdre.'
+            : state === 'latest'
+              ? 'Tu as la dernière version.'
+              : state === 'offline'
+                ? 'Hors ligne : impossible de vérifier pour l’instant.'
+                : 'Vérification impossible ici (version de développement ou navigateur sans appli installée).'}
+        </p>
+      )}
+    </section>
   )
 }

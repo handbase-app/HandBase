@@ -12,6 +12,11 @@ import { hasUnsaved } from './components/Confirm'
 
 const EVERY = 5 * 60 * 1000
 
+declare const __BUILD_TIME__: string
+/** Date de construction de la version affichée (vite.config.ts). */
+export const BUILD_TIME = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : ''
+let registration: ServiceWorkerRegistration | null = null
+
 // Bandeau « nouvelle version » : prête à être appliquée.
 let ready = false
 const listeners = new Set<() => void>()
@@ -26,6 +31,36 @@ export function useUpdateReady() {
     (l) => (listeners.add(l), () => void listeners.delete(l)),
     () => ready,
   )
+}
+
+/**
+ * « Vérifier les mises à jour » (Réglages) : demande tout de suite au serveur s'il y a une nouvelle version et attend
+ * qu'elle soit téléchargée. 'ready' : prête (le bandeau « Mettre à jour » s'affiche aussi) ; 'latest' : à jour.
+ */
+export async function checkForUpdate(): Promise<'ready' | 'latest' | 'offline' | 'unavailable'> {
+  if (ready) return 'ready'
+  if (!navigator.onLine) return 'offline'
+  const reg = registration
+  if (!reg) return 'unavailable'
+  try {
+    await reg.update()
+  } catch {
+    return 'offline'
+  }
+  const sw = reg.installing
+  if (sw)
+    await new Promise<void>((done) => {
+      const t = window.setTimeout(done, 20_000)
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' || sw.state === 'redundant' || sw.state === 'activated') {
+          window.clearTimeout(t)
+          done()
+        }
+      })
+    })
+  // onNeedRefresh arrive juste après l'installation : on lui laisse un instant.
+  await new Promise((r) => window.setTimeout(r, 300))
+  return ready || reg.waiting ? 'ready' : 'latest'
 }
 
 /** Appui sur « Mettre à jour » : l'appli se recharge sur la nouvelle version. */
@@ -71,6 +106,7 @@ export function startPwaUpdates() {
     },
     onRegisteredSW(_url, reg) {
       if (!reg) return
+      registration = reg
       const check = () => {
         if (navigator.onLine && !reg.installing) void reg.update().catch(() => undefined)
       }
