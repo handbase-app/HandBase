@@ -1301,7 +1301,13 @@ export default function Coverage() {
         {d.club &&
           (pinned && open ? (
             // Au téléphone, le premier toucher montre la bulle (stats du club, la carte reste) ; ce bouton ouvre ses joueurs.
-            <button type="button" className="btn-primary mt-2 min-h-10 w-full text-xs" onClick={open}>
+            <button
+              type="button"
+              className="btn-primary mt-2 min-h-10 w-full text-xs"
+              // Le toucher ne déplace pas le focus (sinon le point du club le perd et la bulle se ferme avant le clic).
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={open}
+            >
               Voir les joueurs →
             </button>
           ) : (
