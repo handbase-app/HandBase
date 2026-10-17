@@ -44,7 +44,10 @@ import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
 import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
 import { usePerimeter, useUnits } from '../installation'
 import { deptInPerimeter, perimeterDepts, perimeterPlace, perimeterText } from '../perimeter'
-import { department } from '../components/PlayerFilter'
+import { department, hayOf, tokensOf, useSessionState } from '../components/PlayerFilter'
+import { usePlayersQuery } from '../components/PlayersQuery'
+import { selectPlayers } from '../playerQuery'
+import { barHidden, barQuery, closeQuestion, encodeBar, fromBar, hasBarFilter, parseBar, withoutYears, type BarState } from '../bilanFilters'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
@@ -56,9 +59,9 @@ import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
 import { useDictation } from '../dictation/useDictation'
 import { SavedQuestions } from './Question'
-import { decodeRecipe, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Recipe } from '../recipe'
-import { aggregate, aggValue, bilanOutput, isShareKind, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
-import { useQuestionModel } from '../questionModel'
+import { decodeRecipe, EMPTY_RECIPE, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Output, type Recipe } from '../recipe'
+import { aggregate, aggValue, bilanOutput, isShareKind, isTopClubs, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
+import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChips'
 
 /*
@@ -82,6 +85,11 @@ import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChi
  * département ou région, nombre dans un lieu : src/bilanQuestion.ts) : elle reste ICI (?q=<recette>), un bandeau
  * « ✨ question ✕ » à la place des onglets ; carte, points des clubs et listes colorés et triés par la valeur de la question
  * (nombre, part, part vue, moyenne, âge) ; changer de lieu garde la question, ✕ la ferme (remplace l'adresse).
+ * Barre de filtres « Filtrer ou poser une question… » : la MÊME que la liste Joueurs (src/components/PlayersQuery.tsx,
+ * pastilles, filtres rapides, conditions), sur la ligne des filtres du bilan (téléphone : dans le panneau des filtres
+ * résumés). Ses joueurs retenus deviennent la population du bilan (carte, tuiles, clubs, générations, Rapport Fédé),
+ * calculée sur l'appareil ; dans l'adresse (f=, t=). Une commande par notion (sexe, année, lieu : celles du bilan) :
+ * src/bilanFilters.ts.
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », pas encore mesuré « à mesurer ».
  */
 
@@ -247,7 +255,10 @@ function Filters({
   years,
   year = null,
   setYear,
+  extra,
 }: {
+  /** Au bout de la ligne : la barre de filtres (champ, « Filtres »). */
+  extra?: ReactNode
   sex: CoverageSex
   setSex: (v: CoverageSex) => void
   period: CoveragePeriod
@@ -304,6 +315,7 @@ function Filters({
           ))}
         </select>
       )}
+      {extra}
     </div>
   )
 }
@@ -315,7 +327,7 @@ const PHONE = '(max-width: 639.98px)'
  * Téléphone : les filtres du bilan résumés en une ligne de pastilles (« Tous · Saison 2026-2027 · Toutes les années ▾ ») ;
  * un toucher ouvre ou referme le panneau des filtres. Une pastille qui n'est pas le choix par défaut est soulignée d'accent.
  */
-function FilterSummary({ sex, period, showPeriod, yearText, yearPicked, open, onToggle }: {
+function FilterSummary({ sex, period, showPeriod, yearText, yearPicked, open, onToggle, bar = [], question = false }: {
   sex: CoverageSex
   period: CoveragePeriod
   showPeriod: boolean
@@ -323,13 +335,23 @@ function FilterSummary({ sex, period, showPeriod, yearText, yearPicked, open, on
   yearPicked: boolean
   open: boolean
   onToggle: () => void
+  /** Pastilles de la barre de filtres (résumées : la première, puis « +n »). */
+  bar?: string[]
+  /** Question posée : seulement les filtres de la barre (sa population). */
+  question?: boolean
 }) {
-  const pills: { text: string; on: boolean }[] = [
-    { text: sex === 'M' ? 'Garçons' : sex === 'F' ? 'Filles' : 'Tous', on: sex !== 'all' },
-    // Saison en court (« 2026-27 ») : la ligne tient sur un téléphone.
-    ...(showPeriod ? [{ text: period === 'all' ? 'Depuis toujours' : `Saison ${seasonOf(today()).label.replace(/^(\d{4})-\d{2}(\d{2})$/, '$1-$2')}`, on: period === 'all' }] : []),
-    { text: yearText, on: yearPicked },
-  ]
+  const barPill = bar.length ? [{ text: bar.length > 1 ? `${bar[0]} +${bar.length - 1}` : bar[0], on: true }] : []
+  const pills: { text: string; on: boolean }[] = question
+    ? barPill.length
+      ? barPill
+      : [{ text: 'Filtres', on: false }]
+    : [
+        { text: sex === 'M' ? 'Garçons' : sex === 'F' ? 'Filles' : 'Tous', on: sex !== 'all' },
+        // Saison en court (« 2026-27 ») : la ligne tient sur un téléphone.
+        ...(showPeriod ? [{ text: period === 'all' ? 'Depuis toujours' : `Saison ${seasonOf(today()).label.replace(/^(\d{4})-\d{2}(\d{2})$/, '$1-$2')}`, on: period === 'all' }] : []),
+        { text: yearText, on: yearPicked },
+        ...barPill,
+      ]
   return (
     <button
       type="button"
@@ -588,6 +610,9 @@ export type BilanState = {
   seenOpen: boolean
   /** Question posée au bilan (réponse géographique, src/bilanQuestion.ts) : recette sans son lieu, que porte le bilan ; null aucune. */
   q: Recipe | null
+  /** Barre de filtres (src/bilanFilters.ts) : ses filtres (null : aucun) et le nom cherché. */
+  f: Recipe | null
+  t: string
 }
 
 function parseBilan(q: URLSearchParams): BilanState {
@@ -611,6 +636,7 @@ function parseBilan(q: URLSearchParams): BilanState {
     club: q.get('c'),
     seenOpen: q.get('vus') === '1',
     q: decodeRecipe(q.get('q')),
+    ...parseBar(q.get('f'), q.get('t')),
   }
 }
 
@@ -629,6 +655,8 @@ function bilanQuery(st: BilanState): string {
   if (st.club !== null) q.set('c', st.club)
   if (st.seenOpen) q.set('vus', '1')
   if (st.q) q.set('q', encodeRecipe(st.q))
+  if (st.f) q.set('f', encodeBar(st.f))
+  if (st.t.trim()) q.set('t', st.t)
   return q.toString()
 }
 
@@ -639,7 +667,8 @@ function bilanQuery(st: BilanState): string {
  */
 export function bilanQuestionSearch(q: Recipe, p: Place): string {
   const base = parseBilan(new URLSearchParams(sessionQuery() ?? ''))
-  return bilanQuery({ ...base, q, region: p.region, dept: p.dept, club: p.club, seenOpen: false, view: 'map' })
+  // La question porte sa population : elle remplace les filtres de la barre (qui montre alors ses pastilles).
+  return bilanQuery({ ...base, q, f: null, t: '', region: p.region, dept: p.dept, club: p.club, seenOpen: false, view: 'map' })
 }
 
 /**
@@ -724,6 +753,8 @@ export function useBilanState() {
           /* stockage indisponible */
         }
     const next = { ...st, ...patch }
+    // Une année choisie au menu du bilan remplace des années posées dans la barre (une seule commande par notion).
+    if (patch.year !== undefined && patch.year !== null && !('f' in patch)) next.f = withoutYears(next.f)
     if (samePlace(st, next)) setParams(new URLSearchParams(bilanQuery(next)), { replace: true, state: loc.state })
     else goPlace(next)
   }
@@ -773,7 +804,9 @@ export function useBilanState() {
     }
     // Retour du navigateur sur un étage du bilan : on garde les filtres choisis entre-temps.
     if (navType === 'POP' && prev) {
-      const merged = { ...withPlace(prev, st), q: st.q }
+      // Retour qui sort d'une question (ou y entre) : la population de l'entrée retrouvée reste la sienne.
+      const qChanged = (prev.q ? encodeRecipe(prev.q) : '') !== (st.q ? encodeRecipe(st.q) : '')
+      const merged = { ...withPlace(prev, st), q: st.q, ...(qChanged ? { f: st.f, t: st.t, sex: st.sex, year: st.year } : {}) }
       if (bilanQuery(merged) !== bilanQuery(st)) setParams(new URLSearchParams(bilanQuery(merged)), { replace: true, state: loc.state })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -798,12 +831,31 @@ export function whoOrder(club: ClubCoverage<Player>, o: Onglet = 'vus') {
 /** Tout le monde (onglet « Licenciés »). */
 const EVERYONE = { has: () => true }
 
-/** Calculs du bilan pour un état donné (page, fiche ouverte depuis le bilan) ; refaits seulement quand un filtre ou les données changent. */
-export function useBilanModel(st: BilanState) {
+/**
+ * Calculs du bilan pour un état donné (page, fiche ouverte depuis le bilan) ; refaits seulement quand un filtre ou les données changent.
+ * Barre de filtres posée (st.f, st.t ; sans question) : la population est celle des joueurs qu'elle retient (moteur de la
+ * recette, src/playerQuery.ts selectPlayers, sur l'index des questions du bilan : `qm`), puis les filtres du bilan.
+ * `needFull` : la barre a besoin des données de la recette (condition en cours d'ajout, phrase).
+ */
+export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {}) {
   const data = useCoverageData()
   const lists = useDepartments()
   const national = can.nationalView(useRole())
   const nat = useNationalData(national, data?.players)
+  const popOn = !st.q && hasBarFilter(st.f, st.t)
+  // Données de la recette : question posée, filtres de la barre, ou barre qui en a besoin. Lues seulement alors.
+  const qm = useQuestionModel(!!st.q || popOn || !!opts.needFull)
+  const fKey = st.f ? encodeBar(st.f) : ''
+  const sel = useMemo(
+    () => (popOn && qm.index ? new Set(selectPlayers(qm.index, { recipe: st.f ?? EMPTY_RECIPE, q: st.t }, hayOf, tokensOf).list.map((p) => p.id)) : null),
+    [popOn, qm.index, fKey, st.t], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // Joueurs retenus (null : tous). Pendant le calcul d'un nouveau filtre, les précédents restent affichés.
+  const lastPop = useRef<Set<string> | null | undefined>(undefined)
+  const pop = !popOn ? null : (sel ?? lastPop.current)
+  if (pop !== undefined) lastPop.current = pop
+  const popLoading = popOn && !sel
+  const players = useMemo(() => (data && pop ? data.players.filter((p) => pop.has(p.id)) : data?.players), [data, pop])
   const { onglet, sex, period, year, region, dept } = st
   // Lieu d'un joueur : département du n° de club (ou de licence, ou saisi), région selon la liste des départements.
   const place = useMemo<PlaceOf<Player>>(() => ({ deptOf: department, regionOf: (d) => regionOfDept(d) }), [lists]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -814,10 +866,10 @@ export function useBilanModel(st: BilanState) {
     onglet === 'vus' ? last : onglet === 'licencies' ? EVERYONE : onglet === 'mesures' ? nat?.staff : nat?.spotted
   const counted = hit ?? EVERYONE
   // Carte : sexe et année (elle montre tous les lieux).
-  const forMap = useMemo(() => (data ? filterPlayers(data.players, { sex, year }, place) : []), [data, sex, year, place])
+  const forMap = useMemo(() => (players ? filterPlayers(players, { sex, year }, place) : []), [players, sex, year, place])
   const byPlace = useMemo(() => coverageByPlace(forMap, counted, place), [forMap, counted, place])
   // Générations : sexe et lieu (chaque carte est une année).
-  const inPlace = useMemo(() => (data ? filterPlayers(data.players, { sex, region, dept }, place) : []), [data, sex, region, dept, place])
+  const inPlace = useMemo(() => (players ? filterPlayers(players, { sex, region, dept }, place) : []), [players, sex, region, dept, place])
   const years = useMemo(() => coverageByYear(inPlace, counted), [inPlace, counted])
   // Clubs : tous les filtres.
   const inScope = useMemo(() => (year === null ? inPlace : inPlace.filter((p) => birthYear(p) === year)), [inPlace, year])
@@ -849,7 +901,10 @@ export function useBilanModel(st: BilanState) {
   }, [data, year])
   const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
   return {
-    data: hit ? data : undefined,
+    data: hit && pop !== undefined ? data : undefined,
+    qm,
+    popOn,
+    popLoading,
     last,
     hit: counted,
     nat,
@@ -870,19 +925,27 @@ export function useBilanModel(st: BilanState) {
  * région, département et club du lieu affiché, clubs dans l'ordre de la question, valeur de chaque joueur qui répond.
  * Les données de la question ne sont lues que lorsqu'une question est posée.
  */
-export function useBilanQuestion(st: BilanState) {
-  const model = useQuestionModel(!!st.q)
+export function useBilanQuestion(st: BilanState, model: QuestionModel) {
   const { index, names } = model
   const recipe = st.q
   const answer = useMemo(() => (index && recipe ? runRecipe(index, recipe) : null), [index, recipe])
-  const points = useMemo(() => (index && recipe && answer ? questionPoints(index, recipe, answer) : null), [index, recipe, answer])
+  // Nom cherché dans la barre : seulement ces joueurs (la population de la question est dans sa recette).
+  const named = useMemo(
+    () => (index && recipe && st.t.trim() ? new Set(selectPlayers(index, { recipe: EMPTY_RECIPE, q: st.t }, hayOf, tokensOf).list.map((p) => p.id)) : null),
+    [index, recipe, st.t],
+  )
+  const points = useMemo(
+    () => (index && recipe && answer ? questionPoints(index, recipe, answer).filter((x) => !named || named.has(x.p.id)) : null),
+    [index, recipe, answer, named],
+  )
   const { region, dept } = st
   const agg = useMemo(() => (points && index ? aggregate(points, { region, dept }, (k) => index.clubNames.get(k) ?? k) : null), [points, index, region, dept])
   const kind = recipe ? valueKind(recipe) : 'count'
   const dir = recipe ? rankDir(recipe) : 'desc'
   const ranked = useMemo(() => (agg ? rankAgg(kind, agg.clubs.map((c) => [c.key, c] as [string, QClub<Player>]), dir).map(([, c]) => c) : []), [agg, kind, dir])
   // « Le club qui a le plus de… », « les 5 clubs… » : seulement les N premiers du lieu affiché (ex aequo compris).
-  const clubs = useMemo(() => (recipe ? [...limitClubs(recipe, kind, ranked)] : ranked), [recipe, kind, ranked])
+  // (Sans limite : la même liste, pour que `limited` reste faux ; une copie le rendait toujours vrai.)
+  const clubs = useMemo(() => (recipe && isTopClubs(recipe) ? [...limitClubs(recipe, kind, ranked)] : ranked), [recipe, kind, ranked])
   const limited = clubs !== ranked
   // Club choisi : retrouvé parmi tous (un club hors des N premiers reste ouvert, par l'adresse).
   const club = st.club === null ? undefined : ranked.find((c) => c.key === st.club)
@@ -1036,10 +1099,12 @@ export default function Coverage() {
   const { st, set, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, year, region, dept } = st
-  const bilan = useBilanModel(st)
+  // La barre de filtres a besoin des données de la recette (condition ajoutée, phrase) : lues par le modèle du bilan.
+  const [barFull, setBarFull] = useState(false)
+  const bilan = useBilanModel(st, { needFull: barFull })
   const { data, last, nat, years, kpis, allYears, yearText } = bilan
   // Question posée au bilan : carte, listes et clubs montrent sa valeur (sur la carte seulement, sans les filtres du bilan).
-  const bq = useBilanQuestion(st)
+  const bq = useBilanQuestion(st, bilan.qm)
   const Q = st.q && bq.ready && bq.agg && bq.texts ? { ...bq, agg: bq.agg, texts: bq.texts } : null
   const view: View = st.q ? 'map' : st.view
   const byPlace = Q ? { ...Q.agg.all, byDept: Q.agg.byDept, byRegion: Q.agg.byRegion, noDept: Q.agg.noDept } : bilan.byPlace
@@ -1081,6 +1146,32 @@ export default function Coverage() {
     const top = (x: Map<string, number>) => [...x].sort((a, b) => b[1] - a[1])[0]?.[0]
     return [...m].map(([key, c]) => ({ key, name: top(c.names)!, dept: top(c.depts) }))
   }, [data])
+  // Barre de filtres : la même que la liste Joueurs (src/components/PlayersQuery.tsx) ; sa requête est l'état du bilan
+  // (adresse), passée par src/bilanFilters.ts (sexe, année et lieu : les commandes du bilan).
+  const barState: BarState = { sex, year, region, dept, club: st.club, f: st.q ? null : st.f, t: st.t, q: st.q }
+  const barKey = JSON.stringify([sex, year, region, dept, st.club, st.q ? null : st.f, st.t, st.q])
+  const [barCalc, setBarCalc] = useSessionState<Output | null>('handbase.bilan-barre.calcul', null)
+  const barValue = useMemo(() => barQuery(barState, barCalc ?? undefined), [barKey, barCalc]) // eslint-disable-line react-hooks/exhaustive-deps
+  const barHide = useMemo(() => barHidden(barState), [barKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const barPlayers = useMemo(() => (data ? livePlayers(data.players) : undefined), [data])
+  const bar = usePlayersQuery(barPlayers, {
+    dock: false,
+    scope: 'bilan-barre',
+    hosted: {
+      value: barValue,
+      onChange: (next) => {
+        const { patch, calc } = fromBar(next, barState, (d) => regionOfDept(d), (k) => voiceClubs.find((c) => c.key === k)?.dept)
+        setBarCalc(calc ?? null)
+        set({ ...patch, seenOpen: samePlace(st, patch) ? st.seenOpen : false })
+      },
+      hidden: barHide,
+      hideSex: !st.q,
+      hideYear: !st.q,
+      compact: !phone,
+      full: bilan.qm,
+    },
+  }).parts
+  useEffect(() => setBarFull(bar.wantFull), [bar.wantFull])
   // Clubs du département sur la carte (structure importée) : points, échelle de couleurs des clubs, clubs sans position.
   const units = useUnits()
   const [hot, setHot] = useState<string | null>(null)
@@ -1224,7 +1315,7 @@ export default function Coverage() {
   const clubList = (inline: boolean, linked = false) =>
     clubs.length ? (
       <ClubList
-        key={`${o}|${sex}|${year}|${region}|${dept}|${period}|${st.q ? encodeRecipe(st.q) : ''}`}
+        key={`${o}|${sex}|${year}|${region}|${dept}|${period}|${st.q ? encodeRecipe(st.q) : ''}|${st.f ? encodeBar(st.f) : ''}|${st.t}`}
         clubs={clubs}
         inline={inline}
         selected={club?.key}
@@ -1364,6 +1455,24 @@ export default function Coverage() {
           ? 'Joueurs avec au moins une mesure prise par le staff.'
           : 'Joueurs correspondant à mes profils recherchés.'
 
+  // Barre de filtres : champ et « Filtres » au bout de la ligne des filtres du bilan ; dessous (seulement s'il y a quelque
+  // chose) : ligne de résultat d'une phrase, pastilles, panneau des filtres, calcul ou mode avancé.
+  const barRow = (
+    <div className="flex min-w-0 gap-2 sm:min-w-56 sm:flex-1">
+      {bar.field}
+      {bar.filtersButton}
+    </div>
+  )
+  const barBelow = (
+    <div className="flex flex-col gap-2 empty:hidden">
+      {bar.below}
+      {/* Ordinateur : le panneau des filtres sous le bouton « Filtres », à droite. */}
+      {bar.panel && <div className="flex flex-col gap-2 sm:w-[30rem] sm:max-w-full sm:self-end">{bar.panel}</div>}
+      {bar.top}
+      {bilan.popLoading && <p className="text-[11px] text-muted">Chargement des filtres…</p>}
+    </div>
+  )
+  const barSummary = [...bar.chipLabels, ...(st.t.trim() ? [`« ${st.t.trim()} »`] : [])]
   // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
   const filtersBlock = (
     <VoiceSearch<BilanVoice>
@@ -1373,12 +1482,14 @@ export default function Coverage() {
       label="Filtrer"
       input={
         <div className="min-w-0 flex-1">
-          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} year={year} setYear={pickYear} />
+          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} year={year} setYear={pickYear} extra={barRow} />
         </div>
       }
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
+  // Rapport Fédé : sur les joueurs retenus par la barre.
+  const reportSearch = bilan.popOn ? `?${new URLSearchParams([...(st.f ? [['f', encodeBar(st.f)]] : []), ...(st.t.trim() ? [['t', st.t]] : [])]).toString()}` : ''
 
   return (
     <WhoCtx.Provider value={who}>
@@ -1398,7 +1509,7 @@ export default function Coverage() {
             <p className="text-[11px] text-muted">{subtitle}</p>
           </div>
           {!phone && (
-          <Link to="/bilan/rapport" className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
+          <Link to={`/bilan/rapport${reportSearch}`} className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
             <Icon name="list" className="h-3.5 w-3.5" />
             Rapport Fédé
           </Link>
@@ -1408,8 +1519,8 @@ export default function Coverage() {
             dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
         {!phone && <AskQuestion />}
         {!(phone && questionReady) && savedQuestions}
-        {/* Téléphone : les filtres résumés en pastilles ; un toucher ouvre le panneau des filtres. */}
-        {phone && !Q && (
+        {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
+        {phone && (
           <FilterSummary
             sex={sex}
             period={period}
@@ -1418,18 +1529,23 @@ export default function Coverage() {
             yearPicked={year !== null}
             open={filtersOpen}
             onToggle={() => setFiltersOpen(!filtersOpen)}
+            bar={barSummary}
+            question={!!Q}
           />
         )}
-        {/* Question posée : ses propres filtres (pastilles), pas ceux du bilan. */}
-        {!Q && (!phone || filtersOpen) && (
-        phone ? (
-          <div id="bilan-filtres" className="card p-2">
-            {filtersBlock}
-          </div>
-        ) : (
-          filtersBlock
-        )
-        )}
+        {/* Question posée : la barre montre et change SA population (sexe et année compris) ; les commandes du bilan sont cachées. */}
+        {(!phone || filtersOpen) &&
+          (phone ? (
+            <div id="bilan-filtres" className="card flex flex-col gap-2 p-2">
+              {Q ? barRow : filtersBlock}
+              {barBelow}
+            </div>
+          ) : (
+            <>
+              {Q ? barRow : filtersBlock}
+              {barBelow}
+            </>
+          ))}
         {/* Question posée : un bandeau à la place des onglets (✕ revient aux onglets). */}
         {Q && st.q && (
           <QuestionBanner
@@ -1443,7 +1559,7 @@ export default function Coverage() {
             level={dept ? 'par club' : region || mapBy === 'dept' ? 'par département' : 'par région'}
             heard={(loc.state as { heard?: string } | null)?.heard}
             onChange={(r) => set({ q: r })}
-            onClose={() => set({ q: null })}
+            onClose={() => set(closeQuestion(st.q!))}
           />
         )}
         {/* Onglets de mesure (administrateurs) : chacun montre sa valeur pour les filtres et le lieu choisis (chiffres clés). */}
@@ -1713,7 +1829,7 @@ export default function Coverage() {
             </div>
           )}
           <div className="flex gap-2">
-            <Link to="/bilan/rapport" className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
+            <Link to={`/bilan/rapport${reportSearch}`} className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
               <Icon name="list" className="h-3.5 w-3.5" />
               Rapport Fédé
             </Link>
@@ -1740,6 +1856,8 @@ export default function Coverage() {
 // ---------- Question posée au bilan : bandeau et joueurs d'un club ----------
 
 type QuestionTexts = ReturnType<typeof questionTexts>
+/** Pastilles de la sortie d'une question (le reste est dans la barre de filtres). */
+const OUT_CHIPS = new Set(['out', 'value', 'keep', 'limit', 'outPeriod', 'sort'])
 
 /**
  * Bandeau d'une question posée au bilan, à la place des onglets : « ✨ Nombre de joueurs par club · Var (83) ✕ » (une
@@ -1812,7 +1930,8 @@ function QuestionBanner({
       {editing && (
         <div className="card flex flex-col gap-1.5 p-2">
           {heard && <p className="text-[11px] text-muted">Entendu : « {heard} »</p>}
-          <RecipeChips recipe={recipe} names={names} model={{ names, criteria, events }} onChange={change} />
+          {/* Sa population (sexe, année, conditions) : dans la barre de filtres ; ici, ce que la question calcule. */}
+          <RecipeChips recipe={recipe} names={names} model={{ names, criteria, events }} onChange={change} keep={(c) => OUT_CHIPS.has(c.key)} />
           <p className="text-[10px] text-muted">Le lieu se choisit sur la carte ; la question le garde.</p>
         </div>
       )}
@@ -2035,6 +2154,8 @@ const pct = (t: Tally) => (t.total ? `${percent(t.seen, t.total)} %` : '–')
 /**
  * Rapport pour la fédération, à imprimer (ou enregistrer en PDF) : seulement des nombres par génération, sexe et club,
  * et les totaux ; aucun nom de joueur. Feuille blanche à l'écran comme à l'impression.
+ * Ouvert depuis un bilan filtré par sa barre (/bilan/rapport?f=…&t=…) : sur les joueurs qu'elle retient, filtres écrits
+ * en tête du rapport.
  */
 export function CoverageReport() {
   const role = useRole()
@@ -2043,10 +2164,31 @@ export function CoverageReport() {
   const info = periodInfo(period)
   const lists = useDepartments()
   const regionLabel = useRegionLabel()
-  const report = useMemo(
-    () => (data ? fedReport(data.players, lastSights(data.sights, periodInfo(period).range), { deptOf: department, regionOf: (d) => regionOfDept(d) }) : null),
-    [data, period, lists], // eslint-disable-line react-hooks/exhaustive-deps
+  const [params] = useSearchParams()
+  const bar = useMemo(() => parseBar(params.get('f'), params.get('t')), [params])
+  const popOn = hasBarFilter(bar.f, bar.t)
+  const qm = useQuestionModel(popOn)
+  const pop = useMemo(
+    () => (popOn && qm.index ? new Set(selectPlayers(qm.index, { recipe: bar.f ?? EMPTY_RECIPE, q: bar.t }, hayOf, tokensOf).list.map((p) => p.id)) : null),
+    [popOn, qm.index, bar],
   )
+  const report = useMemo(
+    () =>
+      data && (!popOn || pop)
+        ? fedReport(pop ? data.players.filter((p) => pop.has(p.id)) : data.players, lastSights(data.sights, periodInfo(period).range), {
+            deptOf: department,
+            regionOf: (d) => regionOfDept(d),
+          })
+        : null,
+    [data, period, lists, popOn, pop], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // Filtres de la barre, en mots (« Arrière gauche · né en 2010 ») ; jamais un nom de joueur (recherche par nom : dite comme telle).
+  const filterText = popOn
+    ? [
+        ...(bar.f ? recipeChips(bar.f, qm.names).filter((c) => !['out', 'limit', 'sort', 'period', 'names'].includes(c.key)).map((c) => c.label) : []),
+        ...(bar.t.trim() || bar.f?.pop.names ? ['recherche par nom'] : []),
+      ].join(' · ')
+    : ''
   // Régions par ordre alphabétique, région inconnue à la fin.
   const regions = useMemo(
     () => (report ? [...report.regions].sort((a, b) => (!a.region ? 1 : !b.region ? -1 : regionLabel(a.region).localeCompare(regionLabel(b.region), 'fr'))) : []),
@@ -2083,6 +2225,7 @@ export function CoverageReport() {
           <div>
             Édité le {fmtDate(today())} · Période : {info.long}
           </div>
+          {filterText && <div>Joueurs retenus : {filterText}</div>}
           <div className="text-neutral-600">Un joueur est compté « vu » dès qu’un membre du staff l’a marqué vu ou a donné un avis sur lui. Chiffres : vus/joueurs dans la base ; G. garçons, F. filles, Ens. ensemble.</div>
         </div>
 

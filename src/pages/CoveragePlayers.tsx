@@ -47,7 +47,7 @@ export default function CoveragePlayers() {
   const bilan = useBilanModel(st)
   const { data, last, hit, yearText } = bilan
   // Question posée : ses joueurs du club (ceux qui répondent), dans l'ordre de la question.
-  const bq = useBilanQuestion(st)
+  const bq = useBilanQuestion(st, bilan.qm)
   const Q = st.q ? bq : null
   const club = Q ? Q.club : bilan.club
   const name = club ? clubLabel(club.name) : 'Bilan de détection'

@@ -50,7 +50,7 @@ import {
   type FilterKey,
   type JoueursQuery,
 } from '../playerQuery'
-import { useQuestionModel, useRecipeNames } from '../questionModel'
+import { useQuestionModel, useRecipeNames, type QuestionModel } from '../questionModel'
 import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
@@ -118,10 +118,28 @@ let contextIds: string[] = []
 export const playersContext = () => contextIds
 
 /**
+ * Barre posée sur un autre écran que la liste Joueurs (bilan de détection, src/pages/Coverage.tsx) : sa requête vient de
+ * l'écran (`value`, `onChange` : l'adresse), quelques filtres sont des commandes de l'écran (`hidden` : pas de pastille,
+ * pas comptés, menus `hideSex` / `hideYear` cachés), pas de tri ni de « Mes questions » (l'écran a les siens), champ
+ * compact (`compact`), données de la recette fournies par l'écran (`full`).
+ */
+export type HostedBar = {
+  value: JoueursQuery
+  onChange: (q: JoueursQuery) => void
+  hidden: ReadonlySet<FilterKey>
+  hideSex?: boolean
+  hideYear?: boolean
+  compact?: boolean
+  full?: QuestionModel
+}
+
+/**
  * Filtres d'une liste de joueurs. `scope` : autre liste que Joueurs (ajout de joueurs à un événement ou un groupe :
  * « ajout-evenement », « ajout-groupe ») : son propre état de session, sans toucher à la liste Joueurs ni à son ‹ ›.
+ * `hosted` : barre posée sur un autre écran (le bilan), voir HostedBar.
  */
-export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boolean; scope?: string }) {
+export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boolean; scope?: string; hosted?: HostedBar }) {
+  const hosted = opts.hosted
   const wide = useMedia(MQ.xl)
   const docked = opts.dock && wide
   const keys = opts.scope
@@ -132,12 +150,24 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const { questionReady, sqlReady } = useDictation()
 
   // ---------- État (session) ----------
-  const [rawQuery, setRawQuery] = useSessionState<unknown>(keys.query, (() => {
+  const [sessionQuery, setSessionQuery] = useSessionState<unknown>(keys.query, (() => {
     const sex = readSex()
     return { ...EMPTY_QUERY, recipe: { ...EMPTY_QUERY.recipe, pop: sex !== 'all' ? { sex } : {} } }
   })())
+  // Barre posée sur un autre écran : la requête est celle de l'écran (son adresse).
+  const rawQuery = hosted ? hosted.value : sessionQuery
+  const setRawQuery = (v: unknown) => (hosted ? hosted.onChange(cleanQuery(v)) : setSessionQuery(v))
   const qy = useMemo(() => cleanQuery(rawQuery), [rawQuery])
-  const [text, setText] = useSessionState(keys.text, qy.q)
+  const [sessionText, setSessionText] = useSessionState(keys.text, qy.q)
+  const [hostedText, setHostedText] = useState(qy.q)
+  const [text, setText] = hosted ? [hostedText, setHostedText] : [sessionText, setSessionText]
+  // Nom cherché changé par l'écran (retour, adresse) : le champ le reprend (pas pendant la frappe).
+  const sentQ = useRef(qy.q)
+  useEffect(() => {
+    if (!hosted || qy.q === sentQ.current) return
+    sentQ.current = qy.q
+    if (isNameQuery(text)) setText(qy.q)
+  }, [qy.q]) // eslint-disable-line react-hooks/exhaustive-deps
   const [result, setResult] = useSessionState<ResultLine | null>(keys.result, null)
   const [rawSql, setSql] = useSessionState<SqlState | null>(keys.sql, null)
   const sql = useMemo(() => {
@@ -157,7 +187,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
 
   const setQy = (next: JoueursQuery) => {
     const clean = cleanQuery(next)
-    if ((clean.recipe.pop.sex ?? 'all') !== (qy.recipe.pop.sex ?? 'all')) writeSex(clean.recipe.pop.sex ?? 'all')
+    if (!hosted && (clean.recipe.pop.sex ?? 'all') !== (qy.recipe.pop.sex ?? 'all')) writeSex(clean.recipe.pop.sex ?? 'all')
+    sentQ.current = clean.q
     setRawQuery(clean)
     if (clean.q !== qy.q && isNameQuery(text) && clean.q !== text) setText(clean.q)
   }
@@ -170,7 +201,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
 
   // ---------- Données ----------
   const wantFull = needsFullData(qy) || asked || !!sql || !!pending || more
-  const full = useQuestionModel(wantFull)
+  const ownFull = useQuestionModel(wantFull && !hosted?.full)
+  const full = hosted?.full ?? ownFull
   const light = useLiveQuery(async () => {
     const [measures, criteria, groups, events] = await Promise.all([
       db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(),
@@ -234,7 +266,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   useEffect(() => {
     const q = nameMode ? text.replace(/\s+/g, ' ').trim() : ''
     if (q === qy.q.trim()) return
-    const t = window.setTimeout(() => setRawQuery({ ...qy, q }), q ? 150 : 0)
+    const t = window.setTimeout(() => {
+      sentQ.current = q
+      setRawQuery({ ...qy, q })
+    }, q ? 150 : 0)
     return () => window.clearTimeout(t)
   }, [text, nameMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -342,8 +377,11 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const year = p.years && p.years[0] === p.years[1] ? String(p.years[0]) : p.years ? `${p.years[0]}-${p.years[1]}` : ''
   const position: Position | 'all' | 'none' = p.noPosition ? 'none' : p.positions?.length === 1 ? p.positions[0] : 'all'
 
+  // Filtres visibles (barre posée : sans ceux que l'écran commande lui-même).
+  const shownKeys = activeKeys(qy).filter((k) => !hosted?.hidden.has(k))
   const reset = () => {
-    setQy(EMPTY_QUERY)
+    // Barre posée : « Tout effacer » retire ses pastilles, pas les commandes de l'écran (sexe, année, lieu).
+    setQy(hosted ? removeKeys({ ...qy, calc: undefined }, shownKeys) : EMPTY_QUERY)
     setText('')
     setResult(null)
     setSql(null)
@@ -379,6 +417,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const saved = useSavedQuestions()
   const panel = (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+      {!hosted?.hideSex && (
       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
         {(
           [
@@ -392,7 +431,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2">
+      )}
+      <div className={hosted?.hideYear ? 'grid' : 'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2'}>
+        {!hosted?.hideYear && (
         <select
           className={`field px-2 py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`}
           aria-label="Année de naissance"
@@ -407,6 +448,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
             </option>
           ))}
         </select>
+        )}
         <select
           className={`field px-2 py-1.5 text-xs ${p.quarter ? `font-bold ${QUARTER_ACTIVE[p.quarter - 1]}` : ''}`}
           aria-label="Trimestre de naissance"
@@ -619,7 +661,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           </div>
         )}
       </div>
-      <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} />
+      {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} />}
+      {!hosted && (
       <SavedOnList
         saved={saved}
         onApply={(q) => {
@@ -631,12 +674,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           setResult(null)
         }}
       />
+      )}
     </div>
   )
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
-  const nChips = activeKeys(qy).filter((k) => k !== 'q').length
-  const keepChip = (c: Chip) => c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length)
+  const nChips = shownKeys.filter((k) => k !== 'q').length
+  const keepChip = (c: Chip) =>
+    c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length) && !hosted?.hidden.has(c.key as FilterKey)
   const field = (
     <form
       className="flex min-w-0 flex-1 gap-2"
@@ -646,7 +691,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       }}
     >
       <input
-        className="field min-h-11 min-w-0 flex-1"
+        className={`field min-w-0 flex-1 ${hosted?.compact ? 'min-h-8 py-1 text-xs' : 'min-h-11'}`}
         data-search
         type="search"
         enterKeyHint={nameMode ? 'search' : 'send'}
@@ -660,7 +705,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         onFocus={() => questionReady && !asked && setAsked(true)}
       />
       {questionReady && !nameMode && (
-        <button type="submit" className="btn-primary min-h-11 shrink-0 px-3 text-sm" disabled={sending || rec} aria-label="Appliquer la phrase">
+        <button type="submit" className={`btn-primary shrink-0 px-3 text-sm ${hosted?.compact ? 'min-h-8 py-0' : 'min-h-11'}`} disabled={sending || rec} aria-label="Appliquer la phrase">
           <span aria-hidden>✨</span>
         </button>
       )}
@@ -703,7 +748,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       type="button"
       onClick={() => setOpen(!open)}
       aria-expanded={open}
-      className={`min-h-11 shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
     >
       Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
     </button>
@@ -762,7 +807,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       open={chipOpen}
       setOpen={setChipOpen}
       after={
-        hasQuery(qy) || qy.calc ? (
+        (hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? (
           <>
             <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
               Tout effacer
@@ -879,7 +924,30 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
 
   /** Change dès qu'un filtre change (pas quand les données se mettent à jour). */
   const signature = JSON.stringify([qy.recipe, qy.q, sql?.spec.sql ?? ''])
-  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql }
+  // Barre posée : ses morceaux, que l'écran place lui-même (champ et « Filtres » sur la ligne de ses filtres, le reste dessous).
+  const parts = {
+    field,
+    filtersButton,
+    below: (
+      <>
+        {status}
+        {chips}
+        {saveForm}
+      </>
+    ),
+    panel: open ? (
+      <>
+        {panel}
+        {privacy}
+      </>
+    ) : null,
+    top,
+    open,
+    nChips,
+    chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
+    wantFull,
+  }
+  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts }
 }
 
 // ---------- Petits composants ----------
