@@ -1,8 +1,9 @@
 import { geoConicConformal, geoPath } from 'd3-geo'
-import type { FeatureCollection, Geometry } from 'geojson'
+import type { FeatureCollection, Geometry, MultiLineString } from 'geojson'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { focusProjection, spreadDots } from '../clubMap'
 import { regionOfDept, useDepartments } from '../lists'
+import { fitFont, inkOn, inside, LABEL_INK, parseCssColor, poleOfInaccessibility, type Poly, type Pt } from '../mapLabels'
 import { insetPaths, OTHER_OM, OUTRE_MER, type OutreMerGeo } from '../outreMer'
 
 /*
@@ -181,6 +182,22 @@ export interface MapDots {
 /** Zone d'appui minimale d'un point (rayon, px à l'écran) : 24 px de diamètre au moins. */
 const HIT = 12
 
+/**
+ * Chiffres dans les zones (prop zoneLabel) : taille visée à l'écran (px CSS), selon la largeur de la carte (`s` : px par
+ * unité ; téléphone ≈ 0,57, ordinateur ≈ 0,9) ; une zone trop petite descend jusqu'à LABEL_MIN puis n'a pas de chiffre.
+ */
+const labelPx = (isRegion: boolean, s: number) => Math.min(isRegion ? 17 : 15, Math.max(12, 10 + (isRegion ? 6 : 5) * s))
+const LABEL_MIN = 9
+
+/** Polygones d'un ensemble de départements, projetés (repère de la carte). */
+function projPolys(fs: Feature[], P: (c: number[]) => Pt): Poly[] {
+  return fs.flatMap((f) => {
+    const g = f.geometry
+    const ps = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+    return ps.map((p) => p.map((r) => r.map(P)))
+  })
+}
+
 export function FranceMap({
   region,
   selected,
@@ -195,6 +212,7 @@ export function FranceMap({
   others = false,
   dots,
   passive = false,
+  zoneLabel,
 }: {
   /** Région montrée de plus près ('' : toute la France). */
   region: string
@@ -226,6 +244,12 @@ export function FranceMap({
   dots?: MapDots
   /** Zones sans appui ni bulle (seuls les points se touchent) : carte d'une réponse, pas de navigation par lieu. */
   passive?: boolean
+  /**
+   * Chiffre écrit dans une zone (même valeur que la bulle) ; undefined : pas de chiffre (hors périmètre, sans donnée).
+   * Vue France : un chiffre par région (isRegion) ; région agrandie : un par département ; encarts ultramarins : le leur.
+   * Rien sur la carte d'un département (points des clubs) ni avec des points.
+   */
+  zoneLabel?: (code: string, isRegion: boolean) => string | undefined
 }) {
   const geo = useGeo()
   const om = useOutreMer()
@@ -386,9 +410,10 @@ export function FranceMap({
   // peut être réduite en hauteur, elle est alors centrée). Mesuré à chaque changement de taille.
   const svgRef = useRef<SVGSVGElement>(null)
   const [fit, setFit] = useState({ s: 1, ox: 0, oy: 0 })
+  const wantLabels = !!zoneLabel && !passive && !!shapes && !focused && !withDots && !domOnly
   useLayoutEffect(() => {
     const el = svgRef.current
-    if (!withDots || !el || !shapes) return
+    if (!(withDots || wantLabels) || !el || !shapes) return
     const measure = () => {
       const r = el.getBoundingClientRect()
       const b = box.current?.getBoundingClientRect()
@@ -400,7 +425,121 @@ export function FranceMap({
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [withDots, shapes])
+  }, [withDots, wantLabels, shapes])
+
+  // Chiffres dans les zones : point intérieur de chaque zone (pôle d'inaccessibilité, src/mapLabels.ts), calculé une fois
+  // par tracé. Vue France : les régions (même quand la couleur est celle des départements) ; région agrandie : ses départements.
+  const anchors = useMemo(() => {
+    if (!wantLabels || !geo || !regionGeo || !shapes?.dotProj) return []
+    const proj = shapes.dotProj
+    const P = (c: number[]): Pt => {
+      const p = proj(c as [number, number])
+      return p ? [p[0], p[1]] : [NaN, NaN]
+    }
+    const zones: [string, Feature[], boolean][] = []
+    if (shapes.zoomed) {
+      const by = new Map<string, Feature[]>()
+      for (const f of regionGeo.by.get(region) ?? []) {
+        const c = codeOf(f.properties.code)
+        by.set(c, [...(by.get(c) ?? []), f])
+      }
+      for (const [c, fs] of by) zones.push([c, fs, false])
+    } else for (const [r, fs] of regionGeo.by) zones.push([r, fs, true])
+    return zones.flatMap(([code, fs, isRegion]) => {
+      const polys = projPolys(fs, P)
+      const edges = (outline(fs) as MultiLineString).coordinates.map((l) => l.map(P))
+      const pole = poleOfInaccessibility(polys, edges, 0.5)
+      if (!pole) return []
+      // Département sous le chiffre : sa couleur décide de celle du texte (vue France par département).
+      const under = fs.find((f) => inside(pole.x, pole.y, projPolys([f], P)))
+      return [{ code, isRegion, polys, x: pole.x, y: pole.y, under: codeOf((under ?? fs[0]).properties.code) }]
+    })
+  }, [wantLabels, geo, regionGeo, shapes, region])
+  // Couleur du texte : claire ou foncée selon la luminance du fond, lue telle que le navigateur la calcule (variables du
+  // style de l'installation, fond propre de la carte en style Sport…). Relue quand le style ou le thème change.
+  const probe = useRef<HTMLSpanElement>(null)
+  const [styleVer, setStyleVer] = useState(0)
+  // Largeur réelle des chiffres dans la police de la carte (chiffres à chasse fixe selon le style : « % » et espaces larges).
+  const [widthOf, setWidthOf] = useState<((t: string) => number) | null>(null)
+  useLayoutEffect(() => {
+    const el = probe.current
+    const ctx = el && document.createElement('canvas').getContext('2d')
+    if (!el || !ctx) return
+    const cs = getComputedStyle(el)
+    ctx.font = `800 100px ${cs.fontFamily}`
+    const cache = new Map<string, number>()
+    setWidthOf(() => (t: string) => {
+      let w = cache.get(t)
+      if (w === undefined) cache.set(t, (w = ctx.measureText(t).width / 100))
+      return w
+    })
+  }, [wantLabels, styleVer])
+  useEffect(() => {
+    if (!wantLabels) return
+    const bump = () => setStyleVer((v) => v + 1)
+    const mo = new MutationObserver(bump)
+    mo.observe(document.documentElement, { attributes: true })
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+    mq?.addEventListener?.('change', bump)
+    // Police des chiffres chargée après coup : on remesure.
+    void document.fonts?.ready.then(bump)
+    return () => {
+      mo.disconnect()
+      mq?.removeEventListener?.('change', bump)
+    }
+  }, [wantLabels])
+  // Texte de chaque zone, puis taille qui tient (recalculée quand un chiffre ou la taille de la carte change).
+  const texts = wantLabels ? anchors.map((a) => zoneLabel!(a.code, a.isRegion) ?? '') : []
+  const textKey = texts.join('|')
+  const labels = useMemo(
+    () =>
+      anchors.flatMap((a, i) => {
+        const text = texts[i]
+        if (!text) return []
+        const f = fitFont(text, a.x, a.y, a.polys, labelPx(a.isRegion, fit.s) / fit.s, LABEL_MIN / fit.s, widthOf ?? undefined)
+        return f ? [{ ...a, text, f }] : []
+      }),
+    [anchors, textKey, fit.s, widthOf], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const fills = labels.map((l) => fill(l.under))
+  const fillKey = fills.join('|')
+  const [inks, setInks] = useState<Map<string, 'dark' | 'light'>>(new Map())
+  useLayoutEffect(() => {
+    const el = probe.current
+    if (!el || !fills.length) return
+    const next = new Map<string, 'dark' | 'light'>()
+    for (const c of new Set(fills)) {
+      el.style.backgroundColor = ''
+      el.style.backgroundColor = c
+      const rgb = parseCssColor(getComputedStyle(el).backgroundColor)
+      next.set(c, rgb ? inkOn(rgb) : 'dark')
+    }
+    setInks((m) => (m.size === next.size && [...next].every(([k, v]) => m.get(k) === v) ? m : next))
+  }, [fillKey, styleVer]) // eslint-disable-line react-hooks/exhaustive-deps
+  const labelEls =
+    labels.length > 0 ? (
+      <g aria-hidden="true" pointerEvents="none" className="tabular-nums" fontWeight={800} textAnchor="middle">
+        {labels.map((l, i) => {
+          const ink = LABEL_INK[inks.get(fills[i]) ?? 'dark']
+          return (
+            <text
+              key={l.code}
+              x={l.x.toFixed(1)}
+              y={l.y.toFixed(1)}
+              dominantBaseline="central"
+              fontSize={l.f.toFixed(2)}
+              fill={ink.fill}
+              stroke={ink.halo}
+              strokeWidth={(l.f * 0.22).toFixed(2)}
+              strokeLinejoin="round"
+              paintOrder="stroke"
+            >
+              {l.text}
+            </text>
+          )
+        })}
+      </g>
+    ) : null
   const items = withDots ? dots?.items : undefined
   const placed = useMemo(() => {
     if (!shapes?.dotProj || !items) return []
@@ -488,9 +627,13 @@ export function FranceMap({
   const big = domOnly
   const [iw, ih] = big ? INSET.big : INSET.small
   const tipIsRegion = !!tip?.code.startsWith('region-')
+  // Chiffre d'un encart ultramarin, sous son nom.
+  const omLabel = (code: string) => (zoneLabel && !passive ? zoneLabel(code, false) : undefined)
 
   return (
     <div ref={box} className="map-surface relative" onPointerLeave={() => !tip?.pinned && setTip(null)}>
+      {/* Couleur d'un fond telle que calculée ici (variables de la carte), pour choisir celle des chiffres. */}
+      {wantLabels && <span ref={probe} aria-hidden="true" className="pointer-events-none absolute size-0 overflow-hidden opacity-0 tabular-nums" />}
       {!shapes ? (
         <div className="flex aspect-square items-center justify-center text-xs text-muted">Chargement de la carte…</div>
       ) : domOnly ? null : (
@@ -542,6 +685,7 @@ export function FranceMap({
               .map((o) => <path key={o.region} d={o.d} fill="none" stroke="var(--color-fg)" strokeWidth={2.2} strokeLinejoin="round" pointerEvents="none" />)
           )}
           {!focused && withDots && dotEls}
+          {labelEls}
         </svg>
       )}
       {insets.length > 0 && (
@@ -572,6 +716,9 @@ export function FranceMap({
                   </span>
                 )}
                 <span className={`pointer-events-none w-full truncate text-center leading-tight font-bold text-muted ${big ? 'text-xs' : 'text-[9px]'}`}>{big ? t.name : t.short}</span>
+                {omLabel(t.code) && (
+                  <span className={`pointer-events-none w-full truncate text-center leading-tight font-extrabold text-fg tabular-nums ${big ? 'text-sm' : 'text-[11px]'}`}>{omLabel(t.code)}</span>
+                )}
               </button>
             )
           })}

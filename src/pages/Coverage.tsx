@@ -489,6 +489,8 @@ type Lens = {
   badge: (t: Tally) => ReactNode
   tip: (t?: Tally) => ReactNode
   label: (t: Tally) => string
+  /** Chiffre seul, écrit dans une zone de la carte (le même que celui de la bulle). */
+  short: (t: Tally) => string
   /** Légende : ce que dit la couleur, et l'ordre de l'échelle. */
   title?: string
   note?: string
@@ -530,6 +532,7 @@ function ongletLens(o: Onglet): Lens {
         noPlayerTip
       ),
     label: (t) => `${headline(o, t)} ${unit(o, t)}`,
+    short: (t) => headline(o, t),
     note: o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur',
   }
 }
@@ -972,6 +975,7 @@ function questionTexts(r: Recipe, names: Names) {
         noPlayerTip
       ),
     label: (t) => `${big(t)} ${small(t)}`,
+    short: big,
     title: legend,
     note: 'de la plus faible à la plus forte valeur',
   }
@@ -1563,6 +1567,12 @@ export default function Coverage() {
                     {isRegion && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses départements</div>}
                   </>
                 )
+              }}
+              zoneLabel={(code, isRegion) => {
+                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur.
+                if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
+                const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
+                return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
               }}
               dots={
                 clubMap
