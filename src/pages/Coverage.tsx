@@ -1098,9 +1098,7 @@ export default function Coverage() {
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
   const { st, set, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
-  const { onglet: o, sex, period, year, region, dept } = st
-  // Carte de France : toujours par région (la vue « Par département » de la France entière est retirée, trop chargée).
-  const mapBy = 'region' as 'region' | 'dept'
+  const { onglet: o, sex, period, mapBy, year, region, dept } = st
   // La barre de filtres a besoin des données de la recette (condition ajoutée, phrase) : lues par le modèle du bilan.
   const [barFull, setBarFull] = useState(false)
   const bilan = useBilanModel(st, { needFull: barFull })
@@ -1233,6 +1231,7 @@ export default function Coverage() {
   const setSex = (v: CoverageSex) => set({ sex: v })
   const setPeriod = (v: CoveragePeriod) => set({ period: v })
   const setView = (v: View) => set({ view: v })
+  const setMapBy = (v: 'region' | 'dept') => set({ mapBy: v })
   const closeClub = () => set({ club: null, seenOpen: false })
   const pickYear = (y: string | null) => set({ year: y, club: null, seenOpen: false })
   const goFrance = () => set({ region: '', dept: '', club: null, seenOpen: false })
@@ -1658,6 +1657,18 @@ export default function Coverage() {
           ) : (
           <section className="card flex flex-col gap-2 p-3 side:sticky side:top-[calc(var(--hdr)+1rem)]">
             {clubsAsSwitch}
+            {!region && (
+              <div className="[&_button]:min-h-8">
+                <Segmented<'region' | 'dept'>
+                  value={mapBy}
+                  onChange={setMapBy}
+                  options={[
+                    { value: 'region', label: 'Par région' },
+                    { value: 'dept', label: 'Par département' },
+                  ]}
+                />
+              </div>
+            )}
             <FranceMap
               region={region}
               selected={dept}
@@ -1683,7 +1694,9 @@ export default function Coverage() {
                 )
               }}
               zoneLabel={(code, isRegion) => {
-                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur.
+                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur. France « Par département » :
+                // aucun chiffre (ceux des régions sur les couleurs des départements étaient illisibles).
+                if (!region && mapBy === 'dept') return undefined
                 if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
                 return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
