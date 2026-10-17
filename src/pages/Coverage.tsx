@@ -1685,7 +1685,9 @@ export default function Coverage() {
                 )
               }}
               zoneLabel={(code, isRegion) => {
-                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur.
+                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur. France « Par département » :
+                // aucun chiffre (ceux des régions sur les couleurs des départements étaient illisibles).
+                if (!region && mapBy === 'dept') return undefined
                 if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
                 return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
