@@ -5,13 +5,18 @@ import { db, type Video } from '../db'
 import { momentAction, simultaneous, stepIn, timeline, timelineOf, TWO_MIN, type ActionKind, type Side } from '../matchSheet'
 import { applyCalibration, forgetUndo, lastUndo, onUndoChange, undoLast, updateSync, type SyncChange, type UndoEntry } from '../matchSync'
 import { can, useRole } from '../roles'
+import { filterQueue } from '../actionFilter'
 import { pendingOf, seqQueue, stepQueue, type SeqItem } from '../sequencer'
 import { fmtMoment } from '../videos'
 import { actionLabel, calibrated, plural, useActionWho } from './matchLabels'
 import { Icon } from './ui'
 import type { PlayerTools } from './VideoPlayer'
 import Sequencer from './Sequencer'
+import { useTypeFilter } from './TypeChips'
 import { PlaceMark } from './Videos'
+
+/** Types d'actions affichés au séquençage, gardés sur l'appareil. */
+const SEQ_TYPES_KEY = 'handbase.sequenceur.types'
 
 /*
  * Frise du match sous la vidéo : un repère par action de la feuille de match, à son temps vidéo (toutes les actions du
@@ -314,7 +319,11 @@ export default function MatchTimeline({
   // Séquençage en plein écran (mode édition) : action annoncée = repère choisi (sel), gardée en sortant du plein écran.
   const calibOk = !readOnly && can.calibrateMatch(role, { eventId, playerId })
   const seqOn = !!api.overlay && calibOk && !!ms
-  const queue: SeqItem[] = seqOn ? seqQueue(ms!) : []
+  // Types d'actions affichés au séquençage (actionFilter.ts) : la file ne garde que les actions montrées ; les masquées ne
+  // sont ni calées ni ignorées (rien n'est écrit pour elles), l'estimation se fait toujours sur toute la feuille.
+  const [types, setTypes] = useTypeFilter(SEQ_TYPES_KEY)
+  const fullQueue: SeqItem[] = seqOn ? seqQueue(ms!) : []
+  const queue = seqOn ? filterQueue(ms!, fullQueue, types) : []
   const pending = seqOn ? pendingOf(queue, sel && 'i' in sel && !sel.end ? `a${sel.i}` : undefined, now) : undefined
   useEffect(() => {
     if (pending && !(sel && 'i' in sel && !sel.end && sel.i === pending.i)) setSel({ i: pending.i })
@@ -620,6 +629,9 @@ export default function MatchTimeline({
       <Sequencer
         ms={ms}
         base={queue}
+        all={fullQueue}
+        types={types}
+        onTypes={setTypes}
         pending={pending}
         now={now}
         api={api}

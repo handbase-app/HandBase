@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Video, VideoMoment } from '../db'
-import { DEFAULT_DUR, embedOf, fmtMoment, momentAt, momentLabel, momentPosition, momentsOf, openUrl, passage, sourceLabel, stepMoment, type Embed } from '../videos'
+import { momentKind, nextVisible, positionIn, presentCats, prevVisible, stepVisible, visibleAt, visibleMoments } from '../actionFilter'
+import { DEFAULT_DUR, embedOf, fmtMoment, momentLabel, momentsOf, openUrl, passage, sourceLabel, type Embed } from '../videos'
+import TypeChips, { useTypeFilter } from './TypeChips'
 import { Icon } from './ui'
 import { useMedia } from '../layout'
 
@@ -324,6 +326,8 @@ function unlockOrientation(locked: { current: boolean }) {
 
 /** « 12:05 » / « 1:02:05 ». */
 const MUTE_KEY = 'handbase.video.muet'
+/** Types d'actions montrés parmi les moments (lecture), gardés sur l'appareil. */
+const MOMENT_TYPES_KEY = 'handbase.moments.types'
 const clock = (t?: number) => (t === undefined || !Number.isFinite(t) ? '--:--' : fmtMoment(Math.floor(t)))
 
 /**
@@ -658,12 +662,22 @@ export default function VideoPlayer({
     return () => ro.disconnect()
   }, [seq, immersive])
   const togglePanel = () => {
-    setPanelBox(immersive ? { top: topBar.current?.offsetHeight ?? 0, bottom: overlay.current?.offsetHeight ?? 0 } : { top: 0, bottom: 0 })
+    // Séquençage : le panneau s'arrête au-dessus du bandeau du séquenceur (« C'est ici » reste visible).
+    const seqH = seq ? (seqHost?.offsetHeight ?? 0) : 0
+    setPanelBox({ top: immersive ? (topBar.current?.offsetHeight ?? 0) : 0, bottom: (immersive ? (overlay.current?.offsetHeight ?? 0) : 0) + seqH })
     if (immersive) poke() // panneau ouvert : commandes affichées, masquées ensemble ensuite
     setPanel((o) => !o)
   }
   // Plein écran : moment en cours relu deux fois par seconde (libellé du haut, ligne surlignée du panneau).
   const hasMoments = moments.length > 0
+  // Types d'actions montrés (actionFilter.ts) : liste, ⏮ ⏭, P / N et « Voir les actions » ne passent que par eux.
+  const [mtypes, setMtypes] = useTypeFilter(MOMENT_TYPES_KEY)
+  const vis = visibleMoments(moments, mtypes)
+  const visRef = useRef(vis)
+  visRef.current = vis
+  const mPresent = presentCats(moments.map(momentKind))
+  const mChips = (tone: 'video' | 'app', className = '') =>
+    mPresent.length > 1 && <TypeChips present={mPresent} filter={mtypes} onChange={setMtypes} tone={tone} className={className} />
   const [, tickFs] = useState(0)
   useEffect(() => {
     if (!fs || !hasMoments) return
@@ -798,7 +812,9 @@ export default function VideoPlayer({
       // La personne a avancé ou reculé elle-même : on la laisse regarder.
       if (t < at - 2 || t > end + 3) return setRun(null)
       if (t >= end || ctl.ended()) {
-        if (run.seq && run.i < moments.length - 1) start({ i: run.i + 1, seq: true })
+        // Enchaînement : moment montré suivant (types cochés).
+        const nx = run.seq ? nextVisible(visRef.current, run.i) : undefined
+        if (nx !== undefined) start({ i: nx, seq: true })
         else stop()
       }
     }, 250)
@@ -825,18 +841,19 @@ export default function VideoPlayer({
   const cur = run ? moments[run.i] : undefined
   // ⏮ ⏭ : depuis le moment lu (passage ou enchaînement), sinon d'après le temps. Pendant « Voir les actions »,
   // l'enchaînement continue depuis le moment choisi.
-  const stepTo = (dir: -1 | 1) => stepMoment(moments, dir, ctl?.time(), run?.i)
+  const stepTo = (dir: -1 | 1) => stepVisible(moments, vis, dir, ctl?.time(), run?.i)
   const goTo = (i: number) => start({ i, seq: !!run?.seq })
   const goStep = (dir: -1 | 1) => {
     const j = stepTo(dir)
     if (j !== undefined) goTo(j)
   }
   const step = canPlay && hasMoments ? { to: stepTo, go: goStep } : undefined
+  const playAll = () => vis.length && start({ i: vis[0], seq: true })
   // Frise du match (calage) : N y veut dire « passer », les touches restent les siennes.
   stepRef.current = step && !bar ? goStep : undefined
   // Plein écran : moment en cours (lu, sinon celui dont le passage contient le temps) pour le libellé et le panneau.
-  const fsCur = fs && hasMoments ? (run?.i ?? momentAt(moments, ctl?.time())) : undefined
-  const fsLabel = fsCur !== undefined && moments[fsCur] ? momentPosition(moments, fsCur) : undefined
+  const fsCur = fs && hasMoments ? (run?.i ?? visibleAt(moments, vis, ctl?.time())) : undefined
+  const fsLabel = fsCur !== undefined && moments[fsCur] ? positionIn(moments, vis, fsCur, mtypes) : undefined
   const api: PlayerTools = {
     ready: !!ctl && canPlay,
     time: () => ctl?.time(),
@@ -959,12 +976,14 @@ export default function VideoPlayer({
                   onPointerDownCapture={immersive ? poke : undefined}
                 >
                   <div className="flex shrink-0 items-center gap-1 px-3 py-1">
-                    <span className="min-w-0 flex-1 truncate text-xs font-bold text-white/80">Moments ({moments.length})</span>
-                    {moments.length > 1 && (
+                    <span className="min-w-0 flex-1 truncate text-xs font-bold text-white/80">
+                      {vis.length < moments.length ? `Moments ${vis.length}/${moments.length}` : `Moments (${moments.length})`}
+                    </span>
+                    {vis.length > 1 && (
                       <button
                         className="inline-flex h-11 shrink-0 items-center gap-1 rounded px-2 text-xs font-bold text-white/90 hover:bg-white/10"
-                        title="Voir les actions : tous les moments à la suite"
-                        onClick={() => (start({ i: 0, seq: true }), setPanel(false))}
+                        title="Voir les actions : les moments affichés à la suite"
+                        onClick={() => (playAll(), setPanel(false))}
                       >
                         <Icon name="play" className="h-3 w-3" filled />
                         Voir les actions
@@ -974,8 +993,11 @@ export default function VideoPlayer({
                       <Icon name="close" className="h-5 w-5" />
                     </button>
                   </div>
+                  {mChips('video', 'shrink-0 px-2 pb-2')}
                   <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-2 pb-2">
+                    {!vis.length && <p className="px-1 text-xs text-white/70">Aucun moment de ces types : coche un type ci-dessus.</p>}
                     {moments.map((m, i) => {
+                      if (!vis.includes(i)) return null
                       const active = fsCur === i
                       return (
                         <button
@@ -1061,7 +1083,7 @@ export default function VideoPlayer({
             <div className="flex items-center gap-2 rounded-md border border-accent/50 bg-panel-2 px-2 py-1.5" role="status">
               <span className="min-w-0 flex-1 truncate text-xs">
                 <span className="font-bold">
-                  Action {run.i + 1}/{moments.length}
+                  Action {vis.indexOf(run.i) + 1}/{vis.length}
                 </span>
                 {cur.note ? ` — ${cur.note}` : ` — ${fmtMoment(cur.at)}`}
               </span>
@@ -1069,8 +1091,11 @@ export default function VideoPlayer({
                 className="rounded p-1 text-muted hover:text-fg disabled:opacity-30"
                 title="Action précédente"
                 aria-label="Action précédente"
-                disabled={run.i === 0}
-                onClick={() => start({ i: run.i - 1, seq: true })}
+                disabled={prevVisible(vis, run.i) === undefined}
+                onClick={() => {
+                  const j = prevVisible(vis, run.i)
+                  if (j !== undefined) start({ i: j, seq: true })
+                }}
               >
                 <Icon name="prev" className="h-4 w-4" />
               </button>
@@ -1078,8 +1103,11 @@ export default function VideoPlayer({
                 className="rounded p-1 text-muted hover:text-fg disabled:opacity-30"
                 title="Action suivante"
                 aria-label="Action suivante"
-                disabled={run.i >= moments.length - 1}
-                onClick={() => start({ i: run.i + 1, seq: true })}
+                disabled={nextVisible(vis, run.i) === undefined}
+                onClick={() => {
+                  const j = nextVisible(vis, run.i)
+                  if (j !== undefined) start({ i: j, seq: true })
+                }}
               >
                 <Icon name="next" className="h-4 w-4" />
               </button>
@@ -1093,15 +1121,18 @@ export default function VideoPlayer({
             <>
               <div className="flex items-center gap-2">
                 <span className="flex-1 text-[11px] font-bold text-muted">Moments à regarder</span>
-                {canPlay && moments.length > 1 && (
-                  <button className="btn-primary inline-flex items-center gap-1 px-3 py-1 text-xs" onClick={() => start({ i: 0, seq: true })}>
+                {canPlay && vis.length > 1 && (
+                  <button className="btn-primary inline-flex items-center gap-1 px-3 py-1 text-xs" onClick={playAll}>
                     <Icon name="play" className="h-3 w-3" filled />
                     Voir les actions
                   </button>
                 )}
               </div>
+              {mChips('app')}
               <div className="flex flex-wrap gap-1.5 landscape:flex-col landscape:flex-nowrap" aria-label="Moments à regarder">
+                {!vis.length && <p className="text-[11px] text-muted">Aucun moment de ces types : coche un type ci-dessus.</p>}
                 {moments.map((m, i) => {
+                  if (!vis.includes(i)) return null
                   const active = run?.i === i
                   const cls = `inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] landscape:rounded-md landscape:py-1.5 ${
                     active ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2'
