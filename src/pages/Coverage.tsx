@@ -1098,7 +1098,9 @@ export default function Coverage() {
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
   const { st, set, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
-  const { onglet: o, sex, period, mapBy, year, region, dept } = st
+  const { onglet: o, sex, period, year, region, dept } = st
+  // Carte de France : toujours par région (la vue « Par département » de la France entière est retirée, trop chargée).
+  const mapBy = 'region' as 'region' | 'dept'
   // La barre de filtres a besoin des données de la recette (condition ajoutée, phrase) : lues par le modèle du bilan.
   const [barFull, setBarFull] = useState(false)
   const bilan = useBilanModel(st, { needFull: barFull })
@@ -1231,7 +1233,6 @@ export default function Coverage() {
   const setSex = (v: CoverageSex) => set({ sex: v })
   const setPeriod = (v: CoveragePeriod) => set({ period: v })
   const setView = (v: View) => set({ view: v })
-  const setMapBy = (v: 'region' | 'dept') => set({ mapBy: v })
   const closeClub = () => set({ club: null, seenOpen: false })
   const pickYear = (y: string | null) => set({ year: y, club: null, seenOpen: false })
   const goFrance = () => set({ region: '', dept: '', club: null, seenOpen: false })
@@ -1269,22 +1270,31 @@ export default function Coverage() {
   )
   const where = dept ? deptText(dept) : region ? regionLabel(region) : ''
   const clubsTitle = o === 'vus' && !Q ? 'Où aller ?' : 'Clubs'
+  // Descend jusqu'au club une fois sa ligne OUVERTE dessinée (joueurs dépliés) : l'adresse change d'abord, la liste se
+  // redessine ensuite, parfois après plusieurs images ; on attend jusqu'à 1,5 s.
+  const scrollToClub = (id: string) => {
+    const t0 = performance.now()
+    const tick = () => {
+      const el = document.querySelector<HTMLElement>(`[data-club="${CSS.escape(id)}"]`)
+      if (el?.querySelector('[aria-expanded="true"]')) return el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (performance.now() - t0 < 1500) requestAnimationFrame(tick)
+      else el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    requestAnimationFrame(tick)
+  }
   // Point de la carte touché : comme le club choisi dans la liste ; au téléphone, on descend jusqu'à sa ligne.
   const pickDot = (id: string) => {
     if (!clubMap?.byId.get(id)?.club) return
     const opening = club?.key !== id
     pickClub(id)
-    if (opening && !side)
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })),
-      )
+    if (opening && !side) scrollToClub(id)
   }
   // « Voir les joueurs → » (bulle d'un club, téléphone) : le club s'ouvre avec TOUS ses joueurs dépliés (« Déjà vus »
   // compris, sinon un club entièrement vu ne montre rien), puis on descend jusqu'à lui une fois la liste dessinée.
   const openClubPlayers = (id: string) => {
     if (!clubMap?.byId.get(id)?.club) return
     set({ club: id, seenOpen: true })
-    window.setTimeout(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+    scrollToClub(id)
   }
   // Bulle d'un point de club : nom, n° et ville, valeur montrée.
   const dotTip = (d?: ClubDot<ClubCoverage<Player>>, pinned = false, open?: () => void) => {
@@ -1648,18 +1658,6 @@ export default function Coverage() {
           ) : (
           <section className="card flex flex-col gap-2 p-3 side:sticky side:top-[calc(var(--hdr)+1rem)]">
             {clubsAsSwitch}
-            {!region && (
-              <div className="[&_button]:min-h-8">
-                <Segmented<'region' | 'dept'>
-                  value={mapBy}
-                  onChange={setMapBy}
-                  options={[
-                    { value: 'region', label: 'Par région' },
-                    { value: 'dept', label: 'Par département' },
-                  ]}
-                />
-              </div>
-            )}
             <FranceMap
               region={region}
               selected={dept}
@@ -1685,9 +1683,7 @@ export default function Coverage() {
                 )
               }}
               zoneLabel={(code, isRegion) => {
-                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur. France « Par département » :
-                // aucun chiffre (ceux des régions sur les couleurs des départements étaient illisibles).
-                if (!region && mapBy === 'dept') return undefined
+                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur.
                 if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
                 return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
