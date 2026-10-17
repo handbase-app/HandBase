@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ActionKind, MatchSheet, Side, StoredAction } from '../matchSheet'
-import { fmtCountdown, isPing, liveQueue, seqView, countdownOf, type SeqItem } from '../sequencer'
+import { fmtCountdown, isPenalty, isPing, liveQueue, seqView, countdownOf, type SeqItem } from '../sequencer'
 import { fmtMoment } from '../videos'
 import { actionLabel, sideName } from './matchLabels'
 import { Icon } from './ui'
@@ -11,7 +11,9 @@ import type { PlayerTools } from './VideoPlayer'
  * gauche sur une frise transparente posée en bas de la vidéo, vers une ligne de visée au tiers gauche. Quand l'action
  * annoncée y arrive : « ping » (ligne et bouton qui s'illuminent, bip court si le son est mis) ; « C'est ici » (Entrée, clic)
  * la cale au temps courant et la suivante est annoncée. L'action annoncée ne dépasse pas la cible : estimation dépassée,
- * elle y reste et toute la frise attend avec elle (sequencer.ts liveQueue).
+ * elle y reste et toute la frise attend avec elle (sequencer.ts liveQueue, seule source des positions : rien n'est recalé
+ * ici). L'estimation est le moment le plus tôt possible (« au plus tôt dans ~40 s ») ; un 7 m annoncé porte une note : le
+ * chrono s'arrête souvent avant, l'action peut tarder.
  *
  * Écran seulement : le calcul est dans sequencer.ts, les écritures (calage, passer, ignorer, annuler) dans MatchTimeline
  * (mêmes fonctions que la frise du match, actions simultanées calées ensemble). Couleurs fixes (blanc sur voile noir) : la
@@ -123,7 +125,7 @@ export default function Sequencer({
   const compact = api.compact
   const touch = api.touch
 
-  const { queue } = liveQueue(base, pending?.id, now)
+  const { queue } = liveQueue(ms, base, pending?.id, now)
   const marks = seqView(queue, pending?.id, now, ahead, AIM)
   const countdown = countdownOf(base, pending?.id, now)
   const ping = isPing(countdown)
@@ -169,7 +171,9 @@ export default function Sequencer({
   const lead = (it: SeqItem) => it.is.find((j) => ms.actions[j].k === it.k) ?? it.i
   const others = (it: SeqItem) => it.is.filter((j) => j !== lead(it))
   const nexts = pending ? base.slice(pos, pos + 2) : []
-  const when = countdown !== undefined ? fmtCountdown(countdown) : undefined
+  // Téléphone (bandeau compact) ou bandeau replié : « ≥ 40 s » ; sinon « au plus tôt dans ~40 s ».
+  const when = countdown !== undefined ? fmtCountdown(countdown, compact || folded) : undefined
+  const penalty = isPenalty(ms, pending)
 
   const setSoundOn = (v: boolean) => {
     setSound(v)
@@ -236,6 +240,11 @@ export default function Sequencer({
                       {others(pending).map((j) => ` + ${short(j)}`).join('')} · {fmtMoment(ms.actions[pending.i].t)} de jeu
                       {when && <span className={ping ? 'text-yellow-300' : 'text-white/80'}> · {when}</span>}
                     </span>
+                    {penalty && (
+                      <span className="block truncate text-[11px] font-semibold text-amber-200" role="note">
+                        Penalty : le chrono s’arrête souvent avant, l’action peut tarder
+                      </span>
+                    )}
                     <span className="block truncate text-[11px] text-white/65">
                       {toast ? (
                         <span className="text-emerald-300">{toast}</span>

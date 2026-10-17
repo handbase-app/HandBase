@@ -191,11 +191,26 @@ assert.equal(tl.at(mid), 1200)
 assert.ok(tl.anchors(1).some((a) => a.key === keys[mid]))
 assert.equal(tl.status(mid), 'fixed')
 assert.equal(tl.fixedCount, 1)
-// Au-delà du dernier repère : pente observée entre le premier et le dernier (arrêts de jeu reportés sur la suite).
+// Au-delà du dernier repère : pente 1 (le moment le plus tôt possible : le chrono ne va jamais plus vite que la vidéo), et
+// non la pente observée ; plus 60 s par temps mort d'équipe entre le repère et l'action.
 {
   const k = s.actions.findIndex((a, i) => a.p === 1 && a.t > s.actions[mid].t + 60 && !late.has(i))
-  const slow = timeline({ ...st, sync: { marks: { s1: 100 }, fix: { [keys[mid]]: 100 + s.actions[mid].t * 1.2 } } })
-  assert.ok(Math.abs(slow.at(k)! - (100 + s.actions[k].t * 1.2)) < 1e-6, 'pente prolongée')
+  const vMid = 100 + s.actions[mid].t * 1.2
+  const slow = timeline({ ...st, sync: { marks: { s1: 100 }, fix: { [keys[mid]]: vMid } } })
+  const tms = s.actions.filter((a, i) => a.k === 'tm' && a.p === 1 && !late.has(i) && a.t >= s.actions[mid].t && a.t < s.actions[k].t).length
+  assert.ok(Math.abs(slow.at(k)! - (vMid + (s.actions[k].t - s.actions[mid].t) + 60 * tms)) < 1e-6, 'pente 1 au-delà du dernier repère')
+  // Entre deux repères : toujours l'interpolation (pente observée 1,2).
+  const j = s.actions.findIndex((a, i) => a.p === 1 && a.t > 60 && a.t < s.actions[mid].t - 60 && !late.has(i))
+  assert.ok(Math.abs(slow.at(j)! - (100 + s.actions[j].t * 1.2)) < 1e-6, 'interpolation entre repères')
+}
+// Temps mort d'équipe : 60 s de vidéo de plus pour les actions qui le suivent (au-delà des repères seulement).
+{
+  const anchors = [{ g: 0, v: 100, key: 's1' }]
+  assert.equal(mapTime(anchors, 300, [200]), 460)
+  assert.equal(mapTime(anchors, 200, [200]), 300, 'action au même temps de jeu que le temps mort : pas encore arrêtée')
+  assert.equal(mapTime(anchors, 150, [200]), 250, 'avant le temps mort : rien')
+  assert.equal(mapTime([...anchors, { g: 400, v: 600, key: 'x' }], 300, [200]), 475, 'entre deux repères : interpolation seule')
+  assert.equal(mapTime([{ g: 400, v: 600, key: 'x' }], 100, [200]), 240, 'avant le premier repère : pente 1 et le temps mort')
 }
 // Action en retard posée à la main : placée, ne sert pas de repère au match, mais ses voisines en retard se recalculent.
 const vEnd = tl.at(la)!
@@ -302,11 +317,12 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   const t1 = timeline(moved)
   assert.deepEqual(t1.end2(two), { v: e0.v + 30, fixed: true })
   assert.ok(t1.anchors(d.actions[two].p).some((a) => a.key === t0.endKey(two)), 'repère de la période')
-  // Après le dernier repère : pente observée entre le coup d'envoi et la fin des 2 minutes.
+  // Après le dernier repère : pente 1 (et 60 s par temps mort) à partir de la fin des 2 minutes calée.
   const g2 = d.actions[two].t + TWO_MIN
   const slope = (e0.v + 30 - 100) / g2
-  assert.ok(Math.abs(t1.at(nb)! - (e0.v + 30 + (d.actions[nb].t - g2) * slope)) < 1e-6, 'voisine décalée')
-  assert.ok(t1.at(nb)! > before[nb]! + 30)
+  const tms = d.actions.filter((a, i) => a.k === 'tm' && a.p === d.actions[two].p && !dl.has(i) && a.t >= g2 && a.t < d.actions[nb].t).length
+  assert.ok(Math.abs(t1.at(nb)! - (e0.v + 30 + (d.actions[nb].t - g2) + 60 * tms)) < 1e-6, 'voisine décalée')
+  assert.ok(Math.abs(t1.at(nb)! - (before[nb]! + 30)) < 1e-6, 'décalée d’autant que la fin des 2 minutes (pente 1 des deux côtés)')
   assert.ok(Math.abs(t1.at(two)! - (100 + d.actions[two].t * slope)) < 1e-6, 'l’exclusion, entre coup d’envoi et fin des 2 minutes, est interpolée')
   assert.ok(Math.abs(t1.end2(two)!.v - t1.at(two)! - TWO_MIN * slope) < 1e-6, '2 minutes de jeu au rythme du calage')
   // Annuler : le repère retiré, toutes les estimations reviennent.
