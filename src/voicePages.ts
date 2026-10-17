@@ -10,7 +10,6 @@ import {
   bestMatch,
   normalize,
   parseSex,
-  parseYear,
   quote,
   readPlace,
   startReading,
@@ -18,6 +17,7 @@ import {
   type Places,
   type VoicePage,
 } from './voiceFilters'
+import { parseSaidYears, sortYearStrings, yearsShort } from './birthYears'
 
 const SEX_TEXT = { M: 'garçons', F: 'filles' } as const
 
@@ -27,8 +27,8 @@ const SEX_TEXT = { M: 'garçons', F: 'filles' } as const
 export type BilanVoice = {
   sex: 'all' | 'M' | 'F'
   period: 'season' | 'all'
-  /** null : toutes les années ; '' : année inconnue. */
-  year: string | null
+  /** Années choisies (src/birthYears.ts) ; vide : toutes les années ; '' : année inconnue. */
+  years: string[]
   region: string
   dept: string
   /** Clé du club (clubKey) ; null : aucun. */
@@ -63,11 +63,11 @@ export function parseView(v: unknown): BilanVoice['view'] | undefined {
 }
 
 export function bilanRules(ctx: BilanVoiceContext): FilterRules<BilanVoice> {
-  const empty: BilanVoice = { sex: 'all', period: 'season', year: null, region: '', dept: '', club: null, view: ctx.view }
+  const empty: BilanVoice = { sex: 'all', period: 'season', years: [], region: '', dept: '', club: null, view: ctx.view }
   return {
     empty,
     // Comme sur la page : changer de région remet le département et le club ; changer de département, le club.
-    fields: { sexe: ['sex'], annee: ['year'], periode: ['period'], region: ['region', 'dept', 'club'], departement: ['dept', 'club'], club: ['club'], vue: ['view'] },
+    fields: { sexe: ['sex'], annee: ['years'], periode: ['period'], region: ['region', 'dept', 'club'], departement: ['dept', 'club'], club: ['club'], vue: ['view'] },
     keyText: { sexe: 'garçons / filles', annee: 'génération', periode: 'période', region: 'région', departement: 'département', club: 'club', vue: 'vue' },
     aliases: {
       sexe: 'sexe', genre: 'sexe', annee: 'annee', annees: 'annee', generation: 'annee', generations: 'annee', naissance: 'annee',
@@ -86,14 +86,15 @@ export function bilanRules(ctx: BilanVoiceContext): FilterRules<BilanVoice> {
         } else skip(`sexe ${quote(f.sexe)}`, 'valeur inconnue')
       }
       if (has('annee')) {
-        const v = parseYear(f.annee, ctx.thisYear)
-        if (v) {
-          values.year = String(v)
-          understood.push({ key: 'annee', label: `génération ${v}` })
+        // Une génération, plusieurs (« les 2010 et 2012 ») ou une plage (« de 2010 à 2012 ») : src/birthYears.ts.
+        const v = parseSaidYears(f.annee, ctx.thisYear)
+        if (v?.length) {
+          values.years = sortYearStrings(v.map(String))
+          understood.push({ key: 'annee', label: v.length === 1 ? `génération ${v[0]}` : `générations ${yearsShort(v)}` })
         } else if (/^inconnu/.test(normalize(asText(f.annee)))) {
-          values.year = ''
+          values.years = ['']
           understood.push({ key: 'annee', label: 'année de naissance inconnue' })
-        } else skip(`génération ${quote(f.annee)}`, 'pas une année de naissance')
+        } else skip(`génération ${quote(Array.isArray(f.annee) ? f.annee.join(', ') : f.annee)}`, 'pas une année de naissance')
       }
       if (has('periode')) {
         const v = parsePeriod(f.periode)
@@ -152,7 +153,7 @@ export function bilanVoicePage(ctx: BilanVoiceContext): VoicePage<BilanVoice> {
     rules,
     schema: () => ({
       sexe: 'M (garçons) ou F (filles)',
-      annee: 'génération : année de naissance, entier (une seule) ; ou inconnue',
+      annee: 'génération : année de naissance, entier ; plusieurs : liste d’entiers ([2010, 2012]) ; plage : {de, a} ; ou inconnue',
       periode: `saison (saison ${ctx.season}, par défaut) ou toujours (depuis toujours)`,
       region: 'nom de la région tel que dit',
       departement: 'numéro ou nom du département tel que dit',
@@ -162,7 +163,8 @@ export function bilanVoicePage(ctx: BilanVoiceContext): VoicePage<BilanVoice> {
     current: (v) => {
       const o: Record<string, string | number | boolean> = {}
       if (v.sex !== 'all') o.sexe = v.sex
-      if (v.year !== null) o.annee = v.year ? Number(v.year) : 'inconnue'
+      if (v.years.length === 1) o.annee = v.years[0] ? Number(v.years[0]) : 'inconnue'
+      else if (v.years.length) o.annee = v.years.map((y) => y || 'inconnue').join(', ')
       if (v.period === 'all') o.periode = 'toujours'
       if (v.region) o.region = ctx.regions.find((x) => x.id === v.region)?.name ?? v.region
       if (v.dept) o.departement = /^[0-9AB]{2,3}$/i.test(v.dept) ? v.dept : 'non renseigné'

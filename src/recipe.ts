@@ -24,6 +24,7 @@ import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSear
 import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
 import { isKeeper, positionCodes } from './sportConfig'
+import { cleanYearFields, inYears, parseSaidYears, putYears, yearsOf, yearsPhrase } from './birthYears'
 
 // ---------- Recette ----------
 
@@ -53,8 +54,10 @@ export type PoleWanted = 'current' | 'past' | 'any'
 
 export type Population = {
   sex?: 'M' | 'F'
-  /** Années de naissance, bornes comprises. */
+  /** Années de naissance, bornes comprises (src/birthYears.ts : poser avec putYears, lire avec yearsOf ou inYears). */
   years?: [number, number]
+  /** Seulement si les années choisies ne se suivent pas (« 2010, 2012 et 2014 ») : ces années exactes, entre les bornes. */
+  yearList?: number[]
   positions?: Position[]
   /** Clés de clubs (clubKey). */
   clubs?: string[]
@@ -191,7 +194,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
   return {
     aujourdhui: `${ctx.today} (saison ${s.label} : du 1er septembre au 31 août)`,
     population:
-      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees {de, a}, trimestre (1 à 4 : trimestre de naissance), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
+      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees (liste d’entiers : les années citées) ou annees {de, a} (plage), trimestre (1 à 4 : trimestre de naissance), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
     vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
     avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5), calcul (moyenne par défaut | max : la meilleure note, une par une | min : la plus basse)} ; score combiné : sur "combine", nom [liste de noms]',
@@ -462,31 +465,12 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     if (v) r.pop.sex = v
     else skip(`sexe ${quote(p.sexe)}`, 'valeur inconnue')
   }
-  const yearOf = (v: unknown) => {
-    const n = parseNumber(v)
-    return n !== undefined && Number.isInteger(n) && n >= LIMITS.year[0] && n <= thisYear ? n : undefined
-  }
   if (present(p.annee) || present(p.annees)) {
     const a = present(p.annees) ? p.annees : p.annee
-    let range: [number, number] | undefined
-    if (isObj(a)) {
-      const lo = yearOf(a.de ?? a.min ?? a.debut)
-      const hi = yearOf(a.a ?? a.max ?? a.fin)
-      if (lo !== undefined || hi !== undefined) range = [lo ?? hi!, hi ?? lo!]
-    } else if (Array.isArray(a) && a.length) {
-      const ys = a.map(yearOf)
-      if (ys.every((y) => y !== undefined)) range = [Math.min(...(ys as number[])), Math.max(...(ys as number[]))]
-    } else {
-      const m = /^(\d{4})\s*(?:-|à|a|et)\s*(\d{4})$/.exec(asText(a))
-      const y1 = yearOf(m ? m[1] : a)
-      const y2 = m ? yearOf(m[2]) : y1
-      if (y1 !== undefined && y2 !== undefined) range = [y1, y2]
-    }
-    if (range) {
-      if (range[0] > range[1]) range = [range[1], range[0]]
-      if (range[1] - range[0] > 30) range = [range[1] - 30, range[1]]
-      r.pop.years = range
-    } else skip(`année ${quote(Array.isArray(a) ? a.join('-') : isObj(a) ? `${asText(a.de)}-${asText(a.a)}` : a)}`, 'pas une année de naissance')
+    // Une année, des années citées ([2010, 2012]) ou une plage ({de, a}, « 2010-2012 ») : src/birthYears.ts.
+    const ys = parseSaidYears(a, thisYear, LIMITS.year[0])
+    if (ys?.length) putYears(r.pop, ys)
+    else skip(`année ${quote(Array.isArray(a) ? a.join('-') : isObj(a) ? `${asText(a.de)}-${asText(a.a)}` : a)}`, 'pas une année de naissance')
   }
   const positions: Position[] = []
   for (const v of [...asList(p.postes), ...asList(p.poste)]) {
@@ -904,11 +888,8 @@ export function cleanRecipe(v: unknown): Recipe {
   const pop: Population = {}
   const sex = oneOf(p.sex, ['M', 'F'] as const)
   if (sex) pop.sex = sex
-  if (Array.isArray(p.years) && p.years.length === 2) {
-    const a = int(p.years[0], LIMITS.year)
-    const b = int(p.years[1], LIMITS.year)
-    if (a !== undefined && b !== undefined) pop.years = a <= b ? [a, b] : [b, a]
-  }
+  // Bornes [a, b] (une année : [a, a]) ; années exactes si elles ne se suivent pas (src/birthYears.ts).
+  Object.assign(pop, cleanYearFields(p.years, p.yearList, LIMITS.year))
   const pos = ids(p.positions).filter((x): x is Position => positionCodes().includes(x))
   if (pos.length) pop.positions = pos
   for (const k of ['clubs', 'regions', 'depts', 'groups', 'events', 'profiles'] as const) {
@@ -1310,10 +1291,7 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
   const i = ix.info.get(p.id)!
   if (pop.sex && p.sex !== pop.sex) return false
   if (pop.names && !namesMatch(pop.names, p)) return false
-  if (pop.years) {
-    const y = Number(i.year)
-    if (!i.year || y < pop.years[0] || y > pop.years[1]) return false
-  }
+  if (pop.years && !inYears(pop, i.year)) return false
   if (pop.positions && !(p.position && pop.positions.includes(p.position)) && !(pop.secondary && p.secondaryPositions?.some((x) => pop.positions!.includes(x))))
     return false
   if (pop.noPosition && p.position) return false
@@ -1734,8 +1712,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   const p = r.pop
   if (p.sex) c.push({ key: 'sex', label: f ? 'Joueuses' : 'Garçons', edit: 'sex', removable: true })
   if (p.names) c.push({ key: 'names', label: `prénom ou nom : ${list(p.names)}`, removable: true })
-  if (p.years)
-    c.push({ key: 'years', label: p.years[0] === p.years[1] ? `né${e} en ${p.years[0]}` : `né${e} de ${p.years[0]} à ${p.years[1]}`, edit: 'years', removable: true })
+  if (p.years) c.push({ key: 'years', label: yearsPhrase(yearsOf(p) ?? [], e), edit: 'years', removable: true })
   if (p.positions) c.push({ key: 'positions', label: list(p.positions.map(names.position)), removable: true })
   if (p.regions) c.push({ key: 'regions', label: list(p.regions.map(names.region)), removable: true })
   if (p.depts) c.push({ key: 'depts', label: list(p.depts.map(names.dept)), removable: true })
@@ -1895,13 +1872,13 @@ export function possibleVars(r: Recipe): VarKey[] {
   return v
 }
 
-export type VarValues = { sex?: 'M' | 'F' | ''; years?: [number, number]; period?: Period; region?: string; dept?: string; position?: Position; group?: string; seenN?: number }
+export type VarValues = { sex?: 'M' | 'F' | ''; /** Années choisies (src/birthYears.ts). */ years?: number[]; period?: Period; region?: string; dept?: string; position?: Position; group?: string; seenN?: number }
 
 /** Valeurs actuelles des variables d'une recette. */
 export function varValues(r: Recipe): VarValues {
   return {
     sex: r.pop.sex ?? '',
-    years: r.pop.years,
+    years: yearsOf(r.pop) ?? undefined,
     period: r.seen?.period ?? r.out.period,
     region: r.pop.regions?.[0],
     dept: r.pop.depts?.[0],
@@ -1918,7 +1895,7 @@ export function applyVars(r: Recipe, v: VarValues): Recipe {
     if (v.sex) x.pop.sex = v.sex
     else delete x.pop.sex
   }
-  if (v.years) x.pop.years = v.years
+  if (v.years?.length) putYears(x.pop, v.years)
   if (v.period) {
     if (x.seen) x.seen.period = v.period
     else x.out.period = v.period

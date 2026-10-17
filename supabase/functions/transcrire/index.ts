@@ -272,7 +272,7 @@ ${ACTIONS_COMMUNES}
 
 FILTRES
 - Seulement les clés du schéma ; ne jamais inventer de valeur ; n'ajouter aucun critère non demandé.
-- « nés en 2010 », « la génération 2010 », « les 2010 » → annee 2010. « garçons » → sexe M ; « filles », « joueuses » → F.
+- « nés en 2010 », « la génération 2010 », « les 2010 » → annee 2010 ; plusieurs générations (« les 2010 et 2012 ») → annee [2010,2012] ; « de 2010 à 2012 » → annee {"de":2010,"a":2012}. « garçons » → sexe M ; « filles », « joueuses » → F.
 - « cette saison », « la saison » → periode saison ; « depuis toujours », « depuis le début », « sur toutes les saisons » → periode toujours.
 - Département, région, club : recopie le nom ou le numéro dit (« Var », « 83 », « PACA », « Toulon »).
 - « montre la carte » → vue carte ; « par génération », « les générations » → vue generations.
@@ -280,6 +280,7 @@ FILTRES
 
 EXEMPLES
 Actuels {} ; « les filles de 2011 dans le Var » → {"action":"remplacer","filtres":{"sexe":"F","annee":2011,"departement":"Var"},"retirer":[],"nonGere":[]}
+Actuels {"sexe":"F"} ; « les 2010 et 2012 » → {"action":"ajouter","filtres":{"annee":[2010,2012]},"retirer":[],"nonGere":[]}
 Actuels {"annee":2010} ; « depuis toujours » → {"action":"ajouter","filtres":{"periode":"toujours"},"retirer":[],"nonGere":[]}
 Actuels {"annee":2010,"departement":"83"} ; « et le club de Toulon » → {"action":"ajouter","filtres":{"club":"Toulon"},"retirer":[],"nonGere":[]}
 Actuels {"region":"Région Sud","annee":2011} ; « peu importe l'année » → {"action":"retirer","filtres":{},"retirer":["annee"],"nonGere":[]}
@@ -553,7 +554,7 @@ Réponds seulement par ce JSON : {"recette":{"population":{…},"vus":{…},"avi
 RÈGLES
 - Seulement les clés et les valeurs du SCHÉMA ; omets ce qui n'est pas demandé ; n'invente aucune valeur.
 - Clubs, régions, départements, groupes, événements : recopie le nom dit (« Var », « 83 », « PACA », « Toulon »).
-- « nés en 2010 », « les 2010 » → annee 2010 ; « 2010 et 2011 », « de 2010 à 2012 » → annees {"de":…,"a":…}. « filles », « joueuses » → sexe F ; « garçons » → M ; « joueurs » seul ne fixe pas le sexe.
+- « nés en 2010 », « les 2010 » → annee 2010 ; « de 2010 à 2012 », « entre 2010 et 2012 », « nés de 2010 à 2012 » → annees {"de":2010,"a":2012} ; plusieurs années citées (« les 2010 et 2012 », « 2010, 2012 et 2014 ») → annees [2010,2012,2014]. « filles », « joueuses » → sexe F ; « garçons » → M ; « joueurs » seul ne fixe pas le sexe.
 - Prénom ou nom : « s'appellent Lucas », « les Martin », « prénommées Léa » → noms ["Lucas"] (recopié tel que dit).
 - Taille : « 1 m 85 », « 1,85 » → 185 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax.
 - Vus : « vus », « ont été vus », « déjà vus » sans nombre → op ">=" n 1 ; « vu une fois », « une seule fois » → "=" 1 ; « au moins deux fois » → ">=" 2 ; « jamais vu », « personne n'a vu » → op "aucun". On compte les événements ; « par trois personnes », « trois membres du staff » → compter personnes.
@@ -590,6 +591,7 @@ EXEMPLES
 « les joueurs avec au moins 2 avis et 3,5 de moyenne générale, du moins bien noté au mieux noté » → {"recette":{"nbAvis":{"op":">=","n":2},"avis":[{"sur":"global","op":">=","valeur":3.5}],"sortie":{"type":"liste","tri":"moyenne","ordre":"croissant"}},"nonGere":[]}
 « les joueurs du tournoi de Cannes qui sautent plus de 40 au CMJ » → {"recette":{"population":{"evenements":["tournoi de Cannes"]},"mesures":[{"critere":"CMJ – hauteur","op":">=","valeur":40}],"sortie":{"type":"liste","tri":"mesure","ordre":"decroissant"}},"nonGere":[]}
 « la carte des joueuses 2012 vues au moins une fois depuis le 1er janvier 2026 » → {"recette":{"population":{"sexe":"F","annee":2012},"vus":{"op":">=","n":1,"periode":"depuis","depuis":"2026-01-01"},"sortie":{"type":"carte"}},"nonGere":[]}
+« les gardiennes 2010 et 2012 du Var » → {"recette":{"population":{"sexe":"F","postes":["GB"],"annees":[2010,2012],"departements":["Var"]},"sortie":{"type":"liste"}},"nonGere":[]}
 « les 2011 du Var qui jouent en Nationale 2 » → {"recette":{"population":{"annee":2011,"departements":["Var"]},"sortie":{"type":"liste"}},"nonGere":["jouent en Nationale 2"]}
 « compare les filles et les garçons nés en 2012 : combien ont été vus ? » → {"recette":{"population":{"annee":2012},"vus":{"op":">=","n":1},"sortie":{"type":"tableau","par":"sexe"}},"nonGere":[]}
 « quel coach a vu le plus de joueurs cette saison ? » → {"recette":{"sortie":{"type":"tableau","par":"staff","tri":"vus","ordre":"decroissant","periode":"saison"}},"nonGere":[]}
@@ -651,6 +653,7 @@ RÈGLES
 const CONSIGNES_EVENEMENTS = `${CONSIGNES_LISTE('Événements (matchs, tournois, entraînements, observations)')}
 - Dates : periode relative (a_venir, passes, ce_mois, cette_saison, saison_derniere) ou {"annee"}, {"mois":"AAAA-MM"}, {"du","au"} d'après "aujourdhui". La saison va du 1er septembre au 31 août.
 - « mes événements », « les miens » : mes = les_miens ; « ceux que j'ai créés » : crees ; « où je participe » : participant.
+- Génération des joueurs : « la génération 2011 » → generation 2011 ; « les 2010 et 2012 » → generation [2010,2012] ; « de 2010 à 2012 » → generation {"de":2010,"a":2012}.
 EXEMPLES (contexte evenements)
 Actuels [] ; « les tournois de cette saison » → {"action":"ajouter","recette":{"types":["tournoi"],"periode":"cette_saison"},"retirer":[],"nonGere":[]}
 Actuels ["types"] ; « à venir dans le Var » → {"action":"ajouter","recette":{"periode":"a_venir","departements":["Var"]},"retirer":[],"nonGere":[]}

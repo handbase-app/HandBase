@@ -63,6 +63,8 @@ import { decodeRecipe, EMPTY_RECIPE, encodeRecipe, hasConditions, outValueText, 
 import { aggregate, aggValue, bilanOutput, isShareKind, isTopClubs, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
 import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChips'
+import { YearPicker } from '../components/YearPicker'
+import { parseYearsParam, sortYearStrings, yearsParam, yearsPhrase, yearsShort } from '../birthYears'
 
 /*
  * Bilan de détection (/bilan) : UNE carte de France (src/components/FranceMap.tsx) et des onglets de mesure, dans l'adresse
@@ -253,8 +255,8 @@ function Filters({
   showSex = true,
   showPeriod = true,
   years,
-  year = null,
-  setYear,
+  picked = [],
+  setYears,
   extra,
 }: {
   /** Au bout de la ligne : la barre de filtres (champ, « Filtres »). */
@@ -266,10 +268,11 @@ function Filters({
   showSex?: boolean
   /** Période : seulement pour les joueurs vus. */
   showPeriod?: boolean
-  /** Années proposées (sinon pas de choix d'année) ; null : toutes. */
+  /** Années proposées (sinon pas de choix d'année) ; '' : année inconnue. */
   years?: string[]
-  year?: string | null
-  setYear?: (v: string | null) => void
+  /** Années cochées (vide : toutes). */
+  picked?: string[]
+  setYears?: (v: string[]) => void
 }) {
   const season = seasonOf(today())
   return (
@@ -299,21 +302,9 @@ function Filters({
           />
         </div>
       )}
-      {years && setYear && (
-        // Année : '*' pour toutes ('' est l'année inconnue).
-        <select
-          className={`field min-h-8 py-1 text-xs sm:w-48 ${year !== null ? 'border-accent font-bold' : ''}`}
-          aria-label="Année de naissance"
-          value={year ?? '*'}
-          onChange={(e) => setYear(e.target.value === '*' ? null : e.target.value)}
-        >
-          <option value="*">Toutes les années</option>
-          {years.map((y) => (
-            <option key={y || 'inconnue'} value={y}>
-              {yearLabel(y)}
-            </option>
-          ))}
-        </select>
+      {years && setYears && (
+        // Une ou plusieurs années ('' : année inconnue), cases à cocher (src/components/YearPicker.tsx).
+        <YearPicker className="min-h-8 py-1 text-xs sm:w-48" value={picked} options={years.map((y) => ({ value: y }))} onChange={setYears} />
       )}
       {extra}
     </div>
@@ -591,8 +582,9 @@ const UNKNOWN_YEAR = 'inconnue'
 
 /**
  * Tout ce que l'on a choisi sur le bilan : onglet, filtres, vue, lieu, club, « Déjà vus » ouvert. Gardé dans l'adresse
- * (/bilan?onglet=mesures&s=F&p=saison&v=carte&a=2008&r=93&d=83&c=<club>&vus=1) : le retour (de l'appli ou du navigateur)
- * le retrouve tel quel, et l'adresse se partage. Onglet absent : « Vus ». Année : null toutes, '' année inconnue. Lieu :
+ * (/bilan?onglet=mesures&s=F&p=saison&v=carte&a=2008,2009&r=93&d=83&c=<club>&vus=1) : le retour (de l'appli ou du
+ * navigateur) le retrouve tel quel, et l'adresse se partage. Onglet absent : « Vus ». Années : vide toutes, '' année
+ * inconnue (a=2011 d'avant : cette année seule ; src/birthYears.ts). Lieu :
  * '' toute la France ; NO_DEPT : département non renseigné. Club : null aucun, '' club non renseigné.
  */
 export type BilanState = {
@@ -603,7 +595,8 @@ export type BilanState = {
   mapBy: 'region' | 'dept'
   /** Ordinateur, un club choisi dans un département avec ses clubs sur la carte : à gauche, la carte (points) ou la liste des clubs. */
   clubsAs: 'map' | 'list'
-  year: string | null
+  /** Années de naissance choisies (la plus récente d'abord) ; vide : toutes ; '' : année inconnue. */
+  years: string[]
   region: string
   dept: string
   club: string | null
@@ -630,7 +623,7 @@ function parseBilan(q: URLSearchParams): BilanState {
     view: v === 'carte' ? 'map' : v === 'generations' ? 'years' : readKey<View>(VIEW_KEY, ['map', 'years'], 'map'),
     mapBy: one(q.get('m'), ['region', 'dept'] as const, MAP_BY_KEY, 'region'),
     clubsAs: q.get('cl') === 'liste' ? 'list' : q.get('cl') === 'carte' ? 'map' : readKey<'map' | 'list'>(CLUBS_AS_KEY, ['map', 'list'], 'map'),
-    year: a === null ? null : a === UNKNOWN_YEAR ? '' : a,
+    years: parseYearsParam(a, UNKNOWN_YEAR),
     region: q.get('r') ?? '',
     dept: q.get('d') ?? '',
     club: q.get('c'),
@@ -649,7 +642,7 @@ function bilanQuery(st: BilanState): string {
   q.set('v', st.view === 'map' ? 'carte' : 'generations')
   if (st.mapBy === 'dept') q.set('m', 'dept')
   if (st.clubsAs === 'list') q.set('cl', 'liste')
-  if (st.year !== null) q.set('a', st.year || UNKNOWN_YEAR)
+  if (st.years.length) q.set('a', yearsParam(st.years, UNKNOWN_YEAR))
   if (st.region) q.set('r', st.region)
   if (st.dept) q.set('d', st.dept)
   if (st.club !== null) q.set('c', st.club)
@@ -753,8 +746,8 @@ export function useBilanState() {
           /* stockage indisponible */
         }
     const next = { ...st, ...patch }
-    // Une année choisie au menu du bilan remplace des années posées dans la barre (une seule commande par notion).
-    if (patch.year !== undefined && patch.year !== null && !('f' in patch)) next.f = withoutYears(next.f)
+    // Des années choisies au menu du bilan remplacent des années posées dans la barre (une seule commande par notion).
+    if (patch.years?.length && !('f' in patch)) next.f = withoutYears(next.f)
     if (samePlace(st, next)) setParams(new URLSearchParams(bilanQuery(next)), { replace: true, state: loc.state })
     else goPlace(next)
   }
@@ -806,7 +799,7 @@ export function useBilanState() {
     if (navType === 'POP' && prev) {
       // Retour qui sort d'une question (ou y entre) : la population de l'entrée retrouvée reste la sienne.
       const qChanged = (prev.q ? encodeRecipe(prev.q) : '') !== (st.q ? encodeRecipe(st.q) : '')
-      const merged = { ...withPlace(prev, st), q: st.q, ...(qChanged ? { f: st.f, t: st.t, sex: st.sex, year: st.year } : {}) }
+      const merged = { ...withPlace(prev, st), q: st.q, ...(qChanged ? { f: st.f, t: st.t, sex: st.sex, years: st.years } : {}) }
       if (bilanQuery(merged) !== bilanQuery(st)) setParams(new URLSearchParams(bilanQuery(merged)), { replace: true, state: loc.state })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -856,7 +849,7 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   if (pop !== undefined) lastPop.current = pop
   const popLoading = popOn && !sel
   const players = useMemo(() => (data && pop ? data.players.filter((p) => pop.has(p.id)) : data?.players), [data, pop])
-  const { onglet, sex, period, year, region, dept } = st
+  const { onglet, sex, period, years: picked, region, dept } = st
   // Lieu d'un joueur : département du n° de club (ou de licence, ou saisi), région selon la liste des départements.
   const place = useMemo<PlaceOf<Player>>(() => ({ deptOf: department, regionOf: (d) => regionOfDept(d) }), [lists]) // eslint-disable-line react-hooks/exhaustive-deps
   // Jamais à un survol ; la base n'est pas relue.
@@ -866,13 +859,13 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
     onglet === 'vus' ? last : onglet === 'licencies' ? EVERYONE : onglet === 'mesures' ? nat?.staff : nat?.spotted
   const counted = hit ?? EVERYONE
   // Carte : sexe et année (elle montre tous les lieux).
-  const forMap = useMemo(() => (players ? filterPlayers(players, { sex, year }, place) : []), [players, sex, year, place])
+  const forMap = useMemo(() => (players ? filterPlayers(players, { sex, years: picked }, place) : []), [players, sex, picked, place])
   const byPlace = useMemo(() => coverageByPlace(forMap, counted, place), [forMap, counted, place])
   // Générations : sexe et lieu (chaque carte est une année).
   const inPlace = useMemo(() => (players ? filterPlayers(players, { sex, region, dept }, place) : []), [players, sex, region, dept, place])
   const years = useMemo(() => coverageByYear(inPlace, counted), [inPlace, counted])
   // Clubs : tous les filtres.
-  const inScope = useMemo(() => (year === null ? inPlace : inPlace.filter((p) => birthYear(p) === year)), [inPlace, year])
+  const inScope = useMemo(() => (picked.length ? inPlace.filter((p) => picked.includes(birthYear(p))) : inPlace), [inPlace, picked])
   const clubs = useMemo(() => sortClubs(onglet, coverageByClub(inScope, counted)), [onglet, inScope, counted])
   // Chiffres clés des joueurs retenus (tous les filtres) : clubs, départements et la valeur de chaque onglet.
   const kpis = useMemo(() => {
@@ -896,9 +889,9 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   // Années proposées : toutes celles de la base (quel que soit le lieu), la plus récente d'abord.
   const allYears = useMemo(() => {
     const ys = new Set(data ? livePlayers(data.players).map(birthYear) : [])
-    if (year !== null) ys.add(year)
-    return [...ys].sort((a, b) => (!a ? 1 : !b ? -1 : b.localeCompare(a)))
-  }, [data, year])
+    for (const y of picked) ys.add(y)
+    return sortYearStrings(ys)
+  }, [data, picked])
   const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
   return {
     data: hit && pop !== undefined ? data : undefined,
@@ -914,7 +907,7 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
     kpis,
     allYears,
     club,
-    yearText: year === null ? 'Toutes les années' : yearLabel(year),
+    yearText: yearsShort(picked),
   }
 }
 
@@ -1098,7 +1091,7 @@ export default function Coverage() {
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
   const { st, set, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
-  const { onglet: o, sex, period, mapBy, year, region, dept } = st
+  const { onglet: o, sex, period, mapBy, years: picked, region, dept } = st
   // La barre de filtres a besoin des données de la recette (condition ajoutée, phrase) : lues par le modèle du bilan.
   const [barFull, setBarFull] = useState(false)
   const bilan = useBilanModel(st, { needFull: barFull })
@@ -1147,9 +1140,9 @@ export default function Coverage() {
     return [...m].map(([key, c]) => ({ key, name: top(c.names)!, dept: top(c.depts) }))
   }, [data])
   // Barre de filtres : la même que la liste Joueurs (src/components/PlayersQuery.tsx) ; sa requête est l'état du bilan
-  // (adresse), passée par src/bilanFilters.ts (sexe, année et lieu : les commandes du bilan).
-  const barState: BarState = { sex, year, region, dept, club: st.club, f: st.q ? null : st.f, t: st.t, q: st.q }
-  const barKey = JSON.stringify([sex, year, region, dept, st.club, st.q ? null : st.f, st.t, st.q])
+  // (adresse), passée par src/bilanFilters.ts (sexe, années et lieu : les commandes du bilan).
+  const barState: BarState = { sex, years: picked, region, dept, club: st.club, f: st.q ? null : st.f, t: st.t, q: st.q }
+  const barKey = JSON.stringify([sex, picked, region, dept, st.club, st.q ? null : st.f, st.t, st.q])
   const [barCalc, setBarCalc] = useSessionState<Output | null>('handbase.bilan-barre.calcul', null)
   const barValue = useMemo(() => barQuery(barState, barCalc ?? undefined), [barKey, barCalc]) // eslint-disable-line react-hooks/exhaustive-deps
   const barHide = useMemo(() => barHidden(barState), [barKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1233,14 +1226,15 @@ export default function Coverage() {
   const setView = (v: View) => set({ view: v })
   const setMapBy = (v: 'region' | 'dept') => set({ mapBy: v })
   const closeClub = () => set({ club: null, seenOpen: false })
-  const pickYear = (y: string | null) => set({ year: y, club: null, seenOpen: false })
+  const pickYears = (ys: string[]) => set({ years: ys, club: null, seenOpen: false })
   const goFrance = () => set({ region: '', dept: '', club: null, seenOpen: false })
   const pickRegion = (r: string) => set({ region: r, dept: '', club: null, seenOpen: false })
   const pickDept = (d: string) => set({ region: d === NO_DEPT ? '' : (regionOfDept(d) ?? ''), dept: d, club: null, seenOpen: false })
   const pickClub = (k: string) => set({ club: club?.key === k ? null : k, seenOpen: false })
-  // Générations : un toucher choisit l'année (un 2e toucher revient à toutes) ; au téléphone, on descend vers ses clubs.
+  // Générations : un toucher choisit l'année seule (un 2e toucher revient à toutes) ; au téléphone, on descend vers ses
+  // clubs. Plusieurs années : le menu « Toutes les années » (cases à cocher).
   const pickCard = (y: string | null) => {
-    pickYear(y === year ? null : y)
+    pickYears(y === null || (picked.length === 1 && picked[0] === y) ? [] : [y])
     if (!side) requestAnimationFrame(() => whereRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
@@ -1324,7 +1318,7 @@ export default function Coverage() {
   const clubList = (inline: boolean, linked = false) =>
     clubs.length ? (
       <ClubList
-        key={`${o}|${sex}|${year}|${region}|${dept}|${period}|${st.q ? encodeRecipe(st.q) : ''}|${st.f ? encodeBar(st.f) : ''}|${st.t}`}
+        key={`${o}|${sex}|${picked.join(',')}|${region}|${dept}|${period}|${st.q ? encodeRecipe(st.q) : ''}|${st.f ? encodeBar(st.f) : ''}|${st.t}`}
         clubs={clubs}
         inline={inline}
         selected={club?.key}
@@ -1437,7 +1431,10 @@ export default function Coverage() {
       side2Base
     )
 
-  const yearsText = year === null ? 'toutes les années' : year ? `nés en ${year}` : 'année de naissance inconnue'
+  const knownYears = picked.filter(Boolean).map(Number)
+  const yearsText = !picked.length
+    ? 'toutes les années'
+    : [knownYears.length ? yearsPhrase(knownYears) : '', picked.includes('') ? 'année de naissance inconnue' : ''].filter(Boolean).join(' ou ')
   const explain: ReactNode =
     o === 'vus' ? (
       `Part des joueurs vus (${periodInfo(period).label.toLowerCase()}, ${yearsText}).`
@@ -1485,20 +1482,25 @@ export default function Coverage() {
   // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
   const filtersBlock = (
     <VoiceSearch<BilanVoice>
-      values={{ sex, period, year, region, dept, club: st.club, view }}
+      values={{ sex, period, years: picked, region, dept, club: st.club, view }}
       apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
       page={voicePage}
       label="Filtrer"
       input={
         <div className="min-w-0 flex-1">
-          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} year={year} setYear={pickYear} extra={barRow} />
+          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
         </div>
       }
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
-  // Rapport Fédé : sur les joueurs retenus par la barre.
-  const reportSearch = bilan.popOn ? `?${new URLSearchParams([...(st.f ? [['f', encodeBar(st.f)]] : []), ...(st.t.trim() ? [['t', st.t]] : [])]).toString()}` : ''
+  // Rapport Fédé : sur les joueurs retenus par la barre, et les années choisies (a=, comme le bilan).
+  const reportParams = [
+    ...(bilan.popOn && st.f ? [['f', encodeBar(st.f)]] : []),
+    ...(bilan.popOn && st.t.trim() ? [['t', st.t]] : []),
+    ...(picked.length ? [['a', yearsParam(picked, UNKNOWN_YEAR)]] : []),
+  ]
+  const reportSearch = reportParams.length ? `?${new URLSearchParams(reportParams).toString()}` : ''
 
   return (
     <WhoCtx.Provider value={who}>
@@ -1535,7 +1537,7 @@ export default function Coverage() {
             period={period}
             showPeriod={o === 'vus'}
             yearText={yearText}
-            yearPicked={year !== null}
+            yearPicked={picked.length > 0}
             open={filtersOpen}
             onToggle={() => setFiltersOpen(!filtersOpen)}
             bar={barSummary}
@@ -1636,7 +1638,7 @@ export default function Coverage() {
               {isShare(o) && `· ${detail(o, total)} `}
               {o === 'reperes' && `sur ${plural(total.total, 'joueur')} `}· {plural(kpis.clubs, 'club')}
               {!dept && ` · ${plural(kpis.depts, 'département')}`}
-              {year !== null && ` · ${yearText}`}
+              {picked.length > 0 && ` · ${yearText}`}
             </span>
           </span>
           {o !== 'licencies' && <Bar t={total} className="min-w-12 flex-1" />}
@@ -1781,12 +1783,12 @@ export default function Coverage() {
       ) : (
         <>
           <section>
-            <SectionTitle info="Une carte par année de naissance. Touche une génération pour ne voir qu’elle (carte, clubs et joueurs) ; touche-la encore pour revenir à toutes les années.">
+            <SectionTitle info="Une carte par année de naissance. Touche une génération pour ne voir qu’elle (carte, clubs et joueurs) ; touche-la encore pour revenir à toutes les années. Plusieurs générations : coche-les dans le menu des années.">
               Par génération{where ? ` · ${where}` : ''}
             </SectionTitle>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 side:grid-cols-4 xl:grid-cols-6">
               {[{ year: null as string | null, ...totalOf(years) }, ...years].map((y, _i, all) => {
-                const on = y.year === year
+                const on = y.year === null ? !picked.length : picked.includes(y.year)
                 return (
                   <button
                     key={y.year ?? 'toutes'}
@@ -2177,6 +2179,9 @@ export function CoverageReport() {
   const regionLabel = useRegionLabel()
   const [params] = useSearchParams()
   const bar = useMemo(() => parseBar(params.get('f'), params.get('t')), [params])
+  // Années choisies au bilan (a=2010,2011 ; vide : toutes).
+  const aParam = params.get('a')
+  const picked = useMemo(() => parseYearsParam(aParam, UNKNOWN_YEAR), [aParam])
   const popOn = hasBarFilter(bar.f, bar.t)
   const qm = useQuestionModel(popOn)
   const pop = useMemo(
@@ -2186,20 +2191,20 @@ export function CoverageReport() {
   const report = useMemo(
     () =>
       data && (!popOn || pop)
-        ? fedReport(pop ? data.players.filter((p) => pop.has(p.id)) : data.players, lastSights(data.sights, periodInfo(period).range), {
+        ? fedReport(filterPlayers(pop ? data.players.filter((p) => pop.has(p.id)) : data.players, { years: picked }), lastSights(data.sights, periodInfo(period).range), {
             deptOf: department,
             regionOf: (d) => regionOfDept(d),
           })
         : null,
-    [data, period, lists, popOn, pop], // eslint-disable-line react-hooks/exhaustive-deps
+    [data, period, lists, popOn, pop, picked], // eslint-disable-line react-hooks/exhaustive-deps
   )
   // Filtres de la barre, en mots (« Arrière gauche · né en 2010 ») ; jamais un nom de joueur (recherche par nom : dite comme telle).
-  const filterText = popOn
-    ? [
-        ...(bar.f ? recipeChips(bar.f, qm.names).filter((c) => !['out', 'limit', 'sort', 'period', 'names'].includes(c.key)).map((c) => c.label) : []),
-        ...(bar.t.trim() || bar.f?.pop.names ? ['recherche par nom'] : []),
-      ].join(' · ')
-    : ''
+  const knownYears = picked.filter(Boolean).map(Number)
+  const filterText = [
+    ...(picked.length ? [[knownYears.length ? yearsPhrase(knownYears) : '', picked.includes('') ? 'année de naissance inconnue' : ''].filter(Boolean).join(' ou ')] : []),
+    ...(popOn && bar.f ? recipeChips(bar.f, qm.names).filter((c) => !['out', 'limit', 'sort', 'period', 'names'].includes(c.key)).map((c) => c.label) : []),
+    ...(popOn && (bar.t.trim() || bar.f?.pop.names) ? ['recherche par nom'] : []),
+  ].join(' · ')
   // Régions par ordre alphabétique, région inconnue à la fin.
   const regions = useMemo(
     () => (report ? [...report.regions].sort((a, b) => (!a.region ? 1 : !b.region ? -1 : regionLabel(a.region).localeCompare(regionLabel(b.region), 'fr'))) : []),

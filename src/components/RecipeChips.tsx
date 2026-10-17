@@ -32,6 +32,8 @@ import {
 } from '../recipe'
 import { saveQuestion } from '../savedQuestions'
 import { Icon, Segmented } from './ui'
+import { YearPicker } from './YearPicker'
+import { putYears, recentYears, yearsOf } from '../birthYears'
 
 /*
  * La recette en PASTILLES (« Poser une question » au bilan, filtres de la liste Joueurs) : un toucher ouvre ses réglages
@@ -205,12 +207,12 @@ export function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: C
       )
       break
     case 'years': {
-      const [a, b] = r.pop.years ?? [2010, 2010]
-      const max = Number(today().slice(0, 4))
+      // Une ou plusieurs années cochées (src/components/YearPicker.tsx) ; toutes décochées : la pastille s'en va.
+      const picked = (yearsOf(r.pop) ?? []).map(String).reverse()
       body = (
         <div className="flex items-center gap-2 text-xs">
-          nés de <NumberInput label="Première année" value={a} min={LIMITS.year[0]} max={max} onChange={(n) => apply((x) => (x.pop.years = [Math.min(n, b), Math.max(n, b)]))} />
-          à <NumberInput label="Dernière année" value={b} min={LIMITS.year[0]} max={max} onChange={(n) => apply((x) => (x.pop.years = [Math.min(a, n), Math.max(a, n)]))} />
+          <span className="shrink-0">nés en</span>
+          <YearPicker className="min-h-9 w-48 py-1 text-xs" value={picked} options={recentYears(Number(today().slice(0, 4)))} onChange={(ys) => apply((x) => putYears(x.pop, ys))} />
         </div>
       )
       break

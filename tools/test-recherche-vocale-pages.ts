@@ -79,7 +79,7 @@ const bilanCtx: BilanVoiceContext = {
   season: '2026-2027',
 }
 const bilan = bilanVoicePage(bilanCtx)
-const B0: BilanVoice = { sex: 'all', period: 'season', year: null, region: '', dept: '', club: null, view: 'map' }
+const B0: BilanVoice = { sex: 'all', period: 'season', years: [], region: '', dept: '', club: null, view: 'map' }
 const bSchema = bilan.schema()
 assert.deepEqual(Object.keys(bSchema), ['sexe', 'annee', 'periode', 'region', 'departement', 'club', 'vue'])
 const bSent = JSON.stringify(bSchema)
@@ -88,15 +88,15 @@ for (const d of places.depts) assert.ok(!bSent.includes(d.name), `département a
 assert.equal(bilan.mode, undefined, 'bilan : consignes de la liste Joueurs suffisent (fonction déjà déployée)')
 
 let b = pageApply(bilan, { action: 'remplacer', filtres: { sexe: 'F', annee: 2011, departement: 'Var' } }, B0)
-assert.deepEqual(b.values, { ...B0, sex: 'F', year: '2011', dept: '83', region: 'region-sud' }, 'département : sa région suit (carte)')
+assert.deepEqual(b.values, { ...B0, sex: 'F', years: ['2011'], dept: '83', region: 'region-sud' }, 'département : sa région suit (carte)')
 assert.equal(outcomeText(b, false), 'Compris : filles · génération 2011 · Var (83)')
 // Club : retrouvé dans le département choisi ; il amène son lieu sinon.
 b = pageApply(bilan, { action: 'remplacer', filtres: { club: 'Saint-Cyr' } }, B0)
 assert.deepEqual([b.changed, notFoundText(b)], [false, 'Non appliqué : club « Saint-Cyr » (2 clubs possibles : choisissez dans la liste)'], 'deux clubs de Saint-Cyr')
-b = pageApply(bilan, { action: 'ajouter', filtres: { club: 'Saint-Cyr' } }, { ...B0, year: '2010', dept: '83', region: 'region-sud' })
-assert.deepEqual(b.values, { ...B0, year: '2010', dept: '83', region: 'region-sud', club: 'hbc toulon saint-cyr var' }, 'un seul dans le Var')
-b = pageApply(bilan, { action: 'ajouter', filtres: { club: 'Toulon' } }, { ...B0, year: '2010', dept: '83', region: 'region-sud' })
-assert.deepEqual(b.values, { ...B0, year: '2010', dept: '83', region: 'region-sud', club: 'toulon handball' })
+b = pageApply(bilan, { action: 'ajouter', filtres: { club: 'Saint-Cyr' } }, { ...B0, years: ['2010'], dept: '83', region: 'region-sud' })
+assert.deepEqual(b.values, { ...B0, years: ['2010'], dept: '83', region: 'region-sud', club: 'hbc toulon saint-cyr var' }, 'un seul dans le Var')
+b = pageApply(bilan, { action: 'ajouter', filtres: { club: 'Toulon' } }, { ...B0, years: ['2010'], dept: '83', region: 'region-sud' })
+assert.deepEqual(b.values, { ...B0, years: ['2010'], dept: '83', region: 'region-sud', club: 'toulon handball' })
 b = pageApply(bilan, { action: 'remplacer', filtres: { club: 'Cesson' } }, B0)
 assert.deepEqual(b.values, { ...B0, club: 'cesson rennes', dept: '35', region: 'region-bre' }, 'le club amène son département et sa région')
 b = pageApply(bilan, { action: 'ajouter', filtres: { club: 'Cesson' } }, { ...B0, sex: 'M' })
@@ -104,18 +104,29 @@ assert.deepEqual(b.values, { ...B0, sex: 'M', club: 'cesson rennes', dept: '35',
 b = pageApply(bilan, { action: 'remplacer', filtres: { club: 'Real Madrid' } }, B0)
 assert.deepEqual([b.changed, notFoundText(b)], [false, 'Non appliqué : club « Real Madrid » (pas trouvé dans la base)'])
 // Période, vue, génération inconnue.
-b = pageApply(bilan, { action: 'ajouter', filtres: { periode: 'toujours' } }, { ...B0, year: '2010' })
+b = pageApply(bilan, { action: 'ajouter', filtres: { periode: 'toujours' } }, { ...B0, years: ['2010'] })
 assert.deepEqual([b.values.period, outcomeText(b, true)], ['all', 'Ajouté : depuis toujours'])
-assert.equal(pageApply(bilan, { action: 'remplacer', filtres: { periode: 'cette saison', annee: 'inconnue' } }, { ...B0, period: 'all' }).values.year, '')
+assert.deepEqual(pageApply(bilan, { action: 'remplacer', filtres: { periode: 'cette saison', annee: 'inconnue' } }, { ...B0, period: 'all' }).values.years, [''])
 b = pageApply(bilan, { action: 'ajouter', filtres: { vue: 'generations' } }, { ...B0, sex: 'F' })
 assert.deepEqual(b.values, { ...B0, sex: 'F', view: 'years' })
+// Plusieurs générations : une liste, une plage, « 2010 et 2012 » (src/birthYears.ts).
+b = pageApply(bilan, { action: 'remplacer', filtres: { annee: [2010, 2012] } }, B0)
+assert.deepEqual([b.values.years, outcomeText(b, false)], [['2012', '2010'], 'Compris : générations 2010, 2012'])
+b = pageApply(bilan, { action: 'remplacer', filtres: { annee: { de: 2010, a: 2012 } } }, B0)
+assert.deepEqual([b.values.years, outcomeText(b, false)], [['2012', '2011', '2010'], 'Compris : générations 2010 – 2012'])
+assert.deepEqual(pageApply(bilan, { action: 'remplacer', filtres: { annee: '2010 et 2012' } }, B0).values.years, ['2012', '2010'])
+assert.deepEqual(pageApply(bilan, { action: 'remplacer', filtres: { annee: 'entre 2010 et 2012' } }, B0).values.years, ['2012', '2011', '2010'])
+assert.deepEqual(pageApply(bilan, { action: 'ajouter', filtres: { annee: [2011, 2013] } }, { ...B0, years: ['2009'] }).values.years, ['2013', '2011'], 'années redites : remplacent')
+assert.equal(pageApply(bilan, { action: 'remplacer', filtres: { annee: [2010, 'x'] } }, B0).changed, false, 'liste illisible : rien deviné')
+assert.equal(bilan.current({ ...B0, years: ['2012', '2010'] }).annee, '2012, 2010')
+assert.equal(bilan.current({ ...B0, years: ['2011'] }).annee, 2011)
 // Région ajoutée : département et club d'avant partent (comme un toucher sur la carte) ; retirer le département garde la région.
 b = pageApply(bilan, { action: 'ajouter', filtres: { region: 'Bretagne' } }, { ...B0, dept: '83', region: 'region-sud', club: 'toulon handball' })
 assert.deepEqual(b.values, { ...B0, region: 'region-bre' })
 b = pageApply(bilan, { action: 'retirer', retirer: ['departement'] }, { ...B0, dept: '83', region: 'region-sud', club: 'toulon handball' })
 assert.deepEqual([b.values, outcomeText(b, true)], [{ ...B0, region: 'region-sud' }, 'Retiré : département'])
-b = pageApply(bilan, { action: 'retirer', retirer: ['la région'] }, { ...B0, dept: '83', region: 'region-sud', year: '2011' })
-assert.deepEqual(b.values, { ...B0, year: '2011' })
+b = pageApply(bilan, { action: 'retirer', retirer: ['la région'] }, { ...B0, dept: '83', region: 'region-sud', years: ['2011'] })
+assert.deepEqual(b.values, { ...B0, years: ['2011'] })
 // Effacer : la vue affichée ne change pas.
 const yearsView = bilanVoicePage({ ...bilanCtx, view: 'years' })
 b = pageApply(yearsView, { action: 'effacer' }, { ...B0, view: 'years', sex: 'M', period: 'all', dept: '83', region: 'region-sud' })
@@ -127,7 +138,7 @@ assert.equal(b.changed, false)
 assert.equal(notFoundText(b), 'Non appliqué : génération « 2031 » (pas une année de naissance) ; période « hier » (valeur inconnue) ; vue « tableau » (valeur inconnue)')
 assert.equal(unsupportedText(b), 'Je ne sais pas encore filtrer sur : « poste »')
 // Filtres actifs envoyés : clés du schéma, pas de clé de club.
-assert.deepEqual(bilan.current({ ...B0, sex: 'F', year: '', period: 'all', region: 'region-sud', dept: '83', club: 'toulon handball' }), {
+assert.deepEqual(bilan.current({ ...B0, sex: 'F', years: [''], period: 'all', region: 'region-sud', dept: '83', club: 'toulon handball' }), {
   sexe: 'F',
   annee: 'inconnue',
   periode: 'toujours',
@@ -143,7 +154,7 @@ checkExamples('bilan', bilan, (a) => {
 })
 // Le cas d'usage : génération et département, puis le club.
 const toulon = pageExamples('bilan').ex.find((e) => e[2].includes('Toulon'))!
-assert.deepEqual(pageApply(bilan, JSON.parse(toulon[3]), { ...B0, year: '2010', dept: '83', region: 'region-sud' }).notFound.length, 0)
+assert.deepEqual(pageApply(bilan, JSON.parse(toulon[3]), { ...B0, years: ['2010'], dept: '83', region: 'region-sud' }).notFound.length, 0)
 
 // ---------- Événements, Groupes : anciens micros « Filtrer » ----------
 // Ces listes ont maintenant leurs filtres en recette (src/eventQuery.ts, src/groupQuery.ts : tools/test-filtres-recette-pages.ts).

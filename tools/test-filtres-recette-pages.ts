@@ -320,7 +320,24 @@ const gctx: GroupCtx = {
   assert.ok(only({ places: ['Imaginaire'] }).every((e) => e.place === 'Salle Imaginaire'))
   assert.ok(only({ creators: ['Anne'] }).every((e) => e.createdByName === 'Anne Exemple'))
   assert.ok(only({ depts: ['83'] }).every((e) => ectx.info!.get(e.id)!.depts.includes('83')))
-  assert.ok(only({ years: [2011, 2011] }).length > 0)
+  assert.ok(only({ gens: [2011] }).length > 0)
+  // Plusieurs générations : un joueur né dans l'une d'elles (src/birthYears.ts).
+  const gensOf = (e: QEvent) => ectx.info!.get(e.id)!.years
+  const two = only({ gens: [2009, 2011] })
+  assert.ok(two.length > 0 && two.every((e) => gensOf(e).some((y) => y === 2009 || y === 2011)))
+  assert.ok(two.length >= only({ gens: [2011] }).length)
+  assert.equal(
+    two.length,
+    EVENTS.filter((e) => gensOf(e).some((y) => y === 2009 || y === 2011)).length,
+    'génération 2009 ou 2011',
+  )
+  // Session d'avant : { years: [a, b] } (de… à) relu en générations.
+  assert.deepEqual(cleanListQuery(eventsSpec, { f: { years: [2009, 2011] }, q: '' }).f, { gens: [2009, 2010, 2011] })
+  assert.deepEqual(cleanListQuery(eventsSpec, { f: { years: [2011, 2011] }, q: '' }).f, { gens: [2011] })
+  assert.deepEqual(cleanListQuery(eventsSpec, { f: { gens: [2012, 2010, 2010, 'x'] }, q: '' }).f, { gens: [2010, 2012] })
+  assert.equal(listChips(eventsSpec, { f: { gens: [2011] }, q: '' }, ectx)[0].label, 'génération 2011')
+  assert.equal(listChips(eventsSpec, { f: { gens: [2010, 2011, 2012] }, q: '' }, ectx)[0].label, 'générations 2010 à 2012')
+  assert.equal(listChips(eventsSpec, { f: { gens: [2010, 2012] }, q: '' }, ectx)[0].label, 'générations 2010 et 2012')
   // Joueurs d'un événement : sa liste et les joueurs notés hors liste, comptés une fois.
   const hl = EVENTS.find((e) => stats.get(e.id)?.players.has('p-hors-liste'))!
   assert.equal(eventsSpec.sorts[1].get(hl, ectx), new Set([...(hl.playerIds ?? []), 'p-hors-liste']).size)
@@ -424,7 +441,7 @@ function examples(name: string) {
     'enlève le lieu': (q) => assert.deepEqual(q.f, { types: ['tournoi'] }),
     'efface tout et montre les matchs entre mars et mai 2025': (q) => assert.deepEqual(q.f, { types: ['match'], period: { kind: 'between', from: '2025-03-01', to: '2025-05-31' } }),
     "ceux avec au moins 20 joueurs et des joueurs à revoir, les plus récents d'abord": (q) => assert.deepEqual([q.f, q.sort], [{ players: { op: 'gte', n: 20 }, rewatch: true }, { by: 'date', dir: 'desc' }]),
-    'les observations de la génération 2011 créées par Paul': (q) => assert.deepEqual(q.f, { period: { kind: 'upcoming' }, types: ['observation'], creators: ['Paul Fictif'], years: [2011, 2011] }),
+    'les observations de la génération 2011 créées par Paul': (q) => assert.deepEqual(q.f, { period: { kind: 'upcoming' }, types: ['observation'], creators: ['Paul Fictif'], gens: [2011] }),
   }
   checkExamples('CONSIGNES_EVENEMENTS', eventsSpec, value, expect, (raw, ng) => readEventsRecipe(raw, ng, ercx), buildEventsSchema(TODAY))
 }

@@ -58,6 +58,8 @@ import { goesToBilan, isTopClubs, splitPlace, topClubsPlace } from '../bilanQues
 import { locateClubs } from '../answerClubs'
 import { ClubAnswerMap, useClubPlaces, useOpenClub } from '../components/ClubAnswerMap'
 import PlayerDetail from './PlayerDetail'
+import { YearPicker } from '../components/YearPicker'
+import { putYears, recentYears } from '../birthYears'
 
 type Model = QuestionModel
 /** Ce dont les pastilles ont besoin (noms, critères, événements). */
@@ -584,7 +586,7 @@ function restrict(r: Recipe, by: GroupBy, key: string): Recipe {
     delete pop.regions
   }
   if (by === 'region') pop.regions = [key]
-  if (by === 'year') pop.years = [Number(key), Number(key)]
+  if (by === 'year') putYears(pop, [Number(key)])
   if (by === 'position') pop.positions = [key as Position]
   if (by === 'sex') pop.sex = key as 'M' | 'F'
   const out: Recipe['out'] =
@@ -817,11 +819,8 @@ function VarForm({ q, onLaunch, onCancel }: { q: SavedQuestion; onLaunch: (v: Va
             />
           )}
           {k === 'years' && (
-            <>
-              <NumberInput label="Première année" value={v.years?.[0]} min={LIMITS.year[0]} max={max} onChange={(n) => set({ years: [n, Math.max(n, v.years?.[1] ?? n)] })} />
-              à
-              <NumberInput label="Dernière année" value={v.years?.[1]} min={LIMITS.year[0]} max={max} onChange={(n) => set({ years: [Math.min(n, v.years?.[0] ?? n), n] })} />
-            </>
+            // Une ou plusieurs années (toutes décochées : celles de la question restent).
+            <YearPicker className="min-h-9 w-48 py-1 text-xs" allLabel="Celles de la question" value={(v.years ?? []).map(String).reverse()} options={recentYears(max)} onChange={(ys) => set({ years: ys.map(Number) })} />
           )}
           {k === 'period' && <PeriodPicker value={v.period ?? { kind: 'season' }} onChange={(period) => set({ period })} />}
           {k === 'seenN' && <NumberInput label="Nombre de vus" value={v.seenN} min={0} max={LIMITS.n[1]} onChange={(seenN) => set({ seenN })} className="w-16" />}

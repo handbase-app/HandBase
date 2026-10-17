@@ -168,12 +168,14 @@ export interface PlaceOf<P> {
 export const NO_DEPT = '?'
 
 /**
- * Filtres communs à la carte, aux générations et aux clubs. Année : `null` toutes, '' année inconnue. Région et
- * département : vides pour toute la France ; `dept` peut valoir NO_DEPT (département non renseigné).
+ * Filtres communs à la carte, aux générations et aux clubs. Année : `null` toutes, '' année inconnue ; `years` : une
+ * ou plusieurs années (vide : toutes ; '' : année inconnue), à la place de `year`. Région et département : vides pour
+ * toute la France ; `dept` peut valoir NO_DEPT (département non renseigné).
  */
 export interface CoverageFilter {
   sex?: CoverageSex
   year?: string | null
+  years?: readonly string[]
   region?: string
   dept?: string
 }
@@ -182,9 +184,11 @@ export interface CoverageFilter {
 export function filterPlayers<P extends CovPlayer>(players: P[], f: CoverageFilter, place?: PlaceOf<P>): P[] {
   const sex = f.sex ?? 'all'
   const year = f.year ?? null
+  const years = f.years?.length ? new Set(f.years) : null
   return livePlayers(players).filter((p) => {
     if (sex !== 'all' && p.sex !== sex) return false
     if (year !== null && birthYear(p) !== year) return false
+    if (years && !years.has(birthYear(p))) return false
     if (!place || (!f.dept && !f.region)) return true
     const d = place.deptOf(p)
     if (f.dept) return f.dept === NO_DEPT ? !d : d === f.dept

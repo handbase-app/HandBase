@@ -504,6 +504,11 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
     assert.deepEqual(r.seen?.period, { kind: 'since', since: '2026-01-01' })
     assert.deepEqual(ids(a.match), ['i'])
   },
+  'les gardiennes 2010 et 2012 du Var': (r, a) => {
+    assert.deepEqual(r.pop, { sex: 'F', positions: ['GB'], years: [2010, 2012], yearList: [2010, 2012], depts: ['83'] }, 'les années citées, pas 2011')
+    assert.equal(recipeChips(r, names).find((c) => c.key === 'years')?.label, 'nées en 2010 ou 2012')
+    assert.ok(a.match.every((p) => ['2010', '2012'].includes(p.birthDate?.slice(0, 4) ?? '')))
+  },
   'les 2011 du Var qui jouent en Nationale 2': (r, a) => {
     assert.deepEqual(r.pop, { years: [2011, 2011], depts: ['83'] })
     assert.deepEqual(ids(a.match), ['a', 'b', 'c'])
@@ -885,7 +890,13 @@ assert.deepEqual(
 assert.deepEqual(possibleVars(r1), ['sex', 'years', 'period', 'seenN'])
 const again = applyVars(r1, { years: [2012, 2012], period: { kind: 'all' } })
 assert.equal(recipeText(again, names), 'Joueuses · nées en 2012 · vues à 1 événement · depuis toujours · par département')
-assert.deepEqual(varValues(again).years, [2012, 2012])
+assert.deepEqual(varValues(again).years, [2012])
+// Plusieurs années cochées à la relance : celles-là exactement (src/birthYears.ts).
+const again2 = applyVars(r1, { years: [2010, 2012] })
+assert.deepEqual([again2.pop.years, again2.pop.yearList], [[2010, 2012], [2010, 2012]])
+assert.equal(recipeText(again2, names).split(' · ')[1], 'nées en 2010 ou 2012')
+assert.deepEqual(varValues(again2).years, [2010, 2012])
+assert.deepEqual(applyVars(r1, { years: [] }).pop.years, r1.pop.years, 'aucune année cochée : celles de la question')
 assert.equal(applyVars(r1, { sex: '' }).pop.sex, undefined)
 
 // ---------- Performance : 40 000 joueurs, 20 000 « vu », 10 000 avis ----------

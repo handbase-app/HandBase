@@ -14,7 +14,7 @@ const regionOf = (d: string) => REGIONS[d]
 const CLUB_DEPT: Record<string, string> = { 'hbc exemple': '83', 'as fictive': '83', 'club imaginaire': '26', 'entente fictive': '75' }
 const clubDept = (k: string) => CLUB_DEPT[k]
 const R = (x: Partial<Recipe>): Recipe => cleanRecipe({ pop: {}, avis: [], measures: [], out: { type: 'list' }, ...x })
-const S = (x: Partial<BarState> = {}): BarState => ({ sex: 'all', year: null, region: '', dept: '', club: null, f: null, t: '', q: null, ...x })
+const S = (x: Partial<BarState> = {}): BarState => ({ sex: 'all', years: [], region: '', dept: '', club: null, f: null, t: '', q: null, ...x })
 const apply = (s: BarState, patch: ReturnType<typeof fromBar>['patch']): BarState => ({ ...s, ...patch })
 
 // ---------- Filtres nettoyés ----------
@@ -30,13 +30,13 @@ assert.equal(hasBarFilter(R({ pop: { hand: 'gaucher' } }), ''), true)
 
 // ---------- Sans filtre : la barre ne montre rien ----------
 {
-  const s = S({ sex: 'F', year: '2011', region: 'region-sud', dept: '83', club: 'hbc exemple' })
+  const s = S({ sex: 'F', years: ['2011'], region: 'region-sud', dept: '83', club: 'hbc exemple' })
   const qy = barQuery(s)
   assert.deepEqual(qy.recipe.pop, { sex: 'F', years: [2011, 2011], regions: ['region-sud'], depts: ['83'], clubs: ['hbc exemple'] }, 'menus de la barre : sexe, année, lieu du bilan')
   assert.deepEqual([...barHidden(s)].sort(), ['clubs', 'depts', 'regions', 'sex', 'years'], 'aucune pastille : ce sont les commandes du bilan')
   // Rien changé dans la barre : l'état du bilan reste le même.
   const { patch } = fromBar(qy, s, regionOf, clubDept)
-  assert.deepEqual(patch, { region: 'region-sud', dept: '83', club: 'hbc exemple', sex: 'F', year: '2011', f: null, t: '' })
+  assert.deepEqual(patch, { region: 'region-sud', dept: '83', club: 'hbc exemple', sex: 'F', years: ['2011'], f: null, t: '' })
 }
 // Lieu qu'une recette ne dit pas (département non renseigné, autres outre-mer) : gardé tel quel.
 for (const dept of ['?', '97']) {
@@ -48,25 +48,25 @@ for (const dept of ['?', '97']) {
 }
 // Année inconnue (« '' ») : gardée, la barre ne la dit pas.
 {
-  const s = S({ year: '' })
+  const s = S({ years: [''] })
   const { patch } = fromBar({ ...barQuery(s), recipe: R({ pop: { positions: ['PIV'] } }) }, s, regionOf, clubDept)
-  assert.equal(patch.year, '')
+  assert.deepEqual(patch.years, [''])
 }
 
 // ---------- Un filtre ajouté au doigt (poste) : le reste du bilan ne bouge pas ----------
 {
-  const s = S({ year: '2010', region: 'region-sud', dept: '83' })
+  const s = S({ years: ['2010'], region: 'region-sud', dept: '83' })
   const qy = barQuery(s)
   const next = { ...qy, recipe: R({ ...qy.recipe, pop: { ...qy.recipe.pop, positions: ['ARG'] } }) }
   const { patch } = fromBar(next, s, regionOf, clubDept)
-  assert.deepEqual(patch, { region: 'region-sud', dept: '83', club: null, sex: 'all', year: '2010', f: R({ pop: { positions: ['ARG'] } }), t: '' })
+  assert.deepEqual(patch, { region: 'region-sud', dept: '83', club: null, sex: 'all', years: ['2010'], f: R({ pop: { positions: ['ARG'] } }), t: '' })
   const s2 = apply(s, patch)
   assert.deepEqual([...barHidden(s2)].sort(), ['clubs', 'depts', 'regions', 'sex', 'years'], 'pastille du poste seulement')
   assert.deepEqual(barQuery(s2).recipe.pop, { years: [2010, 2010], positions: ['ARG'], regions: ['region-sud'], depts: ['83'] })
   // « Tout effacer » de la barre : retire le poste (fait par la barre en retirant ses pastilles visibles).
   const cleared = fromBar({ ...barQuery(s2), recipe: R({ pop: { years: [2010, 2010], regions: ['region-sud'], depts: ['83'] } }) }, s2, regionOf, clubDept).patch
   assert.equal(cleared.f, null)
-  assert.equal(cleared.year, '2010', 'l’année du bilan reste')
+  assert.deepEqual(cleared.years, ['2010'], 'l’année du bilan reste')
   assert.equal(cleared.dept, '83', 'le lieu reste')
 }
 
@@ -75,20 +75,31 @@ for (const dept of ['?', '97']) {
   const s = S()
   const { patch } = fromBar({ recipe: R({ pop: { sex: 'F', years: [2011, 2011], hand: 'gaucher' } }), q: '' }, s, regionOf, clubDept)
   assert.equal(patch.sex, 'F')
-  assert.equal(patch.year, '2011')
+  assert.deepEqual(patch.years, ['2011'])
   assert.deepEqual(patch.f?.pop, { hand: 'gaucher' }, 'ni sexe ni année dans les filtres de la barre')
 }
-// Plusieurs années : pastille de la barre ; le menu du bilan revient à « toutes ».
+// Plusieurs années (une plage, ou des années qui ne se suivent pas) : au menu du bilan (cases à cocher), pas de pastille.
 {
-  const s = S({ year: '2010' })
+  const s = S({ years: ['2010'] })
   const { patch } = fromBar({ recipe: R({ pop: { years: [2009, 2011] } }), q: '' }, s, regionOf, clubDept)
-  assert.equal(patch.year, null)
-  assert.deepEqual(patch.f?.pop, { years: [2009, 2011] })
-  assert.equal(barHidden(apply(s, patch)).has('years'), false, 'pastille « nés de 2009 à 2011 » visible')
-  // Une année choisie au menu du bilan remplace les années de la barre.
-  assert.equal(withoutYears(patch.f!), null)
-  assert.deepEqual(withoutYears(R({ pop: { years: [2009, 2011], hand: 'gaucher' } }))?.pop, { hand: 'gaucher' })
+  assert.deepEqual(patch.years, ['2011', '2010', '2009'])
+  assert.equal(patch.f, null)
+  const s2 = apply(s, patch)
+  assert.equal(barHidden(s2).has('years'), true, 'pas de pastille : le menu du bilan les montre')
+  assert.deepEqual(barQuery(s2).recipe.pop, { years: [2009, 2011] }, 'menus de la barre : ces années')
+  const odd = fromBar({ recipe: R({ pop: { years: [2010, 2014], yearList: [2010, 2012, 2014] } }), q: '' }, s, regionOf, clubDept).patch
+  assert.deepEqual(odd.years, ['2014', '2012', '2010'])
+  assert.deepEqual(barQuery(apply(s, odd)).recipe.pop, { years: [2010, 2014], yearList: [2010, 2012, 2014] })
+  // Adresse d'avant : années dans la barre (f=) : pastille ; des années choisies au menu du bilan les remplacent.
+  const old = S({ f: R({ pop: { years: [2009, 2011] } }) })
+  assert.equal(barHidden(old).has('years'), false, 'pastille « nés de 2009 à 2011 » visible')
+  assert.equal(withoutYears(old.f!), null)
+  assert.deepEqual(withoutYears(R({ pop: { years: [2010, 2014], yearList: [2010, 2014], hand: 'gaucher' } }))?.pop, { hand: 'gaucher' })
   assert.equal(withoutYears(null), null)
+  // Année inconnue cochée avec d'autres : la barre ne la dit pas (une recette ne la connaît pas), le bilan la garde.
+  const unk = S({ years: ['2011', ''] })
+  assert.equal(barQuery(unk).recipe.pop.years, undefined)
+  assert.deepEqual(fromBar(barQuery(unk), unk, regionOf, clubDept).patch.years, ['2011', ''])
 }
 // Sexe retiré par une phrase (« garçons et filles ») : « Tous ».
 {
@@ -130,7 +141,7 @@ for (const dept of ['?', '97']) {
 // ---------- Question posée au bilan : la barre montre et change SA population ----------
 {
   const q = R({ pop: { sex: 'F', positions: ['ARG'] }, out: { type: 'table', groupBy: 'dept' } })
-  const s = S({ q, sex: 'M', year: '2010', f: R({ pop: { hand: 'gaucher' } }) })
+  const s = S({ q, sex: 'M', years: ['2010'], f: R({ pop: { hand: 'gaucher' } }) })
   const qy = barQuery(s)
   assert.deepEqual(qy.recipe.pop, { sex: 'F', positions: ['ARG'] }, 'la population de la question, pas les filtres d’avant')
   assert.deepEqual([...barHidden(s)].sort(), ['clubs', 'depts', 'regions'], 'sexe et année : pastilles de la barre pendant une question')
@@ -147,13 +158,13 @@ for (const dept of ['?', '97']) {
   const c = closeQuestion(R({ pop: { sex: 'F', years: [2011, 2011], positions: ['ARG'] }, seen, out: { type: 'table', groupBy: 'dept' } }))
   assert.equal(c.q, null)
   assert.equal(c.sex, 'F')
-  assert.equal(c.year, '2011')
+  assert.deepEqual(c.years, ['2011'])
   assert.deepEqual(c.f?.pop, { positions: ['ARG'] })
   assert.deepEqual(c.f?.seen, seen)
   assert.deepEqual(c.f?.out, { type: 'list' })
   const c2 = closeQuestion(R({ pop: { years: [2009, 2011] }, out: { type: 'map' } }))
-  assert.deepEqual([c2.sex, c2.year], ['all', null])
-  assert.deepEqual(c2.f?.pop, { years: [2009, 2011] })
+  assert.deepEqual([c2.sex, c2.years], ['all', ['2011', '2010', '2009']])
+  assert.equal(c2.f, null)
   assert.equal(closeQuestion(R({ out: { type: 'table', groupBy: 'club' } })).f, null, 'question sans population : barre vide')
 }
 

@@ -64,6 +64,8 @@ import { CourtFilter } from './CourtPicker'
 import { ClubPicker, department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
 import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon, Segmented } from './ui'
+import { YearPicker } from './YearPicker'
+import { putYears, yearsOf } from '../birthYears'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -374,7 +376,13 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const p = qy.recipe.pop
   const groups = useMemo(() => (full.data?.groups ?? light?.groups ?? []).filter((g) => !g.archived || p.groups?.includes(g.id)), [full.data, light, p.groups])
   const currentGroup = p.groups?.length === 1 ? groups.find((g) => g.id === p.groups![0]) : undefined
-  const year = p.years && p.years[0] === p.years[1] ? String(p.years[0]) : p.years ? `${p.years[0]}-${p.years[1]}` : ''
+  // Années cochées (src/birthYears.ts : bornes, et années exactes si elles ne se suivent pas).
+  const years = (yearsOf(p) ?? []).map(String).reverse()
+  const setYears = (ys: string[]) => {
+    const pop: Population = { ...p }
+    putYears(pop, ys)
+    setRecipe({ ...qy.recipe, pop })
+  }
   const position: Position | 'all' | 'none' = p.noPosition ? 'none' : p.positions?.length === 1 ? p.positions[0] : 'all'
 
   // Filtres visibles (barre posée : sans ceux que l'écran commande lui-même).
@@ -434,20 +442,13 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       )}
       <div className={hosted?.hideYear ? 'grid' : 'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2'}>
         {!hosted?.hideYear && (
-        <select
-          className={`field px-2 py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`}
-          aria-label="Année de naissance"
-          value={year}
-          onChange={(e) => setPop({ years: e.target.value ? [Number(e.target.value), Number(e.target.value)] : undefined })}
-        >
-          <option value="">Toutes années</option>
-          {year.includes('-') && <option value={year}>{year.replace('-', ' à ')}</option>}
-          {[...(counts?.years ?? []), ...(year && !year.includes('-') && !counts?.years.some(([y]) => y === year) ? [[year, 0] as [string, number]] : [])].map(([y, n]) => (
-            <option key={y} value={y}>
-              {y} ({n})
-            </option>
-          ))}
-        </select>
+        <YearPicker
+          className="px-2 py-1.5 text-xs"
+          allLabel="Toutes années"
+          value={years}
+          options={(counts?.years ?? []).map(([y, n]) => ({ value: y, count: n }))}
+          onChange={setYears}
+        />
         )}
         <select
           className={`field px-2 py-1.5 text-xs ${p.quarter ? `font-bold ${QUARTER_ACTIVE[p.quarter - 1]}` : ''}`}

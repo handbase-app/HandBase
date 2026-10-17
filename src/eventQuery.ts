@@ -7,6 +7,7 @@
 // décrit les clés ; noms d'événements, lieux et personnes sont recopiés tels que dits et retrouvés ICI.
 
 import { seasonOf } from './coverage'
+import { contiguous, parseSaidYears, spanYears, uniqYears } from './birthYears'
 import {
   asList,
   cleanNum,
@@ -64,8 +65,11 @@ export type EventFilters = {
   players?: NumCond
   avis?: NumCond
   rewatch?: true
-  /** Génération des joueurs (années de naissance, de… à). */
-  years?: [number, number]
+  /**
+   * Générations des joueurs : une ou plusieurs années de naissance (triées ; src/birthYears.ts). Remplace `years`
+   * ([première, dernière]) d'avant, encore lu dans la session.
+   */
+  gens?: number[]
 }
 
 export type EventsQuery = ListQuery<EventFilters>
@@ -190,8 +194,10 @@ function cleanEventFilters(v: unknown): EventFilters {
   const avis = cleanNum(o.avis)
   if (avis) f.avis = avis
   if (o.rewatch === true) f.rewatch = true
-  if (Array.isArray(o.years) && o.years.length === 2 && o.years.every((y) => Number.isInteger(y) && y > 1950 && y < 2100))
-    f.years = [Math.min(o.years[0], o.years[1]), Math.max(o.years[0], o.years[1])]
+  const gens = Array.isArray(o.gens) ? uniqYears(o.gens, [1951, 2099]) : []
+  if (gens.length) f.gens = gens
+  else if (Array.isArray(o.years) && o.years.length === 2 && o.years.every((y) => Number.isInteger(y) && y > 1950 && y < 2100))
+    f.gens = spanYears(o.years[0], o.years[1])
   return f
 }
 
@@ -261,7 +267,7 @@ export const EVENT_GROUPINGS = [
 
 export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
   id: 'evenements',
-  keys: ['types', 'period', 'places', 'depts', 'regions', 'who', 'creators', 'sheet', 'video', 'players', 'avis', 'rewatch', 'years'],
+  keys: ['types', 'period', 'places', 'depts', 'regions', 'who', 'creators', 'sheet', 'video', 'players', 'avis', 'rewatch', 'gens'],
   modelKey: {
     types: 'types',
     period: 'periode',
@@ -275,7 +281,7 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
     players: 'joueurs',
     avis: 'avis',
     rewatch: 'aRevoir',
-    years: 'generation',
+    gens: 'generation',
     sort: 'tri',
     q: 'recherche',
   },
@@ -292,7 +298,7 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
     players: 'nombre de joueurs',
     avis: 'nombre d’avis',
     rewatch: 'à revoir',
-    years: 'génération',
+    gens: 'génération',
     sort: 'tri',
     q: 'recherche',
   },
@@ -310,7 +316,7 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
     joueurs: ['players'], nombredejoueurs: ['players'], convoques: ['players'],
     avis: ['avis'], nombredavis: ['avis'], notes: ['avis'],
     arevoir: ['rewatch'], revoir: ['rewatch'],
-    generation: ['years'], generations: ['years'], naissance: ['years'],
+    generation: ['gens'], generations: ['gens'], naissance: ['gens'],
     tri: ['sort'], ordre: ['sort'], classement: ['sort'],
     nom: ['q'], noms: ['q'], recherche: ['q'], texte: ['q'],
   },
@@ -341,8 +347,12 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
         return numText(f.avis!, 'avis', 'avis')
       case 'rewatch':
         return 'avec joueurs à revoir'
-      case 'years':
-        return f.years![0] === f.years![1] ? `génération ${f.years![0]}` : `générations ${f.years![0]} à ${f.years![1]}`
+      case 'gens': {
+        const ys = f.gens!
+        if (ys.length === 1) return `génération ${ys[0]}`
+        if (contiguous(ys)) return `générations ${ys[0]} à ${ys[ys.length - 1]}`
+        return ys.length > 4 ? `${ys.length} générations, de ${ys[0]} à ${ys[ys.length - 1]}` : `générations ${ys.slice(0, -1).join(', ')} et ${ys[ys.length - 1]}`
+      }
     }
     return k
   },
@@ -380,9 +390,9 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
         return numOk(f.avis!, ctx.stats.get(ev.id)?.avis ?? 0)
       case 'rewatch':
         return ctx.rewatch.has(ev.id)
-      case 'years': {
+      case 'gens': {
         const ys = ctx.info?.get(ev.id)?.years ?? []
-        return ys.some((y) => y >= f.years![0] && y <= f.years![1])
+        return ys.some((y) => f.gens!.includes(y))
       }
     }
     return true
@@ -414,7 +424,7 @@ export const eventsSpec: ListSpec<EventFilters, QEvent, EventCtx> = {
 
 /** Le tri, le lieu ou la génération demandent les joueurs des événements (lus seulement alors). */
 export function eventsNeedInfo(qy: EventsQuery): boolean {
-  return !!(qy.f.depts || qy.f.regions || qy.f.years || (qy.calc?.type === 'table' && ['dept', 'region'].includes(qy.calc.by)))
+  return !!(qy.f.depts || qy.f.regions || qy.f.gens || (qy.calc?.type === 'table' && ['dept', 'region'].includes(qy.calc.by)))
 }
 
 // ---------- Ce qui part au modèle ----------
@@ -437,7 +447,7 @@ export function buildEventsSchema(today: string): Record<string, string> {
     joueurs: '{op (>= | <= | =), n} nombre de joueurs',
     avis: '{op (>= | <= | =), n} nombre d’avis',
     aRevoir: 'true : avec des joueurs « à revoir »',
-    generation: 'année de naissance des joueurs (entier) ou {de, a}',
+    generation: 'année de naissance des joueurs : entier, liste d’entiers (plusieurs générations : [2010, 2012]) ou {de, a} (plage)',
     noms: 'liste de noms d’événements tels que dits (recherche dans le nom)',
     sortie:
       'objet : type (liste | nombre | tableau) ; liste : tri (date | joueurs | avis | nom), ordre (croissant | decroissant) ; tableau : par (type | mois | annee | saison | lieu | departement | region | createur)',
@@ -562,10 +572,9 @@ export function readEventsRecipe(raw: unknown, nonGere: string[], ctx: EventsRea
   }
   if (r.generation !== undefined) {
     const g = r.generation
-    const o = g && typeof g === 'object' && !Array.isArray(g) ? (g as Record<string, unknown>) : undefined
-    const pair = Array.isArray(g) ? g : o ? [o.de, o.a ?? o.de] : [g, g]
-    const ys = pair.map((y) => Number(asText(y)))
-    if (ys.every((y) => Number.isInteger(y) && y > 1950 && y <= thisYear)) f.years = [Math.min(ys[0], ys[1]), Math.max(ys[0], ys[1])]
+    // Une génération, plusieurs ([2010, 2012], « 2010 et 2012 ») ou une plage ({de, a}) : src/birthYears.ts.
+    const ys = parseSaidYears(g, thisYear, 1951)
+    if (ys?.length) f.gens = ys
     else notes.push(`génération ${quote(JSON.stringify(g))} (pas une année de naissance)`)
   }
   let q: string | undefined

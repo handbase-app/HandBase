@@ -21,6 +21,8 @@ import {
 } from '../eventQuery'
 import { department } from './PlayerFilter'
 import { SegRow, SortCalcPicker, ToggleChip, useListQuery } from './ListQuery'
+import { YearPicker } from './YearPicker'
+import { uniqYears } from '../birthYears'
 
 /*
  * Liste Événements : filtres = recette « événements » (src/eventQuery.ts), même expérience que la liste Joueurs
@@ -173,7 +175,7 @@ function EventsPanel({
   const year = f.period?.kind === 'year' ? String(f.period.year) : ''
   const places = countBy(except('places'), (e) => [e.place?.trim()])
   const depts = countBy(except('depts'), (e) => ctx.info?.get(e.id)?.depts ?? [])
-  const gens = countBy(except('years'), (e) => (ctx.info?.get(e.id)?.years ?? []).map(String))
+  const gens = countBy(except('gens'), (e) => (ctx.info?.get(e.id)?.years ?? []).map(String))
   const nYes = (k: 'sheet' | 'video' | 'rewatch') => except(k).filter((e) => eventsSpec.test(k, { [k]: true }, e, ctx)).length
   return (
     <>
@@ -266,21 +268,14 @@ function EventsPanel({
                       </option>
                     ))}
                 </select>
-                <select
-                  className={`field min-h-11 py-1.5 text-xs ${f.years ? 'border-accent font-bold' : ''}`}
-                  aria-label="Génération des joueurs"
-                  value={f.years && f.years[0] === f.years[1] ? String(f.years[0]) : ''}
-                  onChange={(e) => setF({ years: e.target.value ? [Number(e.target.value), Number(e.target.value)] : undefined })}
-                >
-                  <option value="">Génération : toutes</option>
-                  {[...gens.entries()]
-                    .sort((a, b) => b[0].localeCompare(a[0]))
-                    .map(([y, n]) => (
-                      <option key={y} value={y}>
-                        {y} ({n})
-                      </option>
-                    ))}
-                </select>
+                <YearPicker
+                  className="min-h-11 py-1.5 text-xs"
+                  label="Génération des joueurs"
+                  allLabel="Génération : toutes"
+                  value={(f.gens ?? []).map(String).reverse()}
+                  options={[...gens.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([y, n]) => ({ value: y, count: n }))}
+                  onChange={(ys) => setF({ gens: ys.length ? uniqYears(ys) : undefined })}
+                />
               </div>
             )}
             <p className="text-[10px] text-muted">Lieu : d’après le lieu écrit, sinon le département de la plupart de ses joueurs. Génération : au moins un quart de ses joueurs.</p>

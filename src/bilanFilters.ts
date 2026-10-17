@@ -1,6 +1,7 @@
 import type { Place } from './bilanNav'
 import { splitPlace } from './bilanQuestion'
 import { listRecipe, type FilterKey, type JoueursQuery } from './playerQuery'
+import { putYears, sortYearStrings, yearsOf } from './birthYears'
 import { cleanRecipe, EMPTY_RECIPE, hasConditions, hasPopulation, type Output, type Population, type Recipe } from './recipe'
 
 /*
@@ -9,10 +10,10 @@ import { cleanRecipe, EMPTY_RECIPE, hasConditions, hasPopulation, type Output, t
  * du bilan (adresse) et la requête de la barre. Testé par tools/test-bilan-filtres.ts.
  *
  * UNE commande par notion :
- *  - sexe et année de naissance (une seule année) : les commandes du bilan (Tous / Garçons / Filles, « Toutes les années ») ;
- *    une phrase de la barre qui les dit les change (adresse s=, a=) ; leurs pastilles ne sont pas montrées dans la barre.
- *    Plusieurs années (« nés de 2009 à 2011 ») : une pastille de la barre (le menu du bilan ne choisit qu'une année) ;
- *    choisir une année dans le menu du bilan la remplace.
+ *  - sexe et années de naissance : les commandes du bilan (Tous / Garçons / Filles, « Toutes les années » : une ou
+ *    plusieurs années cochées) ; une phrase de la barre qui les dit les change (adresse s=, a=2010,2011,2012) ; leurs
+ *    pastilles ne sont pas montrées dans la barre. Années posées dans la barre par une adresse d'avant (f= avec des
+ *    années) : une pastille de la barre ; choisir des années dans le menu du bilan les remplace.
  *  - lieu (une région, un département, un club) : l'étage du bilan (carte, fil, adresse r= d= c=) ; un lieu choisi dans
  *    la barre (menus Région, Département, Club, ou une phrase) fait descendre le bilan à cet étage. Plusieurs départements
  *    ou clubs : pastille de la barre (seuls eux sont comptés), comme pour une question (src/bilanQuestion.ts splitPlace).
@@ -28,8 +29,8 @@ import { cleanRecipe, EMPTY_RECIPE, hasConditions, hasPopulation, type Output, t
 /** Ce que la barre lit de l'état du bilan. */
 export type BarState = {
   sex: 'all' | 'M' | 'F'
-  /** null : toutes ; '' : année inconnue. */
-  year: string | null
+  /** Années choisies (textes, src/birthYears.ts) ; vide : toutes ; '' : année inconnue. */
+  years: string[]
   region: string
   dept: string
   club: string | null
@@ -68,7 +69,8 @@ export function barQuery(s: BarState, calc?: Output): JoueursQuery {
   const pop: Population = { ...base.pop }
   if (!s.q) {
     if (s.sex !== 'all') pop.sex = s.sex
-    if (s.year && /^\d{4}$/.test(s.year) && !pop.years) pop.years = [Number(s.year), Number(s.year)]
+    // Années du bilan (sauf l'année inconnue, qu'une recette ne dit pas) : les menus et les nombres de la barre suivent.
+    if (s.years.length && !s.years.includes('') && !pop.years) putYears(pop, s.years)
   }
   if (s.dept && !SPECIAL_DEPTS.has(s.dept)) {
     if (s.region && !pop.regions) pop.regions = [s.region]
@@ -93,13 +95,13 @@ export function barHidden(s: BarState): Set<FilterKey> {
 const placeSig = (p: Population) => JSON.stringify(PLACE_KEYS.map((k) => p[k] ?? null))
 
 /** Changement d'état du bilan demandé par la barre. */
-export type BarPatch = Partial<Pick<BarState, 'sex' | 'year' | 'f' | 't' | 'q'>> & Place
+export type BarPatch = Partial<Pick<BarState, 'sex' | 'years' | 'f' | 't' | 'q'>> & Place
 
 /**
  * Requête de la barre → état du bilan. Lieu inchangé dans la barre : celui du bilan reste (même un lieu qu'une recette ne
  * dit pas) ; lieu changé : le bilan va au lieu de la barre (splitPlace : un club → son département, club choisi ; un
  * département → lui ; une région → elle ; plusieurs départements ou clubs : gardés en filtre). Sans question : le sexe et
- * une seule année vont aux commandes du bilan. Question posée : sa recette prend la population de la barre, sa sortie reste.
+ * les années vont aux commandes du bilan. Question posée : sa recette prend la population de la barre, sa sortie reste.
  */
 export function fromBar(
   next: JoueursQuery,
@@ -126,35 +128,34 @@ export function fromBar(
   }
   const sex = pop.sex ?? 'all'
   delete pop.sex
-  let year: string | null
-  if (pop.years && pop.years[0] === pop.years[1]) {
-    year = String(pop.years[0])
-    delete pop.years
-  } else year = pop.years ? null : s.year === '' ? '' : null
-  return { patch: { ...place, sex, year, f: cleanFilters({ ...r, pop }), t }, calc: next.calc }
+  // Années de la barre : au menu du bilan ; aucune : toutes (sauf l'année inconnue du bilan, que la barre ne porte pas).
+  const ys = yearsOf(pop)
+  const years = ys ? sortYearStrings(ys.map(String)) : s.years.includes('') ? s.years : []
+  delete pop.years
+  delete pop.yearList
+  return { patch: { ...place, sex, years, f: cleanFilters({ ...r, pop }), t }, calc: next.calc }
 }
 
 /**
- * Question qui ferme (✕) : sa population reste dans la barre (sexe et une seule année aux commandes du bilan, le reste en
+ * Question qui ferme (✕) : sa population reste dans la barre (sexe et années aux commandes du bilan, le reste en
  * filtres), sa sortie s'en va.
  */
-export function closeQuestion(q: Recipe): { q: null; f: Recipe | null; sex: 'all' | 'M' | 'F'; year: string | null } {
+export function closeQuestion(q: Recipe): { q: null; f: Recipe | null; sex: 'all' | 'M' | 'F'; years: string[] } {
   const pop: Population = { ...q.pop }
   const sex = pop.sex ?? 'all'
   delete pop.sex
-  let year: string | null = null
-  if (pop.years && pop.years[0] === pop.years[1]) {
-    year = String(pop.years[0])
-    delete pop.years
-  }
-  return { q: null, f: cleanFilters({ ...q, pop }), sex, year }
+  const years = sortYearStrings((yearsOf(pop) ?? []).map(String))
+  delete pop.years
+  delete pop.yearList
+  return { q: null, f: cleanFilters({ ...q, pop }), sex, years }
 }
 
-/** Année choisie au menu du bilan : remplace des années posées dans la barre (une seule commande). */
+/** Années choisies au menu du bilan : remplacent des années posées dans la barre (une seule commande). */
 export function withoutYears(f: Recipe | null): Recipe | null {
   if (!f?.pop.years) return f
   const pop = { ...f.pop }
   delete pop.years
+  delete pop.yearList
   return cleanFilters({ ...f, pop })
 }
 

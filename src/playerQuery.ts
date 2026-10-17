@@ -37,6 +37,7 @@ import {
 import { localCommand, normalize } from './voiceFilters'
 import { searchByName } from './nameMatch'
 import { clubKey } from './coverage'
+import { inYears, putYears, yearsOf } from './birthYears'
 import type { FilterValues } from './voiceSearch'
 
 export type JoueursQuery = {
@@ -279,6 +280,10 @@ export function removeKeys(qy: JoueursQuery, keys: Iterable<FilterKey>): Joueurs
       case 'q':
         q = ''
         break
+      case 'years':
+        delete p.years
+        delete p.yearList
+        break
       default:
         delete p[k as keyof Population]
     }
@@ -414,7 +419,9 @@ export function mergeQuery(
   const set = <K extends keyof Population>(k: K) => {
     if (n[k] !== undefined) p[k] = structuredClone(n[k])
   }
-  for (const k of ['sex', 'names', 'years', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'followed', 'video', 'profiles'] as const) set(k)
+  for (const k of ['sex', 'names', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'followed', 'video', 'profiles'] as const) set(k)
+  // Années dites : remplacent les années d'avant (bornes et années exactes ensemble, src/birthYears.ts).
+  if (n.years) putYears(p, yearsOf(n))
   if (n.positions || n.noPosition) {
     delete p.positions
     delete p.secondary
@@ -551,10 +558,10 @@ export const listSort = (qy: JoueursQuery) => (qy.recipe.out.sort || qy.recipe.a
 export function quickCounts<P extends QPlayer>(ix: QIndex<P>, qy: JoueursQuery, hay: (p: P) => string, tokens: (p: P) => string[]) {
   const p = qy.recipe.pop
   const rest = structuredClone(qy.recipe)
-  for (const k of ['years', 'regions', 'depts', 'clubs', 'positions', 'secondary', 'noPosition'] as const) delete rest.pop[k]
+  for (const k of ['years', 'yearList', 'regions', 'depts', 'clubs', 'positions', 'secondary', 'noPosition'] as const) delete rest.pop[k]
   const base0 = runRecipe(ix, { ...rest, out: { type: 'count' } }).match
   const info = (x: P) => ix.info.get(x.id)!
-  const okYear = (x: P) => !p.years || (Number(info(x).year) >= p.years[0] && Number(info(x).year) <= p.years[1] && !!info(x).year)
+  const okYear = (x: P) => inYears(p, info(x).year)
   const okDept = (x: P) => !p.depts || (!!info(x).dept && p.depts.includes(info(x).dept!))
   const okClub = (x: P) => !p.clubs || p.clubs.includes(info(x).club)
   const count = (xs: P[], key: (x: P) => string | undefined) => {
