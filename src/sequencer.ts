@@ -37,7 +37,9 @@ export interface SeqItem {
 }
 
 const KIND_RANK: Partial<Record<ActionKind, number>> = { but: 0, but7: 0, '2mn': 1, disq: 2, avert: 2, bleu: 2, tm: 3 }
-const rank = (k: ActionKind) => KIND_RANK[k] ?? 4
+/** Ordre des types dans un groupe d'actions simultanées (le premier est montré). */
+export const kindRank = (k: ActionKind) => KIND_RANK[k] ?? 4
+const rank = kindRank
 
 /**
  * File de séquençage, dans l'ordre de la feuille : un élément par action ou groupe d'actions simultanées, sauf les

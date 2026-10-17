@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ActionKind, MatchSheet, Side, StoredAction } from '../matchSheet'
+import type { MatchSheet, Side, StoredAction } from '../matchSheet'
+import { countLabel, presentCats, type TypeFilter } from '../actionFilter'
+import { NO_TEAM, pillLabel, pillWidth, stackLanes, teamAbbr, TEAM_COLOR } from '../seqPills'
 import { fmtCountdown, isPenalty, isPing, liveQueue, seqView, countdownOf, type SeqItem } from '../sequencer'
 import { fmtMoment } from '../videos'
-import { actionLabel, sideName } from './matchLabels'
+import { sideName } from './matchLabels'
+import { Chip, Glyph, PillBody } from './SeqPill'
+import TypeChips from './TypeChips'
 import { Icon } from './ui'
 import type { PlayerTools } from './VideoPlayer'
 
@@ -18,16 +22,11 @@ import type { PlayerTools } from './VideoPlayer'
  * Écran seulement : le calcul est dans sequencer.ts, les écritures (calage, passer, ignorer, annuler) dans MatchTimeline
  * (mêmes fonctions que la frise du match, actions simultanées calées ensemble). Couleurs fixes (blanc sur voile noir) : la
  * frise est posée sur la vidéo, claire ou sombre, quel que soit le style de l'installation.
+ *
+ * Pastilles (seqPills.ts, SeqPill.tsx) : QUOI en texte court et pictogramme (« BUT », « 7 M », « 2′ », carton jaune…), QUI
+ * par la couleur franche de l'équipe (fond opaque), son abréviation et le numéro ; légende des deux équipes en tête du
+ * bandeau ; l'annonce reprend les mêmes mots et la même couleur. Actions proches : deux rangées (stackLanes).
  */
-
-/** Icône d'un type d'action (texte : aucun fichier) ; sur la frise, un but sur 7 m s'écrit « 7m ». */
-const KIND_ICON: Partial<Record<ActionKind, string>> = { but: '⚽', but7: '⚽', '2mn': '⏱', avert: '🟨', disq: '🟥', bleu: '🟦', tm: 'T' }
-const iconOf = (k: ActionKind) => KIND_ICON[k] ?? '•'
-const pillOf = (k: ActionKind) => (k === 'but7' ? '7m' : iconOf(k))
-/** Libellés du séquençage (plus parlants que ceux de la feuille pour les cartons). */
-const SEQ_LABEL: Partial<Record<ActionKind, string>> = { but: 'But', but7: 'But sur 7 m', '2mn': '2 minutes', avert: 'Carton jaune', disq: 'Carton rouge', bleu: 'Carton bleu', tm: 'Temps mort' }
-const labelOf = (a: StoredAction) => SEQ_LABEL[a.k] ?? actionLabel(a)
-const TEAM: Record<Side, string> = { home: '#3b82f6', away: '#f97316' }
 
 /** Réglages gardés sur l'appareil (lectures et écritures sous try/catch : stockage parfois indisponible). */
 const read = (k: string) => {
@@ -85,6 +84,9 @@ function beep() {
 export default function Sequencer({
   ms,
   base,
+  all,
+  types,
+  onTypes,
   pending,
   now,
   api,
@@ -100,6 +102,11 @@ export default function Sequencer({
   ms: MatchSheet
   /** File de séquençage (sequencer.ts seqQueue). */
   base: SeqItem[]
+  /** Toute la file, types masqués compris (pastilles de visibilité et leurs nombres). */
+  all: SeqItem[]
+  /** Types d'actions affichés (actionFilter.ts) : base ne garde que les actions montrées. */
+  types: TypeFilter
+  onTypes: (f: TypeFilter) => void
   /** Action annoncée ; undefined : tout est calé ou ignoré. */
   pending?: SeqItem
   now: number
@@ -123,6 +130,17 @@ export default function Sequencer({
     return AHEADS.includes(v) ? v : 60
   })
   const compact = api.compact
+  // Largeur de la frise (px), pour empiler les pastilles proches.
+  const stripRef = useRef<HTMLDivElement>(null)
+  const [stripW, setStripW] = useState(0)
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setStripW(el.clientWidth))
+    ro.observe(el)
+    setStripW(el.clientWidth)
+    return () => ro.disconnect()
+  }, [folded])
   const touch = api.touch
 
   const { queue } = liveQueue(ms, base, pending?.id, now)
@@ -153,27 +171,122 @@ export default function Sequencer({
     return () => window.clearTimeout(t)
   }, [msg])
 
-  const name = (a: StoredAction) => {
-    const w = who(a)
-    if (a.pl === undefined || w.startsWith('n°')) return w
-    const sp = ms.players[a.pl]
-    return `${w}${sp?.num ? ` n°${sp.num}` : ''} (${sideName(ms, sp?.side)})`
+  // QUOI et QUI d'une action : libellé, équipe (couleur, abréviation, nom), numéro, joueur relié.
+  const abbr = teamAbbr(ms.home, ms.away)
+  const sideOf = (a: StoredAction): Side | undefined => a.side ?? (a.pl !== undefined ? ms.players[a.pl]?.side : undefined)
+  const colorOf = (a: StoredAction) => {
+    const sd = sideOf(a)
+    return sd ? TEAM_COLOR[sd] : NO_TEAM
   }
-  const num = (a: StoredAction) => (a.pl !== undefined && ms.players[a.pl]?.num ? ` n°${ms.players[a.pl].num}` : '')
-  /** Une action du groupe, en entier : « ⚽ But · DUPONT Léo n°7 (Locaux) ». */
+  const teamOf = (a: StoredAction) => {
+    const sd = sideOf(a)
+    return sd ? abbr[sd] : ''
+  }
+  const numOf = (a: StoredAction) => (a.pl !== undefined ? ms.players[a.pl]?.num : undefined)
+  /** Nom du joueur si sa fiche est reliée (who donne sinon « n° 7 (Équipe) »). */
+  const linked = (a: StoredAction) => {
+    if (a.pl === undefined || !ms.players[a.pl]?.playerId) return undefined
+    const w = who(a)
+    return w && !w.startsWith('n°') ? w : undefined
+  }
+  const lab = (i: number) => pillLabel(ms.actions[i].k, ms.actions[i].l)
+  /** Pour les lecteurs d'écran et les bulles : « But · Rhône Sud · n°7 DUPONT Léo ». */
   const full = (i: number) => {
     const a = ms.actions[i]
-    const w = name(a)
-    return `${iconOf(a.k)} ${labelOf(a)}${w ? ` · ${w}` : ''}`
+    const num = numOf(a)
+    return [lab(i).long, sideName(ms, sideOf(a)), [num && `n°${num}`, linked(a)].filter(Boolean).join(' ')].filter(Boolean).join(' · ')
   }
-  /** En bref : « 🟨 Carton jaune n°12 ». */
-  const short = (i: number) => `${iconOf(ms.actions[i].k)} ${labelOf(ms.actions[i])}${num(ms.actions[i])}`
+  /** En bref : « Carton jaune COL n°12 ». */
+  const short = (i: number) => {
+    const a = ms.actions[i]
+    const num = numOf(a)
+    return [lab(i).long, teamOf(a), num && `n°${num}`].filter(Boolean).join(' ')
+  }
+  /** Étiquette de couleur d'équipe : « [● BUT] ». */
+  const chip = (i: number, small = false) => (
+    <Chip color={colorOf(ms.actions[i])} className={small ? 'text-[11px]' : ''}>
+      <Glyph g={lab(i).glyph} card={lab(i).card} size={small ? 10 : 11} />
+      {lab(i).short}
+    </Chip>
+  )
+  /** Annonce d'une action : « [● BUT] Rhône Sud · n°7 DUPONT Léo ». */
+  const said = (i: number) => {
+    const a = ms.actions[i]
+    const num = numOf(a)
+    const team = sideName(ms, sideOf(a))
+    const pl = [num && `n°${num}`, linked(a)].filter(Boolean).join(' ')
+    return (
+      <>
+        {chip(i)} {[team, pl].filter(Boolean).join(' · ')}
+      </>
+    )
+  }
+  /** En bref, avec l'étiquette : « [● 2′] COL n°12 ». */
+  const saidShort = (i: number) => {
+    const a = ms.actions[i]
+    const num = numOf(a)
+    return (
+      <>
+        {chip(i, true)} {[teamOf(a), num && `n°${num}`].filter(Boolean).join(' ')}
+      </>
+    )
+  }
   const lead = (it: SeqItem) => it.is.find((j) => ms.actions[j].k === it.k) ?? it.i
   const others = (it: SeqItem) => it.is.filter((j) => j !== lead(it))
   const nexts = pending ? base.slice(pos, pos + 2) : []
+
+  // Rangée de chaque pastille (seqPills.ts stackLanes), d'après leur position en px sur toute la file et leur largeur estimée.
+  const scale = (1 - AIM) / ahead
+  const boxes = queue.flatMap((it) => {
+    if (it.v === undefined) return []
+    const i = lead(it)
+    const a = ms.actions[i]
+    const l = lab(i)
+    const num = numOf(a) ? `n°${numOf(a)}` : ''
+    const more = it.is.length > 1 ? ' +1' : ''
+    const big = it.id === pending?.id
+    const w = compact
+      ? pillWidth([`•• ${l.short}${more} ${big ? teamOf(a) : ''} ${num}`], big ? 12 : 11, 12)
+      : big
+        ? pillWidth([`•• ${l.short}${more} · ${teamOf(a)}`, `${num} ${linked(a) ?? sideName(ms, sideOf(a))}`], 13, 26)
+        : pillWidth([`•• ${l.short}${more}`, `${teamOf(a)} ${num}`], 12, 18)
+    return [{ id: it.id, x: (AIM + (it.v - now) * scale) * stripW, w, block: big }]
+  })
+  const laneOf = stackLanes(boxes)
+  const lanes = new Map(boxes.map((b, j) => [b.id, laneOf[j]]))
   // Téléphone (bandeau compact) ou bandeau replié : « ≥ 40 s » ; sinon « au plus tôt dans ~40 s ».
   const when = countdown !== undefined ? fmtCountdown(countdown, compact || folded) : undefined
   const penalty = isPenalty(ms, pending)
+
+  // Pastilles de visibilité : types présents (actions de toute la file, masquées comprises) et leur nombre.
+  const [typesOpen, setTypesOpen] = useState(false)
+  const present = presentCats(all.flatMap((it) => it.is.map((j) => ms.actions[j].k)))
+  const shownCats = present.filter((p) => !types.hide.includes(p.cat.id)).length
+  const filtered = shownCats < present.length || types.sides.length > 0
+  const counter = countLabel(pos, base.length, types, present.map((p) => p.cat.id))
+  const typeChips = (
+    <TypeChips
+      present={present}
+      filter={types}
+      onChange={onTypes}
+      tone="video"
+      names={!compact}
+      teams={(['home', 'away'] as const).map((sd) => ({ side: sd, abbr: abbr[sd], name: sideName(ms, sd), color: TEAM_COLOR[sd] }))}
+    />
+  )
+  /** Légende des deux équipes : « [RHS] HBC Rhône Sud  [COL] Handball Collines » (abréviations seules sur téléphone). */
+  const legend = (
+    <span className="flex shrink-0 items-center gap-2" aria-label={`Équipes : ${abbr.home} ${ms.home}, ${abbr.away} ${ms.away}`}>
+      {(['home', 'away'] as const).map((sd) => (
+        <span key={sd} className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-white/90" title={sideName(ms, sd)}>
+          <Chip color={TEAM_COLOR[sd]} className="text-[11px]">
+            {abbr[sd]}
+          </Chip>
+          {!compact && <span className="max-w-[10rem] truncate">{sideName(ms, sd)}</span>}
+        </span>
+      ))}
+    </span>
+  )
 
   const setSoundOn = (v: boolean) => {
     setSound(v)
@@ -228,16 +341,22 @@ export default function Sequencer({
             <button type="button" className="min-w-0 flex-1 text-left" title={pending?.v !== undefined ? 'Aller à cette action (5 s avant)' : undefined} onClick={goPending} disabled={pending?.v === undefined}>
               {pending ? (
                 folded ? (
-                  <span className="block truncate text-sm font-bold" role="status">
-                    {short(lead(pending))} · {pos}/{base.length}
+                  <span className="block truncate text-sm font-bold" role="status" aria-label={`Prochaine action : ${full(lead(pending))}`}>
+                    {chip(lead(pending))} {[teamOf(ms.actions[lead(pending)]), numOf(ms.actions[lead(pending)]) && `n°${numOf(ms.actions[lead(pending)])}`].filter(Boolean).join(' ')} · {counter}
                     {when && ` · ${when}`}
                   </span>
                 ) : (
                   <>
                     <span className={`block truncate font-bold ${compact ? 'text-xs' : 'text-sm'}`} role="status">
                       <span className="text-white/60">{countdown === undefined ? 'Première action : ' : 'Prochaine action : '}</span>
-                      {full(lead(pending))}
-                      {others(pending).map((j) => ` + ${short(j)}`).join('')} · {fmtMoment(ms.actions[pending.i].t)} de jeu
+                      {said(lead(pending))}
+                      {others(pending).map((j) => (
+                        <span key={j}>
+                          {' + '}
+                          {saidShort(j)}
+                        </span>
+                      ))}{' '}
+                      · {fmtMoment(ms.actions[pending.i].t)} de jeu
                       {when && <span className={ping ? 'text-yellow-300' : 'text-white/80'}> · {when}</span>}
                     </span>
                     {penalty && (
@@ -245,28 +364,51 @@ export default function Sequencer({
                         Penalty : le chrono s’arrête souvent avant, l’action peut tarder
                       </span>
                     )}
-                    <span className="block truncate text-[11px] text-white/65">
-                      {toast ? (
-                        <span className="text-emerald-300">{toast}</span>
-                      ) : countdown === undefined ? (
-                        'Touche « C’est ici » quand elle arrive : les suivantes défileront.'
-                      ) : nexts.length ? (
-                        `ensuite : ${nexts.map((x) => short(lead(x))).join(' · ')}`
-                      ) : (
-                        'Dernière action de la feuille.'
-                      )}
+                    <span className="flex items-center gap-3 text-[11px] text-white/65">
+                      <span className="min-w-0 flex-1 truncate">
+                        {toast ? (
+                          <span className="text-emerald-300">{toast}</span>
+                        ) : countdown === undefined ? (
+                          'Touche « C’est ici » quand elle arrive : les suivantes défileront.'
+                        ) : nexts.length ? (
+                          <>
+                            ensuite :{' '}
+                            {nexts.map((x, j) => (
+                              <span key={x.id}>
+                                {j > 0 && ' · '}
+                                {saidShort(lead(x))}
+                              </span>
+                            ))}
+                          </>
+                        ) : (
+                          'Dernière action de la feuille.'
+                        )}
+                      </span>
+                      {compact && legend}
                     </span>
                   </>
                 )
               ) : (
-                <span className="block truncate text-sm font-bold text-emerald-300" role="status">
-                  Toutes les actions sont calées ou ignorées.
+                <span className={`block truncate text-sm font-bold ${base.length ? 'text-emerald-300' : 'text-white/80'}`} role="status">
+                  {!base.length && all.length ? 'Aucune action affichée : coche au moins un type.' : filtered ? 'Toutes les actions affichées sont calées ou ignorées.' : 'Toutes les actions sont calées ou ignorées.'}
                 </span>
               )}
             </button>
-            <span className={`shrink-0 self-center rounded bg-white/10 px-1.5 text-[11px] font-bold tabular-nums text-white/80 ${folded ? 'hidden' : ''}`} title="Action annoncée / actions à caler">
-              {pos}/{base.length}
+            <span className={`shrink-0 self-center rounded bg-white/10 px-1.5 text-[11px] font-bold tabular-nums text-white/80 ${folded ? 'hidden' : ''}`} title="Action annoncée / actions affichées à caler">
+              {counter}
             </span>
+            {compact && !folded && (
+              <span className="relative shrink-0">
+                <button type="button" className={`${tool} gap-0.5 text-[11px] font-bold ${typesOpen || filtered ? 'bg-white/15' : ''}`} aria-expanded={typesOpen} title="Types d’actions affichés" onClick={() => setTypesOpen(!typesOpen)}>
+                  Types{filtered ? ` ${shownCats}/${present.length}` : ''} <span aria-hidden>▾</span>
+                </button>
+                {typesOpen && (
+                  <div className="absolute right-0 bottom-full z-40 mb-1 w-[min(30rem,80vw)] rounded-lg bg-black/90 p-2 ring-1 ring-white/20" role="dialog" aria-label="Types d’actions affichés">
+                    {typeChips}
+                  </div>
+                )}
+              </span>
+            )}
             {!folded && !compact && (
               <span className="flex shrink-0 items-center">
                 <button type="button" className={tool} title="Voir plus loin" aria-label="Voir plus loin" disabled={ahead >= AHEADS.at(-1)!} onClick={() => setWin(AHEADS[AHEADS.indexOf(ahead) + 1])}>
@@ -293,9 +435,12 @@ export default function Sequencer({
             )}
           </div>
 
-          {/* Frise défilante : ligne de visée au tiers, actions de droite à gauche. */}
+          {/* Types d'actions affichés (et équipes, qui servent de légende) ; téléphone couché : bouton « Types ▾ ». */}
+          {!folded && !compact && typeChips}
+
+          {/* Frise défilante : ligne de visée au tiers, actions de droite à gauche, sur deux rangées quand elles sont proches. */}
           {!folded && (
-            <div className={`relative overflow-hidden rounded-md bg-black/35 ${compact ? 'h-10' : 'h-14'}`} aria-label="Actions à venir">
+            <div ref={stripRef} className={`relative overflow-hidden rounded-md bg-black/35 ${compact ? 'h-[50px]' : 'h-20'}`} aria-label="Actions à venir">
               <span
                 className={`pointer-events-none absolute top-0 bottom-0 w-0.5 -translate-x-1/2 transition-colors ${ping ? 'bg-yellow-300 shadow-[0_0_10px_3px_rgba(253,224,71,0.8)] motion-safe:animate-pulse' : 'bg-white/70'}`}
                 style={{ left: `${AIM * 100}%` }}
@@ -307,28 +452,34 @@ export default function Sequencer({
               )}
               {marks.map((m) => {
                 const big = m.pending
-                const k = m.it.k
-                const color = m.it.fixed ? '#10b981' : 'rgba(255,255,255,0.18)'
+                const i = lead(m.it)
+                const a = ms.actions[i]
+                const lane = lanes.get(m.it.id) ?? 0
+                const pos = lane < 0 ? 'top-1/2 -translate-y-1/2' : lane === 0 ? (compact ? 'top-0.5' : 'top-1') : compact ? 'bottom-0.5' : 'bottom-1'
                 return (
                   <button
                     type="button"
                     key={m.it.id}
-                    className={`absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 font-extrabold leading-none transition-[left,opacity] duration-200 ease-linear motion-reduce:transition-none ${
-                      big ? `${compact ? 'h-8 min-w-8 text-sm' : 'h-11 min-w-11 text-lg'} z-10 px-1 ${ping ? 'border-yellow-300 bg-yellow-400/40' : 'border-yellow-300/90 bg-black/50'}` : `${compact ? 'h-6 min-w-6 text-[10px]' : 'h-7 min-w-7 text-xs'} px-0.5`
-                    } ${m.past ? 'opacity-35' : ''} ${m.it.fixed || big ? '' : 'border-dashed'}`}
-                    style={{
-                      left: `${m.x * 100}%`,
-                      borderColor: big ? undefined : m.it.fixed ? '#10b981' : 'rgba(255,255,255,0.6)',
-                      background: big ? undefined : color,
-                      boxShadow: ms.actions[m.it.i].side ? `inset 0 -3px 0 ${TEAM[ms.actions[m.it.i].side!]}` : undefined,
-                    }}
+                    className={`absolute flex -translate-x-1/2 rounded-md transition-[left,opacity] duration-200 ease-linear focus-visible:outline-2 focus-visible:outline-white motion-reduce:transition-none ${pos} ${big ? 'z-20' : 'z-10 hover:z-30'} ${m.past ? 'opacity-40' : ''}`}
+                    style={{ left: `${m.x * 100}%` }}
                     title={`${m.it.is.map(short).join(' + ')} — ${m.it.fixed ? 'calée' : 'estimée'} à ${fmtMoment(Math.round(m.it.v!))}`}
-                    aria-label={`${m.it.is.map(short).join(' + ')}, ${m.it.fixed ? 'calée' : 'estimée'}`}
+                    aria-label={`${m.it.is.map(full).join(' + ')}, ${m.it.fixed ? 'calée' : 'estimée'}`}
                     aria-current={big ? 'true' : undefined}
                     onClick={() => onPick(m.it)}
                   >
-                    {pillOf(k)}
-                    {m.it.is.length > 1 && <span className="ml-0.5 text-[9px] text-white/80">+{m.it.is.length - 1}</span>}
+                    <PillBody
+                      label={lab(i)}
+                      color={colorOf(a)}
+                      team={teamOf(a)}
+                      teamName={sideName(ms, sideOf(a))}
+                      num={numOf(a)}
+                      player={big ? linked(a) : undefined}
+                      more={m.it.is.length - 1}
+                      size={compact ? 'compact' : 'normal'}
+                      big={big}
+                      fixed={m.it.fixed}
+                      ping={big && ping}
+                    />
                   </button>
                 )
               })}
