@@ -1184,6 +1184,13 @@ export default function Coverage() {
         requestAnimationFrame(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })),
       )
   }
+  // « Voir les joueurs → » (bulle d'un club, téléphone) : le club s'ouvre avec TOUS ses joueurs dépliés (« Déjà vus »
+  // compris, sinon un club entièrement vu ne montre rien), puis on descend jusqu'à lui une fois la liste dessinée.
+  const openClubPlayers = (id: string) => {
+    if (!clubMap?.byId.get(id)?.club) return
+    set({ club: id, seenOpen: true })
+    window.setTimeout(() => document.querySelector(`[data-club="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120)
+  }
   // Bulle d'un point de club : nom, n° et ville, valeur montrée.
   const dotTip = (d?: ClubDot<ClubCoverage<Player>>, pinned = false, open?: () => void) => {
     if (!d) return null
@@ -1569,7 +1576,7 @@ export default function Coverage() {
                       tip: (id, pinned) =>
                         dotTip(clubMap.byId.get(id), pinned, () => {
                           setHot(null)
-                          pickDot(id)
+                          openClubPlayers(id)
                         }),
                     }
                   : topMap?.items.length
