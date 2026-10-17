@@ -586,7 +586,9 @@ export function FranceMap({
             if (e.pointerType === 'mouse' && !dotPinned) dots.onActive(null)
           }}
           onFocus={() => dots.onActive(d.id)}
-          onBlur={() => dots.onActive(null)}
+          // Bulle épinglée au doigt : toucher son bouton fait perdre le focus au point ; on ne la ferme pas (sinon elle
+          // disparaît avant que le clic n'arrive sur « Voir les joueurs »). Un appui ailleurs sur la carte la ferme.
+          onBlur={() => !dotPinned && dots.onActive(null)}
           onClick={(e) => {
             e.stopPropagation()
             setTip(null)
