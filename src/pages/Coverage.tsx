@@ -1185,7 +1185,7 @@ export default function Coverage() {
       )
   }
   // Bulle d'un point de club : nom, n° et ville, valeur montrée.
-  const dotTip = (d?: ClubDot<ClubCoverage<Player>>) => {
+  const dotTip = (d?: ClubDot<ClubCoverage<Player>>, pinned = false, open?: () => void) => {
     if (!d) return null
     const at = [d.number && `N° ${d.number}`, d.city].filter(Boolean).join(' · ')
     return (
@@ -1193,7 +1193,15 @@ export default function Coverage() {
         <div className="font-bold">{clubLabel(d.name)}</div>
         {at && <div className="text-[10px] text-muted">{at}</div>}
         {!d.club && Q?.limited ? <div className="mt-1 text-muted">Pas parmi {Q.texts.top}</div> : tipValue(d.club)}
-        {d.club && <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>}
+        {d.club &&
+          (pinned && open ? (
+            // Au téléphone, le premier toucher montre la bulle (stats du club, la carte reste) ; ce bouton ouvre ses joueurs.
+            <button type="button" className="btn-primary mt-2 min-h-10 w-full text-xs" onClick={open}>
+              Voir les joueurs →
+            </button>
+          ) : (
+            <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>
+          ))}
       </>
     )
   }
@@ -1557,7 +1565,12 @@ export default function Coverage() {
                       picked: club?.key,
                       onActive: setHot,
                       onPick: pickDot,
-                      tip: (id) => dotTip(clubMap.byId.get(id)),
+                      touchShowsTip: !side,
+                      tip: (id, pinned) =>
+                        dotTip(clubMap.byId.get(id), pinned, () => {
+                          setHot(null)
+                          pickDot(id)
+                        }),
                     }
                   : topMap?.items.length
                     ? {

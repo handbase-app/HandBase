@@ -169,8 +169,13 @@ export interface MapDots {
   picked?: string
   onActive: (id: string | null) => void
   onPick: (id: string) => void
-  /** Contenu de la bulle d'un point. */
-  tip: (id: string) => ReactNode
+  /**
+   * Au doigt, un premier toucher montre seulement la bulle du point (épinglée : on peut y toucher un bouton, par exemple
+   * « Voir les joueurs ») au lieu de choisir le club. La souris et le clavier choisissent toujours directement.
+   */
+  touchShowsTip?: boolean
+  /** Contenu de la bulle d'un point ; pinned : bulle posée au doigt (elle peut contenir des boutons). */
+  tip: (id: string, pinned: boolean) => ReactNode
 }
 
 /** Zone d'appui minimale d'un point (rayon, px à l'écran) : 24 px de diamètre au moins. */
@@ -411,6 +416,11 @@ export function FranceMap({
     return spreadDots(pts, 1.5 * k).sort((a, b) => Number(!!b.muted) - Number(!!a.muted) || b.r - a.r)
   }, [shapes, items, fit.s])
   const activeDot = dots?.active ? placed.find((d) => d.id === dots.active) : undefined
+  // Bulle d'un point posée au doigt (touchShowsTip) : elle reste et se touche, jusqu'à un appui ailleurs.
+  const [dotPinned, setDotPinned] = useState(false)
+  useEffect(() => {
+    if (!dots?.active) setDotPinned(false)
+  }, [dots?.active])
 
   // Points des clubs (boutons) : dans le département recalé, ou posés sur la France / la région.
   const dotEls =
@@ -427,17 +437,26 @@ export function FranceMap({
           aria-label={d.label}
           aria-pressed={d.id === dots.picked}
           className={`outline-none ${d.muted ? '' : 'cursor-pointer'}`}
+          onPointerDown={(e) => {
+            pointer.current = e.pointerType
+          }}
           onPointerEnter={(e) => {
-            if (e.pointerType === 'mouse') dots.onActive(d.id)
+            if (e.pointerType === 'mouse' && !dotPinned) dots.onActive(d.id)
           }}
           onPointerLeave={(e) => {
-            if (e.pointerType === 'mouse') dots.onActive(null)
+            if (e.pointerType === 'mouse' && !dotPinned) dots.onActive(null)
           }}
           onFocus={() => dots.onActive(d.id)}
           onBlur={() => dots.onActive(null)}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation()
             setTip(null)
             dots.onActive(d.id)
+            if (dots.touchShowsTip && pointer.current !== 'mouse' && !d.muted) {
+              setDotPinned(true)
+              return
+            }
+            setDotPinned(false)
             dots.onPick(d.id)
           }}
           onKeyDown={(e) => {
@@ -484,6 +503,10 @@ export function FranceMap({
           aria-label={ariaLabel ?? (region ? 'Carte des départements de la région' : 'Carte des régions et des départements')}
           // Appui hors d'un département (ou d'un point) : la bulle se ferme.
           onClick={(e) => {
+            if (dotPinned) {
+              setDotPinned(false)
+              dots?.onActive(null)
+            }
             if (e.target === e.currentTarget) {
               setTip(null)
               dots?.onActive(null)
@@ -557,7 +580,7 @@ export function FranceMap({
       {withDots && activeDot && dots && !tip && (
         // Bulle d'un point (survolé, touché, ou sa ligne survolée dans la liste) : au-dessus ou au-dessous du point.
         <div
-          className="pointer-events-none absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl"
+          className={`absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl ${dotPinned ? '' : 'pointer-events-none'}`}
           style={(() => {
             const x = fit.ox + activeDot.x * fit.s
             const y = fit.oy + activeDot.y * fit.s
@@ -570,7 +593,7 @@ export function FranceMap({
             }
           })()}
         >
-          {dots.tip(activeDot.id)}
+          {dots.tip(activeDot.id, dotPinned)}
         </div>
       )}
       {tip && (
