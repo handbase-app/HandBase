@@ -10,8 +10,8 @@ import { logQuestion, type QuestionTrace } from '../questionLog'
 import type { AdvancedStatus, RecipeStatus } from '../questionLogCore'
 import { clubsInRows, type AnswerClub } from '../answerClubs'
 import { ClubAnswerMap, useClubPlaces, useOpenClub } from './ClubAnswerMap'
-import { FollowStar } from './Follow'
 import { PlayerRow } from './PlayerRow'
+import { PlayerList } from './Pictos'
 import { Empty, Icon, SectionTitle } from './ui'
 import { sexLabel } from '../gender'
 
@@ -343,15 +343,11 @@ export function SqlAnswerView({
     return (
       <div className="flex flex-col gap-2">
         {meta}
-        {players.map((p) => (
-          <PlayerRow
-            key={p.id}
-            p={p}
-            link={{ to: playerLink(p.id) }}
-            sub={[p.birthDate?.slice(0, 4), p.club, extra.get(p.id)].filter(Boolean).join(' · ')}
-            follow={<FollowStar id={p.id} sex={p.sex} />}
-          />
-        ))}
+        <PlayerList ids={players.map((p) => p.id)}>
+          {players.map((p) => (
+            <PlayerRow key={p.id} p={p} link={{ to: playerLink(p.id) }} sub={[p.birthDate?.slice(0, 4), p.club, extra.get(p.id)].filter(Boolean).join(' · ')} />
+          ))}
+        </PlayerList>
       </div>
     )
 

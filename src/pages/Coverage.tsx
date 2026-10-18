@@ -54,11 +54,10 @@ import { department, hayOf, tokensOf, useSessionState } from '../components/Play
 import { usePlayersQuery } from '../components/PlayersQuery'
 import { selectPlayers } from '../playerQuery'
 import { barHidden, barQuery, closeQuestion, encodeBar, fromBar, hasBarFilter, parseBar, withoutYears, type BarState } from '../bilanFilters'
-import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { AddToEventDialog } from '../components/AddToEvent'
-import { FollowStar } from '../components/Follow'
 import { VoiceSearch } from '../components/VoiceSearch'
 import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
@@ -1423,7 +1422,6 @@ export default function Coverage() {
         onPick={pickClub}
         label={yearText}
         last={last}
-        rewatch={data.rewatch}
         {...(linked && clubMap ? { hot, onHot: setHot, dotColor: (k: string) => clubMap.color.get(k) } : {})}
       />
     ) : (
@@ -1854,7 +1852,7 @@ export default function Coverage() {
               Q ? (
                 <QuestionWho club={club} players={Q.order(club)} text={Q.playerText} what={Q.texts} />
               ) : (
-                <Who club={club} label={yearText} last={last} rewatch={data.rewatch} />
+                <Who club={club} label={yearText} last={last} />
               )
             ) : (
               side2
@@ -1908,7 +1906,7 @@ export default function Coverage() {
             {side && (
               <section data-keep-scroll="bilan-qui" className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
                 <SectionTitle>Qui ?</SectionTitle>
-                {club ? <Who club={club} label={yearText} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir ses {gw.joueurs}.</Empty>}
+                {club ? <Who club={club} label={yearText} last={last} /> : <Empty>Choisis un club pour voir ses {gw.joueurs}.</Empty>}
               </section>
             )}
           </div>
@@ -2053,9 +2051,11 @@ function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>
         <div className="text-[11px] text-muted">{[t.head, ...t.rest].join(' · ')}</div>
       </div>
       {players.length ? (
-        players.map((p) => (
-          <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} follow={<FollowStar id={p.id} sex={p.sex} />} />
-        ))
+        <PlayerList ids={players.map((p) => p.id)}>
+          {players.map((p) => (
+            <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} />
+          ))}
+        </PlayerList>
       ) : (
         <Empty>Personne dans ce club ne répond à la question.</Empty>
       )}
@@ -2076,7 +2076,6 @@ function ClubList({
   onPick,
   label,
   last,
-  rewatch,
   hot,
   onHot,
   dotColor,
@@ -2087,7 +2086,6 @@ function ClubList({
   onPick: (key: string) => void
   label: string
   last: Map<string, Sight>
-  rewatch: Map<string, Rewatch[]>
   /** Club mis en avant (son point survolé sur la carte) ; `onHot` : survol d'une ligne (son point est mis en avant). */
   hot?: string | null
   onHot?: (key: string | null) => void
@@ -2136,7 +2134,7 @@ function ClubList({
               {lens.badge(c)}
               {inline && <span className={`shrink-0 text-muted transition ${on ? 'rotate-90' : ''}`}>›</span>}
             </button>
-            {on && inline && <Who club={c} label={label} last={last} rewatch={rewatch} />}
+            {on && inline && <Who club={c} label={label} last={last} />}
           </div>
         )
       })}
@@ -2162,7 +2160,7 @@ export function whoSummary(o: Onglet, mainCount: number, g?: Gender) {
 /** Détail d'un joueur compté : « vu le …, par … » (vus ; « vue » pour une fille) ; sinon rien. */
 export const sightText = (s?: Sight, sex?: string | null) => (s ? `${w(sex).vu} le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}` : '')
 
-function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
+function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight> }) {
   const role = useRole()
   // « Déjà vus » ouvert et état du bilan : dans l'adresse (retrouvés au retour d'une fiche).
   const { o, search, seenOpen: showRest, setSeenOpen: setShowRest, qWho, g: filterG } = useContext(WhoCtx)
@@ -2194,6 +2192,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
         )}
       </div>
 
+      <PlayerList ids={[...main, ...(showRest ? rest : [])].map((p) => p.id)}>
       {main.length > 0 && (
         <div className="flex flex-col gap-2">
           {main.map((p) => (
@@ -2202,8 +2201,6 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
               p={p}
               link={linkTo(p)}
               sub={year(p)}
-              rewatch={o === 'vus' ? <RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} /> : undefined}
-              follow={<FollowStar id={p.id} sex={p.sex} />}
               actions={
                 addEvents && (
                   <button type="button" className="-my-2 shrink-0 p-2 text-muted hover:text-accent" title="Ajouter à un événement" aria-label="Ajouter à un événement" onClick={() => setAdding([p.id])}>
@@ -2237,13 +2234,13 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
                   p={p}
                   link={linkTo(p)}
                   sub={[year(p), o === 'vus' && sightText(last.get(p.id), p.sex)].filter(Boolean).join(' · ')}
-                  follow={<FollowStar id={p.id} sex={p.sex} />}
                 />
               ))}
             </div>
           )}
         </div>
       )}
+      </PlayerList>
       {adding && <AddToEventDialog playerIds={adding} onClose={() => setAdding(null)} />}
     </div>
   )

@@ -6,8 +6,8 @@ import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predict
 import { ask } from '../components/Confirm'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
-import { FollowStar } from '../components/Follow'
 import { PageHeader } from '../components/PageHeader'
 import { alive, db, lateralityLabel, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
@@ -177,9 +177,13 @@ export function AlertDetail() {
         {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} {accord('nouveau', g, fresh.size)}</span>}
       </div>
       {!players.length && <Empty>{w(g).AucunJoueur} ne correspond pour l’instant : tu seras prévenu dès qu’{w(g).unJoueur} y entrera.</Empty>}
-      {sorted.map((p) => (
-        <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
-      ))}
+      {sorted.length > 0 && (
+        <PlayerList ids={sorted.map((p) => p.id)}>
+          {sorted.map((p) => (
+            <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
+          ))}
+        </PlayerList>
+      )}
     </div>
   )
 }
@@ -209,7 +213,6 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
           )}
         </>
       }
-      follow={<FollowStar id={p.id} sex={p.sex} />}
     />
   )
 }

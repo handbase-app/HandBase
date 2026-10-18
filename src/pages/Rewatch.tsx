@@ -11,7 +11,7 @@ import type { MenuExtra } from '../components/PlayerMenu'
 import { RewatchButton, RewatchOrigins } from '../components/Scouting'
 import { Empty, GroupMark } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
-import { FollowStar } from '../components/Follow'
+import { PlayerList } from '../components/Pictos'
 
 /**
  * « Mes à revoir » (supabase/041_reperage_tournoi.sql) : joueurs que mon staff veut revoir, une ligne par joueur avec
@@ -87,6 +87,7 @@ export default function RewatchPage() {
         </label>
       )}
       {!shown.length && <Empty>{tab === 'open' ? `${gw.AucunJoueur} à revoir pour ton staff.` : `${gw.AucunJoueur} ${gw.revu} pour l’instant.`}</Empty>}
+      <PlayerList ids={shown.map((e) => e.playerId)}>
       <div className="cols flex flex-col gap-2">
         {shown.map((e) => {
           const p = players.get(e.playerId)!
@@ -118,23 +119,17 @@ export default function RewatchPage() {
               p={p}
               link={{ to: `/joueurs/${p.id}` }}
               menuExtras={extras.filter((x): x is MenuExtra => !!x)}
-              aside={
-                tab === 'open' ? (
-                  <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" title={`Marquer ${w(p.sex).revu} (pour tous les « à revoir » ouverts de ${w(p.sex).ceJoueur})`} onClick={() => void setRevisited(e.open, true)}>
-                    Revu
-                  </button>
-                ) : (
-                  <span className="shrink-0 text-right text-[11px] font-bold text-emerald-300">
-                    {w(p.sex).revu} ✓
-                    <span className="block text-[10px] font-normal text-muted">
-                      {via && events.get(via) ? events.get(via)!.name : manual.map((r) => r.done?.byName).filter(Boolean).join(', ')}
-                    </span>
-                  </span>
-                )
-              }
-              follow={<FollowStar id={p.id} sex={p.sex} />}
               below={
                 <>
+                  {/* « Revu ✓ » : sous la ligne (pas à côté du nom, qu'il couperait dans une carte étroite). */}
+                  {tab === 'done' && (
+                    <div className="text-[11px] font-bold text-emerald-300">
+                      {w(p.sex).revu} ✓{' '}
+                      <span className="text-[10px] font-normal text-muted">
+                        {via && events.get(via) ? events.get(via)!.name : manual.map((r) => r.done?.byName).filter(Boolean).join(', ')}
+                      </span>
+                    </div>
+                  )}
                   <RewatchOrigins rows={rows} events={events} />
                   <div className="flex flex-wrap items-center gap-1 text-[10px]">
                     {evIds.map((id) => {
@@ -156,6 +151,15 @@ export default function RewatchPage() {
                     })}
                     {!evIds.length && !grIds.length && <span className="text-muted">liste générale</span>}
                     {tab === 'open' && <RewatchButton playerId={p.id} rows={e.open} className="ml-auto" />}
+                    {tab === 'open' && (
+                      <button
+                        className="btn-ghost shrink-0 px-3 py-1 text-xs"
+                        title={`Marquer ${w(p.sex).revu} (pour tous les « à revoir » ouverts de ${w(p.sex).ceJoueur})`}
+                        onClick={() => void setRevisited(e.open, true)}
+                      >
+                        Revu
+                      </button>
+                    )}
                     {tab === 'done' && manual.length > 0 && (
                       <button className="ml-auto text-[10px] font-bold text-muted underline" onClick={() => void setRevisited(manual, false)}>
                         Remettre à revoir
@@ -168,6 +172,7 @@ export default function RewatchPage() {
           )
         })}
       </div>
+      </PlayerList>
     </div>
   )
 }

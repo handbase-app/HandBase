@@ -14,7 +14,7 @@ import { PanelClose, selectedCls, usePanel, useSelected } from './MasterDetail'
 import { TransferGroup, useOnline } from './TransferGroup'
 import { Empty, Icon } from './ui'
 import { PlayerRow } from './PlayerRow'
-import { FollowStar } from './Follow'
+import { PlayerList } from './Pictos'
 import { PageHeader } from './PageHeader'
 
 /*
@@ -333,17 +333,18 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
         {missing > 0 && ` (dont ${missing} absent${missing > 1 ? 's' : ''} de cet appareil)`}
       </div>
       {!g.playerIds.length && <Empty>Aucun joueur dans ce groupe.</Empty>}
-      <div className="cols flex flex-col gap-2">
-        {sorted.map((p) => (
-          <PlayerRow
-            key={p.id}
-            p={p}
-            link={{ to: `/joueurs/${p.id}` }}
-            lines={g.editors.length > 0 && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
-            follow={<FollowStar id={p.id} sex={p.sex} />}
-          />
-        ))}
-      </div>
+      <PlayerList ids={sorted.map((p) => p.id)}>
+        <div className="cols flex flex-col gap-2">
+          {sorted.map((p) => (
+            <PlayerRow
+              key={p.id}
+              p={p}
+              link={{ to: `/joueurs/${p.id}` }}
+              lines={g.editors.length > 0 && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
+            />
+          ))}
+        </div>
+      </PlayerList>
     </div>
   )
 }

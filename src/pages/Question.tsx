@@ -52,6 +52,7 @@ import { FranceMap } from '../components/FranceMap'
 import { showOtherOM } from '../outreMer'
 import MasterDetail from '../components/MasterDetail'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { Bar, bilanQuestionSearch, Crumbs, fillOf, MapLegend, scaleOf } from './Coverage'
@@ -451,15 +452,16 @@ function AnswerView({
         {!rows.length ? (
           <Empty>Personne ne répond à cette question pour l’instant.</Empty>
         ) : (
-          rows.map(({ p, value, tag }) => (
-            <PlayerRow
-              key={p.id}
-              p={p}
-              link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
-              sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value, tag)].filter(Boolean).join(' · ')}
-              follow={<FollowStar id={p.id} sex={p.sex} />}
-            />
-          ))
+          <PlayerList ids={rows.map((r) => r.p.id)}>
+            {rows.map(({ p, value, tag }) => (
+              <PlayerRow
+                key={p.id}
+                p={p}
+                link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
+                sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value, tag)].filter(Boolean).join(' · ')}
+              />
+            ))}
+          </PlayerList>
         )}
         {ranked > limit && limit < LIMITS.limit[1] && (
           <button type="button" className="btn-ghost min-h-11 py-1.5 text-xs" onClick={() => setRecipe({ ...recipe, out: { ...recipe.out, limit: Math.min(LIMITS.limit[1], limit + DEFAULT_LIMIT) } })}>
@@ -704,7 +706,11 @@ function MapAnswer({
       <section className="flex flex-col gap-2">
         <SectionTitle>{mc ? model.names.club(mc) : 'Club non renseigné'} · ceux qui répondent</SectionTitle>
         {players.length ? (
-          players.map((p) => <PlayerRow key={p.id} p={p} link={{ to: `/bilan/question/joueurs/${p.id}${search}` }} follow={<FollowStar id={p.id} sex={p.sex} />} />)
+          <PlayerList ids={players.map((p) => p.id)}>
+            {players.map((p) => (
+              <PlayerRow key={p.id} p={p} link={{ to: `/bilan/question/joueurs/${p.id}${search}` }} />
+            ))}
+          </PlayerList>
         ) : (
           <Empty>Personne dans ce club ne répond à la question.</Empty>
         )}

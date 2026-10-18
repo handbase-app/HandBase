@@ -1,11 +1,10 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { age, alive, db, lateralityLabel, type Measurement, type Rewatch } from '../db'
+import { age, alive, db, lateralityLabel, type Measurement } from '../db'
 import { Empty, fmtValue } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
-import { RewatchToggle } from '../components/Scouting'
-import { FollowStar } from '../components/Follow'
+import { PlayerList } from '../components/Pictos'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, useSessionState } from '../components/PlayerFilter'
 import { usePlayersQuery } from '../components/PlayersQuery'
@@ -80,14 +79,6 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
-  // « À revoir » de chaque joueur (horloge au bout de la ligne, comme dans un événement ou un groupe).
-  const rewatchRows = useLiveQuery(() => db.rewatch.toArray().then(alive), [], [] as Rewatch[])
-  const rewatch = useMemo(() => {
-    const m = new Map<string, Rewatch[]>()
-    for (const r of rewatchRows) m.set(r.playerId, [...(m.get(r.playerId) ?? []), r])
-    return m
-  }, [rewatchRows])
-  // Joueurs suivis (Mes suivis) : petite étoile devant le nom.
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
@@ -182,6 +173,8 @@ export default function Players() {
                 : 'Aucune fiche.'}
         </Empty>
       ) : (
+        // Pictogrammes au bout des lignes (barre « Afficher », components/Pictos.tsx) : lus pour les joueurs affichés.
+        <PlayerList ids={shown.map((p) => p.id)}>
         <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
           {shown.map((p) => {
             const l = latest.get(p.id)
@@ -215,8 +208,6 @@ export default function Players() {
                     </>
                   )
                 }
-                rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
-                follow={<FollowStar id={p.id} sex={p.sex} />}
               />
             )
           })}
@@ -226,6 +217,7 @@ export default function Players() {
             </button>
           )}
         </div>
+        </PlayerList>
       )}
       </div>
       </div>

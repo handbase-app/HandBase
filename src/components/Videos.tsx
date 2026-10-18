@@ -236,11 +236,16 @@ export function VideoSection({
         }
       : undefined,
   )
+  // Ouverte par le pictogramme « Vidéos » d'une ligne de joueur (…#videos) : la section vient à l'écran.
+  const loaded = !!videos
+  useEffect(() => {
+    if (loaded && kind === 'player' && window.location.hash === '#videos') document.getElementById('videos')?.scrollIntoView({ block: 'start' })
+  }, [loaded, kind])
   if (!videos) return null
 
   const what = kind === 'player' ? (sex === 'F' ? 'cette joueuse' : 'ce joueur') : 'cet événement'
   return (
-    <div className="card p-4">
+    <div id={kind === 'player' ? 'videos' : undefined} className="card scroll-mt-28 p-4">
       <div className="section-title flex items-center gap-2">
         <Icon name="video" className="h-3.5 w-3.5" />
         Vidéos{videos.length > 0 && <span className="text-muted">({videos.length})</span>}
