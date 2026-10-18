@@ -5,6 +5,12 @@ import { choose } from './Confirm'
 // Terrain à l'échelle : 1 m = 15 px, ligne de but à y = 14, poteaux à x = 127,5 et 172,5.
 // Terrain de handball : les postes de la configuration par défaut (src/sportConfig.ts). Une installation dont les postes
 // n'ont pas tous une place ici (autre sport) voit une simple liste de boutons (PositionButtons).
+/**
+ * Texte et contour sur la couleur d'accent : celle du style (Officiel sombre : accent presque blanc, texte marine), sinon
+ * blanc. Le blanc fixe rendait le poste choisi illisible quand l'accent est clair.
+ */
+const ON_ACCENT = 'var(--color-on-accent, #fff)'
+
 const SPOTS: Partial<Record<string, { x: number; y: number; tag: string }>> = {
   GB: { x: 150, y: 24, tag: 'G' },
   AG: { x: 20, y: 34, tag: 'ALG' },
@@ -113,16 +119,17 @@ function Court({
               cx={s.x}
               cy={s.y}
               r={on ? 14 : sub ? 12.5 : 11}
-              className={on ? 'fill-accent stroke-white' : sub ? 'fill-accent/15 stroke-accent' : 'fill-panel stroke-muted'}
+              className={on ? 'fill-accent' : sub ? 'fill-accent/15 stroke-accent' : 'fill-panel stroke-muted'}
+              style={on ? { stroke: ON_ACCENT } : undefined}
               strokeWidth={sub ? 2.5 : 1.5}
             />
-            <text x={s.x} y={s.y + 3.5} textAnchor="middle" fontSize={s.tag.length > 2 ? 8 : 10} fontWeight="700" className={`pointer-events-none ${on ? 'fill-white' : 'fill-fg'}`}>
+            <text x={s.x} y={s.y + 3.5} textAnchor="middle" fontSize={s.tag.length > 2 ? 8 : 10} fontWeight="700" className={`pointer-events-none ${on ? '' : 'fill-fg'}`} style={on ? { fill: ON_ACCENT } : undefined}>
               {s.tag}
             </text>
             {counts && (
               <g className="pointer-events-none">
                 {/* Pastille à droite du rond, à gauche près du bord droit du terrain. */}
-                <rect x={s.x + (s.x > 260 ? -29 : 7)} y={s.y - 21} width={22} height={13} rx={6.5} className={on ? 'fill-white' : 'fill-line'} />
+                <rect x={s.x + (s.x > 260 ? -29 : 7)} y={s.y - 21} width={22} height={13} rx={6.5} className={on ? '' : 'fill-line'} style={on ? { fill: ON_ACCENT } : undefined} />
                 <text x={s.x + (s.x > 260 ? -18 : 18)} y={s.y - 11.5} textAnchor="middle" fontSize={9} fontWeight="700" className={on ? 'fill-accent' : 'fill-fg'}>
                   {counts[p.id] ?? 0}
                 </text>
