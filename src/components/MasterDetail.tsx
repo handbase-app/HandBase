@@ -92,12 +92,12 @@ export default function MasterDetail({
   }, [focus])
 
   /** Ouvre `next` dans le panneau (après vérification d'une saisie en cours). */
-  async function show(next: string) {
+  async function show(next: string, query?: string) {
     if (next === id) return
     if (!(await canLeave())) return
     // Premier élément ouvert : nouvelle entrée d'historique (le retour du navigateur ferme le panneau) ;
     // d'un élément à l'autre : on remplace, pour ne pas empiler chaque joueur parcouru.
-    nav(`${base}/${next}${search}`, id ? { replace: true, state: loc.state } : { state: { md: true } })
+    nav(`${base}/${next}${query ?? search ?? ''}`, id ? { replace: true, state: loc.state } : { state: { md: true } })
   }
 
   function close() {
@@ -145,7 +145,7 @@ export default function MasterDetail({
         if (!next) return
         e.preventDefault()
         next.focus()
-        void showRef.current(next.dataset.md!)
+        void showRef.current(next.dataset.md!, hrefQuery(next))
       }
     }
     window.addEventListener('keydown', onKey)
@@ -163,7 +163,7 @@ export default function MasterDetail({
     const inner = (e.target as HTMLElement).closest('button, input, select, textarea, label, [role="button"]')
     if (inner && a.contains(inner) && inner !== a) return
     e.preventDefault()
-    void show(a.dataset.md!)
+    void show(a.dataset.md!, hrefQuery(a))
   }
 
   /** ↑ ↓ dans la liste, panneau ouvert : la fiche suit la ligne active. */
@@ -179,7 +179,7 @@ export default function MasterDetail({
       next?.focus()
     }
     const active = document.activeElement as HTMLElement | null
-    if (active?.dataset.md && active.dataset.md !== id) void show(active.dataset.md)
+    if (active?.dataset.md && active.dataset.md !== id) void show(active.dataset.md, hrefQuery(active))
   }
 
   return (
@@ -209,4 +209,11 @@ export default function MasterDetail({
       )}
     </div>
   )
+}
+
+/** Paramètres portés par le lien d'une ligne (ex. ?onglet=video, l'onglet gardé d'un événement à l'autre), s'il y en a. */
+function hrefQuery(el: Element): string | undefined {
+  const href = el.getAttribute('href') ?? ''
+  const i = href.indexOf('?')
+  return i >= 0 ? href.slice(i) : undefined
 }

@@ -350,10 +350,14 @@ function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; sta
   // Ordinateur : événement ouvert dans le panneau de droite.
   const on = useSelected('/evenements') === ev.id
   const menu = useRowMenu()
+  // Ordinateur, un événement déjà ouvert à droite : on passe à un autre en gardant l'onglet choisi (Classement, Vidéo).
+  const { search } = useLocation()
+  const keep = new URLSearchParams(search).get('onglet')
+  const tabQuery = keep && EVENT_TABS.some((t) => t === keep) ? `?onglet=${keep}` : ''
   return (
     <>
     <Link
-      to={`/evenements/${ev.id}`}
+      to={`/evenements/${ev.id}${tabQuery}`}
       data-md={ev.id}
       aria-current={on || undefined}
       className={`card flex items-center gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${MENU_ROW} ${today ? 'border-accent/70' : ''} ${selectedCls(on)}`}
