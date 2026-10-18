@@ -125,6 +125,15 @@ export type Output = {
   period?: Period
   /** Liste : nombre de joueurs montrés ; tableau : seulement les N premières lignes, après le tri (« les 5 clubs qui ont le plus de… »). */
   limit?: number
+  /** Tableau : le NOMBRE de lignes est la réponse (« combien de clubs ? », « le nombre de clubs du Var »), le tableau en dessous. */
+  countRows?: boolean
+  /** Tableau : seulement les lignes où au moins N joueurs répondent (« les clubs qui ont au moins 3 joueurs vus »). */
+  minMatch?: number
+  /**
+   * Tableau : seulement les lignes où AUCUN joueur de ces années de naissance ne répond aux mêmes conditions (« … mais aucun
+   * joueur vu né en 2011 »). Même population (sauf les années) et mêmes conditions (vu, avis, mesures).
+   */
+  noneYears?: number[]
 }
 
 export type Recipe = {
@@ -318,7 +327,8 @@ const KNOWN_POP = [
   'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole', 'trimestre', 'postesSecondaires', 'sansPoste', 'suivis', 'avecVideo', 'profils', 'profil', 'pays',
 ]
 /** « en France », « toute la France », « au niveau national » : tous les lieux (aucune limite, rien d'écarté). */
-const WHOLE_COUNTRY = /^(?:(?:en|dans|de|sur) )?(?:toute )?(?:la )?(?:france(?: entiere| metropolitaine)?|national|niveau national|au niveau national|pays|tout le pays|partout)$/
+const WHOLE_COUNTRY =
+  /^(?:(?:en|dans|de|sur|a) )?(?:toute )?(?:la |l )?(?:france(?: entiere| metropolitaine)?|national|niveau national|au niveau national|pays|tout le pays|partout|federation(?: francaise)?(?: de handball)?|ffhb|base(?: de donnees)?|toute la base)$/
 export const isWholeCountry = (v: unknown) => WHOLE_COUNTRY.test(normalize(asText(v)))
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
@@ -796,6 +806,12 @@ function settle(r: Recipe, notes?: string[]): Recipe {
   const out = r.out
   // Notes une par une : sur une cible simple seulement (score combiné : moyenne).
   for (const a of r.avis) if (a.agg && a.target.on === 'mix') delete a.agg
+  // Nombre de lignes, « au moins N », « aucun joueur né en … » : tableaux seulement (pas celui du staff).
+  if (out.type !== 'table' || out.groupBy === 'staff') {
+    delete out.countRows
+    delete out.minMatch
+    delete out.noneYears
+  }
   if (out.type !== 'table') {
     delete out.groupBy
     delete out.keep
@@ -956,6 +972,11 @@ export function cleanRecipe(v: unknown): Recipe {
   if (per) r.out.period = per
   const limit = int(out.limit, LIMITS.limit)
   if (limit !== undefined) r.out.limit = limit
+  if (out.countRows === true) r.out.countRows = true
+  const minMatch = int(out.minMatch, [1, LIMITS.n[1]])
+  if (minMatch !== undefined) r.out.minMatch = minMatch
+  const none = (Array.isArray(out.noneYears) ? out.noneYears : []).filter((y): y is number => int(y, LIMITS.year) !== undefined)
+  if (none.length) r.out.noneYears = [...new Set(none)].slice(0, MAX_ITEMS)
   return settle(r)
 }
 
@@ -1493,6 +1514,14 @@ export function runRecipe<P extends QPlayer>(ix: QIndex<P>, r: Recipe, opts: { a
       for (const ss of ix.sights.values()) for (const x of ss) if (rows.has(x.event) && x.day > (eventDay.get(x.event) ?? '')) eventDay.set(x.event, x.day)
       for (const k of rows.keys()) if (dated.get(k)) eventDay.set(k, dated.get(k)!)
     }
+    // « Au moins N joueurs » ; « aucun joueur né en 2011 » (mêmes conditions) : lignes retirées.
+    if (r.out.minMatch) for (const [k, row] of rows) if (row.match < r.out.minMatch) rows.delete(k)
+    if (r.out.noneYears?.length) {
+      const pop2 = { ...r.pop }
+      putYears(pop2, r.out.noneYears)
+      const other = runRecipe(ix, { ...r, pop: pop2, out: { type: 'count' } })
+      for (const p of other.match) for (const k of keysOf(p)) rows.delete(k)
+    }
     const keep = r.out.keep ?? 'some'
     const sort = r.out.sort
     // Tri par part : toutes les lignes restent (celles à 0 % sont justement « en retard »).
@@ -1655,6 +1684,17 @@ const GROUP_TEXT: Record<GroupBy, string> = {
   staff: 'par personne du staff',
   event: 'par événement',
 }
+/** Lignes d'un tableau, au pluriel (« nombre de clubs »). */
+export const ROWS_TEXT: Record<GroupBy, string> = {
+  club: 'clubs',
+  dept: 'départements',
+  region: 'régions',
+  year: 'années de naissance',
+  position: 'postes',
+  sex: 'sexes',
+  staff: 'personnes du staff',
+  event: 'événements',
+}
 const POLE_TEXT: Record<PoleWanted, string> = { current: 'au Pôle Espoirs', past: 'sortis du Pôle Espoirs', any: 'passés par le Pôle Espoirs' }
 const QUARTER_TEXT = ['janv.–mars', 'avril–juin', 'juil.–sept.', 'oct.–déc.']
 
@@ -1795,6 +1835,10 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
     c.push({ key: 'sort', label: `tri : ${what} ${arrow(o.sort.dir)}`, edit: 'sort', removable: true })
   }
   if (o.type === 'table' && o.limit) c.push({ key: 'limit', label: o.limit === 1 ? 'le premier' : `les ${o.limit} premiers`, edit: 'limit', removable: true })
+  if (o.type === 'table' && o.minMatch) c.push({ key: 'minMatch', label: `au moins ${o.minMatch} ${f ? (o.minMatch > 1 ? 'joueuses' : 'joueuse') : o.minMatch > 1 ? 'joueurs' : 'joueur'}`, removable: true })
+  if (o.type === 'table' && o.noneYears?.length)
+    c.push({ key: 'noneYears', label: `et aucun${f ? 'e' : ''} ${f ? 'née' : 'né'} en ${o.noneYears.join(', ')}${hasConditions(r) ? ' qui répond' : ''}`, removable: true })
+  if (o.type === 'table' && o.countRows) c.push({ key: 'countRows', label: `nombre de ${ROWS_TEXT[o.groupBy ?? 'club']}`, removable: true })
   if (o.type === 'list') {
     const s = defaultSort(r)
     const what: Record<SortBy, string> = {
@@ -1841,6 +1885,9 @@ export function removeChip(r: Recipe, key: string): Recipe {
   else if (k === 'keep') delete x.out.keep
   else if (k === 'sort') delete x.out.sort
   else if (k === 'limit' && x.out.type === 'table') delete x.out.limit
+  else if (k === 'minMatch') delete x.out.minMatch
+  else if (k === 'noneYears') delete x.out.noneYears
+  else if (k === 'countRows') delete x.out.countRows
   return cleanRecipe(x)
 }
 

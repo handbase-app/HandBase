@@ -30,6 +30,7 @@ import { useSessionState } from './PlayerFilter'
 import { chipCls, NumberInput, OPS, Select } from './RecipeChips'
 import { Icon } from './ui'
 import { logQuestion } from '../questionLog'
+import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
 
 /*
@@ -125,7 +126,8 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   }
 
   async function ask(phrase: string) {
-    const said = phrase.replace(/\s+/g, ' ').trim()
+    // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
+    const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
     if (!micReady || isListSearch(said, o.hays)) {

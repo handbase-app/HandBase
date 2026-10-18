@@ -25,6 +25,7 @@ import {
   LIMITS,
   mapTallies,
   recipeText,
+  ROWS_TEXT,
   runRecipe,
   VAR_TEXT,
   varValues,
@@ -41,6 +42,7 @@ import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
 import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult } from '../components/SqlAnswer'
 import { logQuestion } from '../questionLog'
+import { correctQuestionPhrase, incompletePhrase, lastRecipe, rememberRecipe, rescueInterpretation } from '../questionRescue'
 import { AnswerFeedback } from '../components/AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { useDictation } from '../dictation/useDictation'
@@ -128,6 +130,8 @@ function bilanTarget(r: Recipe, model?: Model, clubDept?: (k: string) => string 
 const encSql = (s: SqlSpec) => `s=${encodeURIComponent(encodeSqlSpec(s))}`
 /** Bascules automatiques déjà lancées (une par arrivée, même si l'écran est rendu deux fois). */
 const autoStarted = new Set<string>()
+/** Recettes brutes déjà relues et notées au journal (une par arrivée, même si l'effet repart). */
+const arrived = new Set<string>()
 const fr = (n: number, d = 0) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
 
 /** Recette de l'adresse, et ses changements (sans nouvelle entrée d'historique : le retour reste sur cette réponse). */
@@ -195,23 +199,31 @@ export default function Question() {
 
   // Recette brute qui vient d'arriver (AskQuestion) : relue avec les listes de l'appli (et la phrase : grandeurs demandées),
   // mise dans l'adresse ; notée au journal (sauf si le mode avancé suit : noté avec son résultat).
+  // Une seule fois par arrivée (journal noté une fois) : l'effet peut repartir avant que l'adresse ait changé (données qui
+  // arrivent entre-temps, double effet du mode développement).
   const pending = !params.get('r') && st.raw !== undefined
   useEffect(() => {
-    if (!pending || !model.ctx) return
-    const it = interpretRecipe(st.raw, st.nonGere, model.ctx, st.heard)
+    if (!pending || !model.ctx || arrived.has(loc.key)) return
+    arrived.add(loc.key)
+    // Phrase relue (dictée : « vœu » → « Var »), puis recette complétée d'après la phrase (latéralité seule, « en France »,
+    // nombre de clubs, licenciés, « au moins N … et aucun … », suite de la question précédente) : src/questionRescue.ts.
+    const heard = st.heard ? correctQuestionPhrase(st.heard) : st.heard
+    const read = interpretRecipe(st.raw, st.nonGere, model.ctx, heard)
+    const it = heard ? rescueInterpretation(read, heard, model.ctx, { prev: lastRecipe() }) : read
+    rememberRecipe(it.recipe)
     const status: RecipeStatus = answersNothing(it.recipe, it.unsupported) ? 'pas_comprise' : it.notes.length || it.unsupported.length ? 'partielle' : 'complete'
-    const autoSql = status !== 'complete' && sqlReady && !!st.heard
+    const autoSql = status !== 'complete' && sqlReady && !!heard && !incompletePhrase(heard)
     const logId =
-      !autoSql && st.heard ? logQuestion({ phrase: st.heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes], page: 'question' }, model.source?.() ?? null) : undefined
+      !autoSql && heard ? logQuestion({ phrase: heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes], page: 'question' }, model.source?.() ?? null) : undefined
     // Réponse géographique, recette appliquée en entier : sur le bilan, ouvert sur le lieu de la question.
     if (status === 'complete' && goesToBilan(it.recipe)) {
       const to = bilanTarget(it.recipe, model)
-      nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { replace: true, state: { bilanChain: [], heard: st.heard, logId } })
+      nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { replace: true, state: { bilanChain: [], heard, logId } })
       return
     }
     nav(`/bilan/question?${enc(it.recipe)}`, {
       replace: true,
-      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status, logId } satisfies HistState,
+      state: { heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status, logId } satisfies HistState,
     })
   }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -343,6 +355,15 @@ export default function Question() {
 
 /** Question pas comprise : ce que le modèle n'a pas su traduire et des questions qui marchent, au lieu d'une réponse. */
 function NotUnderstood({ heard, unsupported }: { heard?: string; unsupported?: string[] }) {
+  // Phrase coupée (« La carte sur. ») : on le dit, plutôt que « pas comprise ».
+  const cut = heard ? incompletePhrase(heard) : null
+  if (cut)
+    return (
+      <div className="card flex flex-col gap-1 border-sky-500/40 p-3 text-xs" role="status">
+        <p className="font-bold">{cut}</p>
+        <p className="text-muted">Entendu : « {heard} ». Reposez la question en entier.</p>
+      </div>
+    )
   return (
     <div className="card flex flex-col gap-2 border-sky-500/40 p-3 text-xs" role="status">
       <p className="font-bold">Je ne sais pas encore répondre à : « {heard || 'cette question'} »</p>
@@ -507,8 +528,19 @@ function AnswerView({
   if (recipe.out.type === 'table') {
     const by = recipe.out.groupBy ?? 'club'
     const rows = answer.table ?? []
+    // « Combien de clubs ? » : le nombre de lignes (club non renseigné : pas compté), le tableau en dessous.
+    const named = rows.filter((x) => x.key).length
     return (
       <div className="flex flex-col gap-2">
+        {recipe.out.countRows && (
+          <div className="card flex flex-col items-start gap-1 p-4">
+            <span className="text-4xl font-extrabold tabular-nums">{fr(named)}</span>
+            <span className="text-sm">
+              {named > 1 ? ROWS_TEXT[by] : ROWS_TEXT[by].replace(/s\b/g, '')}
+              {by === 'club' ? ` avec au moins ${f ? 'une joueuse' : 'un joueur'} ${cond ? 'qui répond' : 'dans la base'}` : ''}
+            </span>
+          </div>
+        )}
         {summary}
         {by === 'club' && rows.length > 0 && <ClubTableMap rows={rows} recipe={recipe} model={model} />}
         <SectionTitle info={`Touchez une ligne pour la liste de ses ${gw.joueurs} (le retour revient à ce tableau).`}>
