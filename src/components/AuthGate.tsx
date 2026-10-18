@@ -175,12 +175,14 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-6">
       <div className="text-center">
-        <img src={logo} alt={name} className="mx-auto h-20 w-20 object-contain" />
+        <img src={logo} alt={name} className="mx-auto h-44 w-44 object-contain" />
         {logo === mark && <div className="mt-1.5 text-lg font-extrabold tracking-[-0.01em]" style={{ fontFamily: BRAND_FONT }}>
             {name}
           </div>}
         {TRIAL && <div className="mx-auto mt-2 w-fit rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wider text-black">{TRIAL_LABEL}</div>}
-        <h1 className="mt-1 text-2xl font-extrabold">Collecte & suivi</h1>
+        <h1 className="mt-2 text-[12px] font-extrabold tracking-[0.14em] text-muted uppercase" style={{ fontFamily: BRAND_FONT }}>
+          Détecter<span className="px-[0.35em] text-accent">·</span>Suivre<span className="px-[0.35em] text-accent">·</span>Accompagner
+        </h1>
       </div>
       {children}
     </div>
