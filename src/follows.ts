@@ -113,6 +113,31 @@ export async function setFollow(kind: FollowKind, targetId: string, on: boolean)
   newsStore.refresh()
 }
 
+/**
+ * Suivre (on) ou ne plus suivre plusieurs joueurs d'un coup (sélection multiple d'une liste) ; une seule mise à jour
+ * des suivis à la fin. Renvoie le nombre de joueurs changés (ceux déjà dans l'état voulu ne comptent pas).
+ */
+export async function setFollowMany(playerIds: readonly string[], on: boolean): Promise<number> {
+  const me = owner()
+  if (!me) return 0
+  let n = 0
+  try {
+    for (const pid of new Set(playerIds)) {
+      const id = followId(me, 'player', pid)
+      const cur = await db.follows.get(id)
+      const active = !!cur && !cur.deleted
+      if (on && !active) await save<Follow>('follows', { ...cur, id, kind: 'player', targetId: pid, deleted: undefined })
+      else if (!on && active) await remove('follows', id)
+      else continue
+      n++
+    }
+  } finally {
+    followsStore.refresh()
+    newsStore.refresh()
+  }
+  return n
+}
+
 // ---------- Nouveautés des joueurs suivis ----------
 
 export interface FollowNews {

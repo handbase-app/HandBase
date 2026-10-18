@@ -376,6 +376,10 @@ export const ICONS = {
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
   calendar: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4',
   check: 'M9 12l2 2 4-4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  /** Sélection multiple (case cochée). */
+  select: 'M4 4h16v16H4zM8 12l3 3 5-6',
+  /** Ajouter (plus). */
+  plus: 'M12 5v14M5 12h14',
   message: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14',
   target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z',

@@ -28,6 +28,7 @@ import { accord, w } from '../gender'
 import { FollowStar } from './Follow'
 import { RewatchToggle } from './Scouting'
 import { Icon, type IconName } from './ui'
+import { SelectButton, SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
 
 /*
  * Pictogrammes au bout des lignes de joueurs (src/pictos.ts pour la partie pure) :
@@ -96,7 +97,7 @@ export const PICTO_ICONS: Record<PictoKind, IconName> = {
 export function PictoBar({ className = '' }: { className?: string }) {
   const on = usePictos()
   return (
-    <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-lg border border-line bg-panel px-1.5 py-1 ${className}`}>
+    <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-lg border border-line bg-panel px-1.5 py-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${className}`}>
       <span className="mr-0.5 text-[10px] font-bold tracking-wider text-muted uppercase">Afficher</span>
       {PICTO_KINDS.map((k) => {
         const pressed = on.includes(k)
@@ -108,7 +109,7 @@ export function PictoBar({ className = '' }: { className?: string }) {
             aria-label={PICTO_LABELS[k]}
             title={`${PICTO_LABELS[k]} : ${pressed ? 'affiché — toucher pour masquer' : 'masqué — toucher pour afficher'}`}
             onClick={() => setPictos(togglePicto(on, k))}
-            className={`flex h-8 w-8 items-center justify-center rounded-md border transition max-[420px]:w-7 ${
+            className={`flex h-8 w-8 items-center justify-center rounded-md border transition max-[420px]:w-7 @max-[30rem]/plb:w-7 ${
               pressed ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
           >
@@ -191,11 +192,32 @@ function usePictoData(ids: readonly string[], on: readonly PictoKind[]): Pick<Pi
 const EMPTY = { facts: new Map<string, PictoFacts>(), sight: new Map<string, Sighting[]>(), rewatch: new Map<string, Rewatch[]>() }
 
 /**
- * Liste de joueurs : barre « Afficher » (sauf `bar={false}`) puis les lignes (`children`, des PlayerRow, à n'importe
- * quelle profondeur). `ids` : joueurs affichés (données des pictogrammes lues pour eux seuls).
+ * Liste de joueurs : barre « Afficher » (sauf `bar={false}`) et bouton « Sélectionner » (sélection multiple,
+ * components/Selection.tsx ; sauf `select={false}`), puis les lignes (`children`, des PlayerRow, à n'importe quelle
+ * profondeur). `ids` : joueurs affichés (données des pictogrammes lues pour eux seuls) ; `all` : toute la liste filtrée
+ * quand elle est plus longue (« Afficher plus ») — c'est ce que coche « Tout » ; `context` : l'événement ou le groupe
+ * de la liste (actions « vu », « à revoir » sur la sélection).
  */
-export function PlayerList({ ids, children, className = 'flex flex-col gap-2', bar = true }: { ids: readonly string[]; children: ReactNode; className?: string; bar?: boolean }) {
+export function PlayerList({
+  ids,
+  all = ids,
+  context,
+  children,
+  className = 'flex flex-col gap-2',
+  bar = true,
+  select = true,
+}: {
+  ids: readonly string[]
+  all?: readonly string[]
+  context?: SelContext
+  children: ReactNode
+  className?: string
+  bar?: boolean
+  select?: boolean
+}) {
   const on = usePictos()
+  // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
+  const sel = useListSelection(all, ids, select)
   const data = usePictoData(ids, on)
   // Un lien de react-router par pictogramme coûte cher sur une longue liste : simples <a>, navigation commune.
   const navigate = useNavigate()
@@ -244,10 +266,20 @@ export function PlayerList({ ids, children, className = 'flex flex-col gap-2', b
   }, [])
   return (
     <PictoCtx.Provider value={value}>
-      <div ref={ref} data-plist className={className}>
-        {bar && <PictoBar />}
-        {children}
-      </div>
+      <SelectionProvider store={sel.store}>
+        <div ref={ref} data-plist data-sel={sel.on ? '' : undefined} className={className}>
+          {(bar || select) && (
+            // Conteneur (plb) : barre et bouton se resserrent selon la place de la liste (colonne de contexte comprise).
+            <div className="@container/plb flex items-stretch gap-1">
+              {bar && <PictoBar className="min-w-0 flex-1" />}
+              {select && <SelectButton store={sel.store} className={bar ? '' : 'ml-auto'} />}
+            </div>
+          )}
+          {sel.on && <SelectionHeader store={sel.store} />}
+          {children}
+          {sel.on && <SelectionBar store={sel.store} context={context} />}
+        </div>
+      </SelectionProvider>
     </PictoCtx.Provider>
   )
 }

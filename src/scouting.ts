@@ -38,6 +38,21 @@ export async function setSeen(eventId: string, playerId: string, on: boolean) {
   } else if (cur && !cur.deleted) await remove('seen', id)
 }
 
+/** Marquer « vu » par moi dans l'événement plusieurs joueurs d'un coup ; renvoie le nombre de nouveaux « vu ». */
+export async function markSeenMany(eventId: string, playerIds: readonly string[]): Promise<number> {
+  const me = scoutId()
+  if (!me) return 0
+  let n = 0
+  for (const playerId of new Set(playerIds)) {
+    const id = seenId(me, eventId, playerId)
+    const cur = await db.seen.get(id)
+    if (cur && !cur.deleted) continue
+    await save<Seen>('seen', { ...cur, id, eventId, playerId, at: new Date().toISOString(), deleted: undefined })
+    n++
+  }
+  return n
+}
+
 /** Un observateur qui a vu un joueur dans l'événement : marque « vu » (marked) et / ou avis (noted). */
 export interface Sighting {
   key: string
@@ -242,4 +257,23 @@ export async function saveTournament(ev: HBEvent, change: (t: Tournament) => Tou
   const next = change(cur.tournament ?? { teams: [] })
   const tournament = next.teams.length ? next : undefined
   await save<HBEvent>('events', { ...cur, tournament, names: { ...cur.names, ...names } })
+}
+
+/**
+ * « À revoir » pour plusieurs joueurs d'un coup (même geste que l'horloge d'une ligne) : dans un groupe, il vise ce
+ * groupe ; dans un événement, il en part (originEventId). Mon « à revoir » encore ouvert sur un joueur est complété
+ * (groupe ajouté) plutôt que doublé. Renvoie le nombre de joueurs changés.
+ */
+export async function addRewatchMany(playerIds: readonly string[], ctx: { originEventId?: string; groupId?: string } = {}): Promise<number> {
+  if (!scoutId()) return 0
+  let n = 0
+  for (const playerId of new Set(playerIds)) {
+    const open = await myOpenRewatch(playerId)
+    if (open) {
+      if (!ctx.groupId || open.groups?.includes(ctx.groupId)) continue
+      await save<Rewatch>('rewatch', { ...open, groups: [...(open.groups ?? []), ctx.groupId] })
+    } else await saveRewatch({ playerId, originEventId: ctx.originEventId, ...(ctx.groupId ? { groups: [ctx.groupId] } : {}) })
+    n++
+  }
+  return n
 }

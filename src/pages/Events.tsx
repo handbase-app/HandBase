@@ -1047,7 +1047,7 @@ export function EventDetail() {
                   <Empty>{cover === 'pasvus' ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
-                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} className="flex flex-col gap-2">
+                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ eventId: ev.id }} select={!removing && !pick.on} className="flex flex-col gap-2">
                 <RosterSectionList
                   sections={sections}
                   row={(p, i) => {

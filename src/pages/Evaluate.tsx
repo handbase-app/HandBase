@@ -1034,7 +1034,20 @@ const isFilled = (v: unknown): v is number | string => typeof v === 'number' || 
  * Création d'un événement, ou modification de `event` (nom, type, date, lieu). `extra` : actions rangées au bas du
  * formulaire de modification (ex. « + Importer une feuille de match (PDF) » sur la page de l'événement).
  */
-export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void; extra?: ReactNode }) {
+export function NewEventForm({
+  event,
+  groupId,
+  playerIds,
+  onDone,
+  extra,
+}: {
+  event?: HBEvent
+  groupId?: string
+  /** Création avec ces joueurs déjà dans la liste (sélection multiple d'une liste de joueurs) ; sexe déduit d'eux. */
+  playerIds?: string[]
+  onDone: (ev?: HBEvent) => void
+  extra?: ReactNode
+}) {
   // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g)))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
@@ -1045,7 +1058,8 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
   const [place, setPlace] = useState(event?.place ?? '')
   // Garçons / Filles / Mixte (facultatif, src/gender.ts) : sans choix, déduit des joueurs de la liste (toutes des filles → féminin).
   const [sex, setSex] = useState<HBEvent['sex']>(event?.sex)
-  const rosterIds = event ? (event.playerIds ?? []) : (picked?.playerIds ?? [])
+  const chosen = !event && playerIds?.length ? [...new Set(playerIds)] : undefined
+  const rosterIds = event ? (event.playerIds ?? []) : (chosen ?? picked?.playerIds ?? [])
   const guessed = useLiveQuery(async () => genderOf(await db.players.bulkGet(rosterIds)), [rosterIds.join(',')])
   const auto: Gender = (!event && picked?.sex) || guessed
   // Unité organisatrice (src/eventOrganizer.ts) : à la création, celle du créateur, posée d'office ; modifiable.
@@ -1060,7 +1074,7 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
   return (
     <div className="flex flex-col gap-2">
-      <input className="field" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="field" autoFocus={!!playerIds?.length} aria-label="Nom de l’événement" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
       <Segmented value={type} onChange={setType} options={EVENT_TYPES} columns={2} />
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -1076,7 +1090,8 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
         ))}
       </div>
       {!sex && <p className="-mt-1 text-[11px] text-muted">Facultatif : sans choix, déduit des joueurs de la liste{auto ? ` (${EVENT_SEXES.find((x) => x.value === auto)?.label.toLowerCase()})` : ''}.</p>}
-      {!event && groups.length > 0 && (
+      {chosen && <p className="text-[11px] text-muted">Liste : {pluralG(chosen.length, guessed, 'joueur choisi')} (modifiable ensuite).</p>}
+      {!event && !chosen && groups.length > 0 && (
         <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
           {groups.map((g) => (
@@ -1121,6 +1136,8 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
               teams: teams.length ? teams : undefined,
               names: { ...event?.names, ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])) },
             }
+            // « Ajouté par » des joueurs choisis : posé ici pour l'affichage ; le serveur le refait (supabase/024).
+            const me = currentUserId()
             // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.
             const current = event && (await db.events.get(event.id))
             onDone(
@@ -1131,9 +1148,10 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
                   : {
                       id: newId(),
                       ...fields,
-                      playerIds: picked ? [...picked.playerIds] : undefined,
+                      playerIds: chosen ? [...chosen] : picked ? [...picked.playerIds] : undefined,
+                      ...(chosen && me ? { addedBy: Object.fromEntries(chosen.map((id) => [id, me])) } : {}),
                       // Depuis un groupe : chaque joueur garde celui qui l'avait ajouté au groupe.
-                      addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined,
+                      ...(!chosen && { addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined }),
                       names: { ...picked?.names, ...fields.names },
                     },
               ),

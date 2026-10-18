@@ -5,6 +5,7 @@ import { MENU_ROW, MenuButton, useRowMenu } from './ItemMenu'
 import { selectedCls } from './MasterDetail'
 import { PlayerMenu, type MenuExtra } from './PlayerMenu'
 import { RowPictos } from './Pictos'
+import { RowCheck, useRowCheckId, useRowSelection } from './Selection'
 import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
 
 /*
@@ -21,6 +22,8 @@ import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
  * - menu de la ligne (PlayerMenu) : appui long sur téléphone, clic droit sur ordinateur, touche « menu » ou Maj+F10,
  *   ou « ⋮ » (ligne pleine ; en colonne de contexte, faute de place, seulement les gestes). Un toucher ou un clic
  *   normal garde son effet (fiche, évaluation) ; après un appui long, le clic du relâchement est ignoré.
+ * Sélection multiple (bouton « Sélectionner » de la liste, components/Selection.tsx) : une case à cocher avant la ligne ;
+ * toute la ligne (photo comprise) devient son libellé : un toucher coche ou décoche, sans ouvrir la fiche.
  * La photo ouvre la fiche du joueur (dans son contexte quand il y en a un : événement, groupe). Toute la carte est
  * cliquable : le lien (sur le nom) la couvre entièrement, pictogrammes, photo à part et boutons des lignes en plus au-dessus.
  * Uniquement des marques positives ou neutres sur les jeunes joueurs.
@@ -144,6 +147,9 @@ function Row({
   compact,
 }: RowProps & { compact: boolean }) {
   const menu = useRowMenu()
+  // Sélection multiple (components/Selection.tsx) : une case avant la ligne ; toucher la ligne coche / décoche.
+  const sel = useRowSelection(p.id)
+  const checkId = useRowCheckId()
   // « Voir la fiche » du menu : là où mène la photo (fiche dans son contexte), sinon la ligne si elle mène à la fiche.
   const fiche: RowLink = avatarLink ?? (link && !link.to.startsWith('/evaluer') ? link : { to: `/joueurs/${p.id}` })
   const size = compact ? COMPACT_AVATAR : ROW_AVATAR
@@ -152,7 +158,11 @@ function Row({
   // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
   const hit = "min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
   const name = <PlayerNameLine p={p} compact={compact} quarter={quarter} badges={badges} />
-  const main = link ? (
+  const main = sel ? (
+    <label htmlFor={checkId} className={`${hit} cursor-pointer`}>
+      {name}
+    </label>
+  ) : link ? (
     <Link to={link.to} state={link.state} replace={link.replace} onClick={link.onClick} className={hit} {...linkProps}>
       {name}
     </Link>
@@ -165,7 +175,7 @@ function Row({
   )
   const zone = (
     <div className={`relative flex min-w-0 flex-1 items-center self-stretch ${compact ? 'min-h-10 gap-2' : 'gap-3'}`}>
-      {avatarLink ? (
+      {avatarLink && !sel ? (
         <Link
           to={avatarLink.to}
           state={avatarLink.state}
@@ -204,13 +214,14 @@ function Row({
   )
   const row = (
     <>
+      {sel && <RowCheck id={checkId} p={p} checked={sel.checked} toggle={sel.toggle} compact={compact} />}
       {lead}
       {zone}
       {aside}
       {actions}
     </>
   )
-  const card = `card ${MENU_ROW} ${poleEdge(p)} ${selectedCls(selected)} ${link || onClick ? 'hover:border-accent focus-within:border-accent' : ''} ${className}`
+  const card = `card ${MENU_ROW} ${poleEdge(p)} ${selectedCls(selected)} ${link || onClick || sel ? 'hover:border-accent focus-within:border-accent' : ''} ${sel?.checked ? 'border-accent ring-1 ring-accent' : ''} ${className}`
   const line = compact ? 'flex items-center gap-1 py-0.5 pr-0.5 pl-1.5' : 'flex items-center gap-3 p-2.5'
   const opened = menu.anchor && (
     // Hors de la carte ; les événements du menu et de ses fenêtres ne remontent pas jusqu'à la liste.

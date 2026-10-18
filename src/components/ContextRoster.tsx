@@ -124,7 +124,7 @@ export function ContextRoster({
         </button>
         <span className="shrink-0 text-[11px] text-muted">{count}</span>
       </div>
-      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} className="flex flex-col gap-1.5">
+      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={selContext(base)} className="flex flex-col gap-1.5">
       {sections.map((sec, k) => (
         <div key={k} className="flex flex-col gap-1">
           {sec.heading && (
@@ -159,6 +159,13 @@ export function ContextRoster({
       </PlayerList>
     </div>
   )
+}
+
+/** Événement ou groupe de la liste (actions « vu », « à revoir » de la sélection multiple), lu dans son adresse. */
+function selContext(base: string) {
+  const ev = /^\/evenements\/([^/]+)\/joueurs$/.exec(base)?.[1]
+  const gr = /^\/groupes\/([^/]+)\/joueurs$/.exec(base)?.[1]
+  return ev ? { eventId: ev } : gr ? { groupId: gr } : undefined
 }
 
 // ---------- Téléphone : barre au-dessus de la fiche ----------

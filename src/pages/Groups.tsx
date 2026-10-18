@@ -345,14 +345,25 @@ function stripStamps(g: PlayerGroup): PlayerGroup {
 }
 
 /** Création ou modification d'un groupe : nom, description et informations facultatives. */
-function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; playerIds?: string[]; onDone: (g?: PlayerGroup) => void }) {
+export function GroupForm({
+  group,
+  playerIds = [],
+  defaultSex,
+  onDone,
+}: {
+  group?: PlayerGroup
+  playerIds?: string[]
+  /** Nouveau groupe : sexe déduit des joueurs choisis (setGender / genderOf, src/gender.ts), modifiable. */
+  defaultSex?: PlayerGroup['sex']
+  onDone: (g?: PlayerGroup) => void
+}) {
   const role = useRole()
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
   // Nouveau groupe : privé par défaut ; l'observateur ne crée que des groupes privés.
   const [vis, setVis] = useState<GroupVisibility>(group ? groupVisibility(group) : 'private')
   const priv = vis === 'private'
-  const [sex, setSex] = useState(group?.sex)
+  const [sex, setSex] = useState(group?.sex ?? defaultSex)
   const [department, setDepartment] = useState(group?.department ?? '')
   const regions = useRegions()
   const [region, setRegion] = useState(group?.regionId ?? '')
@@ -848,7 +859,7 @@ function PlayerGroupDetail() {
       {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
       {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
       {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
-      <PlayerList ids={view.sections.flatMap((sec) => sec.players.map((p) => p.id))}>
+      <PlayerList ids={view.sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
       <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         <RosterSectionList
           sections={view.sections}

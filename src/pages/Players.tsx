@@ -82,6 +82,7 @@ export default function Players() {
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
+  const allIds = filtered.map((p) => p.id)
 
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
@@ -162,11 +163,9 @@ export default function Players() {
         <GroupNotice msg={groupMsg.text} groupId={groupMsg.groupId} />
       </div>
 
-      {loading ? null : shown.length === 0 ? (
+      {!players.length ? (
         <Empty>
-          {players.length
-            ? `${w(gender).AucunJoueur} ne correspond.`
-            : spyTarget() && per && !hasPerimeter(per)
+          {spyTarget() && per && !hasPerimeter(per)
               ? 'Aucune affectation : ce membre ne reçoit aucun joueur (à affecter dans Structure).'
               : view === 'base'
                 ? 'Aucun joueur pour l’instant. Inscris le premier !'
@@ -174,49 +173,55 @@ export default function Players() {
         </Empty>
       ) : (
         // Pictogrammes au bout des lignes (barre « Afficher », components/Pictos.tsx) : lus pour les joueurs affichés.
-        <PlayerList ids={shown.map((p) => p.id)}>
-        <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
-          {shown.map((p) => {
-            const l = latest.get(p.id)
-            const a = age(p.birthDate)
-            // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
-            const v = valueOf(p)
-            return (
-              <PlayerRow
-                key={p.id}
-                p={p}
-                selected={selected === p.id}
-                link={{ to: `/joueurs/${p.id}${tabQuery}` }}
-                linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
-                badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
-                sub={playerSub(p, a !== null && `${a} ans`)}
-                lines={
-                  (l?.get('taille') || l?.get('poids') || p.laterality || v) && (
-                    <>
-                      {(l?.get('taille') || l?.get('poids') || p.laterality) && (
-                        <span className="truncate text-[10px] text-muted">
-                          {[
-                            l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
-                            l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
-                            lateralityLabel(p.laterality, p.sex),
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </span>
-                      )}
-                      {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
-                    </>
-                  )
-                }
-              />
-            )
-          })}
-          {filtered.length > shown.length && (
-            <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
-              Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
-            </button>
-          )}
-        </div>
+        // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
+        // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
+        <PlayerList ids={shown.map((p) => p.id)} all={allIds}>
+        {loading ? null : shown.length === 0 ? (
+          <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
+        ) : (
+          <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
+            {shown.map((p) => {
+              const l = latest.get(p.id)
+              const a = age(p.birthDate)
+              // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
+              const v = valueOf(p)
+              return (
+                <PlayerRow
+                  key={p.id}
+                  p={p}
+                  selected={selected === p.id}
+                  link={{ to: `/joueurs/${p.id}${tabQuery}` }}
+                  linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
+                  badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
+                  sub={playerSub(p, a !== null && `${a} ans`)}
+                  lines={
+                    (l?.get('taille') || l?.get('poids') || p.laterality || v) && (
+                      <>
+                        {(l?.get('taille') || l?.get('poids') || p.laterality) && (
+                          <span className="truncate text-[10px] text-muted">
+                            {[
+                              l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
+                              l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
+                              lateralityLabel(p.laterality, p.sex),
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </span>
+                        )}
+                        {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
+                      </>
+                    )
+                  }
+                />
+              )
+            })}
+            {filtered.length > shown.length && (
+              <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
+                Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
+              </button>
+            )}
+          </div>
+        )}
         </PlayerList>
       )}
       </div>

@@ -9,7 +9,7 @@ import { loadTeams } from '../teams'
 // ---------- Ajouter à un événement ----------
 
 /** Événements à venir où je peux ajouter des joueurs (organisateur, administrateur, participant) ; un toucher les ajoute. */
-export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; onClose: () => void }) {
+export function AddToEventDialog({ playerIds, onClose, onAdded }: { playerIds: string[]; onClose: () => void; /** Après un ajout : le message (sélection multiple). */ onAdded?: (msg: string, eventId: string) => void }) {
   const role = useRole()
   const [done, setDone] = useState<string | null>(null)
   const events = useLiveQuery(async () => {
@@ -40,7 +40,9 @@ export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; 
         ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
       })
     }
-    setDone(added.length ? `${added.length > 1 ? pluralG(added.length, pg, 'joueur ajouté') : accord('Joueur ajouté', pg)} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`)
+    const msg = added.length ? `${added.length > 1 ? pluralG(added.length, pg, 'joueur ajouté') : accord('Joueur ajouté', pg)} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`
+    setDone(msg)
+    onAdded?.(msg, cur.id)
   }
 
   return createPortal(
