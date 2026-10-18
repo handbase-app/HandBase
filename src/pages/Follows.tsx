@@ -167,6 +167,35 @@ function DayPlayers({
   )
 }
 
+/**
+ * Carte de nouveautés repliable (une section ou une journée) : repliée par défaut, son titre donne le nombre de nouveautés
+ * (dont celles depuis la dernière visite) et de joueurs ; dépliée, le détail. État retenu pendant la session.
+ */
+function NewsCard({ title, items, seen, open, onToggle, children }: { title: ReactNode; items: FollowNews[]; seen: number; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const fresh = items.filter((n) => n.time > seen && !n.mine).length
+  const who = new Set(items.map((n) => n.playerId)).size
+  return (
+    <div className="card px-4 py-1">
+      <button type="button" className="flex w-full items-center gap-2 py-1.5 text-left" aria-expanded={open} onClick={onToggle}>
+        {/* Titre en entier ; les nombres dessous (sur téléphone, à côté ils le coupaient). */}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="section-title my-0">{title}</span>
+          <span className="text-[11px] text-muted">
+            {plural(items.length, 'nouveauté')} · {plural(who, 'joueur')}
+          </span>
+        </span>
+        {fresh > 0 && (
+          <span className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold text-white" title="Depuis ta dernière visite">
+            +{fresh > 99 ? '99' : fresh}
+          </span>
+        )}
+        <span className={`shrink-0 text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
+      </button>
+      {open && <div className="pb-1">{children}</div>}
+    </div>
+  )
+}
+
 /** Titre d'une section (groupe, « Suivis directement », année), dans la colonne des joueurs. */
 function SectionHead({ s, follows }: { s: FollowSection; follows: FollowsResult }) {
   const g = s.groupId ? follows.groups.find((x) => x.group.id === s.groupId) : undefined
@@ -210,6 +239,9 @@ export default function Follows() {
   // Période affichée : retrouvée au retour d'une fiche (pendant la session).
   const [days, setDays] = useSessionState('handbase.suivis.days', 30)
   const [params, setParams] = useSearchParams()
+  // Cartes de nouveautés dépliées (repliées par défaut), retrouvées au retour d'une fiche pendant la session.
+  const [opened, setOpened] = useSessionState<string[]>('handbase.suivis.ouverts', [])
+  const toggle = (k: string) => setOpened((o) => (o.includes(k) ? o.filter((x) => x !== k) : [...o, k]))
   const loc = useLocation()
   const view = parseFollowView(params.get('vue'))
   const filterKey = params.get('filtre')
@@ -335,21 +367,19 @@ export default function Follows() {
                   splitBySection(shown, shownSections)
                     .filter((x) => x.items.length)
                     .map(({ section: s, items }) => (
-                      <div key={s.key} className="card px-4 py-2">
-                        {!picked && <div className="section-title mt-1 mb-1">{s.label}</div>}
+                      <NewsCard key={s.key} title={s.label} items={items} seen={seen} open={!!picked || opened.includes(`s:${s.key}`)} onToggle={() => toggle(`s:${s.key}`)}>
                         {[...byDayThenPlayer(items)].map(([day, perPlayer]) => (
                           <div key={day}>
                             <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{dayLabel(day)}</div>
                             <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} except={exceptOf(s)} />
                           </div>
                         ))}
-                      </div>
+                      </NewsCard>
                     ))
                 : [...byDayThenPlayer(shown)].map(([day, perPlayer]) => (
-                    <div key={day} className="card px-4 py-2">
-                      <div className="section-title mt-1 mb-1">{dayLabel(day)}</div>
+                    <NewsCard key={day} title={dayLabel(day)} items={[...perPlayer.values()].flat()} seen={seen} open={opened.includes(`j:${day}`)} onToggle={() => toggle(`j:${day}`)}>
                       <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} />
-                    </div>
+                    </NewsCard>
                   ))}
               {!shown.length && <p className="py-4 text-center text-xs text-muted">Rien de nouveau sur les {days} derniers jours.</p>}
               <button className="btn-ghost text-xs" onClick={() => setDays((d) => d + 60)}>
