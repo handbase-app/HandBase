@@ -1,7 +1,7 @@
 // Estimations de maturité par date de taille (snapshots), sans JSX : utilisées par la fiche (MaturityCard), l'export,
 // les alertes et la comparaison, et testées par tools/test-maturity.ts.
 import type { Measurement, Player } from './db'
-import { correctedParentHeight, decimalAge, fransen, khamisRoche, meanOffset, mirwald, moore, type KRResult } from './maturity'
+import { correctedParentHeight, decimalAge, fransen, khamisRoche, meanOffset, mirwald, moore, sherarAdultHeight, type KRResult, type Sex } from './maturity'
 
 /**
  * Écart maximal (jours) entre la taille et la taille assise / le poids utilisés avec elle : 0, même jour. Un jeune peut
@@ -53,6 +53,26 @@ export interface Snapshot {
   /** Moyenne des modèles disponibles : c'est elle qui situe le joueur (précoce / tardif, avant / après le pic). */
   mean: { offset: number; n: number }
   kr: KRResult | null
+  /**
+   * Taille adulte sans les parents (table de croissance restante, Sherar 2005, garçons) : par modèle, avec le décalage
+   * et l'âge au pic de CE modèle ; puis la moyenne des tailles disponibles. Filles : tout à null.
+   */
+  adult: AdultNoParents
+}
+
+export interface AdultNoParents {
+  mirwald: number | null
+  moore: number | null
+  fransen: number | null
+  mean: { height: number; n: number } | null
+}
+
+/** Tailles adultes sans les parents, une par modèle (décalage et âge au pic du modèle), et leur moyenne. */
+export function adultNoParents(sex: Sex, age: number, height: number, offsets: { mirwald: number | null; moore: number | null; fransen: number | null }): AdultNoParents {
+  const one = (o: number | null) => (o === null ? null : sherarAdultHeight({ height, offset: o, aphv: age - o, sex }))
+  const r = { mirwald: one(offsets.mirwald), moore: one(offsets.moore), fransen: one(offsets.fransen) }
+  const v = [r.mirwald, r.moore, r.fransen].filter((x): x is number => x !== null)
+  return { ...r, mean: v.length ? { height: v.reduce((a, b) => a + b, 0) / v.length, n: v.length } : null }
 }
 
 /** Une estimation par date de mesure de la taille, pour suivre l'évolution. */
@@ -92,6 +112,7 @@ export function snapshots(p: Player, ms: Measurement[]): Snapshot[] {
           parents && weight !== undefined
             ? khamisRoche({ sex, age, height, weight, motherHeight: parents.mother, fatherHeight: parents.father })
             : null,
+        adult: adultNoParents(sex, age, height, { mirwald: mw, moore: mo, fransen: fr }),
       },
     ]
   })

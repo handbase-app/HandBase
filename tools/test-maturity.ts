@@ -5,8 +5,8 @@
 //
 //   npx jiti tools/test-maturity.ts
 import assert from 'node:assert/strict'
-import { decimalAge, fransen, fransenRatio, meanOffset, mirwald, moore, offsetReliable, phase, sittingPlausible, timing } from '../src/maturity'
-import { snapshots } from '../src/maturitySnapshot'
+import { decimalAge, fransen, fransenRatio, meanOffset, mirwald, moore, offsetReliable, phase, remainingGrowth, sherarAdultHeight, sherarCategory, sittingPlausible, timing } from '../src/maturity'
+import { adultNoParents, snapshots } from '../src/maturitySnapshot'
 import type { Measurement, Player } from '../src/db'
 
 const near = (got: number | null, want: number, msg: string, tol = 0.005) => {
@@ -120,4 +120,69 @@ const player = { id: 'p1', firstName: 'Test', lastName: 'Fictif', sex: 'M', birt
   assert.equal(s.mean.n, 2)
 }
 
+// ---------- Taille adulte sans les parents (croissance restante, Sherar 2005, garçons) ----------
+// Lecture exacte d'une ligne : décalage 0, maturité normale (âge au pic 14) → 16,16 cm.
+near(remainingGrowth(0, 14), 16.16, 'ligne 0 normale', 1e-9)
+near(remainingGrowth(0, 12), 19.04, 'ligne 0 avancée', 1e-9)
+near(remainingGrowth(0, 16), 13.05, 'ligne 0 retardée', 1e-9)
+near(remainingGrowth(-4, 14), 40.09, 'borne −4', 1e-9)
+near(remainingGrowth(4, 14), 0, 'borne +4', 1e-9)
+near(remainingGrowth(-1.2, 14), 25.63, 'ligne −1,2 (flottant)', 1e-9)
+// Interpolation : −1,1 normale, entre 25,63 (−1,2) et 24,36 (−1,0), au milieu.
+{
+  const r = remainingGrowth(-1.1, 14)!
+  assert.ok(r < 25.63 && r > 24.36, `−1,1 entre les deux lignes : ${r}`)
+  near(r, (25.63 + 24.36) / 2, '−1,1 interpolé', 1e-9)
+  // Fiche Excel (RECHERCHEV approchée) : ligne inférieure −1,2 → 25,63 ; écart 0,635 cm avec l'interpolation.
+  near(remainingGrowth(-1.1, 14, 'ligne'), 25.63, '−1,1 ligne inférieure', 1e-9)
+  near(remainingGrowth(-1.1, 14, 'ligne')! - r, 0.635, 'écart interpolation / fiche', 1e-9)
+  near(remainingGrowth(-1.15, 14, 'ligne'), 25.63, '−1,15 ligne inférieure', 1e-9)
+}
+// Catégorie : < 13 avancée, < 15 normale, sinon retardée.
+assert.equal(sherarCategory(12.9), 'avancee')
+assert.equal(sherarCategory(13), 'normale')
+assert.equal(sherarCategory(14.9), 'normale')
+assert.equal(sherarCategory(15), 'retardee')
+near(remainingGrowth(0, 12.9), 19.04, 'âge au pic 12,9 → avancée', 1e-9)
+near(remainingGrowth(0, 13), 16.16, 'âge au pic 13 → normale', 1e-9)
+near(remainingGrowth(0, 14.9), 16.16, 'âge au pic 14,9 → normale', 1e-9)
+near(remainingGrowth(0, 15), 13.05, 'âge au pic 15 → retardée', 1e-9)
+// Hors plage.
+assert.equal(remainingGrowth(-4.01, 14), null)
+assert.equal(remainingGrowth(4.01, 14), null)
+assert.equal(sherarAdultHeight({ height: 150, offset: -4.5, aphv: 14, sex: 'M' }), null)
+// Taille adulte = taille + reste ; fille : null (table filles non disponible).
+near(sherarAdultHeight({ height: 160, offset: 0, aphv: 14, sex: 'M' }), 176.16, 'taille adulte garçon', 1e-9)
+assert.equal(sherarAdultHeight({ height: 150, offset: 0, aphv: 12, sex: 'F' }), null)
+// Par modèle avec SON âge au pic, puis moyenne des tailles disponibles.
+{
+  const a = adultNoParents('M', 13, 155, { mirwald: -1.2, moore: 0, fransen: null })
+  near(a.mirwald, 155 + 25.63, 'Mirwald −1,2, âge au pic 14,2 → normale', 1e-9)
+  near(a.moore, 155 + 16.16, 'Moore 0, âge au pic 13 → normale', 1e-9)
+  assert.equal(a.fransen, null)
+  assert.equal(a.mean?.n, 2)
+  near(a.mean!.height, 155 + (25.63 + 16.16) / 2, 'moyenne des tailles', 1e-9)
+  // Même décalage, âge au pic différent → autre colonne : âge 11,5, décalage −1,2 → pic à 12,7 → avancée.
+  near(adultNoParents('M', 11.5, 150, { mirwald: -1.2, moore: 0, fransen: null }).mirwald, 150 + 28.98, 'catégorie du modèle', 1e-9)
+  // Fille : tout à null.
+  assert.deepEqual(adultNoParents('F', 12, 150, { mirwald: -0.5, moore: 0, fransen: null }), { mirwald: null, moore: null, fransen: null, mean: null })
+}
+{
+  // Validation de la table : calculateur de taille adulte de l'université de la Saskatchewan (méthode Sherar), garçon
+  // fictif 13,0 ans (né le 01/01/2013, mesuré le 01/01/2026), 155 cm, assis 80 cm, 45 kg : maturité « Average »
+  // (normale), croissance restante 25 cm, taille adulte 180 cm, 86,1 % atteint (le site arrondit le décalage à −1,1 →
+  // 25,0 cm). Ici : décalage Mirwald −1,063, interpolé → 24,76 cm → 179,8 cm.
+  const p13 = { ...player, birthDate: '2013-01-01' } as Player
+  const [s] = snapshots(p13, [m('taille', '2026-01-01', 155), m('taille_assise', '2026-01-01', 80), m('poids', '2026-01-01', 45)])
+  near(s.mirwald, -1.063, 'validation : décalage Mirwald', 0.005)
+  assert.equal(sherarCategory(s.age - s.mirwald!), 'normale')
+  near(s.adult.mirwald, 180, 'validation Saskatchewan : taille adulte Mirwald', 0.5)
+  near(155 / s.adult.mirwald!, 0.861, 'validation : % atteint', 0.002)
+}
+{
+  // Snapshot garçon : colonne présente et cohérente.
+  const [s] = snapshots(player, [m('taille', '2025-01-01', 155), m('taille_assise', '2025-01-01', 80), m('poids', '2025-01-01', 45)])
+  near(s.adult.mirwald, sherarAdultHeight({ height: 155, offset: s.mirwald!, aphv: s.age - s.mirwald!, sex: 'M' }) ?? NaN, 'snapshot taille adulte Mirwald', 1e-9)
+  assert.equal(s.adult.mean?.n, 3)
+}
 console.log('test-maturity : OK')

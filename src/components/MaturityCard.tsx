@@ -48,7 +48,13 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
             peut prendre 10 cm en deux mois) ; Moore n’utilise que l’âge et une taille.
           </p>
           <p>
-            <b>Taille adulte prédite</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
+            <b>Taille adulte sans les parents</b> (garçons) : taille actuelle + croissance restante, lue dans une table selon le décalage
+            et la catégorie de maturité (âge au pic avant 13 ans, de 13 à 15 ans, après 15 ans), méthode de Sherar 2005. Calculée pour chaque
+            modèle avec son propre âge au pic, puis moyennée. Marge d’environ ±5 cm ; la table a été construite avec Mirwald, Moore et
+            Fransen sont indicatifs. Pas de table pour les filles.
+          </p>
+          <p>
+            <b>Taille adulte prédite avec les parents</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
             marge à 90 %. Le pourcentage de taille adulte atteinte situe le joueur dans sa croissance.
           </p>
           <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter un joueur.</p>
@@ -85,44 +91,63 @@ function OffsetBlock({ snap, sex }: { snap: Snapshot; sex: Sex }) {
   const ph = phase(mean)
   const reliable = offsetReliable(snap.age, mean)
   const meanAphv = snap.age - mean
-  const rows: { name: string; detail?: string; offset: number | null; note?: string }[] = [
-    { name: 'Mirwald', detail: '2002', offset: snap.mirwald },
-    { name: 'Moore', detail: sex === 'M' ? (snap.sitting !== undefined ? '2015 · taille assise' : '2015 · taille') : '2015', offset: snap.moore },
-    { name: 'Fransen', detail: '2018', offset: snap.fransen, note: sex === 'F' ? 'Non applicable aux filles' : undefined },
+  const boy = sex === 'M'
+  // Colonne « Taille adulte » (sans les parents) : garçons seulement, la table filles n'existe pas.
+  const grid = boy ? 'grid-cols-[minmax(0,1fr)_auto_auto_auto]' : 'grid-cols-[minmax(0,1fr)_auto_auto]'
+  const rows: { name: string; detail?: string; offset: number | null; adult: number | null; note?: string }[] = [
+    { name: 'Mirwald', detail: '2002', offset: snap.mirwald, adult: snap.adult.mirwald },
+    { name: 'Moore', detail: boy ? (snap.sitting !== undefined ? '2015 · taille assise' : '2015 · taille') : '2015', offset: snap.moore, adult: snap.adult.moore },
+    { name: 'Fransen', detail: '2018', offset: snap.fransen, adult: snap.adult.fransen, note: sex === 'F' ? 'Non applicable aux filles' : undefined },
   ]
+  const cm = (v: number | null) => (v === null ? '—' : `${Math.round(v)} cm`)
   return (
     <div>
       <div className="section-title">
         Âge au pic de croissance <span className="font-bold text-muted normal-case">· au {fmtDate(snap.date)}, {f1(snap.age)} ans</span>
       </div>
       <div className="overflow-hidden rounded-lg border border-line">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 bg-panel-2 px-2.5 py-1.5 text-[10px] text-muted">
+        <div className={`grid ${grid} items-end gap-x-2 bg-panel-2 px-2.5 py-1.5 text-[10px] text-muted sm:gap-x-3`}>
           <span>Modèle</span>
-          <span className="w-[4.5rem] text-right">Décalage</span>
-          <span className="w-[4.5rem] text-right">Âge au pic</span>
+          <span className="w-[4.25rem] text-right">Décalage</span>
+          <span className="w-[4.25rem] text-right">Âge au pic</span>
+          {boy && <span className="w-[3.5rem] text-right leading-tight">Taille adulte</span>}
         </div>
-        {rows.map(({ name, detail, offset, note }) => (
-          <div key={name} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 border-t border-line px-2.5 py-1.5 text-xs">
+        {rows.map(({ name, detail, offset, adult, note }) => (
+          <div key={name} className={`grid ${grid} items-baseline gap-x-2 border-t border-line px-2.5 py-1.5 text-xs sm:gap-x-3`}>
             <span className="min-w-0">
               <b>{name}</b> <span className="text-[10px] text-muted">{detail}</span>
             </span>
             {offset === null ? (
-              <span className="col-span-2 text-right text-[11px] text-muted">{note ?? lacks(snap)}</span>
+              <span className={`${boy ? 'col-span-3' : 'col-span-2'} text-right text-[11px] text-muted`}>{note ?? lacks(snap)}</span>
             ) : (
               <>
-                <span className="w-[4.5rem] text-right font-bold tabular-nums">{signed(offset)} {yr(offset)}</span>
-                <span className="w-[4.5rem] text-right tabular-nums">{f1(snap.age - offset)} ans</span>
+                <span className="w-[4.25rem] text-right font-bold tabular-nums">{signed(offset)} {yr(offset)}</span>
+                <span className="w-[4.25rem] text-right tabular-nums">{f1(snap.age - offset)} ans</span>
+                {boy && <span className="w-[3.5rem] text-right tabular-nums">{cm(adult)}</span>}
               </>
             )}
           </div>
         ))}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 border-t border-accent/40 bg-accent-soft px-2.5 py-2 text-sm">
+        <div className={`grid ${grid} items-baseline gap-x-2 border-t border-accent/40 bg-accent-soft px-2.5 py-2 ${boy ? 'text-[13px] sm:text-sm' : 'text-sm'} sm:gap-x-3`}>
           <span className="min-w-0">
             <b>Moyenne</b> <span className="text-[10px] text-muted">sur {n} modèle{n > 1 ? 's' : ''}</span>
           </span>
-          <span className="w-[4.5rem] text-right font-extrabold tabular-nums">{signed(mean)} {yr(mean)}</span>
-          <span className="w-[4.5rem] text-right font-extrabold tabular-nums">{f1(meanAphv)} ans</span>
+          <span className="w-[4.25rem] text-right font-extrabold tabular-nums">{signed(mean)} {yr(mean)}</span>
+          <span className="w-[4.25rem] text-right font-extrabold tabular-nums">{f1(meanAphv)} ans</span>
+          {boy && <span className="w-[3.5rem] text-right font-extrabold tabular-nums">{cm(snap.adult.mean?.height ?? null)}</span>}
         </div>
+      </div>
+      <div className="mt-1.5 text-[10px] leading-snug text-muted">
+        {boy ? (
+          <>
+            <b>Taille adulte</b> estimée sans les parents
+            {rows.some((r) => r.offset !== null && r.adult === null) && ' (— : décalage hors de la table, −4 à +4 ans)'}
+            {snap.adult.mean && snap.adult.mean.n !== n && ` (moyenne sur ${snap.adult.mean.n} modèle${snap.adult.mean.n > 1 ? 's' : ''})`} : table de croissance restante (Sherar 2005),
+            garçons ; marge ≈ ±5 cm ; Moore et Fransen : indicatif, la table a été construite avec Mirwald.
+          </>
+        ) : (
+          <>Taille adulte sans les parents : table filles non disponible.</>
+        )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="rounded border border-accent/50 bg-accent-soft px-1.5 py-0.5 font-bold text-accent">{PHASE_LABEL[ph]}</span>
@@ -150,7 +175,7 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
   if (!snap.kr) {
     return (
       <div>
-        <div className="section-title">Taille adulte prédite</div>
+        <div className="section-title">Taille adulte prédite avec les parents</div>
         <div className="text-xs text-muted">
           {noParents ? (
             <>
@@ -174,7 +199,7 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
   const pos = (v: number) => `${Math.min(100, Math.max(0, ((v - 80) / 20) * 100))}%`
   return (
     <div>
-      <div className="section-title">Taille adulte prédite (Khamis-Roche)</div>
+      <div className="section-title">Taille adulte prédite avec les parents (Khamis-Roche)</div>
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-lg border border-line bg-panel-2 p-2">
           <div className="text-base font-extrabold">{Math.round(predicted)} cm</div>
