@@ -11,14 +11,10 @@ import { applySportConfig, currentSport, resolveSportConfig, type SportConfig } 
 import { sortLevels } from './structureTree'
 import { setInstallationAppearance } from './theme'
 import { resolveAppearance } from './uiStyle'
-import { setAppBrand } from './appBrand'
-import { resolveAppBrand } from './appBrandCore'
 
 /*
  * Configuration de l'installation (supabase/044_structure.sql) : sport et postes (table hb_config, src/sportConfig.ts), style
- * de l'interface et identité de l'organisation (clé « apparence », src/uiStyle.ts), identité de l'appli (clé « appli »,
- * src/appBrandCore.ts),
- * structure (niveaux, unités, affectations ; src/structureTree.ts).
+ * de l'interface et identité de l'organisation (clé « apparence », src/uiStyle.ts), structure (niveaux, unités, affectations ; src/structureTree.ts).
  *
  * La configuration est lue en continu dans la base locale : à chaque changement, POSITIONS (src/sportConfig.ts) est mis à
  * jour sur place et les écrans abonnés (useSportConfig, appelé par l'App) se redessinent. Table vide : handball.
@@ -29,8 +25,6 @@ liveQuery(() => db.config.toArray()).subscribe({
   next: (rows: ConfigItem[]) => {
     // Style de l'installation (polices, arrondis, couleurs ; src/uiStyle.ts) : posé tout de suite sur la page.
     setInstallationAppearance(resolveAppearance(rows))
-    // Nom et logos de l'appli (Nextar par défaut ; src/appBrand.ts).
-    setAppBrand(resolveAppBrand(rows))
     if (applySportConfig(resolveSportConfig(rows))) listeners.forEach((l) => l())
   },
   error: () => {

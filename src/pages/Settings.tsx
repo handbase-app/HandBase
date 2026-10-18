@@ -29,7 +29,6 @@ import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, save
 import { useDictation } from '../dictation/useDictation'
 import { useThemeVersion } from '../theme'
 import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
-import { AppBrandSettings } from '../components/AppBrandSettings'
 import { appName } from '../appBrand'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
@@ -123,10 +122,6 @@ export default function Settings() {
           )}
           <Fold id="structure" icon="globe" title="Structure et sport" summary="Postes, niveaux, unités, affectations">
             <StructureSettings editable={can.editStructure(role)} />
-          </Fold>
-          {/* Nom et logos de l'appli (Nextar par défaut) : configuration partagée, clé « appli », src/appBrandCore.ts. */}
-          <Fold id="appli" icon="star" title="Appli : nom et logo" summary={appName()}>
-            <AppBrandSettings editable={can.editStructure(role)} />
           </Fold>
           {/* Style de l'installation (polices, arrondis, couleurs ; nom et logo de l'organisation) : configuration partagée, src/uiStyle.ts. */}
           <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo de l’organisation">
