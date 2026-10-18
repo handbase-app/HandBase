@@ -748,7 +748,7 @@ export function EventDetail() {
       />
       {editing ? (
         <div className="card p-3">
-          <NewEventForm event={ev} onDone={() => setEditing(false)} extra={importSheet} />
+          <NewEventForm key={ev.id} event={ev} onDone={() => setEditing(false)} extra={importSheet} />
         </div>
       ) : (
         <div>
