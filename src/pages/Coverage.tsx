@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { appName } from '../appBrand'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useAlerts } from '../alerts'
@@ -2578,7 +2579,7 @@ export function CoverageReport() {
       <article className="report-sheet bilan-report rounded-lg bg-white p-3 text-[11px] text-neutral-900 shadow sm:p-6 print:rounded-none print:p-0 print:shadow-none">
         {/* Pas un <header> : l'impression cache les en-têtes de l'appli (src/index.css). */}
         <div className="keep mb-3 border-b-2 border-neutral-900 pb-2">
-          <div className="text-[10px] font-bold tracking-widest text-neutral-500">{appearance.name || 'HandBase'}</div>
+          <div className="text-[10px] font-bold tracking-widest text-neutral-500">{[appName(), appearance.name && appearance.name.toLowerCase() !== appName().toLowerCase() ? appearance.name : ''].filter(Boolean).join(' · ')}</div>
           <h2 className="text-base font-extrabold">{reportTitle(placeText)}</h2>
           {line && <div className="font-bold">{line}</div>}
           <div>{meta}</div>
