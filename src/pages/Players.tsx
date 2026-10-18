@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { age, alive, db, lateralityLabel, plural, type Measurement, type Rewatch } from '../db'
 import { Empty, fmtValue } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
@@ -17,6 +17,7 @@ import { useSelected } from '../components/MasterDetail'
 import { usePerimeter } from '../installation'
 import { hasPerimeter } from '../perimeter'
 import { spyTarget } from '../spy'
+import { keepPlayerTab } from '../tabQuery'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -49,6 +50,8 @@ export default function Players() {
   // Filtres = recette (même moteur que « Poser une question ») : champ « Filtrer ou poser une question… », micro ✨,
   // pastilles, filtres rapides, conditions et tri (src/components/PlayersQuery.tsx).
   const selected = useSelected('/joueurs')
+  // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
+  const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
   const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading } = usePlayersQuery(players, { dock: !selected })
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
@@ -189,7 +192,7 @@ export default function Players() {
                 key={p.id}
                 p={p}
                 selected={selected === p.id}
-                link={{ to: `/joueurs/${p.id}` }}
+                link={{ to: `/joueurs/${p.id}${tabQuery}` }}
                 linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
                 badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                 sub={playerSub(p, a !== null && `${a} ans`)}

@@ -5,6 +5,7 @@ import { canLeave } from './Confirm'
 import { useSelected } from './MasterDetail'
 import { CompactPlayerRow } from './PlayerRow'
 import type { Player } from '../db'
+import { keepPlayerTab } from '../tabQuery'
 
 /*
  * Fiche d'un joueur ouverte depuis une liste (événement, groupe, bilan de détection) : on reste dans
@@ -27,13 +28,16 @@ export function useLeaveTo(to: string, label: string) {
   return useBack(to, label, { replace: true })
 }
 
-/** Passe à un autre joueur de la liste : l'historique ne garde pas chaque fiche parcourue (comme MasterDetail). */
+/**
+ * Passe à un autre joueur de la liste : l'historique ne garde pas chaque fiche parcourue (comme MasterDetail), et
+ * l'onglet ouvert de la fiche (Croissance…) reste ouvert (src/tabQuery.ts).
+ */
 export function useShowInContext(base: string, search = '') {
   const nav = useNavigate()
   const loc = useLocation()
   return async (pid: string) => {
     if (!(await canLeave())) return
-    nav(`${base}/${pid}${search}`, { replace: true, state: loc.state })
+    nav(`${base}/${pid}${keepPlayerTab(search, base, loc.search)}`, { replace: true, state: loc.state })
   }
 }
 
@@ -103,6 +107,8 @@ export function ContextRoster({
 }) {
   const selected = useSelected(base)
   const box = useRef<HTMLDivElement>(null)
+  // Lien de chaque ligne : l'état de la liste d'origine, plus l'onglet ouvert de la fiche (gardé d'un joueur à l'autre).
+  const query = keepPlayerTab(search, base, useLocation().search)
   const withNumber = !!number && sections.some((s) => s.players.some((p) => number(p)))
   // Fiche suivante (‹ ›, ↑ ↓) : sa ligne reste visible.
   useEffect(() => {
@@ -133,7 +139,7 @@ export function ContextRoster({
               cardProps={{ 'data-row': p.id }}
               className="scroll-mt-[calc(var(--hdr)+0.75rem)] scroll-mb-4"
               selected={selected === p.id}
-              link={{ to: `${base}/${p.id}${search}`, replace: true }}
+              link={{ to: `${base}/${p.id}${query}`, replace: true }}
               linkProps={{ 'data-md': p.id, 'aria-current': selected === p.id ? 'page' : undefined }}
               lead={
                 withNumber && (

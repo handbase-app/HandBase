@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useLayoutEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StampLine } from '../components/ActivityLog'
@@ -29,14 +29,16 @@ import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
 import { spyTarget } from '../spy'
+import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 
-const TABS = [
+// Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
+const TABS: readonly { id: PlayerTab; label: string }[] = [
   { id: 'profil', label: 'Profil' },
   { id: 'tests', label: 'Tests' },
   { id: 'avis', label: 'Avis' },
   { id: 'croissance', label: 'Croissance' },
-] as const
-type TabId = (typeof TABS)[number]['id']
+]
+type TabId = PlayerTab
 
 /** Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. */
 function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; avis: number }) {
@@ -89,9 +91,20 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   // ?fusion=<id> : ouvre la fusion avec cette autre fiche (lien « Comparer et fusionner »).
   const [params, setParams] = useSearchParams()
   const mergeWith = params.get('fusion')
-  // Onglet dans l'adresse (?onglet=avis) : on le retrouve en revenant sur la fiche.
-  const tab = (TABS.find((t) => t.id === params.get('onglet'))?.id ?? 'profil') as TabId
-  const setTab = (t: TabId) => setParams(t === 'profil' ? {} : { onglet: t }, { replace: true })
+  // Onglet dans l'adresse (?onglet=avis ; ?fiche=… sous /bilan/joueurs, où `onglet` est celui du bilan) : on le
+  // retrouve en revenant sur la fiche, et il reste ouvert en passant à un autre joueur de la liste (src/tabQuery.ts).
+  // Changer d'onglet remplace l'adresse et garde ses autres paramètres (état de la liste d'origine : bilan, réponse…).
+  const { pathname, search, state } = useLocation()
+  const tabKey = playerTabParam(pathname)
+  const tab = tabOf(search, PLAYER_TABS, PLAYER_TAB_DEFAULT, tabKey)
+  const setTab = (t: TabId) => {
+    // La fusion ouverte par un lien (?fusion=) se referme en changeant d'onglet, comme avant.
+    const q = new URLSearchParams(withTab(search, t, PLAYER_TABS, PLAYER_TAB_DEFAULT, tabKey))
+    q.delete('fusion')
+    setParams(q, { replace: true, state })
+  }
+  /** Lien vers une autre fiche (doublon, fiche fusionnée) : même onglet. */
+  const sameTab = withTab('', tab, PLAYER_TABS, PLAYER_TAB_DEFAULT)
   const [merging, setMerging] = useState(false)
   // « À revoir » de ce joueur visibles (mon staff) : bouton « à revoir ×2 » (supabase/041).
   const rewatch = usePlayerRewatch(id!)
@@ -119,7 +132,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       <div className="py-20 text-center text-sm text-muted">
         Cette fiche a été fusionnée avec une autre.
         <br />
-        <Link to={`/joueurs/${data.player.mergedInto}`} replace className="mt-3 inline-block font-bold text-accent">
+        <Link to={`/joueurs/${data.player.mergedInto}${sameTab}`} replace className="mt-3 inline-block font-bold text-accent">
           Voir la fiche du joueur →
         </Link>
       </div>
@@ -247,7 +260,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           {data.duplicates.map((d, i) => (
             <span key={d.id}>
               {i > 0 && ', '}
-              <Link to={`/joueurs/${d.id}`} className="font-bold underline">
+              <Link to={`/joueurs/${d.id}${sameTab}`} className="font-bold underline">
                 {playerName(d)}
               </Link>
               {d.license ? ' (licencié)' : d.review === 'refused' ? ' (hors cadre)' : d.review === 'pending' ? ' (proposée)' : ''}{' '}

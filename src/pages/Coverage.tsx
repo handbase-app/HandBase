@@ -718,6 +718,8 @@ export function useBilanState() {
       // La question n'est pas gardée : le bilan rouvert depuis le menu revient à ses onglets.
       const keep = new URLSearchParams(raw)
       keep.delete('q')
+      // Onglet de la fiche d'un joueur ouverte depuis le bilan (/bilan/joueurs/:pid?fiche=…) : pas un choix du bilan.
+      keep.delete('fiche')
       sessionStorage.setItem(QUERY_KEY, keep.toString())
     } catch {
       /* stockage indisponible */
