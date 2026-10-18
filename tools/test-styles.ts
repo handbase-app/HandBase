@@ -16,6 +16,8 @@ import {
   resolveAppearance,
   STYLES,
   styleLook,
+  svgDataUrl,
+  svgLogoSafe,
   textPairs,
 } from '../src/uiStyle'
 
@@ -60,7 +62,27 @@ assert.deepEqual(cleanAppearance({ style: 'officiel', name: '  Ligue Fictive  ' 
 assert.equal(cleanAppearance({ style: 'sport', name: 'x'.repeat(80) }).name?.length, 40)
 const png = 'data:image/png;base64,iVBORw0KGgo='
 assert.equal(cleanAppearance({ style: 'sport', logo: png }).logo, png)
-assert.equal(cleanAppearance({ style: 'sport', logo: 'data:image/svg+xml;base64,PHN2Zz4=' }).logo, undefined, 'SVG refusé')
+assert.equal(cleanAppearance({ style: 'sport', logo: 'data:image/svg+xml;base64,PHN2Zz4=' }).logo, undefined, 'SVG incomplet refusé')
+{
+  const ok = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><circle cx="5" cy="5" r="4" fill="url(#g)"/><use href="#g"/></svg>'
+  assert.ok(svgLogoSafe(ok), 'SVG simple accepté')
+  assert.equal(cleanAppearance({ style: 'sport', logo: svgDataUrl(ok) }).logo, svgDataUrl(ok), 'SVG sûr gardé')
+  assert.ok(svgLogoSafe('<?xml version="1.0"?><!-- logo --><svg viewBox="0 0 1 1"><text>Club é</text></svg>'), 'en-tête XML, commentaire, accents')
+  for (const bad of [
+    '<svg><script>alert(1)</script></svg>',
+    '<svg onload="alert(1)"><rect/></svg>',
+    '<svg><a href="javascript:alert(1)"><rect/></a></svg>',
+    '<svg><image href="https://exemple.test/x.png"/></svg>',
+    '<svg><foreignObject><div/></foreignObject></svg>',
+    '<!DOCTYPE svg [<!ENTITY x "y">]><svg/>',
+    '<svg><style>@import url(https://exemple.test/a.css)</style></svg>',
+    '<svg><rect fill="url(https://exemple.test/p.svg#a)"/></svg>',
+    '<html><svg></svg></html>',
+  ]) {
+    assert.ok(!svgLogoSafe(bad), `SVG refusé : ${bad}`)
+    assert.equal(cleanAppearance({ style: 'sport', logo: svgDataUrl(bad) }).logo, undefined, `SVG piégé non relu : ${bad}`)
+  }
+}
 assert.equal(cleanAppearance({ style: 'sport', logo: 'https://exemple.test/logo.png' }).logo, undefined, 'adresse refusée')
 assert.equal(cleanAppearance({ style: 'sport', logo: 'data:image/png;base64,' + 'A'.repeat(LOGO_MAX_CHARS) }).logo, undefined, 'trop lourd')
 

@@ -233,13 +233,53 @@ export interface Appearance {
   style: StyleId
   /** Nom affiché dans l'en-tête à la place de HANDBASE. */
   name?: string
-  /** Petit logo (data URL PNG, JPEG ou WebP). */
+  /** Petit logo (data URL PNG, JPEG, WebP ou SVG vérifié : svgLogoSafe). */
   logo?: string
 }
 
 export const DEFAULT_APPEARANCE: Appearance = { style: DEFAULT_STYLE }
 
 const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/
+const SVG_RE = /^data:image\/svg\+xml;base64,([A-Za-z0-9+/=]+)$/
+
+/**
+ * Logo SVG acceptable : un dessin, sans rien qui s'exécute ni ne va chercher ailleurs. Le logo est toujours affiché par
+ * <img> (où un SVG ne lance aucun script), mais on refuse en plus à l'entrée : scripts, attributs « on… », liens
+ * javascript:, contenus étrangers (foreignObject, iframe…), images ou feuilles externes, entités XML.
+ */
+export function svgLogoSafe(svg: string): boolean {
+  const t = svg.trim()
+  if (!/^(<\?xml[^>]*\?>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(t) || !/<\/svg>\s*$/i.test(t)) return false
+  if (/<!(DOCTYPE|ENTITY)/i.test(t)) return false
+  if (/<\s*(script|foreignObject|iframe|object|embed|audio|video|handler|listener)\b/i.test(t)) return false
+  if (/\son[a-z]+\s*=/i.test(t)) return false
+  if (/javascript\s*:|vbscript\s*:/i.test(t)) return false
+  // Références : seulement internes (#id) ou images embarquées (data:image/…), jamais une adresse.
+  for (const m of t.matchAll(/(?:xlink:)?href\s*=\s*["']([^"']*)["']/gi)) if (!/^(#|data:image\/(png|jpeg|webp|gif);)/i.test(m[1].trim())) return false
+  if (/url\(\s*["']?\s*(?!#)/i.test(t)) return false
+  if (/@import/i.test(t)) return false
+  return true
+}
+
+const fromBase64 = (b: string) => new TextDecoder().decode(Uint8Array.from(atob(b), (c) => c.charCodeAt(0)))
+/** Texte SVG → data URL (base64, UTF-8). */
+export const svgDataUrl = (svg: string) => {
+  const bytes = new TextEncoder().encode(svg)
+  let bin = ''
+  for (const x of bytes) bin += String.fromCharCode(x)
+  return `data:image/svg+xml;base64,${btoa(bin)}`
+}
+function logoOk(v: string): boolean {
+  if (v.length > LOGO_MAX_CHARS) return false
+  if (LOGO_RE.test(v)) return true
+  const m = SVG_RE.exec(v)
+  if (!m) return false
+  try {
+    return svgLogoSafe(fromBase64(m[1]))
+  } catch {
+    return false
+  }
+}
 
 /** Valeur stockée relue : style inconnu → Actuel ; nom coupé ; logo refusé s'il n'est pas une petite image. */
 export function cleanAppearance(v: unknown): Appearance {
@@ -247,7 +287,7 @@ export function cleanAppearance(v: unknown): Appearance {
   const o = v as Record<string, unknown>
   const style = STYLES.some((s) => s.id === o.style) ? (o.style as StyleId) : DEFAULT_STYLE
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, NAME_MAX) : undefined
-  const logo = typeof o.logo === 'string' && o.logo.length <= LOGO_MAX_CHARS && LOGO_RE.test(o.logo) ? o.logo : undefined
+  const logo = typeof o.logo === 'string' && logoOk(o.logo) ? o.logo : undefined
   return { style, ...(name ? { name } : {}), ...(logo ? { logo } : {}) }
 }
 

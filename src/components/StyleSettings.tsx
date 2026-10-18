@@ -18,7 +18,7 @@ import {
   useThemeVersion,
   type Theme,
 } from '../theme'
-import { APPEARANCE_KEY, cleanAppearance, DEFAULT_STYLE, LOGO_MAX_CHARS, NAME_MAX, paletteOf, STYLES, styleById, type Appearance, type UiStyle } from '../uiStyle'
+import { APPEARANCE_KEY, cleanAppearance, DEFAULT_STYLE, LOGO_MAX_CHARS, NAME_MAX, paletteOf, STYLES, styleById, svgDataUrl, svgLogoSafe, type Appearance, type UiStyle } from '../uiStyle'
 
 /*
  * Réglages → Apparence (chacun) et Style de l'installation (administrateurs).
@@ -197,6 +197,17 @@ function StyleTile({ s, on, light, onPick }: { s: UiStyle; on: boolean; light: b
 
 /** Image choisie → petit logo (data URL ≤ LOGO_MAX_CHARS), réduit sur l'appareil. */
 async function shrinkLogo(file: File): Promise<string | null> {
+  // SVG : gardé tel quel (net à toutes les tailles), seulement s'il est sûr et léger (blancs entre balises retirés).
+  if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)) {
+    try {
+      const text = (await file.text()).replace(/>\s+</g, '><').trim()
+      if (!svgLogoSafe(text)) return null
+      const d = svgDataUrl(text)
+      return d.length <= LOGO_MAX_CHARS ? d : null
+    } catch {
+      return null
+    }
+  }
   const url = URL.createObjectURL(file)
   try {
     const img = new Image()
@@ -264,7 +275,7 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
   async function pickLogo(f?: File) {
     if (!f) return
     const d = await shrinkLogo(f)
-    if (!d) return inform('Image illisible ou trop lourde. Choisis un petit logo (PNG, JPEG ou WebP).')
+    if (!d) return inform('Image illisible, trop lourde ou SVG refusé. Choisis un petit logo (SVG, PNG, JPEG ou WebP) ; un SVG ne doit contenir qu’un dessin (ni script ni lien externe).')
     setDraft({ ...draft, logo: d })
   }
 
@@ -308,7 +319,7 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
                   Retirer
                 </button>
               )}
-              <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void pickLogo(e.target.files?.[0])} />
+              <input ref={file} type="file" accept="image/svg+xml,.svg,image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void pickLogo(e.target.files?.[0])} />
             </>
           )}
         </div>
