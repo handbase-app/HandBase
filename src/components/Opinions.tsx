@@ -4,6 +4,7 @@ import { contextLabel, counts, criterionApplies, fmtDate, remove, reviewOf, scal
 import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
 import { department } from './PlayerFilter'
+import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty, Icon, playerName } from './ui'
 
@@ -109,6 +110,9 @@ export function Opinions({
   const eventId = lockedEventId ?? chosenEventId
   const [chosenView, setView] = useState<'table' | 'radar'>(locked ? 'radar' : 'table')
   const [withPending, setWithPending] = useState(false)
+  // Fiche du joueur : onglets Complet / Par famille au-dessus du radar, vue dans l'adresse (?radar=…, gardée d'un joueur
+  // à l'autre avec l'onglet de la fiche). Page de l'événement : la vue de l'écran, sans onglets.
+  const [radarView, setRadarView] = useRadarView()
 
   const inPeriod = (e: Evaluation) => eventId === 'all' || (e.eventId ?? 'none') === eventId
   const pending = evaluations.filter((e) => reviewOf(e) === 'pending')
@@ -302,9 +306,20 @@ export function Opinions({
       ) : numericRows.length < 3 ? (
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
-        <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-          <OpinionsRadar rows={numericRows} observers={observers} colors={observers.map((_, i) => obsColor(i))} shown={shown} compact={locked && !wide} large={wide} />
-        </Suspense>
+        <div>
+          {!locked && <RadarViewTabs view={radarView} onChange={setRadarView} />}
+          <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
+            <OpinionsRadar
+              rows={numericRows}
+              observers={observers}
+              colors={observers.map((_, i) => obsColor(i))}
+              shown={shown}
+              compact={locked && !wide}
+              large={wide}
+              view={locked ? undefined : radarView === 'familles' ? 'split' : 'full'}
+            />
+          </Suspense>
+        </div>
       )}
 
       {/* Détail des avis (avec commentaires) */}

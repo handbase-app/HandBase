@@ -37,12 +37,9 @@ export function withTab(search: string, tab: string | null | undefined, tabs: re
 export const keepTab = (search: string, current: string, tabs: readonly string[], def: string, key = 'onglet') =>
   withTab(search, new URLSearchParams(current).get(key), tabs, def, key)
 
-/** Même chose pour la fiche d'un joueur, selon l'adresse ouverte (`pathname`, `current` : la page affichée). */
-export const keepPlayerTab = (search: string, pathname: string, current: string) =>
-  keepTab(search, current, PLAYER_TABS, PLAYER_TAB_DEFAULT, playerTabParam(pathname))
 
 /**
- * Vue du radar de la comparaison (src/pages/Compare.tsx, ?radar=…) : « complet » ou « familles ». Sans paramètre, selon
+ * Vue du radar des avis (comparaison, src/pages/Compare.tsx, et fiche d'un joueur, src/components/Opinions.tsx ; ?radar=…) : « complet » ou « familles ». Sans paramètre, selon
  * l'écran (complet sur écran large, par famille sur téléphone) ; un choix est toujours écrit dans l'adresse, pour que le
  * lien partagé ouvre la même vue sur un autre écran.
  */
@@ -52,3 +49,13 @@ export const RADAR_KEY = 'radar'
 export const radarViewOf = (search: string, phone: boolean): RadarView => tabOf(search, RADAR_VIEWS, phone ? 'familles' : 'complet', RADAR_KEY)
 /** `search` avec la vue `view` (jamais retirée : pas de défaut commun à tous les écrans), autres paramètres gardés. */
 export const withRadarView = (search: string, view: RadarView) => withTab(search, view, RADAR_VIEWS, '', RADAR_KEY)
+
+/**
+ * Même chose pour la fiche d'un joueur, selon l'adresse ouverte (`pathname`, `current` : la page affichée). La vue du
+ * radar des avis (?radar=…) choisie sur la fiche reste aussi la même d'un joueur à l'autre.
+ */
+export function keepPlayerTab(search: string, pathname: string, current: string) {
+  const s = keepTab(search, current, PLAYER_TABS, PLAYER_TAB_DEFAULT, playerTabParam(pathname))
+  const radar = RADAR_VIEWS.find((v) => v === new URLSearchParams(current).get(RADAR_KEY))
+  return radar ? withRadarView(s, radar) : s
+}

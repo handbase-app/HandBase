@@ -15,6 +15,7 @@ export default function OpinionsRadar({
   shown,
   compact,
   large,
+  view,
 }: {
   /** Critères notés : moyenne, et moyenne de chaque observateur (dans l'ordre de `observers`). */
   rows: { c: Criterion; avg?: number | null; nums?: (number | null)[] }[]
@@ -25,6 +26,8 @@ export default function OpinionsRadar({
   compact?: boolean
   /** Colonne large (avis à côté de la liste, ordinateur) : radar plus grand, libellés lisibles, sans dépasser l'écran. */
   large?: boolean
+  /** Vue imposée (onglets Complet / Par famille de la fiche) ; sans valeur, selon l'écran. */
+  view?: 'full' | 'split'
 }) {
   const axes = useMemo(() => rows.map((r) => ({ id: r.c.id, label: r.c.label, category: r.c.category })), [rows])
   const styles = useMemo(() => categoryStyles(rows.map((r) => r.c)), [rows])
@@ -35,6 +38,7 @@ export default function OpinionsRadar({
       axes={axes}
       styles={styles}
       size={large ? 'large' : compact ? 'compact' : 'normal'}
+      view={view}
       series={[
         { key: 'moyenne', name: 'Moyenne', values: rows.map((r) => r.avg), mode: 'zones' as const },
         // Courbes choisies par-dessus la moyenne, trait seul, pour rester lisibles.

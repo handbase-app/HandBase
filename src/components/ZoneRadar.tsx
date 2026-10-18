@@ -188,10 +188,11 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }
         cards
       )}
       {legend.length > 0 && (
-        <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] text-muted">
+        // Grille (onglet « Par famille ») : légende des tracés plus lisible, une seule pour tous les radars.
+        <ul className={`flex flex-wrap justify-center gap-x-3 gap-y-1 ${grid ? 'gap-x-4 text-xs font-bold' : 'text-[11px] text-muted'}`}>
           {legend.map((l) => (
             <li key={l.name} className="flex items-center gap-1">
-              <span className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : 'h-2.5 w-2.5 shrink-0 rounded-full'} style={{ background: l.color }} />
+              <span className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : `${grid ? 'h-3 w-3' : 'h-2.5 w-2.5'} shrink-0 rounded-full`} style={{ background: l.color }} />
               {l.name}
             </li>
           ))}
