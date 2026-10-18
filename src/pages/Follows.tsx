@@ -245,6 +245,14 @@ export default function Follows() {
   const loc = useLocation()
   const view = parseFollowView(params.get('vue'))
   const filterKey = params.get('filtre')
+  // Onglet : Nouveautés (par défaut, sans paramètre) ou Joueurs suivis (?onglet=joueurs).
+  const tab = params.get('onglet') === 'joueurs' ? 'joueurs' : 'nouveautes'
+  const setTab = (t: 'nouveautes' | 'joueurs') => {
+    const next = new URLSearchParams(params)
+    if (t === 'joueurs') next.set('onglet', 'joueurs')
+    else next.delete('onglet')
+    setParams(next, { replace: true, state: loc.state })
+  }
   // Vue et filtre dans l'adresse, remplacée (pas d'entrée d'historique ; « Retour » retrouve la vue).
   const setQuery = (v: FollowView, f: string | null) => {
     const next = new URLSearchParams(params)
@@ -311,9 +319,9 @@ export default function Follows() {
   )
 
   return (
-    // Ordinateur : nouveautés à gauche, groupes et joueurs suivis à droite.
-    <div className="flex flex-col gap-4 side:grid side:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] side:items-start side:gap-x-6">
-      <div className="flex flex-col gap-3 side:col-span-full">
+    // Deux onglets (Nouveautés · Joueurs suivis), sous les vues et les pastilles qui filtrent les deux.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <div className="flex flex-col gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-lg font-extrabold">
             <Icon name="star" filled className="h-4 w-4 text-accent" />
@@ -344,6 +352,25 @@ export default function Follows() {
                 ))}
               </div>
             )}
+            {/* Mêmes onglets, même style que ceux d'un événement ou des groupes. */}
+            <div role="tablist" aria-label="Contenu" className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+              {(
+                [
+                  ['nouveautes', fresh > 0 ? `Nouveautés (${fresh > 99 ? '99+' : fresh} nouvelles)` : 'Nouveautés'],
+                  ['joueurs', `Joueurs suivis (${inView ? inView.size : all.length})`],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  role="tab"
+                  aria-selected={tab === v}
+                  onClick={() => setTab(v)}
+                  className={`min-w-0 flex-1 truncate px-1 py-2 ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -352,12 +379,9 @@ export default function Follows() {
         <Empty>
           Tu ne suis encore personne. Appuie sur <b>Suivre</b> sur la fiche d’un joueur ou sur un groupe : ses nouveautés arriveront ici.
         </Empty>
-      ) : (
+      ) : tab === 'nouveautes' ? (
         <section className="flex flex-col gap-3">
-          <div className="section-title mb-0">
-            Nouveautés{picked && ` · ${picked.label}`}
-            {fresh > 0 && <span className="ml-2 rounded-full bg-accent px-1.5 py-px text-[10px] text-white normal-case">{fresh > 99 ? '99+' : fresh} depuis ta dernière visite</span>}
-          </div>
+          {fresh > 0 && <p className="text-[11px] text-muted">{plural(fresh, 'nouveauté')} depuis ta dernière visite{picked && ` · ${picked.label}`}.</p>}
           {news === undefined ? (
             <p className="py-6 text-center text-xs text-muted">Chargement…</p>
           ) : (
@@ -388,8 +412,7 @@ export default function Follows() {
             </>
           )}
         </section>
-      )}
-
+      ) : (
       <div className="flex flex-col gap-4">
         {view === 'tout' && (
           <section className="flex flex-col gap-1">
@@ -439,6 +462,7 @@ export default function Follows() {
           </section>
         )}
       </div>
+      )}
     </div>
   )
 }
