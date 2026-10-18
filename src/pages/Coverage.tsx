@@ -1914,31 +1914,34 @@ export default function Coverage() {
           </div>
         </>
       )}
-      {/* Téléphone : barre d'actions en bas d'écran, juste au-dessus de la barre de navigation. « Poser une question »
-          ouvre, au-dessus des boutons, le champ de question et « Mes questions ». */}
+      {/* Téléphone : barre d'actions en bas d'écran, juste au-dessus de la barre de navigation. « Poser une question » est le
+          micro lui-même (un toucher pour parler, un autre pour envoyer) ; le petit bouton à côté ouvre « Taper » et
+          « Mes questions ». */}
       {phone && (
         <div className="sticky bottom-[var(--nav-b)] z-20 -mx-4 flex flex-col gap-2 border-t border-line bg-bg px-4 py-2">
           {askOpen && questionReady && (
             <div id="bilan-question" className="flex max-h-[55dvh] flex-col gap-2 overflow-y-auto">
-              <AskQuestion />
+              <AskQuestion variant="text" />
               {savedQuestions}
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex items-end gap-2">
             <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
               <Icon name="list" className="h-3.5 w-3.5" />
               Rapport
             </button>
+            {questionReady && <AskQuestion variant="mic" className="flex-[1.6]" />}
             {questionReady && (
               <button
                 type="button"
                 aria-expanded={askOpen}
                 aria-controls="bilan-question"
+                aria-label={askOpen ? 'Fermer : taper une question, mes questions' : 'Taper une question ou ouvrir mes questions'}
+                title="Taper une question · Mes questions"
                 onClick={() => setAskOpen(!askOpen)}
-                className={`flex min-h-11 flex-[1.4] items-center justify-center gap-1.5 rounded-md border-2 px-3 text-xs font-bold transition ${askOpen ? 'border-accent bg-accent text-white' : 'border-accent/60 bg-accent/10 text-fg'}`}
+                className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-md border-2 text-sm font-bold transition ${askOpen ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-fg'}`}
               >
-                <span aria-hidden>✨</span>
-                {askOpen ? 'Fermer la question' : 'Poser une question'}
+                {askOpen ? '✕' : '⌨'}
               </button>
             )}
           </div>

@@ -25,7 +25,11 @@ import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
 
 export type AskState = { raw: unknown; nonGere: string[]; heard: string }
 
-export function AskQuestion({ className = '' }: { className?: string }) {
+/**
+ * variant : 'full' (micro + champ, ordinateur), 'mic' (le micro seul, en un toucher : barre du bas du bilan sur téléphone),
+ * 'text' (le champ seul : panneau « Taper / Mes questions » du téléphone).
+ */
+export function AskQuestion({ className = '', variant = 'full' }: { className?: string; variant?: 'full' | 'mic' | 'text' }) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
   const [text, setText] = useState('')
@@ -71,9 +75,7 @@ export function AskQuestion({ className = '' }: { className?: string }) {
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy
 
-  return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
-      <div className="flex flex-wrap gap-2">
+  const micButton = (
         <button
           type="button"
           data-noswipe
@@ -100,6 +102,8 @@ export function AskQuestion({ className = '' }: { className?: string }) {
           )}
           <span className="pl-1">{rec ? 'Arrêter' : 'Poser une question'}</span>
         </button>
+  )
+  const form = (
         <form
           className="flex min-w-0 flex-[1_1_18rem] gap-2"
           onSubmit={(e) => {
@@ -121,8 +125,9 @@ export function AskQuestion({ className = '' }: { className?: string }) {
             <span className="hidden sm:inline">Demander</span>
           </button>
         </form>
-      </div>
-      {mic.phase !== 'idle' ? (
+  )
+  const status =
+      mic.phase !== 'idle' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
         <div className="flex items-center gap-2 text-xs text-muted" role="status">
@@ -138,13 +143,32 @@ export function AskQuestion({ className = '' }: { className?: string }) {
         </div>
       ) : (
         <div className="text-[10px] text-muted">Réponse calculée sur cet appareil ; seule la phrase est envoyée pour être comprise, jamais les données des joueurs.</div>
-      )}
+      )
+  const notice = (
       <p className="text-[10px] text-muted">
         Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
         <Link to="/confidentialite#questions" className="underline">
           Confidentialité
         </Link>
       </p>
+  )
+
+  // Téléphone, barre du bas : le micro seul, en un toucher (le statut n'apparaît que pendant la question ou en cas d'erreur).
+  if (variant === 'mic')
+    return (
+      <div className={`flex min-w-0 flex-col gap-1 ${className}`}>
+        {(mic.phase !== 'idle' || busy || error || mic.error) && status}
+        <div className="flex [&>button]:flex-1 [&>button]:min-w-0 [&>button]:text-xs [&>button]:leading-tight">{micButton}</div>
+      </div>
+    )
+  return (
+    <div className={`flex flex-col gap-1.5 ${className}`}>
+      <div className="flex flex-wrap gap-2">
+        {variant === 'full' && micButton}
+        {form}
+      </div>
+      {status}
+      {notice}
     </div>
   )
 }
