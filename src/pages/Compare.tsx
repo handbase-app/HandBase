@@ -1,13 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, lazy, Suspense, useState, type ReactNode } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { COMPARE_MAX } from '../components/ComparePick'
+import { RadarViewTabs, useRadarView } from '../components/RadarViewTabs'
 import { CLEAR, criterionMean, measureDirection, playerScore, TIE } from '../compare'
 import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, type Criterion, type Evaluation, type Measurement, type Player } from '../db'
-import { useMedia } from '../layout'
+import { MQ, useMedia } from '../layout'
 import { snapshots } from '../maturitySnapshot'
-import { radarViewOf, withRadarView, type RadarView } from '../tabQuery'
 import { latestByPlayer } from './Players'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
 
@@ -72,12 +72,11 @@ export default function Compare() {
   const eventId = params.get('evenement') ?? undefined
   const all = !eventId || params.get('tous') === '1'
   const [focus, setFocus] = useState<number | null>(null)
-  // Vue du radar (onglets Complet / Par famille) dans l'adresse (?radar=…, src/tabQuery.ts) : Retour et le partage la
-  // retrouvent ; sans paramètre, celle de l'écran (par famille sur téléphone, comme ZoneRadar). Changer de vue remplace
-  // l'adresse, garde ses autres paramètres (a, b, c, evenement…) et son état d'historique.
-  const { search, state } = useLocation()
-  const radarView = radarViewOf(search, useMedia('(max-width: 639.98px)'))
-  const setRadarView = (v: RadarView) => setParams(new URLSearchParams(withRadarView(search, v)), { replace: true, state })
+  // Vue du radar (onglets Complet / Par famille) dans l'adresse (?radar=…, src/components/RadarViewTabs.tsx).
+  const [radarView, setRadarView] = useRadarView()
+  // Par famille sur écran large : le radar passe en pleine largeur au-dessus des deux colonnes (dans la colonne de
+  // gauche, une grille de trois radars n'en laisse que de minuscules). Complet : à gauche, comme avant.
+  const radarWide = useMedia(`${MQ.rail}, ${MQ.side}`) && radarView === 'familles'
 
   const data = useLiveQuery(async () => {
     const players = await db.players.bulkGet(ids)
@@ -180,6 +179,51 @@ export default function Compare() {
     setParams(next, { replace: true })
   }
 
+  // Radar superposé
+  const radarSection = (
+    <section className="card p-3">
+      <div className="section-title">Radar des avis</div>
+      <RadarViewTabs view={radarView} onChange={setRadarView} />
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
+        {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
+        <button
+          onClick={() => setFocus(null)}
+          aria-pressed={focus === null}
+          className={`flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === null ? 'border-fg/40 bg-panel-2' : 'border-line'}`}
+        >
+          {nWord === 'deux' ? 'Les deux' : 'Tous'}
+        </button>
+        {ps.map((p, i) => (
+          <button
+            key={p.id}
+            onClick={() => setFocus((f) => (f === i ? null : i))}
+            aria-pressed={focus === i}
+            title={focus === i ? `Revoir les ${nWord} joueurs` : 'Mettre ce joueur en avant'}
+            className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === i ? 'border-fg/40 bg-panel-2' : 'border-line'} ${focus !== null && focus !== i ? 'opacity-45' : ''}`}
+          >
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i] }} />
+            <span className="truncate">{playerName(p)}</span>
+          </button>
+        ))}
+      </div>
+      {radarData.length < 3 ? (
+        <p className="py-8 text-center text-[11px] text-muted">
+          Il faut au moins 3 critères notés pour les {nWord} joueurs pour tracer le radar
+          {radarData.length ? ` (${radarData.length} pour l’instant)` : ''}.
+        </p>
+      ) : (
+        <>
+          <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
+            <CompareRadar rows={radarData} colors={colors} focus={focus} view={radarView === 'familles' ? 'split' : 'full'} names={ps.map(playerName)} />
+          </Suspense>
+          <p className="text-[10px] text-muted">
+            Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : 'Tous'} » les superpose à nouveau.
+          </p>
+        </>
+      )}
+    </section>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {back}
@@ -225,69 +269,11 @@ export default function Compare() {
         </p>
       )}
 
+      {radarWide && radarSection}
+
       <div className="flex flex-col gap-4 wide:grid wide:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] wide:items-start">
         <div className="flex flex-col gap-4 side:sticky side:top-[calc(var(--hdr)+1.25rem)]">
-          {/* Radar superposé */}
-          <section className="card p-3">
-            <div className="section-title">Radar des avis</div>
-            {/* Mêmes onglets, même style que ceux d'un événement (Events.tsx). */}
-            <div role="tablist" aria-label="Vue du radar" className="mb-2 flex overflow-hidden rounded-md border border-line text-xs font-bold">
-              {(
-                [
-                  ['complet', 'Complet'],
-                  ['familles', 'Par famille'],
-                ] as const
-              ).map(([v, label]) => (
-                <button
-                  key={v}
-                  role="tab"
-                  aria-selected={radarView === v}
-                  data-tab={v}
-                  onClick={() => setRadarView(v)}
-                  className={`min-w-0 flex-1 truncate px-1 py-2 ${radarView === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
-              {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
-              <button
-                onClick={() => setFocus(null)}
-                aria-pressed={focus === null}
-                className={`flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === null ? 'border-fg/40 bg-panel-2' : 'border-line'}`}
-              >
-                {nWord === 'deux' ? 'Les deux' : 'Tous'}
-              </button>
-              {ps.map((p, i) => (
-                <button
-                  key={p.id}
-                  onClick={() => setFocus((f) => (f === i ? null : i))}
-                  aria-pressed={focus === i}
-                  title={focus === i ? `Revoir les ${nWord} joueurs` : 'Mettre ce joueur en avant'}
-                  className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === i ? 'border-fg/40 bg-panel-2' : 'border-line'} ${focus !== null && focus !== i ? 'opacity-45' : ''}`}
-                >
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i] }} />
-                  <span className="truncate">{playerName(p)}</span>
-                </button>
-              ))}
-            </div>
-            {radarData.length < 3 ? (
-              <p className="py-8 text-center text-[11px] text-muted">
-                Il faut au moins 3 critères notés pour les {nWord} joueurs pour tracer le radar
-                {radarData.length ? ` (${radarData.length} pour l’instant)` : ''}.
-              </p>
-            ) : (
-              <>
-                <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
-                  <CompareRadar rows={radarData} colors={colors} focus={focus} view={radarView === 'familles' ? 'split' : 'full'} names={ps.map(playerName)} />
-                </Suspense>
-                <p className="text-[10px] text-muted">
-                  Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : 'Tous'} » les superpose à nouveau.
-                </p>
-              </>
-            )}
-          </section>
+          {!radarWide && radarSection}
 
           {/* Points forts */}
           {rows.some((r) => r.v.filter((x) => x !== null).length >= 2) && (

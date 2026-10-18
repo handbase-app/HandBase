@@ -41,4 +41,10 @@ assert.equal(radarViewOf('?radar=zzz', false), 'complet')
 assert.equal(withRadarView('?a=1&b=2&c=3', 'familles'), '?a=1&b=2&c=3&radar=familles')
 assert.equal(withRadarView('?a=1&radar=familles&evenement=e', 'complet'), '?a=1&evenement=e&radar=complet')
 
+// Fiche d'un joueur : la vue du radar suit d'un joueur à l'autre, avec l'onglet, sans écraser la liste d'origine
+assert.equal(keepPlayerTab('', '/joueurs', '?onglet=avis&radar=familles'), '?onglet=avis&radar=familles')
+assert.equal(keepPlayerTab('?onglet=licencies&club=x', '/bilan/joueurs', '?onglet=licencies&club=x&fiche=avis&radar=complet'), '?onglet=licencies&club=x&fiche=avis&radar=complet')
+assert.equal(keepPlayerTab('?r=xyz', '/bilan/question/joueurs', '?r=xyz&onglet=avis&radar=zzz'), '?r=xyz&onglet=avis')
+assert.equal(keepPlayerTab('', '/joueurs', '?radar=familles'), '?radar=familles')
+
 console.log('onglets : ok')
