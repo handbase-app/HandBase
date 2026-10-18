@@ -3,7 +3,7 @@ import { db, newId, POSITIONS, save, saveMany, type QuestionLog } from './db'
 import { getMe } from './components/ui'
 import { regionLabel, regionOfDept } from './lists'
 import { playerDepartment } from './perimeter'
-import { buildAvis, buildEntry, questionLogRights, type AnonymizerInput, type AvisInput, type QuestionTrace } from './questionLogCore'
+import { buildAvis, buildEntry, makeLogDeduper, questionLogRights, type AnonymizerInput, type AvisInput, type QuestionTrace } from './questionLogCore'
 import { currentUserId, realRole } from './roles'
 import { spyTarget } from './spy'
 import type { MirrorInput } from './sqlMirror'
@@ -80,6 +80,9 @@ async function anonInputFromDb(): Promise<AnonymizerInput> {
 
 const me = () => ({ id: currentUserId() ?? undefined, name: getMe() || undefined })
 
+/** Même phrase, même page, à moins de 2 s : une seule ligne (l'écran a pu noter deux fois la même arrivée). */
+const dedupe = makeLogDeduper(2000)
+
 /**
  * Enregistre une question (anonymisée) et rend l'identifiant de sa ligne (pour l'avis sur la réponse), tout de suite ;
  * l'écriture se fait ensuite. undefined : pas notée (pendant « Voir comme… », rôle sans question, phrase vide). Jamais
@@ -88,8 +91,11 @@ const me = () => ({ id: currentUserId() ?? undefined, name: getMe() || undefined
 export function logQuestion(trace: QuestionTrace, input: MirrorInput | null): string | undefined {
   try {
     if (!canLogQuestion() || !trace.phrase.trim()) return undefined
-    const id = newId()
     const at = new Date()
+    const twin = dedupe.seen(trace.phrase, trace.page, at.getTime())
+    if (twin) return twin
+    const id = newId()
+    dedupe.add(trace.phrase, trace.page, id, at.getTime())
     void (async () => {
       try {
         const anon: AnonymizerInput = input ? { players: input.players, keep: keepWords(input) } : await anonInputFromDb()

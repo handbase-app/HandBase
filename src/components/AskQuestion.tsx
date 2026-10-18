@@ -8,6 +8,8 @@ import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon } from './ui'
 import { appName } from '../appBrand'
+import { logQuestion } from '../questionLog'
+import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
 
 /*
  * « Poser une question » au bilan de détection : le coach touche « micro ✨ Poser une question » et parle (« les joueuses
@@ -35,9 +37,17 @@ export function AskQuestion({ className = '' }: { className?: string }) {
   useEffect(() => () => abort.current?.abort(), [])
 
   async function ask(phrase: string) {
-    const said = phrase.replace(/\s+/g, ' ').trim()
+    // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
+    const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
+    // Phrase coupée (« La carte sur. ») : on le dit tout de suite, sans appel (noté au journal comme une question pas comprise).
+    const cut = incompletePhrase(said)
+    if (cut) {
+      setError(cut)
+      logQuestion({ phrase: said, recipe: 'pas_comprise', recipeMissing: ['phrase incomplète'], page: 'question' }, null)
+      return
+    }
     setBusy(said)
     const ctrl = new AbortController()
     abort.current = ctrl

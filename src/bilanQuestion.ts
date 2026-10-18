@@ -35,8 +35,13 @@ export const hasPlace = (pop: Population) => !!(pop.regions?.length || pop.depts
 /** Sortie que le bilan sait montrer : carte, nombre, tableau par club, département ou région. */
 export const bilanOutput = (out: Output) => out.type === 'map' || out.type === 'count' || (out.type === 'table' && GEO.has(out.groupBy ?? 'club'))
 
-/** La réponse va-t-elle au bilan ? Carte, tableau par lieu, ou nombre limité à un lieu. */
-export const goesToBilan = (r: Recipe) => bilanOutput(r.out) && (r.out.type !== 'count' || hasPlace(r.pop))
+/**
+ * La réponse va-t-elle au bilan ? Carte, tableau par lieu, ou nombre limité à un lieu. Pas un tableau dont la réponse est
+ * le nombre de lignes, ni un tableau filtré par « au moins N » ou « aucun joueur né en … » (le bilan ne les applique pas) :
+ * ceux-là restent sur /bilan/question.
+ */
+export const goesToBilan = (r: Recipe) =>
+  bilanOutput(r.out) && (r.out.type !== 'count' || hasPlace(r.pop)) && !r.out.countRows && !r.out.minMatch && !r.out.noneYears?.length
 
 const FRANCE: Place = { region: '', dept: '', club: null }
 

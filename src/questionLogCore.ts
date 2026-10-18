@@ -201,9 +201,16 @@ const SMALL = new Set(
   (
     'a à au aux avec ce ces cet cette d de des du dans en et est il ils elle elles je j l la le les leur leurs lui ma me mes moi mon ' +
     'n ne ni nos notre nous on ont ou où par pas pour qu que qui quoi s sa sans se ses si son sont sur t ta te tes ton tu un une vos ' +
-    'votre vous y van von der den da di do dos del della el al ben bin ibn mac mc o'
+    'votre vous y van von der den da di do dos del della el al ben bin ibn mac mc o ' +
+    // Mots-outils et mots courants d'une question (« Mais y a-t-il deux joueurs au sein du… ») : jamais des noms ici.
+    'mais donc or car chez vers sous sein lors dont comme aussi meme tres bien peu fois voici voila quand comment pourquoi ' +
+    'deux trois quatre cinq six sept huit neuf dix onze douze vingt cent mille ' +
+    // « Saint-Raphaël », « Sainte-Maxime » : un lieu (le mot qui suit n'est pas un prénom).
+    'saint sainte st ste'
   ).split(' '),
 )
+/** Préfixes de noms de lieux : le mot qui les suit (« Saint Raphaël », « Saint-Raphaël ») n'est jamais masqué. */
+const PLACE_PREFIX = new Set(['saint', 'sainte', 'st', 'ste'])
 
 /** Niveau 2 : vocabulaire de l'appli et des questions (complété par les clubs, lieux, postes et critères de l'appareil). */
 const VOCAB = new Set(
@@ -300,7 +307,11 @@ export function buildAnonymizer({ players, keep = [] }: AnonymizerInput): Anonym
       const between = s.slice(lastEnd, m.index)
       const sentenceStart = toks.length === 0 || /[.!?]\s*$/.test(between)
       const parts = raw.split('-').map(keyOf)
-      const allNames = parts.every((k) => isName(k) && tierOf(k) !== 'small')
+      // Après « Saint », « Sainte » (avec un espace ou un trait d'union) : un lieu, jamais un prénom.
+      const prev = toks[toks.length - 1]
+      const afterSaint = !!prev && PLACE_PREFIX.has(keyOf(prev.raw.split('-').pop()!)) && /^\s+$/.test(between)
+      // Mots très courts (2 lettres au plus) : jamais masqués.
+      const allNames = !afterSaint && !PLACE_PREFIX.has(parts[0]) && parts.every((k) => k.length > 2 && isName(k) && tierOf(k) !== 'small')
       const tiers = parts.map(tierOf)
       const strong = allNames && tiers.some((t) => t === 'none')
       // Chaîne entièrement faite de mots courants (niveau 2 ou 3) qui sont aussi des noms : le niveau le plus prudent.
@@ -393,6 +404,24 @@ export function buildAnonymizer({ players, keep = [] }: AnonymizerInput): Anonym
 }
 
 // ---------- Entrée du journal ----------
+
+/**
+ * Garde anti-doublon du journal : la même phrase (sans majuscules, accents ni ponctuation) sur la même page dans les
+ * `windowMs` millisecondes → l'identifiant de la ligne déjà notée (pas de deuxième ligne). Sinon undefined (et retenue).
+ */
+export function makeLogDeduper(windowMs = 2000) {
+  const recent = new Map<string, { at: number; id: string }>()
+  const keyOf = (phrase: string, page?: string) => `${page ?? ''}|${nameKey(phrase)}`
+  return {
+    seen(phrase: string, page: string | undefined, now: number): string | undefined {
+      for (const [k, v] of recent) if (now - v.at >= windowMs) recent.delete(k)
+      return recent.get(keyOf(phrase, page))?.id
+    },
+    add(phrase: string, page: string | undefined, id: string, now: number) {
+      recent.set(keyOf(phrase, page), { at: now, id })
+    },
+  }
+}
 
 /** Ce qu'a donné une question, tel quel (anonymisé par buildEntry). */
 export type QuestionTrace = {

@@ -55,6 +55,7 @@ import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
 import { logQuestion } from '../questionLog'
+import { correctQuestionPhrase, rescueInterpretation } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { cleanSqlSpec, type SqlSpec } from '../sqlGuard'
@@ -301,7 +302,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   }
 
   async function ask(phrase: string) {
-    const said = phrase.replace(/\s+/g, ' ').trim()
+    // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
+    const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
     // Simple nom : recherche locale (dite au micro ou tapée).
@@ -344,7 +346,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     if (!pending || !ctxReady || !full.ctx) return
     const p = pending
     setPending(null)
-    const it = interpretRecipe(p.raw, p.nonGere, full.ctx)
+    // Latéralité seule, « en France », « licenciés » : complétés d'après la phrase (src/questionRescue.ts).
+    const it = rescueInterpretation(interpretRecipe(p.raw, p.nonGere, full.ctx), p.phrase, full.ctx, { scope: 'liste' })
     const action = decideAction(p.action, p.phrase)
     const remove: FilterKey[] = []
     const notes = [...it.notes]
