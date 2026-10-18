@@ -1,5 +1,5 @@
-// HandBase : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
-// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag }.
+// Nextar : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
+// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag } ; sans titre : « Nextar ».
 self.addEventListener('push', (event) => {
   let d = {}
   try {
@@ -8,7 +8,7 @@ self.addEventListener('push', (event) => {
     d = { body: event.data ? event.data.text() : '' }
   }
   event.waitUntil(
-    Promise.all([bumpBadge(), self.registration.showNotification(d.title || 'HandBase', {
+    Promise.all([bumpBadge(), self.registration.showNotification(d.title || 'Nextar', {
       body: d.body || '',
       // Même sujet : la nouvelle remplace l'ancienne au lieu de s'empiler.
       tag: d.tag,
