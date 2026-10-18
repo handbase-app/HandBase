@@ -7,9 +7,22 @@ import ZoneRadar from './ZoneRadar'
  * Radar de la comparaison de deux ou trois joueurs : une forme translucide par joueur (sa couleur), superposées,
  * sur le radar par zones (fond des secteurs et légende aux couleurs des catégories, src/radarZones.ts).
  * Chargé à la demande. `focus` (indice d'un joueur) le met en avant et estompe les autres.
- * Chaque ligne porte une valeur par joueur (`v`, dans l'ordre des joueurs).
+ * Chaque ligne porte une valeur par joueur (`v`, dans l'ordre des joueurs). `view` : radar complet ou un radar par
+ * catégorie (onglets de la comparaison) ; `names` : noms des joueurs (légende sous les radars par catégorie, bulles).
  */
-export default function CompareRadar({ rows, colors, focus }: { rows: { c: Criterion; v: (number | null)[] }[]; colors: string[]; focus: number | null }) {
+export default function CompareRadar({
+  rows,
+  colors,
+  focus,
+  view,
+  names,
+}: {
+  rows: { c: Criterion; v: (number | null)[] }[]
+  colors: string[]
+  focus: number | null
+  view?: 'full' | 'split'
+  names?: string[]
+}) {
   const style = (k: number) =>
     focus === null
       ? { fillOpacity: colors.length > 2 ? 0.16 : 0.22, strokeOpacity: 1, strokeWidth: 2 }
@@ -24,7 +37,11 @@ export default function CompareRadar({ rows, colors, focus }: { rows: { c: Crite
     <ZoneRadar
       axes={axes}
       styles={styles}
-      series={order.map((k) => ({ key: `v${k}`, name: `Joueur ${k + 1}`, values: rows.map((r) => r.v[k]), mode: 'fill' as const, color: colors[k], ...style(k) }))}
+      view={view}
+      // Légende des joueurs sous les radars par catégorie (vue complète : les pastilles au-dessus suffisent, et la légende
+      // y est celle des catégories).
+      legend={view === 'split' ? names?.map((name, k) => ({ name, color: colors[k] })) : undefined}
+      series={order.map((k) => ({ key: `v${k}`, name: names?.[k] ?? `Joueur ${k + 1}`, values: rows.map((r) => r.v[k]), mode: 'fill' as const, color: colors[k], ...style(k) }))}
     />
   )
 }

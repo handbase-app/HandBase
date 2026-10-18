@@ -12,7 +12,9 @@ import { useMedia } from '../layout'
  * Légende des catégories (et des tracés donnés dans `legend`) sous le radar. Libellés coupés sur deux lignes et
  * écartés les uns des autres pour ne pas se chevaucher.
  * Téléphone (< 640 px) : un petit radar par catégorie, empilés, libellés en 11 px ; une catégorie de moins de 3
- * branches devient une liste de barres. Ordinateur : le radar complet.
+ * branches devient une liste de barres. Ordinateur : le radar complet. `view` impose l'une ou l'autre vue (onglets
+ * « Complet » / « Par famille » de la comparaison) ; « par famille » sur un écran large : grille de radars de même
+ * taille, autant de colonnes (240 px au moins, 3 au plus) que la largeur disponible en donne.
  */
 
 export interface RadarSeries {
@@ -102,6 +104,8 @@ interface RadarProps {
   max?: number
   /** Entrées de légende en plus des catégories (tracés : moyenne, observateurs…). */
   legend?: { name: string; color: string; line?: boolean }[]
+  /** Vue imposée : radar complet ou un radar par catégorie ; sans valeur, selon l'écran (par catégorie sur téléphone). */
+  view?: 'full' | 'split'
 }
 
 /** Téléphone tenu droit : radar découpé par catégorie. */
@@ -109,14 +113,15 @@ const PHONE = '(max-width: 639.98px)'
 
 export default function ZoneRadar(props: RadarProps) {
   const phone = useMedia(PHONE)
-  return phone && props.axes.length ? <SplitRadar {...props} /> : <FullRadar {...props} />
+  const split = (props.view ?? (phone ? 'split' : 'full')) === 'split'
+  return split && props.axes.length ? <SplitRadar {...props} grid={!!props.view} /> : <FullRadar {...props} />
 }
 
 /**
  * Téléphone : une carte par catégorie (dans l'ordre d'apparition des critères), avec son petit radar (libellés 11 px)
  * ou, à moins de 3 branches, une barre par critère et par tracé. Légende des tracés une fois, dessous.
  */
-function SplitRadar({ axes, styles, series, max = 5, legend = [] }: RadarProps) {
+function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }: RadarProps & { grid?: boolean }) {
   const groups = useMemo(() => {
     const gs: { category: string; color: string; idx: number[] }[] = []
     axes.forEach((a, i) => {
@@ -127,48 +132,61 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [] }: RadarProps) 
     return gs
   }, [axes, styles])
   const fmt = (v: number | null | undefined) => (typeof v === 'number' ? (Math.round(v * 10) / 10).toString().replace('.', ',') : '—')
+  // Grille (vue imposée) : même place des libellés pour tous les radars (le plus long de tous), donc même taille.
+  const labelChars = grid ? Math.max(...axes.map((a) => twoLines(a.label))) : undefined
+  const cards = groups.map((g) => {
+    const gAxes = g.idx.map((i) => axes[i])
+    const gSeries = series.map((s) => ({ ...s, values: g.idx.map((i) => s.values[i]) }))
+    return (
+      <section
+        key={g.category}
+        className={`border-t border-line pt-2 first:border-t-0 first:pt-0 ${grid ? 'sm:rounded-lg sm:border sm:p-2 sm:first:border-t sm:first:pt-2' : ''}`}
+        aria-label={g.category || 'Critères'}
+      >
+        <h4 className="flex items-center gap-1.5 text-xs font-bold">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
+          {g.category || 'Autres critères'}
+        </h4>
+        {gAxes.length >= 3 ? (
+          <FullRadar axes={gAxes} styles={styles} series={gSeries} max={max} font={11} labelChars={labelChars} bare />
+        ) : (
+          <ul className="mt-1.5 flex flex-col gap-2">
+            {gAxes.map((a, j) => (
+              <li key={a.id} className="flex flex-col gap-0.5">
+                <span className="text-xs">{a.label}</span>
+                {gSeries.map((s) => {
+                  const v = s.values[j]
+                  const color = s.mode === 'zones' ? g.color : s.color
+                  return (
+                    <span key={s.key} className="flex items-center gap-2" title={`${s.name} · ${a.label} : ${fmt(v)}`}>
+                      <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
+                        {typeof v === 'number' && (
+                          <span
+                            className="block h-full rounded-full"
+                            style={{ width: `${(Math.max(0, Math.min(max, v)) / max) * 100}%`, background: color, opacity: s.mode === 'fill' ? Math.max(0.35, s.strokeOpacity ?? 1) : 1 }}
+                          />
+                        )}
+                      </span>
+                      <span className="w-7 shrink-0 text-right text-[11px] font-bold tabular-nums">{fmt(v)}</span>
+                    </span>
+                  )
+                })}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    )
+  })
   return (
     <div className="flex flex-col gap-2 pt-1">
-      {groups.map((g) => {
-        const gAxes = g.idx.map((i) => axes[i])
-        const gSeries = series.map((s) => ({ ...s, values: g.idx.map((i) => s.values[i]) }))
-        return (
-          <section key={g.category} className="border-t border-line pt-2 first:border-t-0 first:pt-0" aria-label={g.category || 'Critères'}>
-            <h4 className="flex items-center gap-1.5 text-xs font-bold">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
-              {g.category || 'Autres critères'}
-            </h4>
-            {gAxes.length >= 3 ? (
-              <FullRadar axes={gAxes} styles={styles} series={gSeries} max={max} font={11} bare />
-            ) : (
-              <ul className="mt-1.5 flex flex-col gap-2">
-                {gAxes.map((a, j) => (
-                  <li key={a.id} className="flex flex-col gap-0.5">
-                    <span className="text-xs">{a.label}</span>
-                    {gSeries.map((s) => {
-                      const v = s.values[j]
-                      const color = s.mode === 'zones' ? g.color : s.color
-                      return (
-                        <span key={s.key} className="flex items-center gap-2" title={`${s.name} · ${a.label} : ${fmt(v)}`}>
-                          <span className="h-2 flex-1 overflow-hidden rounded-full bg-panel-2">
-                            {typeof v === 'number' && (
-                              <span
-                                className="block h-full rounded-full"
-                                style={{ width: `${(Math.max(0, Math.min(max, v)) / max) * 100}%`, background: color, opacity: s.mode === 'fill' ? Math.max(0.35, s.strokeOpacity ?? 1) : 1 }}
-                              />
-                            )}
-                          </span>
-                          <span className="w-7 shrink-0 text-right text-[11px] font-bold tabular-nums">{fmt(v)}</span>
-                        </span>
-                      )
-                    })}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )
-      })}
+      {grid ? (
+        // Autant de colonnes que la place en donne (cases de 240 px au moins), 3 au plus : plus étroit, les libellés ne
+        // laissent plus qu'un radar minuscule. Cartes encadrées hors téléphone (comme avant sur téléphone : séparées d'un trait).
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(max(min(100%,240px),calc((100%-1rem)/3)),1fr))] items-start gap-2">{cards}</div>
+      ) : (
+        cards
+      )}
       {legend.length > 0 && (
         <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[11px] text-muted">
           {legend.map((l) => (
@@ -199,8 +217,11 @@ function FullRadar({
   max = 5,
   legend = [],
   font,
+  labelChars,
   bare = false,
 }: RadarProps & {
+  /** Place des libellés (caractères de la plus longue ligne) imposée : radars d'une grille de même taille. */
+  labelChars?: number
   /** Taille des libellés imposée (px). */
   font?: number
   /** Sans légende (radar d'une seule catégorie, sous son titre). */
@@ -212,12 +233,13 @@ function FullRadar({
   const index = useMemo(() => new Map(axes.map((a, i) => [a.id, i])), [axes])
 
   // Police à chasse fixe de l'appli : ~0,6 em par caractère.
-  const f = font ?? (size === 'large' ? 11 : W < 420 ? 9 : 10)
+  // Grille de petits radars (place des libellés imposée) : libellés plus petits dans une case étroite (< 300 px).
+  const f = (font && labelChars && W < 300 ? font - 2 : font) ?? (size === 'large' ? 11 : W < 420 ? 9 : 10)
   const lineH = Math.round(f * 1.2)
   const charW = f * 0.6
   // Petit radar d'une catégorie (téléphone) : place des libellés au plus juste (le plus long, coupé en deux lignes
   // équilibrées), pour garder le plus grand rayon possible.
-  const needW = font ? Math.max(...axes.map((a) => twoLines(a.label))) * charW + 2 : 0
+  const needW = font ? (labelChars ?? Math.max(...axes.map((a) => twoLines(a.label)))) * charW + 2 : 0
   const labelW = font ? Math.max(40, Math.min(W * 0.34, needW)) : Math.max(60, Math.min(size === 'large' ? 140 : 120, W * 0.24))
   const maxChars = Math.max(6, Math.floor(labelW / charW))
   const maxH = maxHeight(size)

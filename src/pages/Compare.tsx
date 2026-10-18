@@ -1,11 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, lazy, Suspense, useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { COMPARE_MAX } from '../components/ComparePick'
 import { CLEAR, criterionMean, measureDirection, playerScore, TIE } from '../compare'
 import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, type Criterion, type Evaluation, type Measurement, type Player } from '../db'
+import { useMedia } from '../layout'
 import { snapshots } from '../maturitySnapshot'
+import { radarViewOf, withRadarView, type RadarView } from '../tabQuery'
 import { latestByPlayer } from './Players'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
 
@@ -70,6 +72,12 @@ export default function Compare() {
   const eventId = params.get('evenement') ?? undefined
   const all = !eventId || params.get('tous') === '1'
   const [focus, setFocus] = useState<number | null>(null)
+  // Vue du radar (onglets Complet / Par famille) dans l'adresse (?radar=…, src/tabQuery.ts) : Retour et le partage la
+  // retrouvent ; sans paramètre, celle de l'écran (par famille sur téléphone, comme ZoneRadar). Changer de vue remplace
+  // l'adresse, garde ses autres paramètres (a, b, c, evenement…) et son état d'historique.
+  const { search, state } = useLocation()
+  const radarView = radarViewOf(search, useMedia('(max-width: 639.98px)'))
+  const setRadarView = (v: RadarView) => setParams(new URLSearchParams(withRadarView(search, v)), { replace: true, state })
 
   const data = useLiveQuery(async () => {
     const players = await db.players.bulkGet(ids)
@@ -222,6 +230,26 @@ export default function Compare() {
           {/* Radar superposé */}
           <section className="card p-3">
             <div className="section-title">Radar des avis</div>
+            {/* Mêmes onglets, même style que ceux d'un événement (Events.tsx). */}
+            <div role="tablist" aria-label="Vue du radar" className="mb-2 flex overflow-hidden rounded-md border border-line text-xs font-bold">
+              {(
+                [
+                  ['complet', 'Complet'],
+                  ['familles', 'Par famille'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  role="tab"
+                  aria-selected={radarView === v}
+                  data-tab={v}
+                  onClick={() => setRadarView(v)}
+                  className={`min-w-0 flex-1 truncate px-1 py-2 ${radarView === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
               {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
               <button
@@ -252,7 +280,7 @@ export default function Compare() {
             ) : (
               <>
                 <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
-                  <CompareRadar rows={radarData} colors={colors} focus={focus} />
+                  <CompareRadar rows={radarData} colors={colors} focus={focus} view={radarView === 'familles' ? 'split' : 'full'} names={ps.map(playerName)} />
                 </Suspense>
                 <p className="text-[10px] text-muted">
                   Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : 'Tous'} » les superpose à nouveau.

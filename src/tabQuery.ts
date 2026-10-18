@@ -40,3 +40,15 @@ export const keepTab = (search: string, current: string, tabs: readonly string[]
 /** Même chose pour la fiche d'un joueur, selon l'adresse ouverte (`pathname`, `current` : la page affichée). */
 export const keepPlayerTab = (search: string, pathname: string, current: string) =>
   keepTab(search, current, PLAYER_TABS, PLAYER_TAB_DEFAULT, playerTabParam(pathname))
+
+/**
+ * Vue du radar de la comparaison (src/pages/Compare.tsx, ?radar=…) : « complet » ou « familles ». Sans paramètre, selon
+ * l'écran (complet sur écran large, par famille sur téléphone) ; un choix est toujours écrit dans l'adresse, pour que le
+ * lien partagé ouvre la même vue sur un autre écran.
+ */
+export const RADAR_VIEWS = ['complet', 'familles'] as const
+export type RadarView = (typeof RADAR_VIEWS)[number]
+export const RADAR_KEY = 'radar'
+export const radarViewOf = (search: string, phone: boolean): RadarView => tabOf(search, RADAR_VIEWS, phone ? 'familles' : 'complet', RADAR_KEY)
+/** `search` avec la vue `view` (jamais retirée : pas de défaut commun à tous les écrans), autres paramètres gardés. */
+export const withRadarView = (search: string, view: RadarView) => withTab(search, view, RADAR_VIEWS, '', RADAR_KEY)

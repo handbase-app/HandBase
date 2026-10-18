@@ -4,7 +4,7 @@
 //
 //   npx jiti tools/test-onglets.ts
 import assert from 'node:assert/strict'
-import { keepPlayerTab, keepTab, playerTabParam, PLAYER_TABS, tabOf, withTab } from '../src/tabQuery'
+import { keepPlayerTab, keepTab, playerTabParam, PLAYER_TABS, radarViewOf, tabOf, withRadarView, withTab } from '../src/tabQuery'
 
 // Lecture
 assert.equal(tabOf('?onglet=croissance', PLAYER_TABS, 'profil'), 'croissance')
@@ -32,5 +32,13 @@ assert.equal(keepPlayerTab('?onglet=licencies&s=all', '/bilan/joueurs', '?onglet
 assert.equal(keepPlayerTab('?onglet=licencies', '/bilan/joueurs', '?onglet=licencies'), '?onglet=licencies')
 // Réponse à une question : ses paramètres, plus l'onglet
 assert.equal(keepPlayerTab('?r=xyz', '/bilan/question/joueurs', '?r=xyz&onglet=avis'), '?r=xyz&onglet=avis')
+
+// Vue du radar de la comparaison : défaut selon l'écran, choix toujours écrit, a= b= c= gardés
+assert.equal(radarViewOf('?a=1&b=2', false), 'complet')
+assert.equal(radarViewOf('?a=1&b=2', true), 'familles')
+assert.equal(radarViewOf('?a=1&radar=complet', true), 'complet')
+assert.equal(radarViewOf('?radar=zzz', false), 'complet')
+assert.equal(withRadarView('?a=1&b=2&c=3', 'familles'), '?a=1&b=2&c=3&radar=familles')
+assert.equal(withRadarView('?a=1&radar=familles&evenement=e', 'complet'), '?a=1&evenement=e&radar=complet')
 
 console.log('onglets : ok')
