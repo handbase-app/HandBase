@@ -112,7 +112,7 @@ assert.deepEqual(it.values, {
 })
 assert.equal(
   summaryText(it.understood),
-  'Compris : filles · nées en 2011 · trimestre 1 (janv.–mars) · gauchers · Var (83) · Saint-Raphaël Var Handball · mes suivis · au Pôle Espoirs · avec une vidéo · arrière droit · + postes secondaires',
+  'Compris : féminin · nées en 2011 · trimestre 1 (janv.–mars) · gauchères · Var (83) · Saint-Raphaël Var Handball · mes suivis · au Pôle Espoirs · avec une vidéo · arrière droit · + postes secondaires',
 )
 assert.equal(unsupportedText(it), 'Je ne sais pas encore filtrer sur : catégorie U15')
 

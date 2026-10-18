@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { today, type Position } from '../db'
+import { SEX_LABELS } from '../gender'
 import { seasonOf } from '../coverage'
 import {
   avgText,
@@ -200,8 +201,8 @@ export function ChipEditor({ chip, recipe, model, onChange, onClose }: { chip: C
           value={r.pop.sex}
           onChange={(v) => apply((x) => (x.pop.sex = v))}
           options={[
-            { value: 'M', label: 'Garçons' },
-            { value: 'F', label: 'Filles' },
+            { value: 'M', label: SEX_LABELS.M },
+            { value: 'F', label: SEX_LABELS.F },
           ]}
         />
       )
@@ -495,7 +496,7 @@ export function groupLabel(by: GroupBy, key: string, model: RecipeModel): string
     const ev = model.events?.find((e) => e.id === key)
     return ev ? `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` : 'Événement'
   }
-  return key === 'M' ? 'Garçons' : key === 'F' ? 'Filles' : 'Sexe non renseigné'
+  return key === 'M' || key === 'F' ? SEX_LABELS[key] : 'Sexe non renseigné'
 }
 
 export function SaveForm({ recipe, names, phrase, onDone }: { recipe: Recipe; names: Names; phrase?: string; onDone: () => void }) {

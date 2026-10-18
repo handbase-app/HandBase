@@ -28,7 +28,7 @@ import { PageHeader } from '../components/PageHeader'
 import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
-import { w } from '../gender'
+import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 
@@ -162,7 +162,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     return c ? fmtValue(c, m.value) : `${fmtValue(undefined, m.value)} ${unit}`
   }
   const info: [string, string | undefined][] = [
-    ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : undefined],
+    ['Sexe', sexLabel(p.sex) || undefined],
     ['Club', p.club],
     ['Département', department(p) && departmentLabel(department(p)!)],
     ['Équipe', p.team],

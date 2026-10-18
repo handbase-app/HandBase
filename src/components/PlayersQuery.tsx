@@ -68,6 +68,7 @@ import { Icon, Segmented } from './ui'
 import { YearPicker } from './YearPicker'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
+import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gender'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -255,6 +256,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const sqlList = useMemo(() => sqlPlayers(sqlRes.res ?? null, viewById), [sqlRes.res, viewById])
   const fromSql = !!sql && sqlList.players.length > 0
   const filtered = useMemo(() => (fromSql ? sqlList.players : (sel?.list ?? [])), [fromSql, sqlList, sel])
+  // Accord (src/gender.ts) : filtre « Féminin », ou liste affichée faite seulement de filles ; sinon masculin générique.
+  const gender: Gender = useMemo(() => listGender(qy.recipe.pop.sex, filtered), [qy.recipe.pop.sex, filtered])
+  const gw = w(gender)
   useEffect(() => {
     if (!opts.scope) contextIds = filtered.map((p) => p.id)
   }, [filtered, opts.scope])
@@ -437,8 +441,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         {(
           [
             ['all', 'Tous'],
-            ['M', 'Garçons'],
-            ['F', 'Filles'],
+            ['M', SEX_LABELS.M],
+            ['F', SEX_LABELS.F],
           ] as const
         ).map(([v, label]) => (
           <button key={v} onClick={() => setPop({ sex: v === 'all' ? undefined : v })} className={`min-h-9 flex-1 py-1.5 ${(p.sex ?? 'all') === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
@@ -479,8 +483,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         {(
           [
             ['all', 'Toutes'],
-            ['droitier', 'Droitiers'],
-            ['gaucher', 'Gauchers'],
+            ['droitier', lateralityPlural('droitier', gender)],
+            ['gaucher', lateralityPlural('gaucher', gender)],
             ['ambidextre', 'Ambi.'],
           ] as const
         ).map(([v, label]) => (
@@ -533,7 +537,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         value={p.pole ?? ''}
         onChange={(e) => setPop({ pole: (e.target.value || undefined) as Population['pole'] })}
       >
-        <option value="">Pôle Espoirs : tous les joueurs</option>
+        <option value="">Pôle Espoirs : {gw.tousLesJoueurs}</option>
         <option value="current">{POLE_LABEL.current}</option>
         <option value="past">{POLE_LABEL.past}</option>
         <option value="any">{POLE_LABEL.any}</option>
@@ -542,7 +546,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         onClick={() => setPop({ video: !p.video })}
         className={`flex min-h-9 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-bold ${p.video ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`}
       >
-        Seulement les joueurs avec une vidéo
+        Seulement les {gw.joueurs} avec une vidéo
       </button>
       {(quick.followed.size > 0 || p.followed) && (
         <button
@@ -560,7 +564,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           value={p.profiles?.[0] ?? ''}
           onChange={(e) => setPop({ profiles: e.target.value ? [e.target.value] : undefined })}
         >
-          <option value="">Tous les joueurs (sans profil recherché)</option>
+          <option value="">{gw.TousLesJoueurs} (sans profil recherché)</option>
           {quick.profiles.map((a) => (
             <option key={a.id} value={a.id}>
               Profil : {a.name} ({fr(quick.profileMembers.get(a.id)?.size ?? 0)})
@@ -575,7 +579,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           value={p.groups?.[0] ?? ''}
           onChange={(e) => setPop({ groups: e.target.value ? [e.target.value] : undefined, regions: undefined, depts: undefined, clubs: undefined })}
         >
-          <option value="">Tous les joueurs (sans groupe choisi)</option>
+          <option value="">{gw.TousLesJoueurs} (sans groupe choisi)</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>
               Groupe : {g.name}
@@ -893,7 +897,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
             <p className="min-w-0 flex-1">
               <b>Résultat du mode avancé</b>
               {sql.auto ? ' (la phrase demandait plus que les filtres habituels)' : ''} pour « {sql.phrase} » : {sql.spec.explanation.replace(/[\s.]+$/, '')}
-              {fromSql ? ' — la liste montre les joueurs du résultat.' : '.'}
+              {fromSql ? ` — la liste montre les ${gw.joueurs} du résultat.` : '.'}
             </p>
             <button type="button" className="min-h-9 shrink-0 px-1 text-muted" aria-label="Fermer le résultat du mode avancé" onClick={() => setSql(null)}>
               ✕
@@ -914,14 +918,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         </div>
       )}
       {qy.calc && calcR && !fromSql && (
-        <CalcView recipe={calcR} answer={calcAns} model={rmodel} loading={heavyMissing} onClose={() => setQy({ ...qy, calc: undefined })} />
+        <CalcView recipe={calcR} answer={calcAns} model={rmodel} loading={heavyMissing} gender={gender} onClose={() => setQy({ ...qy, calc: undefined })} />
       )}
       {/* Avis sur la réponse (phase de test) : mode avancé, sinon la phrase dont les filtres sont à l'écran. */}
       {!adv.busy && <AnswerFeedback questionId={adv.error ? adv.logId : (sql?.logId ?? shownResult?.logId)} page={logPage} />}
       {heavyMissing && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
       {sorted && !fromSql && !!sel?.unranked && (
         <p className="text-[11px] text-muted">
-          {fr(sel.unranked)} sans valeur pour ce tri ({defaultSort(sortRecipe).by === 'priority' ? 'déjà vus deux fois ou plus' : 'pas d’avis ou pas de mesure'}) : en fin de liste.
+          {fr(sel.unranked)} sans valeur pour ce tri ({defaultSort(sortRecipe).by === 'priority' ? `déjà ${gw.vus} deux fois ou plus` : 'pas d’avis ou pas de mesure'}) : en fin de liste.
         </p>
       )}
       {defaultSort(sortRecipe).by === 'priority' && qy.recipe.out.sort && !fromSql && (
@@ -957,7 +961,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts }
+  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender }
 }
 
 // ---------- Petits composants ----------
@@ -1120,7 +1124,7 @@ function ResultView({ r, onUndo, onClose, sqlButton }: { r: ResultLine; onUndo: 
 }
 
 /** Réponse d'une question de calcul, sur la sélection : nombre (et moyenne), ou petit tableau. */
-function CalcView({ recipe, answer, model, loading, onClose }: { recipe: Recipe; answer: Answer<Player> | null; model: RecipeModel; loading: boolean; onClose: () => void }) {
+function CalcView({ recipe, answer, model, loading, gender, onClose }: { recipe: Recipe; answer: Answer<Player> | null; model: RecipeModel; loading: boolean; gender?: Gender; onClose: () => void }) {
   const head = (
     <div className="flex items-start gap-2">
       <span className="min-w-0 flex-1 text-[11px] font-bold text-muted">
@@ -1144,7 +1148,7 @@ function CalcView({ recipe, answer, model, loading, onClose }: { recipe: Recipe;
       <div className="card flex flex-col gap-1 p-3">
         {head}
         <span className="text-3xl font-extrabold tabular-nums">{fr(answer.count)}</span>
-        <span className="text-xs">{answer.count > 1 ? 'joueurs' : 'joueur'}</span>
+        <span className="text-xs">{answer.count > 1 ? w(gender).joueurs : w(gender).joueur}</span>
         {answer.stat && <span className="text-sm font-bold">{statText(recipe, model.names, answer.stat, true)}</span>}
       </div>
     )
@@ -1163,11 +1167,11 @@ function CalcView({ recipe, answer, model, loading, onClose }: { recipe: Recipe;
                 <td className={`py-1.5 pr-2 ${row.key ? '' : 'text-muted italic'}`}>{groupLabel(by, row.key, model)}</td>
                 <td className="py-1.5 text-right tabular-nums">
                   {by === 'staff' ? (
-                    `${fr(row.staff?.players ?? 0)} vus · ${fr(row.staff?.avis ?? 0)} avis`
+                    `${fr(row.staff?.players ?? 0)} ${w(gender).vus} · ${fr(row.staff?.avis ?? 0)} avis`
                   ) : (
                     <>
                       <b>{fr(row.match)}</b>
-                      {row.seen && ` · ${shareText(row.seen.seen, row.seen.total)} vus`}
+                      {row.seen && ` · ${shareText(row.seen.seen, row.seen.total)} ${w(gender).vus}`}
                       {row.avg !== undefined && ` · moyenne ${row.avg === null ? '–' : fr(row.avg, 2)}`}
                       {row.stat && ` · ${statText(recipe, model.names, row.stat)}`}
                     </>

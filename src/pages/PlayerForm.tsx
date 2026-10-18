@@ -9,7 +9,7 @@ import { departmentChoices, officialRegions, regionLabel, useRegions } from '../
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
-import { w } from '../gender'
+import { SEX_LABEL_ONE, w } from '../gender'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -154,8 +154,8 @@ export default function PlayerForm() {
               value={p.sex}
               onChange={(v) => set('sex', v)}
               options={[
-                { value: 'M', label: 'Garçon' },
-                { value: 'F', label: 'Fille' },
+                { value: 'M', label: SEX_LABEL_ONE.M },
+                { value: 'F', label: SEX_LABEL_ONE.F },
               ]}
             />
           </div>

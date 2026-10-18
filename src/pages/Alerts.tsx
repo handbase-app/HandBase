@@ -9,11 +9,12 @@ import { PlayerRow } from '../components/PlayerRow'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { FollowStar } from '../components/Follow'
 import { PageHeader } from '../components/PageHeader'
-import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
+import { alive, db, lateralityLabel, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
 import { ZonePicker } from '../components/ZonePicker'
 import { can, useRole } from '../roles'
+import { accord, lateralityPlural, listGender, pluralG, SEX_LABELS, w, type Gender } from '../gender'
 
 /*
  * Alertes (supabase/022_alertes.sql) : liste, détail (joueurs qui correspondent, nouveaux en tête) et
@@ -75,6 +76,7 @@ async function deleteAlert(alert: PlayerAlert) {
 
 /** Ligne d'un profil recherché ; menu (appui long, clic droit, « ⋮ ») : ouvrir, modifier, supprimer. */
 function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; players: Player[]; fresh: Player[]; summary: string }) {
+  const gr: Gender = listGender(alert.rules.sex, players)
   const role = useRole()
   const nav = useNavigate()
   const menu = useRowMenu()
@@ -96,9 +98,9 @@ function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; pla
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         <div>
-          <b className="text-fg">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
+          <b className="text-fg">{players.length}</b> {accord('joueur', gr, players.length)}
         </div>
-        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} nouveau{fresh.length > 1 ? 'x' : ''}</div>}
+        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} {accord('nouveau', gr, fresh.length)}</div>}
       </div>
       <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${alert.name} »`} className="-mr-1.5" />
     </Link>
@@ -134,6 +136,8 @@ export function AlertDetail() {
   if (!alert || alert.deleted || !can.seeGroup(alert)) return <div className="py-20 text-center text-sm text-muted">Profil recherché introuvable.</div>
   if (editing) return <AlertForm alert={alert} onDone={() => setParams({}, { replace: true })} />
   const manage = can.editGroup(role, alert)
+  // Accord (src/gender.ts) : profil « Féminin », ou liste faite seulement de filles.
+  const g: Gender = listGender(alert.rules.sex, players)
   const sorted = [...players].sort((a, b) => Number(fresh?.has(b.id) ?? 0) - Number(fresh?.has(a.id) ?? 0) || a.lastName.localeCompare(b.lastName))
 
   return (
@@ -169,10 +173,10 @@ export function AlertDetail() {
         {alert.createdByName && <p className="text-[10px] text-muted">Créée par {alert.createdByName}</p>}
       </div>
       <div className="section-title mt-1 mb-0">
-        {players.length} joueur{players.length > 1 ? 's' : ''}
-        {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} nouveau{fresh.size > 1 ? 'x' : ''}</span>}
+        {pluralG(players.length, g)}
+        {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} {accord('nouveau', g, fresh.size)}</span>}
       </div>
-      {!players.length && <Empty>Aucun joueur ne correspond pour l’instant : tu seras prévenu dès qu’un joueur y entrera.</Empty>}
+      {!players.length && <Empty>{w(g).AucunJoueur} ne correspond pour l’instant : tu seras prévenu dès qu’{w(g).unJoueur} y entrera.</Empty>}
       {sorted.map((p) => (
         <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
       ))}
@@ -183,7 +187,7 @@ export function AlertDetail() {
 function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules; missing: string[] }) {
   const h = ctx.latest.get(p.id)?.get('taille')?.value
   const ph = rules.minPredicted ? predictedHeight(p, ctx) : undefined
-  const more = [p.laterality, typeof h === 'number' && `${h.toLocaleString('fr-FR')} cm`, ph !== undefined && `prédit ${Math.round(ph)} cm`].filter(Boolean).join(' · ')
+  const more = [p.laterality && lateralityLabel(p.laterality, p.sex).toLowerCase(), typeof h === 'number' && `${h.toLocaleString('fr-FR')} cm`, ph !== undefined && `prédit ${Math.round(ph)} cm`].filter(Boolean).join(' · ')
   return (
     <PlayerRow
       p={p}
@@ -252,7 +256,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
   const keep = (checked: boolean, onChange: (v: boolean) => void, what = 'sans valeur') => (
     <label className="-mt-1 flex items-center gap-1.5 text-[11px] text-muted">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      Garder aussi les joueurs {what} (à vérifier)
+      Garder aussi les {w(r.sex).joueurs} {what} (à vérifier)
     </label>
   )
 
@@ -301,8 +305,8 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           onChange={(v) => set({ sex: (v || undefined) as AlertRules['sex'] })}
           options={[
             { value: '', label: 'Tous' },
-            { value: 'M', label: 'Garçons' },
-            { value: 'F', label: 'Filles' },
+            { value: 'M', label: SEX_LABELS.M },
+            { value: 'F', label: SEX_LABELS.F },
           ]}
         />
         <div>
@@ -330,8 +334,8 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           onChange={(v) => set({ laterality: (v || undefined) as Laterality | undefined })}
           options={[
             { value: '', label: 'Toutes' },
-            { value: 'droitier', label: 'Droitiers' },
-            { value: 'gaucher', label: 'Gauchers' },
+            { value: 'droitier', label: lateralityPlural('droitier', r.sex) },
+            { value: 'gaucher', label: lateralityPlural('gaucher', r.sex) },
             { value: 'ambidextre', label: 'Ambi.' },
           ]}
         />
@@ -404,7 +408,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
             + Ajouter un test
           </button>
         )}
-        <p className="text-[10px] text-muted">Dernière valeur du joueur. « ≤ » pour les temps (ex. 30 m ≤ 4,3 s).</p>
+        <p className="text-[10px] text-muted">Dernière valeur {w(r.sex).duJoueur}. « ≤ » pour les temps (ex. 30 m ≤ 4,3 s).</p>
       </div>
 
       <div className="card flex flex-col gap-2 p-4">
@@ -434,12 +438,12 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
             + Ajouter un critère d’avis
           </button>
         )}
-        <p className="text-[10px] text-muted">Moyenne des avis validés du joueur sur ce critère.</p>
+        <p className="text-[10px] text-muted">Moyenne des avis validés {w(r.sex).duJoueur} sur ce critère.</p>
       </div>
 
       <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
         <span className="shrink-0 text-[11px] text-muted">
-          <b className="text-fg">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
+          <b className="text-fg">{count}</b> {accord('joueur', r.sex, count)} aujourd’hui
         </span>
         <button className="btn-primary flex-1" disabled={!name.trim() || busy} onClick={() => void submit()}>
           {alert ? 'Enregistrer' : 'Créer le profil'}

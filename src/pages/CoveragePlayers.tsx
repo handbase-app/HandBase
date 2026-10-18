@@ -5,12 +5,14 @@ import { ContextBar, ContextRoster, useLeaveTo } from '../components/ContextRost
 import { FollowStar } from '../components/Follow'
 import { RewatchToggle } from '../components/Scouting'
 import { Empty, Icon } from '../components/ui'
-import { fmtDate, plural, type Player, type Rewatch } from '../db'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db, fmtDate, type Player, type Rewatch } from '../db'
+import { listGender, pluralG, w, type Gender } from '../gender'
 import type { ClubCoverage, Onglet, Sight } from '../coverage'
 import { MQ, useMedia } from '../layout'
 import { can, useRole } from '../roles'
 import PlayerDetail from './PlayerDetail'
-import { AddToEventDialog, sightText, TAB, useBilanModel, useBilanQuestion, useBilanState, whoOrder, whoSummary } from './Coverage'
+import { AddToEventDialog, sightText, tabOf, useBilanModel, useBilanQuestion, useBilanState, whoOrder, whoSummary } from './Coverage'
 
 /*
  * Fiche d'un joueur ouverte depuis le bilan de détection : /bilan/joueurs/:pid?<état du bilan> (partageable), comme
@@ -64,7 +66,9 @@ export default function CoveragePlayers() {
   if (!pid) return <Navigate to={`/bilan${search}`} replace />
   if (!data || !ctx || (Q && !Q.ready)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const ids = [...order.main, ...order.rest].map((p) => p.id)
-  const tab = TAB[o]
+  // Accord (src/gender.ts) : filtre « Féminin » (bilan ou question), ou club dont les joueurs listés sont toutes des filles.
+  const g: Gender = listGender(st.q ? st.q.pop.sex : st.sex, [...order.main, ...order.rest])
+  const tab = tabOf(o, g)
 
   if (!split)
     return (
@@ -85,12 +89,12 @@ export default function CoveragePlayers() {
             base={base}
             search={search}
             back={leave}
-            count={Q ? `${plural(ids.length, 'joueur')} · question au bilan` : club ? (o === 'licencies' ? whoSummary(o, ids.length) : `${plural(ids.length, 'joueur')} · ${whoSummary(o, order.main.length)}`) : ''}
+            count={Q ? `${pluralG(ids.length, g)} · question au bilan` : club ? (o === 'licencies' ? whoSummary(o, ids.length, g) : `${pluralG(ids.length, g)} · ${whoSummary(o, order.main.length, g)}`) : ''}
             sections={[
               { heading: Q ? (Q.texts ? `${Q.texts.what} · répondent à la question` : null) : order.main.length ? `${tab.main} · ${yearText}` : null, players: order.main },
               { heading: order.rest.length ? `${tab.rest} (${order.rest.length})` : null, players: order.rest },
             ]}
-            detail={(p) => [year(p), Q ? Q.playerText(p) : o === 'vus' && sightText(last.get(p.id))].filter(Boolean).join(' · ')}
+            detail={(p) => [year(p), Q ? Q.playerText(p) : o === 'vus' && sightText(last.get(p.id), p.sex)].filter(Boolean).join(' · ')}
             actions={(p) => ({
               rewatch: Q || o !== 'vus' || last.has(p.id) ? undefined : <RewatchToggle playerId={p.id} rows={data.rewatch.get(p.id)} />,
               follow: <FollowStar id={p.id} sex={p.sex} />,
@@ -117,6 +121,9 @@ export function CoveragePlayer() {
   const q = ctx?.q
   const qText = q ? q(pid) : ''
   const todo = !q && ((o === 'vus' && !s) || (o === 'mesures' && !counted))
+  // Bandeau accordé au sexe de la fiche (« Vue le… », « Mesurée par le staff »).
+  const sex = useLiveQuery(() => db.players.get(pid).then((p) => p?.sex), [pid])
+  const pw = w(sex)
   return (
     <div key={pid} className="flex flex-col gap-3">
       {ctx && (
@@ -133,11 +140,11 @@ export function CoveragePlayer() {
               ) : o === 'vus' && s ? (
                 <span className="text-accent">
                   <Icon name="eye" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
-                  Vu le {fmtDate(s.day)}
+                  {pw.vu.replace(/^./, (c) => c.toUpperCase())} le {fmtDate(s.day)}
                   {s.by ? `, par ${s.by}` : ''}
                 </span>
               ) : o === 'mesures' && counted ? (
-                <span className="text-accent">Mesuré par le staff</span>
+                <span className="text-accent">{pw.mesure.replace(/^./, (c) => c.toUpperCase())} par le staff</span>
               ) : o === 'reperes' && counted ? (
                 <span className="text-accent">
                   <Icon name="target" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
@@ -146,7 +153,7 @@ export function CoveragePlayer() {
               ) : todo ? (
                 <span className="font-bold text-sky-300">{o === 'vus' ? 'À voir' : 'À mesurer'}</span>
               ) : (
-                <span className="font-bold">{TAB[o].label}</span>
+                <span className="font-bold">{tabOf(o, sex === 'F' ? 'F' : undefined).label}</span>
               )}
               <span className="text-muted"> · Bilan de détection{q ? '' : `, ${ctx.yearText.toLowerCase()}`}</span>
             </span>
@@ -158,7 +165,7 @@ export function CoveragePlayer() {
               </span>
             )}
             {todo && can.manageEvents(role) && (
-              <button type="button" className="btn-ghost ml-1 min-h-8 px-2.5 py-1 text-xs" onClick={() => setAdding(true)} title="Ajouter ce joueur à un événement à venir">
+              <button type="button" className="btn-ghost ml-1 min-h-8 px-2.5 py-1 text-xs" onClick={() => setAdding(true)} title={`Ajouter ${pw.ceJoueur} à un événement à venir`}>
                 <Icon name="calendar" className="h-3.5 w-3.5" />
                 Ajouter à un événement
               </button>

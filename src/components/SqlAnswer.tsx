@@ -13,6 +13,7 @@ import { ClubAnswerMap, useClubPlaces, useOpenClub } from './ClubAnswerMap'
 import { FollowStar } from './Follow'
 import { PlayerRow } from './PlayerRow'
 import { Empty, Icon, SectionTitle } from './ui'
+import { sexLabel } from '../gender'
 
 /*
  * « Poser une question », MODE AVANCÉ (secours de la recette, src/recipe.ts) : la phrase et la DESCRIPTION des tables de la
@@ -39,7 +40,7 @@ export function cellText(col: string, v: unknown): string {
   const s = String(v)
   const c = col.toLowerCase()
   if ((c === 'poste' || c.endsWith('_poste')) && POS.has(s)) return POS.get(s)!
-  if (c === 'sexe' && (s === 'M' || s === 'F')) return s === 'M' ? 'Garçon' : 'Fille'
+  if (c === 'sexe' && (s === 'M' || s === 'F')) return sexLabel(s)
   return s
 }
 

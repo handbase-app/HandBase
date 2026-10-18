@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Segmented, useMe } from '../components/ui'
 import { alive, db, poleName, today, type Measurement, type Player } from '../db'
-import { accord, setGender, w } from '../gender'
+import { accord, setGender, SEX_LABELS, w } from '../gender'
 import {
   birthYear,
   cellText,
@@ -352,8 +352,8 @@ export function GroupReport() {
                   <th className={th}>Année</th>
                   {opts.split && <th className={`${th} text-right`}>Déjà au pôle</th>}
                   {opts.split && <th className={`${th} text-right`}>Nouveaux</th>}
-                  {mixed && <th className={`${th} text-right`}>Garçons</th>}
-                  {mixed && <th className={`${th} text-right`}>Filles</th>}
+                  {mixed && <th className={`${th} text-right`}>{SEX_LABELS.M}</th>}
+                  {mixed && <th className={`${th} text-right`}>{SEX_LABELS.F}</th>}
                   {mixed && totals.total.other > 0 && <th className={`${th} text-right`}>Non renseigné</th>}
                   <th className={`${th} text-right`}>Total</th>
                 </tr>

@@ -9,7 +9,7 @@ import { arrowNav, showGroupInPlayers, useSessionState } from '../components/Pla
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
-import { accord, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
+import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
@@ -384,7 +384,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
   return (
     <div className="flex flex-col gap-2">
       <span className="label">Nom du groupe</span>
-      <input className="field" autoFocus={!group} placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs garçons…" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="field" autoFocus={!group} placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs masculin…" value={name} onChange={(e) => setName(e.target.value)} />
       <span className="label">Description</span>
       <input className="field" placeholder="Saison, encadrant… — facultatif" value={description} onChange={(e) => setDescription(e.target.value)} />
 
@@ -555,6 +555,8 @@ export function NewGroup() {
   const location = useLocation()
   const playerIds: string[] = (location.state as { playerIds?: string[] } | null)?.playerIds ?? []
   const goBack = useGoBack('/groupes')
+  // « Les 12 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
+  const chosenG = useLiveQuery(() => db.players.bulkGet(playerIds).then((ps) => genderOf(ps)), [playerIds.join(',')])
   if (!can.manageGroups(role)) return <div className="py-20 text-center text-sm text-muted">Ton rôle ne permet pas de créer des groupes.</div>
   return (
     <div className="flex flex-col gap-4">
@@ -564,7 +566,7 @@ export function NewGroup() {
       <div className="card flex flex-col gap-3 p-4">
         <p className="text-[11px] text-muted">
           {playerIds.length
-            ? `Les ${playerIds.length.toLocaleString('fr-FR')} joueurs choisis seront dans le groupe ; tu pourras en ajouter ou en retirer ensuite.`
+            ? `Les ${pluralG(playerIds.length, chosenG, 'joueur choisi')} seront dans le groupe ; tu pourras en ajouter ou en retirer ensuite.`
             : 'Donne un nom au groupe, puis ajoute ses joueurs (par filtres ou un par un).'}
         </p>
         <GroupForm

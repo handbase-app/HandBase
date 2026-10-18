@@ -1,6 +1,7 @@
 import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
+import { listGender, w } from '../gender'
 import { alive, db, fmtDate, remove, type HBEvent, type Player, type PlayerGroup } from '../db'
 import { useThrottledQuery } from '../live'
 import { can, useRole } from '../roles'
@@ -50,6 +51,8 @@ export default function RewatchPage() {
   const done = known.filter((e) => !e.open.length)
   const latest = (e: RewatchEntry) => Math.max(...e.rows.map(stamp))
   const shown = (tab === 'open' ? open : done).sort((a, b) => latest(b) - latest(a))
+  // Accord (src/gender.ts) : liste faite seulement de filles → au féminin ; sinon masculin générique.
+  const gw = w(listGender(undefined, known.map((e) => players.get(e.playerId))))
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
@@ -57,7 +60,7 @@ export default function RewatchPage() {
       <div>
         <h1 className="text-lg font-extrabold">Mes à revoir</h1>
         <p className="text-[11px] text-muted">
-          Joueurs que ton staff veut revoir. Revu dès qu’il est vu ou noté dans un événement visé ; pour un groupe ou la liste générale, avec « Revu ».
+          {gw.Joueurs} que ton staff veut revoir. {gw.revu.replace(/^./, (c) => c.toUpperCase())} dès qu’{gw.il} est {gw.vu} ou {gw.note} dans un événement visé ; pour un groupe ou la liste générale, avec « Revu ».
         </p>
         {can.viewCoverage(role) && (
           <Link to="/bilan" className="mt-1 inline-block text-[11px] font-bold text-accent">
@@ -69,7 +72,7 @@ export default function RewatchPage() {
         {(
           [
             ['open', `À revoir (${open.length})`],
-            ['done', `Revus (${done.length})`],
+            ['done', `${gw.revus.replace(/^./, (c) => c.toUpperCase())} (${done.length})`],
           ] as const
         ).map(([v, label]) => (
           <button key={v} onClick={() => setTab(v)} className={`flex-1 py-2 ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
@@ -83,7 +86,7 @@ export default function RewatchPage() {
           Tous les staffs (administrateur)
         </label>
       )}
-      {!shown.length && <Empty>{tab === 'open' ? 'Aucun joueur à revoir pour ton staff.' : 'Aucun joueur revu pour l’instant.'}</Empty>}
+      {!shown.length && <Empty>{tab === 'open' ? `${gw.AucunJoueur} à revoir pour ton staff.` : `${gw.AucunJoueur} ${gw.revu} pour l’instant.`}</Empty>}
       <div className="cols flex flex-col gap-2">
         {shown.map((e) => {
           const p = players.get(e.playerId)!
@@ -117,12 +120,12 @@ export default function RewatchPage() {
               menuExtras={extras.filter((x): x is MenuExtra => !!x)}
               aside={
                 tab === 'open' ? (
-                  <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" title="Marquer revu (pour tous les « à revoir » ouverts de ce joueur)" onClick={() => void setRevisited(e.open, true)}>
+                  <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" title={`Marquer ${w(p.sex).revu} (pour tous les « à revoir » ouverts de ${w(p.sex).ceJoueur})`} onClick={() => void setRevisited(e.open, true)}>
                     Revu
                   </button>
                 ) : (
                   <span className="shrink-0 text-right text-[11px] font-bold text-emerald-300">
-                    revu ✓
+                    {w(p.sex).revu} ✓
                     <span className="block text-[10px] font-normal text-muted">
                       {via && events.get(via) ? events.get(via)!.name : manual.map((r) => r.done?.byName).filter(Boolean).join(', ')}
                     </span>

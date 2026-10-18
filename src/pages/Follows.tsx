@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { alive, db, fmtDate, localDay, plural, type Player } from '../db'
-import { pluralG, setGender } from '../gender'
+import { listGender, pluralG, setGender, w, type Gender } from '../gender'
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews, type FollowsResult } from '../follows'
 import {
   followOrigins,
@@ -172,7 +172,7 @@ function DayPlayers({
  * Carte de nouveautés repliable (une section ou une journée) : repliée par défaut, son titre donne le nombre de nouveautés
  * (dont celles depuis la dernière visite) et de joueurs ; dépliée, le détail. État retenu pendant la session.
  */
-function NewsCard({ title, items, seen, open, onToggle, children }: { title: ReactNode; items: FollowNews[]; seen: number; open: boolean; onToggle: () => void; children: ReactNode }) {
+function NewsCard({ title, items, seen, open, onToggle, children, g }: { title: ReactNode; items: FollowNews[]; seen: number; open: boolean; onToggle: () => void; children: ReactNode; g?: Gender }) {
   const fresh = items.filter((n) => n.time > seen && !n.mine).length
   const who = new Set(items.map((n) => n.playerId)).size
   return (
@@ -182,7 +182,7 @@ function NewsCard({ title, items, seen, open, onToggle, children }: { title: Rea
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="section-title my-0">{title}</span>
           <span className="text-[11px] text-muted">
-            {plural(items.length, 'nouveauté')} · {plural(who, 'joueur')}
+            {plural(items.length, 'nouveauté')} · {pluralG(who, g)}
           </span>
         </span>
         {fresh > 0 && (
@@ -293,6 +293,12 @@ export default function Follows() {
   const nothing = !follows.followed.size
   const byId = (pids: string[]) => pids.map((id) => players.get(id)).filter((p): p is Player => !!p)
   const groupCount = bySection.groupe.filter((s) => s.groupId).length
+  // Accord (src/gender.ts) : section d'un groupe « Féminin » ou faite seulement de filles ; tous les suivis : filles seulement.
+  const sectionGender = (s: FollowSection): Gender =>
+    setGender(s.groupId ? follows.groups.find((x) => x.group.id === s.groupId)?.group.sex : undefined, byId(s.playerIds)) === 'F' ? 'F' : undefined
+  const newsGender = (items: FollowNews[]): Gender => listGender(undefined, [...new Set(items.map((n) => n.playerId))].map((id) => players.get(id)))
+  const gAll: Gender = listGender(undefined, all)
+  const gw = w(picked ? sectionGender(picked) : gAll)
   // Section d'un groupe : l'origine affichée ne répète pas ce groupe (« aussi via … »).
   const exceptOf = (s: FollowSection) => (view === 'groupe' ? s.key : undefined)
 
@@ -339,7 +345,7 @@ export default function Follows() {
               view={view}
               onChange={(v) => setQuery(v, null)}
               tiles={[
-                { v: 'tout', big: all.length, label: 'Tout', small: 'joueurs suivis' },
+                { v: 'tout', big: all.length, label: 'Tout', small: `${w(gAll).joueurs} ${w(gAll).suivis}` },
                 { v: 'groupe', big: all.length, label: 'Par groupe', small: plural(groupCount, 'groupe') },
                 { v: 'annee', big: all.length, label: 'Par année', small: plural(bySection.annee.length, 'année') },
               ]}
@@ -358,7 +364,7 @@ export default function Follows() {
               {(
                 [
                   ['nouveautes', fresh > 0 ? `Nouveautés (${fresh > 99 ? '99+' : fresh} nouvelles)` : 'Nouveautés'],
-                  ['joueurs', `Joueurs suivis (${inView ? inView.size : all.length})`],
+                  ['joueurs', `${gw.Joueurs} ${gw.suivis} (${inView ? inView.size : all.length})`],
                 ] as const
               ).map(([v, label]) => (
                 <button
@@ -392,7 +398,7 @@ export default function Follows() {
                   splitBySection(shown, shownSections)
                     .filter((x) => x.items.length)
                     .map(({ section: s, items }) => (
-                      <NewsCard key={s.key} title={s.label} items={items} seen={seen} open={!!picked || opened.includes(`s:${s.key}`)} onToggle={() => toggle(`s:${s.key}`)}>
+                      <NewsCard key={s.key} title={s.label} items={items} g={sectionGender(s)} seen={seen} open={!!picked || opened.includes(`s:${s.key}`)} onToggle={() => toggle(`s:${s.key}`)}>
                         {[...byDayThenPlayer(items)].map(([day, perPlayer]) => (
                           <div key={day}>
                             <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{dayLabel(day)}</div>
@@ -402,7 +408,7 @@ export default function Follows() {
                       </NewsCard>
                     ))
                 : [...byDayThenPlayer(shown)].map(([day, perPlayer]) => (
-                    <NewsCard key={day} title={dayLabel(day)} items={[...perPlayer.values()].flat()} seen={seen} open={opened.includes(`j:${day}`)} onToggle={() => toggle(`j:${day}`)}>
+                    <NewsCard key={day} title={dayLabel(day)} items={[...perPlayer.values()].flat()} g={newsGender([...perPlayer.values()].flat())} seen={seen} open={opened.includes(`j:${day}`)} onToggle={() => toggle(`j:${day}`)}>
                       <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} />
                     </NewsCard>
                   ))}
@@ -453,7 +459,7 @@ export default function Follows() {
           ))
         ) : (
           <section className="flex flex-col gap-1">
-            <div className="section-title mb-0">Joueurs suivis ({all.length})</div>
+            <div className="section-title mb-0">{w(gAll).Joueurs} {w(gAll).suivis} ({all.length})</div>
             {all.length ? (
               // Chaque joueur une seule fois, avec l'origine de son suivi ; l'étoile pleine retire le suivi direct d'un toucher.
               <div className="flex flex-col gap-2">{roster(all)}</div>
