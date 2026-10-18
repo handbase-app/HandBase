@@ -450,13 +450,13 @@ export const TOP_FREQUENT = 15
  *  2. les QUESTIONS LES PLUS FRÉQUENTES (toutes issues), une ligne chacune avec leur nombre et leurs issues.
  * Rien d'autre : phrases et requêtes déjà anonymisées, aucun résultat.
  */
-export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOString().slice(0, 10)): string {
+export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOString().slice(0, 10), app = 'Nextar'): string {
   const alive = rows.filter((r) => !r.deleted)
   const todo = filterEntries(alive, 'a_traiter')
   const groups = groupEntries(todo, 'rates')
   const n = (k: number, w: string) => `${k} ${w}${k > 1 ? 's' : ''}`
   const out = [
-    `# HandBase : questions posées au bilan (à transformer en recettes)`,
+    `# ${app} : questions posées au bilan (à transformer en recettes)`,
     `${n(alive.length, 'question')} au journal · ${n(todo.length, 'question')} à traiter en ${n(groups.length, 'forme')} · relevé du ${today}.`,
     `Phrases et requêtes anonymisées ([prénom], [nom], [licence]) ; aucun résultat ni donnée de joueur.`,
     '',

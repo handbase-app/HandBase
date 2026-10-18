@@ -6,6 +6,7 @@ import { Icon } from '../components/ui'
 import { countOpenRewatch } from '../scouting'
 import { usePerimeter, useUnits } from '../installation'
 import { installationAppearance, useThemeVersion } from '../theme'
+import { appName } from '../appBrand'
 
 // Actions rapides (le reste est dans la barre du bas ; « + Joueur » est sur la page Joueurs). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
 const ACTIONS = [
@@ -76,15 +77,19 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
       </div>
 
       <HomeFeed />
-      <PoweredBy />
     </div>
   )
 }
 
+/** Nom de l'appli saisi comme nom d'organisation (anciennes installations : « NEXTAR », « HANDBASE ») : pas un nom d'organisation. */
+const isAppName = (s: string) => /^\s*(nextar|handbase)\s*$/i.test(s) || s.trim().toLowerCase() === appName().toLowerCase()
+
 /**
- * En-tête de l'accueil (variante « mon organisation d'abord ») : logo et nom de l'organisation, puis le périmètre du
- * compte ; Nextar signe en bas de page. Logo : celui du style de l'installation (Réglages). Nom : l'unité au sommet de la
- * structure (la Fédération), sinon le nom affiché de l'installation.
+ * En-tête de l'accueil : l'organisation mise en avant (la fédération, la ligue…). Logo et nom : ceux réglés par les
+ * administrateurs (Réglages → Style de l'installation, « Organisation : nom et logo ») ; sans nom réglé, l'unité au sommet
+ * de la structure. Le logo est posé sur une tuile blanche (un logo coloré reste lisible en sombre et dans tous les styles) ;
+ * sans logo, l'initiale du nom. L'appli (Nextar par défaut) signe dans l'en-tête de l'appli juste au-dessus (téléphone) ou à côté
+ * (menu de gauche, ordinateur) : présent sur chaque écran sans concurrencer l'organisation, d'où aucune autre signature ici.
  */
 function OrgHeader() {
   useThemeVersion()
@@ -93,7 +98,8 @@ function OrgHeader() {
   const look = installationAppearance()
   const roots = units.filter((u) => !u.parentId || !units.some((x) => x.id === u.parentId))
   const top = roots.find((u) => u.levelId === 'niveau-federation') ?? (roots.length === 1 ? roots[0] : undefined)
-  const name = top?.name || look.name || 'HandBase'
+  const own = look.name && !isAppName(look.name) ? look.name : ''
+  const name = own || top?.name || 'Mon organisation'
   const where = !per
     ? ''
     : per.all
@@ -101,28 +107,22 @@ function OrgHeader() {
       : per.units.length
         ? per.units.map((u) => u.name).join(' · ')
         : 'Aucune affectation pour l’instant'
+  const tile = 'flex h-16 w-16 shrink-0 items-center justify-center rounded-xl side:h-20 side:w-20'
   return (
-    <div className="flex items-center gap-3 px-1 side:col-span-full">
+    <div className="flex items-center gap-3.5 px-1 side:col-span-full side:gap-5">
       {look.logo ? (
-        <img src={look.logo} alt="" className="h-16 w-16 shrink-0 object-contain side:h-14 side:w-14" />
+        <span className={`${tile} bg-white p-1.5 shadow-sm ring-1 ring-black/[0.07] side:p-2`}>
+          <img src={look.logo} alt="" className="h-full w-full object-contain" />
+        </span>
       ) : (
-        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-muted side:h-14 side:w-14">
-          <Icon name="users" className="h-7 w-7" />
+        <span aria-hidden className={`${tile} bg-panel-2 text-2xl font-extrabold text-muted ring-1 ring-line side:text-3xl`}>
+          {name.trim().charAt(0).toUpperCase()}
         </span>
       )}
       <div className="min-w-0">
-        <h1 className="text-lg leading-tight font-extrabold">{name}</h1>
-        {where && <p className="mt-0.5 text-xs text-muted">Ton périmètre : {where}</p>}
+        <h1 className="text-lg leading-snug font-extrabold text-balance side:text-2xl side:leading-tight">{name}</h1>
+        {where && <p className="mt-1 text-xs text-muted side:text-sm">Ton périmètre : {where}</p>}
       </div>
     </div>
-  )
-}
-
-/** Signature en bas de l'accueil. */
-export function PoweredBy() {
-  return (
-    <p className="py-2 text-center text-[11px] text-muted side:col-span-full">
-      propulsé par <span className="font-extrabold tracking-wide text-fg">Nextar</span>
-    </p>
   )
 }

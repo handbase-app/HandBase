@@ -66,6 +66,7 @@ import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select,
 import { Icon, Segmented } from './ui'
 import { YearPicker } from './YearPicker'
 import { putYears, yearsOf } from '../birthYears'
+import { appName } from '../appBrand'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -828,7 +829,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const privacy = questionReady && (
     <p className="text-[10px] text-muted">
       Une phrase envoie seulement ses mots (et les noms des filtres posés), jamais les données des joueurs ; elle peut être notée, sans nom de joueur, pour
-      améliorer HandBase.{' '}
+      améliorer {appName()}.{' '}
       <Link to="/confidentialite#questions" className="underline">
         Confidentialité
       </Link>

@@ -3,6 +3,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { clearRole, refreshRole } from '../roles'
 import { claimDevice, supabase } from '../sync'
 import { TRIAL, TRIAL_LABEL } from '../db'
+import { useAppBrand } from '../appBrand'
+import { BRAND_FONT } from './Brand'
 import { useMe } from './ui'
 import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
 
@@ -164,11 +166,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Écran de connexion : logo de l'appli (Nextar par défaut, ou celui réglé ; dernière valeur connue sur l'appareil, la
+ * configuration n'étant lisible qu'une fois connecté). Logo complet : il porte le nom ; sinon pictogramme + nom écrit.
+ */
 function Shell({ children }: { children: ReactNode }) {
+  const { name, logo, mark } = useAppBrand()
   return (
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-6">
       <div className="text-center">
-        <div className="text-[10px] font-bold tracking-[0.3em] text-muted">HANDBASE</div>
+        <img src={logo} alt={name} className="mx-auto h-20 w-20 object-contain" />
+        {logo === mark && <div className="mt-1.5 text-lg font-extrabold tracking-[-0.01em]" style={{ fontFamily: BRAND_FONT }}>
+            {name}
+          </div>}
         {TRIAL && <div className="mx-auto mt-2 w-fit rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wider text-black">{TRIAL_LABEL}</div>}
         <h1 className="mt-1 text-2xl font-extrabold">Collecte & suivi</h1>
       </div>

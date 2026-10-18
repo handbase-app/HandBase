@@ -5,7 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
-import { db, TRIAL, TRIAL_LABEL } from './db'
+import { db, DEMO, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
 import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
@@ -20,7 +20,9 @@ import Feed from './pages/Feed'
 import { useAlertCount } from './alerts'
 import { useFollowNewsCount } from './follows'
 import { Icon } from './components/ui'
-import { currentAppearance, useThemeVersion } from './theme'
+import { useThemeVersion } from './theme'
+import { AppLockup } from './components/Brand'
+import { appName, useAppBrand } from './appBrand'
 import { syncNow, useSyncState } from './sync'
 import { SyncProgressBar } from './components/SyncProgress'
 import { percent, showProgress } from './syncProgress'
@@ -134,18 +136,22 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
   )
 }
 
-/** Nom de l'appli (en-tête ; en haut du menu de gauche sur ordinateur). */
+/**
+ * Identité de l'appli (en-tête sur téléphone ; en haut du menu de gauche sur ordinateur) : pictogramme et nom écrit à côté
+ * (Nextar par défaut ; Réglages → Administration → « Appli : nom et logo » ; src/components/Brand.tsx). Le nom et le logo
+ * du style de l'installation sont ceux de l'organisation : ils sont sur l'accueil (OrgHeader, src/pages/Home.tsx), plus ici.
+ */
 function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
-  useThemeVersion()
-  const { name, logo } = currentAppearance()
+  const { name } = useAppBrand()
   return (
-    <GuardedLink to="/" className={`text-sm font-extrabold tracking-widest ${className}`}>
-      {/* Nom et petit logo de l'installation (Réglages → Style de l'installation) ; sans nom : HANDBASE. */}
-      {logo && <img src={logo} alt="" className={`h-7 w-auto max-w-28 object-contain ${stacked ? 'mb-1.5 block' : 'mr-2 inline-block align-middle'}`} />}
-      {name ? <span className={`max-w-[60vw] truncate align-middle uppercase side:max-w-full ${stacked ? 'block' : 'inline-block'}`}>{name}</span> : <>HAND<span className="text-accent">BASE</span></>}
+    <GuardedLink to="/" aria-label={`${name}, accueil`} className={`leading-none ${stacked ? 'text-lg' : 'flex min-w-0 items-center gap-2 text-[17px]'} ${className}`}>
+      <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
       {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
       {TRIAL && (
-        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] tracking-wider text-black ${stacked ? 'mt-1 block w-fit' : 'ml-2'}`}>{TRIAL_LABEL}</span>
+        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider whitespace-nowrap text-black ${stacked ? 'mt-2.5 block w-fit' : 'shrink-0'}`}>
+          {/* Téléphone étroit : libellé court, pour que le nom de l'appli reste entier (la bande orange du haut reste). */}
+          {stacked ? TRIAL_LABEL : <><span className="min-[480px]:hidden">{DEMO ? 'DÉMO' : 'ESSAI'}</span><span className="hidden min-[480px]:inline">{TRIAL_LABEL}</span></>}
+        </span>
       )}
     </GuardedLink>
   )
@@ -203,7 +209,7 @@ function UpdateBanner() {
   return (
     <div className="no-print fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
       <div className="flex w-full items-center gap-3 rounded-lg border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
-        <span className="min-w-0 flex-1">Nouvelle version de HandBase disponible.</span>
+        <span className="min-w-0 flex-1">Nouvelle version de {appName()} disponible.</span>
         <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
           Mettre à jour
         </button>

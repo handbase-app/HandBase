@@ -27,6 +27,7 @@ import {
 } from '../groupExport'
 import { useRegionLabel } from '../lists'
 import { can } from '../roles'
+import { appName } from '../appBrand'
 
 /*
  * « Exporter en PDF » d'un groupe (/groupes/:id/rapport) : une feuille A4 à imprimer ou enregistrer en PDF
@@ -387,7 +388,7 @@ export function GroupReport() {
           </section>
         )}
 
-        <p className="mt-4 border-t border-neutral-300 pt-1 text-[9px] text-neutral-600">Document édité avec HandBase — {edited}</p>
+        <p className="mt-4 border-t border-neutral-300 pt-1 text-[9px] text-neutral-600">Document édité avec {appName()} — {edited}</p>
       </article>
     </div>
   )

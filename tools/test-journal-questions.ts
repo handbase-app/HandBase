@@ -197,7 +197,8 @@ assert.equal(filterEntries(rows, 'toutes').length, 9)
 
 const md = copyForClaude(rows, '2026-10-14')
 console.log(md)
-assert.ok(md.startsWith('# HandBase : questions posées au bilan'))
+assert.ok(md.startsWith('# Nextar : questions posées au bilan'), 'nom de l’appli par défaut')
+assert.ok(copyForClaude(rows, '2026-01-01', 'Autre Nom').startsWith('# Autre Nom : questions posées au bilan'), 'nom de l’appli réglé')
 assert.ok(md.includes('9 questions au journal · 5 questions à traiter en 4 formes · relevé du 2026-10-14'))
 const [todo, freq] = md.split('## Questions les plus fréquentes')
 // 1. Ratés à traiter, ratés d'abord.
