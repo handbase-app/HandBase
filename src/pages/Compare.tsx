@@ -5,7 +5,7 @@ import { BackButton } from '../backNav'
 import { COMPARE_MAX } from '../components/ComparePick'
 import { CLEAR, criterionMean, measureDirection, playerScore, TIE } from '../compare'
 import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, type Criterion, type Evaluation, type Measurement, type Player } from '../db'
-import { snapshots } from '../components/MaturityCard'
+import { snapshots } from '../maturitySnapshot'
 import { latestByPlayer } from './Players'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
 

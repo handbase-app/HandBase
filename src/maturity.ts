@@ -5,6 +5,13 @@
  *  - Mirwald et al. (2002) Med Sci Sports Exerc 34(4):689-694 — décalage par rapport au pic de croissance (PHV).
  *  - Moore et al. (2015) Med Sci Sports Exerc 47(8):1755-1764 — version simplifiée de Mirwald.
  *    Équations reproduites dans Kozieł & Malina (2018), PMC5752743.
+ *  - Fransen et al. (2018) Pediatr Exerc Sci 30(2):296-307 — « maturity ratio » (âge / âge au pic), GARÇONS seulement
+ *    (construit sur Mirwald + 1 330 footballeurs belges de 8 à 17 ans). Coefficients à pleine précision relus sur le
+ *    manuscrit accepté des auteurs (dépôt UTS, opus.lib.uts.edu.au/handle/10453/110385, équation l. 264-270) et sur
+ *    Salter et al. (2021) Sci Med Football, annexe 1 (ray.yorksj.ac.uk/id/eprint/5319), recoupés par la fiche NOC*NSF
+ *    « biologische leeftijd » (2021). DOI 10.1123/pes.2017-0009. Constante POSITIVE (PMC8343060 imprime un moins
+ *    par erreur). Taille³ :
+ *    −0,000001656585 (l'arrondi à 0,000002 décale le ratio de plus de 1, donc inutilisable).
  *  - Khamis & Roche (1994) Pediatrics 94:504-507, coefficients du poids corrigés par l'erratum
  *    Pediatrics 1995;95:457 (table reprise de uwmsk.org/stature.html, université de Washington).
  *  - Epstein et al. (1995) : correction des tailles parentales déclarées (surestimées).
@@ -50,6 +57,43 @@ export function moore({ sex, age, height, sitting }: OffsetInput): number {
   if (sitting !== undefined) return -8.128741 + 0.0070346 * age * sitting
   return -7.999994 + 0.0036124 * age * height
 }
+
+/**
+ * Fransen 2018 (garçons) : ratio de maturité = âge / âge au pic. Renvoie le décalage (âge − âge au pic), comme
+ * Mirwald et Moore. Nécessite taille, taille assise (jambes = taille − assise) et poids. Filles : non applicable.
+ */
+export function fransenRatio({ sex, age, height, sitting, weight }: OffsetInput): number | null {
+  if (sex !== 'M' || sitting === undefined || weight === undefined) return null
+  const leg = height - sitting
+  if (leg <= 0) return null
+  return (
+    6.986547255416 +
+    0.115802846632 * age +
+    0.001450825199 * age ** 2 +
+    0.004518400406 * weight -
+    0.000034086447 * weight ** 2 -
+    0.151951447289 * height +
+    0.000932836659 * height ** 2 -
+    0.000001656585 * height ** 3 +
+    0.032198263733 * leg -
+    0.000269025264 * leg ** 2 -
+    0.000760897942 * height * age
+  )
+}
+export function fransen(input: OffsetInput): number | null {
+  const r = fransenRatio(input)
+  if (r === null || r <= 0) return null
+  return input.age - input.age / r
+}
+
+/** Moyenne des décalages disponibles (Mirwald, Moore, Fransen) et nombre de modèles utilisés. */
+export function meanOffset(offsets: (number | null)[]): { offset: number; n: number } | null {
+  const v = offsets.filter((x): x is number => x !== null && Number.isFinite(x))
+  return v.length ? { offset: v.reduce((a, b) => a + b, 0) / v.length, n: v.length } : null
+}
+
+/** Taille assise plausible : 45 à 60 % de la taille (au-delà, le banc a sans doute été compté). */
+export const sittingPlausible = (height: number, sitting: number) => sitting / height >= 0.45 && sitting / height <= 0.6
 
 /** Âge moyen au pic de croissance (populations de référence) et écart-type approximatif. */
 export const MEAN_APHV: Record<Sex, number> = { M: 13.8, F: 11.8 }
