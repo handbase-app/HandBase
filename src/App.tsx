@@ -105,7 +105,7 @@ function SyncBadge() {
     <button
       onClick={() => void syncNow()}
       title={lastError || (state === 'local' ? 'Données enregistrées sur cet appareil uniquement' : '')}
-      className="flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
+      className="sync-badge flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
     >
       <span className={`h-2 w-2 rounded-full ${warn ? 'bg-amber-400' : map.dot}`} />
       {map.text}

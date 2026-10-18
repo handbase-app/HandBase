@@ -165,6 +165,15 @@ export async function syncNow({ retry = false } = {}): Promise<void> {
 
 async function run() {
   try {
+    await runOnce()
+  } finally {
+    runs++
+    listeners.forEach((l) => l())
+  }
+}
+
+async function runOnce() {
+  try {
     const { data, error } = await supabase!.auth.getSession()
     // Session expirée, pas renouvelable faute de réseau : on reste hors ligne (voir AuthGate).
     if (!data.session) return setState(isAuthRetryableFetchError(error) ? 'offline' : 'login')
@@ -654,6 +663,23 @@ export function startSync() {
   setInterval(() => void syncNow(), 60_000)
   void syncNow()
 }
+
+/** Nombre de synchronisations terminées depuis le lancement (réussies ou non) : l'écran d'ouverture attend la première. */
+let runs = 0
+
+/** État de la synchro hors React (écran d'ouverture, src/splashScreen.ts). */
+export const syncSnapshot = () => ({ state, progress, runs })
+
+/** Abonnement hors React ; renvoie la fonction de désabonnement. */
+export function subscribeSync(l: () => void) {
+  listeners.add(l)
+  return () => {
+    listeners.delete(l)
+  }
+}
+
+/** Appareil encore jamais synchronisé (aucune table reçue) : le premier chargement va tout télécharger. */
+export const deviceEmpty = () => !SYNC_TABLES.some((t) => store.get(PULL_KEY(t)))
 
 export function useSyncState() {
   const [, force] = useState(0)
