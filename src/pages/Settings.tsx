@@ -84,9 +84,18 @@ export default function Settings() {
           <NotificationSettings />
         </Fold>
       )}
-      <DictationSetting />
+      {/* Ordre voulu (18/10) : compte, notifications, apparence, dictée, version, puis le reste ; confidentialité en dernier. */}
       <ApparenceFold />
+      <DictationSetting />
       <UpdateCheck />
+
+      {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
+      {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
+      {!admin && (
+        <Fold id="structure" icon="globe" title="Structure et sport" summary="Niveaux, unités, postes (lecture seule)">
+          <StructureSettings editable={false} />
+        </Fold>
+      )}
       <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Droits des familles, charte du staff">
   <div className="flex gap-2">
           <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
@@ -97,14 +106,6 @@ export default function Settings() {
           </Link>
         </div>
       </Fold>
-
-      {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
-      {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
-      {!admin && (
-        <Fold id="structure" icon="globe" title="Structure et sport" summary="Niveaux, unités, postes (lecture seule)">
-          <StructureSettings editable={false} />
-        </Fold>
-      )}
       </div>
 
       {admin && (
@@ -556,9 +557,6 @@ function Account() {
         {lastError && ` — ${lastError}`}
       </p>
       <div className="flex gap-2">
-        <button className="btn-ghost flex-1 text-xs" onClick={() => void syncNow({ retry: true })}>
-          Synchroniser maintenant
-        </button>
         <button className="btn-ghost flex-1 text-xs" disabled={busy} onClick={() => void logout()}>
           {busy ? 'Envoi…' : 'Se déconnecter'}
         </button>
@@ -593,7 +591,7 @@ function useImportBlock(): string | null {
   if (state === 'local') return null // pas de serveur : la base de l'appareil est la seule
   if (state === 'offline') return 'Import impossible hors ligne : connecte-toi à internet pour que la base soit à jour avant d’importer.'
   if (state === 'login') return 'Connecte-toi d’abord : l’import doit partir de la base à jour.'
-  if (state === 'error') return 'La synchronisation a échoué : utilise « Synchroniser maintenant » et attends qu’elle réussisse avant d’importer.'
+  if (state === 'error') return 'La synchronisation a échoué : touche la pastille de synchronisation en haut de l’écran et attends qu’elle réussisse avant d’importer.'
   if (state === 'syncing' || !caughtUp) return 'Synchronisation en cours… L’import sera possible dès que toute la base sera à jour sur cet appareil.'
   if (outbox > 0)
     return `${plural(outbox, 'modification attend', 'modifications attendent')} d’être envoyée${outbox > 1 ? 's' : ''} au serveur : garde l’appli ouverte et en ligne, l’import sera possible ensuite.`
