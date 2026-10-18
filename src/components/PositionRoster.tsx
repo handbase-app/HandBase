@@ -86,7 +86,17 @@ export function RosterSectionList({ sections, row }: { sections: RosterSection[]
     <>
       {sections.map((sec) => (
         <Fragment key={sec.start}>
-          {sec.heading && (
+          {sec.heading && sec.team && (
+            // Équipe d'un tournoi : bandeau plus gros, filet de couleur à gauche, pour bien séparer les équipes.
+            <div className={`mt-4 flex flex-wrap items-baseline gap-x-2 rounded-md border-l-4 bg-panel-2 px-3 py-2 first:mt-1 ${sec.mine ? 'border-accent' : 'border-fg/40'}`}>
+              <span className={`text-sm font-extrabold tracking-wide uppercase ${sec.mine ? 'text-accent' : ''}`}>
+                {sec.heading}
+                {sec.mine && <span className="ml-1.5 rounded bg-accent px-1 align-middle text-[9px] text-white normal-case">mon équipe</span>}
+              </span>
+              {sec.info && <span className="text-[11px] text-muted">{sec.info}</span>}
+            </div>
+          )}
+          {sec.heading && !sec.team && (
             <div className={`section-title mt-2 mb-0 flex flex-wrap items-baseline gap-x-2 ${sec.mine ? 'text-accent' : ''}`}>
               <span>
                 {sec.heading}

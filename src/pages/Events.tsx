@@ -263,6 +263,7 @@ function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]
     const obs = t.id ? teamObservers(ev, t.id) : []
     const head = {
       heading: t.name,
+      team: true,
       mine,
       info: [`${seen} sur ${players.length} vus`, obs.length ? `suivie par ${obs.map(name).join(', ')}` : ''].filter(Boolean).join(' · '),
     }
