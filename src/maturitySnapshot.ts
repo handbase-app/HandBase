@@ -3,8 +3,11 @@
 import type { Measurement, Player } from './db'
 import { correctedParentHeight, decimalAge, fransen, khamisRoche, meanOffset, mirwald, moore, type KRResult } from './maturity'
 
-/** Écart maximal (jours) entre la taille et la taille assise / le poids utilisés avec elle. */
-export const PAIR_MAX_DAYS = 120
+/**
+ * Écart maximal (jours) entre la taille et la taille assise / le poids utilisés avec elle : 0, même jour. Un jeune peut
+ * prendre 10 cm en deux mois (vacances d'été) : une taille assise d'une autre date fausse les jambes calculées.
+ */
+export const PAIR_MAX_DAYS = 0
 
 const dayDiff = (a: string, b: string) => Math.abs(new Date(a + 'T00:00:00').getTime() - new Date(b + 'T00:00:00').getTime()) / 86_400_000
 
@@ -17,7 +20,7 @@ function valueAt(ms: Measurement[], criterionId: string, date: string): number |
 }
 
 /**
- * Mesure d'un critère la plus proche d'une date, à au plus PAIR_MAX_DAYS jours avant ou après (à égalité, la plus
+ * Mesure d'un critère prise à la même date (PAIR_MAX_DAYS jours d'écart au plus, avant ou après ; à égalité, la plus
  * ancienne). Les équations supposent taille, taille assise et poids pris ensemble : on n'associe pas une taille
  * d'aujourd'hui à une taille assise d'il y a un an (les jambes calculées seraient fausses).
  */
@@ -40,7 +43,7 @@ export interface Snapshot {
   date: string
   age: number
   height: number
-  /** Taille assise et poids retenus avec cette taille (pris à moins de PAIR_MAX_DAYS jours), s'il y en a. */
+  /** Taille assise et poids retenus avec cette taille (pris le même jour), s'il y en a. */
   sitting?: number
   weight?: number
   mirwald: number | null

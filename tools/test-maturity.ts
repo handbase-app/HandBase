@@ -96,10 +96,11 @@ const player = { id: 'p1', firstName: 'Test', lastName: 'Fictif', sex: 'M', birt
   near(s.mean.offset, (s.mirwald! + s.moore + s.fransen!) / 3, 'snapshot moyenne', 1e-9)
 }
 {
-  // Poids pris 10 jours APRÈS la taille : retenu (avant, seule une mesure antérieure comptait).
+  // Poids pris 10 jours après la taille : pas retenu (même jour seulement) → Mirwald et Fransen impossibles, Moore seul.
   const [s] = snapshots(player, [m('taille', '2025-01-01', 155), m('taille_assise', '2025-01-01', 80), m('poids', '2025-01-11', 45)])
-  assert.equal(s.weight, 45)
-  assert.equal(s.mean.n, 3)
+  assert.equal(s.weight, undefined)
+  assert.equal(s.mirwald, null)
+  assert.equal(s.mean.n, 1)
 }
 {
   // Taille assise d'un an plus tôt : pas mélangée avec la taille d'aujourd'hui → Moore (taille debout) seul.

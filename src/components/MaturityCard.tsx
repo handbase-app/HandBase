@@ -44,8 +44,8 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
             les joueurs très précoces ou très tardifs.
           </p>
           <p>
-            Mirwald et Fransen demandent la taille, la taille assise (sans le banc) et le poids, pris le même jour ou à moins de 4 mois
-            d’écart ; Moore n’utilise que l’âge et une taille.
+            Mirwald et Fransen demandent la taille, la taille assise (sans le banc) et le poids, pris <b>le même jour</b> (un jeune
+            peut prendre 10 cm en deux mois) ; Moore n’utilise que l’âge et une taille.
           </p>
           <p>
             <b>Taille adulte prédite</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa

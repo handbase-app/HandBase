@@ -178,6 +178,8 @@ export async function loadDemo() {
       dorsi_g: t1.dorsi_g + Math.round(prog),
       dorsi_d: t1.dorsi_d + Math.round(prog),
     }
+    // Taille assise reprise le même jour que la taille (Mirwald et Fransen n'associent que des mesures du même jour).
+    t2.taille_assise = round((t1.taille_assise * t2.taille) / t1.taille, 1)
     for (const [k, v] of Object.entries(t2)) add(k, v, '2026-09-21')
 
     // ----- Niveau « réel » pour les avis subjectifs -----
