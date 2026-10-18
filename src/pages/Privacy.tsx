@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { BackButton } from '../backNav'
+import { appName } from '../appBrand'
 
 /*
  * Confidentialité (information des joueurs et de leurs familles) et charte d'utilisation (staff).
@@ -17,7 +18,7 @@ export function PrivacyText() {
   return (
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>
-        HandBase est l’outil du staff de détection pour suivre les jeunes joueuses et joueurs de handball : tests physiques, avis
+        {appName()} est l’outil du staff de détection pour suivre les jeunes joueuses et joueurs de handball : tests physiques, avis
         du staff, participation aux rassemblements. Cette page explique quelles données sont enregistrées, pourquoi, qui
         les voit et comment exercer vos droits (Règlement général sur la protection des données, RGPD).
       </p>
@@ -75,7 +76,7 @@ export function PrivacyText() {
 export function CharterText() {
   return (
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
-      <p>HandBase contient des informations sur des mineurs. En utilisant l’application, je m’engage à :</p>
+      <p>{appName()} contient des informations sur des mineurs. En utilisant l’application, je m’engage à :</p>
 
       <H>1. Ne rien écrire sur la santé</H>
       <p>
@@ -120,7 +121,7 @@ export function QuestionsText() {
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>
         Pendant la phase de développement, les questions posées au bilan de détection (« Poser une question ») peuvent être
-        enregistrées pour améliorer HandBase.
+        enregistrées pour améliorer {appName()}.
       </p>
       <H>Quoi ?</H>
       <p>

@@ -231,9 +231,9 @@ export const NAME_MAX = 40
 
 export interface Appearance {
   style: StyleId
-  /** Nom affiché dans l'en-tête à la place de HANDBASE. */
+  /** Nom de l'organisation (fédération, ligue…), en tête de l'accueil ; sinon l'unité au sommet de la structure. */
   name?: string
-  /** Petit logo (data URL PNG, JPEG, WebP ou SVG vérifié : svgLogoSafe). */
+  /** Logo de l'organisation, sur l'accueil (data URL PNG, JPEG, WebP ou SVG vérifié : svgLogoSafe). L'appli garde le sien (Nextar). */
   logo?: string
 }
 
@@ -269,7 +269,8 @@ export const svgDataUrl = (svg: string) => {
   for (const x of bytes) bin += String.fromCharCode(x)
   return `data:image/svg+xml;base64,${btoa(bin)}`
 }
-function logoOk(v: string): boolean {
+/** Logo acceptable (organisation, appli : src/appBrandCore.ts) : data URL PNG, JPEG, WebP, ou SVG sûr ; taille limitée. */
+export function logoOk(v: string): boolean {
   if (v.length > LOGO_MAX_CHARS) return false
   if (LOGO_RE.test(v)) return true
   const m = SVG_RE.exec(v)

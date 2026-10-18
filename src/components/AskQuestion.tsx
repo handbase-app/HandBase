@@ -7,6 +7,7 @@ import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
 import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon } from './ui'
+import { appName } from '../appBrand'
 
 /*
  * « Poser une question » au bilan de détection : le coach touche « micro ✨ Poser une question » et parle (« les joueuses
@@ -129,7 +130,7 @@ export function AskQuestion({ className = '' }: { className?: string }) {
         <div className="text-[10px] text-muted">Réponse calculée sur cet appareil ; seule la phrase est envoyée pour être comprise, jamais les données des joueurs.</div>
       )}
       <p className="text-[10px] text-muted">
-        Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer HandBase.{' '}
+        Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
         <Link to="/confidentialite#questions" className="underline">
           Confidentialité
         </Link>

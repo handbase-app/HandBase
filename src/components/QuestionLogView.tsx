@@ -16,6 +16,7 @@ import {
 } from '../questionLogCore'
 import { ask } from './Confirm'
 import { Icon, Segmented } from './ui'
+import { appName } from '../appBrand'
 
 /*
  * Réglages > « Journal des questions » (administrateurs) : TOUTES les questions de « Poser une question » (src/questionLog.ts),
@@ -107,7 +108,7 @@ export function QuestionLogView() {
   const todo = count('a_traiter')
 
   async function copy() {
-    const text = copyForClaude(all!)
+    const text = copyForClaude(all!, undefined, appName())
     try {
       await navigator.clipboard.writeText(text)
       setCopied(`Copié : ${todo} question${todo > 1 ? 's' : ''} à traiter et les plus fréquentes, prêtes à coller dans une conversation avec Claude.`)

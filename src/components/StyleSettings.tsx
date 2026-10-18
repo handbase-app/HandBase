@@ -196,7 +196,7 @@ function StyleTile({ s, on, light, onPick }: { s: UiStyle; on: boolean; light: b
 }
 
 /** Image choisie → petit logo (data URL ≤ LOGO_MAX_CHARS), réduit sur l'appareil. */
-async function shrinkLogo(file: File): Promise<string | null> {
+export async function shrinkLogo(file: File): Promise<string | null> {
   // SVG : gardé tel quel (net à toutes les tailles), seulement s'il est sûr et léger (blancs entre balises retirés).
   if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)) {
     try {
@@ -241,7 +241,7 @@ async function shrinkLogo(file: File): Promise<string | null> {
 }
 
 /**
- * Style de l'installation (administrateurs) : 4 vignettes, nom affiché, petit logo. Choisir montre l'aperçu sur cet
+ * Style de l'installation (administrateurs) : 4 vignettes, puis nom et logo de l'organisation (accueil). Choisir montre l'aperçu sur cet
  * appareil ; « Appliquer à l'installation » l'enregistre pour tous (synchronisé).
  */
 export function InstallationStyle({ editable }: { editable: boolean }) {
@@ -289,25 +289,31 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
           <StyleTile key={s.id} s={s} light={light} on={draft.style === s.id} onPick={() => editable && setDraft({ ...draft, style: s.id })} />
         ))}
       </div>
+      {/* Identité de l'organisation (fédération, ligue…), distincte de celle de l'appli (Nextar, fixe : src/components/Brand.tsx). */}
+      <div className="mt-1 flex flex-col gap-0.5 border-t border-line pt-3">
+        <h3 className="text-sm font-bold">Organisation : nom et logo</h3>
+        <p className="text-[11px] text-muted">Par exemple le logo de votre fédération ; affiché sur l’accueil et les rapports.</p>
+      </div>
       <div className="flex flex-col gap-1">
         <label className="label" htmlFor="style-name">
-          Nom affiché (en-tête)
+          Nom de l’organisation
         </label>
         <input
           id="style-name"
           className="field"
           disabled={!editable}
           maxLength={NAME_MAX}
-          placeholder="HANDBASE"
+          placeholder="Sinon : l’unité au sommet de la structure"
           value={draft.name ?? ''}
           onChange={(e) => setDraft({ ...draft, name: e.target.value || undefined })}
         />
       </div>
       <div className="flex flex-col gap-1">
-        <span className="label">Logo (facultatif)</span>
+        <span className="label">Logo de l’organisation (facultatif)</span>
         <div className="flex items-center gap-3">
-          <span className="flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line bg-panel-2">
-            {draft.logo ? <img src={draft.logo} alt="Logo" className="max-h-10 max-w-22 object-contain" /> : <span className="text-[10px] text-muted">aucun</span>}
+          {/* Fond blanc, comme sur l'accueil. */}
+          <span className="flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line bg-white">
+            {draft.logo ? <img src={draft.logo} alt="Logo" className="max-h-10 max-w-22 object-contain" /> : <span className="text-[10px] text-neutral-500">aucun</span>}
           </span>
           {editable && (
             <>
@@ -323,7 +329,7 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
             </>
           )}
         </div>
-        <p className="text-[11px] text-muted">Réduit sur cet appareil (50 Ko au plus), montré dans l’en-tête à côté du nom.</p>
+        <p className="text-[11px] text-muted">Réduit sur cet appareil (50 Ko au plus), montré en grand sur l’accueil, sur fond blanc. SVG ou PNG carré de préférence.</p>
       </div>
       {changed && editable && (
         <div className="sticky bottom-[calc(var(--nav-b)+0.5rem)] flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-panel p-2 text-xs shadow-lg">

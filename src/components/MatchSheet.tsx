@@ -27,6 +27,7 @@ import { actionLabel, calibrated, plural, sideName, useActionWho } from './match
 import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
 import { applyCalibration, refreshMoments, updateSync, type GenerateResult } from '../matchSync'
+import { appName } from '../appBrand'
 
 /*
  * Feuille de match FFHB (src/matchSheet.ts) : import dans un événement (ou création d'un match), vérification avant
@@ -289,7 +290,7 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
         {/* Événement : compléter celui du même code plutôt qu'en créer un second. */}
         {!event && dup.length > 0 && (
           <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-            <span className="font-bold text-amber-200">Ce match est déjà dans HandBase (même code rencontre).</span>
+            <span className="font-bold text-amber-200">Ce match est déjà dans {appName()} (même code rencontre).</span>
             {dup.map((e) => (
               <label key={e.id} className={`flex items-center gap-2 ${can.editEvent(role, e) ? '' : 'opacity-60'}`}>
                 <input type="radio" name="target" checked={target === e.id} disabled={!can.editEvent(role, e)} onChange={() => setTarget(e.id)} />

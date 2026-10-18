@@ -6,6 +6,7 @@ import { departmentLabel } from './lists'
 import { snapshots } from './components/MaturityCard'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
+import { appName, appSlug } from './appBrand'
 
 const esc = (v: unknown) => {
   let s = v === undefined || v === null ? '' : String(v)
@@ -88,7 +89,7 @@ export async function exportCsv(only?: { id: string }[]) {
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
-  download(`handbase-joueurs-${today()}.csv`, csv, 'text/csv;charset=utf-8')
+  download(`${appSlug()}-joueurs-${today()}.csv`, csv, 'text/csv;charset=utf-8')
 }
 
 /** Sauvegarde complète (JSON) de la base locale. */
@@ -112,7 +113,7 @@ export async function exportBackup() {
     units: await db.units.toArray(),
     assignments: await db.assignments.toArray(),
   }
-  download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
+  download(`${appSlug()}-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
 
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
@@ -219,13 +220,13 @@ export async function exportPlayer(id: string) {
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Données HandBase – ${h(name)}</title><style>
+<title>Données ${h(appName())} – ${h(name)}</title><style>
 body{font:14px/1.45 system-ui,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;color:#111}
 h1{font-size:20px;margin:0}h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #ccc;padding-bottom:4px}
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f3f3f3}
 .m{color:#666}.avis{border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin:8px 0}.avis ul{margin:4px 0;padding-left:18px}
 </style></head><body>
-<h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans HandBase, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
+<h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans ${h(appName())}, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
 <h2>Fiche</h2>${table(['Information', 'Valeur'], info.filter(([, v]) => v !== undefined && v !== null && v !== ''))}
 <h2>Mesures et tests (${meas.length})</h2>${table(['Date', 'Test', 'Valeur', 'Commentaire', 'Saisi par'], meas)}
 <h2>Avis du staff (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
@@ -236,7 +237,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
-  download(`handbase-donnees-${file}.html`, html, 'text/html;charset=utf-8')
+  download(`${appSlug()}-donnees-${file}.html`, html, 'text/html;charset=utf-8')
 }
 
 /** Colonnes « Pôle Espoirs » du CSV : une valeur par période, séparées par « ; » (dates JJ/MM/AAAA). */

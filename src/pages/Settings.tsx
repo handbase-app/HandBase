@@ -30,6 +30,8 @@ import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, save
 import { useDictation } from '../dictation/useDictation'
 import { useThemeVersion } from '../theme'
 import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
+import { AppBrandSettings } from '../components/AppBrandSettings'
+import { appName } from '../appBrand'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -125,8 +127,12 @@ export default function Settings() {
           <Fold id="structure" icon="globe" title="Structure et sport" summary="Postes, niveaux, unités, affectations">
             <StructureSettings editable={can.editStructure(role)} />
           </Fold>
-          {/* Style de l'installation (polices, arrondis, couleurs, nom, logo) : configuration partagée, src/uiStyle.ts. */}
-          <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo">
+          {/* Nom et logos de l'appli (Nextar par défaut) : configuration partagée, clé « appli », src/appBrandCore.ts. */}
+          <Fold id="appli" icon="star" title="Appli : nom et logo" summary={appName()}>
+            <AppBrandSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Style de l'installation (polices, arrondis, couleurs ; nom et logo de l'organisation) : configuration partagée, src/uiStyle.ts. */}
+          <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo de l’organisation">
             <InstallationStyle editable={can.editStructure(role)} />
           </Fold>
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
@@ -238,7 +244,7 @@ function NotificationSettings() {
     return (
       <p className="text-xs">
         Sur iPhone, les notifications marchent seulement dans l’appli <b>ajoutée à l’écran d’accueil</b> (Safari → Partager → « Sur l’écran
-        d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite HandBase depuis l’écran d’accueil et reviens ici.
+        d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite {appName()} depuis l’écran d’accueil et reviens ici.
       </p>
     )
   if (support === 'unsupported') return <p className="text-xs text-muted">Ce navigateur ne permet pas les notifications.</p>
@@ -504,7 +510,7 @@ function Account() {
     const ok = await ask(
       pending
         ? `${pending} modification(s) pas encore envoyée(s) au serveur (hors ligne, ou refusée(s)) seront PERDUES. Pour les garder, reste connecté et synchronise une fois en ligne (voir l’état de la synchronisation). Se déconnecter quand même ?`
-        : 'Se déconnecter ? Les données HandBase seront effacées de cet appareil ; elles restent sur le serveur et reviendront à la prochaine connexion.',
+        : `Se déconnecter ? Les données ${appName()} seront effacées de cet appareil ; elles restent sur le serveur et reviendront à la prochaine connexion.`,
       { ok: pending ? 'Perdre et se déconnecter' : 'Se déconnecter' },
     )
     if (ok) await wipeDevice({ signOut: true })

@@ -5,6 +5,7 @@ import { ask } from './Confirm'
 import { fold } from './PlayerFilter'
 import { Icon, SectionTitle, Segmented } from './ui'
 import { ZonePicker } from './ZonePicker'
+import { appName } from '../appBrand'
 
 /*
  * Membres du staff (administrateurs) : créer, modifier, supprimer des observateurs et des encadrants,
@@ -133,7 +134,7 @@ function accessMessage(a: Access) {
   return [
     `Bonjour ${first},`,
     '',
-    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff.' : 'Voici un lien pour changer ton mot de passe HandBase.',
+    a.isNew ? `Voici ton accès à ${appName()}, l’appli du staff.` : `Voici un lien pour changer ton mot de passe ${appName()}.`,
     a.isNew
       ? 'Clique sur ce lien pour te connecter (valable 24 h), puis choisis ton mot de passe :'
       : 'Clique dessus (valable 24 h), puis choisis ton nouveau mot de passe :',
@@ -152,7 +153,7 @@ function accessMessage(a: Access) {
 /** Envoyer l'accès avec l'écran de partage du téléphone (le message part de l'appareil de l'administrateur). */
 function AccessShare({ access, onClose }: { access: Access; onClose: () => void }) {
   const text = accessMessage(access)
-  const subject = 'Ton accès à HandBase'
+  const subject = `Ton accès à ${appName()}`
   const canShare = typeof navigator.share === 'function'
   const phone = access.phone.replace(/[^\d+]/g, '')
   const [copied, setCopied] = useState(false)

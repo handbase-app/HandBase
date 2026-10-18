@@ -1,6 +1,7 @@
 import { db, saveMany, today, type Criterion } from './db'
 import { COLUMNS, parseCsv, parseRows, rowsFromJson, toCsv, toJson, toSheets, type CriterionFields, type ParsedFile, type RowError } from './criteriaFormat'
 import { readXlsx, writeXlsx } from './xlsx'
+import { appSlug } from './appBrand'
 
 /*
  * Import / export des critères par les administrateurs (Réglages > Critères et listes).
@@ -165,7 +166,7 @@ function download(name: string, content: BlobPart, type: string) {
 /** Exporte tous les critères de l'appareil (masqués compris), dans le format de l'import. */
 export async function exportCriteria(format: 'xlsx' | 'csv' | 'json') {
   const list = (await db.criteria.toArray()).filter((c) => !c.deleted)
-  const name = `handbase-criteres-${today()}`
+  const name = `${appSlug()}-criteres-${today()}`
   if (format === 'xlsx')
     download(`${name}.xlsx`, writeXlsx(toSheets(list)) as Uint8Array<ArrayBuffer>, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   else if (format === 'csv') download(`${name}.csv`, toCsv(list), 'text/csv;charset=utf-8')
