@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
@@ -23,7 +23,8 @@ import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
-import { filterRoster, isMine, ROSTER_GROUPS, ROSTER_SORTS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort, type RosterSort } from '../rosterOrder'
+import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
+import { RosterChip, RosterControls, RosterSectionList } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { PageHeader } from '../components/PageHeader'
 import { MQ, useMedia, useWidth } from '../layout'
@@ -601,7 +602,6 @@ export function EventDetail() {
   // Titres de poste, sauf si aucun joueur n'a de poste (un seul titre « Sans poste » n'apporterait rien).
   const withHeadings = roster.some((p) => p.position)
   const nNotedInRoster = roster.filter((p) => notedByMe.has(p.id)).length
-  const rosterPositions = POSITIONS.filter((x) => roster.some((p) => p.position === x.id))
   // « Évaluer » ouvre le premier joueur que je n'ai pas encore noté, dans l'ordre choisi.
   // Avec un filtre, seulement parmi les joueurs affichés.
   const firstToRate = shownRoster.find((p) => !notedByMe.has(p.id)) ?? shownRoster[0]
@@ -989,50 +989,38 @@ export function EventDetail() {
                   </div>
                 )}
                 {roster.length > 1 && (
-                  <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
-                    {tTeams.length > 0 && (
-                      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-                        {ROSTER_GROUPS.map(({ value: v, label }) => (
-                          <button
-                            key={v}
-                            onClick={() => setGroupBy(v)}
-                            aria-pressed={groupBy === v}
-                            className={`min-h-8 flex-1 px-1 py-1 leading-tight ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {!byTeam && (
-                      <label className="flex items-center gap-2 text-xs">
-                        <span className="shrink-0 font-bold text-muted">Dans chaque poste, trier par</span>
-                        <select className="field flex-1 py-1 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
-                          {ROSTER_SORTS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
+                  <RosterControls
+                    roster={roster}
+                    sort={sort}
+                    setSort={setSort}
+                    pos={posFilter}
+                    setPos={setPosFilter}
+                    showSort={!byTeam}
+                    top={
+                      tTeams.length > 0 && (
+                        <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                          {ROSTER_GROUPS.map(({ value: v, label }) => (
+                            <button
+                              key={v}
+                              onClick={() => setGroupBy(v)}
+                              aria-pressed={groupBy === v}
+                              className={`min-h-8 flex-1 px-1 py-1 leading-tight ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}
+                            >
+                              {label}
+                            </button>
                           ))}
-                        </select>
-                      </label>
-                    )}
-                    <div className="flex flex-wrap gap-1">
-                      {nNotedInRoster > 0 && (
-                        <Chip on={hideNoted} onClick={() => setHideNoted(!hideNoted)}>
+                        </div>
+                      )
+                    }
+                    chips={
+                      nNotedInRoster > 0 && (
+                        <RosterChip on={hideNoted} onClick={() => setHideNoted(!hideNoted)}>
                           Masquer ceux que j’ai notés ({nNotedInRoster})
-                        </Chip>
-                      )}
-                      {rosterPositions.length > 1 &&
-                        rosterPositions.map((x) => (
-                          <Chip key={x.id} on={posFilter === x.id} onClick={() => setPosFilter(posFilter === x.id ? '' : x.id)}>
-                            {x.short} ({roster.filter((p) => p.position === x.id).length})
-                          </Chip>
-                        ))}
-                    </div>
-                    <p className="text-[10px] text-muted">
-                      La notation (flèches, glisser) suit cet ordre{filtered ? ' et ne propose que les joueurs affichés' : ''}.
-                    </p>
-                  </div>
+                        </RosterChip>
+                      )
+                    }
+                    note={`La notation (flèches, glisser) suit cet ordre${filtered ? ' et ne propose que les joueurs affichés' : ''}.`}
+                  />
                 )}
                 {shownRoster.length === 0 && (
                   <Empty>{hideNoted ? 'Tu as noté tous les joueurs affichés.' : 'Aucun joueur à ce poste.'}</Empty>
@@ -1041,21 +1029,9 @@ export function EventDetail() {
                   <Empty>{cover === 'pasvus' ? 'L’équipe a vu tous les joueurs affichés.' : 'Aucun joueur pour ce filtre.'}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
-                {sections.map((sec) => (
-                  <Fragment key={sec.start}>
-                  {sec.heading && (
-                    <div className={`section-title mt-2 mb-0 flex flex-wrap items-baseline gap-x-2 ${sec.mine ? 'text-accent' : ''}`}>
-                      <span>
-                        {sec.heading}
-                        {sec.mine && <span className="ml-1.5 rounded bg-accent px-1 align-middle text-[9px] text-white normal-case">mon équipe</span>}
-                      </span>
-                      {sec.info && <span className="text-[10px] font-normal text-muted normal-case">{sec.info}</span>}
-                    </div>
-                  )}
-                  {sec.sub && <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
-                  <div className="cols flex flex-col gap-2">
-                {sec.players.map((p, j) => {
-                  const i = sec.start + j
+                <RosterSectionList
+                  sections={sections}
+                  row={(p, i) => {
                   const n = evals.filter((e) => e.playerId === p.id).length
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
@@ -1114,10 +1090,8 @@ export function EventDetail() {
                     {openAvis === p.id && !duo && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
                     </div>
                   )
-                })}
-                  </div>
-                  </Fragment>
-                ))}
+                  }}
+                />
               </>
             )}
           </div>
@@ -1246,19 +1220,6 @@ export function AddPlayers({
         {!filtered.length && <Empty>Aucun joueur ne correspond aux filtres.</Empty>}
       </div>
     </div>
-  )
-}
-
-/** Synthèse de fin de journée : classement par poste. */
-/** Petit bouton de filtre, allumé ou éteint. */
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel text-muted'}`}
-    >
-      {children}
-    </button>
   )
 }
 

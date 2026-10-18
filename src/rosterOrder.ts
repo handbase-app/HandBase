@@ -1,26 +1,21 @@
 import { useState } from 'react'
 import { useSessionState } from './components/PlayerFilter'
 import { getMe } from './components/ui'
-import { POSITIONS, type Evaluation, type HBEvent, type Player, type Position } from './db'
+import type { Evaluation, HBEvent, Player, Position } from './db'
 import { byNumber, myTournamentTeams, teamOf, tournamentTeams } from './scouting'
 import { currentUserId } from './roles'
+import { positionRank, rosterSections, ROSTER_SORTS, type RosterSection, type RosterSort } from './positionOrder'
+
+// Tri et découpage par poste (fonctions pures, testées par tools/test-tri-poste.ts).
+export * from './positionOrder'
 
 /*
  * Ordre de la liste des joueurs d'un événement : toujours regroupée par poste (ordre du terrain), et dans
  * chaque poste l'ordre choisi sur l'appareil pour cet événement (alphabétique par défaut).
+ * Même rangement pour la page d'un groupe de joueurs et sa colonne de contexte (clé `groupe.<id>`, groupRosterKey).
  * Événement réparti en équipes : d'abord par équipe (voir RosterGroup plus bas).
  * La notation (flèches, glisser, « joueur suivant à noter ») suit le même ordre que la page de l'événement.
  */
-
-/** Ordre à l'intérieur de chaque poste. */
-export type RosterSort = 'nom' | 'naissance' | 'club' | 'ajout'
-
-export const ROSTER_SORTS: { value: RosterSort; label: string }[] = [
-  { value: 'nom', label: 'Nom' },
-  { value: 'naissance', label: 'Naissance' },
-  { value: 'club', label: 'Club' },
-  { value: 'ajout', label: 'Ordre d’ajout' },
-]
 
 const key = (eventId: string) => `handbase.rosterSort.${eventId}`
 
@@ -60,43 +55,6 @@ export function isMine(e: Pick<Evaluation, 'observerId' | 'observer'>) {
   return uid ? e.observerId === uid : e.observer === getMe()
 }
 
-/** Rang du poste sur le terrain : gardien, ailiers et arrières de gauche à droite, pivot, puis sans poste. */
-export const positionRank = (p: Pick<Player, 'position'>) => {
-  const i = POSITIONS.findIndex((x) => x.id === p.position)
-  return i < 0 ? POSITIONS.length : i
-}
-
-const byName = (a: Player, b: Player) =>
-  a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr', { sensitivity: 'base' })
-
-/** Ordre alphabétique (NOM, puis prénom) : liste d'un groupe, et sa fiche dans le groupe (même ordre). */
-export const sortByName = (list: Player[]) => [...list].sort(byName)
-
-/** Valeur absente : toujours en fin de poste. */
-const last = (v: string | undefined) => (v ? `0${v}` : '1')
-
-/** Ordre à l'intérieur d'un poste. `added` : rang dans la liste enregistrée (ordre d'ajout). */
-function within(sort: RosterSort, added: Map<string, number>) {
-  switch (sort) {
-    case 'ajout':
-      return (a: Player, b: Player) => (added.get(a.id) ?? 0) - (added.get(b.id) ?? 0)
-    case 'naissance':
-      // Les plus âgés d'abord ; date inconnue à la fin.
-      return (a: Player, b: Player) => last(a.birthDate).localeCompare(last(b.birthDate)) || byName(a, b)
-    case 'club':
-      return (a: Player, b: Player) => last(a.club).localeCompare(last(b.club), 'fr', { sensitivity: 'base' }) || byName(a, b)
-    default:
-      return byName
-  }
-}
-
-/** Trie la liste de l'événement : par poste (ordre du terrain), puis dans chaque poste selon `sort`. */
-export function sortRoster(roster: Player[], sort: RosterSort): Player[] {
-  const added = new Map(roster.map((p, i) => [p.id, i]))
-  const inPost = within(sort, added)
-  return [...roster].sort((a, b) => positionRank(a) - positionRank(b) || inPost(a, b))
-}
-
 /**
  * Filtres de la liste d'un événement (un poste, masquer ceux que j'ai notés), gardés pendant la session
  * pour cet événement : la notation ne passe que par les joueurs affichés sur la page de l'événement.
@@ -106,14 +64,6 @@ export function useRosterFilter(eventId?: string) {
   const [pos, setPos] = useSessionState<Position | ''>(k('pos'), '')
   const [hideNoted, setHideNoted] = useSessionState(k('hide'), false)
   return { pos, setPos, hideNoted, setHideNoted, active: !!pos || hideNoted }
-}
-
-/**
- * Joueurs affichés après les filtres. `keep` : joueur en cours de notation, gardé même s'il vient d'être
- * noté (sinon il disparaîtrait de la liste au moment de passer au suivant).
- */
-export function filterRoster(roster: Player[], f: { pos: Position | ''; hideNoted: boolean }, notedByMe: Set<string>, keep?: string) {
-  return roster.filter((p) => p.id === keep || ((!f.hideNoted || !notedByMe.has(p.id)) && (!f.pos || p.position === f.pos)))
 }
 
 /**
@@ -156,23 +106,6 @@ export function teamGroups(list: Player[], ev: Pick<HBEvent, 'tournament'>, byPo
 export function groupRoster(list: Player[], ev: Pick<HBEvent, 'tournament'> | undefined, group: RosterGroup) {
   if (!ev || group === 'poste' || !tournamentTeams(ev).length) return list
   return teamGroups(list, ev, group === 'equipe-poste').flatMap((g) => g.players)
-}
-
-/**
- * Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs.
- * `sub` : poste à l'intérieur d'une équipe (liste « Par équipe et poste »).
- */
-export type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string }
-
-/** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
-export function rosterSections(list: Player[], withHeadings: boolean) {
-  const out: RosterSection[] = []
-  list.forEach((p, i) => {
-    if (i === 0 || (withHeadings && list[i - 1].position !== p.position))
-      out.push({ heading: withHeadings ? (POSITIONS.find((x) => x.id === p.position)?.label ?? 'Sans poste') : null, start: i, players: [] })
-    out[out.length - 1].players.push(p)
-  })
-  return out
 }
 
 /**

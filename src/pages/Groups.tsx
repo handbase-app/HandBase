@@ -28,7 +28,8 @@ import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
-import { sortByName } from '../rosterOrder'
+import { groupRosterKey, positionRosterView, useRosterFilter, useRosterSort } from '../rosterOrder'
+import { RosterControls, RosterSectionList } from '../components/PositionRoster'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
@@ -654,6 +655,10 @@ function PlayerGroupDetail() {
   const allGroups = useAllGroups(role).on
   // « À revoir » qui visent ce groupe (supabase/041) : trace sur la ligne du joueur, « Revu » à la main.
   const rewatch = useGroupRewatch(id)
+  // Liste rangée comme celle d'un événement : par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour
+  // ce groupe, repris par la colonne de gauche de la fiche) ; pastille d'un poste pour n'afficher que lui (session).
+  const [sort, setSort] = useRosterSort(id ? groupRosterKey(id) : undefined)
+  const { pos: posFilter, setPos: setPosFilter } = useRosterFilter(id ? groupRosterKey(id) : undefined)
   const data = useLiveQuery(async () => {
     const teams = await loadTeams()
     const g = await db.groups.get(id!)
@@ -679,7 +684,7 @@ function PlayerGroupDetail() {
   const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
   const info = groupInfo(g, regionName(g.regionId))
-  const sorted = sortByName(players)
+  const view = positionRosterView(players, sort, posFilter)
 
   if (adding)
     return (
@@ -815,7 +820,7 @@ function PlayerGroupDetail() {
             Créer un événement
           </Link>
         )}
-        <GroupExport g={g} players={players} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
+        <GroupExport g={g} players={view.roster} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
       </div>
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des joueurs et retirer ceux que tu as ajoutés.</p>}
 
@@ -835,15 +840,25 @@ function PlayerGroupDetail() {
       </div>
       {!players.length && !hidden && <Empty>Aucun joueur dans ce groupe.</Empty>}
       <HiddenPlayers count={hidden} />
-      <div className="cols flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
-        {sorted.map((p) => (
+      {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
+      {players.length > 0 && view.shown.length === 0 && <Empty>Aucun joueur à ce poste.</Empty>}
+      {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
+      <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
+        <RosterSectionList
+          sections={view.sections}
+          row={(p, i) => (
           // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;
           // le retour revient ici, à la même position.
           <PlayerRow
             key={p.id}
             p={p}
             className={pick.picked.includes(p.id) ? 'border-accent' : ''}
-            lead={<PickBox pick={pick} p={p} />}
+            lead={
+              <>
+                <PickBox pick={pick} p={p} />
+                <span className="w-6 shrink-0 text-center text-[11px] text-muted">{i + 1}</span>
+              </>
+            }
             link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
             linkProps={{ 'data-player': true }}
             lines={
@@ -864,7 +879,8 @@ function PlayerGroupDetail() {
               )
             }
           />
-        ))}
+          )}
+        />
       </div>
       <CompareBar pick={pick} players={players} />
     </div>

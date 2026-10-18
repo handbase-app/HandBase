@@ -9,27 +9,31 @@ import { GroupMark } from '../components/ui'
 import { alive, db, type Player } from '../db'
 import { MQ, useMedia } from '../layout'
 import { can } from '../roles'
-import { sortByName } from '../rosterOrder'
+import { groupRosterKey, positionRosterView, useRosterSort } from '../rosterOrder'
 import { loadTeams } from '../teams'
 import PlayerDetail from './PlayerDetail'
 import { groupAddedBy } from './Groups'
 
 /*
  * Fiche d'un joueur ouverte depuis un groupe : /groupes/:id/joueurs/:pid (partageable), comme depuis un événement
- * (EventPlayers.tsx). Ordinateur : les joueurs du groupe seulement à gauche, dans l'ordre de sa page (alphabétique),
+ * (EventPlayers.tsx). Ordinateur : les joueurs du groupe seulement à gauche, dans l'ordre et sous les titres de sa page
+ * (par poste, tri choisi dans chaque poste ; sans le filtre d'un poste),
  * la fiche à droite ; « Fermer » revient au groupe. Téléphone : fiche en plein écran sous la barre « groupe · 5 / 23 »
  * (‹ ›, retour au groupe à la même position).
  */
 
-/** Groupe et ses joueurs, dans l'ordre de sa page. null : groupe introuvable ou pas visible. */
+/** Groupe et ses joueurs, dans l'ordre et par poste comme sur sa page. null : groupe introuvable ou pas visible. */
 function useGroupRoster(id: string) {
-  return useLiveQuery(async () => {
+  const [sort] = useRosterSort(groupRosterKey(id))
+  const data = useLiveQuery(async () => {
     await loadTeams()
     const g = await db.groups.get(id)
     if (!g || g.deleted || !can.seeGroup(g)) return { g: null }
-    const players = sortByName(alive((await db.players.bulkGet(g.playerIds)).filter((p): p is Player => !!p)))
-    return { g, players, ids: players.map((p) => p.id) }
+    return { g, players: alive((await db.players.bulkGet(g.playerIds)).filter((p): p is Player => !!p)) }
   }, [id])
+  if (!data?.g) return data
+  const { roster, sections } = positionRosterView(data.players, sort)
+  return { g: data.g, sections, ids: roster.map((p) => p.id) }
 }
 
 export default function GroupPlayers() {
@@ -43,7 +47,7 @@ export default function GroupPlayers() {
   if (!pid) return <Navigate to={`/groupes/${id}`} replace />
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data.g === null) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
-  const { g, players, ids } = data
+  const { g, sections, ids } = data
 
   if (!split)
     return (
@@ -62,7 +66,7 @@ export default function GroupPlayers() {
           base={base}
           back={leave}
           count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
-          sections={[{ players }]}
+          sections={sections}
           detail={(p) => playerSub(p)}
           actions={(p) => ({
             rewatch: <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />,
