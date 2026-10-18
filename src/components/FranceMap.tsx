@@ -212,6 +212,7 @@ export function FranceMap({
   others = false,
   dots,
   passive = false,
+  still = false,
   zoneLabel,
 }: {
   /** Région montrée de plus près ('' : toute la France). */
@@ -244,6 +245,11 @@ export function FranceMap({
   dots?: MapDots
   /** Zones sans appui ni bulle (seuls les points se touchent) : carte d'une réponse, pas de navigation par lieu. */
   passive?: boolean
+  /**
+   * Image seule (rapport imprimable du bilan) : même dessin (couleurs, chiffres, points des clubs), mais rien ne se touche,
+   * ne se survole ni ne prend le focus ; pas de bulle.
+   */
+  still?: boolean
   /**
    * Chiffre écrit dans une zone (même valeur que la bulle) ; undefined : pas de chiffre (hors périmètre, sans donnée).
    * Vue France : un chiffre par région (isRegion) ; région agrandie : un par département ; encarts ultramarins : le leur.
@@ -382,7 +388,7 @@ export function FranceMap({
       if (r) pickRegion(r)
     },
   })
-  const pathProps = (s: Shape & { inside: boolean }) =>
+  const liveProps = (s: Shape & { inside: boolean }) =>
     passive
       ? {
           fill: focused ? (s.inside ? 'color-mix(in srgb, var(--color-panel-2) 70%, var(--color-panel))' : 'var(--color-panel-2)') : fill(s.code),
@@ -405,6 +411,12 @@ export function FranceMap({
           { fill: fill(s.code), stroke: 'var(--color-muted)', strokeOpacity: 0.7, strokeWidth: 0.8, className: 'cursor-pointer transition-[fill] duration-300', ...deptHandlers(s.code) }
         : // Voisins estompés : un appui passe à leur région.
           { fill: 'var(--color-panel-2)', opacity: 0.5, stroke: 'var(--color-line)', strokeWidth: 0.8, className: 'cursor-pointer', ...regionHandlers(regionOfDept(s.code)) }
+  // Image seule (still) : le même dessin, sans appui ni survol.
+  const pathProps = (s: Shape & { inside: boolean }) => {
+    const p = liveProps(s)
+    if (!still) return p
+    return { ...Object.fromEntries(Object.entries(p).filter(([k]) => !/^on[A-Z]/.test(k) && k !== 'className')), pointerEvents: 'none' as const }
+  }
 
   // Points des clubs : tailles en px à l'écran, converties dans le repère de la carte (`fit.s` : px par unité ; la carte
   // peut être réduite en hauteur, elle est alors centrée). Mesuré à chaque changement de taille.
@@ -567,6 +579,14 @@ export function FranceMap({
     placed.map((d) => {
       const on = d.id === dots.active || d.id === dots.picked
       const k = 1 / fit.s
+      if (still)
+        // Image seule : le point, sans bouton (ni focus, ni bulle).
+        return (
+          <g key={d.id} transform={`translate(${d.x.toFixed(1)},${d.y.toFixed(1)})`} pointerEvents="none">
+            {d.id === dots.picked && <circle r={d.r + 3 * k} fill="none" stroke="var(--color-fg)" strokeWidth={2 * k} />}
+            <circle r={d.r} fill={d.fill} stroke={d.muted ? 'var(--color-muted)' : 'var(--color-fg)'} strokeOpacity={d.muted ? 0.5 : 0.7} strokeWidth={k} />
+          </g>
+        )
       return (
         <g
           key={d.id}
@@ -644,7 +664,7 @@ export function FranceMap({
           viewBox={`0 0 ${W} ${shapes.h}`}
           className={`block h-auto w-full select-none ${className}`}
           // Avec des points (boutons) : un groupe, pour que les lecteurs d'écran les atteignent.
-          role={withDots ? 'group' : 'img'}
+          role={withDots && !still ? 'group' : 'img'}
           aria-label={ariaLabel ?? (region ? 'Carte des départements de la région' : 'Carte des régions et des départements')}
           // Appui hors d'un département (ou d'un point) : la bulle se ferme.
           onClick={(e) => {
@@ -696,16 +716,16 @@ export function FranceMap({
             const d = insetD?.[big ? 'big' : 'small'].get(t.code)
             const sel = selected === t.code
             const on = sel || tip?.code === t.code
+            // Image seule : un encart sans appui (pas un bouton).
+            const Inset = still ? 'div' : 'button'
             return (
-              <button
+              <Inset
                 key={t.code}
-                type="button"
+                {...(still ? { role: 'img' } : { type: 'button' as const, 'aria-pressed': sel, ...deptHandlers(t.code) })}
                 aria-label={label?.(t.code) ?? t.name}
-                aria-pressed={sel}
                 className={`flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md bg-panel px-0.5 pt-1 pb-0.5 transition ${big ? 'w-36' : 'w-16'} ${
                   sel ? 'border-2 border-fg' : on ? 'border border-fg' : 'border border-line hover:border-muted'
                 }`}
-                {...deptHandlers(t.code)}
               >
                 {d !== undefined ? (
                   <svg viewBox={`0 0 ${iw} ${ih}`} className={`pointer-events-none block w-full ${big ? 'h-28' : 'h-9'}`} aria-hidden="true">
@@ -721,7 +741,7 @@ export function FranceMap({
                 {omLabel(t.code) && (
                   <span className={`pointer-events-none w-full truncate text-center leading-tight font-extrabold text-fg tabular-nums ${big ? 'text-sm' : 'text-[11px]'}`}>{omLabel(t.code)}</span>
                 )}
-              </button>
+              </Inset>
             )
           })}
         </div>

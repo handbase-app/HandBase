@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useAlerts } from '../alerts'
+import { bilanPart, cellText, countBy, defaultChoices, filterLine, leftOf, metaLine, namesAllowed, parseReportChoices, reportSearch, reportTitle, STAGE_COLUMN, stageOf, topTests, whereToGo, type ReportChoices } from '../bilanReport'
 import { BackButton } from '../backNav'
 import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
-import { alive, db, fmtDate, plural, today, type Player, type Rewatch } from '../db'
+import { alive, db, fmtDate, plural, today, type Player, type Rewatch, type Unit } from '../db'
 import {
   birthYear,
   clubKey,
+  DECLARED,
   coverageByClub,
   coverageByPlace,
   coverageByYear,
@@ -30,6 +33,7 @@ import {
   type CoveragePeriod,
   type CoverageSex,
   type Onglet,
+  type PlaceCoverage,
   type PlaceOf,
   type Sight,
   type Tally,
@@ -43,7 +47,7 @@ import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
 import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
 import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
 import { usePerimeter, useUnits } from '../installation'
-import { deptInPerimeter, perimeterDepts, perimeterPlace, perimeterText } from '../perimeter'
+import { deptInPerimeter, perimeterDepts, perimeterPlace, perimeterText, type Perimeter } from '../perimeter'
 import { department, hayOf, tokensOf, useSessionState } from '../components/PlayerFilter'
 import { usePlayersQuery } from '../components/PlayersQuery'
 import { selectPlayers } from '../playerQuery'
@@ -58,6 +62,8 @@ import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
 import { useDictation } from '../dictation/useDictation'
+import { installationAppearance, useThemeVersion } from '../theme'
+import { positionFull } from '../sportConfig'
 import { SavedQuestions } from './Question'
 import { decodeRecipe, EMPTY_RECIPE, encodeRecipe, hasConditions, outValueText, periodText, recipeChips, runRecipe, shareText, type Names, type Output, type Recipe } from '../recipe'
 import { aggregate, aggValue, bilanOutput, isShareKind, isTopClubs, limitClubs, questionPoints, rankAgg, rankDir, recipeAt, valueKind, type QAgg, type QClub, type QPoint } from '../bilanQuestion'
@@ -89,7 +95,7 @@ import { parseYearsParam, sortYearStrings, yearsParam, yearsPhrase, yearsShort }
  * (nombre, part, part vue, moyenne, âge) ; changer de lieu garde la question, ✕ la ferme (remplace l'adresse).
  * Barre de filtres « Filtrer ou poser une question… » : la MÊME que la liste Joueurs (src/components/PlayersQuery.tsx,
  * pastilles, filtres rapides, conditions), sur la ligne des filtres du bilan (téléphone : dans le panneau des filtres
- * résumés). Ses joueurs retenus deviennent la population du bilan (carte, tuiles, clubs, générations, Rapport Fédé),
+ * résumés). Ses joueurs retenus deviennent la population du bilan (carte, tuiles, clubs, générations, rapport),
  * calculée sur l'appareil ; dans l'adresse (f=, t=). Une commande par notion (sexe, année, lieu : celles du bilan) :
  * src/bilanFilters.ts.
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », pas encore mesuré « à mesurer ».
@@ -109,19 +115,6 @@ function readKey<T extends string>(key: string, allowed: readonly T[], fallback:
     return fallback
   }
 }
-function useStored<T extends string>(key: string, allowed: readonly T[], fallback: T): [T, (v: T) => void] {
-  const [v, setV] = useState<T>(() => readKey(key, allowed, fallback))
-  const set = (x: T) => {
-    setV(x)
-    try {
-      localStorage.setItem(key, x)
-    } catch {
-      /* stockage indisponible */
-    }
-  }
-  return [v, set]
-}
-const usePeriod = () => useStored<CoveragePeriod>(PERIOD_KEY, ['season', 'all'], 'season')
 
 // ---------- Données ----------
 
@@ -824,6 +817,29 @@ export function whoOrder(club: ClubCoverage<Player>, o: Onglet = 'vus') {
 /** Tout le monde (onglet « Licenciés »). */
 const EVERYONE = { has: () => true }
 
+type Counted = { has(id: string): boolean }
+/** Joueurs comptés par un onglet (undefined : pas encore calculé) : vus (période), tous, mesurés par le staff, repérés. */
+const countedOf = (o: Onglet, last: Counted, nat?: { staff: Counted; spotted: Counted }): Counted | undefined =>
+  o === 'vus' ? last : o === 'licencies' ? EVERYONE : o === 'mesures' ? nat?.staff : nat?.spotted
+type ViewFilters = Pick<BilanState, 'sex' | 'years' | 'region' | 'dept'>
+/** Population de la carte : sexe et années (elle montre tous les lieux). */
+const mapPop = (players: Player[], f: ViewFilters, place: PlaceOf<Player>) => filterPlayers(players, { sex: f.sex, years: f.years }, place)
+/** Population des générations : sexe et lieu (chaque carte est une année). */
+const placePop = (players: Player[], f: ViewFilters, place: PlaceOf<Player>) => filterPlayers(players, { sex: f.sex, region: f.region, dept: f.dept }, place)
+/** Population des clubs et des chiffres clés : tous les filtres. */
+const scopePop = (inPlace: Player[], years: string[]) => (years.length ? inPlace.filter((p) => years.includes(birthYear(p))) : inPlace)
+
+/**
+ * Calculs du bilan pour un onglet (comptés : `counted`), comme la page : carte (par lieu), générations, joueurs retenus et
+ * clubs. Les mêmes fonctions que useBilanModel (une seule source de vérité) ; sert au rapport, qui en fait un par chiffre.
+ */
+function ongletView(players: Player[], counted: Counted, o: Onglet, f: ViewFilters, place: PlaceOf<Player>) {
+  const byPlace = coverageByPlace(mapPop(players, f, place), counted, place)
+  const inPlace = placePop(players, f, place)
+  const inScope = scopePop(inPlace, f.years)
+  return { byPlace, years: coverageByYear(inPlace, counted), inScope, clubs: sortClubs(o, coverageByClub(inScope, counted)) }
+}
+
 /**
  * Calculs du bilan pour un état donné (page, fiche ouverte depuis le bilan) ; refaits seulement quand un filtre ou les données changent.
  * Barre de filtres posée (st.f, st.t ; sans question) : la population est celle des joueurs qu'elle retient (moteur de la
@@ -855,17 +871,16 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   // Jamais à un survol ; la base n'est pas relue.
   const last = useMemo(() => (data ? lastSights(data.sights, periodInfo(period).range) : new Map<string, Sight>()), [data, period])
   // Joueurs comptés par l'onglet (undefined : pas encore calculé).
-  const hit: { has(id: string): boolean } | undefined =
-    onglet === 'vus' ? last : onglet === 'licencies' ? EVERYONE : onglet === 'mesures' ? nat?.staff : nat?.spotted
+  const hit = countedOf(onglet, last, nat)
   const counted = hit ?? EVERYONE
   // Carte : sexe et année (elle montre tous les lieux).
-  const forMap = useMemo(() => (players ? filterPlayers(players, { sex, years: picked }, place) : []), [players, sex, picked, place])
+  const forMap = useMemo(() => (players ? mapPop(players, st, place) : []), [players, sex, picked, place]) // eslint-disable-line react-hooks/exhaustive-deps
   const byPlace = useMemo(() => coverageByPlace(forMap, counted, place), [forMap, counted, place])
   // Générations : sexe et lieu (chaque carte est une année).
-  const inPlace = useMemo(() => (players ? filterPlayers(players, { sex, region, dept }, place) : []), [players, sex, region, dept, place])
+  const inPlace = useMemo(() => (players ? placePop(players, st, place) : []), [players, sex, region, dept, place]) // eslint-disable-line react-hooks/exhaustive-deps
   const years = useMemo(() => coverageByYear(inPlace, counted), [inPlace, counted])
   // Clubs : tous les filtres.
-  const inScope = useMemo(() => (picked.length ? inPlace.filter((p) => picked.includes(birthYear(p))) : inPlace), [inPlace, picked])
+  const inScope = useMemo(() => scopePop(inPlace, picked), [inPlace, picked])
   const clubs = useMemo(() => sortClubs(onglet, coverageByClub(inScope, counted)), [onglet, inScope, counted])
   // Chiffres clés des joueurs retenus (tous les filtres) : clubs, départements et la valeur de chaque onglet.
   const kpis = useMemo(() => {
@@ -895,6 +910,9 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
   return {
     data: hit && pop !== undefined ? data : undefined,
+    /** Joueurs de la population (barre de filtres posée : ceux qu'elle retient) et lieu d'un joueur : pour le rapport. */
+    players,
+    place,
     qm,
     popOn,
     popLoading,
@@ -1081,6 +1099,63 @@ const WhoCtx = createContext<{
   setSeenOpen: () => {},
 })
 
+// ---------- Dessin de la carte (bilan et rapport) ----------
+
+/**
+ * Couleurs et chiffres des zones de la carte pour une valeur (`lens`) : échelle des zones affichées (régions de France,
+ * départements de la région ou de France), zones hors du périmètre du compte (supabase/046 : aucun joueur reçu) neutres.
+ * Vue France « par région » : chaque département prend la couleur de sa région.
+ */
+function zonePaint({ byPlace, region, mapBy, lens, per }: { byPlace: PlaceCoverage; region: string; mapBy: 'region' | 'dept'; lens: Lens; per?: Perimeter }) {
+  const byRegionView = !region && mapBy === 'region'
+  const shown = byRegionView ? [...byPlace.byRegion.values()] : region ? [...byPlace.byDept].filter(([d]) => regionOfDept(d) === region).map(([, t]) => t) : [...byPlace.byDept.values()]
+  const valueOf = lens.value
+  const sc = lens.scale(shown.map(valueOf).filter((v): v is number => v !== undefined))
+  const colorOf = (t?: Tally) => fillAt(valueOf(t), sc)
+  // Hors du périmètre du compte (supabase/046 : aucun joueur reçu) : zone neutre, grisée, et dite comme telle.
+  const perRegions = new Set(per && !per.all ? perimeterDepts(per).map(regionOfDept) : [])
+  const outsideDept = (d: string) => !!per && !per.all && !deptInPerimeter(per, d)
+  const outsideRegion = (r: string | undefined) => !!per && !per.all && !perRegions.has(r)
+  const fill = (code: string) =>
+    (byRegionView ? outsideRegion(regionOfDept(code)) : outsideDept(code))
+      ? OUTSIDE
+      : colorOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
+  const zoneLabel = (code: string, isRegion: boolean) => {
+    // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur. France « Par département » :
+    // aucun chiffre (ceux des régions sur les couleurs des départements étaient illisibles).
+    if (!region && mapBy === 'dept') return undefined
+    if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
+    const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
+    return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
+  }
+  return { sc, colorOf, outsideDept, outsideRegion, fill, zoneLabel }
+}
+
+/**
+ * Clubs d'un département sur la carte (structure importée) : points (taille : nombre de joueurs, couleur : la valeur
+ * montrée), échelle des clubs, clubs sans position. null : pas de département, ou aucun club placé. `missing` : ce que dit
+ * un point sans joueur (« aucun joueur avec ces filtres »).
+ */
+function clubMapOf(dept: string, units: Unit[], clubs: ClubCoverage<Player>[], lens: Lens, missing: string) {
+  if (!dept || dept === NO_DEPT || dept === OTHER_OM.code || !hasPlacedClubs(units)) return null
+  const r = clubDots(clubs, units, dept, (n) => department({ clubCode: n }))
+  if (!r.dots.length) return null
+  const sc = lens.scale(r.dots.map((d) => (d.club ? lens.value(d.club) : undefined)).filter((v): v is number => v !== undefined))
+  const max = Math.max(0, ...r.dots.map((d) => d.club?.total ?? 0))
+  const items = r.dots.map(
+    (d): MapDot => ({
+      id: d.id,
+      lat: d.lat,
+      lng: d.lng,
+      r: d.club ? dotRadius(d.club.total, max) : 3.5,
+      fill: d.club ? fillAt(lens.value(d.club), sc) : MUTED_DOT,
+      muted: !d.club,
+      label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? lens.label(d.club) : missing}`,
+    }),
+  )
+  return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])), color: new Map(items.filter((d) => !d.muted).map((d) => [d.id, d.fill])) }
+}
+
 // ---------- Page ----------
 
 export default function Coverage() {
@@ -1106,10 +1181,13 @@ export default function Coverage() {
   const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o), [Q?.texts, o]) // eslint-disable-line react-hooks/exhaustive-deps
   const side = useMedia(MQ.side)
   // Téléphone (< 640 px) : filtres repliés sous une ligne de pastilles, tuiles en bandeau qui défile, carte juste dessous,
-  // « Rapport Fédé » et « Poser une question » dans une barre d'actions en bas. Ordinateur et tablette : inchangés.
+  // « Rapport » et « Poser une question » dans une barre d'actions en bas. Ordinateur et tablette : inchangés.
   const phone = useMedia(PHONE)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [askOpen, setAskOpen] = useState(false)
+  // « Rapport » : fenêtre de choix (chiffres, noms, carte), puis le rapport de la vue (/bilan/rapport).
+  const [reportOpen, setReportOpen] = useState(false)
+  const nav = useNavigate()
   const { questionReady } = useDictation()
   const tilesRef = useRef<HTMLDivElement>(null)
   // Bandeau des tuiles (téléphone) : la tuile active reste visible (sans faire défiler la page).
@@ -1168,25 +1246,10 @@ export default function Coverage() {
   // Clubs du département sur la carte (structure importée) : points, échelle de couleurs des clubs, clubs sans position.
   const units = useUnits()
   const [hot, setHot] = useState<string | null>(null)
-  const clubMap = useMemo(() => {
-    if (!dept || dept === NO_DEPT || dept === OTHER_OM.code || !hasPlacedClubs(units)) return null
-    const r = clubDots(clubs, units, dept, (n) => department({ clubCode: n }))
-    if (!r.dots.length) return null
-    const sc = lens.scale(r.dots.map((d) => (d.club ? lens.value(d.club) : undefined)).filter((v): v is number => v !== undefined))
-    const max = Math.max(0, ...r.dots.map((d) => d.club?.total ?? 0))
-    const items = r.dots.map(
-      (d): MapDot => ({
-        id: d.id,
-        lat: d.lat,
-        lng: d.lng,
-        r: d.club ? dotRadius(d.club.total, max) : 3.5,
-        fill: d.club ? fillAt(lens.value(d.club), sc) : MUTED_DOT,
-        muted: !d.club,
-        label: `${clubLabel(d.name)}${d.number ? `, n° ${d.number}` : ''} : ${d.club?.total ? lens.label(d.club) : Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'}`,
-      }),
-    )
-    return { ...r, sc, items, byId: new Map(r.dots.map((d) => [d.id, d])), color: new Map(items.filter((d) => !d.muted).map((d) => [d.id, d.fill])) }
-  }, [dept, units, clubs, lens, Q?.limited]) // eslint-disable-line react-hooks/exhaustive-deps
+  const clubMap = useMemo(
+    () => clubMapOf(dept, units, clubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'),
+    [dept, units, clubs, lens, Q?.limited], // eslint-disable-line react-hooks/exhaustive-deps
+  )
   // Question « le premier club », « les 5 premiers clubs », vue France ou région : ces clubs en points sur la carte
   // (à leur adresse, structure importée) et en liste ; un toucher ouvre le club dans son département.
   const topClubs = Q?.limited && !dept ? Q.clubs : null
@@ -1340,19 +1403,7 @@ export default function Coverage() {
 
   // Carte : couleur d'un département (vue France « par région » : celle de sa région).
   // Échelle des couleurs : zones affichées (régions de France, départements de la région ou de France).
-  const byRegionView = !region && mapBy === 'region'
-  const shown = byRegionView ? [...byPlace.byRegion.values()] : region ? [...byPlace.byDept].filter(([d]) => regionOfDept(d) === region).map(([, t]) => t) : [...byPlace.byDept.values()]
-  const valueOf = lens.value
-  const sc = lens.scale(shown.map(valueOf).filter((v): v is number => v !== undefined))
-  const colorOf = (t?: Tally) => fillAt(valueOf(t), sc)
-  // Hors du périmètre du compte (supabase/046 : aucun joueur reçu) : zone neutre, grisée, et dite comme telle.
-  const perRegions = new Set(per && !per.all ? perimeterDepts(per).map(regionOfDept) : [])
-  const outsideDept = (d: string) => !!per && !per.all && !deptInPerimeter(per, d)
-  const outsideRegion = (r: string | undefined) => !!per && !per.all && !perRegions.has(r)
-  const fill = (code: string) =>
-    (byRegionView ? outsideRegion(regionOfDept(code)) : outsideDept(code))
-      ? OUTSIDE
-      : colorOf(byRegionView ? byPlace.byRegion.get(regionOfDept(code) ?? '') : byPlace.byDept.get(code))
+  const { sc, colorOf, outsideDept, outsideRegion, fill, zoneLabel } = zonePaint({ byPlace, region, mapBy, lens, per })
   // À côté de la carte : le classement des régions (France), des départements (région), des clubs (département).
   const deptRows = lens.rank([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
   const regionRows = lens.rank(byPlace.byRegion)
@@ -1500,13 +1551,16 @@ export default function Coverage() {
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
-  // Rapport Fédé : sur les joueurs retenus par la barre, et les années choisies (a=, comme le bilan).
-  const reportParams = [
-    ...(bilan.popOn && st.f ? [['f', encodeBar(st.f)]] : []),
-    ...(bilan.popOn && st.t.trim() ? [['t', st.t]] : []),
-    ...(picked.length ? [['a', yearsParam(picked, UNKNOWN_YEAR)]] : []),
-  ]
-  const reportSearch = reportParams.length ? `?${new URLSearchParams(reportParams).toString()}` : ''
+  // Rapport de la vue : tout l'état du bilan (adresse) et les choix de la fenêtre ; le retour revient ici à l'identique.
+  const reportDialog = reportOpen && (
+    <ReportDialog
+      st={st}
+      national={national}
+      question={Q ? Q.texts.what : null}
+      onClose={() => setReportOpen(false)}
+      onGo={(c) => nav(`/bilan/rapport${reportSearch(search.slice(1), c)}`)}
+    />
+  )
 
   return (
     <WhoCtx.Provider value={who}>
@@ -1526,10 +1580,10 @@ export default function Coverage() {
             <p className="text-[11px] text-muted">{subtitle}</p>
           </div>
           {!phone && (
-          <Link to={`/bilan/rapport${reportSearch}`} className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
+          <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
             <Icon name="list" className="h-3.5 w-3.5" />
-            Rapport Fédé
-          </Link>
+            Rapport
+          </button>
           )}
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
@@ -1701,14 +1755,7 @@ export default function Coverage() {
                   </>
                 )
               }}
-              zoneLabel={(code, isRegion) => {
-                // Chiffre dans la zone : celui de la bulle ; rien hors du périmètre ni sans joueur. France « Par département » :
-                // aucun chiffre (ceux des régions sur les couleurs des départements étaient illisibles).
-                if (!region && mapBy === 'dept') return undefined
-                if (isRegion ? outsideRegion(code) : outsideDept(code)) return undefined
-                const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
-                return t?.total && lens.value(t) !== undefined ? lens.short(t) : undefined
-              }}
+              zoneLabel={zoneLabel}
               dots={
                 clubMap
                   ? {
@@ -1848,10 +1895,10 @@ export default function Coverage() {
             </div>
           )}
           <div className="flex gap-2">
-            <Link to={`/bilan/rapport${reportSearch}`} className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
+            <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
               <Icon name="list" className="h-3.5 w-3.5" />
-              Rapport Fédé
-            </Link>
+              Rapport
+            </button>
             {questionReady && (
               <button
                 type="button"
@@ -1867,6 +1914,7 @@ export default function Coverage() {
           </div>
         </div>
       )}
+      {reportDialog}
     </div>
     </WhoCtx.Provider>
   )
@@ -2165,185 +2213,561 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
   )
 }
 
-// ---------- Rapport chiffré ----------
+// ---------- Rapport de la vue ----------
 
-const cell = (t: Tally) => (t.total ? `${t.seen.toLocaleString('fr-FR')}/${t.total.toLocaleString('fr-FR')}` : '–')
-const pct = (t: Tally) => (t.total ? `${percent(t.seen, t.total)} %` : '–')
+/** Choix oui / non d'une fenêtre (boutons radio, au clavier : flèches) ; `disabled` : avec sa raison dessous. */
+function YesNo({ name, label, value, onChange, disabled, reason }: { name: string; label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean; reason?: string }) {
+  const opt = (v: boolean, text: string) => (
+    <label
+      className={`flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 text-xs font-bold transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
+        value === v ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:text-fg'}`}
+    >
+      <input type="radio" name={name} className="sr-only" checked={value === v} disabled={disabled} onChange={() => onChange(v)} />
+      {text}
+    </label>
+  )
+  return (
+    <fieldset className="flex flex-col gap-1.5" disabled={disabled}>
+      <legend className="mb-1.5 text-xs font-extrabold">{label}</legend>
+      <div className="flex gap-2">
+        {opt(false, 'Non')}
+        {opt(true, 'Oui')}
+      </div>
+      {reason && <p className="text-[11px] text-muted">{reason}</p>}
+    </fieldset>
+  )
+}
 
 /**
- * Rapport pour la fédération, à imprimer (ou enregistrer en PDF) : seulement des nombres par génération, sexe et club,
- * et les totaux ; aucun nom de joueur. Feuille blanche à l'écran comme à l'impression.
- * Ouvert depuis un bilan filtré par sa barre (/bilan/rapport?f=…&t=…) : sur les joueurs qu'elle retient, filtres écrits
- * en tête du rapport.
+ * Fenêtre « Que veux-tu dans le rapport ? » (bouton « Rapport » du bilan) : chiffres (onglets ; celui affiché coché, au
+ * moins un), noms des joueurs (non par défaut ; département ou club seulement), carte (oui par défaut). Échap ou un appui
+ * à côté la ferment ; le focus reste dans la fenêtre puis revient au bouton. Question posée : ses chiffres à elle.
  */
-export function CoverageReport() {
-  const role = useRole()
-  const data = useCoverageData()
-  const [period, setPeriod] = usePeriod()
-  const info = periodInfo(period)
-  const lists = useDepartments()
-  const regionLabel = useRegionLabel()
-  const [params] = useSearchParams()
-  const bar = useMemo(() => parseBar(params.get('f'), params.get('t')), [params])
-  // Années choisies au bilan (a=2010,2011 ; vide : toutes).
-  const aParam = params.get('a')
-  const picked = useMemo(() => parseYearsParam(aParam, UNKNOWN_YEAR), [aParam])
-  const popOn = hasBarFilter(bar.f, bar.t)
-  const qm = useQuestionModel(popOn)
-  const pop = useMemo(
-    () => (popOn && qm.index ? new Set(selectPlayers(qm.index, { recipe: bar.f ?? EMPTY_RECIPE, q: bar.t }, hayOf, tokensOf).list.map((p) => p.id)) : null),
-    [popOn, qm.index, bar],
+function ReportDialog({
+  st,
+  national,
+  question,
+  onClose,
+  onGo,
+}: {
+  st: BilanState
+  national: boolean
+  /** Question posée au bilan (ce qu'elle calcule) : le rapport montre sa valeur, pas les onglets. */
+  question: string | null
+  onClose: () => void
+  onGo: (c: ReportChoices) => void
+}) {
+  const allowed = tabsFor(national)
+  const [c, setC] = useState<ReportChoices>(() => defaultChoices(allowed.includes(st.onglet) ? st.onglet : allowed[0]))
+  const names = namesAllowed(st)
+  const box = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null
+    box.current?.querySelector<HTMLElement>('input:not(:disabled)')?.focus()
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        close.current()
+      } else if (e.key === 'Tab' && box.current) {
+        // Le focus tourne dans la fenêtre.
+        const all = [...box.current.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')]
+        if (!all.length) return
+        const first = all[0]
+        const last = all[all.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    window.addEventListener('keydown', key)
+    return () => {
+      window.removeEventListener('keydown', key)
+      before?.focus()
+    }
+  }, [])
+  const toggle = (o: Onglet, on: boolean) => {
+    const tabs = on ? [...c.tabs, o] : c.tabs.filter((x) => x !== o)
+    if (tabs.length) setC({ ...c, tabs: ONGLETS.filter((x) => tabs.includes(x)) })
+  }
+  const full = allowed.every((o) => c.tabs.includes(o))
+  return createPortal(
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
+      <div
+        ref={box}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rapport-titre"
+        className="card flex max-h-[85dvh] w-full max-w-md flex-col gap-4 overflow-y-auto p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <h2 id="rapport-titre" className="text-base font-extrabold">
+            Que veux-tu dans le rapport ?
+          </h2>
+          <p className="text-[11px] text-muted">Le rapport suit la vue du bilan : lieu, sexe, années, période et filtres.</p>
+        </div>
+        {question ? (
+          <div className="flex flex-col gap-1">
+            <div className="text-xs font-extrabold">Chiffres</div>
+            <p className="rounded-md border border-accent/50 bg-accent/10 px-3 py-2 text-xs">
+              <span aria-hidden>✨ </span>La question posée : <b>{question}</b>
+            </p>
+          </div>
+        ) : (
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 flex w-full items-center justify-between gap-2 text-xs font-extrabold">Chiffres</legend>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {ONGLETS.map((o) => {
+                const ok = allowed.includes(o)
+                const on = c.tabs.includes(o)
+                return (
+                  <label
+                    key={o}
+                    className={`flex min-h-10 items-center gap-2 rounded-md border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/10' : 'border-line bg-panel-2'} ${ok ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+                  >
+                    <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={on} disabled={!ok} onChange={(e) => toggle(o, e.target.checked)} />
+                    <span className="min-w-0">
+                      {TAB[o].label}
+                      {!ok && <span className="block text-[10px] font-normal text-muted">administrateurs</span>}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
+              <span>{c.tabs.length === 1 ? 'Au moins un chiffre.' : full ? 'Rapport complet.' : `${c.tabs.length} chiffres.`}</span>
+              {allowed.length > 1 && !full && (
+                <button type="button" className="min-h-8 rounded px-1.5 font-bold text-accent" onClick={() => setC({ ...c, tabs: [...allowed] })}>
+                  Tout cocher
+                </button>
+              )}
+            </div>
+          </fieldset>
+        )}
+        <YesNo
+          name="rapport-noms"
+          label="Noms des joueurs"
+          value={c.names && names.ok}
+          onChange={(v) => setC({ ...c, names: v })}
+          disabled={!names.ok}
+          reason={names.ok ? undefined : names.reason}
+        />
+        {c.names && names.ok && (
+          <p role="note" className="-mt-2 rounded-md border border-amber-500/60 bg-amber-500/10 px-3 py-2 text-[11px] font-bold text-amber-300">
+            Le rapport contiendra des noms de mineurs : à garder dans le staff, ne pas diffuser.
+          </p>
+        )}
+        <YesNo name="rapport-carte" label="Carte" value={c.map} onChange={(v) => setC({ ...c, map: v })} />
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-ghost min-h-10 px-4 text-xs" onClick={onClose}>
+            Annuler
+          </button>
+          <button type="button" className="btn-primary min-h-10 px-4 text-xs" onClick={() => onGo({ ...c, names: c.names && names.ok })}>
+            Voir le rapport
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
-  const report = useMemo(
-    () =>
-      data && (!popOn || pop)
-        ? fedReport(filterPlayers(pop ? data.players.filter((p) => pop.has(p.id)) : data.players, { years: picked }), lastSights(data.sights, periodInfo(period).range), {
-            deptOf: department,
-            regionOf: (d) => regionOfDept(d),
-          })
-        : null,
-    [data, period, lists, popOn, pop, picked], // eslint-disable-line react-hooks/exhaustive-deps
-  )
-  // Filtres de la barre, en mots (« Arrière gauche · né en 2010 ») ; jamais un nom de joueur (recherche par nom : dite comme telle).
-  const knownYears = picked.filter(Boolean).map(Number)
-  const filterText = [
-    ...(picked.length ? [[knownYears.length ? yearsPhrase(knownYears) : '', picked.includes('') ? 'année de naissance inconnue' : ''].filter(Boolean).join(' ou ')] : []),
-    ...(popOn && bar.f ? recipeChips(bar.f, qm.names).filter((c) => !['out', 'limit', 'sort', 'period', 'names'].includes(c.key)).map((c) => c.label) : []),
-    ...(popOn && (bar.t.trim() || bar.f?.pop.names) ? ['recherche par nom'] : []),
-  ].join(' · ')
-  // Régions par ordre alphabétique, région inconnue à la fin.
-  const regions = useMemo(
-    () => (report ? [...report.regions].sort((a, b) => (!a.region ? 1 : !b.region ? -1 : regionLabel(a.region).localeCompare(regionLabel(b.region), 'fr'))) : []),
-    [report, regionLabel],
-  )
+}
 
-  if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
-  if (!report) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const noSex = report.total.all.total - report.total.M.total - report.total.F.total
-  // Cellules : nom à gauche (retour à la ligne permis), nombres à droite sur une ligne.
+/** Un tableau du rapport : en-tête répété à chaque page imprimée, lignes jamais coupées (src/index.css, .bilan-report). */
+function ReportTable({ head, rows, first = 'Lieu', bold }: { head: string[]; rows: ReactNode[][]; first?: string; bold?: (i: number) => boolean }) {
   const th = 'border-b border-neutral-400 px-1 py-1 font-bold sm:px-1.5'
   const td = 'border-b border-neutral-200 px-1 py-1 sm:px-1.5'
-  const num = 'text-right tabular-nums whitespace-nowrap'
-  const name = 'text-left break-words'
+  return (
+    <table className="mb-3 w-full border-collapse">
+      <thead>
+        <tr>
+          <th className={`${th} text-left`}>{first}</th>
+          {head.map((h) => (
+            <th key={h} className={`${th} text-right whitespace-nowrap`}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className={bold?.(i) ? 'font-bold' : ''}>
+            {r.map((x, j) => (
+              <td key={j} className={`${td} ${j ? 'text-right tabular-nums sm:whitespace-nowrap' : 'text-left break-words'}`}>
+                {x}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+/** Tableau génération × sexe d'un chiffre (fedReport : mêmes comptes que le bilan), colonnes selon le sexe choisi. */
+function YearSexTable({ o, players, counted, sex }: { o: Onglet; players: Player[]; counted: Counted; sex: CoverageSex }) {
+  const r = fedReport(players, counted)
+  const cols: { h: string; k: 'M' | 'F' | 'all' }[] = sex === 'M' ? [{ h: 'Garçons', k: 'M' }] : sex === 'F' ? [{ h: 'Filles', k: 'F' }] : [
+    { h: 'Garçons', k: 'M' },
+    { h: 'Filles', k: 'F' },
+    { h: 'Ensemble', k: 'all' },
+  ]
+  const noSex = sex === 'all' ? r.total.all.total - r.total.M.total - r.total.F.total : 0
+  if (!r.years.length) return <p className="mb-3">Aucun joueur avec ces filtres.</p>
+  return (
+    <>
+      <ReportTable
+        first="Génération"
+        head={cols.map((c) => c.h)}
+        rows={[{ year: null as string | null, ...r.total }, ...r.years].map((y) => [y.year === null ? 'Toutes' : yearLabel(y.year), ...cols.map((c) => cellText(o, y[c.k]))])}
+        bold={(i) => i === 0}
+      />
+      {noSex > 0 && <p className="-mt-2 mb-3 text-neutral-600">« Ensemble » compte aussi {plural(noSex, 'joueur')} dont le sexe n’est pas renseigné.</p>}
+    </>
+  )
+}
+
+/** Ce que compte chaque chiffre, en une phrase (marques positives ou neutres seulement). */
+const REPORT_MEANS: Record<Onglet, string> = {
+  vus: 'Vus : un joueur est vu dès qu’un membre du staff l’a marqué « vu » ou a donné un avis sur lui.',
+  licencies: 'Licenciés : joueurs de la base, par département de leur club.',
+  mesures: 'Mesurés par le staff : au moins une mesure prise par le staff, hors tailles déclarées à la licence.',
+  reperes: 'Profils repérés : joueurs correspondant à au moins un profil recherché (sans profil : les plus grands de leur génération).',
+}
+
+/**
+ * Rapport de LA VUE du bilan (/bilan/rapport?<état du bilan>&ch=…&noms=1&carte=0 ; src/bilanReport.ts), à imprimer ou
+ * enregistrer en PDF : lieu (France → par région, région → par département, département → par club, club → ce club),
+ * chiffres choisis (ou la question posée), sexe, années, période, filtres de la barre. En-tête au nom de l'installation,
+ * chiffres clés, carte (même dessin que le bilan, image seule), puis pour chaque chiffre le tableau de l'étage, le tableau
+ * génération × sexe et son complément (Vus : où aller ; Mesurés : tests les plus faits ; Repérés : par poste). Noms des
+ * joueurs seulement si demandés (département ou club) : nom, prénom, année, poste, rien d'autre. Mêmes calculs que le
+ * bilan (useBilanModel, ongletView, useBilanQuestion, zonePaint, clubMapOf). Feuille blanche à l'écran comme à l'impression.
+ */
+export function CoverageReport() {
+  useThemeVersion()
+  const role = useRole()
+  const national = can.nationalView(role)
+  const [params] = useSearchParams()
+  const raw = params.toString()
+  const regionLabel = useRegionLabel()
+  const deptName = useDeptName()
+  const per = usePerimeter()
+  const units = useUnits()
+  const st = useMemo(() => {
+    const p = parseBilan(bilanPart(params))
+    return tabsFor(national).includes(p.onglet) ? p : { ...p, onglet: 'vus' as const }
+  }, [raw, national]) // eslint-disable-line react-hooks/exhaustive-deps
+  const choices = useMemo(() => parseReportChoices(params, tabsFor(national), st.onglet, st), [raw, national, st]) // eslint-disable-line react-hooks/exhaustive-deps
+  const bilan = useBilanModel(st)
+  const bq = useBilanQuestion(st, bilan.qm)
+  const Q = st.q && bq.ready && bq.agg && bq.texts ? { ...bq, agg: bq.agg, texts: bq.texts } : null
+  const { players, place, last, nat } = bilan
+  // Un calcul par chiffre choisi, comme le bilan (sans question).
+  const views = useMemo(() => {
+    if (!bilan.data || !players || st.q) return null
+    const out = new Map<Onglet, ReturnType<typeof ongletView> & { counted: Counted }>()
+    for (const o of choices.tabs) {
+      const counted = countedOf(o, last, nat)
+      if (!counted) return null
+      out.set(o, { ...ongletView(players, counted, o, st, place), counted })
+    }
+    return out
+  }, [bilan.data, players, last, nat, choices.tabs, st, place])
+  // Mesurés : tests les plus faits (mesures et noms des tests lus seulement alors).
+  const wantTests = !st.q && choices.tabs.includes('mesures')
+  const tests = useThrottledQuery(
+    async () => (wantTests ? { meas: await db.measurements.toArray(), crit: new Map((await db.criteria.toArray()).map((c) => [c.id, c.label])) } : null),
+    [wantTests],
+    ['measurements', 'criteria'],
+    300,
+  )
+  const appearance = installationAppearance()
+
+  if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
+  if (st.q ? !Q : !views) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+
+  const { region, dept } = st
+  const stage = stageOf(st)
+  const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
+  // Chiffre de la carte et des noms : l'onglet affiché s'il est choisi, sinon le premier choisi.
+  const prim: Onglet = choices.tabs.includes(st.onglet) ? st.onglet : choices.tabs[0]
+  const pv = views?.get(prim)
+  const lens = Q ? Q.texts.lens : ongletLens(prim)
+  const byPlace: PlaceCoverage = Q ? { ...Q.agg.all, byDept: Q.agg.byDept, byRegion: Q.agg.byRegion, noDept: Q.agg.noDept } : pv!.byPlace
+  const mapClubs: ClubCoverage<Player>[] = Q ? Q.clubs : pv!.clubs
+  const club: ClubCoverage<Player> | undefined = st.club === null ? undefined : Q ? Q.club : pv!.clubs.find((c) => c.key === st.club)
+  const placeText = stage === 'club' ? `${clubLabel(club?.name ?? '')} · ${deptText(dept)}` : dept ? deptText(dept) : region ? regionLabel(region) : 'France'
+  const paint = zonePaint({ byPlace, region, mapBy: st.mapBy, lens, per })
+  const clubMap = clubMapOf(dept, units, mapClubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres')
+
+  // En-tête : ce que montre le rapport, puis saison, date et périmètre.
+  const knownYears = st.years.filter(Boolean).map(Number)
+  const yearsText = st.years.length ? [knownYears.length ? yearsPhrase(knownYears) : '', st.years.includes('') ? 'année de naissance inconnue' : ''].filter(Boolean).join(' ou ') : ''
+  // Filtres de la barre, en mots (« Arrière gauche ») ; jamais un nom de joueur (recherche par nom : dite comme telle).
+  const barText = bilan.popOn
+    ? [
+        ...(st.f ? recipeChips(st.f, bilan.qm.names).filter((c) => !['out', 'limit', 'sort', 'period', 'names'].includes(c.key)).map((c) => c.label) : []),
+        ...(st.t.trim() || st.f?.pop.names ? ['recherche par nom'] : []),
+      ]
+    : []
+  const what = Q ? [Q.texts.what, ...Q.texts.conditions] : choices.tabs.map((o) => TAB[o].label)
+  const line = filterLine({ what, sex: Q ? 'all' : st.sex, years: Q ? '' : yearsText, bar: barText })
+  const meta = metaLine({
+    season: seasonOf(today()).label,
+    allTime: !Q && choices.tabs.includes('vus') && st.period === 'all',
+    edited: fmtDate(today()),
+    perimeter: per ? perimeterText(per) : null,
+  })
+
+  // Lignes du tableau de l'étage pour une valeur (onglet ou question) : régions, départements de la région, clubs.
+  const stageRows = (lz: Lens, bp: PlaceCoverage, clubs: ClubCoverage<Player>[]): [string, Tally][] =>
+    stage === 'regions'
+      ? [
+          ...lz.rank(bp.byRegion).map(([r, t]): [string, Tally] => [regionLabel(r), t]),
+          ...lz.rank([...bp.byDept].filter(([d]) => !regionOfDept(d))).map(([d, t]): [string, Tally] => [deptText(d), t]),
+          ...(bp.noDept.total ? [[deptText(NO_DEPT), bp.noDept] as [string, Tally]] : []),
+        ]
+      : stage === 'depts'
+        ? lz.rank([...bp.byDept].filter(([d]) => regionOfDept(d) === region)).map(([d, t]): [string, Tally] => [deptText(d), t])
+        : clubs.map((c): [string, Tally] => [clubLabel(c.name), c])
+  const stageTitle = stage === 'regions' ? 'Par région' : stage === 'depts' ? `Par département · ${regionLabel(region)}` : `Par club · ${deptText(dept)}`
+  // Une section longue (beaucoup de lignes) commence une nouvelle page à l'impression.
+  const LONG = 14
+
+  const tiles: { big: string; label: string; small: string }[] = Q
+    ? [{ big: Q.texts.total(Q.agg.here).head, label: Q.texts.what, small: Q.texts.total(Q.agg.here).rest.join(' · ') }]
+    : choices.tabs.map((o) => {
+        // Club : ses chiffres (les tuiles du bilan sont celles du département).
+        const c = stage === 'club' ? views!.get(o)!.clubs.find((x) => x.key === st.club) : undefined
+        const t: Tally = stage === 'club' ? (c ? { seen: c.seen, total: c.total } : { seen: 0, total: 0 }) : bilan.kpis.tabs[o]
+        return { big: t.total ? headline(o, t) : '—', label: TAB[o].label, small: t.total ? detail(o, t) : 'aucun joueur' }
+      })
+
+  // Noms des joueurs (département ou club seulement) : par club, nom, prénom, année, poste.
+  const byName = (a: Player, b: Player) => a.lastName.localeCompare(b.lastName, 'fr', { sensitivity: 'base' }) || a.firstName.localeCompare(b.firstName, 'fr')
+  const nameClubs = choices.names
+    ? (club ? [club] : [...mapClubs].sort((a, b) => (!a.key ? 1 : !b.key ? -1 : a.name.localeCompare(b.name, 'fr')))).map((c) => ({
+        name: clubLabel(c.name),
+        players: Q ? Q.order(c) : [...c.toSee, ...c.seenPlayers].sort(byName),
+      }))
+    : []
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
       <div className="no-print flex flex-col gap-2">
         <BackButton fallback="/bilan" label="BILAN DE DÉTECTION" className="self-start" />
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="min-w-0 flex-1 text-lg font-extrabold">Rapport Fédé</h1>
+          <h1 className="min-w-0 flex-1 text-lg font-extrabold">Rapport</h1>
           <button className="btn-primary min-h-8 px-4 py-1.5 text-xs" onClick={() => window.print()}>
             Imprimer / PDF
           </button>
         </div>
-        <p className="text-[11px] text-muted">Seulement des nombres, par génération, sexe, région et club : aucun nom de joueur.</p>
-        <Filters sex="all" setSex={() => {}} period={period} setPeriod={setPeriod} showSex={false} />
+        <p className="text-[11px] text-muted">
+          Le rapport de la vue du bilan. {choices.names ? 'Avec les noms des joueurs : à garder dans le staff.' : 'Seulement des nombres : aucun nom de joueur.'} Pour un PDF, choisis
+          « Enregistrer au format PDF » comme imprimante.
+        </p>
       </div>
 
-      <article className="report rounded-lg bg-white p-3 text-[11px] text-neutral-900 shadow sm:p-6 print:rounded-none print:p-0 print:shadow-none">
-        <div className="mb-3 border-b-2 border-neutral-900 pb-2">
-          <div className="text-[10px] font-bold tracking-widest text-neutral-500">HANDBASE</div>
-          <h2 className="text-base font-extrabold">Bilan de détection</h2>
-          <div>
-            Édité le {fmtDate(today())} · Période : {info.long}
-          </div>
-          {filterText && <div>Joueurs retenus : {filterText}</div>}
-          <div className="text-neutral-600">Un joueur est compté « vu » dès qu’un membre du staff l’a marqué vu ou a donné un avis sur lui. Chiffres : vus/joueurs dans la base ; G. garçons, F. filles, Ens. ensemble.</div>
+      <article className="report-sheet bilan-report rounded-lg bg-white p-3 text-[11px] text-neutral-900 shadow sm:p-6 print:rounded-none print:p-0 print:shadow-none">
+        {/* Pas un <header> : l'impression cache les en-têtes de l'appli (src/index.css). */}
+        <div className="keep mb-3 border-b-2 border-neutral-900 pb-2">
+          <div className="text-[10px] font-bold tracking-widest text-neutral-500">{appearance.name || 'HandBase'}</div>
+          <h2 className="text-base font-extrabold">{reportTitle(placeText)}</h2>
+          {line && <div className="font-bold">{line}</div>}
+          <div>{meta}</div>
+          {choices.names && <div className="mt-1 font-bold">Document avec des noms de mineurs : à garder dans le staff, ne pas diffuser.</div>}
         </div>
 
-        <table className="mb-4 w-full border-collapse">
-          <thead>
-            <tr>
-              <th className={`${th} ${name}`}>Génération</th>
-              <th className={`${th} ${num}`}>G.</th>
-              <th className={`${th} ${num}`}>F.</th>
-              <th className={`${th} ${num}`}>Ens.</th>
-              <th className={`${th} ${num}`}>%</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="font-bold">
-              <td className={`${td} ${name}`}>Toutes</td>
-              <td className={`${td} ${num}`}>{cell(report.total.M)}</td>
-              <td className={`${td} ${num}`}>{cell(report.total.F)}</td>
-              <td className={`${td} ${num}`}>{cell(report.total.all)}</td>
-              <td className={`${td} ${num}`}>{pct(report.total.all)}</td>
-            </tr>
-            {report.years.map((y) => (
-              <tr key={y.year || 'inconnue'}>
-                <td className={`${td} ${name}`}>{yearLabel(y.year)}</td>
-                <td className={`${td} ${num}`}>{cell(y.M)}</td>
-                <td className={`${td} ${num}`}>{cell(y.F)}</td>
-                <td className={`${td} ${num}`}>{cell(y.all)}</td>
-                <td className={`${td} ${num}`}>{pct(y.all)}</td>
-              </tr>
+        <section className="keep mb-4" aria-label="Chiffres clés">
+          <div className={`grid gap-2 ${tiles.length > 2 ? 'grid-cols-2 sm:grid-cols-4' : tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
+            {tiles.map((t) => (
+              <div key={t.label} className="rounded border border-neutral-300 px-2 py-1.5">
+                <div className="text-base leading-tight font-extrabold tabular-nums">{t.big}</div>
+                <div className="text-[9px] font-bold tracking-wider text-neutral-600 uppercase">{t.label}</div>
+                {t.small && <div className="text-[10px] text-neutral-600">{t.small}</div>}
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+          {!Q && stage !== 'club' && (
+            <div className="mt-1 text-neutral-600">
+              {[plural(bilan.kpis.clubs, 'club'), ...(dept ? [] : [plural(bilan.kpis.depts, 'département')])].join(' · ')}
+            </div>
+          )}
+          <div className="mt-1 text-[10px] text-neutral-600">{Q ? Q.texts.lens.title : choices.tabs.map((o) => REPORT_MEANS[o]).join(' ')}</div>
+        </section>
 
-        {regions.length > 1 && (
-          <table className="mb-4 w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={`${th} ${name}`}>Région (club)</th>
-                <th className={`${th} ${num}`}>G.</th>
-                <th className={`${th} ${num}`}>F.</th>
-                <th className={`${th} ${num}`}>Ens.</th>
-                <th className={`${th} ${num}`}>%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {regions.map((r) => (
-                <tr key={r.region || 'inconnue'}>
-                  <td className={`${td} ${name} ${r.region ? '' : 'italic'}`}>{r.region ? regionLabel(r.region) : 'Région non renseignée'}</td>
-                  <td className={`${td} ${num}`}>{cell(r.M)}</td>
-                  <td className={`${td} ${num}`}>{cell(r.F)}</td>
-                  <td className={`${td} ${num}`}>{cell(r.all)}</td>
-                  <td className={`${td} ${num}`}>{pct(r.all)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {choices.map && (
+          <section className="keep mb-4">
+            <h3 className="mb-1 text-[12px] font-extrabold">
+              Carte · {lens.name}
+              {stage === 'regions' ? (st.mapBy === 'dept' ? ' par département' : ' par région') : ''}
+            </h3>
+            <div className="mx-auto w-full max-w-[14cm]">
+              <FranceMap
+                still
+                region={region}
+                selected={dept}
+                fill={paint.fill}
+                onRegion={() => {}}
+                onDept={() => {}}
+                tip={() => null}
+                ariaLabel={`Carte : ${lens.name}, ${placeText}`}
+                others={showOtherOM(byPlace.byDept)}
+                label={(code) => {
+                  const t = byPlace.byDept.get(code)
+                  return `${deptText(code)} : ${paint.outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
+                }}
+                zoneLabel={paint.zoneLabel}
+                dots={clubMap ? { items: clubMap.items, picked: club?.key, onActive: () => {}, onPick: () => {}, tip: () => null } : undefined}
+              />
+            </div>
+            <div className="mx-auto mt-1 w-full max-w-[14cm]">
+              <MapLegend sc={clubMap?.sc ?? paint.sc} note={lens.note} title={lens.title} />
+            </div>
+            {clubMap && (
+              <p className="mt-1 text-[10px] text-neutral-600">
+                Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : aucun joueur avec ces filtres.
+                {clubMap.unplaced.length > 0 && ` ${plural(clubMap.unplaced.length, 'club')} sans position connue : seulement dans les tableaux.`}
+              </p>
+            )}
+            {per && !per.all && <p className="mt-1 text-[10px] text-neutral-600">Zones pâles : hors du périmètre, pas de joueurs reçus.</p>}
+          </section>
         )}
 
-        {report.years.map((y) => (
-          <section key={y.year || 'inconnue'} className="mb-4 break-inside-avoid">
+        {Q ? (
+          <section className="mb-4">
             <h3 className="mb-1 text-[12px] font-extrabold">
-              {yearLabel(y.year)} — {cell(y.all)} vus ({percent(y.all.seen, y.all.total)} %)
+              {Q.texts.what} · {stage === 'club' ? clubLabel(club?.name ?? '') : stageTitle}
             </h3>
-            <table className="w-full table-fixed border-collapse">
-              <colgroup>
-                <col />
-                <col className="w-[17%]" />
-                <col className="w-[15%]" />
-                <col className="w-[17%]" />
-                <col className="w-[15%]" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className={`${th} ${name}`}>Club</th>
-                  <th className={`${th} ${num}`}>G.</th>
-                  <th className={`${th} ${num}`}>F.</th>
-                  <th className={`${th} ${num}`}>Ens.</th>
-                  <th className={`${th} ${num}`}>%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {y.clubs.map((c) => (
-                  <tr key={c.name || 'aucun'}>
-                    <td className={`${td} ${name} ${c.name ? '' : 'italic'}`}>{clubLabel(c.name)}</td>
-                    <td className={`${td} ${num}`}>{cell(c.M)}</td>
-                    <td className={`${td} ${num}`}>{cell(c.F)}</td>
-                    <td className={`${td} ${num}`}>{cell(c.all)}</td>
-                    <td className={`${td} ${num} text-neutral-600`}>{pct(c.all)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {stage === 'club' ? (
+              club ? (
+                <ReportTable first="Club" head={['Valeur']} rows={[[clubLabel(club.name), lens.label(club)]]} />
+              ) : (
+                <p className="mb-3">Personne dans ce club ne répond à la question.</p>
+              )
+            ) : (
+              <ReportTable first={STAGE_COLUMN[stage]} head={['Valeur']} rows={stageRows(lens, byPlace, Q.clubs).map(([n, t]) => [n, t.total ? lens.label(t) : '–'])} />
+            )}
           </section>
-        ))}
-        {noSex > 0 && <p className="text-neutral-600">« Ens. » compte aussi {plural(noSex, 'joueur')} dont le sexe n’est pas renseigné.</p>}
-        {!report.years.length && <p>Aucun joueur dans la base.</p>}
+        ) : (
+          choices.tabs.map((o, i) => {
+            const v = views!.get(o)!
+            const lz = ongletLens(o)
+            const clubNow = st.club === null ? undefined : v.clubs.find((c) => c.key === st.club)
+            const who = stage === 'club' ? (clubNow ? [...clubNow.toSee, ...clubNow.seenPlayers] : []) : v.inScope
+            const rows = stage === 'club' ? [] : stageRows(lz, v.byPlace, v.clubs)
+            const go = o === 'vus' && stage !== 'club' ? whereToGo(v.clubs) : []
+            const ids = new Set(who.map((p) => p.id))
+            const tested = o === 'mesures' && tests ? topTests(tests.meas, ids, DECLARED) : []
+            const posts = o === 'reperes' ? countBy(who.filter((p) => v.counted.has(p.id)), (p) => p.position) : []
+            const share = isShare(o)
+            const total = totalOf(stage === 'club' ? (clubNow ? [clubNow] : []) : v.clubs)
+            return (
+              <section key={o} className={`mb-5 ${i > 0 && rows.length > LONG ? 'page-break' : ''}`}>
+                <h3 className="mb-1 border-b border-neutral-900 pb-0.5 text-[13px] font-extrabold">
+                  {TAB[o].label} — {total.total ? `${headline(o, total)}${o === 'licencies' ? ` joueur${s(total.total)}` : ` · ${detail(o, total)}`}` : 'aucun joueur'}
+                </h3>
+                {stage !== 'club' && (
+                  <>
+                    <h4 className="mt-2 mb-1 text-[11px] font-extrabold">{stageTitle}</h4>
+                    {rows.length ? (
+                      <ReportTable
+                        first={STAGE_COLUMN[stage]}
+                        head={[o === 'licencies' ? 'Joueurs' : TAB[o].label, ...(o === 'licencies' ? [] : ['Détail']), ...(share ? [TAB[o].main] : [])]}
+                        rows={rows.map(([n, t]) => [
+                          n,
+                          t.total ? headline(o, t) : '–',
+                          ...(o === 'licencies' ? [] : [t.total ? detail(o, t) : '–']),
+                          ...(share ? [fmt(leftOf(o, t) ?? 0)] : []),
+                        ])}
+                      />
+                    ) : (
+                      <p className="mb-3">Aucun joueur ici avec ces filtres.</p>
+                    )}
+                  </>
+                )}
+                <div className="keep">
+                  <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Par génération et sexe{stage === 'club' ? ` · ${clubLabel(club?.name ?? '')}` : ''}</h4>
+                  <YearSexTable o={o} players={who} counted={v.counted} sex={st.sex} />
+                </div>
+                {go.length > 0 && (
+                  <div className="keep">
+                    <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Où aller ? Les clubs avec le plus de jeunes à voir</h4>
+                    <ReportTable first="Club" head={['À voir', 'Joueurs']} rows={go.map((c) => [clubLabel(c.name), fmt(c.left), fmt(c.total)])} />
+                  </div>
+                )}
+                {o === 'mesures' && tested.length > 0 && (
+                  <div className="keep">
+                    <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Tests les plus faits</h4>
+                    <ReportTable first="Test" head={['Joueurs mesurés']} rows={tested.map(([c, n]) => [tests?.crit.get(c) ?? c, fmt(n)])} />
+                  </div>
+                )}
+                {o === 'reperes' && posts.length > 0 && (
+                  <div className="keep">
+                    <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Profils repérés par poste</h4>
+                    <ReportTable first="Poste" head={['Profils repérés']} rows={posts.map(([p, n]) => [positionFull(p) || p, fmt(n)])} />
+                  </div>
+                )}
+              </section>
+            )
+          })
+        )}
+
+        {choices.names && (
+          <section className="page-break">
+            <h3 className="mb-1 border-b border-neutral-900 pb-0.5 text-[13px] font-extrabold">Joueurs par club</h3>
+            <p className="mb-2 font-bold">Noms de mineurs : à garder dans le staff, ne pas diffuser.</p>
+            {nameClubs.length ? (
+              nameClubs.map((c) => (
+                <div key={c.name} className="mb-3">
+                  <h4 className="mb-1 text-[11px] font-extrabold">
+                    {c.name} · {plural(c.players.length, 'joueur')}
+                  </h4>
+                  {c.players.length ? (
+                    <table className="w-full table-fixed border-collapse">
+                      <colgroup>
+                        <col />
+                        <col />
+                        <col className="w-[14%]" />
+                        <col className="w-[28%]" />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          {['Nom', 'Prénom', 'Année', 'Poste'].map((h) => (
+                            <th key={h} className="border-b border-neutral-400 px-1 py-1 text-left font-bold">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.players.map((p) => (
+                          <tr key={p.id}>
+                            <td className="border-b border-neutral-200 px-1 py-0.5 break-words">{(p.lastName ?? '').toUpperCase()}</td>
+                            <td className="border-b border-neutral-200 px-1 py-0.5 break-words">{p.firstName}</td>
+                            <td className="border-b border-neutral-200 px-1 py-0.5 tabular-nums">{birthYear(p) || '–'}</td>
+                            <td className="border-b border-neutral-200 px-1 py-0.5 break-words">{positionFull(p.position) || '–'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p>Aucun joueur.</p>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p>Aucun joueur ici avec ces filtres.</p>
+            )}
+          </section>
+        )}
       </article>
     </div>
   )

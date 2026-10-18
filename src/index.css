@@ -222,13 +222,41 @@ body {
   .group-report thead { display: table-header-group; }
   .group-report tr, .group-report dl { break-inside: avoid; }
   .group-report h3 { break-after: avoid; }
+  /* Rapport de la vue du bilan : pages A4 nommées, en-tête des tableaux répété, lignes entières, blocs courts gardés
+     ensemble, sections longues et liste des noms sur une nouvelle page. */
+  .bilan-report { page: bilan-report; font-size: 9pt; }
+  .bilan-report thead { display: table-header-group; }
+  .bilan-report tr { break-inside: avoid; }
+  .bilan-report :is(h3, h4) { break-after: avoid; }
+  .bilan-report .keep { break-inside: avoid; }
+  .bilan-report .page-break { break-before: page; }
 }
+
+/* Rapport de la vue du bilan (src/pages/Coverage.tsx, CoverageReport) : feuille blanche à l'écran comme à l'impression ;
+   la carte et sa légende y prennent des couleurs claires (même dessin que le bilan, lisible imprimé en noir et blanc). */
+:root .report-sheet,
+:root .report-sheet :is(.map-surface, .map-legend) {
+  --color-bg: #ffffff;
+  --color-panel: #ffffff;
+  --color-panel-2: #e7e7e7;
+  --color-line: #bdbdbd;
+  --color-fg: #111111;
+  --color-muted: #555555;
+}
+:root .report-sheet :is(.map-surface, .map-legend) { background: transparent; color: #111111; padding: 0; }
 
 /* Pages de l'export d'un groupe : A4 portrait ; à gauche du pied de page, le nom du groupe et la date (posés par la page). */
 @page group-report {
   size: A4 portrait;
   margin: 14mm 12mm 16mm;
   @bottom-left { font-size: 8pt; color: #444; }
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
+}
+
+/* Pages du rapport de la vue du bilan : A4 portrait, numéro de page en bas à droite. */
+@page bilan-report {
+  size: A4 portrait;
+  margin: 12mm 12mm 14mm;
   @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
 }
 
