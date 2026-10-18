@@ -91,7 +91,7 @@ export function TransferGroup({
       : g.private
       ? ' Groupe privé : tu ne le verras plus, il disparaîtra de cet appareil.'
       : g.team
-        ? ' Groupe « Mon staff » : tu n’y auras plus accès, sauf si tu en es participant.'
+        ? ' Groupe partagé avec des groupes de travail : tu n’y auras plus accès, sauf si tu en es participant.'
         : ''
     if (
       !(await ask(

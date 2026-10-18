@@ -37,10 +37,22 @@ import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { PageHeader } from '../components/PageHeader'
+import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 
-/** Liste des groupes (Intercomités, Pôle, Sport-études…). */
+/** Onglets de la page Groupes (?onglet=travail ; groupes de joueurs par défaut, sans paramètre). */
+type GroupsTab = 'joueurs' | typeof STAFF.tab
+const groupsTabPath = (t: GroupsTab) => (t === STAFF.tab ? STAFF.tabRoute : '/groupes')
+
+/** Page Groupes : onglets « Groupes de joueurs » (Intercomités, Pôle, Sport-études…) et « Groupes de travail » (ex-staffs). */
 export default function Groups() {
   const role = useRole()
+  const nav = useNavigate()
+  const loc = useLocation()
+  const [params] = useSearchParams()
+  // Onglet dans l'adresse : « Retour » depuis un groupe ouvert ramène sur le même onglet, et un lien partagé l'ouvre.
+  const tab: GroupsTab = params.get('onglet') === STAFF.tab ? STAFF.tab : 'joueurs'
+  const bar = useMedia(MQ.side)
+  const [creatingTeam, setCreatingTeam] = useState(false)
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup))))
   const teams = useTeams() ?? []
   // Archivés affichés : retrouvé au retour (pendant la session), comme les filtres.
@@ -51,24 +63,64 @@ export default function Groups() {
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const active = shown.filter((g) => !g.archived)
   const archived = shown.filter((g) => g.archived)
+  const work = tab === STAFF.tab
+
+  // Changer d'onglet remplace l'adresse (comme les onglets d'un événement) ; un groupe ouvert à droite se ferme.
+  const setTab = (t: GroupsTab) => {
+    if (t === tab) return
+    setCreatingTeam(false)
+    nav(groupsTabPath(t), { replace: true, state: loc.pathname === '/groupes' ? loc.state : undefined })
+  }
+  // Mêmes onglets, même style que ceux d'un événement (Joueurs · Classement · Vidéo, Events.tsx).
+  const tabs = (cls = '') => (
+    <div role="tablist" aria-label="Type de groupes" className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
+      {(
+        [
+          ['joueurs', `${STAFF.tabPlayers} (${groups.filter((g) => !g.archived).length})`],
+          [STAFF.tab, `${STAFF.tabWork} (${teams.length})`],
+        ] as const
+      ).map(([v, label]) => (
+        <button
+          key={v}
+          role="tab"
+          aria-selected={tab === v}
+          data-tab={v}
+          onClick={() => setTab(v)}
+          className={`min-w-0 flex-1 truncate px-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+  const addButton = work
+    ? can.manageTeams(role) &&
+      !creatingTeam && (
+        <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreatingTeam(true)}>
+          {STAFF.add}
+        </button>
+      )
+    : can.manageGroups(role) && (
+        <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
+          + Groupe
+        </Link>
+      )
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-extrabold">Groupes</h1>
-        <div className="flex items-center gap-3">
-          {(can.manageTeams(role) || teams.length > 0) && (
-            <Link to={STAFF.route} className="flex items-center gap-1 text-xs font-bold text-muted hover:text-fg">
-              <Icon name="users" className="h-3.5 w-3.5" /> {STAFF.title}
-            </Link>
-          )}
-          {can.manageGroups(role) && (
-            <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
-              + Groupe
-            </Link>
-          )}
+      {/* Titre, bouton, puis les onglets : à droite quand la liste a la place (comme la barre d'un événement), sinon
+          sur toute la largeur en dessous (téléphone, liste étroite à côté d'un groupe ouvert). */}
+      <div className="@container">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="mr-auto text-lg font-extrabold">Groupes</h1>
+          {addButton}
+          {tabs('w-full @2xl:w-auto @2xl:min-w-96 @2xl:max-w-md @2xl:flex-1')}
         </div>
       </div>
+      {work ? (
+        <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
+      ) : (
+        <>
       <p className="text-[11px] text-muted">
         Des listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : un clic pour les filtrer, les exporter ou remplir un
         événement.
@@ -109,6 +161,8 @@ export default function Groups() {
             <GroupRow key={g.id} g={g} teams={teams} />
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   )
@@ -558,7 +612,18 @@ function GroupExport({ g, players, className = '' }: { g: PlayerGroup; players: 
   )
 }
 
+/**
+ * Écran /groupes/:id : un groupe de joueurs, ou un groupe de travail quand l'adresse porte ?onglet=travail (même
+ * panneau de droite sur ordinateur, même écran seul sur téléphone ; la liste de gauche reste sur le bon onglet).
+ */
 export function GroupDetail() {
+  const { id } = useParams()
+  const [params] = useSearchParams()
+  if (id && params.get('onglet') === STAFF.tab) return <WorkGroupDetail key={id} id={id} />
+  return <PlayerGroupDetail />
+}
+
+function PlayerGroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()

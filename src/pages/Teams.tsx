@@ -1,140 +1,234 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
-import { useSessionState } from '../components/PlayerFilter'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { ask } from '../components/Confirm'
+import { copyLink } from '../components/ItemMenu'
+import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
+import { PageHeader } from '../components/PageHeader'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Empty, Icon } from '../components/ui'
-import { alive, db, newId, plural, remove, save, type Team } from '../db'
+import { alive, db, fmtDate, newId, plural, remove, save, type HBEvent, type PlayerGroup, type Team } from '../db'
 import { can, currentUserId, useRole } from '../roles'
 import { STAFF } from '../staffLabels'
 import { isMember, useTeams } from '../teams'
 
 /*
- * « Mes staffs » (supabase/034_equipes_encadrants.sql) : équipes d'encadrants enregistrées, à choisir d'un clic
- * comme participants d'un groupe ou d'un événement. Je vois ceux que j'ai créés et ceux dont je fais partie ;
- * seul le créateur d'un staff le renomme, change ses membres ou le supprime.
+ * Groupes de travail (ex-« Mes staffs », supabase/034_equipes_encadrants.sql) : équipes d'encadrants enregistrées, à
+ * choisir d'un clic comme participants d'un groupe de joueurs ou d'un événement. Ils vivent dans l'onglet « Groupes de
+ * travail » de la page Groupes (?onglet=travail) ; l'ancienne adresse /staffs y renvoie. Je vois ceux que j'ai créés et
+ * ceux dont je fais partie ; seul le créateur d'un groupe de travail le renomme, change ses membres ou le supprime.
+ * Ouvrir un groupe de travail : /groupes/:id?onglet=travail (panneau de droite sur ordinateur, écran seul sur téléphone).
  */
+
+/** Ancienne page « Mes staffs » (/staffs) : renvoie vers l'onglet « Groupes de travail » de la page Groupes. */
 export default function Teams() {
-  const role = useRole()
-  const teams = useTeams()
-  const [editing, setEditing] = useState<string | null>(null)
-  // Staff déplié : retrouvé au retour (pendant la session).
-  const [open, setOpen] = useSessionState<string | null>('handbase.staffs.open', null)
-  // Où chaque staff sert : groupes et événements (non archivés) qui le citent, sur l'appareil.
-  const uses = useLiveQuery(async () => {
+  return <Navigate to={STAFF.tabRoute} replace />
+}
+
+/** Adresse d'un groupe de travail ouvert (l'onglet suit, pour la liste de gauche et le retour). */
+export const workGroupPath = (id: string) => `/groupes/${id}?onglet=${STAFF.tab}`
+
+/** Groupes de joueurs et événements (sur l'appareil, non supprimés) qui citent chaque groupe de travail parmi leurs participants. */
+function useShared() {
+  return useLiveQuery(async () => {
     const [groups, events] = await Promise.all([db.groups.toArray(), db.events.toArray()])
-    const m = new Map<string, { groups: number; events: number }>()
-    const add = (id: string, k: 'groups' | 'events') => {
-      const u = m.get(id) ?? { groups: 0, events: 0 }
-      u[k]++
-      m.set(id, u)
+    const m = new Map<string, { groups: PlayerGroup[]; events: HBEvent[] }>()
+    const of = (id: string) => {
+      let u = m.get(id)
+      if (!u) m.set(id, (u = { groups: [], events: [] }))
+      return u
     }
-    for (const g of alive(groups)) if (!g.archived) for (const t of g.teams ?? []) add(t, 'groups')
-    for (const e of alive(events)) if (!e.archived) for (const t of e.teams ?? []) add(t, 'events')
+    for (const g of alive(groups)) if (can.seeGroup(g)) for (const t of g.teams ?? []) of(t).groups.push(g)
+    for (const e of alive(events)) for (const t of e.teams ?? []) of(t).events.push(e)
+    for (const u of m.values()) {
+      u.groups.sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || a.name.localeCompare(b.name, 'fr'))
+      u.events.sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || b.date.localeCompare(a.date))
+    }
     return m
   })
-  if (!teams) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const usesOf = (id: string) => {
-    const u = uses?.get(id)
-    return u ? [u.groups && plural(u.groups, 'groupe'), u.events && plural(u.events, 'événement')].filter(Boolean).join(', ') : ''
-  }
+}
 
+/** « 2 groupes, 1 événement » (non archivés). */
+function usesText(u?: { groups: PlayerGroup[]; events: HBEvent[] }) {
+  if (!u) return ''
+  const g = u.groups.filter((x) => !x.archived).length
+  const e = u.events.filter((x) => !x.archived).length
+  return [g && plural(g, 'groupe'), e && plural(e, 'événement')].filter(Boolean).join(', ')
+}
+
+/** Onglet « Groupes de travail » de la page Groupes : la liste, et le formulaire de création quand il est demandé. */
+export function WorkGroupsTab({ teams, creating, onCreated }: { teams: Team[]; creating: boolean; onCreated: () => void }) {
+  const role = useRole()
+  const nav = useNavigate()
+  const shared = useShared()
+  const sel = useSelected('/groupes')
   return (
-    <div className="flex flex-col gap-3">
-      <BackButton fallback="/groupes" label="GROUPES" className="self-start" />
-      <div className="flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-lg font-extrabold">
-          <Icon name="users" className="h-4 w-4 text-muted" />
-          {STAFF.title}
-        </h1>
-        {can.manageTeams(role) && editing !== 'new' && (
-          <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => (setEditing('new'), setOpen(null))}>
-            {STAFF.add}
-          </button>
-        )}
-      </div>
+    <>
       <p className="text-[11px] text-muted">{STAFF.intro}</p>
       <p className="text-[11px] text-muted">{STAFF.privacy}</p>
 
-      {editing === 'new' && (
+      {creating && (
         <div className="card p-3">
           <div className="section-title">{STAFF.create}</div>
-          <TeamForm onDone={(t) => (setEditing(null), t && setOpen(t.id))} />
+          <TeamForm
+            onDone={(t) => {
+              onCreated()
+              if (t) nav(workGroupPath(t.id))
+            }}
+          />
         </div>
       )}
 
-      {!teams.length && editing !== 'new' && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
+      {!teams.length && !creating && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
 
       <div className="cols flex flex-col gap-3">
-      {teams.map((t) =>
-        editing === t.id ? (
-          <div key={t.id} className="card col-span-full p-3">
-            <TeamForm team={t} onDone={() => setEditing(null)} />
-          </div>
-        ) : (
-          <div key={t.id} className={`card flex flex-col gap-1 p-3 ${open === t.id ? 'border-accent/50' : ''}`}>
-            <button className="flex items-center justify-between gap-3 text-left" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? null : t.id)}>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-bold">{t.name}</span>
-                {t.description && <span className="block truncate text-[11px] text-muted">{t.description}</span>}
-                <span className="block truncate text-[10px] text-muted">
-                  {[
-                    can.editTeam(t) ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName),
-                    isMember(t) && STAFF.member,
-                    usesOf(t.id),
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
+        {teams.map((t) => (
+          <Link
+            key={t.id}
+            to={workGroupPath(t.id)}
+            data-md={t.id}
+            aria-current={sel === t.id || undefined}
+            className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${selectedCls(sel === t.id)}`}
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-bold">{t.name}</span>
+              {t.description && <span className="block truncate text-[11px] text-muted">{t.description}</span>}
+              <span className="block truncate text-[10px] text-muted">
+                {[can.editTeam(t) ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member, usesText(shared?.get(t.id))]
+                  .filter(Boolean)
+                  .join(' · ')}
               </span>
-              <span className="shrink-0 text-xs font-bold text-muted">{STAFF.count(t.members.length)}</span>
-            </button>
-            {open === t.id && (
-              <div className="mt-1 flex flex-col gap-2 border-t border-line pt-2">
-                <p className="text-[11px] text-muted">
-                  {t.members.length
-                    ? t.members.map((u) => (u === currentUserId() ? 'toi' : t.names?.[u] || '?')).join(', ')
-                    : STAFF.count(0)}
-                </p>
-                {can.editTeam(t) && (
-                  <div className="flex gap-2">
-                    <button
-                      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-2 px-3 py-1.5 text-xs font-bold text-fg transition hover:border-accent"
-                      onClick={() => setEditing(t.id)}
-                    >
-                      <Icon name="pencil" className="h-3.5 w-3.5" />
-                      Modifier
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel-2 px-3 py-1.5 text-xs font-bold text-muted transition hover:border-red-400 hover:text-red-400"
-                      onClick={async () => {
-                        if (!(await ask(STAFF.confirmDelete(t.name), { ok: 'Supprimer' }))) return
-                        await remove('teams', t.id)
-                        setOpen(null)
-                      }}
-                    >
-                      <Icon name="trash" className="h-3.5 w-3.5" />
-                      Supprimer
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ),
-      )}
+            </span>
+            <span className="shrink-0 text-xs font-bold text-muted">{STAFF.count(t.members.length)}</span>
+          </Link>
+        ))}
       </div>
+    </>
+  )
+}
+
+/** Fiche d'un groupe de travail : membres, puis les groupes de joueurs et les événements qui le partagent (liens). */
+export function WorkGroupDetail({ id }: { id: string }) {
+  const teams = useTeams()
+  const shared = useShared()
+  const panel = usePanel()
+  const nav = useNavigate()
+  const [editing, setEditing] = useState(false)
+  useEffect(() => setEditing(false), [id])
+  if (!teams) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  const t = teams.find((x) => x.id === id)
+  const back = panel ? <PanelClose /> : <BackButton fallback={STAFF.tabRoute} label={STAFF.title.toUpperCase()} />
+  if (!t)
+    return (
+      <div className="flex flex-col gap-4">
+        <PageHeader back={back} />
+        <Empty>{STAFF.notFound}</Empty>
+      </div>
+    )
+  const manage = can.editTeam(t)
+  const me = currentUserId()
+  const u = shared?.get(t.id)
+  const linkCls = 'card flex items-center justify-between gap-3 px-3 py-2 hover:border-accent'
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        back={back}
+        menu={
+          editing
+            ? undefined
+            : {
+                title: t.name,
+                subtitle: STAFF.count(t.members.length),
+                items: [
+                  manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(workGroupPath(t.id)) },
+                  manage && {
+                    label: 'Supprimer',
+                    icon: 'trash',
+                    danger: true,
+                    onSelect: async () => {
+                      if (!(await ask(STAFF.confirmDelete(t.name), { ok: 'Supprimer', focusCancel: true }))) return
+                      await remove('teams', t.id)
+                      nav(STAFF.tabRoute, { replace: true })
+                    },
+                  },
+                ],
+              }
+        }
+      />
+      {editing ? (
+        <div className="card p-3">
+          <TeamForm key={t.id} team={t} onDone={() => setEditing(false)} />
+        </div>
+      ) : (
+        <div>
+          <h1 className="flex items-center gap-2 text-lg font-extrabold">
+            <Icon name="users" className="h-4 w-4 shrink-0 text-muted" />
+            <span className="min-w-0 break-words">{t.name}</span>
+          </h1>
+          {t.description && <div className="text-xs text-muted">{t.description}</div>}
+          <div className="text-[11px] text-muted">
+            {[manage ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+      )}
+
+      <section className="flex flex-col gap-1.5">
+        <div className="section-title mb-0">
+          {STAFF.membersLabel} ({t.members.length})
+        </div>
+        <p className="text-sm">{t.members.length ? t.members.map((m) => (m === me ? 'toi' : t.names?.[m] || '?')).join(', ') : STAFF.count(0)}</p>
+      </section>
+
+      {!u?.groups.length && !u?.events.length && <p className="text-[11px] text-muted">{STAFF.sharedNone}</p>}
+
+      {!!u?.groups.length && (
+        <section className="flex flex-col gap-2">
+          <div className="section-title mb-0">
+            {STAFF.sharedGroups} ({u.groups.length})
+          </div>
+          {u.groups.map((g) => (
+            <Link key={g.id} to={`/groupes/${g.id}`} className={`${linkCls} ${g.archived ? 'opacity-60' : ''}`}>
+              <span className="min-w-0 truncate text-sm font-bold">
+                {g.name}
+                {g.archived && <span className="ml-2 text-[10px] font-normal text-muted">archivé</span>}
+              </span>
+              <span className="shrink-0 text-xs font-bold text-muted">{plural(g.playerIds.length, 'joueur')}</span>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      {!!u?.events.length && (
+        <section className="flex flex-col gap-2">
+          <div className="section-title mb-0">
+            {STAFF.sharedEvents} ({u.events.length})
+          </div>
+          {u.events.map((e) => (
+            <Link key={e.id} to={`/evenements/${e.id}`} className={`${linkCls} ${e.archived ? 'opacity-60' : ''}`}>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold">
+                  {e.name}
+                  {e.archived && <span className="ml-2 text-[10px] font-normal text-muted">archivé</span>}
+                </span>
+                <span className="block truncate text-[11px] text-muted">{[fmtDate(e.date), e.place].filter(Boolean).join(' · ')}</span>
+              </span>
+              <span className="shrink-0 text-xs font-bold text-muted">{plural(e.playerIds?.length ?? 0, 'joueur')}</span>
+            </Link>
+          ))}
+        </section>
+      )}
     </div>
   )
 }
 
-/** Création ou modification d'un staff : nom, description, membres (encadrants). */
+/** Création ou modification d'un groupe de travail : nom, description, membres (encadrants). */
 function TeamForm({ team, onDone }: { team?: Team; onDone: (t?: Team) => void }) {
   const role = useRole()
   const [name, setName] = useState(team?.name ?? '')
   const [description, setDescription] = useState(team?.description ?? '')
-  // Nouveau staff créé par un encadrant : il en fait partie d'office (il peut se décocher).
+  // Nouveau groupe de travail créé par un encadrant : il en fait partie d'office (il peut se décocher).
   const me = currentUserId()
   const [members, setMembers] = useState<string[]>(team?.members ?? (me && role === 'preparateur' ? [me] : []))
   const [names, setNames] = useState<Record<string, string>>({})

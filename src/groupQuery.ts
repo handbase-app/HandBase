@@ -1,10 +1,11 @@
 // Liste Groupes = ÉDITEUR DE RECETTE (même expérience que les listes Joueurs et Événements, moteur commun src/listQuery.ts).
-// Recette « groupes » : visibilité (privé / mon staff / tout le staff), niveau (fédération, ligue, comité), garçons / filles
+// Recette « groupes » : visibilité (moi seul / mes groupes de travail / tout le monde), niveau (fédération, ligue, comité), garçons / filles
 // / mixte, ligue, comité, année d'âge, créés par moi / où je suis participant / suivis, créés par…, nombre de joueurs ; tris
 // (nom, joueurs, dernière modification) ; calculs sur la sélection (combien, par visibilité, par comité, par année…).
 // Fonctions pures (tools/test-filtres-recette-pages.ts). Rien de ce qui part au modèle ne contient de données : noms de
 // groupes, de lieux et de personnes sont recopiés tels que dits et retrouvés ICI.
 
+import { GROUP_VIS } from './staffLabels'
 import {
   asList,
   cleanNum,
@@ -72,9 +73,9 @@ export type GroupCtx = {
 }
 
 export const VIS_LIST: { value: GroupVis; label: string }[] = [
-  { value: 'private', label: 'Moi seul' },
-  { value: 'team', label: 'Mon staff' },
-  { value: 'staff', label: 'Tout le staff' },
+  { value: 'private', label: GROUP_VIS.label.private },
+  { value: 'team', label: GROUP_VIS.label.team },
+  { value: 'staff', label: GROUP_VIS.label.staff },
 ]
 export const SCOPE_LIST = [
   { value: 'federation' as const, label: 'Fédération' },
@@ -89,8 +90,8 @@ export const SEX_LIST = [
 const visOf = (g: QGroup): GroupVis => (g.private ? 'private' : g.team ? 'team' : 'staff')
 const VIS_ALIASES: Record<GroupVis, string[]> = {
   private: ['prive', 'privés', 'moi seul', 'perso', 'personnel'],
-  team: ['mon staff', 'mon_staff', 'equipe', 'staff restreint'],
-  staff: ['tout le staff', 'tout_le_staff', 'public', 'partage', 'partagés', 'du staff'],
+  team: ['mes groupes de travail', 'groupes de travail', 'groupe de travail', 'mon staff', 'mon_staff', 'equipe', 'staff restreint'],
+  staff: ['tout le monde', 'tout le staff', 'tout_le_staff', 'public', 'partage', 'partagés', 'du staff'],
 }
 const SCOPE_ALIASES: Record<string, string[]> = { federation: ['FFHB', 'national', 'nationaux', 'France'], ligue: ['ligues', 'régional', 'régionaux'], comite: ['comités', 'départemental', 'départementaux'] }
 
@@ -276,7 +277,7 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
 export function buildGroupsSchema(today: string): Record<string, string> {
   return {
     aujourdhui: today,
-    visibilite: 'liste : prive (moi seul) | mon_staff | tout_le_staff',
+    visibilite: 'liste : prive (moi seul) | mon_staff (mes groupes de travail) | tout_le_staff (tout le monde)',
     niveau: 'federation | ligue | comite',
     sexe: 'M (garçons) | F (filles) | mixte',
     ligues: 'liste de ligues (régions) telles que dites',

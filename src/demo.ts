@@ -60,12 +60,12 @@ const EVENTS: Omit<HBEvent, 'updatedAt'>[] = [
   { id: PREFIX + 'ev-4', name: 'J3 — Vallée Bleue vs Rhône Sud', type: 'match', date: '2026-09-27', place: 'Privas' },
 ]
 
-// Staffs (équipes d'encadrants) fictifs, avec des comptes fictifs : le choix des participants en mode local.
+// Groupes de travail (ex-staffs, équipes d'encadrants) fictifs, avec des comptes fictifs : le choix des participants en mode local.
 const STAFF_NAMES = ['Coach Paul', 'Julie Adjointe', 'Sophie Conseillère', 'Karim Gardiens', 'Marc Recruteur']
 const staffId = (i: number) => `${PREFIX}compte-${i + 1}`
 const TEAMS: Omit<Team, 'updatedAt'>[] = [
-  { id: PREFIX + 'staff-1', name: 'Staff Drôme', description: 'Encadrement départemental', members: [0, 1, 2].map(staffId) },
-  { id: PREFIX + 'staff-2', name: 'Staff gardiens', members: [3, 0].map(staffId) },
+  { id: PREFIX + 'staff-1', name: 'ETD Drôme', description: 'Encadrement départemental', members: [0, 1, 2].map(staffId) },
+  { id: PREFIX + 'staff-2', name: 'Entraîneurs des gardiens', members: [3, 0].map(staffId) },
 ].map((t) => ({ ...t, names: Object.fromEntries(t.members.map((u) => [u, STAFF_NAMES[Number(u.split('-').pop()) - 1]])) }))
 
 const GAPS = ['Chaîne P. G ++ / RE hanche', 'Dorsiflexion cheville D limitée', 'Épaule RI G à travailler', 'Squat overhead : buste penché', '', '', '']
