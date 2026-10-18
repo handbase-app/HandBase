@@ -128,10 +128,13 @@ export function VideoSection({
   bar,
   sheet,
   children,
+  sex,
 }: {
   kind: Video['targetKind']
   targetId: string
   dept?: string
+  /** Fiche d'une joueuse : textes accordés (« cette joueuse »). */
+  sex?: string
   /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement ; en mode édition si sheet). */
   tools?: (v: Video, api: PlayerTools) => ReactNode
   /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement ; en mode édition si sheet). */
@@ -235,7 +238,7 @@ export function VideoSection({
   )
   if (!videos) return null
 
-  const what = kind === 'player' ? 'ce joueur' : 'cet événement'
+  const what = kind === 'player' ? (sex === 'F' ? 'cette joueuse' : 'ce joueur') : 'cet événement'
   return (
     <div className="card p-4">
       <div className="section-title flex items-center gap-2">

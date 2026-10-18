@@ -129,7 +129,7 @@ export default function RewatchPage() {
                   </span>
                 )
               }
-              follow={<FollowStar id={p.id} />}
+              follow={<FollowStar id={p.id} sex={p.sex} />}
               below={
                 <>
                   <RewatchOrigins rows={rows} events={events} />

@@ -10,6 +10,7 @@ import { MQ, useMedia } from '../layout'
 import { eventSections, sortRoster, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { numOf, sightingNames, sightings } from '../scouting'
 import PlayerDetail from './PlayerDetail'
+import { pluralG, setGender, w } from '../gender'
 
 /*
  * Fiche d'un joueur ouverte depuis un événement : /evenements/:id/joueurs/:pid (partageable).
@@ -72,12 +73,12 @@ export default function EventPlayers() {
         <ContextRoster
           base={base}
           back={leave}
-          count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
+          count={pluralG(ids.length, setGender(ev.sex, data.roster ?? []))}
           sections={sections}
           number={(p) => numOf(ev, p.id)}
           detail={(p) => playerSub(p)}
           actions={(p) => ({
-            seen: <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />,
+            seen: <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} sex={p.sex} />,
             rewatch: <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />,
           })}
         />
@@ -90,13 +91,14 @@ export default function EventPlayers() {
 export function EventPlayer() {
   const { id = '', pid = '' } = useParams()
   const ctx = useLiveQuery(async () => {
-    const [ev, seen, evals] = await Promise.all([
+    const [ev, seen, evals, player] = await Promise.all([
       db.events.get(id),
       db.seen.where('eventId').equals(id).toArray().then(alive),
       db.evaluations.where('eventId').equals(id).toArray().then(alive),
+      db.players.get(pid),
     ])
     const mine = evals.filter((e) => e.playerId === pid)
-    return { ev, sight: sightings(seen, mine).get(pid) ?? [], avis: mine.length }
+    return { ev, sight: sightings(seen, mine).get(pid) ?? [], avis: mine.length, sex: player?.sex }
   }, [id, pid])
   const split = useMedia(MQ.split)
   return (
@@ -113,7 +115,7 @@ export function EventPlayer() {
                   ctx.sight.length > 0 && (
                     <span key="vu" className="text-accent">
                       <Icon name="eye" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
-                      vu par {sightingNames(ctx.sight)}
+                      {w(ctx.sex).vu} par {sightingNames(ctx.sight)}
                     </span>
                   ),
                   ctx.avis > 0 && <span key="avis">{ctx.avis} avis ici</span>,

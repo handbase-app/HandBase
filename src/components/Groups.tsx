@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { alive, db, plural, save, type PlayerGroup } from '../db'
+import { alive, db, save, type PlayerGroup } from '../db'
+import { genderOf, pluralG, w } from '../gender'
 import { can, currentUserId, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { getMe, GroupMark } from './ui'
@@ -50,7 +51,9 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
   )
   const [picked, setPicked] = useState('')
   const n = playerIds.length
-  const label = n > 1 ? `${n.toLocaleString('fr-FR')} joueurs` : 'ce joueur'
+  // Accord au genre des joueurs à ajouter (src/gender.ts) : « ces 3 joueuses », « cette joueuse ».
+  const pg = useLiveQuery(() => db.players.bulkGet(playerIds).then(genderOf), [playerIds.join(',')])
+  const label = n > 1 ? pluralG(n, pg) : w(pg).ceJoueur
   const target = groups?.find((g) => g.id === picked)
 
   useEffect(() => {
@@ -85,8 +88,8 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                     </span>
                     <span className="block truncate text-[10px] text-muted">
                       {all
-                        ? 'déjà tous dedans'
-                        : [`${g.playerIds.length} joueur${g.playerIds.length > 1 ? 's' : ''}`, inside ? `${inside} déjà dedans` : '', g.description]
+                        ? `déjà ${w(pg).tous} dedans`
+                        : [pluralG(g.playerIds.length, g.sex), inside ? `${inside} déjà dedans` : '', g.description]
                             .filter(Boolean)
                             .join(' · ')}
                     </span>
@@ -110,7 +113,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
             disabled={!target}
             onClick={async () => {
               const added = await addToGroup(target!, playerIds)
-              onClose(added ? `${plural(added, 'joueur ajouté', 'joueurs ajoutés')} à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)
+              onClose(added ? `${pluralG(added, pg, 'joueur ajouté')} à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)
             }}
           >
             Ajouter

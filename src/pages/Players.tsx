@@ -215,7 +215,7 @@ export default function Players() {
                   )
                 }
                 rewatch={<RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} />}
-                follow={<FollowStar id={p.id} />}
+                follow={<FollowStar id={p.id} sex={p.sex} />}
               />
             )
           })}

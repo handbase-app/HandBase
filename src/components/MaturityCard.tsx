@@ -4,6 +4,7 @@ import { db, fmtDate, type Measurement, type Player } from '../db'
 import { Icon, InfoButton } from './ui'
 import { MEAN_APHV, offsetReliable, phase, PHASE_LABEL, round, sittingPlausible, stage, STAGE_LABEL, timing, TIMING_LABEL, type Sex } from '../maturity'
 import { snapshots, type Snapshot } from '../maturitySnapshot'
+import { accord, w } from '../gender'
 
 /** Gardé pour les imports existants : la logique est dans src/maturitySnapshot.ts (sans JSX). */
 export { snapshots }
@@ -20,6 +21,7 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
   if (!measurements.some((m) => m.criterionId === 'taille')) missing.push('la taille')
 
   const snaps = snapshots(p, measurements)
+  const g = w(p.sex)
   const last = snaps[snaps.length - 1]
   const noParents = p.motherHeight === undefined || p.fatherHeight === undefined
   const noWeight = !measurements.some((m) => m.criterionId === 'poids')
@@ -38,10 +40,10 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
           <p>Estimations calculées à partir des mesures : pas des certitudes.</p>
           <p>
             <b>Âge au pic de croissance</b> : trois modèles (Mirwald 2002, Moore 2015, Fransen 2018 pour les garçons) estiment l’écart en
-            années avec le moment où le joueur grandit le plus vite. Négatif = pic à venir, positif = pic passé.
+            années avec le moment où {g.leJoueur} grandit le plus vite. Négatif = pic à venir, positif = pic passé.
             {p.sex ? ` Âge moyen au pic : ${f1(MEAN_APHV[p.sex])} ans.` : ''} La <b>moyenne</b> des modèles disponibles sert de repère
             (précoce, dans la norme, tardif ; avant, autour, après le pic). Marge d’environ ±1 an ; ces équations ramènent vers la moyenne
-            les joueurs très précoces ou très tardifs.
+            les {g.joueurs} très précoces ou très {accord('tardif', p.sex, 2)}.
           </p>
           <p>
             Mirwald et Fransen demandent la taille, la taille assise (sans le banc) et le poids, pris <b>le même jour</b> (un jeune
@@ -55,9 +57,9 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
           </p>
           <p>
             <b>Taille adulte prédite avec les parents</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
-            marge à 90 %. Le pourcentage de taille adulte atteinte situe le joueur dans sa croissance.
+            marge à 90 %. Le pourcentage de taille adulte atteinte situe {g.leJoueur} dans sa croissance.
           </p>
-          <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter un joueur.</p>
+          <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter {g.unJoueur}.</p>
         </InfoButton>
       </div>
 
@@ -151,7 +153,7 @@ function OffsetBlock({ snap, sex }: { snap: Snapshot; sex: Sex }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="rounded border border-accent/50 bg-accent-soft px-1.5 py-0.5 font-bold text-accent">{PHASE_LABEL[ph]}</span>
-        <span className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-bold">{TIMING_LABEL[timing(sex, meanAphv)]}</span>
+        <span className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-bold">{accord(TIMING_LABEL[timing(sex, meanAphv)], sex)}</span>
         <span className="text-muted">âge moyen au pic : {f1(MEAN_APHV[sex])} ans</span>
       </div>
       {snap.sitting !== undefined && !sittingPlausible(snap.height, snap.sitting) && (
@@ -164,7 +166,7 @@ function OffsetBlock({ snap, sex }: { snap: Snapshot; sex: Sex }) {
       {!reliable && (
         <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
           <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />
-          Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : 'joueur loin de son pic'}.
+          Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : `${w(sex).joueur} loin de son pic`}.
         </div>
       )}
     </div>

@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { alive, db, fmtDate, plural, save, today, type HBEvent } from '../db'
+import { alive, db, fmtDate, save, today, type HBEvent } from '../db'
+import { accord, genderOf, pluralG, w } from '../gender'
 import { can, currentUserId, useRole } from '../roles'
 import { loadTeams } from '../teams'
 
@@ -22,7 +23,9 @@ export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; 
     return () => window.removeEventListener('keydown', esc)
   }, [onClose])
   const n = playerIds.length
-  const who = n > 1 ? plural(n, 'joueur') : 'ce joueur'
+  // Accord au genre des joueurs à ajouter (src/gender.ts).
+  const pg = useLiveQuery(() => db.players.bulkGet(playerIds).then(genderOf), [playerIds.join(',')])
+  const who = n > 1 ? pluralG(n, pg) : w(pg).ceJoueur
 
   async function add(ev: HBEvent) {
     const cur = (await db.events.get(ev.id)) ?? ev
@@ -37,7 +40,7 @@ export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; 
         ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
       })
     }
-    setDone(added.length ? `${added.length > 1 ? plural(added.length, 'joueur') + ' ajoutés' : 'Joueur ajouté'} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`)
+    setDone(added.length ? `${added.length > 1 ? pluralG(added.length, pg, 'joueur ajouté') : accord('Joueur ajouté', pg)} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`)
   }
 
   return createPortal(

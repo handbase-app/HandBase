@@ -2023,7 +2023,7 @@ function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>
       </div>
       {players.length ? (
         players.map((p) => (
-          <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} follow={<FollowStar id={p.id} />} />
+          <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} follow={<FollowStar id={p.id} sex={p.sex} />} />
         ))
       ) : (
         <Empty>Personne dans ce club ne répond à la question.</Empty>
@@ -2170,7 +2170,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
               link={linkTo(p)}
               sub={year(p)}
               rewatch={o === 'vus' ? <RewatchToggle playerId={p.id} rows={rewatch.get(p.id)} /> : undefined}
-              follow={<FollowStar id={p.id} />}
+              follow={<FollowStar id={p.id} sex={p.sex} />}
               actions={
                 addEvents && (
                   <button type="button" className="-my-2 shrink-0 p-2 text-muted hover:text-accent" title="Ajouter à un événement" aria-label="Ajouter à un événement" onClick={() => setAdding([p.id])}>
@@ -2204,7 +2204,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
                   p={p}
                   link={linkTo(p)}
                   sub={[year(p), o === 'vus' && sightText(last.get(p.id))].filter(Boolean).join(' · ')}
-                  follow={<FollowStar id={p.id} />}
+                  follow={<FollowStar id={p.id} sex={p.sex} />}
                 />
               ))}
             </div>

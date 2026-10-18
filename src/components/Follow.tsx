@@ -1,9 +1,10 @@
 import { canFollow, setFollow, useFollows, type FollowKind } from '../follows'
 import { Icon } from './ui'
 import { TEAM_FOLLOW } from '../staffLabels'
+import { w } from '../gender'
 
 /** Bouton « Suivre / Suivi » (étoile) d'une fiche joueur ou d'un groupe : suivi personnel, privé. */
-export function FollowButton({ kind, id }: { kind: FollowKind; id: string }) {
+export function FollowButton({ kind, id, sex }: { kind: FollowKind; id: string; /** Joueur : son sexe (« Suivie » pour une joueuse). */ sex?: string }) {
   const follows = useFollows()
   if (!canFollow() || !follows) return null
   const on = kind === 'player' ? follows.players.has(id) : follows.groups.some((g) => g.group.id === id && g.personal)
@@ -17,18 +18,18 @@ export function FollowButton({ kind, id }: { kind: FollowKind; id: string }) {
       }`}
     >
       <Icon name="star" filled={on} className={`h-3.5 w-3.5 ${on ? 'text-accent' : ''}`} />
-      {on ? 'Suivi' : 'Suivre'}
+      {on ? (kind === 'player' && sex === 'F' ? 'Suivie' : 'Suivi') : 'Suivre'}
     </button>
   )
 }
 
 /** « Suivi via le groupe … » : joueur déjà suivi par un de mes groupes suivis. */
-export function FollowedVia({ playerId }: { playerId: string }) {
+export function FollowedVia({ playerId, sex }: { playerId: string; sex?: string }) {
   const via = useFollows()?.via.get(playerId)
   if (!via?.length) return null
   return (
     <p className="text-[10px] text-muted">
-      Suivi via {via.length === 1 ? 'le groupe' : 'les groupes'} « {via.slice(0, 3).join(' », « ')} »{via.length > 3 ? ` et ${via.length - 3} autres` : ''}
+      {sex === 'F' ? 'Suivie' : 'Suivi'} via {via.length === 1 ? 'le groupe' : 'les groupes'} « {via.slice(0, 3).join(' », « ')} »{via.length > 3 ? ` et ${via.length - 3} autres` : ''}
     </p>
   )
 }
@@ -38,7 +39,7 @@ export function FollowedVia({ playerId }: { playerId: string }) {
  * pâle : suivi autrement (joueur via un groupe suivi, groupe « suivi par le staff ») ; vide : pas suivi.
  * Utilisable dans un lien (le clic n'ouvre pas la fiche).
  */
-export function FollowStar({ kind = 'player', id }: { kind?: FollowKind; id: string }) {
+export function FollowStar({ kind = 'player', id, sex }: { kind?: FollowKind; id: string; /** Joueur : son sexe (« Suivie »). */ sex?: string }) {
   const follows = useFollows()
   if (!follows || !canFollow()) return null
   const mine = kind === 'player' ? follows.players.has(id) : follows.groups.some((g) => g.group.id === id && g.personal)
@@ -48,13 +49,15 @@ export function FollowStar({ kind = 'player', id }: { kind?: FollowKind; id: str
     e.stopPropagation()
     void setFollow(kind, id, !mine)
   }
-  const otherWhy = kind === 'player' ? 'Suivi via un groupe' : TEAM_FOLLOW.label
+  const g = w(kind === 'player' ? sex : undefined)
+  const Suivi = g.suivi === 'suivie' ? 'Suivie' : 'Suivi'
+  const otherWhy = kind === 'player' ? `${Suivi} via un groupe` : TEAM_FOLLOW.label
   return (
     <span
       role="button"
       tabIndex={0}
       aria-pressed={mine}
-      title={mine ? 'Suivi — toucher pour ne plus suivre' : other ? `${otherWhy} — toucher pour le suivre aussi personnellement` : 'Suivre (Mes suivis)'}
+      title={mine ? `${Suivi} — toucher pour ne plus suivre` : other ? `${otherWhy} — toucher pour ${g.pronLe} suivre aussi personnellement` : 'Suivre (Mes suivis)'}
       className="-my-2 -mr-1 shrink-0 cursor-pointer p-2"
       onClick={toggle}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle(e)}

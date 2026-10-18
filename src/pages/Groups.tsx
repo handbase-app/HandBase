@@ -9,6 +9,7 @@ import { arrowNav, showGroupInPlayers, useSessionState } from '../components/Pla
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
+import { accord, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
@@ -219,7 +220,7 @@ function duplicateGroup(g: PlayerGroup, role: Role) {
 /** Supprimer un groupe, après confirmation (joueurs, avis et événements ne sont pas touchés). Renvoie true si supprimé. */
 async function deleteGroup(g: PlayerGroup) {
   const n = g.playerIds.length
-  const who = n > 1 ? `Ses ${n} joueurs gardent leur fiche` : n ? 'Son joueur garde sa fiche' : ''
+  const who = n > 1 ? `Ses ${pluralG(n, g.sex)} gardent leur fiche` : n ? (g.sex === 'F' ? 'Sa joueuse garde sa fiche' : 'Son joueur garde sa fiche') : ''
   const msg = `Supprimer le groupe « ${g.name} » ? ${who ? `${who} ; les` : 'Les'} avis et les événements ne sont pas touchés.`
   if (!(await ask(msg, { ok: 'Supprimer', focusCancel: true }))) return false
   await remove('groups', g.id)
@@ -235,9 +236,9 @@ function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRow
   const manage = can.editGroup(role, g)
   const items: (MenuItem | false)[] = [
     { label: 'Ouvrir', icon: 'users', onSelect: () => nav(`/groupes/${g.id}`) },
-    (manage || can.contributeGroup(role, g)) && { label: 'Ajouter des joueurs', icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
+    (manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
     manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
-    { label: 'Dupliquer', icon: 'list', hint: 'avec ses joueurs', onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+    { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
     { label: 'Exporter en PDF', icon: 'download', hint: 'à imprimer', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
     manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
@@ -254,7 +255,7 @@ function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRow
     <ItemMenu
       anchor={menu.anchor}
       title={g.name}
-      subtitle={`${g.playerIds.length} joueur${g.playerIds.length > 1 ? 's' : ''}${g.archived ? ' · archivé' : ''}`}
+      subtitle={`${pluralG(g.playerIds.length, g.sex)}${g.archived ? ' · archivé' : ''}`}
       items={items.filter((x): x is MenuItem => !!x)}
       onClose={menu.close}
     />
@@ -297,7 +298,7 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
       </div>
       <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-muted">
         <FollowStar kind="group" id={g.id} />
-        {g.playerIds.length} joueur{g.playerIds.length > 1 ? 's' : ''}
+        {pluralG(g.playerIds.length, g.sex)}
         <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${g.name} »`} className="-mr-1.5" />
       </span>
     </Link>
@@ -306,11 +307,8 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   )
 }
 
-const SEXES = [
-  { value: 'M', label: 'Garçons' },
-  { value: 'F', label: 'Filles' },
-  { value: 'mixte', label: 'Mixte' },
-] as const
+/** Garçons / Filles / Mixte : libellés partagés (src/gender.ts). */
+const SEXES = SEX_CHOICES
 
 /** Années de naissance proposées : les catégories jeunes et un peu au-delà. */
 function yearChoices(selected: string[] = []) {
@@ -364,7 +362,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
     !scope && 'la portée',
     scope === 'ligue' && !region && 'la ligue',
     scope === 'comite' && !department && 'le comité',
-    !sex && 'garçons / filles',
+    !sex && `${SEX_LABELS.M} / ${SEX_LABELS.F}`.toLowerCase(),
   ].filter(Boolean) as string[]
   const complete = !missing.length
   // Année d'âge (les anciens groupes à plusieurs années gardent la première).
@@ -416,8 +414,8 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
           <span className="label mt-2">Participants</span>
           <p className="-mt-1 text-[11px] text-muted">
             {vis === 'team'
-              ? 'Encadrants qui voient ce groupe, y ajoutent des joueurs et retirent ceux qu’ils ont ajoutés. Renommer, archiver ou supprimer le groupe, ou changer ses participants, reste à toi.'
-              : 'Encadrants qui peuvent ajouter des joueurs à ce groupe et retirer ceux qu’ils ont ajoutés. Eux seuls ; renommer, archiver ou supprimer le groupe reste à toi (et aux administrateurs).'}
+              ? `Encadrants qui voient ce groupe, y ajoutent des ${w(sex).joueurs} et retirent ${w(sex).ceux} qu’ils ont ${accord('ajouté', sex, 2)}. Renommer, archiver ou supprimer le groupe, ou changer ses participants, reste à toi.`
+              : `Encadrants qui peuvent ajouter des ${w(sex).joueurs} à ce groupe et retirer ${w(sex).ceux} qu’ils ont ${accord('ajouté', sex, 2)}. Eux seuls ; renommer, archiver ou supprimer le groupe reste à toi (et aux administrateurs).`}
           </p>
           <StaffPicker
             value={editors}
@@ -470,7 +468,7 @@ function GroupForm({ group, playerIds = [], onDone }: { group?: PlayerGroup; pla
         </select>
       )}
 
-      <span className="label mt-2">Garçons / filles *</span>
+      <span className="label mt-2">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()} *</span>
       <div className="flex gap-1">
         {SEXES.map((x) => (
           <button key={x.value} type="button" className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(x.value)}>
@@ -579,7 +577,7 @@ export function NewGroup() {
 }
 
 /** « Exporter ▾ » de la page d'un groupe : tableur (CSV) ou liste à imprimer (PDF, identité seulement, ex. pour la ligue). */
-function GroupExport({ g, players, className = '' }: { g: PlayerGroup; players: Player[]; className?: string }) {
+function GroupExport({ g, players, gender, className = '' }: { g: PlayerGroup; players: Player[]; gender?: Gender; className?: string }) {
   const nav = useNavigate()
   const menu = useRowMenu()
   const n = players.length
@@ -601,9 +599,9 @@ function GroupExport({ g, players, className = '' }: { g: PlayerGroup; players: 
         <ItemMenu
           anchor={menu.anchor}
           title="Exporter"
-          subtitle={`${g.name} · ${n} joueur${n > 1 ? 's' : ''}`}
+          subtitle={`${g.name} · ${pluralG(n, gender)}`}
           items={[
-            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: () => void exportCsv(players) },
+            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: () => void exportCsv(players, gender) },
             { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
           ]}
           onClose={menu.close}
@@ -685,10 +683,14 @@ function PlayerGroupDetail() {
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
   const info = groupInfo(g, regionName(g.regionId))
   const view = positionRosterView(players, sort, posFilter)
+  // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte), sinon déduit de ses joueurs.
+  const gg = setGender(g.sex, players)
+  const gw = w(gg)
 
   if (adding)
     return (
       <AddPlayers
+        g={gg}
         scope="ajout-groupe"
         current={g.playerIds}
         onCancel={() => (setAdding(false), setParams({}, { replace: true }))}
@@ -717,10 +719,10 @@ function PlayerGroupDetail() {
             ? undefined
             : {
                 title: g.name,
-                subtitle: `${g.playerIds.length} joueur${g.playerIds.length > 1 ? 's' : ''}${g.archived ? ' · archivé' : ''}`,
+                subtitle: `${pluralG(g.playerIds.length, gg)}${g.archived ? ' · archivé' : ''}`,
                 items: [
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
-                  { label: 'Dupliquer', icon: 'list', hint: 'avec ses joueurs', onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+                  { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
                   manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
                   manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
                   canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
@@ -790,7 +792,7 @@ function PlayerGroupDetail() {
             onLeave={
               contribute
                 ? async () => {
-                    if (!(await ask(`Te retirer des participants de « ${g.name} » ? Les joueurs que tu as ajoutés restent dans le groupe.`, { ok: 'Me retirer' }))) return
+                    if (!(await ask(`Te retirer des participants de « ${g.name} » ? Les ${gw.joueurs} que tu as ${accord('ajouté', gg, 2)} restent dans le groupe.`, { ok: 'Me retirer' }))) return
                     const me = currentUserId()
                     await save<PlayerGroup>('groups', { ...g, editors: (g.editors ?? []).filter((u) => u !== me) })
                   }
@@ -808,7 +810,7 @@ function PlayerGroupDetail() {
       <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-2 gap-2'}>
         {(manage || contribute) && (
           <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : 'col-span-2'}`} onClick={() => setAdding(true)}>
-            + Ajouter des joueurs
+            + Ajouter des {gw.joueurs}
           </button>
         )}
         {can.manageEvents(role) && (
@@ -820,13 +822,13 @@ function PlayerGroupDetail() {
             Créer un événement
           </Link>
         )}
-        <GroupExport g={g} players={view.roster} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
+        <GroupExport g={g} players={view.roster} gender={gg} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
       </div>
-      {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des joueurs et retirer ceux que tu as ajoutés.</p>}
+      {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
-          {players.length} joueur{players.length > 1 ? 's' : ''}
+          {pluralG(players.length, gg)}
         </span>
         {players.length > 1 && !removing && <CompareToggle pick={pick} className="ml-auto" />}
         {!pick.on && players.some((p) => can.removeFromGroup(role, g, p.id)) && (
@@ -834,14 +836,14 @@ function PlayerGroupDetail() {
             className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
             onClick={() => setRemoving((r) => !r)}
           >
-            {removing ? 'Terminé' : 'Retirer des joueurs'}
+            {removing ? 'Terminé' : `Retirer des ${gw.joueurs}`}
           </button>
         )}
       </div>
-      {!players.length && !hidden && <Empty>Aucun joueur dans ce groupe.</Empty>}
+      {!players.length && !hidden && <Empty>{gw.AucunJoueur} dans ce groupe.</Empty>}
       <HiddenPlayers count={hidden} />
       {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
-      {players.length > 0 && view.shown.length === 0 && <Empty>Aucun joueur à ce poste.</Empty>}
+      {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
       {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
       <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         <RosterSectionList
@@ -863,13 +865,13 @@ function PlayerGroupDetail() {
             linkProps={{ 'data-player': true }}
             lines={
               <>
-                {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
-                <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} />
+                {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
+                <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} sex={p.sex} />
               </>
             }
             menuExtras={can.removeFromGroup(role, g, p.id) ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
             rewatch={!removing && <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
-            follow={!removing && <FollowStar id={p.id} />}
+            follow={!removing && <FollowStar id={p.id} sex={p.sex} />}
             actions={
               removing &&
               can.removeFromGroup(role, g, p.id) && (

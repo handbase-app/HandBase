@@ -446,7 +446,7 @@ function AnswerView({
               p={p}
               link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
               sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value, tag)].filter(Boolean).join(' · ')}
-              follow={<FollowStar id={p.id} />}
+              follow={<FollowStar id={p.id} sex={p.sex} />}
             />
           ))
         )}
@@ -689,7 +689,7 @@ function MapAnswer({
       <section className="flex flex-col gap-2">
         <SectionTitle>{mc ? model.names.club(mc) : 'Club non renseigné'} · ceux qui répondent</SectionTitle>
         {players.length ? (
-          players.map((p) => <PlayerRow key={p.id} p={p} link={{ to: `/bilan/question/joueurs/${p.id}${search}` }} follow={<FollowStar id={p.id} />} />)
+          players.map((p) => <PlayerRow key={p.id} p={p} link={{ to: `/bilan/question/joueurs/${p.id}${search}` }} follow={<FollowStar id={p.id} sex={p.sex} />} />)
         ) : (
           <Empty>Personne dans ce club ne répond à la question.</Empty>
         )}
@@ -969,7 +969,7 @@ export function QuestionPlayers() {
             count={players.length ? `${players.length.toLocaleString('fr-FR')} dans la réponse` : ''}
             sections={[{ heading: sqlSpec ? sqlSpec.explanation : recipe ? recipeText(recipe, model.names) : null, players }]}
             detail={(p) => [p.birthDate?.slice(0, 4), value(p)].filter(Boolean).join(' · ')}
-            actions={(p) => ({ follow: <FollowStar id={p.id} /> })}
+            actions={(p) => ({ follow: <FollowStar id={p.id} sex={p.sex} /> })}
           />
         }
       />

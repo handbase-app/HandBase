@@ -35,6 +35,7 @@ import { addToGroup } from './Groups'
 import { inform } from './Confirm'
 import { getMe, GroupMark, Icon } from './ui'
 import { DictationTextarea } from './MicButton'
+import { accord, pluralG, w, type Gender } from '../gender'
 
 /*
  * Repérage en tournoi (supabase/041_reperage_tournoi.sql) : bouton « vu », couverture de l'équipe d'observateurs,
@@ -55,22 +56,23 @@ const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
  * plein = mon « vu » ; contour coloré = vu par d'autres observateurs de l'équipe (les noms au survol et dans « vu par… ») ;
  * gris = pas encore vu. Noté par moi : vu d'office (l'avis compte), l'œil reste plein.
  */
-export function SeenEye({ eventId, playerId, list = [] }: { eventId: string; playerId: string; list?: Sighting[] }) {
+export function SeenEye({ eventId, playerId, list = [], sex }: { eventId: string; playerId: string; list?: Sighting[]; sex?: string }) {
   if (!scoutId()) return null
+  const g = w(sex)
   const mine = list.find((s) => s.mine)
   const n = list.length
   const toggle = async (e: { preventDefault(): void; stopPropagation(): void }) => {
     stop(e)
-    if (mine?.noted && !mine.marked) return void inform('Tu l’as noté sur cet événement : il compte comme vu par toi.')
+    if (mine?.noted && !mine.marked) return void inform(`Tu l’as ${g.note} sur cet événement : ${g.il} compte comme ${g.vu} par toi.`)
     await setSeen(eventId, playerId, !mine?.marked)
   }
-  const label = mine ? (mine.noted ? 'Noté par toi : vu' : 'Vu par toi — toucher pour retirer') : 'Marquer vu'
+  const label = mine ? (mine.noted ? `${accord('Noté', sex)} par toi : ${g.vu}` : `${accord('Vu', sex)} par toi — toucher pour retirer`) : `Marquer ${g.vu}`
   return (
     <button
       type="button"
       onClick={toggle}
       aria-pressed={!!mine}
-      title={`${label}${n ? ` · vu par ${sightingNames(list)}` : ''}`}
+      title={`${label}${n ? ` · ${g.vu} par ${sightingNames(list)}` : ''}`}
       aria-label={label}
       className="-my-2 shrink-0 p-2"
     >
@@ -80,7 +82,7 @@ export function SeenEye({ eventId, playerId, list = [] }: { eventId: string; pla
 }
 
 /** « vu par 3 observateurs » sur la ligne ; les noms au toucher (dans un lien : n'ouvre pas la fiche). */
-export function SeenBy({ list }: { list: Sighting[] }) {
+export function SeenBy({ list, sex }: { list: Sighting[]; sex?: string }) {
   const [open, setOpen] = useState(false)
   if (!list.length) return null
   const n = list.length
@@ -94,7 +96,7 @@ export function SeenBy({ list }: { list: Sighting[] }) {
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (stop(e), setOpen(!open))}
     >
       <Icon name="eye" className="mr-0.5 inline h-3 w-3 -translate-y-px" />
-      {open ? sightingNames(list.map((s) => (s.noted ? { ...s, name: `${s.name} (noté)` } : s))) : `vu par ${n === 1 ? (list[0].mine ? 'toi' : list[0].name) : `${n} personnes`}`}
+      {open ? sightingNames(list.map((s) => (s.noted ? { ...s, name: `${s.name} (${w(sex).note})` } : s))) : `${w(sex).vu} par ${n === 1 ? (list[0].mine ? 'toi' : list[0].name) : `${n} personnes`}`}
     </span>
   )
 }
@@ -110,6 +112,7 @@ export function CoverageBar({
   mine,
   filter,
   setFilter,
+  g,
 }: {
   total: number
   seen: number
@@ -119,24 +122,26 @@ export function CoverageBar({
   mine?: { seen: number; total: number }
   filter: CoverageFilter
   setFilter: (f: CoverageFilter) => void
+  /** Genre de la liste (src/gender.ts) : « Pas encore vues », « 26 joueuses »… quand ce sont des filles. */
+  g?: Gender
 }) {
   const chips: [CoverageFilter, string, number][] = [
-    ['tous', 'Tous', total],
-    ['pasvus', 'Pas encore vus', total - seen],
-    ['vus', 'Vus', seen],
-    ['notes', 'Notés', noted],
+    ['tous', w(g).Tous, total],
+    ['pasvus', accord('Pas encore vu', g, 2), total - seen],
+    ['vus', accord('Vu', g, 2), seen],
+    ['notes', accord('Noté', g, 2), noted],
     ['arevoir', 'À revoir', rewatch],
   ]
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-accent/40 bg-accent/5 p-2.5">
       <div className="text-[11px] text-muted">
-        <b className="text-fg">{plural(total, 'joueur')}</b> · <b className="text-fg">{seen}</b> vu{seen > 1 ? 's' : ''} par l’équipe ·{' '}
-        <b className="text-fg">{total - seen}</b> pas encore vu{total - seen > 1 ? 's' : ''} · <b className="text-fg">{noted}</b> noté{noted > 1 ? 's' : ''} ·{' '}
+        <b className="text-fg">{pluralG(total, g)}</b> · <b className="text-fg">{seen}</b> {accord('vu', g, seen)} par l’équipe ·{' '}
+        <b className="text-fg">{total - seen}</b> {accord('pas encore vu', g, total - seen)} · <b className="text-fg">{noted}</b> {accord('noté', g, noted)} ·{' '}
         <b className="text-fg">{rewatch}</b> à revoir
       </div>
       {mine && mine.total > 0 && (
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="shrink-0 font-bold">Mes équipes : {mine.seen} sur {mine.total} vus</span>
+          <span className="shrink-0 font-bold">Mes équipes : {mine.seen} sur {mine.total} {accord('vu', g, mine.total)}</span>
           <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-panel-2">
             <span className="block h-full bg-accent" style={{ width: `${Math.round((mine.seen / mine.total) * 100)}%` }} />
           </span>
@@ -309,6 +314,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
   const text = note ?? existing?.note ?? ''
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
   const name = player ? `${player.lastName.toUpperCase()} ${player.firstName}` : 'ce joueur'
+  const gw = w(player?.sex)
 
   async function submit() {
     setBusy(true)
@@ -351,7 +357,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
         <div>
           <div className="text-sm font-extrabold">À revoir : {name}</div>
           <p className="text-[11px] text-muted">
-            Visible par ton staff. Ce n’est pas une convocation : la liste des événements choisis ne change pas, le joueur y apparaît à part.
+            Visible par ton staff. Ce n’est pas une convocation : la liste des événements choisis ne change pas, {gw.leJoueur} y apparaît à part.
           </p>
         </div>
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
@@ -391,7 +397,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
             <DictationTextarea className="field min-h-16 text-xs" maxLength={500} placeholder="Ex. à voir sur un match entier, en défense…" value={text} onChange={setNote} />
           </label>
           {!pickedEvents.length && !pickedGroups.length && !newGroup.trim() && (
-            <p className="text-[11px] text-muted">Rien de coché : il va dans la liste « À revoir » générale.</p>
+            <p className="text-[11px] text-muted">Rien de coché : {gw.il} va dans la liste « À revoir » générale.</p>
           )}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -435,7 +441,7 @@ function Check({ on, onClick, children }: { on: boolean; onClick: () => void; ch
 }
 
 /** « repéré au Tournoi de l'Espenon par Sophie · 12/10 » + commentaire, pour chaque auteur. */
-export function RewatchOrigins({ rows, events, className = '' }: { rows: Rewatch[]; events: Map<string, HBEvent>; className?: string }) {
+export function RewatchOrigins({ rows, events, className = '', sex }: { rows: Rewatch[]; events: Map<string, HBEvent>; className?: string; sex?: string }) {
   return (
     <div className={`flex flex-col gap-0.5 text-[10px] text-muted ${className}`}>
       {rows.map((r) => {
@@ -443,7 +449,7 @@ export function RewatchOrigins({ rows, events, className = '' }: { rows: Rewatch
         const by = isMyRewatch(r) ? 'toi' : (r.createdByName ?? '?')
         return (
           <div key={r.id}>
-            {from ? <>repéré au {from} </> : 'à revoir, signalé '}par <b className="text-fg">{by}</b>
+            {from ? <>{w(sex).repere} au {from} </> : `à revoir, signalé${w(sex).e} `}par <b className="text-fg">{by}</b>
             {r.createdAtServer && <> · {fmtDate(dayOf(r.createdAtServer)).slice(0, 5)}</>}
             {r.note && <span className="text-sky-300"> : « {r.note} »</span>}
           </div>
@@ -465,6 +471,7 @@ export function RewatchInEvent({
   sight,
   canAdd,
   onAdd,
+  g,
 }: {
   ev: HBEvent
   rows: Rewatch[]
@@ -473,6 +480,8 @@ export function RewatchInEvent({
   sight: Map<string, Sighting[]>
   canAdd: boolean
   onAdd: (ids: string[]) => void
+  /** Genre de l'événement (src/gender.ts). */
+  g?: Gender
 }) {
   const byPlayer = new Map<string, Rewatch[]>()
   for (const r of rows) byPlayer.set(r.playerId, [...(byPlayer.get(r.playerId) ?? []), r])
@@ -482,7 +491,7 @@ export function RewatchInEvent({
   return (
     <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-3">
       <div className="text-xs font-bold text-sky-300">À revoir ici ({list.length})</div>
-      <p className="mt-0.5 text-[11px] text-muted">Joueurs signalés par ton staff pour cet événement. Ce n’est pas une convocation : la liste ne change pas.</p>
+      <p className="mt-0.5 text-[11px] text-muted">{accord('Joueur signalé', g, 2)} par ton staff pour cet événement. Ce n’est pas une convocation : la liste ne change pas.</p>
       <div className="cols mt-2 flex flex-col gap-2">
         {list.map(([pid, rs]) => {
           const p = players.get(pid)!
@@ -494,8 +503,8 @@ export function RewatchInEvent({
                   {p.lastName.toUpperCase()} {p.firstName}
                   <span className="font-normal text-muted"> · {[p.birthDate?.slice(0, 4), p.club].filter(Boolean).join(' · ')}</span>
                 </Link>
-                <RewatchOrigins rows={rs} events={events} />
-                {s.length > 0 && <div className="text-[10px] font-bold text-emerald-300">revu ✓ ({sightingNames(s)})</div>}
+                <RewatchOrigins rows={rs} events={events} sex={p.sex} />
+                {s.length > 0 && <div className="text-[10px] font-bold text-emerald-300">{w(p.sex).revu} ✓ ({sightingNames(s)})</div>}
                 {canAdd && !inList.has(pid) && (
                   <button className="mt-1 text-[10px] font-bold text-accent underline" onClick={() => onAdd([pid])}>
                     Ajouter à la liste de l’événement
@@ -503,7 +512,7 @@ export function RewatchInEvent({
                 )}
                 {inList.has(pid) && <div className="text-[10px] text-muted">dans la liste de l’événement</div>}
               </div>
-              <SeenEye eventId={ev.id} playerId={pid} list={s} />
+              <SeenEye eventId={ev.id} playerId={pid} list={s} sex={p.sex} />
             </div>
           )
         })}
@@ -526,6 +535,7 @@ export function TournamentPanel({
   edit,
   manage,
   teams,
+  g,
 }: {
   ev: HBEvent
   roster: Player[]
@@ -534,6 +544,8 @@ export function TournamentPanel({
   edit: boolean
   manage: boolean
   teams: Team[]
+  /** Genre de l'événement (src/gender.ts). */
+  g?: Gender
 }) {
   const [open, setOpen] = useState(false)
   const [part, setPart] = useState<'equipes' | 'observateurs' | 'joueurs' | null>(null)
@@ -551,7 +563,7 @@ export function TournamentPanel({
   // Match importé d'une feuille : joueurs reliés encore sans équipe (« Reprendre les deux équipes de la feuille »).
   const fromSheet = ev.matchSheet ? sheetPlayersWithoutTeam(ev.tournament, ev.matchSheet, ev.playerIds ?? []) : 0
   const summary = ts.length
-    ? `${plural(ts.length, 'équipe')}${mine.size ? ` · mes équipes : ${mineStat.seen} sur ${mineStat.total} vus` : ''}${loose.total ? ` · ${loose.total} sans équipe` : ''}`
+    ? `${plural(ts.length, 'équipe')}${mine.size ? ` · mes équipes : ${mineStat.seen} sur ${mineStat.total} ${accord('vu', g, mineStat.total)}` : ''}${loose.total ? ` · ${loose.total} sans équipe` : ''}`
     : 'Pas de répartition : tout le monde voit tout.'
   // Noms des observateurs choisis : gardés avec l'événement (affichage hors ligne, chez les autres participants).
   const namesOf = (us: string[]) => Object.fromEntries(us.map((u) => [u, personName(u, ev, teams)]).filter(([u, n]) => n !== '?' && n !== 'toi' && u !== 'local'))
@@ -588,7 +600,7 @@ export function TournamentPanel({
                         {mine.has(t.id) && <span className="ml-1.5 rounded bg-accent px-1 text-[9px] text-white">MON ÉQUIPE</span>}
                       </b>
                       <span className="shrink-0 text-[11px]">
-                        <b>{s.seen}</b> / {s.total} vus
+                        <b>{s.seen}</b> / {s.total} {accord('vu', g, s.total)}
                       </span>
                     </div>
                     <div className="mt-1 h-1 overflow-hidden rounded-full bg-panel">
@@ -600,7 +612,7 @@ export function TournamentPanel({
               })}
               {loose.total > 0 && (
                 <div className="text-[11px] text-muted">
-                  Sans équipe : <b className="text-fg">{loose.seen}</b> / {loose.total} vus
+                  Sans équipe : <b className="text-fg">{loose.seen}</b> / {loose.total} {accord('vu', g, loose.total)}
                 </div>
               )}
             </div>
@@ -612,7 +624,7 @@ export function TournamentPanel({
                   [
                     ['equipes', `Équipes (${ts.length})`],
                     ['observateurs', 'Observateurs'],
-                    ['joueurs', `Joueurs${loose.total && ts.length ? ` (${loose.total} sans équipe)` : ''}`],
+                    ['joueurs', `${w(g).Joueurs}${loose.total && ts.length ? ` (${loose.total} sans équipe)` : ''}`],
                   ] as const
                 ).map(([v, label]) => (
                   <button
@@ -630,7 +642,7 @@ export function TournamentPanel({
                   {fromSheet > 0 && (
                     <button
                       className="btn-ghost min-h-8 justify-center px-3 py-1 text-xs"
-                      title={`${plural(fromSheet, 'joueur')} de la feuille de match encore sans équipe : rangés dans leur équipe, avec leur numéro`}
+                      title={`${pluralG(fromSheet, g)} de la feuille de match encore sans équipe : rangés dans leur équipe, avec leur numéro`}
                       onClick={() => void saveTournament(ev, (x) => teamsFromSheet(x, ev.matchSheet!, ev.playerIds ?? []))}
                     >
                       Reprendre les deux équipes de la feuille de match
@@ -719,7 +731,7 @@ export function TournamentPanel({
               )}
               {part === 'joueurs' && (
                 <div className="flex flex-col gap-1">
-                  <p className="text-[11px] text-muted">Équipe et numéro de maillot de chaque joueur de la liste.</p>
+                  <p className="text-[11px] text-muted">Équipe et numéro de maillot de chaque {w(g).joueur} de la liste.</p>
                   {[...roster]
                     .sort((a, b) => (teamOf(ev, a.id) ? 1 : 0) - (teamOf(ev, b.id) ? 1 : 0) || byNumber(ev)(a, b))
                     .map((p) => (
@@ -777,7 +789,7 @@ function PlayerTeamRow({ ev, p }: { ev: HBEvent; p: Player }) {
 // ---------- Fiche joueur : historique ----------
 
 /** Historique compact du repérage : « Vu à … (3 obs.) → à revoir au … → revu ✓ ». */
-export function ScoutHistory({ playerId }: { playerId: string }) {
+export function ScoutHistory({ playerId, sex }: { playerId: string; sex?: string }) {
   const data = useLiveQuery(async () => {
     const [seen, evals, rewatch] = await Promise.all([
       db.seen.where('playerId').equals(playerId).toArray().then(alive),
@@ -807,7 +819,7 @@ export function ScoutHistory({ playerId }: { playerId: string }) {
         date: ev.date,
         node: (
           <Link to={`/evenements/${eid}`} className="hover:underline">
-            Vu à <b>{ev.name}</b> ({who.size} obs.)
+            {accord('Vu', sex)} à <b>{ev.name}</b> ({who.size} obs.)
           </Link>
         ),
       }
@@ -823,7 +835,7 @@ export function ScoutHistory({ playerId }: { playerId: string }) {
           à revoir {dests.length ? <>au {dests.join(', ')}</> : '(liste générale)'}
           <span className="text-muted"> · {isMyRewatch(r) ? 'toi' : (r.createdByName ?? '?')}</span>
           {isRevisited(r, keys) && (
-            <span className="font-bold text-emerald-300"> → revu ✓{at && events.get(at) ? ` (${events.get(at)!.name})` : ''}</span>
+            <span className="font-bold text-emerald-300"> → {w(sex).revu} ✓{at && events.get(at) ? ` (${events.get(at)!.name})` : ''}</span>
           )}
         </span>
       ),
@@ -871,25 +883,25 @@ export function useGroupRewatch(groupId?: string) {
 }
 
 /** Trace dans un groupe visé : « à revoir, ajouté par X depuis tel événement » + « Revu » (à la main). */
-export function GroupRewatchLine({ rows, events }: { rows: Rewatch[]; events: Map<string, HBEvent> }) {
+export function GroupRewatchLine({ rows, events, sex }: { rows: Rewatch[]; events: Map<string, HBEvent>; sex?: string }) {
   if (!rows.length) return null
   const open = rows.filter((r) => !r.done)
   const from = (r: Rewatch) => (r.originEventId && events.get(r.originEventId)?.name) || undefined
   return (
     <div className="flex flex-wrap items-center gap-x-2 text-[10px]">
       <span className="min-w-0 text-sky-300">
-        à revoir, ajouté par{' '}
+        à revoir, {w(sex).ajoute} par{' '}
         {rows
           .map((r) => `${isMyRewatch(r) ? 'toi' : (r.createdByName ?? '?')}${from(r) ? ` depuis ${from(r)}` : ''}${r.note ? ` (« ${r.note} »)` : ''}`)
           .join(' ; ')}
       </span>
       {open.length ? (
         <span role="button" tabIndex={0} className="cursor-pointer font-bold text-accent underline" onClick={(e) => (stop(e), void setRevisited(open, true))}>
-          Revu
+          {accord('Revu', sex)}
         </span>
       ) : (
         <span className="font-bold text-emerald-300" title={rows.map((r) => r.done?.byName).filter(Boolean).join(', ')}>
-          revu ✓
+          {w(sex).revu} ✓
         </span>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { poleName, type PolePeriod, type Player } from './db'
+import { setGender } from './gender'
 import { positionCodes, positionFull } from './sportConfig'
 
 /*
@@ -245,9 +246,12 @@ export function totalsByYear(players: Pick<Player, 'birthDate' | 'sex'>[]): { ro
 export const isMixed = (groupSex: string | undefined, players: Pick<Player, 'sex'>[]) =>
   groupSex === 'mixte' || (players.some((p) => p.sex === 'M') && players.some((p) => p.sex === 'F'))
 
-/** « Joueuses » si toutes sont des filles, sinon « Joueurs » (titres des parties). */
-export function sectionTitles(players: Pick<Player, 'sex'>[]) {
-  const girls = players.length > 0 && players.every((p) => p.sex === 'F')
+/**
+ * « Joueuses » pour un groupe de filles (sexe du groupe « Filles », ou sans sexe déclaré et toutes des filles :
+ * setGender de src/gender.ts), sinon « Joueurs » (titres des parties). Groupe déclaré mixte : masculin générique.
+ */
+export function sectionTitles(players: Pick<Player, 'sex'>[], groupSex?: string) {
+  const girls = setGender(groupSex, players) === 'F'
   return girls
     ? { all: 'Liste des joueuses', stay: 'Joueuses déjà au pôle', arrivals: 'Nouvelles arrivantes', one: 'joueuse', many: 'joueuses' }
     : { all: 'Liste des joueurs', stay: 'Joueurs déjà au pôle', arrivals: 'Nouveaux arrivants', one: 'joueur', many: 'joueurs' }

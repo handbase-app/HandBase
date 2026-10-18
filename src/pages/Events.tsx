@@ -32,6 +32,7 @@ import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
+import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
 import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
@@ -255,7 +256,7 @@ export default function Events() {
  * dans chaque équipe, par poste (sous-titres, ordre du terrain) puis numéro de maillot, ou par numéro seulement.
  * Titre : progression (vus / total) et observateurs qui en ont la charge. Même ordre que la notation (groupRoster).
  */
-function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]>, name: (uid: string) => string, byPosition: boolean) {
+function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]>, name: (uid: string) => string, byPosition: boolean, g?: Gender) {
   const out: RosterSection[] = []
   let start = 0
   for (const { team: t, mine, players } of teamGroups(list, ev, byPosition)) {
@@ -265,7 +266,7 @@ function teamSections(list: Player[], ev: HBEvent, sight: Map<string, Sighting[]
       heading: t.name,
       team: true,
       mine,
-      info: [`${seen} sur ${players.length} vus`, obs.length ? `suivie par ${obs.map(name).join(', ')}` : ''].filter(Boolean).join(' · '),
+      info: [`${seen} sur ${players.length} ${accord('vu', g, players.length)}`, obs.length ? `suivie par ${obs.map(name).join(', ')}` : ''].filter(Boolean).join(' · '),
     }
     if (byPosition)
       rosterSections(players, true).forEach((s, k) =>
@@ -305,7 +306,7 @@ async function deleteEvent(ev: HBEvent, role: Role) {
   }
   const msg = n
     ? `Supprimer l’événement « ${ev.name} » ? ${n > 1 ? `Ses ${n} avis seront supprimés aussi.` : 'Son avis sera supprimé aussi.'}`
-    : `Supprimer l’événement « ${ev.name} » ? Les fiches des joueurs ne sont pas touchées.`
+    : `Supprimer l’événement « ${ev.name} » ? Les fiches des ${w(ev.sex).joueurs} ne sont pas touchées.`
   if (!(await ask(msg, { ok: 'Supprimer', focusCancel: true }))) return false
   for (const e of evals) await remove('evaluations', e.id)
   await remove('events', ev.id)
@@ -321,8 +322,8 @@ function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMe
   const manage = can.editEvent(role, ev)
   const items: (MenuItem | false)[] = [
     { label: 'Ouvrir', icon: 'calendar', onSelect: () => nav(`/evenements/${ev.id}`) },
-    { label: 'Évaluer des joueurs', icon: 'check', onSelect: () => nav(`/evaluer?evenement=${ev.id}`) },
-    (manage || can.contributeEvent(role, ev)) && { label: 'Ajouter des joueurs', icon: 'userPlus', onSelect: () => nav(`/evenements/${ev.id}?ajout=1`) },
+    { label: `Évaluer des ${w(ev.sex).joueurs}`, icon: 'check', onSelect: () => nav(`/evaluer?evenement=${ev.id}`) },
+    (manage || can.contributeEvent(role, ev)) && { label: `Ajouter des ${w(ev.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/evenements/${ev.id}?ajout=1`) },
     manage && { label: 'Modifier', icon: 'pencil', onSelect: () => nav(`/evenements/${ev.id}?modifier=1`) },
     manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void toggleArchiveEvent(ev) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
@@ -387,7 +388,7 @@ function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; sta
         {stats ? (
           <>
             <div>
-              <b className="text-fg">{stats.players.size}</b> joueur{stats.players.size > 1 ? 's' : ''}
+              <b className="text-fg">{stats.players.size}</b> {accord('joueur', ev.sex, stats.players.size)}
             </div>
             <div>
               <b className="text-fg">{stats.avis}</b> avis
@@ -396,7 +397,7 @@ function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; sta
         ) : (
           (ev.playerIds ?? []).length > 0 && (
             <div>
-              <b className="text-fg">{(ev.playerIds ?? []).length}</b> convoqué{(ev.playerIds ?? []).length > 1 ? 's' : ''}
+              <b className="text-fg">{(ev.playerIds ?? []).length}</b> {accord('convoqué', ev.sex, (ev.playerIds ?? []).length)}
             </div>
           )
         )}
@@ -583,6 +584,9 @@ export function EventDetail() {
     sort,
   )
   const shownRoster = filterRoster(roster, { pos: posFilter, hideNoted }, notedByMe)
+  // Accord au genre (src/gender.ts) : sexe déclaré de l'événement, sinon déduit de la liste (toutes des filles → féminin).
+  const eg = setGender(ev.sex, roster)
+  const ew = w(eg)
   const filtered = shownRoster.length < roster.length
   // Couverture de l'équipe : vu (« vu » ou avis), noté, à revoir (repéré ici). Uniquement des marques positives.
   const sight = sightings(seen, evals)
@@ -642,11 +646,11 @@ export function EventDetail() {
   const evaluate = (cls: string) => (
     <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className={cls}>
       {filtered
-        ? `Évaluer les ${shownRoster.length} joueur${shownRoster.length > 1 ? 's' : ''} affiché${shownRoster.length > 1 ? 's' : ''}`
-        : `Évaluer ${roster.length ? `les ${roster.length} joueurs` : 'des joueurs'}`}
+        ? `Évaluer les ${pluralG(shownRoster.length, eg, 'joueur affiché')}`
+        : `Évaluer ${roster.length ? `les ${pluralG(roster.length, eg)}` : `des ${ew.joueurs}`}`}
     </Link>
   )
-  const addButton = (cls: string, label = '+ Ajouter des joueurs') => (
+  const addButton = (cls: string, label = `+ Ajouter des ${ew.joueurs}`) => (
     <button className={cls} onClick={() => setAdding(true)}>
       {label}
     </button>
@@ -671,7 +675,7 @@ export function EventDetail() {
     <div role="tablist" aria-label="Contenu de l’événement" className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
       {(
         [
-          ['joueurs', `Joueurs (${roster.length})`],
+          ['joueurs', `${ew.Joueurs} (${roster.length})`],
           ['classement', 'Classement'],
           ['video', nVideos ? `Vidéo (${nVideos})` : 'Vidéo'],
         ] as const
@@ -692,7 +696,7 @@ export function EventDetail() {
       ))}
     </div>
   )
-  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings) : rosterSections(displayed, withHeadings)
+  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings, eg) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
   const avisPlayer = avisShown ? players.find((p) => p.id === openAvis) : undefined
   // ↑ ↓ : joueurs de la liste affichée puis hors liste, ceux qui ont des avis.
@@ -779,7 +783,7 @@ export function EventDetail() {
                 onLeave={
                   contribute
                     ? async () => {
-                        if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les joueurs que tu as ajoutés restent dans la liste.`, { ok: 'Me retirer' }))) return
+                        if (!(await ask(`Te retirer des participants de « ${ev.name} » ? Les ${ew.joueurs} que tu as ${accord('ajouté', eg, 2)} restent dans la liste.`, { ok: 'Me retirer' }))) return
                         const me = currentUserId()
                         await save<HBEvent>('events', { ...ev, editors: (ev.editors ?? []).filter((u) => u !== me) })
                       }
@@ -791,7 +795,7 @@ export function EventDetail() {
           )}
           {viaMyPlayers > 0 && (
             <div className="text-[11px] italic text-muted" data-testid="vu-par-mes-joueurs">
-              Tu vois cet événement parce que {viaMyPlayers === 1 ? '1 de tes joueurs y est inscrit' : `${viaMyPlayers} de tes joueurs y sont inscrits`}
+              Tu vois cet événement parce que {viaMyPlayers === 1 ? `1 de tes ${ew.joueurs} y est ${ew.inscrit}` : `${viaMyPlayers} de tes ${ew.joueurs} y sont ${ew.inscrits}`}
             </div>
           )}
         </div>
@@ -827,7 +831,7 @@ export function EventDetail() {
 
       {/* Joueurs : la répartition par équipe en haut (repliée), puis la liste. */}
       {tab === 'joueurs' && !adding && !editing && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
-        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} />
+        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} g={eg} />
       )}
 
       {/* Vidéo : vidéos, feuille de match (calage, moments, déroulé) et son import. Toujours monté, seulement masqué sur
@@ -870,7 +874,7 @@ export function EventDetail() {
                   Feuille de match
                 </div>
                 <p className="text-[11px] text-muted">
-                  Feuille de match électronique FFHB (PDF lu sur l’appareil, jamais gardé) : score, joueurs reliés aux fiches et déroulé, à caler ensuite sur
+                  Feuille de match électronique FFHB (PDF lu sur l’appareil, jamais gardé) : score, {ew.joueurs} {accord('relié', eg, 2)} aux fiches et déroulé, à caler ensuite sur
                   la vidéo du match.
                 </p>
                 {importSheet}
@@ -882,7 +886,7 @@ export function EventDetail() {
 
       {tab === 'video' ? null : tab === 'joueurs' ? (
         adding ? (
-          <AddPlayers current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
+          <AddPlayers g={eg} current={ev.playerIds ?? []} onCancel={() => setAdding(false)} onAdd={async (ids) => (await setRoster([...(ev.playerIds ?? []), ...ids]), setAdding(false))} />
         ) : (
           // Deux colonnes seulement quand un joueur est choisi : sinon la liste (et « Notés hors liste ») prend toute la largeur.
           // Panneau en pleine largeur : joueurs sur un tiers (une colonne de cartes), avis sur deux tiers.
@@ -893,12 +897,12 @@ export function EventDetail() {
           <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
             {duo && !avisPlayer && (
               <p className="text-[11px] text-muted">
-                {evals.length ? 'Choisis « avis » sur la ligne d’un joueur : ses avis et son radar s’affichent à droite.' : 'Aucun avis pour l’instant sur cet événement.'}
+                {evals.length ? `Choisis « avis » sur la ligne d’${ew.unJoueur} : ses avis et son radar s’affichent à droite.` : 'Aucun avis pour l’instant sur cet événement.'}
               </p>
             )}
             {!bar &&
               canAdd &&
-              (addFirst ? addButton('btn-primary') : addButton('btn-ghost text-xs', '+ Ajouter des joueurs (par groupe ou un par un)'))}
+              (addFirst ? addButton('btn-primary') : addButton('btn-ghost text-xs', `+ Ajouter des ${ew.joueurs} (par groupe ou ${ew.un} par ${ew.un})`))}
             {!bar && roster.length === 0 && evaluate(addFirst ? 'btn-ghost text-xs' : 'btn-primary')}
             <RewatchInEvent
               ev={ev}
@@ -907,20 +911,21 @@ export function EventDetail() {
               events={new Map(origins.map((e) => [e.id, e]))}
               sight={sight}
               canAdd={manage || contribute}
+              g={eg}
               onAdd={(ids) => void setRoster([...(ev.playerIds ?? []), ...ids.filter((x) => !inRoster.has(x))])}
             />
             {offList.length > 0 && (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-bold text-amber-200">Notés hors liste ({offList.length})</div>
+                  <div className="text-xs font-bold text-amber-200">{accord('Noté', genderOf(offList), 2)} hors liste ({offList.length})</div>
                   {(manage || contribute) && settled.length > 0 && (
                     <button className="btn-ghost px-3 py-1 text-xs" onClick={() => void setRoster([...(ev.playerIds ?? []), ...settled.map((p) => p.id)])}>
-                      Ajouter {settled.length > 1 ? `les ${settled.length}` : 'le joueur'} à la liste
+                      Ajouter {settled.length > 1 ? `les ${settled.length}` : w(settled[0]?.sex).leJoueur} à la liste
                     </button>
                   )}
                 </div>
                 <p className="mt-0.5 text-[11px] text-muted">
-                  Joueurs repérés sur place. Un avis en attente validé compte dans les moyennes et ajoute le joueur à la liste ; hors cadre, il est gardé
+                  {w(genderOf(offList)).Joueurs} {accord('repéré', genderOf(offList), 2)} sur place. Un avis en attente validé compte dans les moyennes et ajoute {w(genderOf(offList)).leJoueur} à la liste ; hors cadre, il est gardé
                   sans compter.
                 </p>
                 {/* Avis à valider : en grand, avec les boutons de décision. */}
@@ -955,7 +960,7 @@ export function EventDetail() {
             )}
             <HiddenPlayers count={hidden.length} />
             {roster.length === 0 ? (
-              offList.length || hidden.length ? null : <Empty>Aucun joueur dans la liste. {manage ? 'Ajoute un groupe (club + année…) ou des joueurs un par un.' : ''}</Empty>
+              offList.length || hidden.length ? null : <Empty>{ew.AucunJoueur} dans la liste. {manage ? `Ajoute un groupe (club + année…) ou des ${ew.joueurs} ${ew.un} par ${ew.un}.` : ''}</Empty>
             ) : (
               <>
                 <CoverageBar
@@ -966,6 +971,7 @@ export function EventDetail() {
                   mine={myRoster.length ? { seen: myRoster.filter(isSeen).length, total: myRoster.length } : undefined}
                   filter={cover}
                   setFilter={setCover}
+                  g={eg}
                 />
                 {!bar && evaluate('btn-primary')}
                 {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
@@ -974,7 +980,7 @@ export function EventDetail() {
                     {manage && roster.length > 1 && removing && (
                       <button
                         className="text-[11px] font-bold text-muted underline"
-                        onClick={async () => (await ask(`Retirer les ${roster.length} joueurs de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster(hidden)}
+                        onClick={async () => (await ask(`Retirer les ${pluralG(roster.length, eg)} de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster(hidden)}
                       >
                         Vider la liste
                       </button>
@@ -984,7 +990,7 @@ export function EventDetail() {
                         className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
                         onClick={() => setRemoving((r) => !r)}
                       >
-                        {removing ? 'Terminé' : 'Retirer des joueurs'}
+                        {removing ? 'Terminé' : `Retirer des ${ew.joueurs}`}
                       </button>
                     )}
                   </div>
@@ -1016,18 +1022,18 @@ export function EventDetail() {
                     chips={
                       nNotedInRoster > 0 && (
                         <RosterChip on={hideNoted} onClick={() => setHideNoted(!hideNoted)}>
-                          Masquer ceux que j’ai notés ({nNotedInRoster})
+                          Masquer {ew.ceux} que j’ai {accord('noté', eg, 2)} ({nNotedInRoster})
                         </RosterChip>
                       )
                     }
-                    note={`La notation (flèches, glisser) suit cet ordre${filtered ? ' et ne propose que les joueurs affichés' : ''}.`}
+                    note={`La notation (flèches, glisser) suit cet ordre${filtered ? ` et ne propose que les ${ew.joueurs} ${accord('affiché', eg, 2)}` : ''}.`}
                   />
                 )}
                 {shownRoster.length === 0 && (
-                  <Empty>{hideNoted ? 'Tu as noté tous les joueurs affichés.' : 'Aucun joueur à ce poste.'}</Empty>
+                  <Empty>{hideNoted ? `Tu as ${accord('noté', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} à ce poste.`}</Empty>
                 )}
                 {shownRoster.length > 0 && displayed.length === 0 && (
-                  <Empty>{cover === 'pasvus' ? 'L’équipe a vu tous les joueurs affichés.' : 'Aucun joueur pour ce filtre.'}</Empty>
+                  <Empty>{cover === 'pasvus' ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
                 <RosterSectionList
@@ -1056,25 +1062,25 @@ export function EventDetail() {
                       sub={playerSub(p, !byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id))}
                       lines={
                         <>
-                          {!!ev.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
+                          {!!ev.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
                           {!removing && (
                             <span className="mt-0.5 flex min-w-0 items-center gap-2 empty:hidden">
-                              <SeenBy list={sight.get(p.id) ?? []} />
+                              <SeenBy list={sight.get(p.id) ?? []} sex={p.sex} />
                               <RewatchButton playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} compact={!bar} hideEmpty />
                             </span>
                           )}
                           {(n > 0 || notedByMe.has(p.id)) && (
                             <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] font-bold">
                               {n ? <AvisToggle n={n} open={openAvis === p.id} side={duo} onClick={() => toggleAvis(p.id)} /> : null}
-                              {notedByMe.has(p.id) && <span className="text-[9px] text-emerald-300">✓ noté par moi</span>}
+                              {notedByMe.has(p.id) && <span className="text-[9px] text-emerald-300">✓ {w(p.sex).note} par moi</span>}
                             </span>
                           )}
                         </>
                       }
                       menuExtras={can.removeFromEvent(role, ev, p.id) ? [{ label: 'Retirer de cet événement', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
-                      seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} />}
+                      seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} sex={p.sex} />}
                       rewatch={!removing && <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />}
-                      follow={!removing && <FollowStar id={p.id} />}
+                      follow={!removing && <FollowStar id={p.id} sex={p.sex} />}
                       actions={
                         removing &&
                         can.removeFromEvent(role, ev, p.id) && (
@@ -1103,7 +1109,7 @@ export function EventDetail() {
                 <span className="min-w-0 truncate text-sm font-bold">
                   {avisPlayer.lastName.toUpperCase()} {avisPlayer.firstName}
                 </span>
-                <span className="hidden shrink-0 text-[10px] text-muted wide:inline">↑ ↓ joueur précédent / suivant · Échap ferme</span>
+                <span className="hidden shrink-0 text-[10px] text-muted wide:inline">↑ ↓ {ew.joueur} {accord('précédent', eg)} / {accord('suivant', eg)} · Échap ferme</span>
                 <button className="shrink-0 text-muted hover:text-fg" title="Fermer les avis (Échap)" aria-label="Fermer les avis" onClick={() => showAvis(null)}>
                   <Icon name="close" className="h-4 w-4" />
                 </button>
@@ -1132,7 +1138,10 @@ export function AddPlayers({
   onAdd,
   onCancel,
   scope = 'ajout-evenement',
+  g,
 }: {
+  /** Genre de la liste où l'on ajoute (src/gender.ts) : « Ajouter des joueuses » pour un groupe ou un événement de filles. */
+  g?: Gender
   current: string[]
   onAdd: (ids: string[]) => void
   onCancel: () => void
@@ -1161,7 +1170,7 @@ export function AddPlayers({
       setPicked((s) => new Set([...s].filter((id) => !available.some((p) => p.id === id))))
       return
     }
-    if (available.length > 300 && !(await ask(`Sélectionner ${available.length.toLocaleString('fr-FR')} joueurs ? Affine les filtres pour un groupe plus précis.`, { ok: 'Tout sélectionner', danger: false }))) return
+    if (available.length > 300 && !(await ask(`Sélectionner ${pluralG(available.length, genderOf(available))} ? Affine les filtres pour un groupe plus précis.`, { ok: 'Tout sélectionner', danger: false }))) return
     setPicked((s) => new Set([...s, ...available.map((p) => p.id)]))
   }
 
@@ -1169,7 +1178,7 @@ export function AddPlayers({
   return (
     <div className="flex flex-col gap-3" onKeyDown={(e) => arrowNav(e, 'button[data-player]')}>
       <div className="card flex flex-col gap-2 p-3">
-        <div className="text-xs font-extrabold">Ajouter des joueurs</div>
+        <div className="text-xs font-extrabold">Ajouter des {w(g).joueurs}</div>
         {ui}
       </div>
       {top}
@@ -1218,7 +1227,7 @@ export function AddPlayers({
             Afficher plus ({(filtered.length - limit).toLocaleString('fr-FR')} restants)
           </button>
         )}
-        {!filtered.length && <Empty>Aucun joueur ne correspond aux filtres.</Empty>}
+        {!filtered.length && <Empty>{w(g).AucunJoueur} ne correspond aux filtres.</Empty>}
       </div>
     </div>
   )
@@ -1379,7 +1388,7 @@ function RankRow({
           {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
         </span>
         {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <Icon name="alert" className="h-3.5 w-3.5 shrink-0 text-amber-300" />}
-        <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : 'pas noté'}</span>
+        <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : `pas ${w(r.p.sex).note}`}</span>
         <span className={`w-9 shrink-0 text-right text-sm font-extrabold ${secondary ? 'text-muted' : 'text-accent'}`}>{r.s ? f1(r.s.avg) : ''}</span>
         <span className="w-3 shrink-0 text-[10px] text-muted">{open ? '▴' : '▾'}</span>
       </button>

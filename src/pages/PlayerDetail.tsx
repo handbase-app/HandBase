@@ -28,6 +28,7 @@ import { PageHeader } from '../components/PageHeader'
 import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
+import { w } from '../gender'
 import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 
@@ -133,7 +134,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         Cette fiche a été fusionnée avec une autre.
         <br />
         <Link to={`/joueurs/${data.player.mergedInto}${sameTab}`} replace className="mt-3 inline-block font-bold text-accent">
-          Voir la fiche du joueur →
+          Voir la fiche {w(data.player.sex).duJoueur} →
         </Link>
       </div>
     )
@@ -151,6 +152,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const factual = criteria.filter((c) => c.kind === 'factual')
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, p.position))
   const a = age(p.birthDate)
+  const g = w(p.sex)
 
   // Taille, poids : dernière mesure, avec l'unité du critère (ou l'unité habituelle si le critère n'est pas dans la base).
   const gauge = (id: string, unit: string) => {
@@ -202,7 +204,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             can.exportPlayer(role) && {
               label: 'Ses données',
               icon: 'download',
-              hint: 'copie de toutes ses données (demande du joueur ou de ses parents)',
+              hint: `copie de toutes ses données (demande ${g.duJoueur} ou de ses parents)`,
               onSelect: () => void exportPlayer(p.id),
             },
             { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
@@ -216,7 +218,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-lg font-extrabold">{playerName(p)}</h1>
-            <FollowButton kind="player" id={p.id} />
+            <FollowButton kind="player" id={p.id} sex={p.sex} />
           </div>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted">
             <PosBadges p={p} />
@@ -224,7 +226,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             <QuarterBadge birthDate={p.birthDate} />
           </div>
           <StampLine row={p} />
-          <FollowedVia playerId={p.id} />
+          <FollowedVia playerId={p.id} sex={p.sex} />
           <RewatchButton playerId={p.id} rows={rewatch.filter((r) => !r.done)} className="mt-1.5 px-2.5 py-1 text-[11px]" />
         </div>
       </div>
@@ -238,7 +240,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           <p className="mt-1 text-[11px] text-muted">
             {p.review === 'pending'
               ? 'Fiche proposée par un observateur : à valider par un encadrant.'
-              : 'Fiche mise hors cadre : gardée pour mémoire, pour voir plus tard ce que le joueur est devenu.'}{' '}
+              : `Fiche mise hors cadre : gardée pour mémoire, pour voir plus tard ce que ${g.leJoueur} est devenu${g.e}.`}{' '}
             {/* RGPD (supabase/012_expiration_rgpd.sql). */}
             {p.review === 'pending' && expiryDate(p.createdAtServer) && (
               <>Sans décision, elle sera effacée (avec ses avis) le {fmtDate(expiryDate(p.createdAtServer))}.</>
@@ -263,7 +265,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
               <Link to={`/joueurs/${d.id}${sameTab}`} className="font-bold underline">
                 {playerName(d)}
               </Link>
-              {d.license ? ' (licencié)' : d.review === 'refused' ? ' (hors cadre)' : d.review === 'pending' ? ' (proposée)' : ''}{' '}
+              {d.license ? ` (${w(d.sex).licencie})` : d.review === 'refused' ? ' (hors cadre)' : d.review === 'pending' ? ' (proposée)' : ''}{' '}
               {/* Fusion : administrateurs seulement (supabase/029) ; l'encadrant voit le doublon et le signale. */}
               {role === 'admin' ? (
                 <button className="font-bold text-accent" onClick={() => setParams({ fusion: d.id }, { replace: true })}>
@@ -292,7 +294,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {tab === 'profil' && (
         <>
         <PlayerGroups playerId={p.id} />
-        <ScoutHistory playerId={p.id} />
+        <ScoutHistory playerId={p.id} sex={p.sex} />
 
         <div className="card divide-y divide-line">
           {info
@@ -307,7 +309,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
         <PoleCard player={p} />
 
-        <VideoSection kind="player" targetId={p.id} dept={department(p)} />
+        <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} />
 
         {(p.position || (p.secondaryPositions ?? []).length > 0) && (
           <div className="card p-4">

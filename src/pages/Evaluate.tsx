@@ -16,6 +16,7 @@ import { supabase, useSyncState } from '../sync'
 import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { DictationTextarea } from '../components/MicButton'
+import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import {
@@ -324,6 +325,10 @@ export default function Evaluate() {
   // Le joueur en cours reste dans la liste même s'il vient d'être noté (sinon « → » ne saurait plus où il en est).
   const roster = filterRoster(fullRoster, rosterFilter, evaluatedHere, playerId)
   const posLabel = POSITIONS.find((x) => x.id === rosterFilter.pos)?.label
+  // Accord au genre (src/gender.ts) : la personne évaluée (pw) ; la liste de l'événement (eg : déclaré, sinon déduit).
+  const pw = w(player?.sex)
+  const eg = setGender(event?.sex, fullRoster)
+  const ew = w(eg)
   const idx = roster.findIndex((p) => p.id === playerId)
   const prev = idx > 0 ? roster[idx - 1] : undefined
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
@@ -408,7 +413,7 @@ export default function Evaluate() {
         {event && !spontaneous ? (
           <BackButton fallback={`/evenements/${event.id}`} label={event.name.toUpperCase()} />
         ) : spontaneous && playerId ? (
-          <BackButton fallback={`/joueurs/${playerId}?onglet=avis`} label="FICHE DU JOUEUR" />
+          <BackButton fallback={`/joueurs/${playerId}?onglet=avis`} label={`FICHE ${player ? pw.duJoueur.toUpperCase() : 'DU JOUEUR'}`} />
         ) : (
           <BackButton fallback="/avis-spontanes" label="PROPOSITIONS" />
         )}
@@ -452,9 +457,9 @@ export default function Evaluate() {
       {/* Joueur (liste à gauche : seulement pour choisir un joueur hors liste, ou s'il en est un) */}
       {(event || spontaneous) && (!listMode || !player || !!proposing || !inList) && (
       <div className="card flex flex-col gap-2 p-3">
-        <span className="label">{listMode && !player ? 'Joueur hors liste' : 'Joueur'}</span>
+        <span className="label">{listMode && !player ? `${ew.Joueur} hors liste` : player ? pw.Joueur : ew.Joueur}</span>
         {listMode && !player && !proposing && (
-          <p className="-mt-1 text-[11px] text-muted">Choisis un joueur dans la liste, ou cherche ici un joueur absent de la liste de l’événement.</p>
+          <p className="-mt-1 text-[11px] text-muted">Choisis {ew.unJoueur} dans la liste, ou cherche ici {ew.unJoueur} {accord('absent', eg)} de la liste de l’événement.</p>
         )}
         {proposing ? (
           <ProposePlayer
@@ -484,12 +489,12 @@ export default function Evaluate() {
           <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
             {can.editEvent(role, event) || can.contributeEvent(role, event) ? (
               <>
-                <b>Joueur hors liste.</b> Tu organises cet événement : en enregistrant ton avis, il sera ajouté à la liste.
+                <b>{pw.Joueur} hors liste.</b> Tu organises cet événement : en enregistrant ton avis, {pw.il} sera {pw.ajoute} à la liste.
               </>
             ) : (
               <>
-                <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Joueur hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
-                administrateur : il ne comptera qu’une fois validé, et le joueur sera alors ajouté à la liste.
+                <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />{pw.Joueur} hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+                administrateur : il ne comptera qu’une fois validé, et {pw.leJoueur} sera alors {pw.ajoute} à la liste.
               </>
             )}
           </div>
@@ -497,8 +502,8 @@ export default function Evaluate() {
         {!spontaneous && !listMode && rosterFilter.active && fullRoster.length > 0 && (
           <div className="flex items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px]">
             <span>
-              Filtre : <b>{[posLabel, rosterFilter.hideNoted && 'pas encore notés par moi'].filter(Boolean).join(' · ')}</b> —{' '}
-              {roster.length} joueur{roster.length > 1 ? 's' : ''} sur {fullRoster.length}
+              Filtre : <b>{[posLabel, rosterFilter.hideNoted && `${accord('pas encore noté', eg, 2)} par moi`].filter(Boolean).join(' · ')}</b> —{' '}
+              {pluralG(roster.length, eg)} sur {fullRoster.length}
             </span>
             <button
               className="shrink-0 font-bold text-accent"
@@ -517,9 +522,9 @@ export default function Evaluate() {
               ←
             </button>
             <span className="text-center text-[11px] whitespace-nowrap text-muted">
-              <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
-              {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
-              {idx >= 0 && <span className="block text-[10px] font-normal">glisse ← → pour changer de joueur</span>}
+              <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : pluralG(roster.length, eg)}</b> ·{' '}
+              {roster.filter((p) => evaluatedHere.has(p.id)).length} {accord('noté', eg, roster.filter((p) => evaluatedHere.has(p.id)).length)}
+              {idx >= 0 && <span className="block text-[10px] font-normal">glisse ← → pour changer de {ew.joueur}</span>}
             </span>
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => void changePlayer(next ?? roster[0], 'left')}>
               →
@@ -538,13 +543,13 @@ export default function Evaluate() {
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           ✓ Avis enregistré{event && !spontaneous ? ` pour « ${event.name} »` : ''}
           {spontaneous && !can.review(role) ? ', en attente de validation par un encadrant' : ''}
-          {existing?.review === 'pending' && !spontaneous ? ', en attente de validation (joueur hors liste)' : ''}.{' '}
+          {existing?.review === 'pending' && !spontaneous ? `, en attente de validation (${pw.joueur} hors liste)` : ''}.{' '}
           {nextTodo ? (
             <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
-              Joueur suivant à noter : {playerName(nextTodo)} →
+              {accord('Joueur suivant', nextTodo.sex)} à noter : {playerName(nextTodo)} →
             </button>
           ) : roster.length ? (
-            <b>Tous les joueurs de la liste sont notés.</b>
+            <b>{ew.TousLesJoueurs} de la liste sont {accord('noté', eg, 2)}.</b>
           ) : (
             <button className="font-bold underline" onClick={() => void go('joueur', '')}>
               Évaluer un autre joueur
@@ -655,7 +660,7 @@ export default function Evaluate() {
                   Tu modifies ton avis spontané du {fmtDate(existing.date)}. <ReviewBadge e={existing} />
                 </span>
               ) : (
-                'Tu as déjà évalué ce joueur ici : tu modifies ton avis.'
+                `Tu as déjà ${pw.evalue} ${pw.ceJoueur} ici : tu modifies ton avis.`
               )}
               {spontaneous && <ReviewNote e={existing} />}
               {spontaneous && existing.review && existing.review !== 'pending' && !can.review(role) && (
@@ -781,6 +786,7 @@ export default function Evaluate() {
       <div className="grid items-start gap-5 rail:gap-2" style={{ gridTemplateColumns: 'minmax(0, var(--md-col)) minmax(0, 1fr)' }} {...touch}>
         <RosterList
           event={event}
+          g={eg}
           me={me}
           roster={roster}
           total={fullRoster.length}
@@ -818,6 +824,7 @@ export default function Evaluate() {
  */
 function RosterList({
   event,
+  g,
   me,
   roster,
   total,
@@ -831,6 +838,8 @@ function RosterList({
   onOther,
 }: {
   event: HBEvent
+  /** Genre de la liste (src/gender.ts). */
+  g: Gender
   me: string
   roster: Player[]
   total: number
@@ -873,7 +882,7 @@ function RosterList({
   return (
     <aside
       data-noswipe
-      aria-label="Joueurs de l’événement"
+      aria-label={`${w(g).Joueurs} de l’événement`}
       className="sticky top-[calc(var(--hdr)+1.25rem)] flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] min-w-0 flex-col gap-2 rounded-xl border border-line bg-panel p-2.5 rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] rail:gap-1.5 rail:p-1.5"
     >
       <div className="min-w-0">
@@ -888,12 +897,12 @@ function RosterList({
           <b className={noted === total ? 'text-emerald-300' : ''}>
             {noted} / {total}
           </b>{' '}
-          <span className="text-muted">noté{noted > 1 ? 's' : ''}</span>
+          <span className="text-muted">{accord('noté', g, noted)}</span>
         </span>
         {(noted > 0 || filter.hideNoted) && (
           <label className="flex min-w-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
             <input type="checkbox" className="accent-accent" checked={filter.hideNoted} onChange={(e) => filter.setHideNoted(e.target.checked)} />
-            <span className="truncate">Masquer les notés</span>
+            <span className="truncate">Masquer les {accord('noté', g, 2)}</span>
           </label>
         )}
       </div>
@@ -911,7 +920,7 @@ function RosterList({
         <input
           type="search"
           className="field py-1 text-xs"
-          placeholder="Chercher un joueur…"
+          placeholder={`Chercher ${w(g).unJoueur}…`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -944,7 +953,7 @@ function RosterList({
                     key={p.id}
                     data-pid={p.id}
                     aria-current={on || undefined}
-                    title={ok ? 'Noté par moi' : 'Pas encore noté par moi'}
+                    title={ok ? `${accord('Noté', p.sex)} par moi` : `Pas encore ${w(p.sex).note} par moi`}
                     onClick={() => !on && onPick(p.id)}
                     className={`card flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-left text-xs transition rail:py-1 ${
                       on ? 'border-accent bg-accent/10 ring-1 ring-accent' : 'hover:border-accent'
@@ -968,10 +977,10 @@ function RosterList({
               })}
             </div>
           ))}
-        {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Aucun joueur ne correspond.</p>}
+        {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">{w(g).AucunJoueur} ne correspond.</p>}
       </div>
       <button className="self-start px-1 text-[11px] font-bold text-accent" onClick={onOther}>
-        + Joueur hors liste…
+        + {w(g).Joueur} hors liste…
       </button>
     </aside>
   )
@@ -1034,6 +1043,11 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
   const [type, setType] = useState<EventType>(event?.type ?? 'match')
   const [date, setDate] = useState(event?.date ?? today())
   const [place, setPlace] = useState(event?.place ?? '')
+  // Garçons / Filles / Mixte (facultatif, src/gender.ts) : sans choix, déduit des joueurs de la liste (toutes des filles → féminin).
+  const [sex, setSex] = useState<HBEvent['sex']>(event?.sex)
+  const rosterIds = event ? (event.playerIds ?? []) : (picked?.playerIds ?? [])
+  const guessed = useLiveQuery(async () => genderOf(await db.players.bulkGet(rosterIds)), [rosterIds.join(',')])
+  const auto: Gender = (!event && picked?.sex) || guessed
   // Unité organisatrice (src/eventOrganizer.ts) : à la création, celle du créateur, posée d'office ; modifiable.
   const [organizer, setOrganizer] = useState<OrganizerValue>({ id: event?.organizerUnitId ?? '', name: event?.organizerName })
   // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
@@ -1053,6 +1067,15 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />
       </div>
       <OrganizerField value={organizer} onChange={setOrganizer} auto={!event} />
+      <span className="label mt-1">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()}</span>
+      <div className="flex gap-1" role="radiogroup" aria-label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}>
+        {EVENT_SEXES.map((x) => (
+          <button key={x.value} type="button" role="radio" aria-checked={sex === x.value} className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(sex === x.value ? undefined : x.value)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {!sex && <p className="-mt-1 text-[11px] text-muted">Facultatif : sans choix, déduit des joueurs de la liste{auto ? ` (${EVENT_SEXES.find((x) => x.value === auto)?.label.toLowerCase()})` : ''}.</p>}
       {!event && groups.length > 0 && (
         <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
@@ -1091,6 +1114,7 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
               type,
               date,
               place: place || undefined,
+              sex: sex || (!event && picked?.sex ? picked.sex : undefined),
               organizerUnitId: organizer.id || undefined,
               organizerName: organizer.id ? organizer.name : undefined,
               editors,
@@ -1126,6 +1150,9 @@ export function NewEventForm({ event, groupId, onDone, extra }: { event?: HBEven
     </div>
   )
 }
+
+/** Garçons / Filles / Mixte : libellés partagés (src/gender.ts). */
+const EVENT_SEXES = SEX_CHOICES
 
 /** Choix d'un joueur par recherche (la base peut contenir des milliers de joueurs). */
 function PlayerPicker({

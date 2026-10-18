@@ -252,6 +252,11 @@ export interface HBEvent extends Syncable {
   organizerUnitId?: string
   /** Nom de l'unité organisatrice au moment du choix (affichage si l'unité n'est pas sur l'appareil), comme `names`. */
   organizerName?: string
+  /**
+   * Garçons / Filles / Mixte (facultatif ; affichage accordé, src/gender.ts). Absent : déduit des joueurs de la liste
+   * (setGender). Champ libre de data (jsonb), gardé tel quel par le serveur (hb_upsert) : pas de SQL.
+   */
+  sex?: 'M' | 'F' | 'mixte'
 }
 
 /** Équipe engagée dans un tournoi (identifiant court, propre à l'événement). */

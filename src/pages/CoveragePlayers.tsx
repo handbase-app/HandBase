@@ -93,7 +93,7 @@ export default function CoveragePlayers() {
             detail={(p) => [year(p), Q ? Q.playerText(p) : o === 'vus' && sightText(last.get(p.id))].filter(Boolean).join(' · ')}
             actions={(p) => ({
               rewatch: Q || o !== 'vus' || last.has(p.id) ? undefined : <RewatchToggle playerId={p.id} rows={data.rewatch.get(p.id)} />,
-              follow: <FollowStar id={p.id} />,
+              follow: <FollowStar id={p.id} sex={p.sex} />,
             })}
           />
         }
