@@ -23,6 +23,7 @@ import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { HiddenPlayers } from '../components/HiddenPlayers'
 import { hiddenCount } from '../perimeter'
 import { PlayerMenuScope } from '../components/PlayerMenu'
@@ -847,6 +848,7 @@ function PlayerGroupDetail() {
       {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
       {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
       {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
+      <PlayerList ids={view.sections.flatMap((sec) => sec.players.map((p) => p.id))}>
       <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         <RosterSectionList
           sections={view.sections}
@@ -872,8 +874,8 @@ function PlayerGroupDetail() {
               </>
             }
             menuExtras={can.removeFromGroup(role, g, p.id) ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
-            rewatch={!removing && <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
-            follow={!removing && <FollowStar id={p.id} sex={p.sex} />}
+            pictos={!removing}
+            rewatch={<RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
             actions={
               removing &&
               can.removeFromGroup(role, g, p.id) && (
@@ -886,6 +888,7 @@ function PlayerGroupDetail() {
           )}
         />
       </div>
+      </PlayerList>
       <CompareBar pick={pick} players={players} />
     </div>
     </PlayerMenuScope.Provider>

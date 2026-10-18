@@ -96,6 +96,13 @@ html { touch-action: pan-x pan-y; }
 @container (min-width: 100rem) {
   .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* Pictogrammes au bout des lignes de joueurs (components/Pictos.tsx, PlayerRow.tsx). La liste (data-plist) pose
+   data-pl="2" quand un nom serait coupé à cause d'eux : toute la liste les passe sur leur propre ligne, sous le nom
+   (« ⋮ » reste sur la ligne du nom ; carte trop étroite pour tous : ils vont à la ligne, jamais au-delà). data-pm : mesure en cours, noms sur une seule ligne. */
+[data-pl="2"] [data-ptop] { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+[data-pl="2"] [data-pics] { grid-column: 1 / -1; grid-row: 2; justify-self: start; margin-left: -0.375rem; padding-block: 3px 1px; flex-wrap: wrap; row-gap: 6px; }
+[data-pl="2"] [data-pmenu] { grid-column: 2; grid-row: 1; }
+[data-pm] [data-pn] { white-space: nowrap !important; overflow-wrap: normal !important; }
 body {
   margin: 0;
   background: var(--color-bg);

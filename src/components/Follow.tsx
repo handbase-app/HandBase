@@ -58,7 +58,7 @@ export function FollowStar({ kind = 'player', id, sex }: { kind?: FollowKind; id
       tabIndex={0}
       aria-pressed={mine}
       title={mine ? `${Suivi} — toucher pour ne plus suivre` : other ? `${otherWhy} — toucher pour ${g.pronLe} suivre aussi personnellement` : 'Suivre (Mes suivis)'}
-      className="-my-2 -mr-1 shrink-0 cursor-pointer p-2"
+      className="-my-2 inline-flex h-8 w-7 shrink-0 items-center justify-center cursor-pointer"
       onClick={toggle}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle(e)}
     >

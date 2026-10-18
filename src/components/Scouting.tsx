@@ -74,7 +74,7 @@ export function SeenEye({ eventId, playerId, list = [], sex }: { eventId: string
       aria-pressed={!!mine}
       title={`${label}${n ? ` · ${g.vu} par ${sightingNames(list)}` : ''}`}
       aria-label={label}
-      className="-my-2 shrink-0 p-2"
+      className="-my-2 inline-flex h-8 w-7 shrink-0 items-center justify-center"
     >
       <Icon name="eye" filled={!!mine} className={`h-4 w-4 ${mine ? 'text-accent' : n ? 'text-accent/70' : 'text-muted/60 hover:text-accent'}`} />
     </button>
@@ -255,7 +255,7 @@ export function RewatchToggle({
         aria-pressed={mine}
         aria-label={label}
         title={`${label}${others.length ? ` · à revoir aussi pour ${others.join(', ')}` : ''}`}
-        className="-my-2 shrink-0 p-2"
+        className="-my-2 inline-flex h-8 w-7 shrink-0 items-center justify-center"
       >
         {mine ? (
           <span className="flex h-4 w-4 items-center justify-center rounded-full bg-sky-400 text-bg">

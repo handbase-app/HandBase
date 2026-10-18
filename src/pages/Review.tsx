@@ -5,7 +5,9 @@ import { AvisCard } from '../components/Opinions'
 import { department } from '../components/PlayerFilter'
 import { departmentLabel } from '../lists'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
-import { Empty, playerName, QuarterBadge } from '../components/ui'
+import { Empty, playerName } from '../components/ui'
+import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { alive, contextLabel, db, fmtDate, reviewOf, type Evaluation, type Player, dayOf } from '../db'
 import { can, currentUserId, myDepartments, useRole } from '../roles'
 import { possibleDuplicates } from '../merge'
@@ -72,37 +74,40 @@ export default function ReviewPage() {
     )
   }
 
+  // Fiche proposée : ligne de joueur commune (pictogrammes de la barre « Afficher »), décision et commentaire dessous.
   const playerCard = (p: Player, actions: boolean) => {
     const d = department(p)
     return (
-      <div key={p.id} className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <Link to={`/joueurs/${p.id}`} className="text-sm font-bold">
-              {p.lastName.toUpperCase()} {p.firstName}
-            </Link>{' '}
-            <QuarterBadge birthDate={p.birthDate} />
-            <div className="text-[10px] text-muted">
-              {[p.birthDate && p.birthDate.slice(0, 4), sexLabel(p.sex).toLowerCase(), p.club, d && departmentLabel(d)]
-                .filter(Boolean)
-                .join(' · ')}
-            </div>
-            {!d && <div className="text-[10px] text-amber-200">Département inconnu : à valider par un administrateur.</div>}
+      <PlayerRow
+        key={p.id}
+        p={p}
+        link={{ to: `/joueurs/${p.id}` }}
+        badges={<ReviewBadge e={p} kind="players" />}
+        sub={[p.birthDate && p.birthDate.slice(0, 4), sexLabel(p.sex).toLowerCase(), p.club, d && departmentLabel(d)].filter(Boolean).join(' · ')}
+        lines={
+          <>
+            {!d && <span className="text-[10px] text-amber-200">Département inconnu : à valider par un administrateur.</span>}
             {p.createdByName && (
-              <div className="text-[10px] text-muted">
+              <span className="text-[10px] text-muted">
                 Proposée par <b className="text-fg">{p.createdByName}</b>
                 {p.createdAtServer && <> le {fmtDate(dayOf(p.createdAtServer))}</>}
-              </div>
+              </span>
             )}
-            {p.notes && <div className="mt-1">{p.notes}</div>}
-          </div>
-          <ReviewBadge e={p} kind="players" />
-        </div>
-        <ReviewNote e={p} />
-        {actions && <ReviewActions e={p} kind="players" />}
-      </div>
+          </>
+        }
+        below={
+          (p.notes || p.reviewNote || p.reviewedByName || actions) && (
+            <div className="flex flex-col gap-1.5 text-xs">
+              {p.notes && <div>{p.notes}</div>}
+              <ReviewNote e={p} />
+              {actions && <ReviewActions e={p} kind="players" />}
+            </div>
+          )
+        }
+      />
     )
   }
+  const playerList = (ps: Player[], actions: boolean) => <PlayerList ids={ps.map((p) => p.id)}>{ps.map((p) => playerCard(p, actions))}</PlayerList>
 
   return (
     <div className="flex flex-col gap-4">
@@ -140,7 +145,7 @@ export default function ReviewPage() {
         <>
           <section className="flex flex-col gap-2">
             <div className="section-title">Fiches à valider ({playersTodo.length})</div>
-            {playersTodo.length ? playersTodo.map((p) => playerCard(p, true)) : <Empty>Aucune fiche en attente.</Empty>}
+            {playersTodo.length ? playerList(playersTodo, true) : <Empty>Aucune fiche en attente.</Empty>}
           </section>
           <section className="flex flex-col gap-2">
             <div className="section-title">Avis à valider ({todo.length})</div>
@@ -152,7 +157,7 @@ export default function ReviewPage() {
                 En attente hors de mon secteur ({playersElsewhere.length + avisElsewhere.length}) : pour information
               </summary>
               <div className="mt-2 flex flex-col gap-2">
-                {playersElsewhere.map((p) => playerCard(p, false))}
+                {playersElsewhere.length > 0 && playerList(playersElsewhere, false)}
                 {avisElsewhere.map(card)}
               </div>
             </details>
@@ -187,7 +192,7 @@ export default function ReviewPage() {
       {myPlayers.length > 0 && (
         <section className="flex flex-col gap-2">
           <div className="section-title">Mes fiches proposées ({myPlayers.length})</div>
-          {myPlayers.map((p) => playerCard(p, false))}
+          {playerList(myPlayers, false)}
         </section>
       )}
 

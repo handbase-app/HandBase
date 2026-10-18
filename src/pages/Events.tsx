@@ -4,10 +4,10 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { BackButton } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { type Role } from '../roles'
-import { FollowStar } from '../components/Follow'
 import { HiddenPlayers } from '../components/HiddenPlayers'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
@@ -1047,6 +1047,7 @@ export function EventDetail() {
                   <Empty>{cover === 'pasvus' ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
+                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} className="flex flex-col gap-2">
                 <RosterSectionList
                   sections={sections}
                   row={(p, i) => {
@@ -1089,9 +1090,9 @@ export function EventDetail() {
                         </>
                       }
                       menuExtras={can.removeFromEvent(role, ev, p.id) ? [{ label: 'Retirer de cet événement', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
-                      seen={!removing && <SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} sex={p.sex} />}
-                      rewatch={!removing && <RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />}
-                      follow={!removing && <FollowStar id={p.id} sex={p.sex} />}
+                      pictos={!removing}
+                      seen={<SeenEye eventId={ev.id} playerId={p.id} list={sight.get(p.id)} sex={p.sex} />}
+                      rewatch={<RewatchToggle playerId={p.id} originEventId={ev.id} rows={rewatchFrom.get(p.id)} />}
                       actions={
                         removing &&
                         can.removeFromEvent(role, ev, p.id) && (
@@ -1110,6 +1111,7 @@ export function EventDetail() {
                   )
                   }}
                 />
+                </PlayerList>
               </>
             )}
           </div>

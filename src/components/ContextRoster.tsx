@@ -4,6 +4,7 @@ import { useBack } from '../backNav'
 import { canLeave } from './Confirm'
 import { useSelected } from './MasterDetail'
 import { CompactPlayerRow } from './PlayerRow'
+import { PlayerList } from './Pictos'
 import type { Player } from '../db'
 import { keepPlayerTab } from '../tabQuery'
 
@@ -123,6 +124,7 @@ export function ContextRoster({
         </button>
         <span className="shrink-0 text-[11px] text-muted">{count}</span>
       </div>
+      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} className="flex flex-col gap-1.5">
       {sections.map((sec, k) => (
         <div key={k} className="flex flex-col gap-1">
           {sec.heading && (
@@ -154,6 +156,7 @@ export function ContextRoster({
           ))}
         </div>
       ))}
+      </PlayerList>
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { accord, listGender, w } from '../gender'
 import { Empty } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
-import { FollowStar } from '../components/Follow'
+import { PlayerList } from '../components/Pictos'
 import { alive, counts, db, fmtDate, type Evaluation, type Player, dayOf } from '../db'
 
 /**
@@ -57,14 +57,13 @@ export default function Missed() {
       {rows.length === 0 ? (
         <Empty>Aucune fiche mise hors cadre pour l’instant.</Empty>
       ) : (
-        <div className="flex flex-col gap-2">
+        <PlayerList ids={rows.map((r) => r.p.id)}>
           {rows.map(({ p, refusal, signals }) => (
             <PlayerRow
               key={p.id}
               p={p}
               link={{ to: `/joueurs/${p.id}` }}
               aside={<span className="shrink-0 text-right text-[10px] text-muted">{p.review === 'refused' ? 'toujours hors cadre' : 'fiche reprise'}</span>}
-              follow={<FollowStar id={p.id} sex={p.sex} />}
               below={
                 <>
                   <div className="text-[10px] text-muted">
@@ -88,7 +87,7 @@ export default function Missed() {
               }
             />
           ))}
-        </div>
+        </PlayerList>
       )}
     </div>
   )

@@ -4,6 +4,7 @@ import type { Player } from '../db'
 import { MENU_ROW, MenuButton, useRowMenu } from './ItemMenu'
 import { selectedCls } from './MasterDetail'
 import { PlayerMenu, type MenuExtra } from './PlayerMenu'
+import { RowPictos } from './Pictos'
 import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
 
 /*
@@ -13,12 +14,15 @@ import { Avatar, poleEdge, PosBadges, QuarterBadge } from './ui'
  * - nom : NOM Prénom en gras, jamais coupé avant les pastilles si on peut l'éviter (les pastilles passent à la ligne) ;
  * - pastilles : Pôle, poste, postes secondaires, trimestre (Q1…Q4), puis celles propres à la liste ;
  * - ligne secondaire : (numéro, équipe ·) année · club, 11 px (12 px sous 400 px, 10 px en compact), grise ;
- * - icônes au bout : œil « vu », horloge « à revoir », étoile « suivre », « ⋮ » (16 px dans 32 px), puis les actions de la liste ;
- *   sous 400 px, deux icônes au plus avant « ⋮ » (l'étoile cède la place quand l'œil et l'horloge sont là, elle reste au menu) ;
+ * - pictogrammes sur la ligne du nom (components/Pictos.tsx : ceux choisis dans la barre « Afficher » de la liste,
+ *   un seul réglage pour toutes les listes), puis « ⋮ » ; la ligne secondaire prend toute la largeur dessous. Si un
+ *   nom de la liste serait coupé à cause d'eux, toute la liste les passe sur leur propre ligne sous le nom ;
+ *   puis les actions de la liste ;
  * - menu de la ligne (PlayerMenu) : appui long sur téléphone, clic droit sur ordinateur, touche « menu » ou Maj+F10,
  *   ou « ⋮ » (ligne pleine ; en colonne de contexte, faute de place, seulement les gestes). Un toucher ou un clic
  *   normal garde son effet (fiche, évaluation) ; après un appui long, le clic du relâchement est ignoré.
- * La photo ouvre la fiche du joueur (dans son contexte quand il y en a un : événement, groupe).
+ * La photo ouvre la fiche du joueur (dans son contexte quand il y en a un : événement, groupe). Toute la carte est
+ * cliquable : le lien (sur le nom) la couvre entièrement, pictogrammes, photo à part et boutons des lignes en plus au-dessus.
  * Uniquement des marques positives ou neutres sur les jeunes joueurs.
  */
 
@@ -49,7 +53,7 @@ export function PlayerNameLine({
 }) {
   return (
     <span className={`flex min-w-0 flex-wrap items-center gap-y-0.5 font-bold ${compact ? 'gap-x-1.5 text-xs' : 'gap-x-2 text-sm'}`}>
-      <span className="max-w-full truncate max-[400px]:break-words max-[400px]:whitespace-normal">
+      <span data-pn className="max-w-full truncate max-[400px]:break-words max-[400px]:whitespace-normal">
         {p.lastName.toUpperCase()} {p.firstName}
       </span>
       <span className="flex max-w-full flex-wrap items-center gap-1 whitespace-nowrap empty:hidden">
@@ -84,10 +88,15 @@ type RowProps = {
   lines?: ReactNode
   /** Entre le texte et les icônes : nombre d'avis, « revu ✓ »… */
   aside?: ReactNode
-  /** Icônes communes, toujours dans cet ordre. */
+  /**
+   * Pictogrammes propres à la liste à la place des communs (œil d'un événement, horloge d'un groupe…) ; `false` ou
+   * `null` : rien à cet endroit ; absent : le pictogramme commun (components/Pictos.tsx).
+   */
   seen?: ReactNode
   rewatch?: ReactNode
   follow?: ReactNode
+  /** Sans aucun pictogramme (mode « retirer »…). */
+  pictos?: boolean
   /** Actions propres à la liste, après les icônes (retirer, ajouter à un événement…). */
   actions?: ReactNode
   /** Sous la ligne, hors du lien (origines, liens vers d'autres pages…). */
@@ -125,6 +134,7 @@ function Row({
   seen,
   rewatch,
   follow,
+  pictos = true,
   actions,
   below,
   selected = false,
@@ -138,28 +148,24 @@ function Row({
   const fiche: RowLink = avatarLink ?? (link && !link.to.startsWith('/evaluer') ? link : { to: `/joueurs/${p.id}` })
   const size = compact ? COMPACT_AVATAR : ROW_AVATAR
   const avatar = <Avatar p={p} size={size} />
-  const text = (
-    <span className="flex min-w-0 flex-1 flex-col">
-      <PlayerNameLine p={p} compact={compact} quarter={quarter} badges={badges} />
-      {sub !== '' && (
-        <span className={`truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px] max-[400px]:text-xs'}`}>{sub === undefined ? playerSub(p) : sub}</span>
-      )}
-      {lines}
-    </span>
+  // Le lien (ou bouton) porte le nom ; son ::after couvre toute la zone de la ligne (un clic n'importe où l'ouvre).
+  // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
+  const hit = "min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
+  const name = <PlayerNameLine p={p} compact={compact} quarter={quarter} badges={badges} />
+  const main = link ? (
+    <Link to={link.to} state={link.state} replace={link.replace} onClick={link.onClick} className={hit} {...linkProps}>
+      {name}
+    </Link>
+  ) : onClick ? (
+    <button type="button" onClick={onClick} className={hit} {...linkProps}>
+      {name}
+    </button>
+  ) : (
+    <span className="min-w-0 flex-1">{name}</span>
   )
-  const body = (
-    <>
-      {!avatarLink && avatar}
-      {text}
-    </>
-  )
-  // Toute la hauteur de la carte : un clic n'importe où sur le texte ouvre la ligne.
-  const bodyCls = `flex min-w-0 flex-1 items-center self-stretch text-left outline-none ${compact ? 'min-h-10 gap-2 rounded-md' : 'gap-3'}`
-  const icons = !compact || !!(seen || rewatch || follow)
-  const row = (
-    <>
-      {lead}
-      {avatarLink && (
+  const zone = (
+    <div className={`relative flex min-w-0 flex-1 items-center self-stretch ${compact ? 'min-h-10 gap-2' : 'gap-3'}`}>
+      {avatarLink ? (
         <Link
           to={avatarLink.to}
           state={avatarLink.state}
@@ -167,33 +173,40 @@ function Row({
           onClick={avatarLink.onClick}
           title="Voir la fiche"
           aria-label={`Fiche de ${p.firstName} ${p.lastName}`}
-          className="shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60"
+          className="relative z-[1] shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60"
         >
           {avatar}
         </Link>
-      )}
-      {link ? (
-        <Link to={link.to} state={link.state} replace={link.replace} onClick={link.onClick} className={bodyCls} {...linkProps}>
-          {body}
-        </Link>
-      ) : onClick ? (
-        <button type="button" onClick={onClick} className={bodyCls} {...linkProps}>
-          {body}
-        </button>
       ) : (
-        <span className={bodyCls}>{body}</span>
+        avatar
       )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div data-ptop className="flex min-w-0 items-center">
+          {main}
+          <span data-pics className="relative z-[1] flex shrink-0 items-center empty:hidden">
+            {pictos && <RowPictos p={p} fiche={fiche} seen={seen} rewatch={rewatch} follow={follow} />}
+          </span>
+          {!compact && (
+            <span data-pmenu className="relative z-[1] flex shrink-0">
+              <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour ${p.lastName.toUpperCase()} ${p.firstName}`} />
+            </span>
+          )}
+        </div>
+        {sub !== '' && (
+          <span className={`truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px] max-[400px]:text-xs'}`}>{sub === undefined ? playerSub(p) : sub}</span>
+        )}
+        {lines && (
+          // Le texte laisse passer le clic vers le lien ; les boutons qu'il contient restent touchables.
+          <div className="pointer-events-none relative z-[1] flex min-w-0 flex-col [&_:is(a,button,input,label,select,[role=button])]:pointer-events-auto">{lines}</div>
+        )}
+      </div>
+    </div>
+  )
+  const row = (
+    <>
+      {lead}
+      {zone}
       {aside}
-      {icons && (
-        <span className="flex shrink-0 items-center">
-          {seen}
-          {rewatch}
-          {/* Téléphone étroit : deux icônes au plus (événement : œil + horloge ; listes : horloge + étoile) ; « Suivre » reste
-              dans le menu de la ligne (⋮, appui long). */}
-          {seen && rewatch && follow ? <span className="contents max-[400px]:hidden">{follow}</span> : follow}
-          {!compact && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour ${p.lastName.toUpperCase()} ${p.firstName}`} />}
-        </span>
-      )}
       {actions}
     </>
   )

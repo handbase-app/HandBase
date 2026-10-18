@@ -389,6 +389,10 @@ export const ICONS = {
   /** Œil barré : courbe masquée. */
   eyeOff: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 4l16 16',
   video: 'M3 7h12v10H3zM15 10.5l6-3.5v10l-6-3.5',
+  /** Pôle / structure (bâtiment). */
+  building: 'M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6',
+  /** Avis (bulle simple). */
+  chat: 'M4 5h16v11H9l-5 4z',
   play: 'M9 6.5v11l9-5.5z',
   close: 'M6 6l12 12M18 6L6 18',
   /** « ⋮ » : menu d'une ligne (à dessiner plein). */

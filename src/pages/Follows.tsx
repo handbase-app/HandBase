@@ -23,7 +23,7 @@ import { RosterChip, RosterSectionList } from '../components/PositionRoster'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
-import { FollowStar } from '../components/Follow'
+import { PlayerList } from '../components/Pictos'
 import { TEAM_FOLLOW } from '../staffLabels'
 
 function dayLabel(day: string) {
@@ -304,6 +304,7 @@ export default function Follows() {
 
   // Joueurs rangés par poste, puis par nom dans chaque poste ; l'origine du suivi sous la ligne.
   const roster = (list: Player[], except?: string): ReactNode => (
+    <PlayerList ids={list.map((p) => p.id)}>
     <RosterSectionList
       sections={positionRosterView(list, 'nom').sections}
       listClass="flex flex-col gap-2"
@@ -312,7 +313,6 @@ export default function Follows() {
           key={p.id}
           p={p}
           link={{ to: `/joueurs/${p.id}` }}
-          follow={<FollowStar id={p.id} sex={p.sex} />}
           below={
             originText(origins.get(p.id), except) ? (
               <div className="-mt-1 flex justify-end">
@@ -323,6 +323,7 @@ export default function Follows() {
         />
       )}
     />
+    </PlayerList>
   )
 
   return (
