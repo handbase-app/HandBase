@@ -16,6 +16,8 @@
  *    Pediatrics 1995;95:457 (table reprise de uwmsk.org/stature.html, université de Washington).
  *  - Epstein et al. (1995) : correction des tailles parentales déclarées (surestimées).
  *  - Cumming et al. (2017) : stades selon le % de taille adulte (bio-banding).
+ *  - Sherar et al. (2005) J Pediatr 147:508-514 : taille adulte sans les parents (croissance restante selon le
+ *    décalage au pic), table de la fiche de détection du staff, garçons.
  */
 
 export type Sex = 'M' | 'F'
@@ -115,6 +117,96 @@ export const PHASE_LABEL: Record<Phase, string> = { avant: 'Avant le pic', autou
 /** Les équations ont été construites sur des 8–16 ans et perdent en précision loin du pic. */
 export function offsetReliable(age: number, offset: number) {
   return age >= 8 && age <= 16.5 && Math.abs(offset) <= 2
+}
+
+// ---------- Taille adulte sans les parents : croissance restante (type Sherar 2005) ----------
+
+/**
+ * Croissance restante (cm) selon le décalage au pic et la catégorie de maturité, GARÇONS.
+ * Source : fiche de détection du staff, méthode de Sherar et al. (2005) J Pediatr 147:508-514 (« cumulative height
+ * velocity curves ») : taille adulte = taille actuelle + croissance restante, lue selon le décalage et la catégorie
+ * (âge au pic < 13 ans : avancée ; < 15 : normale ; sinon retardée ; moyenne garçons 14 ± 1 an, comme Sherar).
+ * Valeurs reprises de la fiche, à confirmer sur l'article. Table construite avec le décalage de Mirwald : pour Moore
+ * et Fransen, indicatif. Marge ≈ ±5 cm. Pas de table filles.
+ * Validation : le calculateur de taille adulte de l'université de la Saskatchewan donne, pour un garçon fictif de
+ * 13,0 ans, 155 cm, assis 80 cm, 45 kg, maturité normale, 25 cm restants, 180 cm adulte (86,1 %) ; avec cette table,
+ * décalage Mirwald −1,063 interpolé → 24,76 cm → 179,8 cm (test dans tools/test-maturity.ts).
+ * Ligne i = décalage −4 + 0,2 × i (de −4 à +4) ; colonnes : avancée (précoce), normale, retardée (tardive).
+ */
+const SHERAR_REMAINING_M: readonly (readonly [number, number, number])[] = [
+  [45.29, 40.09, 34.73], // -4,0
+  [44.21, 39.08, 33.83], // -3,8
+  [43.11, 38.08, 32.94], // -3,6
+  [41.99, 37.06, 32.05], // -3,4
+  [40.85, 36.06, 31.16], // -3,2
+  [39.69, 35.04, 30.27], // -3,0
+  [38.52, 34.04, 29.38], // -2,8
+  [37.33, 33.05, 28.49], // -2,6
+  [36.15, 32.06, 27.6], // -2,4
+  [34.97, 31.07, 26.7], // -2,2
+  [33.8, 30.06, 25.77], // -2,0
+  [32.62, 29.03, 24.79], // -1,8
+  [31.44, 27.95, 23.73], // -1,6
+  [30.23, 26.83, 22.63], // -1,4
+  [28.98, 25.63, 21.45], // -1,2
+  [27.66, 24.36, 20.22], // -1,0
+  [26.24, 22.99, 18.96], // -0,8
+  [24.68, 21.51, 17.68], // -0,6
+  [22.96, 19.88, 16.31], // -0,4
+  [21.07, 18.09, 14.76], // -0,2
+  [19.04, 16.16, 13.05], // 0,0
+  [16.96, 14.21, 11.32], // +0,2
+  [14.92, 12.35, 9.71], // +0,4
+  [13.01, 10.6, 8.27], // +0,6
+  [11.26, 9.12, 6.94], // +0,8
+  [9.7, 7.78, 5.7], // +1,0
+  [8.33, 6.59, 4.54], // +1,2
+  [7.11, 5.54, 3.51], // +1,4
+  [6.04, 4.62, 2.64], // +1,6
+  [5.1, 3.8, 1.92], // +1,8
+  [4.26, 3.09, 1.35], // +2,0
+  [3.52, 2.48, 0.91], // +2,2
+  [2.86, 1.96, 0.58], // +2,4
+  [2.29, 1.52, 0.32], // +2,6
+  [1.78, 1.16, 0.13], // +2,8
+  [1.34, 0.87, 0.0], // +3,0
+  [0.96, 0.63, 0.0], // +3,2
+  [0.64, 0.43, 0.0], // +3,4
+  [0.37, 0.27, 0.0], // +3,6
+  [0.16, 0.12, 0.0], // +3,8
+  [0.0, 0.0, 0.0], // +4,0
+]
+const SHERAR_MIN = -4
+const SHERAR_STEP = 0.2
+
+export type SherarCategory = 'avancee' | 'normale' | 'retardee'
+export const SHERAR_CATEGORY_LABEL: Record<SherarCategory, string> = { avancee: 'Avancée', normale: 'Normale', retardee: 'Retardée' }
+/** Catégorie de la fiche (garçons) : âge au pic < 13 ans avancée, < 15 normale, sinon retardée. */
+export const sherarCategory = (aphv: number): SherarCategory => (aphv < 13 ? 'avancee' : aphv < 15 ? 'normale' : 'retardee')
+
+/**
+ * Croissance restante (cm) d'un garçon, ou null si le décalage sort de [−4, +4].
+ * Interpolation LINÉAIRE entre deux lignes (par défaut). La fiche Excel prend la ligne inférieure (RECHERCHEV
+ * approchée : mode 'ligne'). L'écart entre les deux est de quelques millimètres loin du pic, mais peut approcher 2 cm
+ * autour du pic (jusqu'à 2,03 cm d'une ligne à l'autre, entre −0,2 et 0, maturité avancée).
+ */
+export function remainingGrowth(offset: number, aphv: number, mode: 'interpole' | 'ligne' = 'interpole'): number | null {
+  if (!Number.isFinite(offset) || !Number.isFinite(aphv)) return null
+  const x = (offset - SHERAR_MIN) / SHERAR_STEP
+  const last = SHERAR_REMAINING_M.length - 1
+  if (x < -1e-9 || x > last + 1e-9) return null
+  const col = { avancee: 0, normale: 1, retardee: 2 }[sherarCategory(aphv)]
+  const i = Math.min(last, Math.max(0, Math.floor(x + 1e-9)))
+  const lo = SHERAR_REMAINING_M[i][col]
+  if (mode === 'ligne' || i === last) return lo
+  return lo + (SHERAR_REMAINING_M[i + 1][col] - lo) * Math.max(0, x - i)
+}
+
+/** Taille adulte (cm) = taille + croissance restante. Garçons seulement (table filles non disponible : null). */
+export function sherarAdultHeight({ height, offset, aphv, sex }: { height: number; offset: number; aphv: number; sex: Sex }): number | null {
+  if (sex !== 'M') return null
+  const r = remainingGrowth(offset, aphv)
+  return r === null ? null : height + r
 }
 
 // ---------- Khamis-Roche : taille adulte prédite ----------

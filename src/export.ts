@@ -57,7 +57,7 @@ export async function exportCsv(only?: { id: string }[]) {
     'Nom', 'Prénom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Postes secondaires', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Pôle Espoirs', 'Entrée pôle', 'Sortie pôle', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (${c.scale === 'choice' ? 'avis le plus fréquent' : c.scale === 'text' ? 'avis' : 'moy. avis'})`),
-    'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Décalage pic Fransen (ans)', 'Décalage pic moyen (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
+    'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Décalage pic Fransen (ans)', 'Décalage pic moyen (ans)', 'Taille adulte prédite (cm)', '% taille adulte', 'Taille adulte sans parents, moyenne (cm)',
     'Nb avis', 'Fiche', 'Lacunes', 'Notes',
   ]
   const rows = players.map((p) => {
@@ -84,7 +84,7 @@ export async function exportCsv(only?: { id: string }[]) {
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', poleCols(p).name, poleCols(p).from, poleCols(p).to, lateralityLabel(p.laterality, p.sex),
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c)),
-      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
+      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr?.pah), r1(snap?.adult.mean?.height),
       evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
     ]
   })
