@@ -18,6 +18,8 @@ startTeamCache()
 startSync()
 startPresence()
 startPwaUpdates()
+// iPhone (Safari ignore user-scalable=no) : pas de zoom à deux doigts dans l'appli.
+for (const ev of ['gesturestart', 'gesturechange'] as const) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
 
 const render = () =>
   createRoot(document.getElementById('root')!).render(

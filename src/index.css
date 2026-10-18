@@ -40,6 +40,8 @@
 }
 
 html, body, #root { min-height: 100%; }
+/* Pas de zoom à deux doigts ni de double appui (appli de terrain) : le défilement reste. Voir aussi index.html et main.tsx (iPhone). */
+html { touch-action: pan-x pan-y; }
 
 /* Teinte de l'échelle de la carte du bilan (src/pages/Coverage.tsx) ; les styles de l'installation la changent. */
 :root { --color-scale: #14b8a6; }
