@@ -7,6 +7,7 @@ import { buildAvis, buildEntry, questionLogRights, type AnonymizerInput, type Av
 import { currentUserId, realRole } from './roles'
 import { spyTarget } from './spy'
 import type { MirrorInput } from './sqlMirror'
+import { buildAvisVocal, buildVocalAvis, type AvisVocalInput, type VocalVerdict } from './questionLogCore'
 
 export type { QuestionTrace, Verdict } from './questionLogCore'
 
@@ -133,6 +134,44 @@ export async function logAvis(a: AvisInput): Promise<boolean> {
     } catch {
       /* stockage indisponible : l'avis est noté quand même */
     }
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ---------- Évaluations vocales (« Avis vocal » de l'écran de notation, phase de test) ----------
+// Ligne kind = 'avis_vocal' (supabase/050_avis_vocal.sql) : dictée anonymisée, notes proposées et ce qu'en a fait
+// l'entraîneur, appréciation. Jamais rien du joueur évalué (questionLogCore.ts, buildAvisVocal). Mêmes droits et même file
+// d'envoi que les questions.
+
+/** Enregistre une évaluation vocale ; rend tout de suite l'identifiant de sa ligne (l'écriture suit). Jamais d'erreur. */
+export function logAvisVocal(a: AvisVocalInput): string | undefined {
+  try {
+    if (!canLogQuestion() || !a.phrase.trim()) return undefined
+    const id = newId()
+    const at = new Date()
+    void (async () => {
+      try {
+        const row = buildAvisVocal(a, await anonInputFromDb(), me(), at)
+        if (row) await save<QuestionLog>('question_log', { id, ...row } as unknown as Omit<QuestionLog, 'updatedAt'>)
+      } catch {
+        /* journal : jamais bloquant */
+      }
+    })()
+    return id
+  } catch {
+    return undefined
+  }
+}
+
+/** Appréciation donnée après l'écriture de l'évaluation vocale : une ligne d'avis qui la vise. true : notée. */
+export async function logAvisVocalVerdict(a: { vocalId: string; verdict: VocalVerdict; comment?: string }): Promise<boolean> {
+  try {
+    if (!canLogQuestion()) return false
+    const row = buildVocalAvis(a, await anonInputFromDb(), me())
+    if (!row) return false
+    await save<QuestionLog>('question_log', { id: newId(), ...row } as unknown as Omit<QuestionLog, 'updatedAt'>)
     return true
   } catch {
     return false

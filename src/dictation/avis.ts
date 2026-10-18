@@ -236,6 +236,45 @@ export type AvisState = {
   pending: string[]
   strengths: boolean
   improvements: boolean
+  /** Identifiant de l'analyse (une évaluation vocale au journal, une appréciation par analyse). */
+  id?: string
+  /** Réponses du coach aux notes proposées (journal des évaluations vocales) : acceptée, modifiée (note mise), ignorée. */
+  decisions?: Record<string, AvisDecision>
+}
+
+export type AvisDecision = { kept: 'accepte' | 'modifie' | 'ignore'; final?: number }
+
+/**
+ * Réponse du coach à la note proposée (en attente) pour un critère : `value` = la note qu'il a choisie (la même : acceptée ;
+ * une autre : modifiée ; vide : ignorée), 'ignore' = ✕. Le critère sort des notes en attente. Critère pas en attente : inchangé.
+ */
+export function decide(s: AvisState, criterionId: string, choice: { value: number | string | undefined } | 'ignore'): AvisState {
+  if (!s.pending.includes(criterionId)) return s
+  const sug = s.result.suggestions.find((x) => x.criterionId === criterionId)
+  let d: AvisDecision = { kept: 'ignore' }
+  if (choice !== 'ignore' && choice.value !== undefined && choice.value !== '') {
+    d = choice.value === sug?.value ? { kept: 'accepte' } : { kept: 'modifie', ...(typeof choice.value === 'number' && { final: choice.value }) }
+  }
+  return { ...s, pending: s.pending.filter((x) => x !== criterionId), decisions: { ...s.decisions, [criterionId]: d } }
+}
+
+/** « Tout accepter » / « Tout ignorer » : toutes les notes encore en attente, et les commentaires proposés. */
+export function decideAll(s: AvisState, kept: 'accepte' | 'ignore'): AvisState {
+  const decisions = { ...s.decisions }
+  for (const id of s.pending) decisions[id] = { kept }
+  return { ...s, pending: [], strengths: false, improvements: false, decisions }
+}
+
+/**
+ * Notes proposées et ce qu'en a fait le coach, pour le journal : critère (identifiant et libellé), note proposée, réponse.
+ * Une note proposée identique à celle déjà saisie (jamais mise en attente) compte comme acceptée ; une encore en attente,
+ * comme ignorée. Rien du joueur.
+ */
+export function avisProposals(s: AvisState): { criterionId: string; label: string; score: number; kept: AvisDecision['kept']; final?: number }[] {
+  return s.result.suggestions.map((x) => {
+    const d: AvisDecision = s.decisions?.[x.criterionId] ?? { kept: s.pending.includes(x.criterionId) ? 'ignore' : 'accepte' }
+    return { criterionId: x.criterionId, label: x.label, score: x.value, ...d }
+  })
 }
 
 export const pendingSuggestion = (s: AvisState | null, playerId: string, criterionId: string): AvisSuggestion | undefined =>

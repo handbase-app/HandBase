@@ -4,7 +4,20 @@
 //
 //   npx jiti tools/test-avis-vocal.ts
 import assert from 'node:assert/strict'
-import { buildAvisPayload, droppedText, findQuote, interpretAvis, mergeComment, understandAvis } from '../src/dictation/avis'
+import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, findQuote, interpretAvis, mergeComment, understandAvis, type AvisState } from '../src/dictation/avis'
+import {
+  buildAvisVocal,
+  buildVocalAvis,
+  copyForClaude,
+  exportCsv,
+  splitLog,
+  splitVocal,
+  VOCAL_MAX_PHRASE,
+  vocalCsv,
+  vocalForClaude,
+  vocalToReview,
+  type QuestionLogRow,
+} from '../src/questionLogCore'
 import { DictationError, requestAccess, type Endpoint } from '../src/dictation/transcribe'
 import type { Criterion } from '../src/db'
 
@@ -185,5 +198,161 @@ await assert.rejects(
 assert.equal((await requestAccess(ep(reply(200, { pret: true, modes: ['dictee', 'filtres', 'avis'] }) as typeof fetch))).avis, true)
 assert.equal((await requestAccess(ep(reply(200, { pret: true, modes: ['dictee', 'filtres'] }) as typeof fetch))).avis, undefined)
 assert.equal((await requestAccess(ep(reply(200, { pret: true }) as typeof fetch))).avis, undefined)
+
+// ---------- Journal des évaluations vocales (src/questionLogCore.ts, buildAvisVocal) ----------
+// Noms fictifs seulement.
+{
+  const players = [
+    { firstName: 'Lucas', lastName: 'Zorbeck' },
+    { firstName: 'Éloïse', lastName: 'Varnier' },
+  ]
+  const anon = { players, keep: ['HBC Toulon', 'Vitesse', 'Tir', 'Lecture du jeu', 'Repli défensif'] }
+  const at = new Date('2026-10-18T10:00:00.000Z')
+  const me = { id: 'u1', name: 'Coach A' }
+
+  // État tenu par l'écran de notation : décisions note par note.
+  const result = {
+    suggestions: [
+      { criterionId: 'vit', label: 'Vitesse', value: 5, quote: 'Très rapide', confidence: 'forte' as const },
+      { criterionId: 'tir', label: 'Tir', value: 3, quote: 'Au tir', confidence: 'moyenne' as const },
+      { criterionId: 'lec', label: 'Lecture du jeu', value: 4, quote: 'voit bien', confidence: 'moyenne' as const },
+      { criterionId: 'rep', label: 'Repli défensif', value: 2, quote: 'replis', confidence: 'moyenne' as const },
+    ],
+    pointsForts: 'Vitesse',
+    axes: '',
+    ambigus: [],
+    dropped: [],
+  }
+  // « lec » : déjà la même note sur la fiche, jamais mise en attente.
+  let st: AvisState = { id: 'a1', playerId: 'p-secret', transcript: 'x', result, pending: ['vit', 'tir', 'rep'], strengths: true, improvements: false }
+  st = decide(st, 'vit', { value: 5 })
+  st = decide(st, 'tir', { value: 4 })
+  assert.deepEqual(st.pending, ['rep'])
+  assert.equal(decide(st, 'lec', { value: 1 }), st, 'critère pas en attente : inchangé')
+  const ign = decide(st, 'rep', 'ignore')
+  assert.deepEqual(ign.decisions?.rep, { kept: 'ignore' })
+  assert.deepEqual(decide(st, 'rep', { value: undefined }).decisions?.rep, { kept: 'ignore' }, 'note effacée : ignorée')
+  const all = decideAll(st, 'accepte')
+  assert.deepEqual(all.pending, [])
+  assert.equal(all.strengths, false)
+  assert.deepEqual(all.decisions?.rep, { kept: 'accepte' })
+  assert.deepEqual(decideAll(st, 'ignore').decisions?.rep, { kept: 'ignore' })
+  assert.deepEqual(avisProposals(ign), [
+    { criterionId: 'vit', label: 'Vitesse', score: 5, kept: 'accepte' },
+    { criterionId: 'tir', label: 'Tir', score: 3, kept: 'modifie', final: 4 },
+    { criterionId: 'lec', label: 'Lecture du jeu', score: 4, kept: 'accepte' },
+    { criterionId: 'rep', label: 'Repli défensif', score: 2, kept: 'ignore' },
+  ])
+  // Encore en attente (analyse abandonnée) : ignorée.
+  assert.equal(avisProposals(st).find((p) => p.criterionId === 'rep')?.kept, 'ignore')
+
+  // Ligne enregistrée : dictée et commentaire anonymisés, rien du joueur.
+  const phrase = 'Lucas Zorbeck est très rapide, licence 6383015001234. Au tir correct, il voit bien le jeu comme Éloïse.'
+  const row = buildAvisVocal(
+    {
+      phrase,
+      proposals: avisProposals(ign),
+      verdict: 'en_partie',
+      comment: '  pour Zorbeck\n j’aurais mis 3 au repli ',
+      // Champs qu'un appel maladroit pourrait ajouter : jamais recopiés.
+      ...({ playerId: 'p-secret', birthDate: '2011-03-02', club: 'HBC Toulon', lastName: 'Zorbeck' } as object),
+    },
+    anon,
+    me,
+    at,
+  )!
+  assert.deepEqual(row, {
+    at: '2026-10-18T10:00:00.000Z',
+    authorId: 'u1',
+    authorName: 'Coach A',
+    kind: 'avis_vocal',
+    phrase: '[prénom] [nom] est très rapide, licence [licence]. Au tir correct, il voit bien le jeu comme [prénom].',
+    proposals: [
+      { criterionId: 'vit', label: 'Vitesse', score: 5, kept: 'accepte' },
+      { criterionId: 'tir', label: 'Tir', score: 3, kept: 'modifie', final: 4 },
+      { criterionId: 'lec', label: 'Lecture du jeu', score: 4, kept: 'accepte' },
+      { criterionId: 'rep', label: 'Repli défensif', score: 2, kept: 'ignore' },
+    ],
+    verdict: 'en_partie',
+    comment: 'pour [nom] j’aurais mis 3 au repli',
+  })
+  // Aucun champ du joueur, à aucun niveau.
+  const json = JSON.stringify(row)
+  for (const bad of ['p-secret', 'Zorbeck', 'Lucas', 'Éloïse', '2011', 'Toulon', '6383015001234']) assert.ok(!json.includes(bad), bad)
+  assert.deepEqual(Object.keys(row).sort(), ['at', 'authorId', 'authorName', 'comment', 'kind', 'phrase', 'proposals', 'verdict'])
+  for (const p of row.proposals) for (const k of Object.keys(p)) assert.ok(['criterionId', 'label', 'score', 'kept', 'final'].includes(k), k)
+
+  // Bornes et refus.
+  assert.equal(buildAvisVocal({ phrase: '   ', proposals: [] }, anon, me, at), null, 'phrase vide')
+  const big = buildAvisVocal(
+    {
+      phrase: 'mot '.repeat(600),
+      proposals: [
+        ...Array.from({ length: 45 }, (_, i) => ({ criterionId: `c${i}`, score: 3, kept: 'accepte' as const })),
+      ],
+      verdict: 'super' as never,
+      comment: 'x'.repeat(800),
+    },
+    anon,
+    me,
+    at,
+  )!
+  assert.equal(big.phrase.length, VOCAL_MAX_PHRASE)
+  assert.equal(big.proposals.length, 40)
+  assert.equal(big.verdict, undefined, 'verdict d’une question : refusé ici')
+  assert.equal(big.comment!.length, 500)
+  const odd = buildAvisVocal(
+    {
+      phrase: 'ok',
+      proposals: [
+        { criterionId: 'a b', kept: 'accepte' },
+        { criterionId: 'ok1', kept: 'peut-etre' as never },
+        { criterionId: 'ok2', score: 99, kept: 'modifie', final: -1 },
+        { criterionId: 'ok3', score: 3, kept: 'accepte', final: 4 },
+      ],
+    },
+    anon,
+  )!
+  assert.deepEqual(odd.proposals, [{ criterionId: 'ok2', kept: 'modifie' }, { criterionId: 'ok3', score: 3, kept: 'accepte' }], 'critère invalide, note hors bornes, final seulement si modifiée')
+
+  // Appréciation donnée après : ligne d'avis qui vise l'évaluation vocale.
+  const late = buildVocalAvis({ vocalId: 'v-1', verdict: 'pas_coherente', comment: 'Lucas mérite 4' }, anon, me, at)!
+  assert.deepEqual(late, { at: '2026-10-18T10:00:00.000Z', authorId: 'u1', authorName: 'Coach A', kind: 'avis', questionId: 'v-1', verdict: 'pas_coherente', comment: '[prénom] mérite 4', page: 'avis_vocal' })
+  assert.equal(buildVocalAvis({ vocalId: 'v 1', verdict: 'coherente' }, anon), null)
+  assert.equal(buildVocalAvis({ vocalId: 'v1', verdict: 'super' as never }, anon), null)
+
+  // Journal : séparation des évaluations vocales et des questions ; écrans, copie et CSV.
+  const q = { id: 'q1', at: '2026-10-17T10:00:00.000Z', phrase: 'combien de gardiens', recipe: 'complete' as const }
+  const rows: QuestionLogRow[] = [
+    q,
+    { id: 'aq', at: '2026-10-17T11:00:00.000Z', kind: 'avis', questionId: 'q1', verdict: 'super' },
+    { ...(row as object), id: 'v-1' } as unknown as QuestionLogRow,
+    { ...(late as object), id: 'av', at: '2026-10-18T11:00:00.000Z' } as unknown as QuestionLogRow,
+    { ...(buildAvisVocal({ phrase: 'tout bon', proposals: [{ criterionId: 'vit', score: 4, kept: 'accepte' }], verdict: 'coherente' }, anon, me, at) as object), id: 'v-2' } as unknown as QuestionLogRow,
+  ]
+  const { others, vocal } = splitVocal(rows)
+  assert.deepEqual(others.map((r) => r.id), ['q1', 'aq'])
+  assert.deepEqual(vocal.map((v) => v.row.id).sort(), ['v-1', 'v-2'])
+  const v1 = vocal.find((v) => v.row.id === 'v-1')!
+  assert.deepEqual(v1.verdicts.map((x) => x.verdict), ['pas_coherente', 'en_partie'], 'appréciation arrivée après, puis celle de la ligne')
+  assert.equal(vocalToReview(v1), true)
+  assert.equal(vocalToReview(vocal.find((v) => v.row.id === 'v-2')!), false, 'tout accepté et cohérente')
+  assert.equal(splitLog(others).questions.length, 1, 'les questions ne voient pas les évaluations vocales')
+  assert.ok(!copyForClaude(others, '2026-10-18').includes('tout bon'))
+  assert.ok(!exportCsv(others).includes('avis_vocal'))
+  const md = vocalForClaude(vocal)
+  assert.ok(md.includes('2 évaluations · 5 notes proposées (3 acceptées · 1 modifiée · 1 ignorée) · appréciations : '), md)
+  assert.ok(md.includes('« [prénom] [nom] est très rapide'))
+  assert.ok(md.includes('Tir : proposé 3 → Modifiée (mis 4)'))
+  assert.ok(md.includes('Repli défensif : proposé 2 → Ignorée'))
+  assert.ok(md.includes('Commentaires : « [prénom] mérite 4 » ; « pour [nom] j’aurais mis 3 au repli »'))
+  assert.ok(!md.includes('tout bon'), 'tout accepté : pas à regarder')
+  assert.equal(vocalForClaude([]).includes('Aucune évaluation vocale.'), true)
+  const csv = vocalCsv(vocal).split('\r\n')
+  assert.equal(csv[0], 'date;auteur;phrase;critère;identifiant du critère;proposé;gardé;final;appréciation;commentaire')
+  assert.equal(csv.length, 1 + 4 + 1)
+  assert.ok(csv.some((l) => l.includes(';Tir;tir;3;Modifiée;4;Pas cohérente | En partie;')))
+  for (const bad of ['p-secret', 'Zorbeck', 'Lucas']) assert.ok(!csv.join('\n').includes(bad), bad)
+}
 
 console.log('test-avis-vocal : OK')

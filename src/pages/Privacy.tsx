@@ -137,6 +137,13 @@ export function QuestionsText() {
         commentaire facultatif (« ce que je voulais ») sont enregistrés avec la question, eux aussi rendus anonymes de la même façon
         (prénoms, noms et licences remplacés), avec le moment et l’auteur. Donner un avis est facultatif.
       </p>
+      <p>
+        Évaluations vocales (« Avis vocal » de l’écran de notation) : la phrase dictée, rendue anonyme de la même façon (sans nom),
+        les notes proposées critère par critère et ce que l’entraîneur en a gardé (acceptée, modifiée et la note mise à la place,
+        ignorée), et son appréciation facultative sur la proposition (« Cohérente », « En partie », « Pas cohérente », avec un
+        commentaire lui aussi rendu anonyme), avec le moment et l’auteur. Jamais l’identité du joueur évalué : ni son nom, ni sa
+        date de naissance, ni son club, ni rien de sa fiche.
+      </p>
       <H>Pourquoi ?</H>
       <p>Uniquement pour améliorer les réponses : repérer les questions mal comprises et apprendre à l’appli à y répondre.</p>
       <H>Qui les voit ?</H>

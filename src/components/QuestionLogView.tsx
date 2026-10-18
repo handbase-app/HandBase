@@ -20,6 +20,15 @@ import {
   type LogFilter,
   type Outcome,
   type QuestionLogRow,
+  splitVocal,
+  vocalCsv,
+  vocalForClaude,
+  vocalKeptSummary,
+  vocalToReview,
+  VOCAL_KEPT_LABEL,
+  VOCAL_VERDICT_LABEL,
+  type VocalEntry,
+  type VocalVerdict,
 } from '../questionLogCore'
 import { ask } from './Confirm'
 import { Icon, Segmented } from './ui'
@@ -35,6 +44,9 @@ import { appName } from '../appBrand'
  * montrés avec la question qu'ils jugent (verdict, commentaire) ; filtre « Avec avis » / par verdict ; une question jugée
  * « Mauvaise réponse » ou « Pas de réponse » est « à traiter » même si la recette l'a comprise. « Exporter (CSV) » : le
  * journal avec les avis, pour l'analyser dans un tableur.
+ * ÉVALUATIONS VOCALES (« Avis vocal » de l'écran de notation, src/components/AvisVocal.tsx) : lignes kind = 'avis_vocal',
+ * filtre « Évaluations vocales » : dictée anonymisée, tableau critère → proposé / gardé / final, appréciation et
+ * commentaire. Reprises dans « Copier pour Claude » (section à part) et dans l'export CSV (second tableau).
  */
 
 const PAGE = 30
@@ -126,9 +138,68 @@ function Entry({ e, withPhrase, box, avis }: { e: QuestionLog; withPhrase?: bool
   )
 }
 
+const VOCAL_CLS: Record<VocalVerdict, string> = {
+  coherente: 'border-emerald-500/50 text-emerald-300',
+  en_partie: 'border-sky-500/50 text-sky-300',
+  pas_coherente: 'border-amber-500/60 text-amber-300',
+}
+
+/** Une évaluation vocale : dictée, notes proposées et ce qu'en a fait l'entraîneur, appréciations. */
+function VocalItem({ v }: { v: VocalEntry }) {
+  const ps = v.row.proposals ?? []
+  return (
+    <li className="flex flex-col gap-1.5 rounded-md border border-line p-3">
+      <p className="text-sm font-bold">« {v.row.phrase} »</p>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+        <span>{when(v.row.at)}</span>
+        {v.row.authorName && <span>· {v.row.authorName}</span>}
+        <span>· {vocalKeptSummary(ps)}</span>
+      </p>
+      {ps.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[11px]">
+            <thead className="text-muted">
+              <tr>
+                <th className="py-1 pr-2 font-bold">Critère</th>
+                <th className="py-1 pr-2 font-bold">Proposé</th>
+                <th className="py-1 pr-2 font-bold">Gardé</th>
+                <th className="py-1 font-bold">Final</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {ps.map((p, i) => (
+                <tr key={`${p.criterionId}-${i}`}>
+                  <td className="py-1 pr-2">{p.label ?? p.criterionId}</td>
+                  <td className="py-1 pr-2 font-bold">{p.score ?? '?'}</td>
+                  <td className={`py-1 pr-2 ${p.kept === 'accepte' ? 'text-emerald-300' : p.kept === 'modifie' ? 'text-sky-300' : 'text-muted'}`}>{VOCAL_KEPT_LABEL[p.kept] ?? p.kept}</td>
+                  <td className="py-1 font-bold">{p.kept === 'accepte' ? p.score : p.kept === 'modifie' ? (p.final ?? '?') : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {v.verdicts.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {v.verdicts.map((x, i) => (
+            <li key={`${x.at}-${i}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${VOCAL_CLS[x.verdict] ?? ''}`}>Proposition : {VOCAL_VERDICT_LABEL[x.verdict] ?? x.verdict}</span>
+              {x.comment && <span>« {x.comment} »</span>}
+              <span className="text-muted">
+                {x.authorName ? `${x.authorName}, ` : ''}
+                {when(x.at)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 export function QuestionLogView() {
   const rows = useQuestionLog()
-  const [filter, setFilter] = useState<LogFilter>('a_traiter')
+  const [filter, setFilter] = useState<LogFilter | 'vocal'>('a_traiter')
   const [avisFilter, setAvisFilter] = useState<AvisFilter>('tous')
   const [sort, setSort] = useState<GroupSort>('rates')
   const [grouped, setGrouped] = useState(true)
@@ -136,11 +207,13 @@ export function QuestionLogView() {
   const [copied, setCopied] = useState('')
   if (!rows) return <p className="text-xs text-muted">Chargement…</p>
 
-  // Questions d'un côté, avis (lignes à part) de l'autre.
-  const { questions: all, avis, orphans } = splitLog(rows)
+  // Évaluations vocales à part ; puis questions d'un côté, avis (lignes à part) de l'autre.
+  const { others, vocal } = splitVocal(rows)
+  const vocalView = filter === 'vocal'
+  const { questions: all, avis, orphans } = splitLog(others)
   const nAvis = [...avis.values()].reduce((n, l) => n + l.length, 0)
   const count = (f: LogFilter) => filterByAvis(filterEntries(all, f, avis), avis, avisFilter).length
-  const byFilter = filterEntries(all, filter, avis)
+  const byFilter = filterEntries(all, vocalView ? 'toutes' : filter, avis)
   const countAvis = (f: AvisFilter) => filterByAvis(byFilter, avis, f).length
   const shown = filterByAvis(byFilter, avis, avisFilter)
   const groups = groupEntries(shown, sort)
@@ -150,10 +223,13 @@ export function QuestionLogView() {
   const todo = count('a_traiter')
 
   async function copy() {
-    const text = copyForClaude(rows!, undefined, appName())
+    const text = copyForClaude(others, undefined, appName()) + (vocal.length ? '\n\n' + vocalForClaude(vocal) : '')
     try {
       await navigator.clipboard.writeText(text)
-      setCopied(`Copié : ${todo} question${todo > 1 ? 's' : ''} à traiter et les plus fréquentes, prêtes à coller dans une conversation avec Claude.`)
+      const nv = vocal.filter(vocalToReview).length
+      setCopied(
+        `Copié : ${todo} question${todo > 1 ? 's' : ''} à traiter et les plus fréquentes${vocal.length ? `, ${nv} évaluation${nv > 1 ? 's' : ''} vocale${nv > 1 ? 's' : ''} à regarder` : ''}, prêtes à coller dans une conversation avec Claude.`,
+      )
     } catch {
       setCopied('Copie impossible sur cet appareil.')
     }
@@ -161,16 +237,19 @@ export function QuestionLogView() {
 
   function download() {
     // Avec BOM : le tableur reconnaît les accents.
-    const blob = new Blob(['\ufeff' + exportCsv(rows!)], { type: 'text/csv;charset=utf-8' })
+    // Évaluations vocales : second tableau sous celui des questions (seul, dans le filtre « Évaluations vocales »).
+    const csv = vocalView ? vocalCsv(vocal) : exportCsv(others) + (vocal.length ? '\r\n\r\n' + vocalCsv(vocal) : '')
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `journal-questions-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `${vocalView ? 'evaluations-vocales' : 'journal-questions'}-${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a)
     a.click()
     a.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    setCopied(`Exporté : ${all.length} question${all.length > 1 ? 's' : ''} et ${nAvis} avis (CSV, séparateur « ; »).`)
+    const nv = `${vocal.length} évaluation${vocal.length > 1 ? 's' : ''} vocale${vocal.length > 1 ? 's' : ''}`
+    setCopied(vocalView ? `Exporté : ${nv} (CSV, séparateur « ; »).` : `Exporté : ${all.length} question${all.length > 1 ? 's' : ''}, ${nAvis} avis et ${nv} (CSV, séparateur « ; »).`)
   }
 
   async function clear() {
@@ -186,6 +265,7 @@ export function QuestionLogView() {
     { value: 'complete', label: `Comprises (${count('complete')})` },
     { value: 'toutes', label: `Toutes (${count('toutes')})` },
   ]
+  const nVocal = vocal.length
   const avisFilters: { value: AvisFilter; label: string }[] = [
     { value: 'tous', label: 'Tous' },
     { value: 'avec_avis', label: `Avec avis (${countAvis('avec_avis')})` },
@@ -201,18 +281,19 @@ export function QuestionLogView() {
         qu’en a fait la recette et, au besoin, le mode avancé. De quoi écrire de nouvelles
         recettes. Avec les avis des entraîneurs sur les réponses (Super, Mauvaise réponse, Pas de réponse) et leur commentaire. Prénoms, noms
         et licences sont remplacés par [prénom], [nom], [licence] sur l’appareil, avant tout enregistrement ; aucun résultat n’est gardé.
-        Effacées automatiquement au bout de 12 mois.
+        Et les évaluations vocales (« Avis vocal » de l’écran de notation) : dictée anonymisée, notes proposées et ce que
+        l’entraîneur en a gardé, son appréciation ; jamais le joueur évalué. Effacées automatiquement au bout de 12 mois.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-primary min-h-11 px-3 text-xs" disabled={!all.length} onClick={() => void copy()}>
+        <button type="button" className="btn-primary min-h-11 px-3 text-xs" disabled={!all.length && !nVocal} onClick={() => void copy()}>
           <Icon name="copy" className="h-3.5 w-3.5" />
           Copier pour Claude
         </button>
-        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis} onClick={download}>
+        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis && !nVocal} onClick={download}>
           <Icon name="list" className="h-3.5 w-3.5" />
           Exporter (CSV)
         </button>
-        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis} onClick={() => void clear()}>
+        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis && !nVocal} onClick={() => void clear()}>
           <Icon name="trash" className="h-3.5 w-3.5" />
           Vider le journal
         </button>
@@ -237,7 +318,37 @@ export function QuestionLogView() {
             {f.label}
           </button>
         ))}
+        <button
+          type="button"
+          aria-pressed={vocalView}
+          className={chip(vocalView)}
+          onClick={() => {
+            setFilter('vocal')
+            setLimit(PAGE)
+          }}
+        >
+          Évaluations vocales ({nVocal})
+        </button>
       </div>
+      {vocalView ? (
+        <>
+          {!vocal.length ? (
+            <p className="text-xs text-muted">Aucune évaluation vocale enregistrée pour l’instant.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {vocal.slice(0, limit).map((v) => (
+                <VocalItem key={v.row.id} v={v} />
+              ))}
+            </ul>
+          )}
+          {vocal.length > limit && (
+            <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => setLimit(limit + PAGE)}>
+              Voir plus
+            </button>
+          )}
+        </>
+      ) : (
+      <>
       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrer par avis des entraîneurs">
         <span className="text-[11px] font-bold text-muted">Avis ({nAvis}) :</span>
         {avisFilters.map((f) => (
@@ -327,6 +438,8 @@ export function QuestionLogView() {
         <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => setLimit(limit + PAGE)}>
           Voir plus
         </button>
+      )}
+      </>
       )}
     </section>
   )

@@ -18,7 +18,7 @@ import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { DictationTextarea } from '../components/MicButton'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
-import { mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
+import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import {
   alive,
   CONTEXT_TYPES,
@@ -238,7 +238,7 @@ export default function Evaluate() {
       else delete scores[id]
       return { ...d, scores }
     })
-    setAvis((a) => (a && a.pending.includes(id) ? { ...a, pending: a.pending.filter((x) => x !== id) } : a))
+    setAvis((a) => (a && a.pending.includes(id) ? decide(a, id, { value: isFilled(v) ? v : undefined }) : a))
   }
 
   /** « Tout accepter » : les notes proposées encore en attente et les commentaires proposés (à relire avant d'enregistrer). */
@@ -255,7 +255,7 @@ export default function Evaluate() {
         ...(a.improvements && { improvements: mergeComment(d.improvements, a.result.axes) }),
       }
     })
-    setAvis({ ...a, pending: [], strengths: false, improvements: false })
+    setAvis(decideAll(a, 'accepte'))
   }
 
   /** Brouillon vierge pour ce joueur (on garde le contexte d'un avis spontané : lieu, date…). */
@@ -695,7 +695,7 @@ export default function Evaluate() {
                       </div>
                       <CriterionInput c={c} value={draft.scores?.[c.id]} suggested={sug?.value} wide onChange={(v) => setScore(c.id, v)} />
                       {sug && (
-                        <SuggestionNote s={sug} onDismiss={() => setAvis((a) => a && { ...a, pending: a.pending.filter((x) => x !== c.id) })} />
+                        <SuggestionNote s={sug} onDismiss={() => setAvis((a) => a && decide(a, c.id, 'ignore'))} />
                       )}
                     </div>
                   )

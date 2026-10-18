@@ -655,3 +655,222 @@ export function exportCsv(rows: QuestionLogRow[], only?: QuestionLogRow[]): stri
       )
   return lines.join('\r\n')
 }
+
+// ---------- Évaluations vocales (« Avis vocal » de l'écran de notation, phase de test) ----------
+
+/*
+ * Ligne `kind = 'avis_vocal'` (supabase/050_avis_vocal.sql) : ce que l'analyse a PROPOSÉ critère par critère et ce que
+ * l'entraîneur en a gardé, pour mesurer la cohérence de l'analyse. Écrite quand l'entraîneur a répondu à toutes les notes
+ * proposées (src/components/AvisVocal.tsx). Contenu : la dictée ANONYMISÉE comme une question, et pour chaque note proposée
+ * le critère (identifiant et libellé), la note proposée, ce qu'il en a fait (acceptée, modifiée, ignorée) et la note mise à
+ * la place ; l'appréciation de l'entraîneur sur la proposition si elle est déjà donnée. JAMAIS d'identifiant de joueur, de
+ * nom, de date de naissance, de club ni rien d'autre de la fiche : la ligne ne dit pas QUEL joueur a été évalué.
+ * Appréciation donnée APRÈS l'écriture de la ligne : une ligne d'avis de plus (kind = 'avis', questionId = la ligne
+ * avis_vocal, verdict cohérente / en partie / pas cohérente).
+ */
+
+/** Ce que l'entraîneur a fait de la note proposée. */
+export type VocalKept = 'accepte' | 'modifie' | 'ignore'
+export const VOCAL_KEPT: VocalKept[] = ['accepte', 'modifie', 'ignore']
+export const VOCAL_KEPT_LABEL: Record<VocalKept, string> = { accepte: 'Acceptée', modifie: 'Modifiée', ignore: 'Ignorée' }
+
+/** Appréciation de l'entraîneur sur la proposition. */
+export type VocalVerdict = 'coherente' | 'en_partie' | 'pas_coherente'
+export const VOCAL_VERDICTS: VocalVerdict[] = ['coherente', 'en_partie', 'pas_coherente']
+export const VOCAL_VERDICT_LABEL: Record<VocalVerdict, string> = { coherente: 'Cohérente', en_partie: 'En partie', pas_coherente: 'Pas cohérente' }
+export const isVocalVerdict = (v: unknown): v is VocalVerdict => VOCAL_VERDICTS.includes(v as VocalVerdict)
+
+/** Bornes (les mêmes sur le serveur). */
+export const VOCAL_MAX_PHRASE = 1000
+export const VOCAL_MAX_PROPOSALS = 40
+export const VOCAL_MAX_LABEL = 100
+export const VOCAL_MAX_SCORE = 10
+
+export type VocalProposal = { criterionId: string; label?: string; score?: number; kept: VocalKept; final?: number }
+
+/** Ligne avis_vocal enregistrée (auteur posé par le serveur, comme pour les questions). */
+export interface AvisVocalFields {
+  at: string
+  authorId?: string
+  authorName?: string
+  kind: 'avis_vocal'
+  phrase: string
+  proposals: VocalProposal[]
+  verdict?: VocalVerdict
+  comment?: string
+}
+export type AvisVocalRow = AvisVocalFields & { id: string; updatedAt?: number; deleted?: boolean }
+
+/** Ce que l'écran de notation transmet (tel quel ; anonymisé et borné par buildAvisVocal). */
+export type AvisVocalInput = {
+  phrase: string
+  proposals: { criterionId: string; label?: string; score?: number; kept: VocalKept; final?: number }[]
+  verdict?: VocalVerdict
+  comment?: string
+}
+
+const vocalScore = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= VOCAL_MAX_SCORE ? v : undefined)
+const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+const dropUndef = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
+
+/**
+ * Ligne avis_vocal prête à enregistrer : phrase et commentaire ANONYMISÉS (mêmes règles que les questions), libellés relus,
+ * bornés comme sur le serveur ; propositions au critère invalide écartées ; « final » seulement pour une note modifiée.
+ * Seuls les champs listés sont recopiés : rien d'autre ne peut passer (ni joueur, ni fiche). null : phrase vide.
+ */
+export function buildAvisVocal(a: AvisVocalInput, input: AnonymizerInput, me: { id?: string; name?: string } = {}, at = new Date()): AvisVocalFields | null {
+  const an = buildAnonymizer(input)
+  const phrase = clip(an.text(oneLine(a.phrase ?? '')), VOCAL_MAX_PHRASE)
+  if (!phrase) return null
+  const proposals: VocalProposal[] = []
+  for (const p of a.proposals ?? []) {
+    if (proposals.length >= VOCAL_MAX_PROPOSALS) break
+    if (!p || typeof p.criterionId !== 'string' || !ID_RE.test(p.criterionId) || !VOCAL_KEPT.includes(p.kept)) continue
+    const label = p.label ? clip(an.text(oneLine(p.label)), VOCAL_MAX_LABEL) : undefined
+    proposals.push(
+      dropUndef({
+        criterionId: p.criterionId,
+        label: label || undefined,
+        score: vocalScore(p.score),
+        kept: p.kept,
+        final: p.kept === 'modifie' ? vocalScore(p.final) : undefined,
+      }),
+    )
+  }
+  const comment = oneLine(a.comment ?? '')
+  return dropUndef({
+    at: at.toISOString(),
+    authorId: me.id,
+    authorName: me.name,
+    kind: 'avis_vocal' as const,
+    phrase,
+    proposals,
+    verdict: isVocalVerdict(a.verdict) ? a.verdict : undefined,
+    comment: comment ? clip(an.text(comment), MAX_COMMENT) : undefined,
+  })
+}
+
+/** Ligne d'avis visant une évaluation vocale (appréciation donnée après l'écriture de celle-ci). */
+export type VocalAvisFields = { at: string; authorId?: string; authorName?: string; kind: 'avis'; questionId: string; verdict: VocalVerdict; comment?: string; page: string }
+
+/** Appréciation donnée après l'écriture de la ligne avis_vocal : une ligne d'avis (kind 'avis') qui la vise. */
+export function buildVocalAvis(
+  a: { vocalId: string; verdict: VocalVerdict; comment?: string },
+  input: AnonymizerInput,
+  me: { id?: string; name?: string } = {},
+  at = new Date(),
+): VocalAvisFields | null {
+  if (!ID_RE.test(a.vocalId) || !isVocalVerdict(a.verdict)) return null
+  const comment = oneLine(a.comment ?? '')
+  return dropUndef({
+    at: at.toISOString(),
+    authorId: me.id,
+    authorName: me.name,
+    kind: 'avis' as const,
+    questionId: a.vocalId,
+    verdict: a.verdict,
+    comment: comment ? clip(buildAnonymizer(input).text(comment), MAX_COMMENT) : undefined,
+    page: 'avis_vocal',
+  })
+}
+
+export const isAvisVocal = (r: { kind?: string }) => r.kind === 'avis_vocal'
+
+/** Évaluation vocale avec ses appréciations (celle de la ligne et les avis arrivés après, la plus récente d'abord). */
+export type VocalEntry = { row: AvisVocalRow; verdicts: { verdict: VocalVerdict; comment?: string; at: string; authorName?: string }[] }
+
+type AnyLogRow = { id: string; at: string; kind?: string; deleted?: boolean; questionId?: string; verdict?: string; comment?: string; authorName?: string }
+
+/**
+ * Sépare le journal : les évaluations vocales (avec leurs appréciations) et le reste, à passer tel quel aux fonctions des
+ * questions (splitLog, copyForClaude, exportCsv…), qui ne connaissent pas les évaluations vocales. Les avis qui visent une
+ * évaluation vocale, ou portent un verdict d'évaluation vocale, sont retirés du reste.
+ */
+export function splitVocal<T extends AnyLogRow>(rows: T[]): { others: T[]; vocal: VocalEntry[] } {
+  const vocalRows = rows.filter((r) => !r.deleted && isAvisVocal(r)) as unknown as AvisVocalRow[]
+  const ids = new Set(vocalRows.map((r) => r.id))
+  const late = new Map<string, VocalEntry['verdicts']>()
+  const others: T[] = []
+  for (const r of rows) {
+    if (isAvisVocal(r)) continue
+    const toVocal = r.kind === 'avis' && ((!!r.questionId && ids.has(r.questionId)) || isVocalVerdict(r.verdict))
+    if (!toVocal) {
+      others.push(r)
+      continue
+    }
+    if (r.deleted || !r.questionId || !isVocalVerdict(r.verdict)) continue
+    const l = late.get(r.questionId) ?? []
+    l.push({ verdict: r.verdict, comment: r.comment, at: r.at, authorName: r.authorName })
+    late.set(r.questionId, l)
+  }
+  const vocal = vocalRows
+    .map((row) => {
+      const verdicts = [...(late.get(row.id) ?? [])]
+      if (row.verdict) verdicts.push({ verdict: row.verdict, comment: row.comment, at: row.at, authorName: row.authorName })
+      return { row, verdicts: verdicts.sort((a, b) => b.at.localeCompare(a.at)) }
+    })
+    .sort((a, b) => b.row.at.localeCompare(a.row.at))
+  return { others, vocal }
+}
+
+/** Compte des notes gardées : « 3 acceptées · 1 modifiée · 1 ignorée ». */
+export function vocalKeptSummary(ps: VocalProposal[]): string {
+  const parts = VOCAL_KEPT.map((k) => {
+    const n = ps.filter((p) => p.kept === k).length
+    return n ? `${n} ${VOCAL_KEPT_LABEL[k].toLowerCase()}${n > 1 ? 's' : ''}` : ''
+  }).filter(Boolean)
+  return parts.length ? parts.join(' · ') : 'aucune note proposée'
+}
+
+/** À regarder : appréciation autre que « Cohérente », note modifiée ou ignorée, ou rien de proposé. */
+export const vocalToReview = (v: VocalEntry) =>
+  v.verdicts.some((x) => x.verdict !== 'coherente') || !v.row.proposals?.length || v.row.proposals.some((p) => p.kept !== 'accepte')
+
+/**
+ * « Copier pour Claude » : section des évaluations vocales, à coller après celle des questions : bilan des notes gardées et
+ * des appréciations, puis les évaluations à regarder (vocalToReview), avec la phrase anonymisée et le détail critère par
+ * critère. Au plus `max` évaluations détaillées.
+ */
+export function vocalForClaude(vocal: VocalEntry[], max = 20): string {
+  const out = [`## Évaluations vocales (avis vocal de l'écran de notation)`, '']
+  if (!vocal.length) return [...out, 'Aucune évaluation vocale.'].join('\n')
+  const all = vocal.flatMap((v) => v.row.proposals ?? [])
+  const vs = vocal.flatMap((v) => v.verdicts.map((x) => x.verdict))
+  out.push(
+    `${vocal.length} évaluation${vocal.length > 1 ? 's' : ''} · ${all.length} note${all.length > 1 ? 's' : ''} proposée${all.length > 1 ? 's' : ''} (${vocalKeptSummary(all)})${vs.length ? ` · appréciations : ${counted(vs, VOCAL_VERDICT_LABEL)}` : ''}.`,
+    `Phrases et commentaires anonymisés ([prénom], [nom], [licence]) ; aucun joueur identifié.`,
+    '',
+    `### À regarder (pas cohérentes ou en partie, notes modifiées ou ignorées, rien de proposé)`,
+  )
+  const todo = vocal.filter(vocalToReview)
+  if (!todo.length) out.push('', 'Rien à regarder : toutes les notes proposées ont été acceptées.')
+  todo.slice(0, max).forEach((v, i) => {
+    const vv = v.verdicts.length ? ` · ${counted(v.verdicts.map((x) => x.verdict), VOCAL_VERDICT_LABEL)}` : ''
+    out.push('', `${i + 1}. « ${v.row.phrase} »${vv}`)
+    for (const p of v.row.proposals ?? [])
+      out.push(`   - ${p.label ?? p.criterionId} : proposé ${p.score ?? '?'} → ${VOCAL_KEPT_LABEL[p.kept] ?? p.kept}${p.kept === 'modifie' && p.final !== undefined ? ` (mis ${p.final})` : ''}`)
+    if (!v.row.proposals?.length) out.push('   - aucune note proposée')
+    const said = uniq(v.verdicts.map((x) => x.comment))
+    if (said.length) out.push(`   - Commentaires : ${said.map((c) => `« ${c} »`).join(' ; ')}`)
+  })
+  if (todo.length > max) out.push('', `(${todo.length - max} autres non détaillées.)`)
+  return out.join('\n')
+}
+
+/** Export CSV des évaluations vocales : une ligne par note proposée (une seule pour une évaluation sans proposition). */
+export function vocalCsv(vocal: VocalEntry[]): string {
+  const head = ['date', 'auteur', 'phrase', 'critère', 'identifiant du critère', 'proposé', 'gardé', 'final', 'appréciation', 'commentaire']
+  const lines = [head.map(csvCell).join(';')]
+  for (const v of vocal) {
+    const verdict = v.verdicts.map((x) => VOCAL_VERDICT_LABEL[x.verdict] ?? x.verdict).join(' | ')
+    const comment = v.verdicts.map((x) => x.comment ?? '').filter(Boolean).join(' | ')
+    const ps: (VocalProposal | undefined)[] = v.row.proposals?.length ? v.row.proposals : [undefined]
+    for (const p of ps)
+      lines.push(
+        [v.row.at, v.row.authorName, v.row.phrase, p?.label, p?.criterionId, p?.score, p ? (VOCAL_KEPT_LABEL[p.kept] ?? p.kept) : '', p?.final, verdict, comment]
+          .map(csvCell)
+          .join(';'),
+      )
+  }
+  return lines.join('\r\n')
+}

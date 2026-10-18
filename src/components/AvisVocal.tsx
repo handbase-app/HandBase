@@ -4,8 +4,10 @@ import { Icon } from './ui'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
-import { buildAvisPayload, droppedText, interpretAvis, mergeComment, type AvisState, type AvisSuggestion } from '../dictation/avis'
-import type { Criterion, Position } from '../db'
+import { avisProposals, buildAvisPayload, decideAll, droppedText, interpretAvis, mergeComment, type AvisState, type AvisSuggestion } from '../dictation/avis'
+import { newId, type Criterion, type Position } from '../db'
+import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
+import { MAX_COMMENT, VOCAL_VERDICT_LABEL, VOCAL_VERDICTS, type VocalVerdict } from '../questionLogCore'
 
 /*
  * « Avis vocal » (essai) sur l'écran de notation : le coach parle librement du joueur, l'appli PROPOSE des notes et des
@@ -15,6 +17,12 @@ import type { Criterion, Position } from '../db'
  *  - Points forts / Axes proposés : à ajouter d'un toucher au commentaire (qui reste modifiable) ;
  *  - rien n'est enregistré : le coach relit et enregistre comme d'habitude, l'avis reste le sien.
  * Disponible comme la dictée (administrateurs, fonction présente, réglage activé) et seulement si la fonction connaît « avis ».
+ * Phase de test : JOURNAL des évaluations vocales (src/questionLog.ts, logAvisVocal ; supabase/050_avis_vocal.sql). Quand le
+ * coach a répondu à toutes les notes proposées (une à une, « Tout accepter », « Tout ignorer », ✕), une ligne est écrite :
+ * la dictée anonymisée, les notes proposées et ce qu'il en a fait (acceptée, modifiée, ignorée). Analyse abandonnée (autre
+ * joueur, fermeture) : écrite aussi, les notes encore en attente comptées comme ignorées. Sous les propositions, une barre
+ * « Cette proposition : Cohérente · En partie · Pas cohérente » + commentaire facultatif, une fois par analyse : jointe à
+ * la ligne si elle n'est pas encore écrite, sinon une ligne d'avis de plus. Jamais rien du joueur. Rien en « Voir comme… ».
  */
 
 /** Le bouton « Avis vocal », l'état de l'analyse et le résumé des propositions (en haut de la fiche). */
@@ -65,6 +73,7 @@ export function AvisVocal({
       const result = interpretAvis(ans.raw, payload, text)
       const cur = latest.current.current
       latest.current.setState({
+        id: newId(),
         playerId: pid,
         transcript: text,
         result,
@@ -81,6 +90,47 @@ export function AvisVocal({
   }
 
   const mic = useMicRecorder((text) => void analyse(text))
+
+  // ---- Journal des évaluations vocales (une ligne par analyse) ----
+  const logged = useRef(new Map<string, string>()) // analyse → ligne du journal
+  const verdicts = useRef(new Map<string, { verdict: VocalVerdict; comment: string }>()) // appréciation en attente de la ligne
+  const keyOf = (s: AvisState) => s.id ?? s.transcript
+  const writeLog = useRef((s: AvisState) => {
+    const k = keyOf(s)
+    if (logged.current.has(k)) return
+    const v = verdicts.current.get(k)
+    const id = logAvisVocal({ phrase: s.transcript, proposals: avisProposals(s), verdict: v?.verdict, comment: v?.comment })
+    logged.current.set(k, id ?? '')
+    verdicts.current.delete(k)
+  }).current
+  // Toutes les notes proposées ont une réponse : la ligne part.
+  useEffect(() => {
+    if (state && !state.pending.length) writeLog(state)
+  }, [state, writeLog])
+  // Analyse abandonnée (autre joueur, fermée, nouvelle analyse, écran quitté) : la ligne part aussi.
+  const prev = useRef<AvisState | null>(null)
+  useEffect(() => {
+    const p = prev.current
+    if (p && (!state || keyOf(p) !== keyOf(state))) writeLog(p)
+    prev.current = state
+  }, [state, writeLog])
+  useEffect(
+    () => () => {
+      if (prev.current) writeLog(prev.current)
+    },
+    [writeLog],
+  )
+  /** Appréciation du coach : jointe à la ligne pas encore écrite, sinon une ligne d'avis qui la vise. */
+  async function sendVerdict(s: AvisState, verdict: VocalVerdict, comment: string): Promise<boolean> {
+    const k = keyOf(s)
+    const id = logged.current.get(k)
+    if (id === undefined) {
+      verdicts.current.set(k, { verdict, comment })
+      return true
+    }
+    return id ? logAvisVocalVerdict({ vocalId: id, verdict, comment }) : false
+  }
+  const ignoreAll = () => state && setState(decideAll(state, 'ignore'))
   // Commandes flottantes : on parle en faisant défiler les critères, le haut de la fiche (bouton, propositions) sort de
   // l'écran. « Terminer » pendant l'enregistrement, « Tout accepter / Tout ignorer » ensuite, en bas à droite.
   const root = useRef<HTMLDivElement>(null)
@@ -150,7 +200,7 @@ export function AvisVocal({
                 <button type="button" className="min-h-12 rounded-full border-2 border-suggest bg-bg px-4 text-sm font-extrabold shadow-lg" onClick={acceptAll}>
                   ✨ Tout accepter
                 </button>
-                <button type="button" className="min-h-12 rounded-full border border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={() => setState(null)}>
+                <button type="button" className="min-h-12 rounded-full border border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
                   Tout ignorer
                 </button>
               </>
@@ -208,7 +258,7 @@ export function AvisVocal({
               <button type="button" className="btn-ghost min-h-11 flex-1 px-2 text-xs" onClick={acceptAll}>
                 Tout accepter
               </button>
-              <button type="button" className="btn-ghost min-h-11 flex-1 px-2 text-xs" onClick={() => setState(null)}>
+              <button type="button" className="btn-ghost min-h-11 flex-1 px-2 text-xs" onClick={ignoreAll}>
                 Tout ignorer
               </button>
             </div>
@@ -223,6 +273,7 @@ export function AvisVocal({
             <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
             <p className="italic">« {mine.transcript} »</p>
           </details>
+          {canLogQuestion() && <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} />}
         </div>
       )}
     </div>
@@ -269,6 +320,84 @@ export function CommentProposal({ text, onAdd, onDismiss }: { text: string; onAd
       >
         ✕
       </button>
+    </div>
+  )
+}
+
+const SHORT: Record<VocalVerdict, string> = VOCAL_VERDICT_LABEL
+
+/**
+ * Appréciation de l'analyse (phase de test, comme les avis sur les réponses : AnswerFeedback.tsx) : « Cette proposition :
+ * Cohérente · En partie · Pas cohérente », puis un commentaire facultatif (« ce que j'aurais mis ») et « Envoyer » ;
+ * ensuite « Merci, c'est noté ». Une fois par analyse (remise à zéro par `key`).
+ */
+function VocalFeedback({ onSend }: { onSend: (v: VocalVerdict, comment: string) => Promise<boolean> }) {
+  const [done, setDone] = useState(false)
+  const [verdict, setVerdict] = useState<VocalVerdict | null>(null)
+  const [comment, setComment] = useState('')
+  const [sending, setSending] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  if (done)
+    return (
+      <p className="text-[11px] text-muted" role="status">
+        Merci, c’est noté.
+      </p>
+    )
+
+  async function send() {
+    if (!verdict || sending) return
+    setSending(true)
+    const ok = await onSend(verdict, comment)
+    setSending(false)
+    if (ok) setDone(true)
+    else setFailed(true)
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-line bg-bg/40 px-2 py-1.5 text-[11px]" role="group" aria-label="Votre avis sur cette proposition">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-bold text-muted">Cette proposition :</span>
+        {VOCAL_VERDICTS.map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={verdict === v}
+            className={`min-h-8 rounded-full border px-2.5 font-bold ${verdict === v ? 'border-accent bg-accent text-white' : 'border-line text-fg hover:border-accent'}`}
+            onClick={() => setVerdict(v)}
+          >
+            {SHORT[v]}
+          </button>
+        ))}
+      </div>
+      {verdict && (
+        <form
+          className="flex flex-col gap-1.5 sm:flex-row sm:items-start"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void send()
+          }}
+        >
+          <textarea
+            className="field min-h-11 min-w-0 flex-1 text-xs"
+            rows={2}
+            maxLength={MAX_COMMENT}
+            placeholder={verdict === 'coherente' ? 'Un commentaire ? (facultatif)' : 'Ce que j’aurais mis (facultatif)'}
+            aria-label="Commentaire facultatif"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <button type="submit" className="btn-primary min-h-11 shrink-0 self-start px-3 text-xs" disabled={sending}>
+            Envoyer
+          </button>
+        </form>
+      )}
+      {failed && (
+        <span className="text-red-300" role="alert">
+          Avis non enregistré sur cet appareil.
+        </span>
+      )}
+      <span className="text-[10px] text-muted">Phase de test : enregistré sans nom de joueur pour améliorer l’analyse.</span>
     </div>
   )
 }
