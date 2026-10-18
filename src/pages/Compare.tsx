@@ -9,6 +9,7 @@ import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, 
 import { MQ, useMedia } from '../layout'
 import { snapshots } from '../maturitySnapshot'
 import { latestByPlayer } from './Players'
+import { genderOf, w } from '../gender'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
 
 /*
@@ -116,6 +117,8 @@ export default function Compare() {
   const ps = found
   const n = ps.length
   const nWord = n === 2 ? 'deux' : 'trois'
+  // Accord (src/gender.ts) : « Comparer trois joueuses » si toutes sont des filles ; sinon masculin générique.
+  const gw = w(genderOf(ps))
   const { criteria, evaluations, measurements, event } = data
   const colors = sideColors().slice(0, n)
   const names = ps.map((p) => p.lastName.toUpperCase())
@@ -184,21 +187,21 @@ export default function Compare() {
     <section className="card p-3">
       <div className="section-title">Radar des avis</div>
       <RadarViewTabs view={radarView} onChange={setRadarView} />
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
+      <div className="flex flex-wrap gap-2" role="group" aria-label={`Mettre ${gw.unJoueur} en avant`}>
         {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
         <button
           onClick={() => setFocus(null)}
           aria-pressed={focus === null}
           className={`flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === null ? 'border-fg/40 bg-panel-2' : 'border-line'}`}
         >
-          {nWord === 'deux' ? 'Les deux' : 'Tous'}
+          {nWord === 'deux' ? 'Les deux' : gw.Tous}
         </button>
         {ps.map((p, i) => (
           <button
             key={p.id}
             onClick={() => setFocus((f) => (f === i ? null : i))}
             aria-pressed={focus === i}
-            title={focus === i ? `Revoir les ${nWord} joueurs` : 'Mettre ce joueur en avant'}
+            title={focus === i ? `Revoir les ${nWord} ${gw.joueurs}` : `Mettre ${w(p.sex).ceJoueur} en avant`}
             className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === i ? 'border-fg/40 bg-panel-2' : 'border-line'} ${focus !== null && focus !== i ? 'opacity-45' : ''}`}
           >
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i] }} />
@@ -208,7 +211,7 @@ export default function Compare() {
       </div>
       {radarData.length < 3 ? (
         <p className="py-8 text-center text-[11px] text-muted">
-          Il faut au moins 3 critères notés pour les {nWord} joueurs pour tracer le radar
+          Il faut au moins 3 critères notés pour les {nWord} {gw.joueurs} pour tracer le radar
           {radarData.length ? ` (${radarData.length} pour l’instant)` : ''}.
         </p>
       ) : (
@@ -217,7 +220,7 @@ export default function Compare() {
             <CompareRadar rows={radarData} colors={colors} focus={focus} view={radarView === 'familles' ? 'split' : 'full'} names={ps.map(playerName)} />
           </Suspense>
           <p className="text-[10px] text-muted">
-            Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : 'Tous'} » les superpose à nouveau.
+            Critères notés pour les {nWord} {gw.joueurs} ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : gw.Tous} » les superpose à nouveau.
           </p>
         </>
       )}
@@ -227,7 +230,7 @@ export default function Compare() {
   return (
     <div className="flex flex-col gap-4">
       {back}
-      <h1 className="-mt-2 text-lg font-extrabold">Comparer {nWord} joueurs</h1>
+      <h1 className="-mt-2 text-lg font-extrabold">Comparer {nWord} {gw.joueurs}</h1>
 
       {/* Source des notes */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-panel-2 p-2.5 text-[11px]">
@@ -313,7 +316,7 @@ export default function Compare() {
             <div className="section-title">Avis critère par critère</div>
             {rows.length === 0 ? (
               <p className="py-4 text-center text-[11px] text-muted">
-                Aucun avis validé {all ? '' : 'sur cet événement '}pour ces {nWord} joueurs
+                Aucun avis validé {all ? '' : 'sur cet événement '}pour ces {nWord} {gw.joueurs}
                 {!all ? (
                   <>
                     .{' '}
@@ -377,7 +380,7 @@ export default function Compare() {
           <section className="card p-3">
             <div className="section-title">Mesures (dernières valeurs)</div>
             {measureRows.length === 0 ? (
-              <p className="py-4 text-center text-[11px] text-muted">Aucune mesure enregistrée pour ces {nWord} joueurs.</p>
+              <p className="py-4 text-center text-[11px] text-muted">Aucune mesure enregistrée pour ces {nWord} {gw.joueurs}.</p>
             ) : (
               <ScrollTable wide={n > 2}>
                 <thead>

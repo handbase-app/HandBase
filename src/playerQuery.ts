@@ -151,7 +151,7 @@ export const MODEL_KEYS: Record<FilterKey, string> = {
 
 /** Nom court d'un filtre (« Retiré : taille »). */
 export const KEY_LABEL: Record<FilterKey, string> = {
-  sex: 'garçons / filles',
+  sex: 'masculin / féminin',
   names: 'prénom ou nom',
   years: 'année',
   quarter: 'trimestre',
@@ -177,7 +177,8 @@ export const KEY_LABEL: Record<FilterKey, string> = {
 
 // Mots dits (ou rendus par le modèle dans « retirer ») pour chaque filtre, sans accents.
 const KEY_WORDS: Record<string, FilterKey[]> = {
-  sexe: ['sex'], genre: ['sex'], garcons: ['sex'], filles: ['sex'],
+  sexe: ['sex'], genre: ['sex'], garcons: ['sex'], filles: ['sex'], garcon: ['sex'], fille: ['sex'],
+  masculin: ['sex'], masculins: ['sex'], feminin: ['sex'], feminins: ['sex'], feminine: ['sex'], feminines: ['sex'],
   noms: ['names', 'q'], nom: ['names', 'q'], prenom: ['names', 'q'], prenoms: ['names', 'q'], recherche: ['q', 'names'], licence: ['q'],
   annee: ['years'], annees: ['years'], age: ['years'], naissance: ['years'], generation: ['years'],
   trimestre: ['quarter'],
@@ -297,7 +298,7 @@ export function removeKeys(qy: JoueursQuery, keys: Iterable<FilterKey>): Joueurs
 const NOT_NAME = new Set(
   (
     'les des tous toutes tout qui que quel quelle quels quelles combien comment pourquoi ou moyenne moyen moyens moyennes taille tailles age ages ' +
-    'ne nes nee nees garcon garcons fille filles joueuse joueuses joueur joueurs gaucher gauchers gauchere gaucheres droitier droitiers droitiere ' +
+    'ne nes nee nees garcon garcons fille filles masculin masculins masculine masculines feminin feminins feminine feminines joueuse joueuses joueur joueurs gaucher gauchers gauchere gaucheres droitier droitiers droitiere ' +
     'droitieres ambidextre ambidextres gardien gardiens gardienne gardiennes pivot pivots ailier ailiers ailiere ailieres arriere arrieres demi demis ' +
     'centre centres plus moins avec sans vus vu vue vues jamais efface effacer enleve enlever retire retirer trie trier tri classe classes par ' +
     'meilleur meilleurs meilleure meilleures note notes avis mesure mesures pole video videos suivis groupe groupes club clubs region regions ' +

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { today, type PlayerGroup } from '../db'
+import { SEX_LABELS } from '../gender'
 import { departmentLabel, regionOfDept, useRegionName } from '../lists'
 import { useFollows } from '../follows'
 import { currentUserId, isParticipant } from '../roles'
@@ -142,7 +143,7 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
           </div>
         </div>
       )}
-      <SegRow label="Garçons / filles" value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
+      <SegRow label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
       {years.size > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Année d’âge</span>

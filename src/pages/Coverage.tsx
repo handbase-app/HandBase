@@ -7,6 +7,7 @@ import { bilanPart, cellText, countBy, defaultChoices, filterLine, leftOf, metaL
 import { BackButton } from '../backNav'
 import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
 import { alive, db, fmtDate, plural, today, type Player, type Rewatch, type Unit } from '../db'
+import { listGender, pluralG, SEX_LABELS, SEX_SHORT, w, type Gender } from '../gender'
 import {
   birthYear,
   clubKey,
@@ -204,14 +205,32 @@ export const TAB: Record<Onglet, { label: string; hit: string; todo?: string; do
   reperes: { label: 'Profils repérés', hit: 'repéré', order: 'du plus grand nombre de profils repérés au plus petit', main: 'Profils repérés', rest: 'Autres joueurs' },
 }
 
+/** Les mêmes au féminin (filtre « Féminin » du bilan : on ne parle que de filles ; src/gender.ts). */
+const TAB_F: typeof TAB = {
+  vus: { label: 'Vues', hit: 'vue', todo: 'à voir', done: 'toutes vues ✓', order: 'du plus grand nombre de joueuses à voir au plus petit', main: 'À voir', rest: 'Déjà vues' },
+  licencies: { label: 'Licenciées', hit: 'licenciée', order: 'du plus grand nombre de joueuses au plus petit', main: 'Joueuses', rest: '' },
+  mesures: {
+    label: 'Mesurées par le staff',
+    hit: 'mesurée',
+    todo: 'à mesurer',
+    done: 'toutes mesurées ✓',
+    order: 'du plus grand nombre de joueuses à mesurer au plus petit',
+    main: 'À mesurer',
+    rest: 'Déjà mesurées',
+  },
+  reperes: { label: 'Profils repérés', hit: 'repérée', order: 'du plus grand nombre de profils repérés au plus petit', main: 'Profils repérés', rest: 'Autres joueuses' },
+}
+/** Libellés d'un onglet, accordés au genre du filtre (féminin seulement si filtre « Féminin »). */
+export const tabOf = (o: Onglet, g?: Gender) => (g === 'F' ? TAB_F : TAB)[o]
+
 const s = (n: number) => (n > 1 ? 's' : '')
 /** Valeur principale d'une zone : « 45 % » (vus, mesurés) ou un nombre (licenciés, repérés). */
 export const headline = (o: Onglet, t: Tally) => (isShare(o) ? `${percent(t.seen, t.total)} %` : fmt(o === 'licencies' ? t.total : t.seen))
 /** Détail : « 12 vus sur 30 », « 30 joueurs », « 3 repérés sur 30 ». */
-export const detail = (o: Onglet, t: Tally) =>
-  o === 'licencies' ? plural(t.total, 'joueur') : `${fmt(t.seen)} ${TAB[o].hit}${s(t.seen)} sur ${fmt(t.total)}`
+export const detail = (o: Onglet, t: Tally, g?: Gender) =>
+  o === 'licencies' ? pluralG(t.total, g) : `${fmt(t.seen)} ${tabOf(o, g).hit}${s(t.seen)} sur ${fmt(t.total)}`
 /** Unité de la valeur principale (bulle de la carte). */
-const unit = (o: Onglet, t: Tally) => (o === 'licencies' ? `joueur${s(t.total)}` : `${TAB[o].hit}${s(isShare(o) ? 2 : t.seen)}`)
+const unit = (o: Onglet, t: Tally, g?: Gender) => (o === 'licencies' ? `${w(g).joueur}${s(t.total)}` : `${tabOf(o, g).hit}${s(isShare(o) ? 2 : t.seen)}`)
 
 // ---------- Petits éléments ----------
 
@@ -226,12 +245,12 @@ export function Bar({ t, ratio, className = '' }: { t: Tally; ratio?: number; cl
 }
 
 /** « 3 à voir » / « 3 à mesurer » (bleu, neutre), « tous vus ✓ » (vert), « 3 repérés » ; rien pour les licenciés. */
-function LeftBadge({ t, o = 'vus' }: { t: Tally; o?: Onglet }) {
-  const tab = TAB[o]
+function LeftBadge({ t, o = 'vus', g }: { t: Tally; o?: Onglet; g?: Gender }) {
+  const tab = tabOf(o, g)
   const left = t.total - t.seen
   const pill = 'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold whitespace-nowrap'
   if (o === 'reperes')
-    return t.seen > 0 ? <span className={`${pill} border-accent/50 bg-accent/10 text-accent`}>{`${fmt(t.seen)} repéré${s(t.seen)}`}</span> : null
+    return t.seen > 0 ? <span className={`${pill} border-accent/50 bg-accent/10 text-accent`}>{`${fmt(t.seen)} ${tab.hit}${s(t.seen)}`}</span> : null
   if (!tab.todo) return null
   return left > 0 ? (
     <span className={`${pill} border-sky-500/50 bg-sky-500/10 text-sky-300`}>
@@ -279,8 +298,8 @@ function Filters({
             onChange={setSex}
             options={[
               { value: 'all', label: 'Tous' },
-              { value: 'M', label: 'Garçons' },
-              { value: 'F', label: 'Filles' },
+              { value: 'M', label: SEX_LABELS.M },
+              { value: 'F', label: SEX_LABELS.F },
             ]}
           />
         </div>
@@ -332,7 +351,8 @@ function FilterSummary({ sex, period, showPeriod, yearText, yearPicked, open, on
       ? barPill
       : [{ text: 'Filtres', on: false }]
     : [
-        { text: sex === 'M' ? 'Garçons' : sex === 'F' ? 'Filles' : 'Tous', on: sex !== 'all' },
+        // Pastille étroite (téléphone) : « Masc. » / « Fém. ».
+        { text: sex === 'all' ? 'Tous' : SEX_SHORT[sex], on: sex !== 'all' },
         // Saison en court (« 2026-27 ») : la ligne tient sur un téléphone.
         ...(showPeriod ? [{ text: period === 'all' ? 'Depuis toujours' : `Saison ${seasonOf(today()).label.replace(/^(\d{4})-\d{2}(\d{2})$/, '$1-$2')}`, on: period === 'all' }] : []),
         { text: yearText, on: yearPicked },
@@ -422,7 +442,7 @@ export function fillAt(v: number | undefined, sc: Scale = FULL) {
 /** Couleur de la part des joueurs vus d'une zone. */
 export const fillOf = (t?: Tally, sc: Scale = FULL) => fillAt(t?.total ? share(t) : undefined, sc)
 
-export function MapLegend({ sc, note = 'du moins vu au plus vu', title }: { sc: Scale; note?: string; title?: string }) {
+export function MapLegend({ sc, note = 'du moins vu au plus vu', title, g }: { sc: Scale; note?: string; title?: string; g?: Gender }) {
   // Graduations régulières sur la teinte (en racine carrée pour les nombres), avec leur vraie valeur.
   const at = (k: number) => (sc.count ? (Math.sqrt(sc.lo) + k * (Math.sqrt(sc.hi) - Math.sqrt(sc.lo))) ** 2 : sc.lo + k * (sc.hi - sc.lo))
   // Nombres : chaque graduation une seule fois (petits effectifs : 0, 1, 2…).
@@ -437,7 +457,7 @@ export function MapLegend({ sc, note = 'du moins vu au plus vu', title }: { sc: 
     <div className="flex items-start gap-3 text-[10px] text-muted">
       <span className="flex shrink-0 items-center gap-1">
         <span className="h-3 w-4 rounded-sm border border-line" style={{ background: NO_PLAYER }} />
-        aucun joueur
+        {w(g).aucunJoueur}
       </span>
       <div className="min-w-0 flex-1">
         <div className="h-3 rounded-sm" style={{ background: `linear-gradient(to right, ${fillAt(sc.lo, sc)}, ${fillAt(sc.hi, sc)})` }} />
@@ -504,11 +524,11 @@ type Lens = {
   note?: string
 }
 
-const noPlayerTip = <div className="mt-1 text-muted">Aucun joueur avec ces filtres</div>
+const noPlayerTip = (g?: Gender) => <div className="mt-1 text-muted">{w(g).AucunJoueur} avec ces filtres</div>
 
-/** Valeur d'un onglet du bilan. */
-function ongletLens(o: Onglet): Lens {
-  const tab = TAB[o]
+/** Valeur d'un onglet du bilan (textes accordés au genre du filtre : `g`). */
+function ongletLens(o: Onglet, g?: Gender): Lens {
+  const tab = tabOf(o, g)
   return {
     name: tab.label,
     value: (t) => (t ? measureOf(o, t) : undefined),
@@ -517,29 +537,29 @@ function ongletLens(o: Onglet): Lens {
     row: (t) =>
       o === 'licencies' ? (
         <>
-          <b className="text-fg">{fmt(t.total)}</b> joueur{s(t.total)}
+          <b className="text-fg">{fmt(t.total)}</b> {w(g).joueur}{s(t.total)}
         </>
       ) : (
         <>
-          <b className="text-fg">{headline(o, t)}</b> · {detail(o, t)}
+          <b className="text-fg">{headline(o, t)}</b> · {detail(o, t, g)}
         </>
       ),
-    club: (t) => detail(o, t),
+    club: (t) => detail(o, t, g),
     bar: (t, max) => ({ t, ratio: ratioOf(o, t, max) }),
-    badge: (t) => <LeftBadge t={t} o={o} />,
+    badge: (t) => <LeftBadge t={t} o={o} g={g} />,
     tip: (t) =>
       t?.total ? (
         <>
           <div className="mt-1">
-            <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t)}</span>
+            <b className="text-base">{headline(o, t)}</b> <span className="text-muted">{unit(o, t, g)}</span>
           </div>
-          {o !== 'licencies' && <div className="text-muted">{detail(o, t)}</div>}
+          {o !== 'licencies' && <div className="text-muted">{detail(o, t, g)}</div>}
           {tab.todo && <div className={t.total > t.seen ? 'text-sky-300' : 'text-emerald-300'}>{t.total > t.seen ? `${fmt(t.total - t.seen)} ${tab.todo}` : tab.done}</div>}
         </>
       ) : (
-        noPlayerTip
+        noPlayerTip(g)
       ),
-    label: (t) => `${headline(o, t)} ${unit(o, t)}`,
+    label: (t) => `${headline(o, t)} ${unit(o, t, g)}`,
     short: (t) => headline(o, t),
     note: o === 'vus' ? undefined : 'de la plus faible à la plus forte valeur',
   }
@@ -1050,7 +1070,7 @@ function questionTexts(r: Recipe, names: Names) {
           <div className="text-muted">{small(t)}</div>
         </>
       ) : (
-        noPlayerTip
+        noPlayerTip(f ? 'F' : undefined)
       ),
     label: (t) => `${big(t)} ${small(t)}`,
     short: big,
@@ -1096,6 +1116,8 @@ const WhoCtx = createContext<{
   lens?: Lens
   /** Question posée : joueurs du club qui répondent, à la place de « Qui ? ». */
   qWho?: (club: ClubCoverage<Player>) => ReactNode
+  /** Genre du filtre (« Féminin » : textes au féminin, src/gender.ts). */
+  g?: Gender
 }>({
   o: 'vus',
   search: '',
@@ -1171,6 +1193,9 @@ export default function Coverage() {
   const { st, set, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, years: picked, region, dept } = st
+  // Accord (src/gender.ts) : filtre « Féminin » du bilan (ou de la question posée) ; sinon masculin générique.
+  const g: Gender = listGender(st.q ? st.q.pop.sex : sex)
+  const gw = w(g)
   // La barre de filtres a besoin des données de la recette (condition ajoutée, phrase) : lues par le modèle du bilan.
   const [barFull, setBarFull] = useState(false)
   const bilan = useBilanModel(st, { needFull: barFull })
@@ -1182,7 +1207,7 @@ export default function Coverage() {
   const byPlace = Q ? { ...Q.agg.all, byDept: Q.agg.byDept, byRegion: Q.agg.byRegion, noDept: Q.agg.noDept } : bilan.byPlace
   const clubs: ClubCoverage<Player>[] = Q ? Q.clubs : bilan.clubs
   const club: ClubCoverage<Player> | undefined = Q ? Q.club : bilan.club
-  const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o), [Q?.texts, o]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o, g), [Q?.texts, o, g]) // eslint-disable-line react-hooks/exhaustive-deps
   const side = useMedia(MQ.side)
   // Téléphone (< 640 px) : filtres repliés sous une ligne de pastilles, tuiles en bandeau qui défile, carte juste dessous,
   // « Rapport » et « Poser une question » dans une barre d'actions en bas. Ordinateur et tablette : inchangés.
@@ -1204,7 +1229,7 @@ export default function Coverage() {
   }, [phone, o, !!data, !!st.q]) // eslint-disable-line react-hooks/exhaustive-deps
   const whereRef = useRef<HTMLDivElement>(null)
   const qWho = Q ? (c: ClubCoverage<Player>) => <QuestionWho club={c} players={Q.order(c)} text={Q.playerText} what={Q.texts} /> : undefined
-  const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }), lens, qWho }), [o, search, lens, Q?.agg]) // eslint-disable-line react-hooks/exhaustive-deps
+  const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }), lens, qWho, g }), [o, search, lens, Q?.agg, g]) // eslint-disable-line react-hooks/exhaustive-deps
   // Recherche vocale (« micro ✨ Filtrer ») : filtres du bilan (sexe, période, génération, lieu de la carte, club, vue). Clubs et
   // lieux sont retrouvés ici ; seuls la phrase, le schéma et les filtres actifs partent (src/voicePages.ts).
   const voiceClubs = useMemo(() => {
@@ -1251,8 +1276,8 @@ export default function Coverage() {
   const units = useUnits()
   const [hot, setHot] = useState<string | null>(null)
   const clubMap = useMemo(
-    () => clubMapOf(dept, units, clubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'),
-    [dept, units, clubs, lens, Q?.limited], // eslint-disable-line react-hooks/exhaustive-deps
+    () => clubMapOf(dept, units, clubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : `${gw.aucunJoueur} avec ces filtres`),
+    [dept, units, clubs, lens, Q?.limited, gw], // eslint-disable-line react-hooks/exhaustive-deps
   )
   // Question « le premier club », « les 5 premiers clubs », vue France ou région : ces clubs en points sur la carte
   // (à leur adresse, structure importée) et en liste ; un toucher ouvre le club dans son département.
@@ -1283,7 +1308,7 @@ export default function Coverage() {
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
   if (!data || (st.q && !Q)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
-  const tab = TAB[o]
+  const tab = tabOf(o, g)
   const total = totalOf(clubs)
   const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
 
@@ -1375,10 +1400,10 @@ export default function Coverage() {
               onMouseDown={(e) => e.preventDefault()}
               onClick={open}
             >
-              Voir les joueurs →
+              Voir les {gw.joueurs} →
             </button>
           ) : (
-            <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses joueurs</div>
+            <div className="mt-1 text-[10px] text-muted">Toucher pour voir ses {gw.joueurs}</div>
           ))}
       </>
     )
@@ -1402,7 +1427,7 @@ export default function Coverage() {
         {...(linked && clubMap ? { hot, onHot: setHot, dotColor: (k: string) => clubMap.color.get(k) } : {})}
       />
     ) : (
-      <Empty>Aucun joueur ici avec ces filtres.</Empty>
+      <Empty>{gw.AucunJoueur} ici avec ces filtres.</Empty>
     )
 
   // Carte : couleur d'un département (vue France « par région » : celle de sa région).
@@ -1417,7 +1442,7 @@ export default function Coverage() {
   const order = Q ? 'dans l’ordre de la question' : tab.order
   const side2Base = dept ? (
     <section>
-      <SectionTitle info={`Clubs du département, ${order}. Touche un club pour la liste des joueurs.`}>
+      <SectionTitle info={`Clubs du département, ${order}. Touche un club pour la liste des ${gw.joueurs}.`}>
         {clubsTitle} · {Q ? Q.texts.what : yearText}
       </SectionTitle>
       {clubList(true, true)}
@@ -1432,7 +1457,7 @@ export default function Coverage() {
           ))}
         </div>
       ) : (
-        <Empty>Aucun joueur dans cette région avec ces filtres.</Empty>
+        <Empty>{gw.AucunJoueur} dans cette région avec ces filtres.</Empty>
       )}
     </section>
   ) : (
@@ -1452,7 +1477,7 @@ export default function Coverage() {
           )}
         </div>
       ) : (
-        <Empty>{sex === 'all' ? 'Aucun joueur dans la base avec ces filtres.' : `Aucun${sex === 'F' ? 'e fille' : ' garçon'} avec ces filtres.`}</Empty>
+        <Empty>{sex === 'all' ? 'Aucun joueur dans la base avec ces filtres.' : `${gw.AucunJoueur} (${SEX_LABELS[sex].toLowerCase()}) avec ces filtres.`}</Empty>
       )}
     </section>
   )
@@ -1462,7 +1487,7 @@ export default function Coverage() {
     topClubs && topSc ? (
       <div className="flex flex-col gap-4">
         <section>
-          <SectionTitle info={`Clubs ${region ? 'de la région' : 'de France'}, dans l’ordre de la question (ex aequo compris). Touche un club pour ses joueurs.`}>
+          <SectionTitle info={`Clubs ${region ? 'de la région' : 'de France'}, dans l’ordre de la question (ex aequo compris). Touche un club pour ses ${gw.joueurs}.`}>
             {Q!.texts.top!.replace(/^./, (x) => x.toUpperCase())} · {Q!.texts.what}
           </SectionTitle>
           {topClubs.length ? (
@@ -1498,16 +1523,16 @@ export default function Coverage() {
     : [knownYears.length ? yearsPhrase(knownYears) : '', picked.includes('') ? 'année de naissance inconnue' : ''].filter(Boolean).join(' ou ')
   const explain: ReactNode =
     o === 'vus' ? (
-      `Part des joueurs vus (${periodInfo(period).label.toLowerCase()}, ${yearsText}).`
+      `Part des ${gw.joueurs} ${gw.vus} (${periodInfo(period).label.toLowerCase()}, ${yearsText}).`
     ) : o === 'licencies' ? (
-      `Joueurs licenciés dans un club de la zone (${yearsText}).`
+      `${gw.Joueurs} ${gw.licencies} dans un club de la zone (${yearsText}).`
     ) : o === 'mesures' ? (
-      `Part des joueurs avec au moins une mesure prise par le staff, hors tailles déclarées à la licence (${yearsText}).`
+      `Part des ${gw.joueurs} avec au moins une mesure prise par le staff, hors tailles déclarées à la licence (${yearsText}).`
     ) : (
       <>
         {nat?.profiles
-          ? `Joueurs correspondant à au moins un de mes profils recherchés (${plural(nat.profiles, 'profil')}, ${yearsText}).`
-          : `Aucun profil recherché : joueurs dont la dernière taille atteint le 90e centile de leur année et de leur sexe (${yearsText}).`}{' '}
+          ? `${gw.Joueurs} correspondant à au moins un de mes profils recherchés (${plural(nat.profiles, 'profil')}, ${yearsText}).`
+          : `Aucun profil recherché : ${gw.joueurs} dont la dernière taille atteint le 90e centile de leur année et de leur sexe (${yearsText}).`}{' '}
         <Link to="/alertes" className="inline-flex items-center gap-1 font-bold text-accent underline">
           <Icon name="target" className="h-3 w-3" /> Profils recherchés
         </Link>
@@ -1515,12 +1540,12 @@ export default function Coverage() {
     )
   const subtitle =
     o === 'vus'
-      ? 'Un joueur est vu dès qu’un membre du staff l’a marqué « vu » ou a donné un avis sur lui.'
+      ? `${gw.UnJoueur} est ${gw.vu} dès qu’un membre du staff l’a ${g === 'F' ? 'marquée' : 'marqué'} « ${gw.vu} » ou a donné un avis sur ${g === 'F' ? 'elle' : 'lui'}.`
       : o === 'licencies'
-        ? 'Joueurs de la base, par département de leur club.'
+        ? `${gw.Joueurs} de la base, par département de leur club.`
         : o === 'mesures'
-          ? 'Joueurs avec au moins une mesure prise par le staff.'
-          : 'Joueurs correspondant à mes profils recherchés.'
+          ? `${gw.Joueurs} avec au moins une mesure prise par le staff.`
+          : `${gw.Joueurs} correspondant à mes profils recherchés.`
 
   // Barre de filtres : champ et « Filtres » au bout de la ligne des filtres du bilan ; dessous (seulement s'il y a quelque
   // chose) : ligne de résultat d'une phrase, pastilles, panneau des filtres, calcul ou mode avancé.
@@ -1659,7 +1684,7 @@ export default function Coverage() {
                   className={`card flex min-h-11 min-w-0 flex-col items-start px-3 py-1.5 text-left transition hover:border-accent ${phone ? 'w-max min-w-[7.5rem] shrink-0 snap-start' : ''} ${on ? 'border-accent bg-accent/10' : ''}`}
                 >
                   <span className={`text-base leading-tight font-extrabold tabular-nums ${on ? 'text-accent' : ''}`}>{!ready ? '…' : t.total ? headline(k, t) : '—'}</span>
-                  <span className="w-full truncate text-[10px] font-bold tracking-wider text-muted uppercase">{TAB[k].label}</span>
+                  <span className="w-full truncate text-[10px] font-bold tracking-wider text-muted uppercase">{tabOf(k, g).label}</span>
                 </button>
               )
             })}
@@ -1697,11 +1722,11 @@ export default function Coverage() {
         <div className="flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-[11px]">
           <span className="min-w-0 shrink">
             <b className="text-sm">
-              {o === 'licencies' ? plural(total.total, 'joueur') : o === 'reperes' ? plural(total.seen, 'profil repéré', 'profils repérés') : headline(o, total)}
+              {o === 'licencies' ? pluralG(total.total, g) : o === 'reperes' ? plural(total.seen, 'profil repéré', 'profils repérés') : headline(o, total)}
             </b>{' '}
             <span className="text-muted">
-              {isShare(o) && `· ${detail(o, total)} `}
-              {o === 'reperes' && `sur ${plural(total.total, 'joueur')} `}· {plural(kpis.clubs, 'club')}
+              {isShare(o) && `· ${detail(o, total, g)} `}
+              {o === 'reperes' && `sur ${pluralG(total.total, g)} `}· {plural(kpis.clubs, 'club')}
               {!dept && ` · ${plural(kpis.depts, 'département')}`}
               {picked.length > 0 && ` · ${yearText}`}
             </span>
@@ -1748,7 +1773,7 @@ export default function Coverage() {
               others={showOtherOM(byPlace.byDept)}
               label={(code) => {
                 const t = byPlace.byDept.get(code)
-                return `${deptText(code)} : ${outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
+                return `${deptText(code)} : ${outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : `${gw.aucunJoueur} avec ces filtres`}`
               }}
               tip={({ code, isRegion }) => {
                 const t = isRegion ? byPlace.byRegion.get(code) : byPlace.byDept.get(code)
@@ -1790,10 +1815,10 @@ export default function Coverage() {
                     : undefined
               }
             />
-            <MapLegend sc={clubMap?.sc ?? sc} note={lens.note} title={lens.title} />
+            <MapLegend sc={clubMap?.sc ?? sc} note={lens.note} title={lens.title} g={g} />
             {!clubMap && topClubs && (
               <p className="text-[10px] text-muted">
-                {topMap?.items.length ? `Un point par club parmi ${Q!.texts.top}, à son adresse (taille : nombre de joueurs).` : ''}
+                {topMap?.items.length ? `Un point par club parmi ${Q!.texts.top}, à son adresse (taille : nombre de ${gw.joueurs}).` : ''}
                 {topMap && topMap.unplaced.length > 0 && ` ${plural(topMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
               </p>
             )}
@@ -1807,7 +1832,7 @@ export default function Coverage() {
               <p className="flex items-start gap-1.5 text-[10px] text-muted">
                 <span className="mt-0.5 size-2.5 shrink-0 rounded-full border border-muted/60" style={{ background: MUTED_DOT }} />
                 <span>
-                  Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : {Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres'}.
+                  Un point par club, à son adresse (taille : nombre de {gw.joueurs}) ; petit point gris : {Q?.limited ? `pas parmi ${Q.texts.top}` : `${gw.aucunJoueur} avec ces filtres`}.
                   {clubMap.unplaced.length > 0 && ` ${plural(clubMap.unplaced.length, 'club')} sans position connue : seulement dans la liste.`}
                 </span>
               </p>
@@ -1815,7 +1840,7 @@ export default function Coverage() {
             <p className="text-[10px] text-muted">
               {!Q && explain}{' '}
               {clubMap
-                ? `Toucher un point pour voir les joueurs du club${OUTRE_MER.some((t) => t.code === dept) ? '' : ', ou un département voisin pour changer'}.`
+                ? `Toucher un point pour voir les ${gw.joueurs} du club${OUTRE_MER.some((t) => t.code === dept) ? '' : ', ou un département voisin pour changer'}.`
                 : dept
                   ? 'Toucher un autre département pour changer.'
                   : region
@@ -1837,7 +1862,7 @@ export default function Coverage() {
           </div>
         </div>
       ) : !years.length ? (
-        <Empty>Aucun joueur ici avec ces filtres.</Empty>
+        <Empty>{gw.AucunJoueur} ici avec ces filtres.</Empty>
       ) : (
         <>
           <section>
@@ -1855,10 +1880,10 @@ export default function Coverage() {
                     className={`card flex min-w-0 flex-col gap-1.5 p-3 text-left transition hover:border-accent ${on ? 'border-accent bg-accent/10' : ''}`}
                   >
                     <span className={`font-extrabold ${y.year ? 'text-lg' : 'text-sm leading-7'}`}>{y.year === null ? 'Toutes' : yearLabel(y.year)}</span>
-                    <span className="text-[11px] text-muted">{detail(o, y)}</span>
+                    <span className="text-[11px] text-muted">{detail(o, y, g)}</span>
                     <Bar t={y} ratio={ratioOf(o, y, all[0].total)} />
                     <span className="text-[11px] font-bold">
-                      {headline(o, y)} {!isShare(o) && <span className="font-normal text-muted">{unit(o, y)}</span>}
+                      {headline(o, y)} {!isShare(o) && <span className="font-normal text-muted">{unit(o, y, g)}</span>}
                       {tab.todo &&
                         (y.total > y.seen ? (
                           <span className="font-normal text-sky-300">· {fmt(y.total - y.seen)} {tab.todo}</span>
@@ -1874,7 +1899,7 @@ export default function Coverage() {
 
           <div ref={whereRef} className="grid scroll-mt-20 grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
             <section>
-              <SectionTitle info={`Clubs, ${tab.order}. Touche un club pour la liste des joueurs.`}>
+              <SectionTitle info={`Clubs, ${tab.order}. Touche un club pour la liste des ${gw.joueurs}.`}>
                 {clubsTitle} · {yearText}
                 {where ? ` · ${where}` : ''}
               </SectionTitle>
@@ -1883,7 +1908,7 @@ export default function Coverage() {
             {side && (
               <section data-keep-scroll="bilan-qui" className="sticky top-[calc(var(--hdr)+1rem)] max-h-[calc(100dvh-var(--hdr)-2rem)] overflow-y-auto">
                 <SectionTitle>Qui ?</SectionTitle>
-                {club ? <Who club={club} label={yearText} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir ses joueurs.</Empty>}
+                {club ? <Who club={club} label={yearText} last={last} rewatch={data.rewatch} /> : <Empty>Choisis un club pour voir ses {gw.joueurs}.</Empty>}
               </section>
             )}
           </div>
@@ -2069,8 +2094,8 @@ function ClubList({
   /** Couleur du point d'un club sur la carte (absent : club sans position connue). */
   dotColor?: (key: string) => string | undefined
 }) {
-  const { o, lens: given } = useContext(WhoCtx)
-  const lens = given ?? ongletLens(o)
+  const { o, lens: given, g } = useContext(WhoCtx)
+  const lens = given ?? ongletLens(o, g)
   const [more, setMore] = useState(CLUBS_STEP)
   // Club choisi plus bas (point de la carte, adresse) : la liste va au moins jusqu'à lui.
   const limit = Math.max(more, clubs.findIndex((c) => c.key === selected) + 1)
@@ -2127,25 +2152,27 @@ function ClubList({
 // ---------- Qui ? ----------
 
 /** Ce que dit la liste « Qui ? » d'un club pour l'onglet : « 3 joueurs à voir », « tous vus ✓ », « 2 profils repérés »… */
-export function whoSummary(o: Onglet, mainCount: number) {
-  const tab = TAB[o]
-  if (o === 'licencies') return plural(mainCount, 'joueur')
+export function whoSummary(o: Onglet, mainCount: number, g?: Gender) {
+  const tab = tabOf(o, g)
+  if (o === 'licencies') return pluralG(mainCount, g)
   if (o === 'reperes') return mainCount ? plural(mainCount, 'profil repéré', 'profils repérés') : 'aucun profil repéré'
-  return mainCount ? `${plural(mainCount, 'joueur')} ${tab.todo}` : tab.done!
+  return mainCount ? `${pluralG(mainCount, g)} ${tab.todo}` : tab.done!
 }
 
-/** Détail d'un joueur compté : « vu le …, par … » (vus) ; sinon rien. */
-export const sightText = (s?: Sight) => (s ? `vu le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}` : '')
+/** Détail d'un joueur compté : « vu le …, par … » (vus ; « vue » pour une fille) ; sinon rien. */
+export const sightText = (s?: Sight, sex?: string | null) => (s ? `${w(sex).vu} le ${fmtDate(s.day)}${s.by ? `, par ${s.by}` : ''}` : '')
 
 function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label: string; last: Map<string, Sight>; rewatch: Map<string, Rewatch[]> }) {
   const role = useRole()
   // « Déjà vus » ouvert et état du bilan : dans l'adresse (retrouvés au retour d'une fiche).
-  const { o, search, seenOpen: showRest, setSeenOpen: setShowRest, qWho } = useContext(WhoCtx)
+  const { o, search, seenOpen: showRest, setSeenOpen: setShowRest, qWho, g: filterG } = useContext(WhoCtx)
   const [adding, setAdding] = useState<string[] | null>(null)
   // Question posée : les joueurs du club qui y répondent.
   if (qWho) return qWho(club)
   const { main, rest } = whoOrder(club, o)
-  const tab = TAB[o]
+  // Féminin : filtre « Féminin », ou club dont tous les joueurs listés sont des filles.
+  const g: Gender = listGender(filterG, [...main, ...rest])
+  const tab = tabOf(o, g)
   // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou ‹ › (téléphone), retour à l'identique.
   const linkTo = (p: Player) => ({ to: `/bilan/joueurs/${p.id}${search}` })
   const addEvents = can.manageEvents(role)
@@ -2156,13 +2183,13 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-extrabold">{clubLabel(club.name)}</div>
           <div className="text-[11px] text-muted">
-            {label} · {whoSummary(o, main.length)}
+            {label} · {whoSummary(o, main.length, g)}
           </div>
         </div>
         {addEvents && main.length > 1 && (
-          <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" onClick={() => setAdding(main.map((p) => p.id))} title="Ajouter tous ces joueurs du club à un événement à venir">
+          <button className="btn-ghost shrink-0 px-3 py-1.5 text-xs" onClick={() => setAdding(main.map((p) => p.id))} title={`Ajouter ${w(g).tous} ces ${w(g).joueurs} du club à un événement à venir`}>
             <Icon name="calendar" className="h-3.5 w-3.5" />
-            Tous à un événement…
+            {w(g).Tous} à un événement…
           </button>
         )}
       </div>
@@ -2209,7 +2236,7 @@ function Who({ club, label, last, rewatch }: { club: ClubCoverage<Player>; label
                   key={p.id}
                   p={p}
                   link={linkTo(p)}
-                  sub={[year(p), o === 'vus' && sightText(last.get(p.id))].filter(Boolean).join(' · ')}
+                  sub={[year(p), o === 'vus' && sightText(last.get(p.id), p.sex)].filter(Boolean).join(' · ')}
                   follow={<FollowStar id={p.id} sex={p.sex} />}
                 />
               ))}
@@ -2343,7 +2370,7 @@ function ReportDialog({
                   >
                     <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={on} disabled={!ok} onChange={(e) => toggle(o, e.target.checked)} />
                     <span className="min-w-0">
-                      {TAB[o].label}
+                      {tabOf(o, st.sex === 'F' ? 'F' : undefined).label}
                       {!ok && <span className="block text-[10px] font-normal text-muted">administrateurs</span>}
                     </span>
                   </label>
@@ -2422,13 +2449,14 @@ function ReportTable({ head, rows, first = 'Lieu', bold }: { head: string[]; row
 /** Tableau génération × sexe d'un chiffre (fedReport : mêmes comptes que le bilan), colonnes selon le sexe choisi. */
 function YearSexTable({ o, players, counted, sex }: { o: Onglet; players: Player[]; counted: Counted; sex: CoverageSex }) {
   const r = fedReport(players, counted)
-  const cols: { h: string; k: 'M' | 'F' | 'all' }[] = sex === 'M' ? [{ h: 'Garçons', k: 'M' }] : sex === 'F' ? [{ h: 'Filles', k: 'F' }] : [
-    { h: 'Garçons', k: 'M' },
-    { h: 'Filles', k: 'F' },
+  const g: Gender = listGender(sex)
+  const cols: { h: string; k: 'M' | 'F' | 'all' }[] = sex === 'M' ? [{ h: SEX_LABELS.M, k: 'M' }] : sex === 'F' ? [{ h: SEX_LABELS.F, k: 'F' }] : [
+    { h: SEX_LABELS.M, k: 'M' },
+    { h: SEX_LABELS.F, k: 'F' },
     { h: 'Ensemble', k: 'all' },
   ]
   const noSex = sex === 'all' ? r.total.all.total - r.total.M.total - r.total.F.total : 0
-  if (!r.years.length) return <p className="mb-3">Aucun joueur avec ces filtres.</p>
+  if (!r.years.length) return <p className="mb-3">{w(g).AucunJoueur} avec ces filtres.</p>
   return (
     <>
       <ReportTable
@@ -2442,13 +2470,18 @@ function YearSexTable({ o, players, counted, sex }: { o: Onglet; players: Player
   )
 }
 
-/** Ce que compte chaque chiffre, en une phrase (marques positives ou neutres seulement). */
-const REPORT_MEANS: Record<Onglet, string> = {
-  vus: 'Vus : un joueur est vu dès qu’un membre du staff l’a marqué « vu » ou a donné un avis sur lui.',
-  licencies: 'Licenciés : joueurs de la base, par département de leur club.',
-  mesures: 'Mesurés par le staff : au moins une mesure prise par le staff, hors tailles déclarées à la licence.',
-  reperes: 'Profils repérés : joueurs correspondant à au moins un profil recherché (sans profil : les plus grands de leur génération).',
+/** Ce que compte chaque chiffre, en une phrase (marques positives ou neutres seulement), accordée au genre du filtre. */
+const reportMeans = (o: Onglet, g?: Gender): string => {
+  const gw = w(g)
+  const t = tabOf(o, g)
+  return {
+    vus: `${t.label} : ${gw.unJoueur} est ${gw.vu} dès qu’un membre du staff l’a ${accordF('marqué', g)} « ${gw.vu} » ou a donné un avis sur ${gw.il === 'il' ? 'lui' : 'elle'}.`,
+    licencies: `${t.label} : ${gw.joueurs} de la base, par département de leur club.`,
+    mesures: `${t.label} : au moins une mesure prise par le staff, hors tailles déclarées à la licence.`,
+    reperes: `${t.label} : ${gw.joueurs} correspondant à au moins un profil recherché (sans profil : les plus grands de leur génération).`,
+  }[o]
 }
+const accordF = (m: string, g?: Gender) => (g === 'F' ? `${m}e` : m)
 
 /**
  * Rapport de LA VUE du bilan (/bilan/rapport?<état du bilan>&ch=…&noms=1&carte=0 ; src/bilanReport.ts), à imprimer ou
@@ -2508,13 +2541,16 @@ export function CoverageReport() {
   // Chiffre de la carte et des noms : l'onglet affiché s'il est choisi, sinon le premier choisi.
   const prim: Onglet = choices.tabs.includes(st.onglet) ? st.onglet : choices.tabs[0]
   const pv = views?.get(prim)
-  const lens = Q ? Q.texts.lens : ongletLens(prim)
+  // Accord (src/gender.ts) : rapport d'une vue « Féminin » (ou d'une question sur les filles) : au féminin.
+  const g: Gender = listGender(st.q ? st.q.pop.sex : st.sex)
+  const gw = w(g)
+  const lens = Q ? Q.texts.lens : ongletLens(prim, g)
   const byPlace: PlaceCoverage = Q ? { ...Q.agg.all, byDept: Q.agg.byDept, byRegion: Q.agg.byRegion, noDept: Q.agg.noDept } : pv!.byPlace
   const mapClubs: ClubCoverage<Player>[] = Q ? Q.clubs : pv!.clubs
   const club: ClubCoverage<Player> | undefined = st.club === null ? undefined : Q ? Q.club : pv!.clubs.find((c) => c.key === st.club)
   const placeText = stage === 'club' ? `${clubLabel(club?.name ?? '')} · ${deptText(dept)}` : dept ? deptText(dept) : region ? regionLabel(region) : 'France'
   const paint = zonePaint({ byPlace, region, mapBy: st.mapBy, lens, per })
-  const clubMap = clubMapOf(dept, units, mapClubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : 'aucun joueur avec ces filtres')
+  const clubMap = clubMapOf(dept, units, mapClubs, lens, Q?.limited ? `pas parmi ${Q.texts.top}` : `${gw.aucunJoueur} avec ces filtres`)
 
   // En-tête : ce que montre le rapport, puis saison, date et périmètre.
   const knownYears = st.years.filter(Boolean).map(Number)
@@ -2526,7 +2562,7 @@ export function CoverageReport() {
         ...(st.t.trim() || st.f?.pop.names ? ['recherche par nom'] : []),
       ]
     : []
-  const what = Q ? [Q.texts.what, ...Q.texts.conditions] : choices.tabs.map((o) => TAB[o].label)
+  const what = Q ? [Q.texts.what, ...Q.texts.conditions] : choices.tabs.map((o) => tabOf(o, g).label)
   const line = filterLine({ what, sex: Q ? 'all' : st.sex, years: Q ? '' : yearsText, bar: barText })
   const meta = metaLine({
     season: seasonOf(today()).label,
@@ -2556,7 +2592,7 @@ export function CoverageReport() {
         // Club : ses chiffres (les tuiles du bilan sont celles du département).
         const c = stage === 'club' ? views!.get(o)!.clubs.find((x) => x.key === st.club) : undefined
         const t: Tally = stage === 'club' ? (c ? { seen: c.seen, total: c.total } : { seen: 0, total: 0 }) : bilan.kpis.tabs[o]
-        return { big: t.total ? headline(o, t) : '—', label: TAB[o].label, small: t.total ? detail(o, t) : 'aucun joueur' }
+        return { big: t.total ? headline(o, t) : '—', label: tabOf(o, g).label, small: t.total ? detail(o, t, g) : gw.aucunJoueur }
       })
 
   // Noms des joueurs (département ou club seulement) : par club, nom, prénom, année, poste.
@@ -2579,7 +2615,7 @@ export function CoverageReport() {
           </button>
         </div>
         <p className="text-[11px] text-muted">
-          Le rapport de la vue du bilan. {choices.names ? 'Avec les noms des joueurs : à garder dans le staff.' : 'Seulement des nombres : aucun nom de joueur.'} Pour un PDF, choisis
+          Le rapport de la vue du bilan. {choices.names ? `Avec les noms des ${gw.joueurs} : à garder dans le staff.` : `Seulement des nombres : aucun nom de ${gw.joueur}.`} Pour un PDF, choisis
           « Enregistrer au format PDF » comme imprimante.
         </p>
       </div>
@@ -2609,7 +2645,7 @@ export function CoverageReport() {
               {[plural(bilan.kpis.clubs, 'club'), ...(dept ? [] : [plural(bilan.kpis.depts, 'département')])].join(' · ')}
             </div>
           )}
-          <div className="mt-1 text-[10px] text-neutral-600">{Q ? Q.texts.lens.title : choices.tabs.map((o) => REPORT_MEANS[o]).join(' ')}</div>
+          <div className="mt-1 text-[10px] text-neutral-600">{Q ? Q.texts.lens.title : choices.tabs.map((o) => reportMeans(o, g)).join(' ')}</div>
         </section>
 
         {choices.map && (
@@ -2631,18 +2667,18 @@ export function CoverageReport() {
                 others={showOtherOM(byPlace.byDept)}
                 label={(code) => {
                   const t = byPlace.byDept.get(code)
-                  return `${deptText(code)} : ${paint.outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : 'aucun joueur avec ces filtres'}`
+                  return `${deptText(code)} : ${paint.outsideDept(code) ? 'hors de ton périmètre' : t?.total ? lens.label(t) : `${gw.aucunJoueur} avec ces filtres`}`
                 }}
                 zoneLabel={paint.zoneLabel}
                 dots={clubMap ? { items: clubMap.items, picked: club?.key, onActive: () => {}, onPick: () => {}, tip: () => null } : undefined}
               />
             </div>
             <div className="mx-auto mt-1 w-full max-w-[14cm]">
-              <MapLegend sc={clubMap?.sc ?? paint.sc} note={lens.note} title={lens.title} />
+              <MapLegend sc={clubMap?.sc ?? paint.sc} note={lens.note} title={lens.title} g={g} />
             </div>
             {clubMap && (
               <p className="mt-1 text-[10px] text-neutral-600">
-                Un point par club, à son adresse (taille : nombre de joueurs) ; petit point gris : aucun joueur avec ces filtres.
+                Un point par club, à son adresse (taille : nombre de {gw.joueurs}) ; petit point gris : {gw.aucunJoueur} avec ces filtres.
                 {clubMap.unplaced.length > 0 && ` ${plural(clubMap.unplaced.length, 'club')} sans position connue : seulement dans les tableaux.`}
               </p>
             )}
@@ -2668,7 +2704,7 @@ export function CoverageReport() {
         ) : (
           choices.tabs.map((o, i) => {
             const v = views!.get(o)!
-            const lz = ongletLens(o)
+            const lz = ongletLens(o, g)
             const clubNow = st.club === null ? undefined : v.clubs.find((c) => c.key === st.club)
             const who = stage === 'club' ? (clubNow ? [...clubNow.toSee, ...clubNow.seenPlayers] : []) : v.inScope
             const rows = stage === 'club' ? [] : stageRows(lz, v.byPlace, v.clubs)
@@ -2681,7 +2717,7 @@ export function CoverageReport() {
             return (
               <section key={o} className={`mb-5 ${i > 0 && rows.length > LONG ? 'page-break' : ''}`}>
                 <h3 className="mb-1 border-b border-neutral-900 pb-0.5 text-[13px] font-extrabold">
-                  {TAB[o].label} — {total.total ? `${headline(o, total)}${o === 'licencies' ? ` joueur${s(total.total)}` : ` · ${detail(o, total)}`}` : 'aucun joueur'}
+                  {tabOf(o, g).label} — {total.total ? `${headline(o, total)}${o === 'licencies' ? ` ${gw.joueur}${s(total.total)}` : ` · ${detail(o, total, g)}`}` : gw.aucunJoueur}
                 </h3>
                 {stage !== 'club' && (
                   <>
@@ -2689,16 +2725,16 @@ export function CoverageReport() {
                     {rows.length ? (
                       <ReportTable
                         first={STAGE_COLUMN[stage]}
-                        head={[o === 'licencies' ? 'Joueurs' : TAB[o].label, ...(o === 'licencies' ? [] : ['Détail']), ...(share ? [TAB[o].main] : [])]}
+                        head={[o === 'licencies' ? gw.Joueurs : tabOf(o, g).label, ...(o === 'licencies' ? [] : ['Détail']), ...(share ? [tabOf(o, g).main] : [])]}
                         rows={rows.map(([n, t]) => [
                           n,
                           t.total ? headline(o, t) : '–',
-                          ...(o === 'licencies' ? [] : [t.total ? detail(o, t) : '–']),
+                          ...(o === 'licencies' ? [] : [t.total ? detail(o, t, g) : '–']),
                           ...(share ? [fmt(leftOf(o, t) ?? 0)] : []),
                         ])}
                       />
                     ) : (
-                      <p className="mb-3">Aucun joueur ici avec ces filtres.</p>
+                      <p className="mb-3">{gw.AucunJoueur} ici avec ces filtres.</p>
                     )}
                   </>
                 )}
@@ -2709,13 +2745,13 @@ export function CoverageReport() {
                 {go.length > 0 && (
                   <div className="keep">
                     <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Où aller ? Les clubs avec le plus de jeunes à voir</h4>
-                    <ReportTable first="Club" head={['À voir', 'Joueurs']} rows={go.map((c) => [clubLabel(c.name), fmt(c.left), fmt(c.total)])} />
+                    <ReportTable first="Club" head={['À voir', gw.Joueurs]} rows={go.map((c) => [clubLabel(c.name), fmt(c.left), fmt(c.total)])} />
                   </div>
                 )}
                 {o === 'mesures' && tested.length > 0 && (
                   <div className="keep">
                     <h4 className="mt-2 mb-1 text-[11px] font-extrabold">Tests les plus faits</h4>
-                    <ReportTable first="Test" head={['Joueurs mesurés']} rows={tested.map(([c, n]) => [tests?.crit.get(c) ?? c, fmt(n)])} />
+                    <ReportTable first="Test" head={[`${gw.Joueurs} ${gw.mesures}`]} rows={tested.map(([c, n]) => [tests?.crit.get(c) ?? c, fmt(n)])} />
                   </div>
                 )}
                 {o === 'reperes' && posts.length > 0 && (
@@ -2731,13 +2767,13 @@ export function CoverageReport() {
 
         {choices.names && (
           <section className="page-break">
-            <h3 className="mb-1 border-b border-neutral-900 pb-0.5 text-[13px] font-extrabold">Joueurs par club</h3>
+            <h3 className="mb-1 border-b border-neutral-900 pb-0.5 text-[13px] font-extrabold">{gw.Joueurs} par club</h3>
             <p className="mb-2 font-bold">Noms de mineurs : à garder dans le staff, ne pas diffuser.</p>
             {nameClubs.length ? (
               nameClubs.map((c) => (
                 <div key={c.name} className="mb-3">
                   <h4 className="mb-1 text-[11px] font-extrabold">
-                    {c.name} · {plural(c.players.length, 'joueur')}
+                    {c.name} · {pluralG(c.players.length, listGender(g, c.players))}
                   </h4>
                   {c.players.length ? (
                     <table className="w-full table-fixed border-collapse">
@@ -2768,12 +2804,12 @@ export function CoverageReport() {
                       </tbody>
                     </table>
                   ) : (
-                    <p>Aucun joueur.</p>
+                    <p>{gw.AucunJoueur}.</p>
                   )}
                 </div>
               ))
             ) : (
-              <p>Aucun joueur ici avec ces filtres.</p>
+              <p>{gw.AucunJoueur} ici avec ces filtres.</p>
             )}
           </section>
         )}

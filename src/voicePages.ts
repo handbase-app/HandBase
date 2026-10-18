@@ -5,6 +5,7 @@
 // Seuls la phrase, le schéma et les filtres actifs partent chez Mistral : jamais de données de joueurs ; les noms
 // d'événements, de groupes et de clubs ne sont pas listés (le modèle recopie ce qui est dit, l'appli le retrouve ici).
 
+import { SEX_LABELS } from './gender'
 import {
   asText,
   bestMatch,
@@ -19,7 +20,8 @@ import {
 } from './voiceFilters'
 import { parseSaidYears, sortYearStrings, yearsShort } from './birthYears'
 
-const SEX_TEXT = { M: 'garçons', F: 'filles' } as const
+// Affichage seulement (« Compris : féminin ») ; la voix comprend toujours « filles », « garçons »… (voiceFilters.ts).
+const SEX_TEXT = { M: SEX_LABELS.M.toLowerCase(), F: SEX_LABELS.F.toLowerCase() } as const
 
 // ---------- Bilan de détection (/bilan) ----------
 
@@ -68,7 +70,7 @@ export function bilanRules(ctx: BilanVoiceContext): FilterRules<BilanVoice> {
     empty,
     // Comme sur la page : changer de région remet le département et le club ; changer de département, le club.
     fields: { sexe: ['sex'], annee: ['years'], periode: ['period'], region: ['region', 'dept', 'club'], departement: ['dept', 'club'], club: ['club'], vue: ['view'] },
-    keyText: { sexe: 'garçons / filles', annee: 'génération', periode: 'période', region: 'région', departement: 'département', club: 'club', vue: 'vue' },
+    keyText: { sexe: 'masculin / féminin', annee: 'génération', periode: 'période', region: 'région', departement: 'département', club: 'club', vue: 'vue' },
     aliases: {
       sexe: 'sexe', genre: 'sexe', annee: 'annee', annees: 'annee', generation: 'annee', generations: 'annee', naissance: 'annee',
       periode: 'periode', saison: 'periode', region: 'region', ligue: 'region', departement: 'departement', dept: 'departement',

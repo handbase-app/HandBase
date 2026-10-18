@@ -61,6 +61,7 @@ import { ClubAnswerMap, useClubPlaces, useOpenClub } from '../components/ClubAns
 import PlayerDetail from './PlayerDetail'
 import { YearPicker } from '../components/YearPicker'
 import { putYears, recentYears } from '../birthYears'
+import { SEX_LABELS, w, type Gender } from '../gender'
 
 type Model = QuestionModel
 /** Ce dont les pastilles ont besoin (noms, critères, événements). */
@@ -382,6 +383,8 @@ function AnswerView({
   const nav = useNavigate()
   const cond = hasConditions(recipe)
   const f = recipe.pop.sex === 'F'
+  const g: Gender = f ? 'F' : undefined
+  const gw = w(g)
   const who = (n: number) => `${fr(n)} ${f ? (n > 1 ? 'joueuses' : 'joueuse') : n > 1 ? 'joueurs' : 'joueur'}`
   // Une nouvelle réponse (liste d'une ligne de tableau…) : nouvelle entrée d'historique, le retour revient ici.
   const open = (r: Recipe) => nav(`/bilan/question?${enc(r)}`)
@@ -428,7 +431,7 @@ function AnswerView({
     const sort = defaultSort(recipe).by
     const missingText =
       sort === 'priority'
-        ? 'déjà vus deux fois ou plus : pas dans cette liste'
+        ? `déjà ${gw.vus} deux fois ou plus : pas dans cette liste`
         : sort === 'progress'
           ? 'avec moins de deux avis sur ce point : pas dans ce classement'
           : 'sans valeur pour ce tri (pas d’avis ou pas de mesure) : pas dans ce classement'
@@ -479,9 +482,9 @@ function AnswerView({
           </b>{' '}
           · {per} · parmi {who(answer.count)} · calculé sur l’appareil en {answer.ms} ms
         </p>
-        <SectionTitle info="Joueurs distincts vus (marqués « vu » ou avec un avis) et avis écrits, dans la période. Noms lus sur cet appareil.">Par personne du staff</SectionTitle>
+        <SectionTitle info={`${gw.Joueurs} ${f ? 'distinctes' : 'distincts'} ${gw.vus} (${f ? 'marquées' : 'marqués'} « ${gw.vu} » ou avec un avis) et avis écrits, dans la période. Noms lus sur cet appareil.`}>Par personne du staff</SectionTitle>
         {!rows.length ? (
-          <Empty>Personne du staff n’a vu ces joueurs dans cette période.</Empty>
+          <Empty>Personne du staff n’a vu ces {gw.joueurs} dans cette période.</Empty>
         ) : (
           rows.map((row) => (
             <div key={row.key} className="card flex min-h-11 items-center gap-3 px-3 py-2">
@@ -489,7 +492,7 @@ function AnswerView({
                 <span className="block truncate text-sm font-bold">{model.names.staff?.(row.key) ?? 'Personne du staff'}</span>
                 <span className="mt-1 flex items-center gap-2 text-[10px] text-muted">
                   <span className="shrink-0">
-                    <b className="text-fg">{who(row.staff!.players)}</b> vus · {fr(row.staff!.avis)} avis
+                    <b className="text-fg">{who(row.staff!.players)}</b> {gw.vus} · {fr(row.staff!.avis)} avis
                   </span>
                   <Bar t={{ seen: row.staff!.players, total: max }} className="w-12 sm:w-20" />
                 </span>
@@ -508,7 +511,7 @@ function AnswerView({
       <div className="flex flex-col gap-2">
         {summary}
         {by === 'club' && rows.length > 0 && <ClubTableMap rows={rows} recipe={recipe} model={model} />}
-        <SectionTitle info="Touchez une ligne pour la liste de ses joueurs (le retour revient à ce tableau).">
+        <SectionTitle info={`Touchez une ligne pour la liste de ses ${gw.joueurs} (le retour revient à ce tableau).`}>
           {GROUP_OPTIONS.find((g) => g.value === by)!.label.replace(/^par /, 'Par ')}
           {recipe.out.limit ? ` · ${recipe.out.limit === 1 ? 'le premier' : `les ${recipe.out.limit} premiers`}` : ''}
         </SectionTitle>
@@ -536,7 +539,7 @@ function AnswerView({
                       {row.seen && (
                         <>
                           {' · '}
-                          <b className={recipe.out.sort?.by === 'share' ? 'text-fg' : ''}>{shareText(row.seen.seen, row.seen.total)} vus</b>
+                          <b className={recipe.out.sort?.by === 'share' ? 'text-fg' : ''}>{shareText(row.seen.seen, row.seen.total)} {gw.vus}</b>
                           {!cond && ` (${fr(row.seen.seen)})`}
                         </>
                       )}
@@ -552,12 +555,12 @@ function AnswerView({
             )
           })
         )}
-        {recipe.out.sort?.by === 'share' && rows.some((r) => shareOf(r) === null) && <p className="text-[10px] text-muted">Sans joueur : en fin de tableau.</p>}
+        {recipe.out.sort?.by === 'share' && rows.some((r) => shareOf(r) === null) && <p className="text-[10px] text-muted">Sans {gw.joueur} : en fin de tableau.</p>}
       </div>
     )
   }
 
-  return <MapAnswer answer={answer} model={model} index={index} params={params} search={search} setMap={setMap} summary={summary} />
+  return <MapAnswer answer={answer} model={model} index={index} params={params} search={search} setMap={setMap} summary={summary} g={g} />
 }
 
 /**
@@ -622,6 +625,7 @@ function MapAnswer({
   search,
   setMap,
   summary,
+  g,
 }: {
   answer: Answer<Player>
   model: Model
@@ -630,7 +634,10 @@ function MapAnswer({
   search: string
   setMap: (patch: { mr?: string; md?: string; mc?: string }) => void
   summary: ReactNode
+  /** Genre de la population (« Féminin » : textes au féminin). */
+  g?: Gender
 }) {
+  const gw = w(g)
   const regionLabel = useRegionLabel()
   const mr = params.get('mr') ?? ''
   const md = params.get('md') ?? ''
@@ -708,7 +715,7 @@ function MapAnswer({
         {clubs.length ? (
           clubs.map(([k, x]) => <Row key={k || '?'} label={k ? model.names.club(k) : 'Club non renseigné'} x={x} max={clubMax} onClick={() => setMap({ mc: k })} />)
         ) : (
-          <Empty>Aucun joueur ici.</Empty>
+          <Empty>{gw.AucunJoueur} ici.</Empty>
         )}
       </section>
     ) : mr ? (
@@ -729,7 +736,7 @@ function MapAnswer({
             .sort((a, b) => order(a[1], b[1]))
             .map(([r, x]) => <Row key={r} label={regionLabel(r)} x={x} onClick={() => pickRegion(r)} />)
         ) : (
-          <Empty>Aucun joueur dans cette population.</Empty>
+          <Empty>{gw.AucunJoueur} dans cette population.</Empty>
         )}
         {t.noDept.total > 0 && <p className="text-[11px] text-muted">Département non renseigné : {fr(t.noDept.seen)} sur {fr(t.noDept.total)}.</p>}
       </section>
@@ -748,18 +755,18 @@ function MapAnswer({
             onDept={pickDept}
             touch="select"
             className="side:max-h-[calc(100dvh-var(--hdr)-16rem)]"
-            ariaLabel="Part des joueurs qui répondent à la question, par région et par département"
+            ariaLabel={`Part des ${gw.joueurs} qui répondent à la question, par région et par département`}
             others={showOtherOM(t.byDept)}
             label={(code) => {
               const x = t.byDept.get(code)
-              return `${model.names.dept(code)} : ${x?.total ? share(x) : 'aucun joueur dans cette population'}`
+              return `${model.names.dept(code)} : ${x?.total ? share(x) : `${gw.aucunJoueur} dans cette population`}`
             }}
             tip={({ code, isRegion }) => {
               const x = isRegion ? t.byRegion.get(code) : t.byDept.get(code)
               return (
                 <>
                   <div className="font-bold">{isRegion ? regionLabel(code) : model.names.dept(code)}</div>
-                  {x?.total ? <div className="mt-1 text-muted">{share(x)}</div> : <div className="mt-1 text-muted">Aucun joueur dans cette population</div>}
+                  {x?.total ? <div className="mt-1 text-muted">{share(x)}</div> : <div className="mt-1 text-muted">{gw.AucunJoueur} dans cette population</div>}
                 </>
               )
             }}
@@ -769,14 +776,14 @@ function MapAnswer({
               <span className="tabular-nums">0</span>
               <span className="h-3 min-w-0 flex-1 rounded-sm" style={{ background: `linear-gradient(to right, ${fillOf({ seen: 0, total: 1 })}, ${fillOf({ seen: 1, total: 1 })})` }} />
               <span className="tabular-nums">
-                {fr(maxN)} {maxN > 1 ? 'joueurs' : 'joueur'}
+                {fr(maxN)} {maxN > 1 ? gw.joueurs : gw.joueur}
               </span>
             </div>
           ) : (
-            <MapLegend sc={sc} />
+            <MapLegend sc={sc} g={g} />
           )}
           <p className="text-[10px] text-muted">
-            {rare ? 'Peu de joueurs répondent : couleur selon leur nombre (la part est donnée à côté).' : 'Part de la population qui répond à la question.'} {md ? 'Touchez un club pour ses joueurs.' : mr ? 'Touchez un département pour ses clubs.' : 'Touchez une région pour la voir de plus près.'}
+            {rare ? `Peu de ${gw.joueurs} répondent : couleur selon leur nombre (la part est donnée à côté).` : 'Part de la population qui répond à la question.'} {md ? `Touchez un club pour ses ${gw.joueurs}.` : mr ? 'Touchez un département pour ses clubs.' : 'Touchez une région pour la voir de plus près.'}
           </p>
         </section>
         {list}
@@ -821,8 +828,8 @@ function VarForm({ q, onLaunch, onCancel }: { q: SavedQuestion; onLaunch: (v: Va
               onChange={(sex) => set({ sex })}
               options={[
                 { value: '', label: 'Tous' },
-                { value: 'M', label: 'Garçons' },
-                { value: 'F', label: 'Filles' },
+                { value: 'M', label: SEX_LABELS.M },
+                { value: 'F', label: SEX_LABELS.F },
               ]}
             />
           )}

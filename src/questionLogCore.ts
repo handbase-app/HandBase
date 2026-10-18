@@ -209,7 +209,7 @@ const SMALL = new Set(
 const VOCAB = new Set(
   (
     'combien quel quels quelle quelles qui liste lister montre montrer affiche donne donner trouve cherche tous toutes tout ' +
-    'joueur joueurs joueuse joueuses jeune jeunes garcon garcons fille filles homme hommes femme femmes masculin feminin ' +
+    'joueur joueurs joueuse joueuses jeune jeunes garcon garcons fille filles homme hommes femme femmes masculin masculins masculine masculines feminin feminins feminine feminines ' +
     'club clubs equipe equipes staff groupe groupes evenement evenements match matchs tournoi tournois stage stages entrainement ' +
     'poste postes gardien gardiens ailier ailiers arriere arrieres demi centre pivot pivots droit droite gauche gaucher gauchers ' +
     'droitier droitiers ambidextre lateralite taille tailles grand grands poids age ans annee annees ne nes nee nees naissance ' +

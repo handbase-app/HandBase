@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { age, alive, db, lateralityLabel, plural, type Measurement, type Rewatch } from '../db'
+import { age, alive, db, lateralityLabel, type Measurement, type Rewatch } from '../db'
 import { Empty, fmtValue } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
 import { RewatchToggle } from '../components/Scouting'
@@ -18,6 +18,7 @@ import { usePerimeter } from '../installation'
 import { hasPerimeter } from '../perimeter'
 import { spyTarget } from '../spy'
 import { keepPlayerTab } from '../tabQuery'
+import { accord, pluralG, w } from '../gender'
 
 /** Dernière valeur de chaque critère factuel, par joueur. */
 export function latestByPlayer(ms: Measurement[]) {
@@ -52,7 +53,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading } = usePlayersQuery(players, { dock: !selected })
+  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading, gender } = usePlayersQuery(players, { dock: !selected })
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -100,7 +101,7 @@ export default function Players() {
           {can.manageGroups(role) && (
             <button
               className="btn-ghost px-3 py-1.5 text-xs"
-              title="Ajouter les joueurs affichés à un groupe (existant ou nouveau)"
+              title={`Ajouter les ${w(gender).joueurs} ${accord('affiché', gender, 2)} à un groupe (existant ou nouveau)`}
               disabled={!filtered.length}
               onClick={() => (setGrouping(true), setGroupMsg({ text: '' }))}
             >
@@ -151,7 +152,7 @@ export default function Players() {
       <div className="mb-2 flex flex-col gap-2 empty:hidden">{top}</div>
       <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
         <span>
-          {loading ? 'Chargement…' : plural(filtered.length, 'joueur')}
+          {loading ? 'Chargement…' : pluralG(filtered.length, gender)}
           {group && (
             <>
               {' '}
@@ -173,7 +174,7 @@ export default function Players() {
       {loading ? null : shown.length === 0 ? (
         <Empty>
           {players.length
-            ? 'Aucun joueur ne correspond.'
+            ? `${w(gender).AucunJoueur} ne correspond.`
             : spyTarget() && per && !hasPerimeter(per)
               ? 'Aucune affectation : ce membre ne reçoit aucun joueur (à affecter dans Structure).'
               : view === 'base'
@@ -221,7 +222,7 @@ export default function Players() {
           })}
           {filtered.length > shown.length && (
             <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
-              Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} restants)
+              Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
             </button>
           )}
         </div>

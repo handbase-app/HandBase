@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { accord, listGender, w } from '../gender'
 import { Empty } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { FollowStar } from '../components/Follow'
@@ -43,12 +44,15 @@ export default function Missed() {
     .filter((r): r is NonNullable<typeof r> => !!r)
     .sort((a, b) => b.signals.length - a.signals.length || (b.avg ?? 0) - (a.avg ?? 0) || (b.refusal.at ?? '').localeCompare(a.refusal.at ?? ''))
 
+  // Accord (src/gender.ts) : seulement des filles → au féminin.
+  const f = listGender(undefined, rows.map((r) => r.p)) === 'F'
+  const gw = w(f ? 'F' : undefined)
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-extrabold">Ratés</h1>
       <p className="text-[11px] text-muted">
-        Joueurs dont la fiche a été mise hors cadre, et ce qu’ils sont devenus depuis : licence, convocations, avis validés après la décision.
-        En tête, ceux qui ont le plus progressé : de bons enseignements pour la détection.
+        {gw.Joueurs} dont la fiche a été mise hors cadre, et ce qu’{gw.ils} sont {f ? 'devenues' : 'devenus'} depuis : licence, convocations, avis validés après la décision.
+        En tête, {gw.ceux} qui ont le plus progressé : de bons enseignements pour la détection.
       </p>
       {rows.length === 0 ? (
         <Empty>Aucune fiche mise hors cadre pour l’instant.</Empty>
@@ -64,8 +68,8 @@ export default function Missed() {
               below={
                 <>
                   <div className="text-[10px] text-muted">
-                    {refusal.proposedBy && <>Proposé par {refusal.proposedBy}. </>}
-                    Mis hors cadre{refusal.by && <> par {refusal.by}</>}
+                    {refusal.proposedBy && <>{accord('Proposé', p.sex)} par {refusal.proposedBy}. </>}
+                    {accord('Mis', p.sex)} hors cadre{refusal.by && <> par {refusal.by}</>}
                     {refusal.at && <> le {fmtDate(dayOf(refusal.at))}</>}
                     {refusal.note && <> : « {refusal.note} »</>}.
                   </div>

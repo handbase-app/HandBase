@@ -16,6 +16,7 @@
 //  5. recipeChips : la recette en clair, en pastilles (« Joueuses · nées en 2011 · vues à 1 événement · cette saison »).
 // Uniquement des formulations positives ou neutres sur les jeunes : « pas encore vus », tri croissant ou décroissant.
 
+import { SEX_LABELS } from './gender'
 import type { Laterality, Player, Position } from './db'
 import { birthYear, clubKey, seasonOf, type Tally } from './coverage'
 import { categoryKind, isRadarZone, RADAR_ZONES, type RadarZone } from './radarZones'
@@ -1710,7 +1711,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   const f = r.pop.sex === 'F'
   const e = f ? 'es' : 's'
   const p = r.pop
-  if (p.sex) c.push({ key: 'sex', label: f ? 'Joueuses' : 'Garçons', edit: 'sex', removable: true })
+  if (p.sex) c.push({ key: 'sex', label: f ? SEX_LABELS.F : SEX_LABELS.M, edit: 'sex', removable: true })
   if (p.names) c.push({ key: 'names', label: `prénom ou nom : ${list(p.names)}`, removable: true })
   if (p.years) c.push({ key: 'years', label: yearsPhrase(yearsOf(p) ?? [], e), edit: 'years', removable: true })
   if (p.positions) c.push({ key: 'positions', label: list(p.positions.map(names.position)), removable: true })
@@ -1781,9 +1782,9 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
       o.groupBy === 'staff'
         ? o.sort.by === 'nbAvis'
           ? 'avis écrits'
-          : 'joueurs vus'
+          : f ? 'joueuses vues' : 'joueurs vus'
         : o.sort.by === 'count'
-          ? 'nombre de joueurs'
+          ? `nombre de ${f ? 'joueuses' : 'joueurs'}`
           : o.sort.by === 'measure' || o.sort.by === 'age'
             ? outValueText(r, names)
             : o.sort.by === 'avg'
@@ -1848,7 +1849,7 @@ export function removeChip(r: Recipe, key: string): Recipe {
 /** Valeurs qui peuvent devenir des variables (choisies à la relance). */
 export type VarKey = 'sex' | 'years' | 'period' | 'region' | 'dept' | 'position' | 'group' | 'seenN'
 export const VAR_TEXT: Record<VarKey, string> = {
-  sex: 'garçons / filles',
+  sex: 'masculin / féminin',
   years: 'année de naissance',
   period: 'période',
   region: 'région',

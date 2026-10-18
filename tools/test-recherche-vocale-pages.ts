@@ -89,7 +89,7 @@ assert.equal(bilan.mode, undefined, 'bilan : consignes de la liste Joueurs suffi
 
 let b = pageApply(bilan, { action: 'remplacer', filtres: { sexe: 'F', annee: 2011, departement: 'Var' } }, B0)
 assert.deepEqual(b.values, { ...B0, sex: 'F', years: ['2011'], dept: '83', region: 'region-sud' }, 'département : sa région suit (carte)')
-assert.equal(outcomeText(b, false), 'Compris : filles · génération 2011 · Var (83)')
+assert.equal(outcomeText(b, false), 'Compris : féminin · génération 2011 · Var (83)')
 // Club : retrouvé dans le département choisi ; il amène son lieu sinon.
 b = pageApply(bilan, { action: 'remplacer', filtres: { club: 'Saint-Cyr' } }, B0)
 assert.deepEqual([b.changed, notFoundText(b)], [false, 'Non appliqué : club « Saint-Cyr » (2 clubs possibles : choisissez dans la liste)'], 'deux clubs de Saint-Cyr')

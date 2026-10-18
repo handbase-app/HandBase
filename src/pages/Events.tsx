@@ -83,6 +83,17 @@ export default function Events() {
     }
     return allEvents.filter((e) => inMyTerritories(e, ctx, cache))
   }, [allEvents, per, territoryActive, units, eventPlayers])
+  // Accord de la ligne (src/gender.ts) : événement sans sexe déclaré dont les joueurs de la liste (fiches sur l'appareil)
+  // sont toutes des filles → « 12 joueuses ». Une seule lecture groupée des fiches de ces listes (sexe seulement).
+  const rosterSex = useLiveQuery(async () => {
+    if (!allEvents) return undefined
+    const ids = [...new Set(allEvents.filter((e) => !e.sex).flatMap((e) => e.playerIds ?? []))]
+    const m = new Map<string, string | undefined>()
+    for (const p of await db.players.bulkGet(ids)) if (p && !p.deleted) m.set(p.id, p.sex)
+    return m
+  }, [allEvents])
+  const genderOfEvent = (ev: HBEvent): Gender =>
+    setGender(ev.sex, rosterSex ? (ev.playerIds ?? []).filter((id) => rosterSex.has(id)).map((id) => ({ sex: rosterSex.get(id) })) : [])
   // Avis comptés une fois par événement (et non pour chaque ligne de la liste).
   const stats = useLiveQuery(async () => {
     const m = new Map<string, EventStats>()
@@ -195,7 +206,7 @@ export default function Events() {
           </div>
           <div className="cols flex flex-col gap-3">
             {results.map((ev) => (
-              <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
+              <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming={!ev.archived && ev.date >= todayIso} />
             ))}
           </div>
           {!results.length && !filterLoading && <Empty>Aucun événement ne correspond.</Empty>}
@@ -210,7 +221,7 @@ export default function Events() {
           {upcoming.length ? (
             <div className="cols flex flex-col gap-3">
               {upcoming.map((ev) => (
-                <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
+                <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
               ))}
             </div>
           ) : (
@@ -221,7 +232,7 @@ export default function Events() {
               <div className="section-title mt-3 mb-0">Passés</div>
               <div className="cols flex flex-col gap-3">
                 {past.slice(0, showAll ? undefined : 10).map((ev) => (
-                  <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
+                  <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
                 ))}
               </div>
               {past.length > 10 && !showAll && (
@@ -239,7 +250,7 @@ export default function Events() {
               {showArchived && (
                 <div className="cols flex flex-col gap-3">
                   {archived.map((ev) => (
-                    <EventRow key={ev.id} ev={ev} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
+                    <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
                   ))}
                 </div>
               )}
@@ -347,7 +358,7 @@ function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMe
   )
 }
 
-function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean; organizer?: string }) {
+function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean; organizer?: string; g?: Gender }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
   // Ordinateur : événement ouvert dans le panneau de droite.
@@ -388,7 +399,7 @@ function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; sta
         {stats ? (
           <>
             <div>
-              <b className="text-fg">{stats.players.size}</b> {accord('joueur', ev.sex, stats.players.size)}
+              <b className="text-fg">{stats.players.size}</b> {accord('joueur', g, stats.players.size)}
             </div>
             <div>
               <b className="text-fg">{stats.avis}</b> avis
@@ -397,7 +408,7 @@ function EventRow({ ev, stats, upcoming = false, organizer }: { ev: HBEvent; sta
         ) : (
           (ev.playerIds ?? []).length > 0 && (
             <div>
-              <b className="text-fg">{(ev.playerIds ?? []).length}</b> {accord('convoqué', ev.sex, (ev.playerIds ?? []).length)}
+              <b className="text-fg">{(ev.playerIds ?? []).length}</b> {accord('convoqué', g, (ev.playerIds ?? []).length)}
             </div>
           )
         )}

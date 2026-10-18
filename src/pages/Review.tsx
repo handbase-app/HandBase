@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { sexLabel } from '../gender'
 import { Link } from 'react-router-dom'
 import { AvisCard } from '../components/Opinions'
 import { department } from '../components/PlayerFilter'
@@ -82,7 +83,7 @@ export default function ReviewPage() {
             </Link>{' '}
             <QuarterBadge birthDate={p.birthDate} />
             <div className="text-[10px] text-muted">
-              {[p.birthDate && p.birthDate.slice(0, 4), p.sex === 'M' ? 'garçon' : p.sex === 'F' ? 'fille' : '', p.club, d && departmentLabel(d)]
+              {[p.birthDate && p.birthDate.slice(0, 4), sexLabel(p.sex).toLowerCase(), p.club, d && departmentLabel(d)]
                 .filter(Boolean)
                 .join(' · ')}
             </div>

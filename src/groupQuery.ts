@@ -5,6 +5,7 @@
 // Fonctions pures (tools/test-filtres-recette-pages.ts). Rien de ce qui part au modèle ne contient de données : noms de
 // groupes, de lieux et de personnes sont recopiés tels que dits et retrouvés ICI.
 
+import { SEX_LABELS } from './gender'
 import { GROUP_VIS } from './staffLabels'
 import {
   asList,
@@ -83,9 +84,9 @@ export const SCOPE_LIST = [
   { value: 'comite' as const, label: 'Comité' },
 ]
 export const SEX_LIST = [
-  { value: 'M' as const, label: 'Garçons' },
-  { value: 'F' as const, label: 'Filles' },
-  { value: 'mixte' as const, label: 'Mixte' },
+  { value: 'M' as const, label: SEX_LABELS.M },
+  { value: 'F' as const, label: SEX_LABELS.F },
+  { value: 'mixte' as const, label: SEX_LABELS.mixte },
 ]
 const visOf = (g: QGroup): GroupVis => (g.private ? 'private' : g.team ? 'team' : 'staff')
 const VIS_ALIASES: Record<GroupVis, string[]> = {
@@ -137,7 +138,7 @@ export const GROUP_SORTS = [
 export const GROUP_GROUPINGS = [
   { value: 'vis', label: 'Par visibilité' },
   { value: 'scope', label: 'Par niveau' },
-  { value: 'sex', label: 'Par garçons / filles' },
+  { value: 'sex', label: 'Par masculin / féminin' },
   { value: 'region', label: 'Par ligue' },
   { value: 'dept', label: 'Par comité' },
   { value: 'year', label: 'Par année d’âge' },
@@ -164,7 +165,7 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
   keyLabel: {
     vis: 'visibilité',
     scope: 'niveau',
-    sex: 'garçons / filles',
+    sex: 'masculin / féminin',
     regions: 'ligue',
     depts: 'comité',
     years: 'année d’âge',
@@ -179,6 +180,7 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
     visibilite: ['vis'], portee: ['vis', 'scope'], prive: ['vis'], prives: ['vis'], staff: ['vis'],
     niveau: ['scope'], federation: ['scope'],
     sexe: ['sex'], genre: ['sex'], garcons: ['sex'], filles: ['sex'], mixte: ['sex'], mixtes: ['sex'],
+    garcon: ['sex'], fille: ['sex'], masculin: ['sex'], masculins: ['sex'], feminin: ['sex'], feminins: ['sex'], feminine: ['sex'], feminines: ['sex'],
     ligue: ['regions'], ligues: ['regions'], region: ['regions'], regions: ['regions'], territoire: ['regions', 'depts'],
     comite: ['depts'], comites: ['depts'], departement: ['depts'], departements: ['depts'], dept: ['depts'],
     annee: ['years'], annees: ['years'], age: ['years'], generation: ['years'], anneedage: ['years'],
@@ -197,7 +199,7 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
       case 'scope':
         return SCOPE_LIST.find((x) => x.value === f.scope)!.label
       case 'sex':
-        return f.sex === 'mixte' ? 'mixtes' : f.sex === 'F' ? 'filles' : 'garçons'
+        return f.sex === 'mixte' ? 'mixtes' : f.sex === 'F' ? 'féminins' : 'masculins'
       case 'regions':
         return f.regions!.map((r) => ctx.regionName(r) ?? r).join(' ou ')
       case 'depts':
@@ -330,7 +332,7 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
     const s = normalize(asText(r.sexe))
     const v = s.startsWith('mixte') ? 'mixte' : parseSex(r.sexe)
     if (v) f.sex = v
-    else notes.push(`garçons / filles ${quote(r.sexe)} (valeur inconnue)`)
+    else notes.push(`masculin / féminin ${quote(r.sexe)} (valeur inconnue)`)
   }
   for (const x of asList(r.ligues ?? r.ligue ?? r.regions ?? r.region)) {
     const m = matchRegion(x, ctx.geo)

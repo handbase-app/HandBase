@@ -1,4 +1,5 @@
 import { isShare, ONGLETS, percent, type Onglet, type Tally } from './coverage'
+import { sexLabel } from './gender'
 
 /*
  * Rapport du bilan de détection (/bilan/rapport, src/pages/Coverage.tsx CoverageReport) : celui de LA VUE du bilan
@@ -85,11 +86,11 @@ export const reportTitle = (placeText: string) => `Bilan de détection — ${pla
 export const seasonShort = (label: string) => label.replace(/^(\d{4})-\d{2}(\d{2})$/, '$1-$2')
 
 /**
- * Ligne de ce que montre le rapport : « Licenciés · Garçons · nés en 2008 · Arrière gauche ». Chiffres (ou la question),
+ * Ligne de ce que montre le rapport : « Licenciés · Masculin · nés en 2008 · Arrière gauche ». Chiffres (ou la question),
  * sexe s'il est choisi, années, filtres de la barre (déjà en mots, jamais un nom de joueur).
  */
 export function filterLine(p: { what: string[]; sex: 'all' | 'M' | 'F'; years?: string; bar?: string[] }): string {
-  return [...p.what, p.sex === 'M' ? 'Garçons' : p.sex === 'F' ? 'Filles' : '', p.years ?? '', ...(p.bar ?? [])].filter(Boolean).join(' · ')
+  return [...p.what, sexLabel(p.sex), p.years ?? '', ...(p.bar ?? [])].filter(Boolean).join(' · ')
 }
 
 /** « Saison 2026-27 · édité le 18/10/2026 · périmètre : Comité du Var (83) » ; « Depuis toujours » pour des vus sans saison. */

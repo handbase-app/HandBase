@@ -18,18 +18,31 @@
  *   setGender(declared, players) genre d'un groupe / événement : son sexe déclaré ('M' | 'F' | 'mixte'), sinon genderOf(joueurs)
  *   lateralityPlural(l, g)      « Droitiers » / « Droitières » / « Gauchères » / « Ambidextres »
  *                               (au singulier : lateralityLabel(l, sex) de src/db.ts, déjà accordé)
- *   SEX_LABELS / SEX_LABEL_ONE  libellés du sexe (« Garçons » / « Filles » / « Mixte » ; « Garçon » / « Fille »), à lire
- *   SEX_CHOICES                 ici plutôt qu'écrits en dur : un seul endroit à changer (ex. « Masculin / Féminin »)
+ *   SEX_LABELS / SEX_LABEL_ONE  libellés du sexe : « Masculin » / « Féminin » / « Mixte » (décision des entraîneurs ;
+ *   SEX_SHORT / SEX_CHOICES     jamais « Hommes / Femmes »), « Masc. » / « Fém. » dans les pastilles étroites ; à lire ici plutôt
+ *   sexLabel(s, short?)         qu'écrits en dur. sexLabel('F') → « Féminin », sexLabel(null) → ''.
+ *   listGender(filter, players) genre d'une liste filtrée : 'F' si le filtre de sexe est F ou si tous les joueurs affichés sont
+ *                               des filles ; sinon undefined (masculin générique, jamais « M » qui ne change rien à l'accord).
+ *
+ * Seulement l'affichage : les valeurs stockées restent 'M' / 'F' / 'mixte', et la voix comprend toujours « filles »,
+ * « garçons », « féminines », « masculins » (src/voiceFilters.ts, src/playerQuery.ts, src/groupQuery.ts).
  */
 
 export type Gender = 'M' | 'F' | 'mixte' | undefined
 
-/** Libellés du sexe d'un ensemble (groupe, événement, filtre). Un seul endroit à changer (vocabulaire FFHB…). */
-export const SEX_LABELS = { M: 'Garçons', F: 'Filles', mixte: 'Mixte' } as const
-/** Libellé du sexe d'une personne. */
-export const SEX_LABEL_ONE = { M: 'Garçon', F: 'Fille' } as const
-/** Choix « Garçons / Filles / Mixte » (boutons du formulaire d'un groupe ou d'un événement), dans cet ordre. */
+/** Libellés du sexe d'un ensemble (groupe, événement, filtre). Un seul endroit à changer. Jamais « Hommes / Femmes ». */
+export const SEX_LABELS = { M: 'Masculin', F: 'Féminin', mixte: 'Mixte' } as const
+/** Libellé du sexe d'une personne (fiche « Sexe », exports). */
+export const SEX_LABEL_ONE = { M: 'Masculin', F: 'Féminin' } as const
+/** Abréviations, seulement dans les pastilles trop étroites. */
+export const SEX_SHORT = { M: 'Masc.', F: 'Fém.', mixte: 'Mixte' } as const
+/** Choix « Masculin / Féminin / Mixte » (boutons du formulaire d'un groupe ou d'un événement), dans cet ordre. */
 export const SEX_CHOICES = (['M', 'F', 'mixte'] as const).map((value) => ({ value, label: SEX_LABELS[value] }))
+/** Libellé d'un sexe (« Masculin » / « Féminin » / « Mixte »), '' si absent ou inconnu. */
+export function sexLabel(s: string | null | undefined, short = false): string {
+  if (s !== 'M' && s !== 'F' && s !== 'mixte') return ''
+  return (short ? SEX_SHORT : SEX_LABELS)[s]
+}
 
 export const isFem = (g: Gender | string | null): boolean => g === 'F'
 
@@ -275,6 +288,16 @@ export function genderOf(players: readonly ({ sex?: string | null } | undefined 
   if (xs.every((p) => p.sex === 'F')) return 'F'
   if (xs.every((p) => p.sex === 'M')) return 'M'
   return 'mixte'
+}
+
+/**
+ * Genre d'une liste filtrée (Joueurs, bilan, réponses…) : 'F' si le filtre de sexe est F, ou si tous les joueurs affichés
+ * (au moins un) sont des filles ; sinon undefined (masculin générique).
+ */
+export function listGender(filter: string | null | undefined, players?: readonly ({ sex?: string | null } | undefined | null)[]): Gender {
+  if (filter === 'F') return 'F'
+  if (filter === 'M') return undefined
+  return players && genderOf(players) === 'F' ? 'F' : undefined
 }
 
 /** Genre d'un groupe ou d'un événement : sexe déclaré s'il y en a un, sinon déduit de ses joueurs (genderOf). */

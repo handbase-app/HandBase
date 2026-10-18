@@ -448,7 +448,7 @@ const keysOfSchema = new Set(['population', 'vus', 'avis', 'nbAvis', 'mesures', 
 /** Effet attendu de chaque exemple (sur le jeu fictif). */
 const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
   'les joueuses 2011 vues une seule fois cette saison, par département': (r, a) => {
-    assert.equal(recipeText(r, names), 'Joueuses · nées en 2011 · vues à 1 événement · cette saison (2026-2027) · par département')
+    assert.equal(recipeText(r, names), 'Féminin · nées en 2011 · vues à 1 événement · cette saison (2026-2027) · par département')
     assert.deepEqual(a.table!.map((x) => [x.key, x.match]), [['83', 1]])
   },
   "montre-moi la carte de France des joueurs vus au moins deux fois dans l'année": (r, a) => {
@@ -576,7 +576,7 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
   'les 5 clubs du Var avec le plus de joueuses vues cette saison': (r, a) => {
     assert.deepEqual(r.pop, { sex: 'F', depts: ['83'] })
     assert.deepEqual(r.out, { type: 'table', groupBy: 'club', sort: { by: 'count', dir: 'desc' }, limit: 5 })
-    assert.equal(recipeText(r, names), 'Joueuses · Var (83) · vues à au moins 1 événement · cette saison (2026-2027) · par club · tri : nombre de joueurs ↓ · les 5 premiers')
+    assert.equal(recipeText(r, names), 'Féminin · Var (83) · vues à au moins 1 événement · cette saison (2026-2027) · par club · tri : nombre de joueuses ↓ · les 5 premiers')
     assert.deepEqual(a.table!.map((x) => [x.key, x.match, x.total]), [['hbc exemple', 3, 3]], 'un seul club du Var avec des joueuses vues : moins de 5 lignes')
   },
   'quels joueurs ont changé de club cette année ?': (r) => {
@@ -585,7 +585,7 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
   // (a) Jamais une moyenne d'avis à la place de la taille : la colonne « moyenne Taille » (aucun 2010 mesuré dans le jeu).
   'quelle est la taille moyenne par poste chez les garçons nés en 2010 ?': (r, a) => {
     assert.deepEqual(r.out, { type: 'table', groupBy: 'position', value: 'measure', measure: 'taille' })
-    assert.equal(recipeText(r, names), 'Garçons · nés en 2010 · par poste · moyenne Taille')
+    assert.equal(recipeText(r, names), 'Masculin · nés en 2010 · par poste · moyenne Taille')
     assert.deepEqual(a.table!.map((x) => [x.key, x.total, x.stat]), [['ARD', 1, { avg: null, n: 0 }], ['PIV', 1, { avg: null, n: 0 }]])
     // Même question sur les 2009 (deux gardiens mesurés : 188 et 186, dernière mesure).
     const t = runRecipe(ix, { ...r, pop: { sex: 'M', years: [2009, 2009] } }).table!
@@ -593,7 +593,7 @@ const expect: Record<string, (r: Recipe, a: ReturnType<typeof run>) => void> = {
   },
   'quelle est la taille moyenne des gardiennes nées en 2011 ?': (r, a) => {
     assert.deepEqual(r.out, { type: 'count', value: 'measure', measure: 'taille' })
-    assert.equal(recipeText(r, names), 'Joueuses · nées en 2011 · Gardien · combien ? · moyenne Taille')
+    assert.equal(recipeText(r, names), 'Féminin · nées en 2011 · Gardien · combien ? · moyenne Taille')
     assert.deepEqual([a.count, a.stat], [1, { avg: 172, min: 172, max: 172, n: 1 }])
   },
   // (b) Par événement (joueurs VUS à chaque événement, le plus récent d'abord), avec l'âge moyen.
@@ -889,7 +889,7 @@ assert.deepEqual(
 )
 assert.deepEqual(possibleVars(r1), ['sex', 'years', 'period', 'seenN'])
 const again = applyVars(r1, { years: [2012, 2012], period: { kind: 'all' } })
-assert.equal(recipeText(again, names), 'Joueuses · nées en 2012 · vues à 1 événement · depuis toujours · par département')
+assert.equal(recipeText(again, names), 'Féminin · nées en 2012 · vues à 1 événement · depuis toujours · par département')
 assert.deepEqual(varValues(again).years, [2012])
 // Plusieurs années cochées à la relance : celles-là exactement (src/birthYears.ts).
 const again2 = applyVars(r1, { years: [2010, 2012] })

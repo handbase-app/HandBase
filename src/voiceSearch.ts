@@ -8,6 +8,7 @@
 //     et donne les nouveaux filtres (les autres sont remis à zéro) avec le résumé « Compris : … ».
 // Recherche seulement : aucune action sur les joueurs.
 
+import { lateralityPlural, SEX_LABELS } from './gender'
 import type { Laterality, Position } from './db'
 import {
   applyWith,
@@ -255,7 +256,7 @@ export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchCont
     const v = parseSex(f.sexe)
     if (v) {
       values.sex = v
-      understood.push({ key: 'sexe', label: v === 'M' ? 'garçons' : 'filles' })
+      understood.push({ key: 'sexe', label: SEX_LABELS[v].toLowerCase() })
     } else skip(`sexe ${quote(f.sexe)}`, 'valeur inconnue')
   }
   if (has('annee')) {
@@ -283,7 +284,7 @@ export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchCont
     const v = parseHand(f.lateralite)
     if (v) {
       values.hand = v
-      understood.push({ key: 'lateralite', label: HAND_TEXT[v] })
+      understood.push({ key: 'lateralite', label: values.sex === 'F' ? lateralityPlural(v, 'F').toLowerCase() : HAND_TEXT[v] })
     } else skip(`latéralité ${quote(f.lateralite)}`, 'valeur inconnue')
   }
   readPlace(f, ctx, r, { dept: (c) => (values.dept = c), region: (id) => (values.region = id) })
@@ -307,7 +308,7 @@ export function interpretFilters(raw: unknown, nonGere: unknown, ctx: SearchCont
     const v = parsePole(f.pole)
     if (v) {
       values.pole = v
-      understood.push({ key: 'pole', label: POLE_TEXT[v] })
+      understood.push({ key: 'pole', label: values.sex === 'F' ? POLE_TEXT[v].replace(/^(sortis|passés)/, (m) => `${m.slice(0, -1)}es`) : POLE_TEXT[v] })
     } else skip(`Pôle ${quote(f.pole)}`, 'valeur inconnue')
   }
   if (has('avecVideo') && isTrue(f.avecVideo)) {
@@ -378,7 +379,7 @@ const KEY_FIELDS: Record<string, (keyof FilterValues)[]> = {
 }
 /** Nom court d'un filtre (« Retiré : taille »). */
 export const KEY_TEXT: Record<string, string> = {
-  sexe: 'garçons / filles',
+  sexe: 'masculin / féminin',
   annee: 'année',
   trimestre: 'trimestre',
   tailleMin: 'taille',
@@ -432,7 +433,7 @@ const KEY_ALIASES: Record<string, string> = {
 
 export type Outcome = GenericOutcome<FilterValues>
 
-/** Au moins un filtre posé (Garçons / Filles compris). */
+/** Au moins un filtre posé (Masculin / Féminin compris). */
 export const hasFilters = (v: FilterValues) => !sameFilters(v, EMPTY_FILTERS)
 
 /** Règles de la liste Joueurs pour un contexte donné (listes réelles de l'appli). */

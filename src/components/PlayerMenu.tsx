@@ -13,6 +13,7 @@ import { ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
 import type { RowLink } from './PlayerRow'
 import { RewatchDialog } from './Scouting'
 import { playerName } from './ui'
+import { genderOf, pluralG, w } from '../gender'
 
 /*
  * Menu d'une ligne de joueur (toutes les listes passent par PlayerRow) : voir la fiche, évaluer, à revoir, suivre,
@@ -42,6 +43,8 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
   // Événement de la page (liste d'un événement, fiche ouverte depuis un événement).
   const eventId = scope.eventId ?? pathname.match(/^\/evenements\/([^/?#]+)/)?.[1]
   const pick = scope.pick ?? globalPick
+  // Joueurs déjà choisis pour comparer : « 2 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
+  const pickedSex = useLiveQuery(() => db.players.bulkGet(pick.picked).then((ps) => genderOf(ps)), [pick.picked.join(',')])
   const name = playerName(p)
 
   if (phase === 'rewatch') return <RewatchDialog playerId={p.id} originEventId={eventId} onClose={onClose} />
@@ -72,7 +75,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
     {
       label: picked ? 'Retirer de la comparaison' : 'Comparer',
       icon: 'target',
-      hint: picked ? undefined : pick.picked.length ? `avec ${pick.picked.length > 1 ? `${pick.picked.length} joueurs choisis` : 'le joueur choisi'}` : 'choisir ensuite 1 ou 2 autres joueurs',
+      hint: picked ? undefined : pick.picked.length ? `avec ${pick.picked.length > 1 ? pluralG(pick.picked.length, pickedSex, 'joueur choisi') : `${w(pickedSex).leJoueur} ${w(pickedSex).choisi}`}` : 'choisir ensuite 1 ou 2 autres joueurs',
       onSelect: () => {
         if (!pick.on) pick.setOn(true)
         pick.toggle(p.id)

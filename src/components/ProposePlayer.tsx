@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { newId, POSITIONS, save, type Player, type Position } from '../db'
+import { SEX_LABEL_ONE } from '../gender'
 import { can, myDepartments, useRole } from '../roles'
 import { departmentChoices } from '../lists'
 import { Segmented } from './ui'
@@ -77,8 +78,8 @@ export function ProposePlayer({
             value={p.sex}
             onChange={(v) => set('sex', v)}
             options={[
-              { value: 'M', label: 'Garçon' },
-              { value: 'F', label: 'Fille' },
+              { value: 'M', label: SEX_LABEL_ONE.M },
+              { value: 'F', label: SEX_LABEL_ONE.F },
             ]}
           />
         </div>

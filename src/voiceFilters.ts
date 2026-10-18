@@ -73,8 +73,8 @@ export function parseYear(v: unknown, thisYear: number, min = 1950): number | un
 
 export function parseSex(v: unknown): 'M' | 'F' | undefined {
   const s = normalize(asText(v))
-  if (['m', 'masculin', 'masculins', 'garcon', 'garcons', 'h', 'homme', 'hommes'].includes(s)) return 'M'
-  if (['f', 'feminin', 'feminines', 'feminine', 'fille', 'filles', 'femme', 'femmes', 'joueuses'].includes(s)) return 'F'
+  if (['m', 'masculin', 'masculins', 'masculine', 'masculines', 'garcon', 'garcons', 'h', 'homme', 'hommes'].includes(s)) return 'M'
+  if (['f', 'feminin', 'feminins', 'feminines', 'feminine', 'fille', 'filles', 'femme', 'femmes', 'joueuses'].includes(s)) return 'F'
   return undefined
 }
 

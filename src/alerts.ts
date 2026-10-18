@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { snapshots } from './maturitySnapshot'
+import { lateralityPlural, sexLabel } from './gender'
 import { department } from './components/PlayerFilter'
 import { birthQuarter } from './components/ui'
 import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type Evaluation, type Measurement, type Player, type PlayerAlert } from './db'
@@ -123,14 +124,14 @@ export function missingFor(p: Player, r: AlertRules, ctx: AlertContext, criteria
 
 export const matchAlert = (a: PlayerAlert, ctx: AlertContext) => ctx.players.filter((p) => matches(p, a.rules, ctx))
 
-/** Résumé lisible des conditions : « Garçons · 2010, 2011 · gauchers · taille prédite ≥ 190 cm ». */
+/** Résumé lisible des conditions : « Masculin · 2010, 2011 · gauchers · taille prédite ≥ 190 cm » (« gauchères » si Féminin). */
 export function rulesSummary(r: AlertRules, criteria: Criterion[]) {
   const label = (id: string) => criteria.find((c) => c.id === id)
   return [
-    r.sex === 'M' ? 'Garçons' : r.sex === 'F' ? 'Filles' : '',
+    sexLabel(r.sex),
     r.years?.length ? r.years.join(', ') : '',
     r.quarters?.length ? r.quarters.map((q) => `Q${q}`).join(', ') : '',
-    r.laterality ? { droitier: 'droitiers', gaucher: 'gauchers', ambidextre: 'ambidextres' }[r.laterality] : '',
+    r.laterality ? lateralityPlural(r.laterality, r.sex).toLowerCase() : '',
     r.positions?.length ? r.positions.map((x) => positionLabel(x)).join(', ') + (r.withSecondary ? ' (+ secondaires)' : '') : '',
     r.departments?.length ? zoneSummary(r.departments) : '',
     r.minHeight ? `taille ≥ ${r.minHeight} cm${r.keepMissingHeight ? ' (ou inconnue)' : ''}` : '',

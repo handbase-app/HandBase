@@ -1,6 +1,6 @@
 import { regionLabel } from './lists'
 import { age, alive, contextLabel, counts, dayOf, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
-import { w, type Gender } from './gender'
+import { listGender, sexLabel, w, type Gender } from './gender'
 import { fmtValue } from './components/ui'
 import { momentLabel, momentsOf } from './videos'
 import { departmentLabel } from './lists'
@@ -38,7 +38,7 @@ function download(name: string, content: string, type: string) {
 }
 
 /** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis validés.
- *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses »). */
+ *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses » ; à défaut, déduit des joueurs exportés). */
 export async function exportCsv(only?: { id: string }[], g?: Gender) {
   const [all, criteria, measurements, evaluations] = await Promise.all([
     db.players.toArray().then(alive),
@@ -80,7 +80,7 @@ export async function exportCsv(only?: { id: string }[], g?: Gender) {
     const r1 = (v: number | null | undefined) => (typeof v === 'number' ? num(Math.round(v * 10) / 10) : '')
     const snap = snapshots(p, msOf.get(p.id) ?? []).at(-1)
     return [
-      p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
+      p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', sexLabel(p.sex),
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', '), p.team, p.license,
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', poleCols(p).name, poleCols(p).from, poleCols(p).to, lateralityLabel(p.laterality, p.sex),
       ...factual.map((c) => num(l?.get(c.id)?.value)),
@@ -90,7 +90,8 @@ export async function exportCsv(only?: { id: string }[], g?: Gender) {
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
-  download(`${appSlug()}-${w(g).joueurs}-${today()}.csv`, csv, 'text/csv;charset=utf-8')
+  // Genre : celui donné (groupe), sinon « joueuses » si l'export ne contient que des filles.
+  download(`${appSlug()}-${w(g ?? listGender(undefined, players)).joueurs}-${today()}.csv`, csv, 'text/csv;charset=utf-8')
 }
 
 /** Sauvegarde complète (JSON) de la base locale. */
@@ -168,7 +169,7 @@ export async function exportPlayer(id: string) {
       : '<p class="m">Aucune.</p>'
 
   const info: [string, unknown][] = [
-    ['Nom', p.lastName], ['Prénom', p.firstName], ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : ''],
+    ['Nom', p.lastName], ['Prénom', p.firstName], ['Sexe', sexLabel(p.sex)],
     ['Date de naissance', p.birthDate && fmtDate(p.birthDate)], ['Nationalité', p.nationality], ['Club', p.club], ['N° de club', p.clubCode],
     ['Département', dept && departmentLabel(dept)], ['Licence', p.license], ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['État de la licence', p.licenseStatus], ['Type de licence', p.licenseRequestType], ['Équipe', p.team], ['Catégorie / niveau', p.category],
