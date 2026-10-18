@@ -62,6 +62,10 @@ assert.deepEqual(cleanAppearance({ style: 'officiel', name: '  Ligue Fictive  ' 
 assert.equal(cleanAppearance({ style: 'sport', name: 'x'.repeat(80) }).name?.length, 40)
 const png = 'data:image/png;base64,iVBORw0KGgo='
 assert.equal(cleanAppearance({ style: 'sport', logo: png }).logo, png)
+assert.equal(cleanAppearance({ style: 'sport', logo: png }).logoBg, undefined, 'fond transparent par défaut')
+assert.equal(cleanAppearance({ style: 'sport', logo: png, logoBg: 'white' }).logoBg, 'white', 'tuile blanche gardée')
+assert.equal(cleanAppearance({ style: 'sport', logoBg: 'white' }).logoBg, undefined, 'pas de fond sans logo')
+assert.equal(cleanAppearance({ style: 'sport', logo: png, logoBg: 'rouge' }).logoBg, undefined, 'fond inconnu ignoré')
 assert.equal(cleanAppearance({ style: 'sport', logo: 'data:image/svg+xml;base64,PHN2Zz4=' }).logo, undefined, 'SVG incomplet refusé')
 {
   const ok = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><circle cx="5" cy="5" r="4" fill="url(#g)"/><use href="#g"/></svg>'

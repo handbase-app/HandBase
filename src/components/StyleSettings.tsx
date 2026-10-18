@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { remove, save, type ConfigItem } from '../db'
 import { inform } from './Confirm'
-import { SectionTitle } from './ui'
+import { SectionTitle, Segmented } from './ui'
 import {
   AUTO,
   currentAppearance,
@@ -311,8 +311,8 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
       <div className="flex flex-col gap-1">
         <span className="label">Logo de l’organisation (facultatif)</span>
         <div className="flex items-center gap-3">
-          {/* Fond blanc, comme sur l'accueil. */}
-          <span className="flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line bg-white">
+          {/* Fond choisi, comme sur l'accueil. */}
+          <span className={`flex h-12 w-24 shrink-0 items-center justify-center rounded-md border border-line ${draft.logoBg === 'white' ? 'bg-white' : ''}`}>
             {draft.logo ? <img src={draft.logo} alt="Logo" className="max-h-10 max-w-22 object-contain" /> : <span className="text-[10px] text-neutral-500">aucun</span>}
           </span>
           {editable && (
@@ -321,7 +321,7 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
                 Choisir une image
               </button>
               {draft.logo && (
-                <button type="button" className="btn-ghost text-xs" onClick={() => setDraft({ ...draft, logo: undefined })}>
+                <button type="button" className="btn-ghost text-xs" onClick={() => setDraft({ ...draft, logo: undefined, logoBg: undefined })}>
                   Retirer
                 </button>
               )}
@@ -329,7 +329,22 @@ export function InstallationStyle({ editable }: { editable: boolean }) {
             </>
           )}
         </div>
-        <p className="text-[11px] text-muted">Réduit sur cet appareil (50 Ko au plus), montré en grand sur l’accueil, sur fond blanc. SVG ou PNG carré de préférence.</p>
+        {draft.logo && (
+          <div className="mt-1 flex items-center gap-2 text-xs">
+            <span className="text-muted">Fond du logo</span>
+            <div className="w-56">
+              <Segmented<'none' | 'white'>
+                value={draft.logoBg === 'white' ? 'white' : 'none'}
+                onChange={(v) => editable && setDraft({ ...draft, logoBg: v === 'white' ? 'white' : undefined })}
+                options={[
+                  { value: 'none', label: 'Transparent' },
+                  { value: 'white', label: 'Tuile blanche' },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+        <p className="text-[11px] text-muted">Réduit sur cet appareil (50 Ko au plus), montré en grand sur l’accueil. SVG ou PNG carré à fond transparent de préférence ; « Tuile blanche » si le logo est foncé et peu lisible en mode sombre.</p>
       </div>
       {changed && editable && (
         <div className="sticky bottom-[calc(var(--nav-b)+0.5rem)] flex flex-wrap items-center gap-2 rounded-lg border border-accent bg-panel p-2 text-xs shadow-lg">

@@ -87,7 +87,7 @@ const isAppName = (s: string) => /^\s*(nextar|handbase)\s*$/i.test(s) || s.trim(
 /**
  * En-tête de l'accueil : l'organisation mise en avant (la fédération, la ligue…). Logo et nom : ceux réglés par les
  * administrateurs (Réglages → Style de l'installation, « Organisation : nom et logo ») ; sans nom réglé, l'unité au sommet
- * de la structure. Le logo est posé sur une tuile blanche (un logo coloré reste lisible en sombre et dans tous les styles) ;
+ * de la structure. Le logo est montré tel quel (fond transparent), ou sur une tuile blanche si l'organisation l'a choisi (logo foncé en mode sombre) ;
  * sans logo, l'initiale du nom. L'appli (Nextar par défaut) signe dans l'en-tête de l'appli juste au-dessus (téléphone) ou à côté
  * (menu de gauche, ordinateur) : présent sur chaque écran sans concurrencer l'organisation, d'où aucune autre signature ici.
  */
@@ -111,7 +111,7 @@ function OrgHeader() {
   return (
     <div className="flex items-center gap-3.5 px-1 side:col-span-full side:gap-5">
       {look.logo ? (
-        <span className={`${tile} bg-white p-1.5 shadow-sm ring-1 ring-black/[0.07] side:p-2`}>
+        <span className={look.logoBg === 'white' ? `${tile} bg-white p-1.5 shadow-sm ring-1 ring-black/[0.07] side:p-2` : tile}>
           <img src={look.logo} alt="" className="h-full w-full object-contain" />
         </span>
       ) : (

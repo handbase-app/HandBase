@@ -235,6 +235,8 @@ export interface Appearance {
   name?: string
   /** Logo de l'organisation, sur l'accueil (data URL PNG, JPEG, WebP ou SVG vérifié : svgLogoSafe). L'appli garde le sien (Nextar). */
   logo?: string
+  /** Fond du logo sur l'accueil : transparent (par défaut, le logo tel quel) ou une tuile blanche (logo foncé en mode sombre). */
+  logoBg?: 'white'
 }
 
 export const DEFAULT_APPEARANCE: Appearance = { style: DEFAULT_STYLE }
@@ -289,7 +291,8 @@ export function cleanAppearance(v: unknown): Appearance {
   const style = STYLES.some((s) => s.id === o.style) ? (o.style as StyleId) : DEFAULT_STYLE
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, NAME_MAX) : undefined
   const logo = typeof o.logo === 'string' && logoOk(o.logo) ? o.logo : undefined
-  return { style, ...(name ? { name } : {}), ...(logo ? { logo } : {}) }
+  const logoBg = logo && o.logoBg === 'white' ? ('white' as const) : undefined
+  return { style, ...(name ? { name } : {}), ...(logo ? { logo } : {}), ...(logoBg ? { logoBg } : {}) }
 }
 
 /** Lignes de hb_config (non supprimées) → apparence de l'installation. */
