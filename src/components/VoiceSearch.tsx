@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon } from './ui'
+import { logQuestion } from '../questionLog'
+import { AnswerFeedback } from './AnswerFeedback'
 import { sendFilterRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, unsupportedText, type Outcome, type VoicePage } from '../voiceFilters'
@@ -27,7 +29,7 @@ import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, 
  */
 
 /** base : filtres sur lesquels la phrase a agi (et que « Annuler » remet) ; shownFor : filtres pendant lesquels la ligne reste. */
-type Result<V> = { outcome: Outcome<V>; phrase: string; base: V; applied: boolean; shownFor: V }
+type Result<V> = { outcome: Outcome<V>; phrase: string; base: V; applied: boolean; shownFor: V; logId?: string }
 
 export function VoiceSearch<V extends object>({
   values,
@@ -60,10 +62,10 @@ export function VoiceSearch<V extends object>({
     }
   }, [])
 
-  function show(outcome: Outcome<V>, phrase: string, prev: V, base: V) {
+  function show(outcome: Outcome<V>, phrase: string, prev: V, base: V, logId?: string) {
     // Rien ne change : les filtres restent comme ils sont.
     if (outcome.changed) latest.current.apply(outcome.values)
-    setResult({ outcome, phrase, base, applied: outcome.changed, shownFor: outcome.changed ? outcome.values : prev })
+    setResult({ outcome, phrase, base, applied: outcome.changed, shownFor: outcome.changed ? outcome.values : prev, logId })
   }
 
   async function understand(phrase: string) {
@@ -80,7 +82,14 @@ export function VoiceSearch<V extends object>({
     try {
       const ans = await sendFilterRequest(text, p.schema(), p.current(current), ctrl.signal, p.id)
       if (ctrl.signal.aborted) return
-      show(pageApply(p, ans, current), text, current, current)
+      const outcome = pageApply(p, ans, current)
+      // Journal des questions : la phrase anonymisée et ce qu'en a fait la page (filtres posés, en partie, ou rien).
+      const missing = [...outcome.unsupported, ...outcome.notFound.map((x) => `introuvable : ${x}`)]
+      const logId = logQuestion(
+        { phrase: text, recipe: !outcome.changed && outcome.action !== 'effacer' ? 'pas_comprise' : missing.length ? 'partielle' : 'complete', recipeMissing: missing, page: `filtrer_${p.id}` },
+        null,
+      )
+      show(outcome, text, current, current, logId)
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
     } finally {
@@ -176,6 +185,7 @@ export function VoiceSearch<V extends object>({
               {t}
             </span>
           ))}
+          <AnswerFeedback questionId={shown.logId} page={`filtrer_${page.id}`} className="mt-1 border-accent/30" />
         </div>
       ) : null}
     </div>

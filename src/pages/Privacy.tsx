@@ -120,23 +120,29 @@ export function QuestionsText() {
   return (
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>
-        Pendant la phase de développement, les questions posées au bilan de détection (« Poser une question ») peuvent être
-        enregistrées pour améliorer {appName()}.
+        Pendant la phase de développement, les questions posées à {appName()} (« Poser une question » au bilan de détection, champs
+        « Filtrer ou poser une question… » des listes, « Filtrer » à la voix) peuvent être enregistrées pour améliorer {appName()}, avec
+        l’avis donné sur la réponse.
       </p>
       <H>Quoi ?</H>
       <p>
         La phrase de la question, rendue anonyme sur l’appareil avant tout envoi : les prénoms et noms de joueurs deviennent
         [prénom] et [nom], les numéros de licence [licence]. S’y ajoutent le résultat du traitement (question comprise en
         entier, en partie ou pas comprise ; réponse du mode avancé obtenue ou non, avec la requête écrite par l’assistant, elle
-        aussi rendue anonyme), le moment et l’auteur de la question (son compte). Jamais la réponse elle-même ni aucune donnée de
-        joueur.
+        aussi rendue anonyme), l’écran où elle a été posée, le moment et l’auteur de la question (son compte). Jamais la réponse
+        elle-même ni aucune donnée de joueur.
+      </p>
+      <p>
+        Si vous donnez votre avis sur une réponse (« Super », « Mauvaise réponse » ou « Pas de réponse »), cet avis et votre
+        commentaire facultatif (« ce que je voulais ») sont enregistrés avec la question, eux aussi rendus anonymes de la même façon
+        (prénoms, noms et licences remplacés), avec le moment et l’auteur. Donner un avis est facultatif.
       </p>
       <H>Pourquoi ?</H>
       <p>Uniquement pour améliorer les réponses : repérer les questions mal comprises et apprendre à l’appli à y répondre.</p>
       <H>Qui les voit ?</H>
       <p>Les administrateurs seulement. Celui qui pose une question ne relit pas ce journal, pas même ses propres questions.</p>
       <H>Combien de temps ?</H>
-      <p>12 mois au plus : chaque question est effacée automatiquement au bout de 12 mois ; un administrateur peut aussi vider le journal à tout moment.</p>
+      <p>12 mois au plus : chaque question et chaque avis sont effacés automatiquement au bout de 12 mois ; un administrateur peut aussi vider le journal à tout moment.</p>
     </div>
   )
 }
@@ -159,7 +165,7 @@ export default function Privacy() {
         <CharterText />
       </section>
       <section id="questions" className="card scroll-mt-16 p-4">
-        <div className="section-title">Questions posées au bilan (phase de développement)</div>
+        <div className="section-title">Questions posées (phase de développement)</div>
         <QuestionsText />
       </section>
     </div>

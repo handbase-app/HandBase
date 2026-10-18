@@ -62,6 +62,7 @@ import { VoiceSearch } from '../components/VoiceSearch'
 import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
+import { AnswerFeedback } from '../components/AnswerFeedback'
 import { useDictation } from '../dictation/useDictation'
 import { installationAppearance, useThemeVersion } from '../theme'
 import { positionFull } from '../sportConfig'
@@ -1632,6 +1633,7 @@ export default function Coverage() {
             placeText={st.club !== null && club ? clubLabel(club.name) : dept ? deptText(dept) : region ? regionLabel(region) : 'France'}
             level={dept ? 'par club' : region || mapBy === 'dept' ? 'par département' : 'par région'}
             heard={(loc.state as { heard?: string } | null)?.heard}
+            logId={(loc.state as { logId?: string } | null)?.logId}
             onChange={(r) => set({ q: r })}
             onClose={() => set(closeQuestion(st.q!))}
           />
@@ -1945,6 +1947,7 @@ function QuestionBanner({
   placeText,
   level,
   heard,
+  logId,
   onChange,
   onClose,
 }: {
@@ -1957,6 +1960,8 @@ function QuestionBanner({
   placeText: string
   level: string
   heard?: string
+  /** Ligne du journal de la question (avis sur la réponse). */
+  logId?: string
   onChange: (r: Recipe) => void
   onClose: () => void
 }) {
@@ -2006,6 +2011,7 @@ function QuestionBanner({
         </div>
       )}
       {saving && <SaveForm recipe={full} names={names} phrase={heard} onDone={() => setSaving(false)} />}
+      <AnswerFeedback questionId={logId} page="bilan" />
     </section>
   )
 }

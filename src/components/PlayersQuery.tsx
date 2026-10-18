@@ -55,6 +55,7 @@ import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
 import { logQuestion } from '../questionLog'
+import { AnswerFeedback } from './AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { cleanSqlSpec, type SqlSpec } from '../sqlGuard'
 import { AdvancedBusy, SqlAnswerView, sqlPlayers, useAdvancedAsk, useSqlResult } from './SqlAnswer'
@@ -108,8 +109,10 @@ type ResultLine = {
   unsupported?: string[]
   /** La phrase n'a rien donné d'utile. */
   nothing?: boolean
+  /** Ligne du journal de la question (avis sur la réponse). */
+  logId?: string
 }
-type SqlState = { spec: SqlSpec; phrase: string; auto?: boolean; partial?: JoueursQuery }
+type SqlState = { spec: SqlSpec; phrase: string; auto?: boolean; partial?: JoueursQuery; logId?: string }
 type Pending = { phrase: string; raw: unknown; nonGere: string[]; action?: string; retirer?: unknown[]; before: JoueursQuery }
 
 const sameQuery = (a: JoueursQuery, b: JoueursQuery) => JSON.stringify(cleanQuery(a)) === JSON.stringify(cleanQuery(b))
@@ -327,7 +330,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     }
   }
 
-  const adv = useAdvancedAsk(full.source, criteria, index?.data.zoneOf ?? undefined)
+  // Où la question est posée (journal des questions) : liste Joueurs, ajout à un événement ou un groupe, bilan.
+  const logPage = hosted ? 'bilan' : (opts.scope ?? 'joueurs')
+  const adv = useAdvancedAsk(full.source, criteria, index?.data.zoneOf ?? undefined, logPage)
 
   // Recette rendue par le modèle : relue avec les listes de l'appli (dès qu'elles sont prêtes), fusionnée, notée au journal ;
   // pas tout appliqué : mode avancé (s'il est disponible).
@@ -354,17 +359,18 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     if (status !== 'complete' && sqlReady && full.source) {
       void (async () => {
         const spec = await adv.ask(p.phrase, 'auto', { recipe: status, missing })
+        const logId = adv.lastLogId()
         if (spec) {
           setResult(null)
-          setSql({ spec, phrase: p.phrase, auto: true, ...(nothing ? {} : { partial: merged }) })
-        } else if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported })
-        else applyPhrase(p.phrase, p.before, merged, { notes, unsupported })
+          setSql({ spec, phrase: p.phrase, auto: true, logId, ...(nothing ? {} : { partial: merged }) })
+        } else if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported, logId })
+        else applyPhrase(p.phrase, p.before, merged, { notes, unsupported, logId })
       })()
       return
     }
-    void logQuestion({ phrase: p.phrase, recipe: status, recipeMissing: missing }, full.source?.() ?? null)
-    if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported })
-    else applyPhrase(p.phrase, p.before, merged, { notes, unsupported })
+    const logId = logQuestion({ phrase: p.phrase, recipe: status, recipeMissing: missing, page: logPage }, full.source?.() ?? null)
+    if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported, logId })
+    else applyPhrase(p.phrase, p.before, merged, { notes, unsupported, logId })
   }, [pending, ctxReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const mic = useMicRecorder((t) => void ask(t))
@@ -783,7 +789,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
           sqlReady && full.source && !shownResult.nothing && (shownResult.notes?.length || shownResult.unsupported?.length)
             ? async () => {
                 const spec = await adv.ask(shownResult.phrase, 'button', { recipe: 'partielle', missing: [...(shownResult.unsupported ?? []), ...(shownResult.notes ?? [])] })
-                if (spec) setSql({ spec, phrase: shownResult.phrase, partial: qy })
+                if (spec) setSql({ spec, phrase: shownResult.phrase, partial: qy, logId: adv.lastLogId() })
               }
             : undefined
         }
@@ -910,6 +916,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       {qy.calc && calcR && !fromSql && (
         <CalcView recipe={calcR} answer={calcAns} model={rmodel} loading={heavyMissing} onClose={() => setQy({ ...qy, calc: undefined })} />
       )}
+      {/* Avis sur la réponse (phase de test) : mode avancé, sinon la phrase dont les filtres sont à l'écran. */}
+      {!adv.busy && <AnswerFeedback questionId={adv.error ? adv.logId : (sql?.logId ?? shownResult?.logId)} page={logPage} />}
       {heavyMissing && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
       {sorted && !fromSql && !!sel?.unranked && (
         <p className="text-[11px] text-muted">

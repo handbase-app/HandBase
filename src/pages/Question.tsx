@@ -41,6 +41,7 @@ import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
 import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult } from '../components/SqlAnswer'
 import { logQuestion } from '../questionLog'
+import { AnswerFeedback } from '../components/AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { useDictation } from '../dictation/useDictation'
 import { decodeSqlSpec, encodeSqlSpec, type SqlSpec } from '../sqlGuard'
@@ -106,6 +107,8 @@ type HistState = Partial<AskState> & {
   recipeStatus?: RecipeStatus
   simplified?: string
   fromAdvanced?: boolean
+  /** Ligne du journal de la question (avis sur la réponse, src/components/AnswerFeedback.tsx). */
+  logId?: string
 }
 
 const enc = (r: Recipe) => `r=${encodeURIComponent(encodeRecipe(r))}`
@@ -163,7 +166,7 @@ export default function Question() {
   const side = useMedia(MQ.side)
   const [saving, setSaving] = useState(false)
   const { sqlReady } = useDictation()
-  const adv = useAdvancedAsk(model.source, model.data?.criteria ?? [], model.index?.data.zoneOf ?? undefined)
+  const adv = useAdvancedAsk(model.source, model.data?.criteria ?? [], model.index?.data.zoneOf ?? undefined, 'question')
   // Ce que la recette n'a pas appliqué (journal, bandeau).
   const missing = [...(st.unsupported ?? []), ...(st.notes ?? [])]
 
@@ -176,12 +179,14 @@ export default function Question() {
    */
   const advanced = async (how: 'auto' | 'button') => {
     const spec = await adv.ask(st.heard, how, { recipe: st.recipeStatus ?? (nothing ? 'pas_comprise' : 'partielle'), missing })
+    const logId = adv.lastLogId()
     if (spec)
       nav(`/bilan/question?${encSql(spec)}`, {
         replace: how === 'auto',
         state: {
           heard: st.heard,
           advanced: how,
+          logId,
           ...(how === 'auto' && recipe && !nothing ? { simplified: encodeRecipe(recipe), notes: st.notes, unsupported: st.unsupported, recipeStatus: st.recipeStatus } : {}),
         } satisfies HistState,
       })
@@ -195,16 +200,17 @@ export default function Question() {
     const it = interpretRecipe(st.raw, st.nonGere, model.ctx, st.heard)
     const status: RecipeStatus = answersNothing(it.recipe, it.unsupported) ? 'pas_comprise' : it.notes.length || it.unsupported.length ? 'partielle' : 'complete'
     const autoSql = status !== 'complete' && sqlReady && !!st.heard
-    if (!autoSql && st.heard) void logQuestion({ phrase: st.heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes] }, model.source?.() ?? null)
+    const logId =
+      !autoSql && st.heard ? logQuestion({ phrase: st.heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes], page: 'question' }, model.source?.() ?? null) : undefined
     // Réponse géographique, recette appliquée en entier : sur le bilan, ouvert sur le lieu de la question.
     if (status === 'complete' && goesToBilan(it.recipe)) {
       const to = bilanTarget(it.recipe, model)
-      nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { replace: true, state: { bilanChain: [], heard: st.heard } })
+      nav(`/bilan?${bilanQuestionSearch(to.recipe, to.place)}`, { replace: true, state: { bilanChain: [], heard: st.heard, logId } })
       return
     }
     nav(`/bilan/question?${enc(it.recipe)}`, {
       replace: true,
-      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status } satisfies HistState,
+      state: { heard: st.heard, notes: it.notes, unsupported: it.unsupported, autoSql, recipeStatus: status, logId } satisfies HistState,
     })
   }, [pending, model.ctx]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -236,7 +242,7 @@ export default function Question() {
             st.simplified
               ? () =>
                   nav(`/bilan/question?r=${encodeURIComponent(st.simplified!)}`, {
-                    state: { heard: st.heard, notes: st.notes, unsupported: st.unsupported, recipeStatus: st.recipeStatus, fromAdvanced: true } satisfies HistState,
+                    state: { heard: st.heard, notes: st.notes, unsupported: st.unsupported, recipeStatus: st.recipeStatus, fromAdvanced: true, logId: st.logId } satisfies HistState,
                   })
               : undefined
           }
@@ -324,6 +330,8 @@ export default function Question() {
           {!sqlSpec && !waiting && recipe && answer && model.index && (
             <AnswerView recipe={recipe} answer={answer} model={model} index={model.index} params={params} search={search} setRecipe={set} setMap={setMap} />
           )}
+          {/* Avis sur la réponse (phase de test) : la dernière question notée (mode avancé en échec compris). */}
+          {!waiting && <AnswerFeedback questionId={adv.error ? (adv.logId ?? st.logId) : st.logId} page="question" className="mt-3" />}
         </section>
         {/* Téléphone : « Mes questions » sous la réponse. */}
         {!side && <SavedQuestions model={model} />}

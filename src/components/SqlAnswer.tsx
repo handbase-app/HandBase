@@ -103,9 +103,18 @@ function failStatus(e: unknown): AdvancedStatus {
 /** Ce qu'avait fait la recette avant le mode avancé (pour le journal des questions). */
 export type RecipeInfo = { recipe: RecipeStatus; missing?: string[] }
 
-export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof buildSqlSchema>[0]['criteria'], zoneOf?: (c: string) => string | null | undefined) {
+export function useAdvancedAsk(
+  source: MirrorSource,
+  criteria: Parameters<typeof buildSqlSchema>[0]['criteria'],
+  zoneOf?: (c: string) => string | null | undefined,
+  /** Où la question est posée (journal des questions). */
+  page?: string,
+) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Ligne du journal de la dernière question (avis sur la réponse, src/components/AnswerFeedback.tsx).
+  const [logId, setLogId] = useState<string | undefined>()
+  const lastLog = useRef<string | undefined>(undefined)
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
   useEffect(() => holdMirror(), [])
@@ -122,7 +131,7 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
     const ctrl = new AbortController()
     abort.current = ctrl
     // Ce qui part au journal : jamais le résultat, seulement le nombre de lignes.
-    const trace: QuestionTrace = { how, phrase: said, recipe: recipe.recipe, recipeMissing: recipe.missing, status: 'erreur' }
+    const trace: QuestionTrace = { how, phrase: said, recipe: recipe.recipe, recipeMissing: recipe.missing, status: 'erreur', page }
     try {
       const schema = buildSqlSchema({ criteria, positions: POSITIONS, zoneOf, today: today() })
       let ans = await sendSqlRequest(said, schema, undefined, ctrl.signal)
@@ -170,10 +179,13 @@ export function useAdvancedAsk(source: MirrorSource, criteria: Parameters<typeof
     } finally {
       if (abort.current === ctrl) abort.current = null
       setBusy(false)
-      void logQuestion(trace, source())
+      const id = logQuestion(trace, source())
+      lastLog.current = id
+      setLogId(id)
     }
   }
-  return { ask, busy, error, cancel: () => abort.current?.abort() }
+  /** lastLogId : la ligne de la question qui vient de finir (lue juste après `await ask(…)`). */
+  return { ask, busy, error, cancel: () => abort.current?.abort(), logId, lastLogId: () => lastLog.current }
 }
 
 /** Attente du mode avancé (bascule automatique ou bouton). */

@@ -29,6 +29,8 @@ import { MicStatus, useMicRecorder } from './MicButton'
 import { useSessionState } from './PlayerFilter'
 import { chipCls, NumberInput, OPS, Select } from './RecipeChips'
 import { Icon } from './ui'
+import { logQuestion } from '../questionLog'
+import { AnswerFeedback } from './AnswerFeedback'
 
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
@@ -46,7 +48,8 @@ import { Icon } from './ui'
 
 const fr = (n: number) => n.toLocaleString('fr-FR')
 
-type ResultLine<F> = { phrase: string; before: ListQuery<F>; after?: ListQuery<F>; text: string; notes?: string[]; unsupported?: string[]; nothing?: boolean }
+/** logId : ligne du journal des questions (avis sur la réponse). */
+type ResultLine<F> = { phrase: string; before: ListQuery<F>; after?: ListQuery<F>; text: string; notes?: string[]; unsupported?: string[]; nothing?: boolean; logId?: string }
 
 export type ListQueryOptions<F extends object, T, C> = {
   spec: ListSpec<F, T, C>
@@ -154,8 +157,13 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       }
       const merged = mergeListQuery(spec, before, it, action, remove, o.regionOf)
       const nothing = action === 'ajouter' && !remove.length && sameListQuery(spec, merged, before)
-      if (nothing) setResult({ phrase: said, before, text: '', nothing: true, unsupported: [...it.unsupported, ...notes] })
-      else applyPhrase(said, before, merged, { notes, unsupported: it.unsupported })
+      // Journal des questions (comme la liste Joueurs) : la phrase anonymisée et ce qu'en a fait la recette.
+      const logId = logQuestion(
+        { phrase: said, recipe: nothing ? 'pas_comprise' : notes.length || it.unsupported.length ? 'partielle' : 'complete', recipeMissing: [...it.unsupported, ...notes], page: id },
+        null,
+      )
+      if (nothing) setResult({ phrase: said, before, text: '', nothing: true, unsupported: [...it.unsupported, ...notes], logId })
+      else applyPhrase(said, before, merged, { notes, unsupported: it.unsupported, logId })
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
     } finally {
@@ -311,7 +319,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
     </div>
   )
 
-  // ---------- Au-dessus de la liste : réponse « pas compris », calcul ----------
+  // ---------- Au-dessus de la liste : réponse « pas compris », calcul, avis sur la réponse ----------
   const top = (
     <>
       {shownResult?.nothing && (
@@ -335,6 +343,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
           onClose={() => setQy({ ...qy, calc: undefined })}
         />
       )}
+      <AnswerFeedback questionId={shownResult?.logId} page={id} />
     </>
   )
 

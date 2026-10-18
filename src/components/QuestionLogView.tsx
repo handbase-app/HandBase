@@ -3,7 +3,14 @@ import type { QuestionLog } from '../db'
 import { clearQuestionLog, setRecipeDone, useQuestionLog } from '../questionLog'
 import {
   copyForClaude,
+  exportCsv,
+  filterByAvis,
   filterEntries,
+  isBadVerdict,
+  splitLog,
+  VERDICT_LABEL,
+  VERDICTS,
+  type AvisFilter,
   groupEntries,
   outcomeOf,
   OUTCOME_LABEL,
@@ -24,6 +31,10 @@ import { appName } from '../appBrand'
  * requêtes anonymisées, aucun résultat. Filtres par issue (ratées, sauvées par le mode avancé, comprises), regroupement des
  * phrases semblables avec leur nombre, tri « ratées d'abord » ou « les plus fréquentes ». « Copier pour Claude » donne les
  * ratés à traiter et les questions les plus fréquentes ; une fois la recette écrite, on coche « Transformée en recette ».
+ * AVIS des entraîneurs (phase de test, src/components/AnswerFeedback.tsx) : lignes à part du journal (kind = 'avis'),
+ * montrés avec la question qu'ils jugent (verdict, commentaire) ; filtre « Avec avis » / par verdict ; une question jugée
+ * « Mauvaise réponse » ou « Pas de réponse » est « à traiter » même si la recette l'a comprise. « Exporter (CSV) » : le
+ * journal avec les avis, pour l'analyser dans un tableur.
  */
 
 const PAGE = 30
@@ -51,6 +62,29 @@ function DoneBox({ rows, label = 'Transformée en recette' }: { rows: QuestionLo
   )
 }
 
+const VERDICT_CLS = { super: 'border-emerald-500/50 text-emerald-300', mauvaise: 'border-amber-500/60 text-amber-300', sans_reponse: 'border-sky-500/50 text-sky-300' }
+
+/** Avis donnés sur une question : verdict, commentaire, auteur et date. */
+function AvisList({ avis }: { avis?: QuestionLog[] }) {
+  if (!avis?.length) return null
+  return (
+    <ul className="flex flex-col gap-1">
+      {avis.map((a) => (
+        <li key={a.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${a.verdict ? VERDICT_CLS[a.verdict] : ''}`}>
+            Avis : {a.verdict ? VERDICT_LABEL[a.verdict] : '?'}
+          </span>
+          {a.comment && <span>« {a.comment} »</span>}
+          <span className="text-muted">
+            {a.authorName ? `${a.authorName}, ` : ''}
+            {when(a.at)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function SqlFold({ e }: { e: QuestionLogRow }) {
   if (!e.sql && !e.sqlRetry) return null
   return (
@@ -63,13 +97,14 @@ function SqlFold({ e }: { e: QuestionLogRow }) {
 }
 
 /** Une entrée : date, auteur, recette, mode avancé, ce qui n'a pas été appliqué, requête repliable. */
-function Entry({ e, withPhrase, box }: { e: QuestionLog; withPhrase?: boolean; box?: boolean }) {
+function Entry({ e, withPhrase, box, avis }: { e: QuestionLog; withPhrase?: boolean; box?: boolean; avis?: QuestionLog[] }) {
   return (
     <li className="flex flex-col gap-1 py-2">
       {withPhrase && <p className="text-sm font-bold">« {e.phrase} »</p>}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
         <span>{when(e.at)}</span>
         {e.authorName && <span>· {e.authorName}</span>}
+        {e.page && <span>· {e.page}</span>}
         <OutcomeTag outcome={outcomeOf(e)} />
         <span>· {RECIPE_LABEL[e.recipe] ?? e.recipe}</span>
         {e.status && (
@@ -84,6 +119,7 @@ function Entry({ e, withPhrase, box }: { e: QuestionLog; withPhrase?: boolean; b
       {!!e.recipeMissing?.length && <p className="text-[11px]">Pas appliqué par la recette : {e.recipeMissing.join(' ; ')}</p>}
       {!!e.modelMissing?.length && <p className="text-[11px] text-muted">Pas géré en mode avancé : {e.modelMissing.join(' ; ')}</p>}
       {e.status && e.status !== 'ok' && e.detail && <p className="text-[11px] text-muted">Précision : {e.detail}</p>}
+      <AvisList avis={avis} />
       <SqlFold e={e} />
       {box && <DoneBox rows={[e]} />}
     </li>
@@ -91,16 +127,22 @@ function Entry({ e, withPhrase, box }: { e: QuestionLog; withPhrase?: boolean; b
 }
 
 export function QuestionLogView() {
-  const all = useQuestionLog()
+  const rows = useQuestionLog()
   const [filter, setFilter] = useState<LogFilter>('a_traiter')
+  const [avisFilter, setAvisFilter] = useState<AvisFilter>('tous')
   const [sort, setSort] = useState<GroupSort>('rates')
   const [grouped, setGrouped] = useState(true)
   const [limit, setLimit] = useState(PAGE)
   const [copied, setCopied] = useState('')
-  if (!all) return <p className="text-xs text-muted">Chargement…</p>
+  if (!rows) return <p className="text-xs text-muted">Chargement…</p>
 
-  const count = (f: LogFilter) => filterEntries(all, f).length
-  const shown = filterEntries(all, filter)
+  // Questions d'un côté, avis (lignes à part) de l'autre.
+  const { questions: all, avis, orphans } = splitLog(rows)
+  const nAvis = [...avis.values()].reduce((n, l) => n + l.length, 0)
+  const count = (f: LogFilter) => filterByAvis(filterEntries(all, f, avis), avis, avisFilter).length
+  const byFilter = filterEntries(all, filter, avis)
+  const countAvis = (f: AvisFilter) => filterByAvis(byFilter, avis, f).length
+  const shown = filterByAvis(byFilter, avis, avisFilter)
   const groups = groupEntries(shown, sort)
   // Sans regroupement : ratées d'abord (ou plus récentes).
   const rank: Record<Outcome, number> = { rate: 0, sauvee: 1, complete: 2 }
@@ -108,7 +150,7 @@ export function QuestionLogView() {
   const todo = count('a_traiter')
 
   async function copy() {
-    const text = copyForClaude(all!, undefined, appName())
+    const text = copyForClaude(rows!, undefined, appName())
     try {
       await navigator.clipboard.writeText(text)
       setCopied(`Copié : ${todo} question${todo > 1 ? 's' : ''} à traiter et les plus fréquentes, prêtes à coller dans une conversation avec Claude.`)
@@ -117,8 +159,22 @@ export function QuestionLogView() {
     }
   }
 
+  function download() {
+    // Avec BOM : le tableur reconnaît les accents.
+    const blob = new Blob(['\ufeff' + exportCsv(rows!)], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `journal-questions-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    setCopied(`Exporté : ${all.length} question${all.length > 1 ? 's' : ''} et ${nAvis} avis (CSV, séparateur « ; »).`)
+  }
+
   async function clear() {
-    if (!(await ask(`Vider le journal ? Les ${all!.length} entrées sont retirées pour tous les administrateurs.`, { ok: 'Vider' }))) return
+    if (!(await ask(`Vider le journal ? Les ${rows!.filter((r) => !r.deleted).length} entrées (questions et avis) sont retirées pour tous les administrateurs.`, { ok: 'Vider' }))) return
     await clearQuestionLog()
     setCopied('')
   }
@@ -128,22 +184,35 @@ export function QuestionLogView() {
     { value: 'rate', label: `Ratées (${count('rate')})` },
     { value: 'sauvee', label: `Sauvées (${count('sauvee')})` },
     { value: 'complete', label: `Comprises (${count('complete')})` },
-    { value: 'toutes', label: `Toutes (${all.length})` },
+    { value: 'toutes', label: `Toutes (${count('toutes')})` },
   ]
+  const avisFilters: { value: AvisFilter; label: string }[] = [
+    { value: 'tous', label: 'Tous' },
+    { value: 'avec_avis', label: `Avec avis (${countAvis('avec_avis')})` },
+    ...VERDICTS.map((v) => ({ value: v as AvisFilter, label: `${VERDICT_LABEL[v]} (${countAvis(v)})` })),
+  ]
+  const chip = (on: boolean) => `min-h-9 rounded-full border px-3 text-[11px] font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line text-fg hover:border-accent'}`
+  const avisOf = (entries: QuestionLog[]) => entries.flatMap((e) => avis.get(e.id) ?? [])
 
   return (
     <section className="card flex flex-col gap-3 p-4">
       <p className="text-[11px] text-muted">
-        Toutes les questions de « Poser une question » : ce qu’en a fait la recette et, au besoin, le mode avancé. De quoi écrire de nouvelles
-        recettes. Prénoms, noms et licences sont remplacés par [prénom], [nom], [licence] sur l’appareil, avant tout enregistrement ; aucun
-        résultat n’est gardé. Effacées automatiquement au bout de 12 mois.
+        Toutes les questions posées (« Poser une question », champs « Filtrer ou poser une question… », « Filtrer » à la voix) : ce
+        qu’en a fait la recette et, au besoin, le mode avancé. De quoi écrire de nouvelles
+        recettes. Avec les avis des entraîneurs sur les réponses (Super, Mauvaise réponse, Pas de réponse) et leur commentaire. Prénoms, noms
+        et licences sont remplacés par [prénom], [nom], [licence] sur l’appareil, avant tout enregistrement ; aucun résultat n’est gardé.
+        Effacées automatiquement au bout de 12 mois.
       </p>
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn-primary min-h-11 px-3 text-xs" disabled={!all.length} onClick={() => void copy()}>
           <Icon name="copy" className="h-3.5 w-3.5" />
           Copier pour Claude
         </button>
-        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length} onClick={() => void clear()}>
+        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis} onClick={download}>
+          <Icon name="list" className="h-3.5 w-3.5" />
+          Exporter (CSV)
+        </button>
+        <button type="button" className="btn-ghost min-h-11 px-3 text-xs" disabled={!all.length && !nAvis} onClick={() => void clear()}>
           <Icon name="trash" className="h-3.5 w-3.5" />
           Vider le journal
         </button>
@@ -159,9 +228,26 @@ export function QuestionLogView() {
             key={f.value}
             type="button"
             aria-pressed={filter === f.value}
-            className={`min-h-9 rounded-full border px-3 text-[11px] font-bold ${filter === f.value ? 'border-accent bg-accent text-white' : 'border-line text-fg hover:border-accent'}`}
+            className={chip(filter === f.value)}
             onClick={() => {
               setFilter(f.value)
+              setLimit(PAGE)
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrer par avis des entraîneurs">
+        <span className="text-[11px] font-bold text-muted">Avis ({nAvis}) :</span>
+        {avisFilters.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            aria-pressed={avisFilter === f.value}
+            className={chip(avisFilter === f.value)}
+            onClick={() => {
+              setAvisFilter(f.value)
               setLimit(PAGE)
             }}
           >
@@ -207,14 +293,17 @@ export function QuestionLogView() {
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
                 <OutcomeTag outcome={g.outcome} /> Dernière fois : {when(g.last)}
               </p>
-              {g.outcome !== 'complete' && (
+              <div className="mt-1">
+                <AvisList avis={avisOf(g.entries)} />
+              </div>
+              {(g.outcome !== 'complete' || avisOf(g.entries).some((a) => isBadVerdict(a.verdict))) && (
                 <DoneBox rows={g.entries} label={g.entries.length > 1 ? `Transformées en recette (les ${g.entries.length})` : 'Transformée en recette'} />
               )}
               <details className="text-[11px]">
                 <summary className="min-h-9 cursor-pointer py-1 font-bold text-muted">Détail ({g.entries.length})</summary>
                 <ul className="divide-y divide-line">
                   {g.entries.map((e) => (
-                    <Entry key={e.id} e={e} withPhrase={g.phrases.length > 1} box={g.entries.length > 1 && outcomeOf(e) !== 'complete'} />
+                    <Entry key={e.id} e={e} withPhrase={g.phrases.length > 1} box={g.entries.length > 1 && outcomeOf(e) !== 'complete'} avis={avis.get(e.id)} />
                   ))}
                 </ul>
               </details>
@@ -224,9 +313,15 @@ export function QuestionLogView() {
       ) : (
         <ul className="divide-y divide-line">
           {flat.slice(0, limit).map((e) => (
-            <Entry key={e.id} e={e} withPhrase box={outcomeOf(e) !== 'complete'} />
+            <Entry key={e.id} e={e} withPhrase box={outcomeOf(e) !== 'complete' || !!avis.get(e.id)?.some((a) => isBadVerdict(a.verdict))} avis={avis.get(e.id)} />
           ))}
         </ul>
+      )}
+      {!!orphans.length && avisFilter !== 'tous' && (
+        <details className="text-[11px]">
+          <summary className="min-h-9 cursor-pointer py-1 font-bold text-muted">Avis dont la question n’est plus au journal ({orphans.length})</summary>
+          <AvisList avis={orphans} />
+        </details>
       )}
       {(grouped ? groups.length : shown.length) > limit && (
         <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => setLimit(limit + PAGE)}>

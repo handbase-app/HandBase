@@ -83,9 +83,89 @@ export interface QuestionLogFields {
   display?: string
   /** « Transformée en recette » : cochée par un administrateur. */
   recipeDone?: boolean
+  /** Où la question a été posée (« joueurs », « evenements », « groupes », « bilan », « question »…). */
+  page?: string
+  // ---- Ligne d'AVIS (kind = 'avis', supabase/049_avis_questions.sql) : ni phrase ni recipe, seulement les champs ci-dessous
+  // (et at, auteur, page). Séparées des questions par splitLog avant tout calcul de l'écran.
+  kind?: 'avis'
+  /** Identifiant de la ligne de la question jugée. */
+  questionId?: string
+  verdict?: Verdict
+  /** « Ce que je voulais » (facultatif), anonymisé. */
+  comment?: string
 }
 
 export type QuestionLogRow = QuestionLogFields & { id: string; updatedAt?: number; deleted?: boolean }
+
+// ---------- Avis sur une réponse ----------
+
+/**
+ * Avis de l'entraîneur sur une réponse (phase de test), une fois par question : Super, Mauvaise réponse, Pas de réponse.
+ * C'est une NOUVELLE ligne du journal (la question ne change jamais après sa création), anonymisée comme la phrase.
+ */
+export type Verdict = 'super' | 'mauvaise' | 'sans_reponse'
+export const VERDICTS: Verdict[] = ['super', 'mauvaise', 'sans_reponse']
+export const VERDICT_LABEL: Record<Verdict, string> = { super: 'Super', mauvaise: 'Mauvaise réponse', sans_reponse: 'Pas de réponse' }
+/** Verdicts qui font d'une question une question « à traiter » (même comprise en entier par la recette). */
+export const isBadVerdict = (v?: Verdict) => v === 'mauvaise' || v === 'sans_reponse'
+/** Longueur maximale du commentaire (comme sur le serveur). */
+export const MAX_COMMENT = 500
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+export type AvisInput = { questionId: string; verdict: Verdict; comment?: string; page?: string }
+
+/**
+ * Ligne d'avis prête à enregistrer : commentaire ANONYMISÉ (mêmes règles que la phrase) et borné, champs vides retirés.
+ * null si l'avis n'est pas valable (identifiant de question ou verdict inconnus : le serveur le refuserait).
+ */
+export function buildAvis(a: AvisInput, input: AnonymizerInput, me: { id?: string; name?: string } = {}, at = new Date()): QuestionLogFields | null {
+  if (!ID_RE.test(a.questionId) || !VERDICTS.includes(a.verdict)) return null
+  const comment = (a.comment ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const fields = {
+    at: at.toISOString(),
+    authorId: me.id,
+    authorName: me.name,
+    kind: 'avis' as const,
+    questionId: a.questionId,
+    verdict: a.verdict,
+    comment: comment ? clip(buildAnonymizer(input).text(comment), MAX_COMMENT) : undefined,
+    page: clip(a.page?.trim() || undefined, 40),
+  }
+  return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as unknown as QuestionLogFields
+}
+
+export const isAvis = (r: Pick<QuestionLogFields, 'kind'>) => r.kind === 'avis'
+
+/**
+ * Sépare le journal : les questions (tout le reste de l'écran ne voit qu'elles), les avis par question (le plus récent
+ * d'abord), et les avis dont la question n'est plus là (journal vidé entre-temps).
+ */
+export function splitLog<T extends QuestionLogRow>(rows: T[]): { questions: T[]; avis: Map<string, T[]>; orphans: T[] } {
+  const alive = rows.filter((r) => !r.deleted)
+  const questions = alive.filter((r) => !isAvis(r))
+  const ids = new Set(questions.map((q) => q.id))
+  const avis = new Map<string, T[]>()
+  const orphans: T[] = []
+  for (const r of alive) {
+    if (!isAvis(r) || !r.questionId || !r.verdict) continue
+    if (!ids.has(r.questionId)) orphans.push(r)
+    const l = avis.get(r.questionId)
+    if (l) l.push(r)
+    else avis.set(r.questionId, [r])
+  }
+  for (const l of avis.values()) l.sort((a, b) => b.at.localeCompare(a.at))
+  return { questions, avis, orphans: orphans.sort((a, b) => b.at.localeCompare(a.at)) }
+}
+
+/** Filtre de l'écran sur les avis : tous, avec un avis, ou un verdict. */
+export type AvisFilter = 'tous' | 'avec_avis' | Verdict
+export function filterByAvis<T extends QuestionLogRow>(rows: T[], avis: Map<string, QuestionLogRow[]>, f: AvisFilter): T[] {
+  if (f === 'tous') return rows
+  return rows.filter((r) => {
+    const a = avis.get(r.id)
+    return !!a?.length && (f === 'avec_avis' || a.some((x) => x.verdict === f))
+  })
+}
 
 /**
  * Droits sur le journal (miroir de supabase/043_journal_questions.sql) :
@@ -327,6 +407,8 @@ export type QuestionTrace = {
   detail?: string
   rows?: number
   display?: string
+  /** Où la question a été posée (« joueurs », « bilan »…). */
+  page?: string
 }
 
 const clip = (s: string | undefined, n: number) => (s ? s.slice(0, n) : undefined)
@@ -356,6 +438,7 @@ export function buildEntry(trace: QuestionTrace, input: AnonymizerInput, me: { i
     detail: clip(trace.detail && an.text(trace.detail), 300),
     rows: trace.rows,
     display: clip(trace.display, 20),
+    page: clip(trace.page?.trim() || undefined, 40),
   }
   return Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)) as unknown as QuestionLogFields
 }
@@ -393,7 +476,7 @@ export type GroupSort = 'rates' | 'frequentes' | 'recentes'
 export function groupEntries<T extends QuestionLogRow>(rows: T[], sort: GroupSort = 'recentes'): QuestionGroup<T>[] {
   const by = new Map<string, T[]>()
   for (const r of rows) {
-    if (r.deleted) continue
+    if (r.deleted || isAvis(r)) continue
     const k = similarKey(r.phrase) || r.phrase
     const list = by.get(k)
     if (list) list.push(r)
@@ -426,8 +509,15 @@ export function groupEntries<T extends QuestionLogRow>(rows: T[], sort: GroupSor
 
 /** Filtre de l'écran : toutes, une issue, ou « à traiter » (pas comprise en entier par la recette, pas encore transformée). */
 export type LogFilter = 'toutes' | 'a_traiter' | Outcome
-export function filterEntries<T extends QuestionLogRow>(rows: T[], f: LogFilter): T[] {
-  return rows.filter((r) => !r.deleted && (f === 'toutes' || (f === 'a_traiter' ? outcomeOf(r) !== 'complete' && !r.recipeDone : outcomeOf(r) === f)))
+/**
+ * « À traiter » : pas comprise en entier par la recette, OU jugée « Mauvaise réponse » / « Pas de réponse » par un
+ * entraîneur (avis : `avis`), et pas encore transformée en recette. Lignes d'avis : jamais (ce ne sont pas des questions).
+ */
+export function filterEntries<T extends QuestionLogRow>(rows: T[], f: LogFilter, avis?: Map<string, QuestionLogRow[]>): T[] {
+  const bad = (r: T) => !!avis?.get(r.id)?.some((a) => isBadVerdict(a.verdict))
+  return rows.filter(
+    (r) => !r.deleted && !isAvis(r) && (f === 'toutes' || (f === 'a_traiter' ? (outcomeOf(r) !== 'complete' || bad(r)) && !r.recipeDone : outcomeOf(r) === f)),
+  )
 }
 
 // ---------- « Copier pour Claude » ----------
@@ -451,14 +541,14 @@ export const TOP_FREQUENT = 15
  * Rien d'autre : phrases et requêtes déjà anonymisées, aucun résultat.
  */
 export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOString().slice(0, 10), app = 'Nextar'): string {
-  const alive = rows.filter((r) => !r.deleted)
-  const todo = filterEntries(alive, 'a_traiter')
+  const { questions: alive, avis } = splitLog(rows)
+  const todo = filterEntries(alive, 'a_traiter', avis)
   const groups = groupEntries(todo, 'rates')
   const n = (k: number, w: string) => `${k} ${w}${k > 1 ? 's' : ''}`
   const out = [
     `# ${app} : questions posées au bilan (à transformer en recettes)`,
     `${n(alive.length, 'question')} au journal · ${n(todo.length, 'question')} à traiter en ${n(groups.length, 'forme')} · relevé du ${today}.`,
-    `Phrases et requêtes anonymisées ([prénom], [nom], [licence]) ; aucun résultat ni donnée de joueur.`,
+    `Phrases, requêtes et commentaires anonymisés ([prénom], [nom], [licence]) ; aucun résultat ni donnée de joueur.`,
     '',
     `## Ratés à traiter (ratés d'abord, puis les plus fréquents)`,
   ]
@@ -467,6 +557,10 @@ export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOSt
     out.push('', `### ${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length} · ${OUTCOME_LABEL[g.outcome]}`)
     if (g.phrases.length > 1) out.push(`- Autres formulations : ${g.phrases.slice(1).map((p) => `« ${p.phrase} »${p.count > 1 ? ` ×${p.count}` : ''}`).join(' ; ')}`)
     out.push(`- Recette : ${counted(g.entries.map((e) => e.recipe), RECIPE_LABEL)}`)
+    const gAvis = g.entries.flatMap((e) => avis.get(e.id) ?? [])
+    if (gAvis.length) out.push(`- Avis des entraîneurs : ${counted(gAvis.map((a) => a.verdict), VERDICT_LABEL)}`)
+    const said = uniq(gAvis.map((a) => a.comment))
+    if (said.length) out.push(`- Ce qu'ils voulaient : ${said.map((c) => `« ${c} »`).join(' ; ')}`)
     const missing = uniq(g.entries.flatMap((e) => e.recipeMissing ?? []))
     if (missing.length) out.push(`- Pas appliqué par la recette : ${missing.join(' ; ')}`)
     const adv = g.entries.filter((e) => e.status)
@@ -489,8 +583,75 @@ export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOSt
   const top = groupEntries(alive, 'frequentes').slice(0, TOP_FREQUENT)
   out.push('', `## Questions les plus fréquentes (${top.length} premières, toutes issues)`, '')
   if (!top.length) out.push('Aucune question.')
-  top.forEach((g, i) =>
-    out.push(`${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length} : ${counted(g.entries.map(outcomeOf), OUTCOME_LABEL)}${g.done ? ' (transformée en recette)' : ''}`),
-  )
+  top.forEach((g, i) => {
+    const gAvis = g.entries.flatMap((e) => avis.get(e.id) ?? [])
+    const a = gAvis.length ? ` · avis : ${counted(gAvis.map((x) => x.verdict), VERDICT_LABEL)}` : ''
+    out.push(`${i + 1}. « ${g.phrases[0].phrase} » ×${g.entries.length} : ${counted(g.entries.map(outcomeOf), OUTCOME_LABEL)}${a}${g.done ? ' (transformée en recette)' : ''}`)
+  })
   return out.join('\n')
+}
+
+// ---------- Export CSV (journal avec avis) ----------
+
+const CSV_HEAD = [
+  'date',
+  'auteur',
+  'page',
+  'phrase',
+  'issue',
+  'recette',
+  'pas appliqué par la recette',
+  'mode avancé',
+  'lignes',
+  'affichage',
+  'transformée en recette',
+  'avis',
+  'commentaire',
+  'date de l’avis',
+  'requête',
+]
+const csvCell = (v: unknown) => {
+  const t = v === undefined || v === null ? '' : String(v)
+  return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+}
+
+/**
+ * Journal avec avis en CSV (séparateur « ; », pour un tableur français) : une ligne par question, la plus récente d'abord,
+ * avec ses avis (plusieurs : verdicts et commentaires réunis par « | ») ; puis les avis dont la question n'est plus au
+ * journal (phrase vide). `only` : seulement ces questions (filtre de l'écran). Tout est déjà anonymisé ; aucun résultat.
+ */
+export function exportCsv(rows: QuestionLogRow[], only?: QuestionLogRow[]): string {
+  const { questions, avis, orphans } = splitLog(rows)
+  const list = [...(only ?? questions)].sort((a, b) => b.at.localeCompare(a.at))
+  const lines = [CSV_HEAD.map(csvCell).join(';')]
+  for (const q of list) {
+    const a = avis.get(q.id) ?? []
+    lines.push(
+      [
+        q.at,
+        q.authorName,
+        q.page,
+        q.phrase,
+        OUTCOME_LABEL[outcomeOf(q)],
+        RECIPE_LABEL[q.recipe] ?? q.recipe,
+        (q.recipeMissing ?? []).join(' ; '),
+        q.status ? (ADVANCED_SHORT[q.status] ?? q.status) + (q.how === 'button' ? ' (bouton)' : '') : '',
+        q.rows,
+        q.display,
+        q.recipeDone ? 'oui' : '',
+        a.map((x) => VERDICT_LABEL[x.verdict!] ?? x.verdict).join(' | '),
+        a.map((x) => x.comment ?? '').filter(Boolean).join(' | '),
+        a.map((x) => x.at).join(' | '),
+        (q.sqlRetry || q.sql || '').trim(),
+      ]
+        .map(csvCell)
+        .join(';'),
+    )
+  }
+  if (!only)
+    for (const x of orphans)
+      lines.push(
+        [x.at, x.authorName, x.page, '', '', '', '', '', '', '', '', VERDICT_LABEL[x.verdict!] ?? x.verdict, x.comment, x.at, ''].map(csvCell).join(';'),
+      )
+  return lines.join('\r\n')
 }
