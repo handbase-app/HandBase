@@ -83,7 +83,8 @@ export function filterRoster(roster: Player[], f: { pos: Position | ''; hideNote
  * Morceau de la liste d'un événement : titre (poste ou équipe), rang de son premier joueur, joueurs.
  * `sub` : poste à l'intérieur d'une équipe (liste « Par équipe et poste »).
  */
-export type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string }
+/** `team` : titre d'équipe (tournoi réparti), affiché en bandeau plus visible qu'un titre de poste. */
+export type RosterSection = { heading: string | null; start: number; players: Player[]; info?: string; mine?: boolean; sub?: string; team?: boolean }
 
 /** Liste d'un événement découpée par poste (titres) : chaque morceau garde le rang de son premier joueur. */
 export function rosterSections(list: Player[], withHeadings: boolean) {

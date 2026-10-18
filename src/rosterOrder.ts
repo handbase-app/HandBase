@@ -121,9 +121,9 @@ export function eventSections(list: Player[], ev: Pick<HBEvent, 'tournament'>, g
   for (const { team, mine, players } of teamGroups(list, ev, byPosition)) {
     if (byPosition)
       rosterSections(players, true).forEach((s, k) =>
-        out.push({ heading: k === 0 ? team.name : null, mine: k === 0 && mine, sub: s.heading ?? undefined, start: start + s.start, players: s.players }),
+        out.push({ heading: k === 0 ? team.name : null, team: k === 0, mine: k === 0 && mine, sub: s.heading ?? undefined, start: start + s.start, players: s.players }),
       )
-    else out.push({ heading: team.name, mine, start, players })
+    else out.push({ heading: team.name, team: true, mine, start, players })
     start += players.length
   }
   return out

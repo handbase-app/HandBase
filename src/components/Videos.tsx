@@ -419,20 +419,7 @@ function VideoRow({
             </span>
           </div>
         </div>
-        {(onEdit || onDelete) && (
-          <div className="flex shrink-0 flex-col items-center gap-1.5">
-            {onEdit && (
-              <button className="text-muted hover:text-fg" title="Modifier ce lien" aria-label="Modifier ce lien" onClick={onEdit}>
-                <Icon name="pencil" className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {onDelete && (
-              <button className="text-muted hover:text-red-400" title="Retirer ce lien" aria-label="Retirer ce lien" onClick={onDelete}>
-                <Icon name="trash" className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        )}
+        {/* Modifier et Retirer : dans le ⋮ seulement (pas d'icônes en double sur la ligne). */}
         {menuItems.length > 0 && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour la vidéo ${v.title || source}`} className="-mr-1" />}
       </div>
       {menu.anchor && (
