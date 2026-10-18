@@ -381,7 +381,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
             ))}
             <input
               className="field py-1.5 text-xs"
-              placeholder={`+ Nouveau groupe${can.publicGroups(role) ? ' (Mon staff)' : ' (privé)'} : nom…`}
+              placeholder={`+ Nouveau groupe${can.publicGroups(role) ? ' (groupe de travail)' : ' (privé)'} : nom…`}
               value={newGroup}
               onChange={(e) => setNewGroup(e.target.value)}
             />

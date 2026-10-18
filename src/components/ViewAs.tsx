@@ -77,7 +77,7 @@ function ViewAsList() {
       <div className="text-xs font-bold">Voir l’appli comme…</div>
       <p className="text-[11px] text-muted">
         L’appli se comporte comme pour ce membre : son rôle, son périmètre (seuls les joueurs qu’il reçoit apparaissent : listes, recherche, fiches, bilan, questions, exports), ses avis, les groupes et événements qu’il voit. En lecture seule, et
-        noté dans l’historique. Ses groupes privés, ses groupes « Mon staff » dont tu ne fais pas partie, ses staffs et ses suivis ne te sont pas
+        noté dans l’historique. Ses groupes privés, ses groupes partagés avec des groupes de travail dont tu ne fais pas partie, ses groupes de travail et ses suivis ne te sont pas
         envoyés par le serveur : ils n’apparaissent pas.
       </p>
       {err && <p className="text-[11px] text-red-300">{err}</p>}

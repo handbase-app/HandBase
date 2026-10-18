@@ -24,7 +24,6 @@ import { departmentLabel } from '../lists'
 import { usePerimeter } from '../installation'
 import { perimeterText } from '../perimeter'
 import { STAFF } from '../staffLabels'
-import { useTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
 import { useDictation } from '../dictation/useDictation'
@@ -49,7 +48,6 @@ export default function Settings() {
   const role = useRole()
 
   const admin = can.manageRoles(role)
-  const teams = useTeams() ?? []
   return (
     // Ordinateur (administrateur) : « Mon espace » à gauche, « Administration » à droite.
     <div className={`flex flex-col gap-3 ${admin ? 'side:grid side:grid-cols-2 side:items-start side:gap-x-6' : ''}`}>
@@ -91,7 +89,6 @@ export default function Settings() {
       <DictationSetting />
       <UpdateCheck />
 
-      {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
       {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
       {!admin && (
         <Fold id="structure" icon="globe" title="Structure et sport" summary="Niveaux, unités, postes (lecture seule)">
@@ -117,7 +114,7 @@ export default function Settings() {
             <Fold id="membres" icon="users" title="Utilisateurs" summary="Comptes, rôles, secteurs">
               <p className="text-[11px] text-muted">
                 {STAFF.settingsHelp}{' '}
-                <Link to={STAFF.route} className="font-bold text-accent underline">
+                <Link to={STAFF.tabRoute} className="font-bold text-accent underline">
                   {STAFF.title}
                 </Link>
               </p>
@@ -421,22 +418,6 @@ function ApparenceFold() {
  * Rubrique repliable des réglages : une ligne (icône, titre, résumé) qui s'ouvre sur ses réglages.
  * Les cartes des réglages s'y fondent (séparées par un trait) ; l'état ouvert est gardé pendant la session.
  */
-/** Lien vers « Mes staffs » (équipes d'encadrants, supabase/034). */
-function TeamsLink() {
-  return (
-    <Link to={STAFF.route} className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
-        <Icon name="users" className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold">{STAFF.title}</span>
-        <span className="block truncate text-[11px] text-muted">{STAFF.settingsHelp}</span>
-      </span>
-      <span className="text-muted">›</span>
-    </Link>
-  )
-}
-
 function Fold({ id, icon, title, summary, children }: { id: string; icon: IconName; title: string; summary?: string; children: ReactNode }) {
   const [open, setOpen] = useSessionState(`handbase.settings.${id}`, false)
   return (

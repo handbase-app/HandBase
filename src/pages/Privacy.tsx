@@ -46,7 +46,7 @@ export function PrivacyText() {
         Seuls les membres du staff qui ont un compte personnel : administrateurs, encadrants et observateurs, chacun selon son
         rôle. Chaque création ou modification est enregistrée avec son auteur. Chaque membre du staff a accepté la charte
         d’utilisation ci-dessous. Les administrateurs voient aussi quand chaque membre du staff utilise l’application (heures
-        de connexion et type d’appareil, sans adresse IP) : gardé 6 mois. Les groupes privés (« Moi seul ») ou « Mon staff » d’un
+        de connexion et type d’appareil, sans adresse IP) : gardé 6 mois. Les groupes privés (« Moi seul ») ou « Mes groupes de travail » d’un
         membre ne sont visibles que de lui et de ses participants ; un administrateur peut y accéder en cas de besoin (départ,
         réattribution), et chaque accès est noté dans le journal d’activité.
       </p>
