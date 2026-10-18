@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { snapshots } from './components/MaturityCard'
+import { snapshots } from './maturitySnapshot'
 import { department } from './components/PlayerFilter'
 import { birthQuarter } from './components/ui'
 import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type Evaluation, type Measurement, type Player, type PlayerAlert } from './db'
