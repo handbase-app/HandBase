@@ -206,6 +206,7 @@ export function PlayerList({
   className = 'flex flex-col gap-2',
   bar = true,
   select = true,
+  sticky = true,
 }: {
   ids: readonly string[]
   all?: readonly string[]
@@ -214,6 +215,8 @@ export function PlayerList({
   className?: string
   bar?: boolean
   select?: boolean
+  /** Barre collée en haut au défilement (faux : colonne de contexte, déjà collée). */
+  sticky?: boolean
 }) {
   const on = usePictos()
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
@@ -268,14 +271,21 @@ export function PlayerList({
     <PictoCtx.Provider value={value}>
       <SelectionProvider store={sel.store}>
         <div ref={ref} data-plist data-sel={sel.on ? '' : undefined} className={className}>
-          {(bar || select) && (
-            // Conteneur (plb) : barre et bouton se resserrent selon la place de la liste (colonne de contexte comprise).
-            <div className="@container/plb flex items-stretch gap-1">
-              {bar && <PictoBar className="min-w-0 flex-1" />}
-              {select && <SelectButton store={sel.store} className={bar ? '' : 'ml-auto'} />}
+          {/* Barre « Afficher / Sélectionner » (et l'en-tête de la sélection) collée en haut pendant le défilement :
+              sous l'en-tête de l'appli, ou en haut du panneau de droite (.md-panel, index.css) ; pas dans la colonne
+              de contexte, qui a déjà son propre bandeau collé (sticky = false). */}
+          {(bar || select || sel.on) && (
+            <div className={sticky ? 'plist-sticky sticky top-[var(--hdr)] z-[15] -mx-1 flex flex-col gap-1 bg-bg/95 px-1 py-1 backdrop-blur' : 'flex flex-col gap-1'}>
+              {(bar || select) && (
+                // Conteneur (plb) : barre et bouton se resserrent selon la place de la liste (colonne de contexte comprise).
+                <div className="@container/plb flex items-stretch gap-1">
+                  {bar && <PictoBar className="min-w-0 flex-1" />}
+                  {select && <SelectButton store={sel.store} className={bar ? '' : 'ml-auto'} />}
+                </div>
+              )}
+              {sel.on && <SelectionHeader store={sel.store} />}
             </div>
           )}
-          {sel.on && <SelectionHeader store={sel.store} />}
           {children}
           {sel.on && <SelectionBar store={sel.store} context={context} />}
         </div>

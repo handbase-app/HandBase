@@ -124,7 +124,7 @@ export function ContextRoster({
         </button>
         <span className="shrink-0 text-[11px] text-muted">{count}</span>
       </div>
-      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={selContext(base)} className="flex flex-col gap-1.5">
+      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={selContext(base)} sticky={false} className="flex flex-col gap-1.5">
       {sections.map((sec, k) => (
         <div key={k} className="flex flex-col gap-1">
           {sec.heading && (

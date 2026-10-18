@@ -1,3 +1,4 @@
+import { useRowSelectItem } from './Selection'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { createContext, useContext, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -46,6 +47,8 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
   // Joueurs déjà choisis pour comparer : « 2 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
   const pickedSex = useLiveQuery(() => db.players.bulkGet(pick.picked).then((ps) => genderOf(ps)), [pick.picked.join(',')])
   const name = playerName(p)
+  // Dans une liste : « Sélectionner » (mode sélection avec ce joueur coché).
+  const selectItem = useRowSelectItem(p.id)
 
   if (phase === 'rewatch') return <RewatchDialog playerId={p.id} originEventId={eventId} onClose={onClose} />
   if (phase === 'event') return <AddToEventDialog playerIds={[p.id]} onClose={onClose} />
@@ -68,6 +71,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
       hint: eventId ? 'dans cet événement' : 'avis spontané',
       onSelect: () => nav(eventId ? `/evaluer?evenement=${eventId}&joueur=${p.id}` : `/evaluer?contexte=libre&joueur=${p.id}`),
     },
+    !!selectItem && { label: selectItem.label, icon: 'check', onSelect: selectItem.onSelect },
     !!scoutId() && { label: mineOpen ? 'Modifier mon « à revoir »…' : 'À revoir…', icon: 'clock', stay: true, onSelect: () => setPhase('rewatch') },
     canFollow() && !!follows && { label: followed ? 'Ne plus suivre' : 'Suivre', icon: 'star', filled: followed, onSelect: () => void setFollow('player', p.id, !followed) },
     can.manageEvents(role) && { label: 'Ajouter à un événement…', icon: 'calendar', stay: true, onSelect: () => setPhase('event') },

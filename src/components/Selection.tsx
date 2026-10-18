@@ -54,6 +54,8 @@ class SelStore {
   /** Toute la liste filtrée (au-delà de « Afficher plus »), et ce qui est affiché. Posés à chaque rendu de la liste. */
   all: readonly string[] = []
   shown: readonly string[] = []
+  /** Sélection permise sur cette liste (pas en mode « retirer » ni « comparer »). */
+  enabled = true
   private set = new Set<string>()
   private v = 0
   private subs = new Set<() => void>()
@@ -84,6 +86,7 @@ export function useListSelection(all: readonly string[], shown: readonly string[
   const store = ref.current
   store.all = all
   store.shown = shown
+  store.enabled = enabled
   const on = useSyncExternalStore(store.subscribe, () => store.on)
   useEffect(() => {
     if (!enabled && store.on) store.update({ on: false, ids: [] })
@@ -93,6 +96,20 @@ export function useListSelection(all: readonly string[], shown: readonly string[
 
 export function SelectionProvider({ store, children }: { store: SelStore; children: ReactNode }) {
   return <SelCtx.Provider value={store}>{children}</SelCtx.Provider>
+}
+
+/**
+ * Menu d'une ligne (clic droit, appui long, ⋮) : « Sélectionner » entre en mode sélection avec ce joueur coché
+ * (« Désélectionner » s'il l'est déjà). null hors d'une PlayerList qui permet la sélection.
+ */
+export function useRowSelectItem(id: string): { label: string; onSelect: () => void } | null {
+  const store = useContext(SelCtx)
+  if (!store || !store.enabled) return null
+  const checked = store.on && store.has(id)
+  return {
+    label: checked ? 'Désélectionner' : 'Sélectionner',
+    onSelect: () => store.update(checked ? { ids: store.ids.filter((x) => x !== id) } : { on: true, ids: store.has(id) ? store.ids : [...store.ids, id] }),
+  }
 }
 
 /** Case d'une ligne : null hors mode sélection (ou hors d'une PlayerList). */

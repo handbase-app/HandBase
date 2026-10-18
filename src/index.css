@@ -282,3 +282,7 @@ body {
 
 /* Export d'un groupe : police de document administratif (écran et impression). */
 .group-report { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; }
+
+/* Barre « Afficher / Sélectionner » d'une liste de joueurs (Pictos.tsx) : dans le panneau de droite, qui défile seul,
+   collée en haut du panneau (et non sous l'en-tête de l'appli). */
+.md-panel .plist-sticky { top: 0; }
