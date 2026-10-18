@@ -3,7 +3,7 @@ import type { Player, Position } from '../db'
 import { ROSTER_SORTS, type RosterSection, type RosterSort, rosterPositions } from '../positionOrder'
 
 /*
- * Rangement par poste d'une liste de joueurs (page d'un événement, page d'un groupe) : un encadré de réglages
+ * Rangement par poste d'une liste de joueurs (page d'un événement, page d'un groupe, « Mes suivis ») : un encadré de réglages
  * (« Dans chaque poste, trier par », pastilles des postes avec leur nombre, qui filtrent) et la liste découpée
  * par poste (titres GARDIEN, AILIER GAUCHE…, en colonnes sur grand écran). La logique (tri, découpage) est
  * dans src/positionOrder.ts ; la ligne de chaque joueur est fournie par la page (ses actions propres).
@@ -81,7 +81,16 @@ export function RosterControls({
  * dans une équipe ; sous chaque titre, les joueurs (en colonnes sur grand écran). `row(p, i)` : la ligne du joueur,
  * `i` son rang dans toute la liste (numérotation continue d'un poste à l'autre).
  */
-export function RosterSectionList({ sections, row }: { sections: RosterSection[]; row: (p: Player, i: number) => ReactNode }) {
+export function RosterSectionList({
+  sections,
+  row,
+  listClass = 'cols flex flex-col gap-2',
+}: {
+  sections: RosterSection[]
+  row: (p: Player, i: number) => ReactNode
+  /** Conteneur des joueurs d'un poste : en colonnes par défaut ; une seule (colonne étroite de « Mes suivis »). */
+  listClass?: string
+}) {
   return (
     <>
       {sections.map((sec) => (
@@ -96,7 +105,7 @@ export function RosterSectionList({ sections, row }: { sections: RosterSection[]
             </div>
           )}
           {sec.sub && <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
-          <div className="cols flex flex-col gap-2">{sec.players.map((p, j) => row(p, sec.start + j))}</div>
+          <div className={listClass}>{sec.players.map((p, j) => row(p, sec.start + j))}</div>
         </Fragment>
       ))}
     </>
