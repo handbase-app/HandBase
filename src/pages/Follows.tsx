@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { alive, db, fmtDate, localDay, plural, type Player } from '../db'
+import { pluralG, setGender } from '../gender'
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews, type FollowsResult } from '../follows'
 import {
   followOrigins,
@@ -76,9 +77,9 @@ function PlayerNews({ items, seen }: { items: FollowNews[]; seen: number }) {
  * D'où vient le suivi (« via U17 France », « via 2 groupes », « suivi direct ») : le détail (tous les groupes) au
  * survol, et à l'appui sur téléphone (il s'ouvre sous le texte).
  */
-function OriginTag({ origin, except }: { origin?: FollowOrigin; except?: string }) {
+function OriginTag({ origin, except, sex }: { origin?: FollowOrigin; except?: string; sex?: string }) {
   const [open, setOpen] = useState(false)
-  const t = originText(origin, except)
+  const t = originText(origin, except, sex)
   if (!t) return null
   return (
     <span className="ml-auto inline-flex max-w-full min-w-0 flex-col items-end text-right">
@@ -158,7 +159,7 @@ function DayPlayers({
             <Link to={`/joueurs/${pid}`} className="max-w-full min-w-0 truncate text-sm font-bold hover:text-accent">
               {nameOf(players.get(pid))}
             </Link>
-            <OriginTag origin={origins.get(pid)} except={except} />
+            <OriginTag origin={origins.get(pid)} except={except} sex={players.get(pid)?.sex} />
           </div>
           <PlayerNews items={items} seen={seen} />
         </div>
@@ -197,7 +198,7 @@ function NewsCard({ title, items, seen, open, onToggle, children }: { title: Rea
 }
 
 /** Titre d'une section (groupe, « Suivis directement », année), dans la colonne des joueurs. */
-function SectionHead({ s, follows }: { s: FollowSection; follows: FollowsResult }) {
+function SectionHead({ s, follows, players }: { s: FollowSection; follows: FollowsResult; players: Map<string, Player> }) {
   const g = s.groupId ? follows.groups.find((x) => x.group.id === s.groupId) : undefined
   return (
     <div className="mt-1 flex items-center gap-2 border-b border-line pb-1">
@@ -209,7 +210,7 @@ function SectionHead({ s, follows }: { s: FollowSection; follows: FollowsResult 
         ) : (
           s.label
         )}
-        <span className="font-normal text-muted"> · {plural(s.playerIds.length, 'joueur')}</span>
+        <span className="font-normal text-muted"> · {pluralG(s.playerIds.length, setGender(g?.group.sex, s.playerIds.map((id) => players.get(id))))}</span>
       </span>
       {g &&
         (g.personal ? (
@@ -305,11 +306,11 @@ export default function Follows() {
           key={p.id}
           p={p}
           link={{ to: `/joueurs/${p.id}` }}
-          follow={<FollowStar id={p.id} />}
+          follow={<FollowStar id={p.id} sex={p.sex} />}
           below={
             originText(origins.get(p.id), except) ? (
               <div className="-mt-1 flex justify-end">
-                <OriginTag origin={origins.get(p.id)} except={except} />
+                <OriginTag origin={origins.get(p.id)} except={except} sex={p.sex} />
               </div>
             ) : undefined
           }
@@ -423,7 +424,7 @@ export default function Follows() {
                   <div key={g.id} className="flex items-center gap-2 py-2 text-xs">
                     <Link to={`/groupes/${g.id}`} className="min-w-0 flex-1 truncate hover:text-accent">
                       <b>{g.name}</b>
-                      <span className="text-muted"> · {plural(g.playerIds.length, 'joueur')}</span>
+                      <span className="text-muted"> · {pluralG(g.playerIds.length, g.sex)}</span>
                     </Link>
                     {personal ? (
                       <button className="shrink-0 text-[11px] font-bold text-muted hover:text-red-400" onClick={() => void setFollow('group', g.id, false)}>
@@ -446,7 +447,7 @@ export default function Follows() {
         {shownSections ? (
           shownSections.map((s) => (
             <section key={s.key} className="flex flex-col gap-1">
-              <SectionHead s={s} follows={follows} />
+              <SectionHead s={s} follows={follows} players={players} />
               {roster(byId(s.playerIds), exceptOf(s))}
             </section>
           ))

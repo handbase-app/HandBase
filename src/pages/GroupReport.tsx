@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Segmented, useMe } from '../components/ui'
 import { alive, db, poleName, today, type Measurement, type Player } from '../db'
+import { accord, setGender, w } from '../gender'
 import {
   birthYear,
   cellText,
@@ -147,7 +148,10 @@ export function GroupReport() {
   if (!g || g.deleted || !can.seeGroup(g)) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
 
   const { rows } = data
-  const t = sectionTitles(players)
+  const t = sectionTitles(players, g.sex)
+  // Accord au genre (src/gender.ts) : groupe « Filles », ou toutes des filles sans sexe déclaré.
+  const gg = setGender(g.sex, players)
+  const gw = w(gg)
   const sections = opts.split
     ? (() => {
         const s = splitSections(rows, { today: day, target, overrides: opts.overrides, sort: dev.sort })
@@ -223,9 +227,9 @@ export function GroupReport() {
           </div>
 
           <Check checked={opts.split} onChange={(v) => set({ split: v })}>
-            Séparer : joueurs déjà au pôle / nouveaux arrivants
+            Séparer : {gw.joueurs} déjà au pôle / {accord('nouveau arrivant', gg, 2)}
           </Check>
-          {opts.split && <SplitSettings players={players} day={day} choices={choices} target={target} opts={opts} set={set} region={regionLabel} />}
+          {opts.split && <SplitSettings g={gg} players={players} day={day} choices={choices} target={target} opts={opts} set={set} region={regionLabel} />}
 
           <Check checked={opts.visa} onChange={(v) => set({ visa: v })}>
             Ajouter un cadre de visas
@@ -240,9 +244,9 @@ export function GroupReport() {
 
         <div className="flex flex-col gap-1.5">
           <div className="text-[11px] font-bold text-muted">Aperçu</div>
-          <input className="field" type="search" value={q} placeholder="Joueur (nom, licence, club)" aria-label="Joueur" onChange={(e) => setQ(e.target.value)} />
+          <input className="field" type="search" value={q} placeholder={`${gw.Joueur} (nom, licence, club)`} aria-label={gw.Joueur} onChange={(e) => setQ(e.target.value)} />
           <Check checked={incomplete} onChange={setIncomplete}>
-            Joueurs avec des données incomplètes uniquement ({incompleteCount})
+            {gw.Joueurs} avec des données incomplètes uniquement ({incompleteCount})
           </Check>
           {filtering && (
             <p className="text-[11px] text-muted">
@@ -265,7 +269,7 @@ export function GroupReport() {
             {opts.split && targetLabel && <Line label="Pôle">{targetLabel}</Line>}
             <Line label="Effectif">
               {plural(players.length, t.one, t.many)}
-              {opts.split && ` (${sections[0].list.length} déjà au pôle, ${plural(sections[1].list.length, 'nouvel arrivant', 'nouveaux arrivants')})`}
+              {opts.split && ` (${sections[0].list.length} déjà au pôle, ${plural(sections[1].list.length, gg === 'F' ? 'nouvelle arrivante' : 'nouvel arrivant', accord('nouveau arrivant', gg, 2))})`}
             </Line>
             <Line label="Édité le">
               {edited}
@@ -331,7 +335,7 @@ export function GroupReport() {
                     })}
                   </tbody>
                 </table>
-                {filtering && !s.list.some(visible) && <p className="no-print py-2 text-neutral-500">Aucun joueur de cette partie ne correspond.</p>}
+                {filtering && !s.list.some(visible) && <p className="no-print py-2 text-neutral-500">{gw.AucunJoueur} de cette partie ne correspond.</p>}
               </div>
             ) : (
               <p className="text-neutral-600">Aucun {t.one} dans cette partie.</p>
@@ -396,6 +400,7 @@ export function GroupReport() {
 
 /** Pôle de référence et choix « Déjà au pôle » / « Nouveau » joueur par joueur (à l'écran seulement). */
 function SplitSettings({
+  g,
   players,
   day,
   choices,
@@ -404,6 +409,8 @@ function SplitSettings({
   set,
   region,
 }: {
+  /** Genre du groupe (src/gender.ts). */
+  g: ReturnType<typeof setGender>
   players: Player[]
   day: string
   choices: ReturnType<typeof poleChoices>
@@ -415,7 +422,7 @@ function SplitSettings({
   const manual = Object.keys(opts.overrides).filter((pid) => players.some((p) => p.id === pid)).length
   const why = (p: Player) => {
     const cur = currentPoles(p, day)
-    if (!cur.length) return 'pas inscrit dans un pôle en cours'
+    if (!cur.length) return `pas ${w(p.sex).inscrit} dans un pôle en cours`
     const same = cur.find((x) => target === 'any' || poleKey(x) === target)
     const x = same ?? cur[0]
     const since = x.from ? `, depuis le ${x.from.split('-').reverse().join('/')}` : ''
@@ -441,15 +448,15 @@ function SplitSettings({
           </select>
         </label>
       ) : (
-        <p className="text-[11px] text-muted">Aucun joueur du groupe n’a de période en cours dans un Pôle Espoirs (fiche joueur) : choisis ci-dessous.</p>
+        <p className="text-[11px] text-muted">{w(g).AucunJoueur} du groupe n’a de période en cours dans un Pôle Espoirs (fiche {w(g).joueur}) : choisis ci-dessous.</p>
       )}
       <p className="text-[11px] text-muted">
-        « Déjà au pôle » : période en cours dans ce pôle sur la fiche du joueur (entrée passée, pas de sortie ou sortie à venir). Les autres sont « nouveaux ». Tu
-        peux changer chaque joueur à la main.
+        « Déjà au pôle » : période en cours dans ce pôle sur la fiche {w(g).duJoueur} (entrée passée, pas de sortie ou sortie à venir). Les autres sont « {w(g).nouveaux} ». Tu
+        peux changer chaque {w(g).joueur} à la main.
       </p>
       <details>
         <summary className="cursor-pointer text-xs font-bold">
-          Répartition joueur par joueur{manual ? ` (${manual} choisi${manual > 1 ? 's' : ''} à la main)` : ''}
+          Répartition {w(g).joueur} par {w(g).joueur}{manual ? ` (${manual} ${accord('choisi', g, manual)} à la main)` : ''}
         </summary>
         <ul className="mt-2 flex flex-col divide-y divide-line">
           {ordered.map(({ p }) => {
@@ -463,7 +470,7 @@ function SplitSettings({
                   </div>
                   <div className="text-[10px] text-muted">
                     {why(p)}
-                    {opts.overrides[p.id] && ' · choisi à la main'}
+                    {opts.overrides[p.id] && ` · ${w(p.sex).choisi} à la main`}
                   </div>
                 </div>
                 <div className="shrink-0 sm:w-52">
@@ -477,7 +484,7 @@ function SplitSettings({
                     }}
                     options={[
                       { value: 'reste', label: 'Déjà au pôle' },
-                      { value: 'nouveau', label: 'Nouveau' },
+                      { value: 'nouveau', label: w(p.sex).Nouveau },
                     ]}
                   />
                 </div>

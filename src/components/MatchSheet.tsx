@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { alive, db, DEMO, fmtDate, newId, save, today, TRIAL, type HBEvent, type Player, type Video } from '../db'
+import { accord, w } from '../gender'
 import {
   CLIP_LEAD,
   countKinds,
@@ -457,6 +458,8 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
   const periods = [...new Set(ms.actions.map((a) => a.p))]
   const synced = !!ms.sync?.url && Object.keys(marks).length + Object.keys(ms.sync?.fix ?? {}).length > 0
   const opts = ms.sync?.opts ?? {}
+  // Accord au sexe déclaré de l'événement (src/gender.ts) ; sans choix, masculin générique.
+  const g = w(ev.sex)
 
   return (
     <div className="card p-4">
@@ -464,7 +467,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         <Icon name="list" className="h-3.5 w-3.5" />
         Feuille de match
         <InfoButton title="Feuille de match">
-          <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, joueurs reliés aux fiches et déroulé.</p>
+          <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, {g.joueurs} {accord('relié', ev.sex, 2)} aux fiches et déroulé.</p>
           <p>
             Calage en regardant : ouvre la vidéo du match dans l’onglet Vidéo de l’événement (elle s’ouvre en lecture, les actions calées parmi ses moments), touche
             « Éditer le séquençage » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action est alors estimée (« ~ estimé ») :
@@ -498,7 +501,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         {[ms.competition, ms.code && `code ${ms.code}`].filter(Boolean).join(' · ')}
       </div>
       <p className="mt-2 text-xs">
-        {plural(ms.actions.length, 'action')} : {kindSummary(ms.actions)}. {linked}/{ms.players.length} joueurs reliés à une fiche. Mi-temps de {ms.halfMin} min.
+        {plural(ms.actions.length, 'action')} : {kindSummary(ms.actions)}. {linked}/{ms.players.length} {g.joueurs} {accord('relié', ev.sex, 2)} à une fiche. Mi-temps de {ms.halfMin} min.
       </p>
       {tl.late.size > 0 && (
         <p className="mt-1 text-xs text-amber-200">
@@ -565,7 +568,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
               }
             }}
           >
-            {busy ? 'Création des moments…' : `Créer ou mettre à jour les moments sur les fiches (${linked} joueurs)`}
+            {busy ? 'Création des moments…' : `Créer ou mettre à jour les moments sur les fiches (${linked} ${g.joueurs})`}
           </button>
           {result && (
             <p className="text-[11px] text-emerald-300" role="status">

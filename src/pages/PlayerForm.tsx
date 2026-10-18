@@ -9,6 +9,7 @@ import { departmentChoices, officialRegions, regionLabel, useRegions } from '../
 import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
+import { w } from '../gender'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 
@@ -83,7 +84,7 @@ export default function PlayerForm() {
     return (
       <div className="flex flex-col gap-4">
         <button onClick={() => goBack()} className="self-start text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER MA PROPOSITION' : 'PROPOSER UN JOUEUR'}
+          ← {editing ? 'MODIFIER MA PROPOSITION' : `PROPOSER ${w(p.sex).unJoueur.toUpperCase()}`}
         </button>
         <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : goBack())} />
       </div>
@@ -99,7 +100,7 @@ export default function PlayerForm() {
     <div className="flex flex-col gap-3 pb-16">
       <div className="flex items-center justify-between">
         <button onClick={() => goBack()} className="text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER LA FICHE' : 'NOUVEAU JOUEUR'}
+          ← {editing ? 'MODIFIER LA FICHE' : w(p.sex).NouveauJoueur.toUpperCase()}
         </button>
       </div>
 
@@ -118,7 +119,7 @@ export default function PlayerForm() {
                 <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
                 <circle cx="12" cy="13" r="3.5" />
               </svg>
-              <span className="mt-1 text-[10px]">Photo joueur</span>
+              <span className="mt-1 text-[10px]">Photo {w(p.sex).joueur}</span>
             </>
           )}
           <input
@@ -240,7 +241,7 @@ export default function PlayerForm() {
       </Collapsible>
 
       <Collapsible title="Pôle Espoirs" summary={poleSummary(p, regionLabel) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
-        <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que le joueur est au pôle.</p>
+        <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est au pôle.</p>
         {(p.poles ?? []).map((x, i) => {
           const upd = (patch: Partial<PolePeriod>) => set('poles', (p.poles ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
           const rest = (p.poles ?? []).filter((_, k) => k !== i)

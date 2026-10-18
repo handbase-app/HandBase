@@ -60,7 +60,7 @@ export default function Missed() {
               p={p}
               link={{ to: `/joueurs/${p.id}` }}
               aside={<span className="shrink-0 text-right text-[10px] text-muted">{p.review === 'refused' ? 'toujours hors cadre' : 'fiche reprise'}</span>}
-              follow={<FollowStar id={p.id} />}
+              follow={<FollowStar id={p.id} sex={p.sex} />}
               below={
                 <>
                   <div className="text-[10px] text-muted">

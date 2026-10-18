@@ -7,6 +7,7 @@ import { playerSub } from '../components/PlayerRow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
 import { GroupMark } from '../components/ui'
 import { alive, db, type Player } from '../db'
+import { pluralG, setGender, w } from '../gender'
 import { MQ, useMedia } from '../layout'
 import { can } from '../roles'
 import { groupRosterKey, positionRosterView, useRosterSort } from '../rosterOrder'
@@ -33,7 +34,7 @@ function useGroupRoster(id: string) {
   }, [id])
   if (!data?.g) return data
   const { roster, sections } = positionRosterView(data.players, sort)
-  return { g: data.g, sections, ids: roster.map((p) => p.id) }
+  return { g: data.g, sections, ids: roster.map((p) => p.id), gender: setGender(data.g.sex, data.players) }
 }
 
 export default function GroupPlayers() {
@@ -47,7 +48,7 @@ export default function GroupPlayers() {
   if (!pid) return <Navigate to={`/groupes/${id}`} replace />
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data.g === null) return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
-  const { g, sections, ids } = data
+  const { g, sections, ids, gender } = data
 
   if (!split)
     return (
@@ -65,12 +66,12 @@ export default function GroupPlayers() {
         <ContextRoster
           base={base}
           back={leave}
-          count={`${ids.length} joueur${ids.length > 1 ? 's' : ''}`}
+          count={pluralG(ids.length, gender)}
           sections={sections}
           detail={(p) => playerSub(p)}
           actions={(p) => ({
             rewatch: <RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />,
-            follow: <FollowStar id={p.id} />,
+            follow: <FollowStar id={p.id} sex={p.sex} />,
           })}
         />
       }
@@ -82,6 +83,7 @@ export default function GroupPlayers() {
 export function GroupPlayer() {
   const { id = '', pid = '' } = useParams()
   const g = useLiveQuery(() => db.groups.get(id), [id])
+  const sex = useLiveQuery(() => db.players.get(pid).then((p) => p?.sex), [pid])
   const rewatch = useGroupRewatch(id)
   const split = useMedia(MQ.split)
   const visible = g && !g.deleted && can.seeGroup(g) && g.playerIds.includes(pid)
@@ -98,8 +100,8 @@ export function GroupPlayer() {
               {g.name}
             </span>
           )}
-          <span className="text-[11px] text-muted">{by ? `Dans ce groupe, ajouté par ${by}` : 'Dans ce groupe'}</span>
-          <GroupRewatchLine rows={rows} events={rewatch.events} />
+          <span className="text-[11px] text-muted">{by ? `Dans ce groupe, ${w(sex).ajoute} par ${by}` : 'Dans ce groupe'}</span>
+          <GroupRewatchLine rows={rows} events={rewatch.events} sex={sex} />
         </div>
       )}
       {/* Téléphone : la barre du haut fait le retour au groupe. */}

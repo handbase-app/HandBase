@@ -340,7 +340,7 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
             p={p}
             link={{ to: `/joueurs/${p.id}` }}
             lines={g.editors.length > 0 && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">ajouté par {addedByOf(p.id)}</span>}
-            follow={<FollowStar id={p.id} />}
+            follow={<FollowStar id={p.id} sex={p.sex} />}
           />
         ))}
       </div>

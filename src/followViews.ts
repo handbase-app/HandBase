@@ -51,7 +51,7 @@ export function followOrigins(direct: Iterable<string>, groups: FollowGroupLite[
  * et son détail (survol / appui : tous les noms). `except` : section affichée (groupe), retirée du texte — on écrit
  * alors « aussi via … » ; rien à dire (null) si le joueur n'est suivi que par ce groupe.
  */
-export function originText(o: FollowOrigin | undefined, except?: string): { text: string; detail: string } | null {
+export function originText(o: FollowOrigin | undefined, except?: string, sex?: string): { text: string; detail: string } | null {
   if (!o) return null
   const groups = o.groups.filter((g) => g.id !== except)
   const direct = o.direct && except !== DIRECT_KEY
@@ -59,7 +59,8 @@ export function originText(o: FollowOrigin | undefined, except?: string): { text
   if (direct) parts.push('suivi direct')
   if (groups.length) parts.push(`${except ? 'aussi ' : ''}via ${groups.length === 1 ? groups[0].name : `${groups.length} groupes`}`)
   if (!parts.length) return null
-  const detail = [direct && 'Suivi directement (★)', ...groups.map((g) => `Groupe « ${g.name} »`)].filter(Boolean).join('\n')
+  // « Suivie directement » pour une joueuse ; « suivi direct » (le suivi) ne change pas.
+  const detail = [direct && `${sex === 'F' ? 'Suivie' : 'Suivi'} directement (★)`, ...groups.map((g) => `Groupe « ${g.name} »`)].filter(Boolean).join('\n')
   return { text: parts.join(' · '), detail }
 }
 

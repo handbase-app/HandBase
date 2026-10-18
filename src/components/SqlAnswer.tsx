@@ -348,7 +348,7 @@ export function SqlAnswerView({
             p={p}
             link={{ to: playerLink(p.id) }}
             sub={[p.birthDate?.slice(0, 4), p.club, extra.get(p.id)].filter(Boolean).join(' · ')}
-            follow={<FollowStar id={p.id} />}
+            follow={<FollowStar id={p.id} sex={p.sex} />}
           />
         ))}
       </div>

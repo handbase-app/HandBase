@@ -205,7 +205,7 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
           )}
         </>
       }
-      follow={<FollowStar id={p.id} />}
+      follow={<FollowStar id={p.id} sex={p.sex} />}
     />
   )
 }

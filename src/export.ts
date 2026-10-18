@@ -1,5 +1,6 @@
 import { regionLabel } from './lists'
 import { age, alive, contextLabel, counts, dayOf, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
+import { w, type Gender } from './gender'
 import { fmtValue } from './components/ui'
 import { momentLabel, momentsOf } from './videos'
 import { departmentLabel } from './lists'
@@ -37,8 +38,8 @@ function download(name: string, content: string, type: string) {
 }
 
 /** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis validés.
- *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres). */
-export async function exportCsv(only?: { id: string }[]) {
+ *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses »). */
+export async function exportCsv(only?: { id: string }[], g?: Gender) {
   const [all, criteria, measurements, evaluations] = await Promise.all([
     db.players.toArray().then(alive),
     db.criteria.orderBy('order').toArray().then(alive),
@@ -89,7 +90,7 @@ export async function exportCsv(only?: { id: string }[]) {
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
-  download(`${appSlug()}-joueurs-${today()}.csv`, csv, 'text/csv;charset=utf-8')
+  download(`${appSlug()}-${w(g).joueurs}-${today()}.csv`, csv, 'text/csv;charset=utf-8')
 }
 
 /** Sauvegarde complète (JSON) de la base locale. */

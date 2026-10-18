@@ -1,4 +1,5 @@
 import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type Player } from './db'
+import { genderOf, pluralG, setGender } from './gender'
 import { department } from './components/PlayerFilter'
 import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
@@ -132,7 +133,7 @@ export async function buildFeed({
       time: latest(rs),
       author: rs[0].createdByName ?? rs[0].author,
       authorId: rs[0].createdBy,
-      text: `${plural(rs.length, 'mesure')} sur ${pids.length === 1 ? nameOf(byId.get(pids[0])) : plural(pids.length, 'joueur')}`,
+      text: `${plural(rs.length, 'mesure')} sur ${pids.length === 1 ? nameOf(byId.get(pids[0])) : pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))}`,
       detail: `${tests.length <= 3 ? tests.join(', ') : plural(tests.length, 'test')} · tests ${dateRange(rs.map((m) => m.date))}`,
       to: pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
     })
@@ -152,7 +153,7 @@ export async function buildFeed({
       author: who.length <= 3 ? who.map(([, n]) => n).join(', ') : `${who.length} personnes`,
       authorId: who.length === 1 ? who[0][0] : undefined,
       text: `${plural(rs.length, 'avis', 'avis')} · ${ev ? ev.name : rs.length === 1 ? contextLabel(rs[0]) : 'avis spontanés'}`,
-      detail: [`${plural(pids.length, 'joueur')} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
+      detail: [`${pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
       to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
     })
   }
@@ -222,7 +223,7 @@ export async function buildFeed({
       author: g.createdByName,
       authorId: g.createdBy,
       text: `nouveau groupe : ${g.name}${groupTag(g)}`,
-      detail: plural(g.playerIds.length, 'joueur'),
+      detail: pluralG(g.playerIds.length, setGender(g.sex, g.playerIds.map((id) => byId.get(id)))),
       to: `/groupes/${g.id}`,
     })
   }
@@ -261,7 +262,7 @@ export async function buildFeed({
       kind: 'alerts',
       time,
       text: `Profil recherché « ${alert.name} » : ${listNames(fresh)}`,
-      detail: `${plural(fresh.length, 'nouveau joueur', 'nouveaux joueurs')} correspond${fresh.length > 1 ? 'ent' : ''}`,
+      detail: `${pluralG(fresh.length, genderOf(fresh), 'nouveau joueur')} correspond${fresh.length > 1 ? 'ent' : ''}`,
       to: `/alertes/${alert.id}`,
     })
   }
