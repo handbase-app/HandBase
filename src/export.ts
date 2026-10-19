@@ -9,6 +9,7 @@ import { snapshots } from './maturitySnapshot'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
 import { appName, appSlug } from './appBrand'
+import { clubYears, letterQuestions } from './playerSpace'
 
 const esc = (v: unknown) => {
   let s = v === undefined || v === null ? '' : String(v)
@@ -219,6 +220,14 @@ export async function exportPlayer(id: string) {
     r.createdByName,
     r.done ? 'oui' : '',
   ])
+  // Espace joueur (supabase/051) : ce qu'il a écrit lui-même (sa lettre, son parcours) : c'est sa donnée, elle est dans sa copie.
+  const self: unknown[][] = [
+    ...letterQuestions(p.sex).filter((q) => p.self?.letter?.[q.key]).map((q) => [q.label, p.self!.letter![q.key]]),
+    ...(p.self?.path?.clubs?.length ? [['Clubs', p.self.path.clubs.map((c) => [c.name, clubYears(c)].filter(Boolean).join(' · ')).join(' ; ')]] : []),
+    ...(p.self?.path?.positions?.length ? [['Postes joués', p.self.path.positions.map((x) => positionLabel(x)).join(', ')]] : []),
+    ...(p.self?.path?.selections?.length ? [['Sélections', p.self.path.selections.join(' ; ')]] : []),
+    ...(p.self?.path?.honours?.length ? [['Palmarès', p.self.path.honours.join(' ; ')]] : []),
+  ]
   const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, momentsOf(v).map(momentLabel).join(' ; '), v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
@@ -238,6 +247,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Vu lors d’événements (${sights.length})</h2>${table(['Date', 'Événement', 'Vu par'], sights)}
 <h2>À revoir (${revisits.length})</h2>${table(['Le', 'Repéré à', 'À revoir à', 'Commentaire', 'Par', 'Revu'], revisits)}
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
+<h2>Écrit par le joueur (espace joueur)</h2>${self.length ? table(['Rubrique', 'Texte'], self) : '<p class="m">Rien.</p>'}
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
   download(`${appSlug()}-donnees-${file}.html`, html, 'text/html;charset=utf-8')

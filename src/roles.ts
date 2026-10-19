@@ -10,23 +10,31 @@ import { clearSpy, spyTarget } from './spy'
  */
 
 // La valeur technique « preparateur » est conservée côté serveur ; seul le libellé affiché change.
-export type Role = 'admin' | 'preparateur' | 'observateur'
+// « joueur » (supabase/051_espace_joueur.sql) : le compte d'un jeune, qui ne voit que sa page (/moi) ; aucun droit du staff.
+export type Role = 'admin' | 'preparateur' | 'observateur' | 'joueur'
+
+/** Compte joueur (espace joueur) : pas un membre du staff. */
+export const isPlayerRole = (r: Role | string | null | undefined) => r === 'joueur'
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: 'Administrateur',
   preparateur: 'Encadrant',
   observateur: 'Observateur',
+  // Sans le sexe, pas d'accord possible ici ; la page du jeune, elle, s'accorde (src/pages/Me.tsx).
+  joueur: 'Joueur',
 }
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
   preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis ; valide les avis spontanés et fiches proposées de son secteur.',
   observateur: 'Consulte les joueurs de son périmètre et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
+  joueur: 'Un jeune (ou sa famille) : voit sa propre fiche seulement, y écrit « Ma lettre » et « Mon parcours ». Rien d’autre : ni avis, ni mesures, ni autres joueurs. Relié à sa fiche par un code donné depuis la fiche.',
 }
 
 const ROLE_KEY = 'handbase.role'
 const UID_KEY = 'handbase.uid'
 const DEPTS_KEY = 'handbase.departments'
+const PLAYER_KEY = 'handbase.playerId'
 
 const read = (k: string) => {
   try {
@@ -60,17 +68,24 @@ let departments: string[] = (() => {
     return []
   }
 })()
+/** Compte joueur : sa fiche reliée (hb_profiles.player_id) ; null = pas de fiche (écran « Entre ton code »). */
+let playerId: string | null = read(PLAYER_KEY)
 const listeners = new Set<() => void>()
 
-function set(r: Role, uid: string | null, depts: string[] = []) {
+function set(r: Role, uid: string | null, depts: string[] = [], pid: string | null = null) {
   role = r
   userId = uid
   departments = depts
+  playerId = pid
   write(ROLE_KEY, r)
   write(UID_KEY, uid)
   write(DEPTS_KEY, JSON.stringify(depts))
+  write(PLAYER_KEY, pid)
   listeners.forEach((l) => l())
 }
+
+/** Fiche reliée au compte joueur connecté (null sinon). */
+export const myPlayerId = () => playerId
 
 /*
  * Identité effective : la mienne, ou celle du membre simulé par « Voir comme… » (outil administrateur, spy.ts).
@@ -93,8 +108,10 @@ export async function refreshRole() {
   const uid = s.session?.user.id ?? null
   if (!uid) return
   if (uid !== userId) set('observateur', uid) // autre compte : on repart du rôle minimal
-  const { data, error } = await supabase.from('hb_profiles').select('role, departments').eq('user_id', uid).maybeSingle()
-  if (!error && data?.role) set(data.role as Role, uid, (data.departments as string[] | null) ?? [])
+  const { data, error } = await supabase.from('hb_profiles').select('role, departments, player_id').eq('user_id', uid).maybeSingle()
+  // player_id : colonne de 051 ; avant ce script, la requête échoue (colonne inconnue) : on relit sans elle.
+  const row = error && /player_id/.test(error.message) ? (await supabase.from('hb_profiles').select('role, departments').eq('user_id', uid).maybeSingle()).data : error ? null : data
+  if (row?.role) set(row.role as Role, uid, (row.departments as string[] | null) ?? [], ((row as { player_id?: string | null }).player_id as string | null) ?? null)
 }
 
 export function clearRole() {
@@ -158,8 +175,8 @@ export function participants(x: WithParticipants): string[] {
 export const isParticipant = (x: WithParticipants, uid = effUid()) =>
   !!uid && (!!x.editors?.includes(uid) || !!x.teams?.some((t) => teamMembers.get(t)?.includes(uid)))
 
-/** Ce que chaque rôle peut faire (miroir des règles du serveur). */
-export const can = {
+/** Ce que chaque rôle peut faire (miroir des règles du serveur). Exporté sous `can`, avec le garde du compte joueur. */
+const rules = {
   editPlayers: (r: Role) => r !== 'observateur',
   /**
    * Modifier cette fiche : l'encadrant toutes, l'observateur la fiche qu'il a proposée, tant qu'elle n'est pas traitée
@@ -261,3 +278,13 @@ export const can = {
    */
   dictate: (r: Role) => r === 'admin',
 }
+
+/**
+ * Droits effectifs : ceux des règles ci-dessus, sauf pour un compte joueur (espace joueur, supabase/051) qui n'a AUCUN droit du
+ * staff, quelle que soit la règle (les règles testent « pas observateur », « créateur »… : un joueur y passerait). Un seul
+ * garde ici, sur l'identité effective, plutôt qu'un test dans chaque règle.
+ */
+type Rules = typeof rules
+export const can: Rules = Object.fromEntries(
+  Object.entries(rules).map(([k, f]) => [k, (...a: unknown[]) => !isPlayerRole(effRole()) && (f as (...a: unknown[]) => boolean)(...a)]),
+) as Rules

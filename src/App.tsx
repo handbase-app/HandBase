@@ -33,6 +33,7 @@ import { spyTarget } from './spy'
 import MasterDetail from './components/MasterDetail'
 import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
+import { isPlayerRole, useRole } from './roles'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -64,6 +65,8 @@ const Question = lazy(() => import('./pages/Question'))
 const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
 const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
+// Espace joueur (/moi) : la seule page d'un compte joueur ; aperçu pour un administrateur depuis une fiche.
+const Me = lazy(() => import('./pages/Me'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -122,6 +125,12 @@ const NAV = [
   { to: '/parametres', label: 'Réglages', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V4h-4v3l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v3h4v-3l2-1 2 1 2-4z' },
 ]
 
+/** Compte joueur (espace joueur, supabase/051) : sa page et des réglages réduits (apparence, déconnexion), rien d'autre. */
+const NAV_PLAYER = [
+  { to: '/moi', label: 'Ma page', icon: NAV[1].icon },
+  { to: '/parametres', label: 'Réglages', icon: NAV[4].icon },
+]
+
 /** Lien du menu qui vérifie d'abord qu'aucune saisie en cours ne sera perdue. */
 function GuardedLink(props: NavLinkProps & { to: string }) {
   const navigate = useNavigate()
@@ -162,7 +171,7 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
  * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
  */
 const PAGE_W: [RegExp, string][] = [
-  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite)$/, ''],
+  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|moi)$/, ''],
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
@@ -233,13 +242,16 @@ export default function App() {
   useSportConfig()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
+  // Compte joueur : une seule page (/moi), menu réduit, pas de notifications ni de pictogrammes du staff dans l'en-tête.
+  const player = isPlayerRole(useRole())
   // Notifications : l'abonnement de ce téléphone est réenregistré sur le serveur à chaque ouverture.
   useEffect(() => {
-    if (pushSupport() === 'ok') void syncSubscription()
-  }, [])
+    if (pushSupport() === 'ok' && !player) void syncSubscription()
+  }, [player])
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
   const header = useHeaderHeight()
+  const nav = player ? NAV_PLAYER : NAV
   return (
     // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
     // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
@@ -250,8 +262,8 @@ export default function App() {
       >
         <Logo className="side:hidden" />
         <div className="flex items-center gap-3">
-          <FollowStar n={followNews} />
-          <AlertBell n={alerts} />
+          {!player && <FollowStar n={followNews} />}
+          {!player && <AlertBell n={alerts} />}
           <SyncBadge />
         </div>
         <SyncProgressBar />
@@ -265,8 +277,19 @@ export default function App() {
       >
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <PageWidth>
+        {player ? (
+          // Espace joueur : sa page, des réglages réduits, la confidentialité ; toute autre adresse ramène à sa page.
+          <Routes>
+            <Route path="/moi" element={<Me />} />
+            <Route path="/parametres" element={<Settings />} />
+            <Route path="/confidentialite" element={<Privacy />} />
+            <Route path="*" element={<Navigate to="/moi" replace />} />
+          </Routes>
+        ) : (
         <Routes>
           <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
+          {/* Aperçu de l'espace joueur (?joueur=<id>) : administrateurs, mode essai. */}
+          <Route path="/moi" element={<Me />} />
           <Route path="/suivis" element={<Follows />} />
           {/* Listes en maître-détail : /joueurs/:id = liste + fiche sur ordinateur, fiche seule sur téléphone. */}
           <Route path="/joueurs" element={<MasterDetail base="/joueurs" list={<Players />} listCol={PLAYERS_COL} />}>
@@ -320,6 +343,7 @@ export default function App() {
             <Route path=":pid" element={<QuestionPlayer />} />
           </Route>
         </Routes>
+        )}
         </PageWidth>
         </Suspense>
       </main>
@@ -331,7 +355,7 @@ export default function App() {
       >
         <Logo stacked className="hidden side:block side:px-5 side:pt-4 side:pb-5" />
         <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:h-full rail:justify-center rail:gap-1 side:gap-0.5 side:px-2">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <GuardedLink
               key={n.to}
               to={n.to}
@@ -358,8 +382,8 @@ export default function App() {
       </nav>
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
-      <VideoDock />
-      <GlobalCompareBar />
+      {!player && <VideoDock />}
+      {!player && <GlobalCompareBar />}
       <ConfirmHost />
     </div>
   )

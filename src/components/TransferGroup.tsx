@@ -69,7 +69,7 @@ export function TransferGroup({
     if (!supabase || !online || list) return
     void supabase.rpc('hb_members').then(({ data, error }) => {
       if (error) setErr(`Liste du staff indisponible : ${error.message}`)
-      else setList((data as Member[]).filter((m) => !!m.role))
+      else setList((data as Member[]).filter((m) => !!m.role && m.role !== 'joueur'))
     })
   }, [online, list])
 

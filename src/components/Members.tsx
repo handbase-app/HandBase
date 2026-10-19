@@ -31,7 +31,8 @@ interface Access {
   isNew: boolean
 }
 
-type StaffRole = 'observateur' | 'preparateur'
+// « joueur » (espace joueur, supabase/051) : le compte d'un jeune, relié ensuite à sa fiche par un code donné depuis la fiche.
+type StaffRole = 'observateur' | 'preparateur' | 'joueur'
 
 /** Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (un toutes les 30 s, supabase/030). */
 const ONLINE_MS = 90_000
@@ -386,7 +387,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   const [name, setName] = useState(member?.full_name ?? '')
   const [email, setEmail] = useState(member?.email ?? '')
   const [phone, setPhone] = useState(member?.phone ?? '')
-  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : 'observateur')
+  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : member?.role === 'joueur' ? 'joueur' : 'observateur')
   const [depts, setDepts] = useState<string[]>(member?.departments ?? [])
   const [password, setPassword] = useState(member ? '' : generatePassword())
   const [busy, setBusy] = useState(false)
@@ -479,9 +480,12 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           options={[
             { value: 'observateur', label: 'Observateur' },
             { value: 'preparateur', label: 'Encadrant' },
+            { value: 'joueur', label: 'Joueur' },
           ]}
         />
+        {role === 'joueur' && <p className="mt-1 text-[11px] text-muted">Compte d’un jeune (ou de sa famille) : il ne verra que sa fiche, une fois relié par le code donné depuis la fiche (carte « Espace joueur »).</p>}
       </div>
+      {role !== 'joueur' && (
       <div>
         <ZonePicker
           label="Secteur"
@@ -490,6 +494,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           emptyLabel={role === 'preparateur' ? 'Aucun : valide tous les départements' : 'Aucun département'}
         />
       </div>
+      )}
       {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « lien » s'en occupe. */}
       {!member && (
         <div>

@@ -9,6 +9,8 @@ import { appName } from '../appBrand'
  */
 
 export const CHARTER_VERSION = 1
+/** Charte de l'espace joueur (src/components/AuthGate.tsx, clé player_charter_version du compte) : même mécanisme, clé distincte. */
+export const PLAYER_CHARTER_VERSION = 1
 
 function H({ children }: { children: ReactNode }) {
   return <h3 className="mt-3 text-xs font-extrabold">{children}</h3>
@@ -69,6 +71,51 @@ export function PrivacyText() {
         leur effacement, ou s’opposer à leur utilisation. Il suffit de le demander à un encadrant ou à un administrateur, qui y
         répond dans un délai d’un mois. En cas de désaccord, il est possible de saisir la CNIL (cnil.fr).
       </p>
+
+      <H>Espace joueur</H>
+      <p>
+        Un jeune (ou sa famille) peut recevoir un accès personnel à {appName()}, relié à sa seule fiche par un code remis par son
+        encadrant. Il y voit son identité (nom, année de naissance, club, poste) et ses passages en pôle, tels que le staff les tient,
+        et rien d’autre : ni avis, ni mesures, ni classement, ni aucun autre joueur. Il y écrit lui-même, s’il le souhaite, « Ma
+        lettre » (ce que le hand lui apporte, un moment dont il est fier, ce qu’il veut travailler) et « Mon parcours » (clubs, postes
+        joués, sélections, palmarès). Ce qu’il écrit est lu par les encadrants et administrateurs qui voient sa fiche, et par
+        personne d’autre ; il peut le modifier ou l’effacer à tout moment, et l’accès peut être retiré par son encadrant. L’accord
+        des familles : au pôle, il est signé à l’inscription ; sinon, il est demandé au moment de remettre le code. Durée de
+        conservation : celle de la fiche.
+      </p>
+    </div>
+  )
+}
+
+/** Charte de l'espace joueur : en mots simples, acceptée une fois par le jeune (ou sa famille) à la première connexion. */
+export function PlayerCharterText() {
+  return (
+    <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
+      <p>Bienvenue sur ta page {appName()}. Avant de commencer, voici comment ça marche.</p>
+
+      <H>Ce que tu vois</H>
+      <p>
+        Ta fiche seulement : ton nom, ton année de naissance, ton club, ton poste et tes passages en pôle. Ces informations sont tenues
+        par ton encadrant ; si quelque chose est faux, dis-le-lui.
+      </p>
+
+      <H>Ce que tu écris</H>
+      <p>
+        « Ma lettre » et « Mon parcours » : c’est toi qui écris, quand tu veux, ce que tu veux. Tu peux changer ou effacer tes réponses à
+        tout moment. Rien n’est obligatoire.
+      </p>
+
+      <H>Ce que ton encadrant voit</H>
+      <p>Ce que tu as écrit, sur ta fiche, pour mieux te connaître et t’accompagner. Personne d’autre ne le lit.</p>
+
+      <H>Ce qu’on ne fait jamais</H>
+      <p>
+        Pas de classement, pas de jugement, pas de comparaison avec les autres. Tu ne vois pas les avis ni les mesures du staff, et tu
+        ne vois aucun autre joueur ni aucune autre joueuse.
+      </p>
+
+      <H>Ton compte</H>
+      <p>Il est à toi (ou à ta famille) : garde ton mot de passe pour toi. Si tu as une question, demande à ton encadrant.</p>
     </div>
   )
 }
@@ -170,6 +217,10 @@ export default function Privacy() {
       <section id="charte" className="card scroll-mt-16 p-4">
         <div className="section-title">Charte d’utilisation du staff</div>
         <CharterText />
+      </section>
+      <section id="charte-joueur" className="card scroll-mt-16 p-4">
+        <div className="section-title">Charte de l’espace joueur</div>
+        <PlayerCharterText />
       </section>
       <section id="questions" className="card scroll-mt-16 p-4">
         <div className="section-title">Questions posées (phase de développement)</div>

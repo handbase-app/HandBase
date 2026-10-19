@@ -7,6 +7,7 @@ import { aggregate, type SyncProgress, type TableProgress } from './syncProgress
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
+import { playerReadsTable } from './playerSpace'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -218,7 +219,21 @@ let rejectedCount = 0
  */
 const ADMIN_READ: SyncTable[] = ['question_log']
 const ROLE_KEY = 'handbase.role'
+/**
+ * Compte joueur (espace joueur, supabase/051_espace_joueur.sql) : il ne reçoit que sa fiche, la configuration et les listes
+ * (src/playerSpace.ts, PLAYER_TABLES) ; le serveur ne lui enverrait rien d'autre de toute façon (règles de lecture), mais on
+ * ne le demande même pas : aucune requête sur les tables du staff, aucune erreur en console. Il n'ENVOIE rien non plus : sa
+ * seule écriture passe par hb_player_self_update (src/pages/Me.tsx), jamais par la file d'envoi. Rôle lu comme ci-dessus.
+ */
+function playerAccount() {
+  try {
+    return localStorage.getItem(ROLE_KEY) === 'joueur'
+  } catch {
+    return false
+  }
+}
 function readsTable(table: SyncTable) {
+  if (playerAccount()) return playerReadsTable(table)
   if (!ADMIN_READ.includes(table)) return true
   try {
     return questionLogRights(localStorage.getItem(ROLE_KEY)).read
@@ -263,7 +278,8 @@ const upsert = (table: SyncTable, rows: Payload[]) => supabase!.rpc('hb_upsert',
 async function push() {
   // « Voir comme… » : rien de neuf à envoyer (lecture seule), et les lectures ne voient que le périmètre du membre simulé
   // (src/viewAsFilter.ts) : une ligne en attente hors de ce périmètre serait prise pour effacée. Envoi à la sortie.
-  if (spyTarget()) return
+  // Compte joueur : rien à envoyer (sa lettre part par hb_player_self_update, pas par la file).
+  if (spyTarget() || playerAccount()) return
   const items = (await db.outbox.orderBy('seq').toArray()).filter((i) => !setAside.has(rowKey(i.table, i.rowId)))
   if (!items.length) return
   for (const table of SYNC_TABLES) {
@@ -403,6 +419,7 @@ async function pull(uid: string) {
         }
       }
       // Écriture seule (journal des questions, hors administrateurs) : rien à recevoir ; lignes envoyées retirées.
+      // Compte joueur : tables du staff jamais demandées (et retirées de l'appareil si une ancienne session en avait laissé).
       if (!readsTable(table)) {
         await forgetWriteOnly(table)
         continue
@@ -416,6 +433,9 @@ async function pull(uid: string) {
   }
   // Critères jamais publiés de l'appareil : retirés dès que la base partagée tient la liste (criteriaImport.ts).
   await retireUnpublishedCriteria()
+  // Compte joueur : ni groupes, ni staffs, ni périmètre : rien à vérifier (sa fiche arrive par le curseur ; retirée du compte
+  // (accès retiré) : le serveur ne la montre plus, l'appli repasse à « Entre ton code » et l'appareil est effacé à la déconnexion).
+  if (playerAccount()) return
   await forgetHidden()
   await checkPerimeter(uid)
 }
@@ -623,7 +643,8 @@ function startRealtime() {
   channel = supabase.channel('handbase-sync')
   // Suivis, staffs et vidéos : pas de diffusion en direct (rarement changés ; relus à chaque synchronisation,
   // au plus toutes les minutes ; une table absente du serveur ne doit pas faire échouer l'abonnement).
-  for (const t of SYNC_TABLES.filter((t) => !OPTIONAL_TABLES.includes(t))) {
+  // Compte joueur : seulement sa fiche (le rôle peut n'être connu qu'après : alors toutes les tables, le serveur filtre).
+  for (const t of SYNC_TABLES.filter((t) => !OPTIONAL_TABLES.includes(t) && (!playerAccount() || t === 'players'))) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
   }
   channel.subscribe((status) => {
