@@ -87,10 +87,10 @@ export default function Settings() {
           <NotificationSettings />
         </Fold>
       )}
-      {/* Ordre voulu (18/10) : compte, notifications, apparence, dictée, version, puis le reste ; confidentialité en dernier. */}
+      {/* Ordre voulu (20/10) : compte, notifications, apparence, dictée, puis le reste, confidentialité ; la version de l'appli
+          en dernier. */}
       <ApparenceFold />
       <DictationSetting />
-      <UpdateCheck />
 
       {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
       {!admin && (
@@ -108,6 +108,7 @@ export default function Settings() {
           </Link>
         </div>
       </Fold>
+      <UpdateCheck />
       </div>
 
       {admin && (
