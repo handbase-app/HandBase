@@ -168,6 +168,8 @@ export type DemanderProps = {
   className?: string
   /** Le champ prend le focus (la liste Joueurs charge ses données lourdes à ce moment). */
   onFocus?: () => void
+  /** Bouton logé DANS la barre, tout à droite (listes : l'étiquette « Filtres », comme « Mode IA » chez Google). */
+  trailing?: ReactNode
 }
 
 export function Demander(p: DemanderProps) {
@@ -514,7 +516,7 @@ export function Demander(p: DemanderProps) {
     <div className="absolute inset-x-0 top-full z-40 mt-1 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-xl border border-ai/40 bg-panel shadow-2xl">{menuBody}</div>
   )
 
-  const h = p.compact ? 'min-h-8' : 'min-h-11'
+  const h = p.compact ? 'min-h-9' : 'min-h-12'
   return (
     <div ref={wrap} className={`relative min-w-0 flex-1 ${p.className ?? ''}`}>
       <form
@@ -524,7 +526,10 @@ export function Demander(p: DemanderProps) {
           submit()
         }}
       >
-        <div className={`field flex ${h} min-w-0 flex-1 items-center gap-2 py-0 pr-1 pl-2.5 focus-within:border-ai ${p.compact ? 'text-xs' : ''}`}>
+        {/* Barre en pilule, façon Google : tout est DANS la barre (✦, texte, ✕, envoi ou micro, « Filtres »). */}
+        <div
+          className={`flex ${h} min-w-0 flex-1 items-center gap-1 rounded-full border border-line bg-panel py-0 pr-1.5 pl-4 shadow-sm transition-shadow focus-within:border-ai focus-within:shadow-md ${p.compact ? 'text-xs' : ''}`}
+        >
           <span className="shrink-0 text-ai" aria-hidden>
             ✦
           </span>
@@ -532,7 +537,7 @@ export function Demander(p: DemanderProps) {
             ref={inputRef}
             id={`${id}-in`}
             data-search
-            className="min-w-0 flex-1 bg-transparent py-1.5 text-inherit outline-none placeholder:text-muted/70"
+            className="min-w-0 flex-1 bg-transparent py-1.5 pl-1 text-inherit outline-none placeholder:text-muted/70"
             type="text"
             autoComplete="off"
             autoCorrect="off"
@@ -567,7 +572,7 @@ export function Demander(p: DemanderProps) {
               type="button"
               tabIndex={-1}
               aria-label="Effacer"
-              className="shrink-0 rounded-md px-1.5 py-1 text-muted hover:text-fg"
+              className={`flex ${p.compact ? 'h-7 w-7' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg`}
               onPointerDown={(e) => e.preventDefault()}
               onClick={() => {
                 p.onChange('')
@@ -577,39 +582,45 @@ export function Demander(p: DemanderProps) {
               ✕
             </button>
           )}
+          {p.canAsk && !p.nameMode && !header && text && !rec && !sending ? (
+            // Une phrase tapée : l'envoi remplace le micro (une seule action à droite).
+            <button
+              type="submit"
+              className={`flex ${p.compact ? 'h-7 w-7' : 'h-9 w-9'} shrink-0 items-center justify-center rounded-full bg-ai text-white hover:opacity-90 disabled:opacity-60`}
+              disabled={p.disabled}
+              aria-label="Envoyer la demande"
+              title="Envoyer (Entrée)"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
+          ) : (
+            p.mic && (
+              <button
+                type="button"
+                data-noswipe
+                aria-label={rec ? 'Arrêter et appliquer' : sending ? 'Phrase en cours' : 'Demander à la voix'}
+                aria-pressed={rec}
+                title={rec ? 'Arrêter : la phrase est transcrite puis appliquée' : `Touchez et dites par exemple « ${p.micHint ?? 'les gauchers de 2011'} » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)`}
+                disabled={sending || p.disabled}
+                className={`relative flex ${p.compact ? 'h-7 w-7' : 'h-9 w-9'} shrink-0 touch-none items-center justify-center rounded-full transition select-none [-webkit-touch-callout:none] ${
+                  rec ? 'bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'text-fg hover:bg-panel-2 active:bg-ai active:text-white'
+                } disabled:opacity-70`}
+                {...p.mic.buttonProps}
+              >
+                {sending ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : rec ? (
+                  <span className="h-3.5 w-3.5 rounded-sm bg-white" />
+                ) : (
+                  <Icon name="mic" className={p.compact ? 'h-4 w-4' : 'h-5 w-5'} />
+                )}
+              </button>
+            )
+          )}
+          {p.trailing}
         </div>
-        {p.canAsk && !p.nameMode && !header && text && (
-          <button type="submit" className={`btn-primary ${h} shrink-0 px-3 text-sm ${p.compact ? 'py-0' : ''}`} disabled={p.disabled || sending || rec} aria-label="Appliquer la phrase">
-            <span aria-hidden>✨</span>
-          </button>
-        )}
-        {p.mic && (
-          <button
-            type="button"
-            data-noswipe
-            aria-label={rec ? 'Arrêter et appliquer' : sending ? 'Phrase en cours' : 'Demander à la voix'}
-            aria-pressed={rec}
-            title={rec ? 'Arrêter : la phrase est transcrite puis appliquée' : `Touchez et dites par exemple « ${p.micHint ?? 'les gauchers de 2011'} » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)`}
-            disabled={sending || p.disabled}
-            className={`relative flex ${h} ${p.compact ? 'min-w-8' : 'min-w-11'} shrink-0 touch-none items-center justify-center rounded-md border-2 px-2 transition select-none [-webkit-touch-callout:none] ${
-              rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-line bg-panel-2 text-fg hover:border-ai active:bg-ai active:text-white'
-            } disabled:opacity-70`}
-            {...p.mic.buttonProps}
-          >
-            {sending ? (
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : rec ? (
-              <span className="h-4 w-4 rounded-sm bg-white" />
-            ) : (
-              <>
-                <Icon name="mic" className={p.compact ? 'h-4 w-4' : 'h-6 w-6'} />
-                <span className="pointer-events-none absolute top-0.5 right-0.5 text-[11px] leading-none" aria-hidden>
-                  ✨
-                </span>
-              </>
-            )}
-          </button>
-        )}
       </form>
       {menu}
     </div>

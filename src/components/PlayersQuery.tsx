@@ -722,6 +722,12 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length) && !hosted?.hidden.has(c.key as FilterKey)
   // Le micro charge les données de la recette pendant qu'on parle.
   const micForField = questionReady && !hosted ? { ...mic, buttonProps: { ...mic.buttonProps, onPointerDown: (e: Parameters<typeof mic.buttonProps.onPointerDown>[0]) => (!asked && setAsked(true), mic.buttonProps.onPointerDown(e)) } } : undefined
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google) ; la barre posée du bilan garde son bouton.
+  const filtersChip = (
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
+      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
+    </button>
+  )
   const field = (
     <Demander
       page={askPage}
@@ -736,6 +742,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       disabled={sending || rec}
       compact={hosted?.compact}
       label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
+      trailing={!hosted && !docked ? filtersChip : undefined}
     />
   )
   const filtersButton = !docked && (
@@ -832,10 +839,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
 
   const ui = docked ? null : (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {field}
-        {filtersButton}
-      </div>
+      <div className="flex gap-2">{field}</div>
       {status}
       {chips}
       {saveForm}

@@ -193,6 +193,12 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
   const nChips = activeListKeys(spec, qy).filter((k) => k !== 'q').length
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google).
+  const filtersButton = (
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
+      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
+    </button>
+  )
   const field = (
     <Demander
       page={askPage}
@@ -205,17 +211,8 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       micHint={o.hint}
       disabled={sending || rec}
       label={micReady ? 'Demander : filtrer ou poser une question' : 'Rechercher'}
+      trailing={filtersButton}
     />
-  )
-  const filtersButton = (
-    <button
-      type="button"
-      onClick={() => setOpen(!open)}
-      aria-expanded={open}
-      className={`min-h-11 shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-    >
-      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
-    </button>
   )
   const shownResult = result && (result.nothing || !result.after || sameListQuery(spec, result.after, qy)) ? result : null
   const status =
@@ -270,10 +267,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   )
   const ui = (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {field}
-        {filtersButton}
-      </div>
+      <div className="flex gap-2">{field}</div>
       {status}
       {chips}
       {open && (
