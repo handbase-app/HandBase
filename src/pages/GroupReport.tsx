@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Segmented, useMe } from '../components/ui'
 import { alive, db, poleName, today, type Measurement, type Player } from '../db'
@@ -14,6 +14,7 @@ import {
   isMixed,
   matchesSearch,
   missingOf,
+  POLE_COLUMNS,
   poleChoices,
   poleKey,
   sectionTitles,
@@ -29,6 +30,9 @@ import {
 import { useRegionLabel } from '../lists'
 import { can } from '../roles'
 import { appName } from '../appBrand'
+import { programmeLabel, usePoleMembers, usePoleRef } from '../components/PoleGroup'
+import { periodIndexAt, seasonStatus, seasonStatusLabel, viewLabel } from '../poleSeason'
+import { poleViewOf, withPoleView } from '../tabQuery'
 
 /*
  * « Exporter en PDF » d'un groupe (/groupes/:id/rapport) : une feuille A4 à imprimer ou enregistrer en PDF
@@ -122,9 +126,18 @@ export function GroupReport() {
   // À l'écran seulement : recherche et fiches incomplètes (l'impression garde tout le groupe).
   const [q, setQ] = useState('')
   const [incomplete, setIncomplete] = useState(false)
+  // Groupe Pôle (src/poleSeason.ts) : les membres de la vue de l'adresse (?saison=prochaine), colonnes statut de saison,
+  // programme et référence PSQS ; retour au groupe sur la même vue.
+  const loc = useLocation()
+  const poleView = poleViewOf(loc.search)
+  const grp = useLiveQuery(() => db.groups.get(id), [id])
+  const ref = usePoleRef(grp?.poleUnitId)
+  const pm = usePoleMembers(grp?.poleUnitId ? ref : null, poleView)
+  const poleIds = grp?.poleUnitId ? (pm?.shown.map((p) => p.id) ?? []) : undefined
+  const poleKeyIds = poleIds?.join(',')
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id)
-    const players = alive((await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p))
+    const players = alive((await db.players.bulkGet(poleIds ?? g?.playerIds ?? [])).filter((p): p is Player => !!p))
     // Dernière taille de chaque joueur du groupe (mesurée ou déclarée).
     const ids = new Set(players.map((p) => p.id))
     const last = new Map<string, Measurement>()
@@ -133,9 +146,14 @@ export function GroupReport() {
       const cur = last.get(m.playerId)
       if (!cur || m.date > cur.date || (m.date === cur.date && m.updatedAt > cur.updatedAt)) last.set(m.playerId, m)
     }
-    const rows: Row[] = players.map((p) => ({ p, height: last.has(p.id) ? heightOf(last.get(p.id)!) : undefined }))
+    const rows: Row[] = players.map((p) => {
+      const h = last.has(p.id) ? heightOf(last.get(p.id)!) : undefined
+      if (!ref || !pm || !g?.poleUnitId) return { p, height: h }
+      const i = periodIndexAt(p, ref, poleView === 'prochaine' ? pm.s.refNext : pm.s.refCurrent)
+      return { p, height: h, pole: { status: seasonStatusLabel(seasonStatus(p, ref, pm.s), p.sex), programme: programmeLabel(i >= 0 ? p.poles?.[i]?.programme : undefined), psqs: ref.psqsRef ?? '' } }
+    })
     return { g, players, rows }
-  }, [id])
+  }, [id, poleKeyIds, ref, pm, poleView]) // eslint-disable-line react-hooks/exhaustive-deps
   const day = today()
 
   const g = data?.g
@@ -161,7 +179,8 @@ export function GroupReport() {
         ]
       })()
     : [{ key: 'tous', title: t.all, list: sortRows(rows, dev.sort, day) }]
-  const cols = COLUMNS.filter((c) => c.id === 'nom' || c.id === 'prenom' || dev.cols[c.id])
+  const isPole = !!g.poleUnitId
+  const cols = COLUMNS.filter((c) => c.id === 'nom' || c.id === 'prenom' || (POLE_COLUMNS.includes(c.id) ? isPole : dev.cols[c.id]))
   const incompleteCount = rows.filter((r) => missingOf(r, day).length).length
   const filtering = !!q.trim() || incomplete
   const visible = (r: Row) => matchesSearch(r, q) && (!incomplete || missingOf(r, day).length > 0)
@@ -187,7 +206,7 @@ export function GroupReport() {
       <style>{`@page group-report { @bottom-left { content: ${cssString(`${g.name} — édité le ${edited}`)}; } }`}</style>
 
       <div className="no-print flex flex-col gap-3">
-        <BackButton fallback={`/groupes/${g.id}`} label={g.name.toUpperCase()} className="self-start" />
+        <BackButton fallback={`/groupes/${g.id}${isPole ? withPoleView('', poleView) : ''}`} label={g.name.toUpperCase()} className="self-start" />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <h1 className="min-w-0 flex-1 text-lg font-extrabold">Exporter en PDF</h1>
           <button className="btn-primary min-h-11 px-4 py-2 text-xs" onClick={() => window.print()}>
@@ -214,7 +233,7 @@ export function GroupReport() {
           <div>
             <div className="mb-1 text-[11px] font-bold text-muted">Colonnes (Nom et Prénom toujours présents)</div>
             <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-              {COLUMNS.filter((c) => c.id !== 'nom' && c.id !== 'prenom').map((c) => (
+              {COLUMNS.filter((c) => c.id !== 'nom' && c.id !== 'prenom' && !POLE_COLUMNS.includes(c.id)).map((c) => (
                 <Check key={c.id} checked={dev.cols[c.id]} onChange={(v) => setDev({ cols: { ...dev.cols, [c.id]: v } })}>
                   {c.label}
                 </Check>
@@ -223,7 +242,10 @@ export function GroupReport() {
                 Observations (vide, à remplir à la main)
               </Check>
             </div>
-            <p className="mt-1 text-[11px] text-muted">Ordre : touche le titre d’une colonne du tableau ci-dessous (une deuxième fois pour l’inverser).</p>
+            <p className="mt-1 text-[11px] text-muted">
+              Ordre : touche le titre d’une colonne du tableau ci-dessous (une deuxième fois pour l’inverser).
+              {isPole && ' Groupe Pôle : « Statut de saison », « Programme » et « Référence PSQS » sont toujours imprimés.'}
+            </p>
           </div>
 
           <Check checked={opts.split} onChange={(v) => set({ split: v })}>
@@ -267,6 +289,8 @@ export function GroupReport() {
             {opts.objet.trim() && <Line label="Objet">{opts.objet.trim()}</Line>}
             {opts.dest.trim() && <Line label="À l’attention de">{opts.dest.trim()}</Line>}
             {opts.split && targetLabel && <Line label="Pôle">{targetLabel}</Line>}
+            {isPole && pm && <Line label="Vue">{viewLabel(poleView, pm.s)}</Line>}
+            {isPole && ref?.psqsRef && <Line label="Référence PSQS">{ref.psqsRef}</Line>}
             <Line label="Effectif">
               {plural(players.length, t.one, t.many)}
               {opts.split && ` (${sections[0].list.length} déjà au pôle, ${plural(sections[1].list.length, gg === 'F' ? 'nouvelle arrivante' : 'nouvel arrivant', accord('nouveau arrivant', gg, 2))})`}

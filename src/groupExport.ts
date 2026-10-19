@@ -84,10 +84,11 @@ export function stayOf(p: Pick<Player, 'id' | 'poles'>, today: string, target: P
 
 // ---------- Colonnes ----------
 
-/** Une ligne du document : le joueur et sa dernière taille (cm). */
+/** Une ligne du document : le joueur et sa dernière taille (cm) ; groupe Pôle : statut de saison, programme, référence PSQS (src/poleSeason.ts). */
 export interface Row {
   p: Pick<Player, 'id' | 'lastName' | 'firstName' | 'birthDate' | 'sex' | 'position' | 'club' | 'laterality' | 'license' | 'poles' | 'category'>
   height?: number
+  pole?: { status: string; programme: string; psqs: string }
 }
 
 /** Colonnes possibles (vocabulaire de l'outil fédéral). `base` : affichée par défaut. */
@@ -104,8 +105,13 @@ export const COLUMNS = [
   { id: 'licence', label: 'N° de licence', base: true },
   { id: 'pole', label: 'Statut pôle / SHN', base: false },
   { id: 'niveau', label: 'Niveau', base: false },
+  { id: 'saison', label: 'Statut de saison', base: false },
+  { id: 'programme', label: 'Programme', base: false },
+  { id: 'psqs', label: 'Référence PSQS', base: false },
 ] as const
 export type ColumnId = (typeof COLUMNS)[number]['id']
+/** Colonnes propres au groupe Pôle : toujours imprimées pour lui, jamais proposées aux autres groupes. */
+export const POLE_COLUMNS: readonly ColumnId[] = ['saison', 'programme', 'psqs']
 
 /** Poste en toutes lettres (configuration de l'installation, src/sportConfig.ts) : « Gardien de but », « Ailier gauche »… */
 export const posteLabel = (p?: string | null) => positionFull(p)
@@ -152,6 +158,12 @@ export function cellText(r: Row, c: ColumnId, today: string): string {
       return poleStatusLabel(p, today)
     case 'niveau':
       return p.category?.trim() ?? ''
+    case 'saison':
+      return r.pole?.status ?? ''
+    case 'programme':
+      return r.pole?.programme ?? ''
+    case 'psqs':
+      return r.pole?.psqs ?? ''
   }
 }
 

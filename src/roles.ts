@@ -235,6 +235,13 @@ export const can = {
    * myDepartments() (profil).
    */
   editStructure: (r: Role) => r === 'admin',
+  /**
+   * Pôle Espoirs (src/poleSeason.ts) : créer le groupe Pôle d'une unité, lancer le changement de saison, retirer un
+   * joueur du groupe Pôle, modifier le bloc « Pôle Espoirs » d'une fiche. POINT UNIQUE de décision : l'administrateur de
+   * l'appli, ou un « dirigeant du pôle » (`leader` : affecté à l'unité Pôle avec le rôle encadrant ou administrateur,
+   * isPoleLeader). Les autres comptes, Ligue comprise, lisent seulement.
+   */
+  editPoles: (r: Role, leader: boolean) => r === 'admin' || leader,
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
   /**

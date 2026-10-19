@@ -357,6 +357,12 @@ export interface PlayerGroup extends Syncable {
    * son créateur et ses participants. Seul le créateur le change ; jamais sur un groupe privé.
    */
   teamFollow?: boolean
+  /**
+   * Groupe « Pôle » d'une unité de la structure (src/poleSeason.ts) : permanent (ni archivé ni dupliqué, un seul par
+   * unité), et ses membres ne sont PAS dans playerIds (laissé vide) : ils sont calculés depuis les périodes de pôle des
+   * fiches (Player.poles) qui correspondent à l'unité et couvrent la date de la vue (saison en cours / prochaine).
+   */
+  poleUnitId?: string
 }
 
 /**
