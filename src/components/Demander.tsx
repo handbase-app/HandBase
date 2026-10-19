@@ -44,9 +44,9 @@ import { Icon, playerName } from './ui'
  *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : une BULLE ronde ✦ (sans texte, dégradé
  *    bleu → violet ; nom accessible « Demander : … », bulle d'aide « Demander · / »), sur toutes les pages (AskButton,
  *    src/App.tsx) : ordinateur, à gauche de l'en-tête ; téléphone, au milieu de l'en-tête. Raccourci « / » hors d'un champ.
- *  - LE BOUTON : sur une page qui a déjà sa barre (chaque barre posée sur une page s'inscrit dans `pageBars` ; la page
- *    affichée doit être exactement la sienne, /joueurs mais pas /joueurs/:id, et la barre visible), il met le curseur dans
- *    cette barre et ouvre son menu : jamais deux champs. Ailleurs, il ouvre la PALETTE : ordinateur = fenêtre accrochée
+ *  - LE BOUTON : sur ordinateur, il ouvre TOUJOURS la PALETTE. Sur téléphone, sur une page qui a déjà sa barre (chaque
+ *    barre posée sur une page s'inscrit dans `pageBars` ; la page affichée doit être exactement la sienne, /joueurs mais
+ *    pas /joueurs/:id, et la barre visible), il met le curseur dans cette barre et ouvre son menu. Ailleurs, la PALETTE : ordinateur = fenêtre accrochée
  *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
  *    ferment), téléphone = feuille du bas posée au-dessus du clavier, fond assombri (geste
  *    Retour : entrée d'historique du routeur, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
@@ -869,9 +869,13 @@ export function AskButton() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  /** Toucher, clic ou « / » : la barre de la page si elle en a une, sinon la palette. */
+  /**
+   * Clic ou « / » sur ordinateur : TOUJOURS la palette sous la bulle (choix de Geoffroy, 20/10 : ne pas sauter dans la barre
+   * de la liste). Téléphone : la barre de la page si elle en a une (une feuille par-dessus la liste serait de trop), sinon
+   * la palette.
+   */
   const trigger = () => {
-    if (focusPageBar(loc.pathname)) return
+    if (isPhone() && focusPageBar(loc.pathname)) return
     openPalette()
   }
   const triggerRef = useRef(trigger)
