@@ -25,6 +25,9 @@
   --color-suggest-soft: #a3e6351f;
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
+  /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
+  --color-ai: #7cacf8;
+  --color-ai-soft: #7cacf826;
   /* Changement de joueur par glissement (écran de notation). */
   /* Le joueur suivant arrive du côté opposé au geste (l'ancien vient de partir de l'autre côté). */
   --animate-slide-left: slide-left 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -59,14 +62,13 @@ html { touch-action: pan-x pan-y; }
   :root { --nav-b: 0px; --nav-l: 13rem; }
 }
 
-/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 puis 3 colonnes en paysage et sur
-   ordinateur, selon la largeur disponible (à réserver aux pages larges, voir PAGE_W dans App.tsx).
+/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 colonnes AU PLUS en paysage et sur ordinateur, quelle que
+   soit la largeur (à trois, les cartes deviennent étroites et illisibles : décidé le 20/10/2026).
    Les éléments qui doivent prendre toute la ligne (« Afficher plus »…) portent col-span-full. */
 @media (orientation: landscape) and (max-height: 520px) and (min-width: 640px), (min-width: 1024px) and (min-height: 521px) {
   .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) and (min-height: 521px) {
-  .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -92,16 +94,15 @@ html { touch-action: pan-x pan-y; }
 @container (min-width: 44rem) {
   .avis-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
-/* Trois colonnes seulement sur un panneau très large : en dessous, nom, poste et club seraient coupés. */
-@container (min-width: 100rem) {
-  .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 /* Pictogrammes au bout des lignes de joueurs (components/Pictos.tsx, PlayerRow.tsx). La liste (data-plist) pose
    data-pl="2" quand un nom serait coupé à cause d'eux : toute la liste les passe sur leur propre ligne, sous le nom
    (« ⋮ » reste sur la ligne du nom ; carte trop étroite pour tous : ils vont à la ligne, jamais au-delà). data-pm : mesure en cours, noms sur une seule ligne. */
-[data-pl="2"] [data-ptop] { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-[data-pl="2"] [data-pics] { grid-column: 1 / -1; grid-row: 2; justify-self: start; margin-left: -0.375rem; padding-block: 3px 1px; flex-wrap: wrap; row-gap: 6px; }
-[data-pl="2"] [data-pmenu] { grid-column: 2; grid-row: 1; }
+/* Carte en grille (PlayerRow : data-pcol ; data-ptop sans boîte) : par défaut, pictogrammes en bloc de 4 colonnes à droite
+   du nom et du texte. data-pl="2" : ils passent sur leur ligne sous le texte, tous côte à côte (à la ligne si la carte est
+   trop étroite), « ⋮ » reste à droite du nom. */
+[data-pl="2"] [data-pics] { grid-column: 1 / 3; grid-row: 3; justify-self: start; align-self: start; margin-left: -0.375rem; padding-block: 3px 1px; grid-template-columns: repeat(8, auto); }
+[data-pl="2"] [data-pmenu] { grid-row: 1; }
+[data-pl="2"] [data-plines] { grid-row: 4; }
 [data-pm] [data-pn] { white-space: nowrap !important; overflow-wrap: normal !important; }
 /* Sélection multiple (components/Selection.tsx) : la case à cocher prend la place du « ⋮ » (le menu de la ligne reste
    au clic droit et à l'appui long ; les actions de la sélection sont dans la barre du bas). Règle de place recalculée. */
@@ -132,6 +133,8 @@ body {
   color-scheme: light;
   --color-suggest: #4d7c0f;
   --color-suggest-soft: #4d7c0f1a;
+  --color-ai: #1f6feb;
+  --color-ai-soft: #e8f0fe;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }
@@ -212,8 +215,8 @@ body {
 :root[data-map] .map-surface { padding: 0.5rem; }
 :root[data-map] .map-legend { padding: 0.375rem 0.5rem; }
 
-/* Entrée dans l'appli avant la fin de la synchro (écran d'ouverture, src/splashScreen.ts) : la pastille de synchro
-   clignote doucement une fois, les chiffres vont encore bouger. */
+/* Entrée dans l'appli avant la fin de la synchro (écran d'ouverture, src/splashScreen.ts) : la bulle de profil (point de
+   synchro, src/components/ProfileMenu.tsx) clignote doucement une fois, les chiffres vont encore bouger. */
 @keyframes sync-pulse {
   0%, 100% { box-shadow: 0 0 0 0 transparent; }
   40% { box-shadow: 0 0 0 5px color-mix(in srgb, #38bdf8 45%, transparent); }
@@ -286,3 +289,8 @@ body {
 /* Barre « Afficher / Sélectionner » d'une liste de joueurs (Pictos.tsx) : dans le panneau de droite, qui défile seul,
    collée en haut du panneau (et non sous l'en-tête de l'appli). */
 .md-panel .plist-sticky { top: 0; }
+
+/* Fenêtre « Demander » (bulle ✦, components/Demander.tsx) : apparaît en glissant un peu depuis la bulle. */
+@keyframes ask-pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+.ask-pop { animation: ask-pop 140ms ease-out; transform-origin: top center; }
+@media (prefers-reduced-motion: reduce) { .ask-pop { animation: none; } }

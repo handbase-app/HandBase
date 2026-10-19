@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useAlerts } from '../alerts'
 import { bilanPart, cellText, countBy, defaultChoices, filterLine, leftOf, metaLine, namesAllowed, parseReportChoices, reportSearch, reportTitle, STAGE_COLUMN, stageOf, topTests, whereToGo, type ReportChoices } from '../bilanReport'
-import { BackButton } from '../backNav'
+import { BackButton, TabBackButton } from '../backNav'
 import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
 import { alive, db, fmtDate, plural, today, type Player, type Rewatch, type Unit } from '../db'
 import { listGender, pluralG, SEX_LABELS, SEX_SHORT, w, type Gender } from '../gender'
@@ -1559,10 +1559,14 @@ export default function Coverage() {
 
   // Barre de filtres : champ et « Filtres » au bout de la ligne des filtres du bilan ; dessous (seulement s'il y a quelque
   // chose) : ligne de résultat d'une phrase, pastilles, panneau des filtres, calcul ou mode avancé.
+  // Ordinateur avec la barre « Demander » en haut : pas de deuxième barre ni de deuxième micro sur la ligne des filtres
+  // (une phrase se pose en haut) ; il reste « Filtres ». Sans la barre du haut (dictée indisponible), la barre de la ligne garde
+  // la recherche par nom.
+  const oneBar = !phone && questionReady
   const barRow = (
-    <div className="flex min-w-0 gap-2 sm:min-w-56 sm:flex-1">
-      {bar.field}
-      {bar.filtersButton}
+    <div className={`flex min-w-0 gap-2 ${oneBar ? 'empty:hidden' : 'sm:min-w-56 sm:flex-1'}`}>
+      {!oneBar && bar.field}
+      {!oneBar && bar.filtersButton}
     </div>
   )
   const barBelow = (
@@ -1576,17 +1580,20 @@ export default function Coverage() {
   )
   const barSummary = [...bar.chipLabels, ...(st.t.trim() ? [`« ${st.t.trim()} »`] : [])]
   // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
-  const filtersBlock = (
+  const filtersInput = (
+    <div className="min-w-0 flex-1">
+      <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
+    </div>
+  )
+  const filtersBlock = oneBar ? (
+    filtersInput
+  ) : (
     <VoiceSearch<BilanVoice>
       values={{ sex, period, years: picked, region, dept, club: st.club, view }}
       apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
       page={voicePage}
       label="Filtrer"
-      input={
-        <div className="min-w-0 flex-1">
-          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
-        </div>
-      }
+      input={filtersInput}
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
@@ -1605,13 +1612,14 @@ export default function Coverage() {
     <WhoCtx.Provider value={who}>
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        {/* Sur un lieu, le retour remonte d'un étage (club → département → région → France) ; depuis la France, on quitte le bilan. */}
+        {/* Sur un lieu, le retour remonte d'un étage (club → département → région → France). Depuis la France : le bilan est un
+            onglet, retour seulement si l'on vient d'un autre écran que les onglets (TabBackButton). */}
         {up && upPlace ? (
           <button onClick={up} className="min-w-0 self-start truncate text-left text-xs font-bold text-muted">
             ← {(upPlace.dept ? deptText(upPlace.dept) : upPlace.region ? regionLabel(upPlace.region) : 'France').toUpperCase()}
           </button>
         ) : (
-          <BackButton fallback="/" label="ACCUEIL" className="self-start" />
+          <TabBackButton className="self-start" />
         )}
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
@@ -1627,7 +1635,7 @@ export default function Coverage() {
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
             dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
-        {!phone && <AskQuestion />}
+        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} />}
         {!(phone && questionReady) && savedQuestions}
         {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
         {phone && (

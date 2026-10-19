@@ -79,6 +79,22 @@ class SelStore {
 
 const SelCtx = createContext<SelStore | null>(null)
 
+/*
+ * Sélection « armée » par la barre « Demander » (src/components/Demander.tsx : « crée un groupe avec… » depuis
+ * l'en-tête) : la prochaine liste de joueurs qui s'affiche avec des joueurs passe en mode sélection, tous cochés ; la
+ * barre d'actions (« → Groupe », « → Événement ») fait le reste, rien n'est créé sans toucher un bouton. Oubliée au bout
+ * de 20 s si aucune liste ne l'a prise.
+ */
+let armedAt = 0
+export function armSelectAll() {
+  armedAt = Date.now()
+}
+const takeArmed = () => {
+  const ok = armedAt > 0 && Date.now() - armedAt < 20_000
+  armedAt = 0
+  return ok
+}
+
 /** Sélection d'une liste : un store par PlayerList. `enabled` faux (mode « retirer », comparaison…) : mode quitté. */
 export function useListSelection(all: readonly string[], shown: readonly string[], enabled: boolean) {
   const ref = useRef<SelStore>(null)
@@ -91,6 +107,10 @@ export function useListSelection(all: readonly string[], shown: readonly string[
   useEffect(() => {
     if (!enabled && store.on) store.update({ on: false, ids: [] })
   }, [enabled, store])
+  // Sélection armée par « Demander » : dès que la liste filtrée a des joueurs, tous cochés.
+  useEffect(() => {
+    if (enabled && all.length && armedAt && takeArmed()) store.update({ on: true, ids: selectAll([], all) })
+  })
   return { store, on: on && enabled }
 }
 

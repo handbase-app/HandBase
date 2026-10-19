@@ -202,7 +202,8 @@ export function useMicRecorder(onText: (text: string) => void) {
     }
   }, [phase])
 
-  return { phase, seconds, error, held, buttonProps, finish: () => stop(), cancel: () => stop(true), clearError: () => setError('') }
+  // `start` : début sans bouton (appui long sur le bouton « Demander » de l'en-tête, qui gère lui-même son appui).
+  return { phase, seconds, error, held, buttonProps, start: () => void start(), finish: () => stop(), cancel: () => stop(true), clearError: () => setError('') }
 }
 
 const fmtSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`

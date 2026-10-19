@@ -30,6 +30,8 @@ export type MenuItem = {
   danger?: boolean
   /** Trait au-dessus (début d'un autre groupe d'actions). */
   separated?: boolean
+  /** Précision écrite en entier, sur plusieurs lignes au besoin (message d'erreur de la synchro). */
+  wrap?: boolean
 }
 
 /** Classes des lignes qui ont un menu : pas de sélection du texte ni de menu natif à l'appui long (sauf dans les champs). */
@@ -158,7 +160,8 @@ export function copyLink(path: string) {
   }
 }
 
-const isPhone = () => {
+/** Téléphone (moins de 640 px de large) : le menu est une feuille du bas. */
+export const isPhone = () => {
   try {
     return window.matchMedia('(max-width: 639px)').matches
   } catch {
@@ -279,7 +282,7 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: 
               {it.icon && <Icon name={it.icon} filled={it.filled} className={`h-4 w-4 shrink-0 ${it.danger ? '' : 'text-muted'}`} />}
               <span className="flex min-w-0 flex-col py-1">
                 <span className="truncate font-bold">{it.label}</span>
-                {it.hint && <span className="truncate text-[11px] font-normal text-muted">{it.hint}</span>}
+                {it.hint && <span className={`${it.wrap ? 'break-words' : 'truncate'} text-[11px] font-normal text-muted`}>{it.hint}</span>}
               </span>
             </button>
           ))}

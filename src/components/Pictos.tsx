@@ -28,7 +28,7 @@ import { accord, w } from '../gender'
 import { FollowStar } from './Follow'
 import { RewatchToggle } from './Scouting'
 import { Icon, type IconName } from './ui'
-import { SelectButton, SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
+import { SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
 
 /*
  * Pictogrammes au bout des lignes de joueurs (src/pictos.ts pour la partie pure) :
@@ -94,11 +94,23 @@ export const PICTO_ICONS: Record<PictoKind, IconName> = {
   groupes: 'users',
 }
 
-export function PictoBar({ className = '' }: { className?: string }) {
+/**
+ * `label` : ce qui précède les pictogrammes. Liste Joueurs : le nombre de joueurs (« 7 joueurs sur 39 988 »), toujours visible
+ * puisque la barre reste collée en haut ; ailleurs, rien (les pictogrammes seuls, calés à droite).
+ */
+export function PictoBar({ className = '', label }: { className?: string; label?: ReactNode }) {
   const on = usePictos()
   return (
-    <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-lg border border-line bg-panel px-1.5 py-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${className}`}>
-      <span className="mr-0.5 text-[10px] font-bold tracking-wider text-muted uppercase">Afficher</span>
+    <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-3 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${className}`}>
+      {/* Plus de mot « Afficher » : le nombre de joueurs quand la liste le donne (Joueurs), sinon rien (la liste a déjà son
+          compte au-dessus : groupe, événement, réponse du bilan…). */}
+      {label && (
+        <span className="mr-1 text-[11px] font-bold whitespace-nowrap text-muted" role="status">
+          {label}
+        </span>
+      )}
+      {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs à gauche). */}
+      <span className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
       {PICTO_KINDS.map((k) => {
         const pressed = on.includes(k)
         return (
@@ -109,7 +121,7 @@ export function PictoBar({ className = '' }: { className?: string }) {
             aria-label={PICTO_LABELS[k]}
             title={`${PICTO_LABELS[k]} : ${pressed ? 'affiché — toucher pour masquer' : 'masqué — toucher pour afficher'}`}
             onClick={() => setPictos(togglePicto(on, k))}
-            className={`flex h-8 w-8 items-center justify-center rounded-md border transition max-[420px]:w-7 @max-[30rem]/plb:w-7 ${
+            className={`flex h-8 w-8 items-center justify-center rounded-full border transition max-[420px]:h-7 max-[420px]:w-7 @max-[30rem]/plb:h-7 @max-[30rem]/plb:w-7 ${
               pressed ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
           >
@@ -117,17 +129,7 @@ export function PictoBar({ className = '' }: { className?: string }) {
           </button>
         )
       })}
-      {!isDefaultPictos(on) && (
-        <button
-          type="button"
-          className="ml-auto flex min-h-8 items-center gap-1 px-1 text-[10px] text-muted hover:text-fg"
-          title="Revenir aux pictogrammes par défaut (suivi, vu, à revoir)"
-          onClick={() => setPictos([...DEFAULT_PICTOS])}
-        >
-          <Icon name="undo" className="h-3.5 w-3.5" />
-          <span className="underline max-sm:sr-only">par défaut</span>
-        </button>
-      )}
+      </span>
     </div>
   )
 }
@@ -201,6 +203,7 @@ const EMPTY = { facts: new Map<string, PictoFacts>(), sight: new Map<string, Sig
 export function PlayerList({
   ids,
   all = ids,
+  countLabel,
   context,
   children,
   className = 'flex flex-col gap-2',
@@ -210,6 +213,8 @@ export function PlayerList({
 }: {
   ids: readonly string[]
   all?: readonly string[]
+  /** Nombre affiché dans la barre à la place de « Afficher » (liste Joueurs). */
+  countLabel?: ReactNode
   context?: SelContext
   children: ReactNode
   className?: string
@@ -274,13 +279,13 @@ export function PlayerList({
           {/* Barre « Afficher / Sélectionner » (et l'en-tête de la sélection) collée en haut pendant le défilement :
               sous l'en-tête de l'appli, ou en haut du panneau de droite (.md-panel, index.css) ; pas dans la colonne
               de contexte, qui a déjà son propre bandeau collé (sticky = false). */}
-          {(bar || select || sel.on) && (
-            <div className={sticky ? 'plist-sticky sticky top-[var(--hdr)] z-[15] -mx-1 flex flex-col gap-1 bg-bg/95 px-1 py-1 backdrop-blur' : 'flex flex-col gap-1'}>
-              {(bar || select) && (
-                // Conteneur (plb) : barre et bouton se resserrent selon la place de la liste (colonne de contexte comprise).
+          {(bar || sel.on) && (
+            <div className={sticky ? 'plist-sticky sticky top-[calc(var(--hdr)+var(--qbar,0px))] z-[15] -mx-1 flex flex-col gap-1 bg-bg/95 px-1 py-1 backdrop-blur' : 'flex flex-col gap-1'}>
+              {/* Plus de bouton « Sélectionner » : la sélection s'ouvre par le menu d'une ligne (clic droit, appui long, ⋮). */}
+              {bar && (
+                // Conteneur (plb) : la barre se resserre selon la place de la liste (colonne de contexte comprise).
                 <div className="@container/plb flex items-stretch gap-1">
-                  {bar && <PictoBar className="min-w-0 flex-1" />}
-                  {select && <SelectButton store={sel.store} className={bar ? '' : 'ml-auto'} />}
+                  <PictoBar className="min-w-0 flex-1" label={countLabel} />
                 </div>
               )}
               {sel.on && <SelectionHeader store={sel.store} />}

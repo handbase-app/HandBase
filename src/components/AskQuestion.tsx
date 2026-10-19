@@ -1,19 +1,21 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { db, POSITIONS, today } from '../db'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
-import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
+import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon } from './ui'
+import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { appName } from '../appBrand'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
 
 /*
  * « Poser une question » au bilan de détection : le coach touche « micro ✨ Poser une question » et parle (« les joueuses
- * 2011 vues une seule fois cette saison, par département »), ou tape sa question (ordinateur). La phrase et la
+ * 2011 vues une seule fois cette saison, par département »), ou tape sa question (ordinateur) dans la barre « Demander »
+ * (src/components/Demander.tsx : historique du bilan, suggestions ; une question venue de l'en-tête arrive ici). La phrase et la
  * DESCRIPTION de la recette (src/recipe.ts : clés, opérateurs, postes, catégories et critères) partent à la fonction
  * « transcrire » (?mode=question) ; elle rend une recette brute, que la page de réponse (/bilan/question) revérifie et
  * calcule sur l'appareil. Aucune donnée de joueur ne part ; aucun nom de club, de lieu, de groupe ou d'événement non plus.
@@ -29,7 +31,7 @@ export type AskState = { raw: unknown; nonGere: string[]; heard: string }
  * variant : 'full' (micro + champ, ordinateur), 'mic' (le micro seul, en un toucher : barre du bas du bilan sur téléphone),
  * 'text' (le champ seul : panneau « Taper / Mes questions » du téléphone).
  */
-export function AskQuestion({ className = '', variant = 'full' }: { className?: string; variant?: 'full' | 'mic' | 'text' }) {
+export function AskQuestion({ className = '', variant = 'full', trailing }: { className?: string; variant?: 'full' | 'mic' | 'text'; trailing?: ReactNode }) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
   const [text, setText] = useState('')
@@ -60,6 +62,7 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
       const ans = await sendQuestionRequest(said, schema, ctrl.signal)
       if (ctrl.signal.aborted) return
       setText('')
+      recordAsk('bilan', said)
       // La page de réponse relit la recette avec les listes de l'appli et la met dans l'adresse.
       nav('/bilan/question', { state: { raw: ans.recette, nonGere: ans.nonGere, heard: said } satisfies AskState })
     } catch (e) {
@@ -71,6 +74,8 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
   }
 
   const mic = useMicRecorder((t) => void ask(t))
+  // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête.
+  useIncomingAsk(questionReady && variant !== 'mic' ? 'bilan' : null, (a) => void ask(a.phrase))
   if (!questionReady) return null
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy
@@ -103,28 +108,22 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
           <span className="pl-1">{rec ? 'Arrêter' : 'Poser une question'}</span>
         </button>
   )
+  // Une seule barre, façon Google : le micro (ordinateur) et la flèche d'envoi sont DANS la barre « Demander ».
   const form = (
-        <form
-          className="flex min-w-0 flex-[1_1_18rem] gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void ask(text)
-          }}
-        >
-          <input
-            className="field min-h-11 min-w-0 flex-1 text-sm"
-            placeholder="Ou tapez votre question…"
-            aria-label="Poser une question"
-            value={text}
-            maxLength={MAX_PHRASE}
-            disabled={sending || rec}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <button type="submit" className="btn-primary min-h-11 shrink-0 px-3 text-sm" disabled={!text.trim() || sending || rec} aria-label="Demander">
-            <span aria-hidden>✨</span>
-            <span className="hidden sm:inline">Demander</span>
-          </button>
-        </form>
+    <Demander
+      page="bilan"
+      value={text}
+      onChange={setText}
+      onSubmit={(t) => void ask(t)}
+      canAsk
+      mic={variant === 'full' ? mic : undefined}
+      micHint={QUESTION_HINT}
+      disabled={sending || rec}
+      placeholder="Une question sur le bilan, ou dites-la…"
+      label="Poser une question"
+      className="flex-[1_1_18rem]"
+      trailing={trailing}
+    />
   )
   const status =
       mic.phase !== 'idle' ? (
@@ -141,12 +140,11 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
         <div className="text-[11px] text-red-300" role="alert">
           {error || mic.error}
         </div>
-      ) : (
-        <div className="text-[10px] text-muted">Réponse calculée sur cet appareil ; seule la phrase est envoyée pour être comprise, jamais les données des joueurs.</div>
-      )
+      ) : null
   const notice = (
-      <p className="text-[10px] text-muted">
-        Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
+      <p className="px-4 text-[10px] text-muted">
+        Réponse calculée sur cet appareil : seule la phrase est envoyée, jamais les données des joueurs. Phase de développement : vos
+        questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
         <Link to="/confidentialite#questions" className="underline">
           Confidentialité
         </Link>
@@ -163,12 +161,9 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
     )
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <div className="flex flex-wrap gap-2">
-        {variant === 'full' && micButton}
-        {form}
-      </div>
+      <div className="flex flex-wrap gap-2">{form}</div>
       {status}
-      {notice}
+      {!status && notice}
     </div>
   )
 }

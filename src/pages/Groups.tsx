@@ -1,3 +1,4 @@
+import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -18,7 +19,7 @@ import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Participants } from '../components/Participants'
 import { GROUP_VIS, STAFF, TEAM_FOLLOW } from '../staffLabels'
 import { participantSummary, useTeams } from '../teams'
-import type { Team } from '../db'
+import type { Team, Unit } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
@@ -41,6 +42,28 @@ import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } f
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { PageHeader } from '../components/PageHeader'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
+import { choose } from '../components/Confirm'
+import {
+  createPoleGroup,
+  ExitReasonDialog,
+  fmtDay,
+  joinMessage,
+  askArrival,
+  joinPoleMany,
+  leavePoleOne,
+  PoleChip,
+  programmeLabel,
+  usePoleCount,
+  usePoleGroups,
+  usePoleLeader,
+  usePoleMembers,
+  usePoleRef,
+  usePoleRefs,
+  VIEW_OPTIONS,
+  type PoleMembers,
+} from '../components/PoleGroup'
+import { exportGaps, periodIndexAt, seasonStatus, seasonStatusLabel, type PoleRef, type PoleView } from '../poleSeason'
+import { poleViewOf, withPoleView } from '../tabQuery'
 
 /** Onglets de la page Groupes (?onglet=travail ; groupes de joueurs par défaut, sans paramètre). */
 type GroupsTab = 'joueurs' | typeof STAFF.tab
@@ -62,10 +85,16 @@ export default function Groups() {
   const [showArchived, setShowArchived] = useSessionState('handbase.groupes.archived', false)
   // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
   // question… », micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session.
-  const { filtered: shown, active: filtering, ui: filterUi, top: filterTop } = useGroupsQuery(groups)
+  const { filtered: shown, active: filtering, ui: filterUi, top: filterTop, filtersOpen } = useGroupsQuery(groups)
+  // Groupes Pôle (src/poleSeason.ts) : épinglés en tête ; unités Pôle que je dirige sans groupe : une tuile pour le créer.
+  const leader = usePoleLeader()
+  const refs = usePoleRefs()
+  const poleGroups = usePoleGroups()
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const active = shown.filter((g) => !g.archived)
+  const pinned = shown.filter((g) => !!g.poleUnitId && !g.archived)
+  const active = shown.filter((g) => !g.archived && !g.poleUnitId)
   const archived = shown.filter((g) => g.archived)
+  const toCreate = filtering ? [] : leader.units.filter((u) => !poleGroups.some((g) => g.poleUnitId === u.id))
   const work = tab === STAFF.tab
 
   // Changer d'onglet remplace l'adresse (comme les onglets d'un événement) ; un groupe ouvert à droite se ferme.
@@ -129,11 +158,24 @@ export default function Groups() {
         événement.
       </p>
       <AllGroupsToggle role={role} />
-      {groups.length > 0 && filterUi}
+      {groups.length > 0 && <StickyQuery stick={!filtersOpen}>{filterUi}</StickyQuery>}
       {filterTop}
       {!active.length && filtering && <Empty>Aucun groupe ne correspond.</Empty>}
-      {!groups.length && (
+      {!groups.length && !toCreate.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
+      )}
+      {(pinned.length > 0 || toCreate.length > 0) && (
+        <>
+          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
+            <Icon name="target" className="h-3.5 w-3.5" /> Pôles Espoirs
+          </div>
+          <div className="cols flex flex-col gap-3">
+            {pinned.map((g) => (
+              <GroupRow key={g.id} g={g} teams={teams} />
+            ))}
+            <PoleCreateTiles units={toCreate} onCreate={async (u) => nav(`/groupes/${(await createPoleGroup(u, refs.get(u.id) ?? null)).id}`)} />
+          </div>
+        </>
       )}
       {SECTIONS.map(
         (sec) =>
@@ -179,6 +221,56 @@ const SECTIONS = [
 ] as const
 
 /** Pastille « Mon staff » (team) : groupe visible par son créateur et ses participants seulement. */
+/** Sans accents ni majuscules, pour chercher un pôle par son nom. */
+const foldName = (s = '') => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/**
+ * Tuiles « Créer le groupe Pôle de … » (unités Pôle que je dirige sans groupe). Jusqu'à deux : une tuile par pôle. Au-delà
+ * (un administrateur voit tous les pôles de la structure) : une seule tuile qui s'ouvre sur une liste avec un champ de
+ * recherche, pour ne pas noyer la page sous cinquante tuiles.
+ */
+function PoleCreateTiles({ units, onCreate }: { units: Unit[]; onCreate: (u: Unit) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  if (!units.length) return null
+  const tile = (u: Unit, compact = false) => (
+    <button key={u.id} type="button" className={`card flex items-center gap-3 text-left hover:border-accent ${compact ? 'p-2' : 'p-3'}`} onClick={() => onCreate(u)}>
+      <Icon name="userPlus" className="h-4 w-4 shrink-0 text-accent" />
+      <span className="min-w-0">
+        <span className="block text-sm font-bold">{compact ? u.name : `Créer le groupe Pôle de ${u.name}`}</span>
+        {!compact && (
+          <span className="block text-[11px] text-muted">Membres calculés depuis les périodes de pôle des fiches ; saison en cours et saison prochaine ; changement de saison.</span>
+        )}
+      </span>
+    </button>
+  )
+  if (units.length <= 2) return <>{units.map((u) => tile(u))}</>
+  const hits = q.trim() ? units.filter((u) => foldName(u.name).includes(foldName(q.trim()))) : units
+  return (
+    <div className="card flex flex-col gap-2 p-3">
+      <button type="button" className="flex items-center gap-3 text-left" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="userPlus" className="h-4 w-4 shrink-0 text-accent" />
+        <span className="min-w-0">
+          <span className="block text-sm font-bold">Créer un groupe Pôle…</span>
+          <span className="block text-[11px] text-muted">
+            {units.length} pôles de la structure sans groupe. Membres calculés depuis les périodes de pôle des fiches ; saison en cours et saison prochaine ; changement de saison.
+          </span>
+        </span>
+      </button>
+      {open && (
+        <>
+          <input className="field text-sm" placeholder="Chercher un pôle (ville, filles, garçons)…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Chercher un pôle" />
+          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+            {hits.slice(0, 30).map((u) => tile(u, true))}
+            {!hits.length && <p className="text-xs text-muted">Aucun pôle ne correspond.</p>}
+            {hits.length > 30 && <p className="text-xs text-muted">… et {hits.length - 30} de plus : précise la recherche.</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function TeamChip() {
   return (
     <span
@@ -229,19 +321,24 @@ async function deleteGroup(g: PlayerGroup) {
 }
 
 /** Menu d'une ligne de groupe (appui long, clic droit, « ⋮ ») : seulement ce que les droits permettent. */
-function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRowMenu> }) {
+function GroupMenu({ g, menu, count }: { g: PlayerGroup; menu: ReturnType<typeof useRowMenu>; count: number }) {
   const role = useRole()
   const nav = useNavigate()
   const { pathname } = useLocation()
+  const leader = usePoleLeader()
   if (!menu.anchor) return null
-  const manage = can.editGroup(role, g)
+  // Groupe Pôle : ses dirigeants le gèrent ; ni dupliqué ni archivé (permanent, un seul par unité).
+  const pole = !!g.poleUnitId
+  const leads = pole && leader.leads(g.poleUnitId!)
+  const manage = can.editGroup(role, g) || leads
   const items: (MenuItem | false)[] = [
     { label: 'Ouvrir', icon: 'users', onSelect: () => nav(`/groupes/${g.id}`) },
-    (manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
+    (pole ? leads : manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
+    pole && leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
     manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
-    { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+    !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
     { label: 'Exporter en PDF', icon: 'download', hint: 'à imprimer', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
-    manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+    !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
     manage && {
       label: 'Supprimer',
@@ -256,7 +353,7 @@ function GroupMenu({ g, menu }: { g: PlayerGroup; menu: ReturnType<typeof useRow
     <ItemMenu
       anchor={menu.anchor}
       title={g.name}
-      subtitle={`${pluralG(g.playerIds.length, g.sex)}${g.archived ? ' · archivé' : ''}`}
+      subtitle={`${pluralG(count, g.sex)}${g.archived ? ' · archivé' : ''}`}
       items={items.filter((x): x is MenuItem => !!x)}
       onClose={menu.close}
     />
@@ -273,6 +370,8 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   const who = [...ps.teams.map((t) => t.name), ...(ps.hidden ? [STAFF.hidden(ps.hidden)] : []), ...ps.others.map((u) => g.names?.[u] ?? '?')]
   // Ordinateur : groupe ouvert dans le panneau de droite.
   const on = useSelected('/groupes') === g.id
+  // Groupe Pôle : effectif calculé (vue en cours), badge « Pôle ».
+  const count = usePoleCount(g)
   return (
     <>
     <Link
@@ -285,6 +384,7 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
           <span className="truncate">{g.name}</span>
+          {g.poleUnitId && <PoleChip />}
           {g.team && <TeamChip />}
           {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
         </div>
@@ -299,11 +399,11 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
       </div>
       <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-muted">
         <FollowStar kind="group" id={g.id} />
-        {pluralG(g.playerIds.length, g.sex)}
+        {pluralG(count, g.sex)}
         <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${g.name} »`} className="-mr-1.5" />
       </span>
     </Link>
-    <GroupMenu g={g} menu={menu} />
+    <GroupMenu g={g} menu={menu} count={count} />
     </>
   )
 }
@@ -590,11 +690,37 @@ export function NewGroup() {
   )
 }
 
-/** « Exporter ▾ » de la page d'un groupe : tableur (CSV) ou liste à imprimer (PDF, identité seulement, ex. pour la ligue). */
-function GroupExport({ g, players, gender, className = '' }: { g: PlayerGroup; players: Player[]; gender?: Gender; className?: string }) {
+/** Texte d'une période pour l'export d'un groupe Pôle : statut de saison, programme, référence PSQS de l'unité. */
+function poleCells(p: Player, pole: { ref: PoleRef; m: PoleMembers; view: PoleView }): [status: string, programme: string, psqs: string] {
+  const st = seasonStatus(p, pole.ref, pole.m.s)
+  const i = periodIndexAt(p, pole.ref, pole.view === 'prochaine' ? pole.m.s.refNext : pole.m.s.refCurrent)
+  return [seasonStatusLabel(st, p.sex), programmeLabel(i >= 0 ? p.poles?.[i]?.programme : undefined), pole.ref.psqsRef ?? '']
+}
+
+/**
+ * « Exporter ▾ » de la page d'un groupe : tableur (CSV) ou liste à imprimer (PDF, identité seulement, ex. pour la ligue).
+ * Groupe Pôle : la vue affichée, avec « Statut de saison », « Programme » et « Référence PSQS » ; avant l'export, les fiches
+ * incomplètes (licence, date de naissance complète, sexe) sont listées : continuer, ou aller corriger la première.
+ * TODO (plus tard) : courriel préparé pour la ligue / le PSQS.
+ */
+function GroupExport({ g, players, gender, pole, className = '' }: { g: PlayerGroup; players: Player[]; gender?: Gender; pole?: { ref: PoleRef; m: PoleMembers; view: PoleView }; className?: string }) {
   const nav = useNavigate()
   const menu = useRowMenu()
   const n = players.length
+  /** Contrôle des fiches incomplètes (groupe Pôle) : vrai pour continuer. */
+  async function checked(): Promise<boolean> {
+    if (!pole) return true
+    const gaps = players.map((p) => ({ p, miss: exportGaps(p) })).filter((x) => x.miss.length)
+    if (!gaps.length) return true
+    const list = gaps.slice(0, 6).map((x) => `${x.p.lastName.toUpperCase()} ${x.p.firstName} (${x.miss.join(', ')})`).join(' ; ')
+    const r = await choose(`${gaps.length} fiche${gaps.length > 1 ? 's incomplètes' : ' incomplète'} pour la liste officielle : ${list}${gaps.length > 6 ? ' ; …' : ''}. Continuer quand même ?`, [
+      { value: 'corriger', label: 'Aller corriger', style: 'ghost' },
+      { value: 'continuer', label: 'Continuer', style: 'primary' },
+    ])
+    if (r === 'corriger') nav(`/joueurs/${gaps[0].p.id}/modifier?retour=${encodeURIComponent(`/groupes/${g.id}`)}`)
+    return r === 'continuer'
+  }
+  const extra = pole ? { head: ['Statut de saison', 'Programme', 'Référence PSQS'], row: (p: Player) => poleCells(p, pole) } : undefined
   return (
     <>
       <button
@@ -615,8 +741,8 @@ function GroupExport({ g, players, gender, className = '' }: { g: PlayerGroup; p
           title="Exporter"
           subtitle={`${g.name} · ${pluralG(n, gender)}`}
           items={[
-            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: () => void exportCsv(players, gender) },
-            { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
+            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: async () => (await checked()) && void exportCsv(players, gender, extra) },
+            { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: async () => (await checked()) && nav(`/groupes/${g.id}/rapport${pole ? withPoleView('', pole.view) : ''}`) },
           ]}
           onClose={menu.close}
         />
@@ -679,45 +805,82 @@ function PlayerGroupDetail() {
     const hidden = hiddenCount(g?.playerIds ?? [], new Set(got.map((p) => p.id)))
     return { g, players: alive(got), teams, hidden }
   }, [id])
+  // Groupe Pôle (src/poleSeason.ts) : membres calculés depuis les fiches pour la vue de l'adresse (?saison=prochaine) ;
+  // ses dirigeants (can.editPoles) ajoutent (entrée écrite sur la fiche) et retirent (sortie + motif) ; jamais playerIds.
+  const loc = useLocation()
+  const poleView = poleViewOf(loc.search)
+  const leader = usePoleLeader()
+  const pole = !!data?.g?.poleUnitId
+  const ref = usePoleRef(data?.g?.poleUnitId)
+  const pm = usePoleMembers(pole ? ref : null, poleView)
+  const [exiting, setExiting] = useState<Player | null>(null)
+  const [poleMsg, setPoleMsg] = useState('')
+  useEffect(() => setPoleMsg(''), [id])
 
   // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
   useRestoreScroll(`groupe.${id}`, !!data && data.g?.id === id)
 
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
-  if (!data || (data.g && data.g.id !== id)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const { g, players, teams, hidden } = data
+  if (!data || (data.g && data.g.id !== id) || (pole && !pm)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  const { g, teams } = data
   if (!g || g.deleted || !can.seeGroup(g)) {
     if (allGroups && id) return <OtherGroupDetail key={id} id={id} info={groupInfo} />
     return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   }
-  const manage = can.editGroup(role, g)
-  // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe.
-  const contribute = can.contributeGroup(role, g)
+  const players = pole ? pm!.shown : data.players
+  const hidden = pole ? 0 : data.hidden
+  const leads = pole && leader.leads(g.poleUnitId!)
+  const manage = can.editGroup(role, g) || leads
+  // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe. Groupe Pôle : ses dirigeants seuls.
+  const contribute = !pole && can.contributeGroup(role, g)
   const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
-  const info = groupInfo(g, regionName(g.regionId))
+  const info = pole ? [ref?.name ?? 'Unité Pôle introuvable', ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
   const view = positionRosterView(players, sort, posFilter)
-  // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte), sinon déduit de ses joueurs.
-  const gg = setGender(g.sex, players)
+  // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte ; pôle : sexe de l'unité), sinon déduit de ses joueurs.
+  const gg = setGender(ref?.sex ?? g.sex, players)
   const gw = w(gg)
+  const fiche = (p: Player) => `/groupes/${g.id}/joueurs/${p.id}${pole ? withPoleView('', poleView) : ''}`
+  /** Ligne d'un membre du groupe Pôle : statut de saison (sortie, entrée) ou programme. */
+  const poleLine = (p: Player) => {
+    if (!pole || !ref || !pm) return null
+    const st = seasonStatus(p, ref, pm.s)
+    const i = periodIndexAt(p, ref, poleView === 'prochaine' ? pm.s.refNext : pm.s.refCurrent)
+    const x = i >= 0 ? p.poles![i] : undefined
+    const prog = programmeLabel(x?.programme)
+    if (st.status === 'sorti') return `${seasonStatusLabel(st, p.sex)} au ${fmtDay(x?.to)}`
+    if (st.status === 'nouveau') return `${seasonStatusLabel(st, p.sex)} · entrée le ${fmtDay(x?.from)}${prog ? ` · ${prog}` : ''}`
+    return prog || (x?.from ? `depuis le ${fmtDay(x.from)}` : null)
+  }
 
   if (adding)
     return (
       <AddPlayers
         g={gg}
-        scope="ajout-groupe"
-        current={g.playerIds}
+        scope={pole ? 'ajout-pole' : 'ajout-groupe'}
+        current={pole ? pm!.next.map((p) => p.id) : g.playerIds}
         onCancel={() => (setAdding(false), setParams({}, { replace: true }))}
         onAdd={async (ids) => {
-          await addToGroup(g, ids)
+          if (pole && ref && pm) {
+            // Arrivée aujourd'hui (saison en cours) ou au 1er juillet (saison prochaine) ; la vue affichée suit le choix.
+            const when = await askArrival(pm.s, ids.length, poleView === 'prochaine' ? 'next' : 'now')
+            if (!when) return
+            const r = await joinPoleMany(ref, ids, pm.s, undefined, when)
+            setPoleMsg(joinMessage(r, g.name, pm.s, gg, when))
+            setAdding(false)
+            // Remplace « ?ajout=1 » par la vue de la saison choisie (effacer tous les paramètres ramenait à la saison en cours).
+            setParams(new URLSearchParams(withPoleView('', when === 'next' ? 'prochaine' : 'courante')), { replace: true })
+            return
+          } else await addToGroup(g, ids)
           setAdding(false)
           setParams({}, { replace: true })
         }}
       />
     )
 
-  // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation.
+  // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation (groupe Pôle : fenêtre du motif de sortie).
   async function removeOne(p: Player) {
+    if (pole) return setExiting(p)
     if (await ask(`Retirer ${p.lastName.toUpperCase()} ${p.firstName} du groupe « ${g!.name} » ? Sa fiche et ses avis ne sont pas touchés.`, { ok: 'Retirer', focusCancel: true }))
       await removeFromGroup(g!, [p.id])
   }
@@ -733,13 +896,15 @@ function PlayerGroupDetail() {
             ? undefined
             : {
                 title: g.name,
-                subtitle: `${pluralG(g.playerIds.length, gg)}${g.archived ? ' · archivé' : ''}`,
+                subtitle: `${pluralG(players.length, gg)}${g.archived ? ' · archivé' : ''}`,
                 items: [
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
-                  { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
-                  manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
-                  manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
-                  canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
+                  // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
+                  !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+                  leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
+                  manage && { label: pole ? 'Renommer' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+                  !pole && canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
                   players.length > 0 && {
                     label: 'Voir dans Joueurs',
                     icon: 'user',
@@ -789,6 +954,7 @@ function PlayerGroupDetail() {
               </span>
             )}
             {g.name}
+            {pole && <PoleChip />}
             {g.team && <TeamChip />}
             {g.teamFollow && !g.private && <TeamFollowChip />}
             {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
@@ -819,13 +985,39 @@ function PlayerGroupDetail() {
         </div>
       )}
 
+      {/* Groupe Pôle : vue « Saison en cours | Saison prochaine » dans l'adresse (?saison=prochaine), gardée au retour. */}
+      {pole && pm && (
+        <div className="flex flex-col gap-1">
+          <Segmented<PoleView>
+            value={poleView}
+            onChange={(v) => nav(`${loc.pathname}${withPoleView(loc.search, v)}`, { replace: true, state: loc.state })}
+            options={VIEW_OPTIONS(pm.s, !bar)}
+          />
+          <p className="text-[11px] text-muted">
+            {poleView === 'prochaine'
+              ? `${gw.Joueurs} dont une période de pôle couvre le ${fmtDay(pm.s.refNext)} (entrées déjà enregistrées comprises).`
+              : `${gw.Joueurs} dont une période de pôle couvre aujourd’hui (fiche ${gw.duJoueur}, bloc « Pôle Espoirs »).`}
+          </p>
+          {poleMsg && (
+            <p role="status" className="text-[11px] text-emerald-300">
+              {poleMsg}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Barre d'actions : « + Ajouter des joueurs » (principal), « Créer un événement », « Exporter ▾ » (CSV / PDF).
           Téléphone : le bouton principal sur toute la largeur, les deux autres côte à côte dessous. */}
       <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-2 gap-2'}>
-        {(manage || contribute) && (
+        {(pole ? leads : manage || contribute) && (
           <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : 'col-span-2'}`} onClick={() => setAdding(true)}>
             + Ajouter des {gw.joueurs}
           </button>
+        )}
+        {leads && (
+          <Link to={`/groupes/${g.id}/saison`} className={`btn-ghost text-center text-xs ${bar ? 'px-3 py-1.5' : 'col-span-2 px-2'}`}>
+            Changement de saison
+          </Link>
         )}
         {can.manageEvents(role) && (
           <Link
@@ -836,7 +1028,7 @@ function PlayerGroupDetail() {
             Créer un événement
           </Link>
         )}
-        <GroupExport g={g} players={view.roster} gender={gg} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
+        <GroupExport g={g} players={view.roster} gender={gg} pole={pole && ref && pm ? { ref, m: pm, view: poleView } : undefined} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
       </div>
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 
@@ -845,7 +1037,7 @@ function PlayerGroupDetail() {
           {pluralG(players.length, gg)}
         </span>
         {players.length > 1 && !removing && <CompareToggle pick={pick} className="ml-auto" />}
-        {!pick.on && players.some((p) => can.removeFromGroup(role, g, p.id)) && (
+        {!pick.on && !pole && players.some((p) => can.removeFromGroup(role, g, p.id)) && (
           <button
             className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
             onClick={() => setRemoving((r) => !r)}
@@ -876,15 +1068,24 @@ function PlayerGroupDetail() {
                 <span className="w-6 shrink-0 text-center text-[11px] text-muted">{i + 1}</span>
               </>
             }
-            link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
+            link={{ to: fiche(p), state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
             linkProps={{ 'data-player': true }}
             lines={
               <>
                 {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
+                {pole && poleLine(p) && <span className="truncate text-[10px] text-muted">{poleLine(p)}</span>}
                 <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} sex={p.sex} />
               </>
             }
-            menuExtras={can.removeFromGroup(role, g, p.id) ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }] : undefined}
+            menuExtras={
+              pole
+                ? leads
+                  ? [{ label: 'Retirer du pôle…', icon: 'close', hint: 'sortie et motif sur la fiche', onSelect: () => void removeOne(p) }]
+                  : undefined
+                : can.removeFromGroup(role, g, p.id)
+                  ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
+                  : undefined
+            }
             pictos={!removing}
             rewatch={<RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
             actions={
@@ -901,6 +1102,20 @@ function PlayerGroupDetail() {
       </div>
       </PlayerList>
       <CompareBar pick={pick} players={players} />
+      {exiting && ref && pm && (
+        <ExitReasonDialog
+          name={`${exiting.lastName.toUpperCase()} ${exiting.firstName}`}
+          sex={exiting.sex}
+          date={pm.s.exit}
+          onClose={async (reason) => {
+            const p = exiting
+            setExiting(null)
+            if (!reason) return
+            const ok = await leavePoleOne(p, ref, pm.s, reason)
+            setPoleMsg(ok ? `${p.lastName.toUpperCase()} ${p.firstName} : sortie au ${fmtDay(pm.s.exit)} enregistrée sur sa fiche (se rétablit en effaçant la date).` : `${p.lastName.toUpperCase()} ${p.firstName} n’a pas de période en cours dans ce pôle.`)
+          }}
+        />
+      )}
     </div>
     </PlayerMenuScope.Provider>
   )

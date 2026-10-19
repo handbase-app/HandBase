@@ -1,3 +1,4 @@
+import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -120,7 +121,7 @@ export default function Events() {
   const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
-  const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
+  const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading, filtersOpen } = useEventsQuery(events, stats)
 
   if (!events || !allEvents) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const orgOf = (ev: HBEvent) => organizerLabel(ev, units)
@@ -197,7 +198,7 @@ export default function Events() {
           )}
         </div>
       )}
-      {events.length > 0 && filterUi}
+      {events.length > 0 && <StickyQuery stick={!filtersOpen}>{filterUi}</StickyQuery>}
       {filterTop}
       {searching ? (
         <>

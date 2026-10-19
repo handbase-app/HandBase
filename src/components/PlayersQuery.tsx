@@ -53,7 +53,7 @@ import {
 import { useQuestionModel, useRecipeNames, type QuestionModel } from '../questionModel'
 import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
-import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
+import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase, rescueInterpretation } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
@@ -66,6 +66,8 @@ import { CourtFilter } from './CourtPicker'
 import { ClubPicker, department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
 import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon, Segmented } from './ui'
+import { Demander, recordAsk, useIncomingAsk } from './Demander'
+import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
@@ -73,7 +75,7 @@ import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gen
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
- *  - En haut, un seul champ « Filtrer ou poser une question… » et UN micro ✨. Un simple nom (« Martin », « jean-pierre »,
+ *  - En haut, la barre « Demander » (src/components/Demander.tsx : historique, suggestions, menu) et UN micro ✨. Un simple nom (« Martin », « jean-pierre »,
  *    une licence) : recherche locale instantanée (comme avant, noms approchants compris), sans appel. Une phrase dite ou
  *    tapée (Entrée, ✨) : la phrase, la description de la recette et les NOMS des filtres posés partent au mode « question »
  *    (contexte « joueurs ») ; la recette rendue est revérifiée ici puis FUSIONNÉE avec les filtres posés : par défaut elle
@@ -272,6 +274,17 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     return v ? valueText(sortRecipe, names, v.value, v.tag) : ''
   }
 
+  // Historique de la barre « Demander » : la page où la demande est faite (bilan : barre posée).
+  const askPage = hosted ? 'bilan' : 'joueurs'
+  // Demande venue de l'en-tête ou de l'historique (« crée un groupe avec… » : la sélection multiple sera armée une fois
+  // les filtres posés : src/components/Selection.tsx).
+  const wantSelect = useRef(false)
+  const applied = () => {
+    if (!wantSelect.current) return
+    wantSelect.current = false
+    armSelectAll()
+  }
+
   // ---------- Recherche par nom (instantanée, avec un léger délai pendant la frappe) ----------
   const nameMode = !questionReady || isNameQuery(text)
   useEffect(() => {
@@ -280,6 +293,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     const t = window.setTimeout(() => {
       sentQ.current = q
       setRawQuery({ ...qy, q })
+      if (q) applied()
     }, q ? 150 : 0)
     return () => window.clearTimeout(t)
   }, [text, nameMode]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -299,6 +313,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     setText('')
     setSql(null)
     setResult({ phrase, before, after: cleanQuery(after), text: [ch.text, calcText].filter(Boolean).join(' — ') || (sameQuery(before, after) ? '' : 'Filtres changés'), ...extra })
+    recordAsk(askPage, phrase)
+    applied()
   }
 
   async function ask(phrase: string) {
@@ -309,6 +325,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     // Simple nom : recherche locale (dite au micro ou tapée).
     if (isNameQuery(said) || !questionReady) {
       setText(said)
+      recordAsk(askPage, said)
       return
     }
     // Commandes évidentes, sans appel.
@@ -370,6 +387,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         if (spec) {
           setResult(null)
           setSql({ spec, phrase: p.phrase, auto: true, logId, ...(nothing ? {} : { partial: merged }) })
+          recordAsk(askPage, p.phrase)
+          applied()
         } else if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported, logId })
         else applyPhrase(p.phrase, p.before, merged, { notes, unsupported, logId })
       })()
@@ -381,6 +400,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   }, [pending, ctxReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const mic = useMicRecorder((t) => void ask(t))
+  useIncomingAsk(!hosted && !opts.scope ? 'joueurs' : null, (a) => {
+    wantSelect.current = !!a.select
+    void ask(a.phrase)
+  })
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy || !!pending
 
@@ -697,73 +720,37 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const nChips = shownKeys.filter((k) => k !== 'q').length
   const keepChip = (c: Chip) =>
     c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length) && !hosted?.hidden.has(c.key as FilterKey)
-  const field = (
-    <form
-      className="flex min-w-0 flex-1 gap-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!nameMode) void ask(text)
-      }}
-    >
-      <input
-        className={`field min-w-0 flex-1 ${hosted?.compact ? 'min-h-8 py-1 text-xs' : 'min-h-11'}`}
-        data-search
-        type="search"
-        enterKeyHint={nameMode ? 'search' : 'send'}
-        placeholder={questionReady ? 'Filtrer ou poser une question…' : 'Rechercher…'}
-        title={questionReady ? 'Un nom, un club, une licence ; ou une phrase (« nés en 2010 de plus d’1 m 85 », « taille moyenne ? »), puis Entrée' : 'Nom, club ou licence'}
-        aria-label={questionReady ? 'Filtrer ou poser une question' : 'Rechercher un joueur'}
-        value={text}
-        maxLength={MAX_PHRASE}
-        disabled={sending || rec}
-        onChange={(e) => setText(e.target.value)}
-        onFocus={() => questionReady && !asked && setAsked(true)}
-      />
-      {questionReady && !nameMode && (
-        <button type="submit" className={`btn-primary shrink-0 px-3 text-sm ${hosted?.compact ? 'min-h-8 py-0' : 'min-h-11'}`} disabled={sending || rec} aria-label="Appliquer la phrase">
-          <span aria-hidden>✨</span>
-        </button>
-      )}
-    </form>
-  )
-  const micButton = questionReady && (
-    <button
-      type="button"
-      data-noswipe
-      aria-label={rec ? 'Arrêter et appliquer' : sending ? 'Phrase en cours' : 'Filtrer ou poser une question à la voix'}
-      aria-pressed={rec}
-      title={rec ? 'Arrêter : la phrase est transcrite puis appliquée' : `Touchez et dites par exemple « ${HINT} » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)`}
-      disabled={sending}
-      className={`relative flex min-h-11 min-w-11 shrink-0 touch-none items-center justify-center rounded-md border-2 px-2 transition select-none [-webkit-touch-callout:none] ${
-        rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-line bg-panel-2 text-fg hover:border-accent active:bg-accent active:text-white'
-      } disabled:opacity-70`}
-      {...mic.buttonProps}
-      onPointerDown={(e) => {
-        // Les données de la recette se chargent pendant qu'on parle.
-        if (!asked) setAsked(true)
-        mic.buttonProps.onPointerDown(e)
-      }}
-    >
-      {sending ? (
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      ) : rec ? (
-        <span className="h-4 w-4 rounded-sm bg-white" />
-      ) : (
-        <>
-          <Icon name="mic" className="h-6 w-6" />
-          <span className="pointer-events-none absolute top-0.5 right-0.5 text-[11px] leading-none" aria-hidden>
-            ✨
-          </span>
-        </>
-      )}
+  // Le micro charge les données de la recette pendant qu'on parle.
+  const micForField = questionReady && !hosted ? { ...mic, buttonProps: { ...mic.buttonProps, onPointerDown: (e: Parameters<typeof mic.buttonProps.onPointerDown>[0]) => (!asked && setAsked(true), mic.buttonProps.onPointerDown(e)) } } : undefined
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google) ; la barre posée du bilan garde son bouton.
+  const filtersChip = (
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
+      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
     </button>
+  )
+  const field = (
+    <Demander
+      page={askPage}
+      value={text}
+      onChange={setText}
+      onSubmit={(t) => void ask(t)}
+      onFocus={() => questionReady && !asked && setAsked(true)}
+      canAsk={questionReady}
+      nameMode={nameMode}
+      mic={micForField}
+      micHint={HINT}
+      disabled={sending || rec}
+      compact={hosted?.compact}
+      label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
+      trailing={!hosted && !docked ? filtersChip : undefined}
+    />
   )
   const filtersButton = !docked && (
     <button
       type="button"
       onClick={() => setOpen(!open)}
       aria-expanded={open}
-      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-full border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
     >
       Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
     </button>
@@ -792,6 +779,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         r={shownResult}
         onUndo={() => (setQy(shownResult.before), setResult(null), setSql(null))}
         onClose={() => setResult(null)}
+        onSave={!hosted && !saving ? () => setSaving(true) : undefined}
         sqlButton={
           sqlReady && full.source && !shownResult.nothing && (shownResult.notes?.length || shownResult.unsupported?.length)
             ? async () => {
@@ -851,11 +839,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
 
   const ui = docked ? null : (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {field}
-        {micButton}
-        {filtersButton}
-      </div>
+      <div className="flex gap-2">{field}</div>
       {status}
       {chips}
       {saveForm}
@@ -865,10 +849,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   )
   const side = docked ? (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {field}
-        {micButton}
-      </div>
+      <div className="flex gap-2">{field}</div>
       {status}
       {chips}
       {saveForm}
@@ -945,6 +926,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const parts = {
     field,
     filtersButton,
+    /** « Filtres » en étiquette arrondie, à loger DANS une barre « Demander » (bilan : la barre du haut). */
+    filtersChip,
     below: (
       <>
         {status}
@@ -964,7 +947,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender }
+  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender, filtersOpen: open }
 }
 
 // ---------- Petits composants ----------
@@ -1090,23 +1073,37 @@ function SavedOnList({ saved, onApply }: { saved: ReturnType<typeof useSavedQues
 }
 const confirmAskLocal = (text: string) => confirmAsk(text, { ok: 'Supprimer', danger: true })
 
-/** Ligne de résultat d'une phrase : ce qui a changé, « Annuler », ce qui n'a pas été appliqué. */
-function ResultView({ r, onUndo, onClose, sqlButton }: { r: ResultLine; onUndo: () => void; onClose: () => void; sqlButton?: () => void }) {
+/**
+ * Ligne de résultat d'une phrase : la question reste affichée (« ✦ « … » »), ce qui a changé, « Annuler »,
+ * « Enregistrer la question » (liste Joueurs), ce qui n'a pas été appliqué.
+ */
+function ResultView({ r, onUndo, onClose, onSave, sqlButton }: { r: ResultLine; onUndo: () => void; onClose: () => void; onSave?: () => void; sqlButton?: () => void }) {
   if (r.nothing) return null
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-accent/40 bg-accent/5 px-2 py-1.5 text-[11px]" role="status">
+    <div className="flex flex-col gap-1 rounded-md border border-ai/40 bg-ai-soft px-2 py-1.5 text-[11px]" role="status">
       <div className="flex items-start gap-2">
-        <span className="min-w-0 flex-1">{r.text ? <b>{r.text}</b> : <span>Les filtres n’ont pas changé (« {r.phrase} »).</span>}</span>
+        <span className="min-w-0 flex-1 truncate font-bold">
+          <span className="text-ai" aria-hidden>
+            ✦
+          </span>{' '}
+          « {r.phrase} »
+        </span>
         {r.text && (
           <button type="button" className="min-h-9 shrink-0 font-bold underline" onClick={onUndo}>
             Annuler
+          </button>
+        )}
+        {onSave && (
+          <button type="button" className="flex min-h-9 shrink-0 items-center gap-1 font-bold underline" onClick={onSave}>
+            <Icon name="star" className="h-3 w-3" />
+            Enregistrer la question
           </button>
         )}
         <button type="button" className="min-h-9 shrink-0 px-1 text-muted" aria-label="Fermer" onClick={onClose}>
           ✕
         </button>
       </div>
-      <span className="truncate text-muted">Entendu : « {r.phrase} »</span>
+      <span className="text-muted">{r.text || 'Les filtres n’ont pas changé.'}</span>
       {!!r.unsupported?.length && (
         <span>
           <b>Pas pris en compte :</b> {r.unsupported.join(' ; ')}

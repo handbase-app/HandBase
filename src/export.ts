@@ -40,8 +40,9 @@ function download(name: string, content: string, type: string) {
 }
 
 /** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis validés.
- *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses » ; à défaut, déduit des joueurs exportés). */
-export async function exportCsv(only?: { id: string }[], g?: Gender) {
+ *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses » ; à défaut, déduit des joueurs exportés) ;
+ *  `extra` : colonnes en plus, à la fin (groupe Pôle : statut de saison, programme, référence PSQS ; src/pages/Groups.tsx). */
+export async function exportCsv(only?: { id: string }[], g?: Gender, extra?: { head: string[]; row: (p: Player) => string[] }) {
   const [all, criteria, measurements, evaluations] = await Promise.all([
     db.players.toArray().then(alive),
     db.criteria.orderBy('order').toArray().then(alive),
@@ -62,6 +63,7 @@ export async function exportCsv(only?: { id: string }[], g?: Gender) {
     ...subjective.map((c) => `${c.label} (${c.scale === 'choice' ? 'avis le plus fréquent' : c.scale === 'text' ? 'avis' : 'moy. avis'})`),
     'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Décalage pic Fransen (ans)', 'Décalage pic moyen (ans)', 'Taille adulte prédite (cm)', '% taille adulte', 'Taille adulte sans parents, moyenne (cm)',
     'Nb avis', 'Fiche', 'Lacunes', 'Notes',
+    ...(extra?.head ?? []),
   ]
   const rows = players.map((p) => {
     const l = latest.get(p.id)
@@ -89,6 +91,7 @@ export async function exportCsv(only?: { id: string }[], g?: Gender) {
       ...subjective.map((c) => avg(c)),
       r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr && pahShown(snap.kr.pah)), r1(snap?.adult.mean?.height),
       evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
+      ...(extra?.row(p) ?? []),
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')

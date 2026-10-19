@@ -156,7 +156,7 @@ function Row({
   const avatar = <Avatar p={p} size={size} />
   // Le lien (ou bouton) porte le nom ; son ::after couvre toute la zone de la ligne (un clic n'importe où l'ouvre).
   // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
-  const hit = "min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
+  const hit = "col-start-1 row-start-1 min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
   const name = <PlayerNameLine p={p} compact={compact} quarter={quarter} badges={badges} />
   const main = sel ? (
     <label htmlFor={checkId} className={`${hit} cursor-pointer`}>
@@ -171,7 +171,7 @@ function Row({
       {name}
     </button>
   ) : (
-    <span className="min-w-0 flex-1">{name}</span>
+    <span className="col-start-1 row-start-1 min-w-0 flex-1">{name}</span>
   )
   const zone = (
     <div className={`relative flex min-w-0 flex-1 items-center self-stretch ${compact ? 'min-h-10 gap-2' : 'gap-3'}`}>
@@ -190,26 +190,28 @@ function Row({
       ) : (
         avatar
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div data-ptop className="flex min-w-0 items-center">
+      {/* Grille : nom et texte à gauche ; pictogrammes (jusqu'à 4 par ligne, remplis dans l'ordre) puis « ⋮ » à droite,
+          sur toute la hauteur du texte. data-ptop reste un repère (mesure des noms) sans boîte à lui. */}
+      <div data-pcol className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto_auto] items-center">
+        <div data-ptop className="contents">
           {main}
           {/* En sélection : pictogrammes inertes (affichés, mais ni lien ni bouton) ; les toucher coche / décoche la
               ligne comme le reste, et rien n'ouvre la fiche (la sélection serait perdue au retour). */}
-          <span data-pics inert={!!sel} className={`flex shrink-0 items-center empty:hidden ${sel ? 'pointer-events-none' : 'relative z-[1]'}`}>
+          <span data-pics inert={!!sel} className={`col-start-2 row-span-2 row-start-1 grid shrink-0 [grid-template-columns:repeat(4,auto)] items-center justify-items-center gap-y-1.5 self-center empty:hidden ${sel ? 'pointer-events-none' : 'relative z-[1]'}`}>
             {pictos && <RowPictos p={p} fiche={fiche} seen={seen} rewatch={rewatch} follow={follow} />}
           </span>
           {!compact && (
-            <span data-pmenu className="relative z-[1] flex shrink-0">
+            <span data-pmenu className="relative z-[1] col-start-3 row-span-2 row-start-1 flex shrink-0 self-center">
               <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour ${p.lastName.toUpperCase()} ${p.firstName}`} />
             </span>
           )}
         </div>
         {sub !== '' && (
-          <span className={`truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px] max-[400px]:text-xs'}`}>{sub === undefined ? playerSub(p) : sub}</span>
+          <span className={`col-start-1 row-start-2 truncate text-muted ${compact ? 'text-[10px]' : 'text-[11px] max-[400px]:text-xs'}`}>{sub === undefined ? playerSub(p) : sub}</span>
         )}
         {lines && (
           // Le texte laisse passer le clic vers le lien ; les boutons qu'il contient restent touchables.
-          <div className="pointer-events-none relative z-[1] flex min-w-0 flex-col [&_:is(a,button,input,label,select,[role=button])]:pointer-events-auto">{lines}</div>
+          <div data-plines className="pointer-events-none relative z-[1] col-span-3 row-start-3 flex min-w-0 flex-col [&_:is(a,button,input,label,select,[role=button])]:pointer-events-auto">{lines}</div>
         )}
       </div>
     </div>
