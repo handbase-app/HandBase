@@ -13,6 +13,7 @@ import { categoryList, resolveCategory, type ParsedFile } from '../criteriaForma
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { confirmLogout } from '../logout'
+import { setShowBrand, useShowBrand } from '../brandPref'
 import { ActivityLog } from '../components/ActivityLog'
 import { QuestionLogView } from '../components/QuestionLogView'
 import { canUseQuestionLog } from '../questionLog'
@@ -410,7 +411,22 @@ function ApparenceFold() {
   return (
     <Fold id="apparence" icon="palette" title="Apparence" summary={appearanceSummary()}>
       <AppearanceSettings />
+      <BrandToggle />
     </Fold>
+  )
+}
+
+/** Logo et nom de l'appli dans l'en-tête (téléphone) et le menu de gauche (ordinateur) : au choix, sur cet appareil. */
+function BrandToggle() {
+  const on = useShowBrand()
+  return (
+    <label className="flex cursor-pointer items-start gap-3 text-sm">
+      <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--color-accent)]" checked={on} onChange={(e) => setShowBrand(e.target.checked)} />
+      <span>
+        <span className="block font-bold">Afficher le logo et le nom de l’appli</span>
+        <span className="block text-[11px] text-muted">En haut de l’écran sur téléphone, en haut du menu sur ordinateur. Réglage de cet appareil.</span>
+      </span>
+    </label>
   )
 }
 
