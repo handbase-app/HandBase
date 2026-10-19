@@ -6,7 +6,7 @@ import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
+import { eventSections, filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort, type RosterGroup } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { BackButton } from '../backNav'
@@ -795,6 +795,7 @@ export default function Evaluate() {
           done={evaluatedHere}
           dirty={dirty}
           filter={rosterFilter}
+          group={rosterGroup}
           posLabel={posLabel}
           onPick={(id) => void go('joueur', id)}
           onOther={() => void go('joueur', '')}
@@ -833,6 +834,7 @@ function RosterList({
   done,
   dirty,
   filter,
+  group,
   posLabel,
   onPick,
   onOther,
@@ -848,6 +850,8 @@ function RosterList({
   done: Set<string>
   dirty: boolean
   filter: ReturnType<typeof useRosterFilter>
+  /** Événement réparti en équipes : rangement choisi sur sa page (bandeaux d'équipe). */
+  group: RosterGroup
   posLabel?: string
   onPick: (id: string) => void
   onOther: () => void
@@ -933,18 +937,20 @@ function RosterList({
         />
       )}
       <div ref={boxRef} className="-mx-1 flex min-h-0 flex-col gap-1.5 overflow-y-auto overscroll-contain px-1 pb-1" onKeyDown={onKeyDown}>
-        {/* Une capsule par poste (même présentation que la liste de l'événement), les joueurs dans l'ordre de notation. */}
-        {items
-          .reduce<{ pos: string; players: typeof items }[]>((acc, p) => {
-            const pos = p.position ?? ''
-            const last = acc[acc.length - 1]
-            if (last && last.pos === pos) last.players.push(p)
-            else acc.push({ pos, players: [p] })
-            return acc
-          }, [])
+        {/* Découpage de la page de l'événement (eventSections) : par équipe (bandeau) puis poste, sinon par poste ; les joueurs dans l'ordre de notation. */}
+        {eventSections(items, event, group)
           .map((sec, si) => (
-            <div key={sec.pos + si} className="flex flex-col gap-1">
-              <div className="section-title mt-1.5 mb-0 px-0.5 text-[10px]">{POSITIONS.find((x) => x.id === sec.pos)?.label ?? 'Sans poste'}</div>
+            <div key={si} className="flex flex-col gap-1">
+              {sec.heading && sec.team && (
+                <div
+                  className={`mt-2 truncate rounded border-l-4 bg-panel-2 px-1.5 py-1 text-[11px] font-extrabold tracking-wide uppercase first:mt-0.5 ${sec.mine ? 'border-accent text-accent' : 'border-fg/40'}`}
+                >
+                  {sec.heading}
+                  {sec.mine && <span className="ml-1.5 rounded bg-accent px-1 align-middle text-[9px] text-white normal-case">mon équipe</span>}
+                </div>
+              )}
+              {sec.heading && !sec.team && <div className="section-title mt-1.5 mb-0 px-0.5 text-[10px]">{sec.heading}</div>}
+              {sec.sub && <div className="mt-0.5 px-0.5 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
               {sec.players.map((p) => {
                 const on = p.id === value
                 const ok = done.has(p.id)

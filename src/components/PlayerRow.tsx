@@ -193,7 +193,9 @@ function Row({
       <div className="flex min-w-0 flex-1 flex-col">
         <div data-ptop className="flex min-w-0 items-center">
           {main}
-          <span data-pics className="relative z-[1] flex shrink-0 items-center empty:hidden">
+          {/* En sélection : pictogrammes inertes (affichés, mais ni lien ni bouton) ; les toucher coche / décoche la
+              ligne comme le reste, et rien n'ouvre la fiche (la sélection serait perdue au retour). */}
+          <span data-pics inert={!!sel} className={`flex shrink-0 items-center empty:hidden ${sel ? 'pointer-events-none' : 'relative z-[1]'}`}>
             {pictos && <RowPictos p={p} fiche={fiche} seen={seen} rewatch={rewatch} follow={follow} />}
           </span>
           {!compact && (

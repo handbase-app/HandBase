@@ -939,7 +939,10 @@ export default function VideoPlayer({
         >
         {canPlay && embed ? (
           <>
-            <div className={`relative flex min-h-0 items-center justify-center bg-black ${fs ? 'flex-1' : 'landscape:flex-1'}`}>
+            {/* Séquençage sur téléphone (portrait) : la vidéo reste collée en haut quand on fait défiler jusqu'à « C'est ici ! ». */}
+            <div
+              className={`relative flex min-h-0 items-center justify-center bg-black ${fs ? 'flex-1' : 'landscape:flex-1'} ${edit?.on && !fs ? 'max-sm:portrait:sticky max-sm:portrait:top-0 max-sm:portrait:z-[5]' : ''}`}
+            >
               <div className={`aspect-video max-h-full w-full bg-black ${fs ? 'h-full w-auto max-w-full' : 'landscape:h-full landscape:w-auto landscape:max-w-full'}`}>
                 <Adapter embed={embed} start={moments[moment ?? 0]?.at ?? 0} onCtl={onCtl} onFail={() => (setFailed(true), setRun(null))} />
               </div>

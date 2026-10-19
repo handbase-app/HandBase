@@ -1393,12 +1393,17 @@ function RankRow({
         title={secondary ? 'Poste secondaire' : undefined}
       >
         <span className="w-5 text-center font-extrabold text-muted">{secondary ? '○' : rank}</span>
-        <span className="min-w-0 flex-1 truncate">
-          <b>
+        {/* Nom seul sur sa ligne (à la ligne plutôt que coupé) ; année · club · trimestre dessous, sans couper un mot ni un nombre. */}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <b className="break-words">
             {r.p.lastName.toUpperCase()} {r.p.firstName}
           </b>
-          <span className="text-muted"> · {[r.p.birthDate?.slice(0, 4), r.p.club].filter(Boolean).join(' · ')}</span> <QuarterBadge birthDate={r.p.birthDate} />
-          {secondary && <span className="text-[10px] text-muted"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
+          <span className="text-[11px] break-words text-muted">
+            {r.p.birthDate && <span className="whitespace-nowrap">{r.p.birthDate.slice(0, 4)}</span>}
+            {r.p.birthDate && r.p.club && ' · '}
+            {r.p.club} <QuarterBadge birthDate={r.p.birthDate} />
+            {secondary && <span className="text-[10px]"> · poste principal : {POSITIONS.find((q) => q.id === r.p.position)?.short ?? '—'}</span>}
+          </span>
         </span>
         {r.s && r.s.observers > 1 && r.s.spread >= DIVERGENCE && <Icon name="alert" className="h-3.5 w-3.5 shrink-0 text-amber-300" />}
         <span className="w-16 shrink-0 text-right text-[10px] text-muted">{r.s ? `${r.s.observers} éval.` : `pas ${w(r.p.sex).note}`}</span>

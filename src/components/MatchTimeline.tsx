@@ -8,6 +8,7 @@ import { can, useRole } from '../roles'
 import { filterQueue } from '../actionFilter'
 import { pendingOf, seqQueue, stepQueue, type SeqItem } from '../sequencer'
 import { fmtMoment } from '../videos'
+import { MQ } from '../layout'
 import { actionLabel, calibrated, plural, useActionWho } from './matchLabels'
 import { Icon } from './ui'
 import type { PlayerTools } from './VideoPlayer'
@@ -122,11 +123,21 @@ const readFilter = (): Filter => {
   }
 }
 
-/** Aide « Comment caler » : ouverte la première fois, puis repliée une fois qu'on l'a refermée (gardé sur l'appareil). */
+/**
+ * Aide « Comment caler » : ouverte la première fois sur ordinateur, puis repliée une fois qu'on l'a refermée (gardé sur
+ * l'appareil). Téléphone : repliée d'office (elle poussait la vidéo hors de l'écran, loin de « C'est ici ! »).
+ */
 const HELP_KEY = 'handbase.frise.aide'
 const readHelpSeen = () => {
   try {
     return localStorage.getItem(HELP_KEY) === 'vue'
+  } catch {
+    return false
+  }
+}
+const helpOpenAtStart = () => {
+  try {
+    return !readHelpSeen() && window.matchMedia(MQ.side).matches
   } catch {
     return false
   }
@@ -275,7 +286,7 @@ export default function MatchTimeline({
       /* stockage indisponible */
     }
   }
-  const [helpOpen, setHelpOpenState] = useState(() => !readHelpSeen())
+  const [helpOpen, setHelpOpenState] = useState(helpOpenAtStart)
   // Vue : une fois refermée, ou après un premier « C'est ici ! » (elle reste ouverte jusqu'à la prochaine fois).
   const helpSeen = () => {
     try {
