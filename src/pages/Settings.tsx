@@ -23,7 +23,7 @@ import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
 import { useConfigRows } from '../installation'
-import { DEFAULT_PLAYER_MIN_AGE, PLAYER_SPACE_KEY, playerMinAgeOf } from '../playerSpace'
+import { DEFAULT_PLAYER_MIN_AGE, PLAYER_CONTACT_MAX, PLAYER_SPACE_KEY, playerContactOf, playerMinAgeOf } from '../playerSpace'
 import { AdminTools } from '../components/ViewAs'
 import { departmentLabel } from '../lists'
 import { usePerimeter } from '../installation'
@@ -234,14 +234,25 @@ export default function Settings() {
 
 /**
  * Espace joueur (administrateurs) : âge minimum (réglage de l'installation, hb_config « espace_joueur » ; lu par le serveur au
- * moment où un jeune entre son code : hb_claim_invite), et aperçu de la page d'un joueur sans compte réel (mode essai / local).
+ * moment où un jeune entre son code : hb_claim_invite, ou quand on crée son compte depuis la fiche), personne à contacter
+ * (affichée par « J'ai besoin d'en parler » sur la page du jeune, 052), et aperçu de la page d'un joueur sans compte réel
+ * (mode essai / local).
  */
 function PlayerSpaceSettings() {
   const rows = useConfigRows()
   const current = playerMinAgeOf(rows)
+  const currentContact = playerContactOf(rows)
   const [age, setAge] = useState(String(current))
+  const [contact, setContact] = useState(currentContact)
   const [msg, setMsg] = useState('')
+  const [contactMsg, setContactMsg] = useState('')
   useEffect(() => setAge(String(current)), [current])
+  useEffect(() => setContact(currentContact), [currentContact])
+  // Les deux réglages vivent dans la même valeur : chacun garde l'autre.
+  const value = () => {
+    const row = rows.find((r) => (r.key ?? r.id) === PLAYER_SPACE_KEY)
+    return row?.value && typeof row.value === 'object' && !Array.isArray(row.value) ? (row.value as Record<string, unknown>) : {}
+  }
   const n = Number(age)
   const valid = Number.isInteger(n) && n >= 6 && n <= 18
   const demo = useLiveQuery(() => db.players.filter((p) => !p.deleted).first(), [])
@@ -267,13 +278,42 @@ function PlayerSpaceSettings() {
           className="btn-primary min-h-11 px-4 text-xs"
           disabled={!valid || n === current}
           onClick={async () => {
-            await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: { playerMinAge: n } })
+            await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: { ...value(), playerMinAge: n } })
             setMsg(`Enregistré : ${n} ans.`)
           }}
         >
           Enregistrer
         </button>
         {msg && <span className="text-[11px] text-emerald-300">{msg}</span>}
+      </div>
+      <div className="border-t border-line pt-3">
+        <SectionTitle info="Affichée au jeune quand il touche « J’ai besoin d’en parler » sur sa page, avec les numéros officiels gratuits et anonymes (3018, 119, 3114, Fil Santé Jeunes, Signal-sports). Rien n’est envoyé : c’est le jeune qui choisit d’appeler.">
+          Personne à contacter
+        </SectionTitle>
+        <input
+          className="field min-h-11 w-full"
+          placeholder="Personne à contacter (nom, téléphone)"
+          aria-label="Personne à contacter (nom, téléphone)"
+          maxLength={PLAYER_CONTACT_MAX}
+          value={contact}
+          onChange={(e) => setContact(e.target.value)}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            className="btn-primary min-h-11 px-4 text-xs"
+            disabled={contact.trim() === currentContact}
+            onClick={async () => {
+              const v = { ...value() }
+              if (contact.trim()) v.contact = contact.trim()
+              else delete v.contact
+              await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: v })
+              setContactMsg(contact.trim() ? 'Enregistré.' : 'Retiré.')
+            }}
+          >
+            Enregistrer
+          </button>
+          {contactMsg && <span className="text-[11px] text-emerald-300">{contactMsg}</span>}
+        </div>
       </div>
       {(TRIAL || !supabase) && (
         <div className="border-t border-line pt-3">

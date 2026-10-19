@@ -6,18 +6,37 @@ import { Avatar, playerName, SectionTitle } from '../components/ui'
 import { db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
 import { w } from '../gender'
 import { regionLabel } from '../lists'
-import { cleanSelf, LETTER_KEYS, letterQuestions, sameSelf, SELF_LIMITS, type LetterKey } from '../playerSpace'
+import { appSlug } from '../appBrand'
+import {
+  cleanSelf,
+  LETTER_KEYS,
+  letterQuestions,
+  MARK_KEYS,
+  markFields,
+  myDataExport,
+  myDataFileName,
+  sameSelf,
+  saveSelfLocal,
+  SELF_LIMITS,
+  type LetterKey,
+  type MarkKey,
+} from '../playerSpace'
+import { fetchNotes } from '../playerJournal'
 import { isPlayerRole, myPlayerId, refreshRole, useRole } from '../roles'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { positionCodes } from '../sportConfig'
 import { canPreviewPlayerPage } from '../components/PlayerSpace'
-import { useUnsaved } from '../components/Confirm'
+import { inform, useUnsaved } from '../components/Confirm'
+import { JournalSection, TalkLink } from '../components/PlayerJournal'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
  *  - En haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
- *  - « Ma lettre » : trois questions guidées, positives et ouvertes, plus un champ libre.
+ *  - « Mon journal du hand » (052) : notes datées, privées, partagées une par une (src/components/PlayerJournal.tsx).
+ *  - « Ma lettre » : trois questions guidées, positives et ouvertes, plus un champ libre ; versions précédentes (lecture).
+ *  - « Mes repères » (052) : joueur ou joueuse préféré·e, équipe préférée, poste rêvé, un match marquant (champs courts).
  *  - « Mon parcours » : clubs (nom + années), postes joués (ceux du sport), sélections, palmarès (une ligne par entrée).
+ *  - « J'ai besoin d'en parler » (toujours visible) et « Télécharger mes données » (copie complète, sur l'appareil).
  * Enregistrement explicite (« Enregistrer ») : nettoyage sur l'appareil (src/playerSpace.ts), puis le serveur
  * (hb_player_self_update : seule écriture d'un compte joueur ; il ne touche que la clé `self` de SA fiche). Brouillon gardé
  * sur l'appareil tant que ce n'est pas enregistré. Clavier seulement : rien de ce que le jeune écrit ne part vers une IA
@@ -27,18 +46,27 @@ import { useUnsaved } from '../components/Confirm'
 
 interface Form {
   letter: Record<LetterKey, string>
+  marks: Record<MarkKey, string>
   clubs: { name: string; from: string; to: string }[]
   positions: string[]
   selections: string
   honours: string
 }
 
-const emptyForm = (): Form => ({ letter: { why: '', proud: '', work: '', free: '' }, clubs: [], positions: [], selections: '', honours: '' })
+const emptyForm = (): Form => ({
+  letter: { why: '', proud: '', work: '', free: '' },
+  marks: { favPlayer: '', favTeam: '', dreamPosition: '', memorableMatch: '' },
+  clubs: [],
+  positions: [],
+  selections: '',
+  honours: '',
+})
 
 /** Ce qui est enregistré → le formulaire. */
 function fromSelf(self: PlayerSelf | undefined): Form {
   const f = emptyForm()
   for (const k of LETTER_KEYS) f.letter[k] = self?.letter?.[k] ?? ''
+  for (const k of MARK_KEYS) f.marks[k] = self?.marks?.[k] ?? ''
   f.clubs = (self?.path?.clubs ?? []).map((c) => ({ name: c.name, from: c.from ?? '', to: c.to ?? '' }))
   f.positions = [...(self?.path?.positions ?? [])]
   f.selections = (self?.path?.selections ?? []).join('\n')
@@ -47,13 +75,16 @@ function fromSelf(self: PlayerSelf | undefined): Form {
 }
 
 /** Le formulaire → ce qu'on nettoie puis envoie. */
-const toInput = (f: Form) => ({ letter: f.letter, path: { clubs: f.clubs, positions: f.positions, selections: f.selections, honours: f.honours } })
+const toInput = (f: Form) => ({ letter: f.letter, marks: f.marks, path: { clubs: f.clubs, positions: f.positions, selections: f.selections, honours: f.honours } })
 
 const DRAFT_KEY = (id: string) => `handbase${TRIAL ? '-essai' : ''}.moi.brouillon.${id}`
 const readDraft = (id: string): Form | null => {
   try {
     const raw = localStorage.getItem(DRAFT_KEY(id))
-    return raw ? { ...emptyForm(), ...(JSON.parse(raw) as Form) } : null
+    if (!raw) return null
+    const d = JSON.parse(raw) as Partial<Form>
+    const e = emptyForm()
+    return { ...e, ...d, marks: { ...e.marks, ...(d.marks ?? {}) } }
   } catch {
     return null
   }
@@ -126,6 +157,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
   const year = p.birthDate?.slice(0, 4)
   const poles = poleSummary(p, regionLabel)
   const setLetter = (k: LetterKey, v: string) => setForm((f) => ({ ...f, letter: { ...f.letter, [k]: v } }))
+  const setMark = (k: MarkKey, v: string) => setForm((f) => ({ ...f, marks: { ...f.marks, [k]: v } }))
+  const marks = markFields(p.sex)
+  const versions = p.self?.letterHistory ?? []
   const setClub = (i: number, patch: Partial<Form['clubs'][number]>) => setForm((f) => ({ ...f, clubs: f.clubs.map((c, j) => (j === i ? { ...c, ...patch } : c)) }))
 
   async function save() {
@@ -134,14 +168,16 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
     setBusy(true)
     try {
       let stored: PlayerSelf | undefined
+      const row0 = await db.players.get(p.id)
       if (supabase) {
         if (!navigator.onLine) return setMsg({ ok: false, text: 'Pas de connexion internet : ton brouillon est gardé sur cet appareil, réessaie en ligne.' })
         const { data, error } = await supabase.rpc('hb_player_self_update', { p_self: cleaned.self ?? null })
         if (error) return setMsg({ ok: false, text: error.code === 'PGRST202' ? 'L’espace joueur n’est pas encore ouvert sur ce serveur : demande à ton encadrant.' : `Enregistrement impossible : ${error.message}` })
         stored = (data as PlayerSelf | null) ?? undefined
       } else {
-        // Mode local / essai (pas de serveur) : sur l'appareil seulement, sans file d'envoi.
-        stored = cleaned.self ? { ...cleaned.self, updatedAt: new Date().toISOString() } : undefined
+        // Mode local / essai (pas de serveur) : sur l'appareil seulement, sans file d'envoi ; même règle que le serveur
+        // (versions précédentes de la lettre gardées).
+        stored = saveSelfLocal(row0?.self, cleaned.self, new Date().toISOString())
       }
       // Copie locale alignée tout de suite (la synchronisation la confirmera) ; jamais par save() : rien dans la file d'envoi.
       const row = await db.players.get(p.id)
@@ -160,7 +196,33 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
     }
   }
 
-  // Même bouton sous chaque section : il enregistre tout (lettre et parcours).
+  /** « Télécharger mes données » : ce que le jeune a écrit (lettre et versions, repères, parcours, TOUTES ses notes), en JSON,
+   *  sur l'appareil ; rien n'est envoyé ailleurs. */
+  async function downloadMyData() {
+    const r = await fetchNotes(p.id)
+    if (!r.ok) return inform(r.error)
+    const data = myDataExport(
+      {
+        prenom: p.firstName,
+        nom: p.lastName,
+        anneeDeNaissance: year,
+        club: p.club,
+        poste: p.position ? positionLabel(p.position) : undefined,
+        poleEspoirs: poles || undefined,
+      },
+      p.self,
+      r.value,
+      new Date().toISOString(),
+    )
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = myDataFileName(appSlug(), today())
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+
+  // Même bouton sous chaque section : il enregistre tout (lettre, repères et parcours).
   const saveBar = canWrite ? (
       <div className="flex flex-wrap items-center gap-3">
         <button className="btn-primary min-h-11 px-5" disabled={busy || !dirty} onClick={() => void save()}>
@@ -206,6 +268,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>
       </div>
 
+      {/* Mon journal du hand (052) : privé, partagé note par note. */}
+      <JournalSection player={p} canWrite={canWrite} preview={preview} />
+
       {/* Ma lettre */}
       <section className="card flex flex-col gap-3 p-4">
         <SectionTitle info="Rien n’est obligatoire : tu écris ce que tu veux, quand tu veux, et tu peux changer d’avis. Ton encadrant lit ce que tu enregistres. Pas de classement, pas de jugement.">
@@ -226,6 +291,46 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
             <span className="block text-right text-[10px] text-muted">
               {form.letter[q.key].length} / {SELF_LIMITS.text}
             </span>
+          </label>
+        ))}
+        {saveBar}
+        {versions.length > 0 && (
+          <details className="rounded-lg border border-line bg-panel-2 p-3" data-testid="versions-lettre">
+            <summary className="min-h-9 cursor-pointer text-xs font-bold">Versions précédentes de ma lettre ({versions.length})</summary>
+            <p className="mt-1 text-[10px] text-muted">Gardées pour voir le chemin parcouru (les 20 dernières). Lecture seule.</p>
+            <ul className="mt-2 flex flex-col gap-3">
+              {versions.map((v, i) => (
+                <li key={i} className="border-l-2 border-line pl-2">
+                  <div className="text-[11px] font-bold">Version du {fmtDate(dayOf(v.at))}</div>
+                  {questions
+                    .filter((q) => v.letter[q.key])
+                    .map((q) => (
+                      <div key={q.key} className="mt-1">
+                        <div className="text-[10px] text-muted">{q.label}</div>
+                        <div className="text-xs break-words whitespace-pre-wrap">{v.letter[q.key]}</div>
+                      </div>
+                    ))}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
+
+      {/* Mes repères (052) */}
+      <section className="card flex flex-col gap-3 p-4" data-testid="mes-reperes">
+        <SectionTitle info="Quelques mots, si tu veux : ce qui te fait rêver dans le hand.">Mes repères</SectionTitle>
+        {marks.map((m) => (
+          <label key={m.key} className="block">
+            <span className="label">{m.label}</span>
+            <input
+              className="field min-h-11 w-full"
+              placeholder={m.hint}
+              maxLength={SELF_LIMITS.mark}
+              value={form.marks[m.key]}
+              readOnly={!canWrite}
+              onChange={(e) => setMark(m.key, e.target.value)}
+            />
           </label>
         ))}
         {saveBar}
@@ -297,13 +402,19 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
       </section>
 
       {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
-      {!preview && (
-        <p className="text-[10px] text-muted">
-          <Link to="/confidentialite#charte-joueur" className="underline">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <TalkLink sex={p.sex} />
+        {!(preview && supabase) && (
+          <button type="button" className="min-h-9 text-[11px] text-muted underline underline-offset-2" onClick={() => void downloadMyData()}>
+            Télécharger mes données
+          </button>
+        )}
+        {!preview && (
+          <Link to="/confidentialite#charte-joueur" className="min-h-9 content-center text-[11px] text-muted underline underline-offset-2">
             Ta page, comment ça marche
           </Link>
-        </p>
-      )}
+        )}
+      </div>
     </div>
   )
 }

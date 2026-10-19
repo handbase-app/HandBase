@@ -28,7 +28,7 @@ export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
   preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis ; valide les avis spontanés et fiches proposées de son secteur.',
   observateur: 'Consulte les joueurs de son périmètre et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
-  joueur: 'Un jeune (ou sa famille) : voit sa propre fiche seulement, y écrit « Ma lettre » et « Mon parcours ». Rien d’autre : ni avis, ni mesures, ni autres joueurs. Relié à sa fiche par un code donné depuis la fiche.',
+  joueur: 'Un jeune (ou sa famille) : voit sa propre fiche seulement, y écrit « Ma lettre », ses repères, « Mon parcours » et son journal du hand (privé). Rien d’autre : ni avis, ni mesures, ni autres joueurs. Relié à sa fiche par un code donné depuis la fiche (ou compte créé depuis la fiche, déjà relié).',
 }
 
 const ROLE_KEY = 'handbase.role'

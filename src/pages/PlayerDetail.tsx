@@ -32,6 +32,7 @@ import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
+import { StaffJournal } from '../components/PlayerJournal'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
 const TABS: readonly { id: PlayerTab; label: string }[] = [
@@ -341,8 +342,10 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           </div>
         )}
 
-        {/* Espace joueur (supabase/051) : ce qu'il a écrit lui-même (si quelque chose), puis l'accès (code, retrait, aperçu). */}
+        {/* Espace joueur (supabase/051, 052) : ce qu'il a écrit lui-même (si quelque chose), son journal du hand (tendance des
+            humeurs, notes partagées), puis l'accès (compte, code, retrait, aperçu). */}
         <SelfSection player={p} />
+        <StaffJournal player={p} />
         <PlayerSpaceCard player={p} />
 
         {p.mergedFrom && p.mergedFrom.length > 0 && (

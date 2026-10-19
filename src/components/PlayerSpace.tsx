@@ -1,9 +1,27 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fmtDate, dayOf, positionLabel, TRIAL, type Player, type PlayerSelf } from '../db'
+import { playerName } from './ui'
 import { w } from '../gender'
 import { appName } from '../appBrand'
-import { clubYears, formatInviteCode, INVITE_DAYS, inviteMessage, letterQuestions, selfIsEmpty } from '../playerSpace'
+import {
+  accountErrorText,
+  accountMessage,
+  clubYears,
+  formatInviteCode,
+  INVITE_DAYS,
+  inviteMessage,
+  isEmail,
+  letterQuestions,
+  markFields,
+  playerAgeCheck,
+  playerMinAgeOf,
+  provisionalPassword,
+  selfIsEmpty,
+} from '../playerSpace'
+import { useConfigRows } from '../installation'
+import { today } from '../db'
+import { Dialog } from './PlayerJournal'
 import { can, isPlayerRole, useRole, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask, inform } from './Confirm'
@@ -11,8 +29,10 @@ import { Icon } from './ui'
 
 /*
  * Espace joueur, côté STAFF (supabase/051_espace_joueur.sql) : sur la fiche d'un joueur,
- *  - « Ce que dit le joueur / la joueuse » : ce qu'il a écrit lui-même (clé `self`), en lecture seule ;
- *  - l'accès joueur : donner un code (hb_invite_player), le copier avec un message prêt à envoyer, retirer l'accès
+ *  - « Ce que dit le joueur / la joueuse » : ce qu'il a écrit lui-même (clé `self` : lettre et versions précédentes, repères,
+ *    parcours), en lecture seule ; le journal du hand est à part (src/components/PlayerJournal.tsx : StaffJournal) ;
+ *  - l'accès joueur : créer son compte depuis la fiche, déjà relié (hb_create_player_account, 052), ou donner un code
+ *    (hb_invite_player) à un jeune qui a déjà un compte, le copier avec un message prêt à envoyer, retirer l'accès
  *    (hb_revoke_player_access), état du compte relié (hb_player_access) ; administrateurs et encadrants qui ont le droit de
  *    modifier la fiche (le serveur vérifie : hb_can_invite) ;
  *  - « Voir sa page » : aperçu de /moi en lecture seule (administrateurs, mode essai).
@@ -25,25 +45,58 @@ export function SelfSection({ player }: { player: Player }) {
   const self = player.self
   if (selfIsEmpty(self)) return null
   const g = w(player.sex)
-  const letter = letterQuestions(player.sex).filter((q) => self!.letter?.[q.key])
+  const questions = letterQuestions(player.sex)
+  const letter = questions.filter((q) => self!.letter?.[q.key])
   const path = self!.path
+  const marks = markFields(player.sex).filter((m) => self!.marks?.[m.key])
+  const versions = self!.letterHistory ?? []
   return (
     <div className="card p-4" data-testid="ce-que-dit-le-joueur">
       <div className="section-title">Ce que dit {g.leJoueur}</div>
       <p className="mb-2 text-[10px] text-muted">
         Écrit par {g.leJoueur} depuis son espace joueur{self!.updatedAt ? `, le ${fmtDate(dayOf(self!.updatedAt))}` : ''}. Lecture seule : seul{g.e} {g.leJoueur} le modifie.
       </p>
+      {marks.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5" data-testid="reperes-staff">
+          {marks.map((m) => (
+            <span key={m.key} className="max-w-full rounded-full bg-panel-2 px-2.5 py-1 text-[11px] break-words">
+              <span className="text-muted">{m.short} : </span>
+              <b>{self!.marks![m.key]}</b>
+            </span>
+          ))}
+        </div>
+      )}
       {letter.length > 0 && (
         <div className="flex flex-col gap-2">
           {letter.map((q) => (
             <div key={q.key}>
               <div className="text-[10px] font-bold text-muted">{q.label}</div>
-              <div className="text-sm whitespace-pre-wrap">{self!.letter![q.key]}</div>
+              <div className="text-sm break-words whitespace-pre-wrap">{self!.letter![q.key]}</div>
             </div>
           ))}
         </div>
       )}
-      {path && <SelfPathView path={path} className={letter.length ? 'mt-3 border-t border-line pt-3' : ''} />}
+      {versions.length > 0 && (
+        <details className="mt-2 rounded-lg border border-line bg-panel-2 p-2">
+          <summary className="cursor-pointer text-[11px] font-bold">Versions précédentes de la lettre ({versions.length})</summary>
+          <ul className="mt-2 flex flex-col gap-2">
+            {versions.map((v, i) => (
+              <li key={i} className="border-l-2 border-line pl-2">
+                <div className="text-[10px] font-bold text-muted">Version du {fmtDate(dayOf(v.at))}</div>
+                {questions
+                  .filter((q) => v.letter[q.key])
+                  .map((q) => (
+                    <div key={q.key} className="mt-1">
+                      <div className="text-[10px] text-muted">{q.label}</div>
+                      <div className="text-xs break-words whitespace-pre-wrap">{v.letter[q.key]}</div>
+                    </div>
+                  ))}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {path && <SelfPathView path={path} className={letter.length || versions.length ? 'mt-3 border-t border-line pt-3' : ''} />}
     </div>
   )
 }
@@ -132,7 +185,12 @@ export function usePlayerAccess(p: Player) {
     if (error) return inform(`Impossible : ${error.message}`)
     setState({ kind: 'ready', access: { linked: false } })
   }
-  return { state, busy, invite, revoke, allowed }
+  /** Compte créé depuis la fiche (hb_create_player_account) : la carte passe à « Accès joueur actif ». */
+  function created() {
+    setState({ kind: 'ready', access: { linked: true, since: new Date().toISOString() } })
+    void load()
+  }
+  return { state, busy, invite, revoke, allowed, created }
 }
 
 /** Copie dans le presse-papiers ; message si l'appareil ne le permet pas. */
@@ -143,6 +201,90 @@ async function copyText(text: string, what: string) {
   } catch {
     await inform(`Copie impossible ici : ${text}`)
   }
+}
+
+/**
+ * « Créer son compte » depuis la fiche (052, hb_create_player_account) : nom repris de la fiche (non modifiable), adresse
+ * e-mail, mot de passe provisoire proposé (modifiable, 8 caractères au moins). Après création : le message prêt à copier.
+ * Administrateur, ou encadrant qui peut modifier la fiche (le serveur vérifie, comme pour un code).
+ */
+function CreateAccountDialog({ player: p, onClose, onCreated }: { player: Player; onClose: () => void; onCreated: () => void }) {
+  const g = w(p.sex)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState(() => provisionalPassword())
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState<string | null>(null)
+  const minAge = playerMinAgeOf(useConfigRows())
+  const age = playerAgeCheck(p.birthDate, minAge, today())
+  const valid = isEmail(email) && password.length >= 8 && age === 'ok'
+  async function submit() {
+    if (!valid || busy) return
+    if (!navigator.onLine) return setErr('Il faut être en ligne pour créer un compte.')
+    setBusy(true)
+    setErr('')
+    const { error } = await supabase!.rpc('hb_create_player_account', { p_player_id: p.id, p_email: email.trim(), p_password: password })
+    setBusy(false)
+    if (error) return setErr(accountErrorText(error.message, error.code))
+    setDone(accountMessage(email, password, appName()))
+    onCreated()
+  }
+  return (
+    <Dialog title={done ? 'Compte créé' : `Créer le compte ${g.duJoueur}`} onClose={onClose}>
+      {done ? (
+        <div className="flex flex-col gap-3 text-sm" data-testid="compte-cree">
+          <p>
+            Le compte de <b>{playerName(p)}</b> est relié à sa fiche : pas de code à entrer. À la première connexion, {g.il} choisit son mot de passe puis
+            lit la charte de l’espace joueur.
+          </p>
+          <p className="rounded-lg border border-line bg-panel-2 p-3 font-mono text-xs break-words">{done}</p>
+          <p className="text-[11px] text-muted">Envoie-le maintenant : ce mot de passe ne sera plus affiché.</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary min-h-11 px-4 text-xs" onClick={() => void copyText(done, 'Message')}>
+              <Icon name="copy" className="mr-1 inline h-3.5 w-3.5" />
+              Copier le message
+            </button>
+            <button className="btn-ghost min-h-11 px-4 text-xs" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 text-sm" data-testid="creer-compte">
+          <div>
+            <span className="label">Nom (celui de la fiche)</span>
+            <div className="field flex min-h-11 items-center bg-panel-2 text-muted">{playerName(p)}</div>
+          </div>
+          <label className="block">
+            <span className="label">Adresse e-mail {g.duJoueur} (ou de sa famille)</span>
+            <input className="field min-h-11 w-full" type="email" autoComplete="off" autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">Mot de passe provisoire</span>
+            <div className="flex gap-2">
+              <input className="field min-h-11 min-w-0 flex-1 font-mono" autoComplete="new-password" autoCapitalize="none" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <button type="button" className="btn-ghost min-h-11 shrink-0 px-3 text-xs" onClick={() => setPassword(provisionalPassword())}>
+                Autre
+              </button>
+            </div>
+            {password.length < 8 && <span className="mt-1 block text-[11px] text-amber-300">8 caractères minimum.</span>}
+            <span className="mt-1 block text-[10px] text-muted">À changer à la première connexion.</span>
+          </label>
+          {age === 'missing' && <p className="text-[11px] text-amber-300">La date de naissance manque sur la fiche : complète-la d’abord.</p>}
+          {age === 'young' && <p className="text-[11px] text-amber-300">En dessous de l’âge minimum de l’espace joueur ({minAge} ans).</p>}
+          {err && <p className="text-[11px] text-red-300">{err}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary min-h-11 px-4 text-xs" disabled={!valid || busy} onClick={() => void submit()}>
+              {busy ? 'Création…' : 'Créer le compte'}
+            </button>
+            <button className="btn-ghost min-h-11 px-4 text-xs" onClick={onClose}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+    </Dialog>
+  )
 }
 
 /** Aperçu « ce que voit le joueur » : administrateurs (appli du staff), et mode essai / local (pas de compte réel). */
@@ -157,6 +299,7 @@ export function PlayerAccessCard({ player: p, access }: { player: Player; access
   const g = w(p.sex)
   const preview = canPreviewPlayerPage(role)
   const { state, busy } = access
+  const [creating, setCreating] = useState(false)
   // Sans serveur, sans droit ou sans le script 051 : rien à gérer ; la carte ne reste que pour l'aperçu.
   if (state.kind === 'unavailable' && !preview) return null
   const a = state.kind === 'ready' ? state.access : null
@@ -165,7 +308,8 @@ export function PlayerAccessCard({ player: p, access }: { player: Player; access
     <div className="card p-4" data-testid="espace-joueur">
       <div className="section-title">Espace joueur</div>
       <p className="mb-2 text-[11px] text-muted">
-        {g.LeJoueur} (ou sa famille) peut avoir un compte qui ne voit que sa fiche, et y écrire « Ma lettre » et « Mon parcours ».
+        {g.LeJoueur} (ou sa famille) peut avoir un compte qui ne voit que sa fiche, et y écrire « Ma lettre », ses repères, « Mon parcours » et son
+        journal du hand (privé : {g.il} partage les notes qu’{g.il} veut).
       </p>
       {state.kind === 'loading' && <p className="text-xs text-muted">Chargement…</p>}
       {state.kind === 'unavailable' && state.why === 'script' && <p className="text-xs text-muted">Pas encore ouvert sur ce serveur (script 051 à passer).</p>}
@@ -192,14 +336,19 @@ export function PlayerAccessCard({ player: p, access }: { player: Player; access
                   Copier le message
                 </button>
               </div>
-              <p className="text-[10px] text-muted">« {inviteMessage(a.code!, appName(), INVITE_DAYS)} ». Le compte du jeune (rôle Joueur) se crée dans Réglages → Utilisateurs.</p>
+              <p className="text-[10px] text-muted">« {inviteMessage(a.code!, appName(), INVITE_DAYS)} ». Pour un jeune qui a déjà un compte ; sinon : « Créer son compte ».</p>
             </>
           ) : (
             <p className="text-muted">Pas d’accès pour l’instant.</p>
           )}
           <div className="flex flex-wrap gap-2">
+            {!a.linked && (
+              <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => setCreating(true)}>
+                Créer son compte
+              </button>
+            )}
             {!a.linked && !code && (
-              <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void access.invite()}>
+              <button className="btn-ghost px-3 py-1.5 text-xs" disabled={busy} onClick={() => void access.invite()}>
                 {busy ? '…' : 'Donner un accès joueur'}
               </button>
             )}
@@ -211,6 +360,8 @@ export function PlayerAccessCard({ player: p, access }: { player: Player; access
           </div>
         </div>
       )}
+      {a && !a.linked && <p className="mt-2 text-[10px] text-muted">« Créer son compte » : relié tout de suite à cette fiche. « Donner un accès joueur » : un code pour un jeune qui a déjà un compte.</p>}
+      {creating && <CreateAccountDialog player={p} onClose={() => setCreating(false)} onCreated={access.created} />}
       {preview && (
         <Link to={`/moi?joueur=${p.id}`} className="btn-ghost mt-2 block w-fit px-3 py-1.5 text-xs">
           <Icon name="eye" className="mr-1 inline h-3.5 w-3.5" />

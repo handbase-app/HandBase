@@ -394,6 +394,19 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   const [err, setErr] = useState('')
   const valid = name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && (member ? !password || password.length >= 8 : password.length >= 8)
 
+  /** Un membre du staff qui devient joueur : confirmation explicite (il perd tout ce que voit le staff, et son secteur). */
+  async function pickRole(r: StaffRole) {
+    if (r === 'joueur' && member && (member.role === 'preparateur' || member.role === 'observateur') && role !== 'joueur') {
+      const who = member.full_name || member.email || 'Ce compte'
+      const ok = await ask(
+        `${who} ne sera plus membre du staff : il ne verra plus ni joueurs, ni avis, ni événements, et perd son secteur. Ses avis, mesures et groupes restent dans l’appli. Faire de ce compte un compte joueur ?`,
+        { ok: 'En faire un compte joueur', danger: true, focusCancel: true },
+      )
+      if (!ok) return
+    }
+    setRole(r)
+  }
+
   async function submit() {
     setBusy(true)
     setErr('')
@@ -403,7 +416,8 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           p_email: email.trim(),
           p_full_name: name.trim(),
           p_role: role,
-          p_departments: depts,
+          // Un compte joueur n'a pas de secteur (le serveur le retire aussi, 052).
+          p_departments: role === 'joueur' ? [] : depts,
           p_password: password || null,
           p_phone: phone.trim(),
         })
@@ -476,7 +490,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         <span className="label">Rôle</span>
         <Segmented<StaffRole>
           value={role}
-          onChange={setRole}
+          onChange={(r) => void pickRole(r)}
           options={[
             { value: 'observateur', label: 'Observateur' },
             { value: 'preparateur', label: 'Encadrant' },
