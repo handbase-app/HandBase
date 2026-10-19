@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { BackButton, useGoBack } from '../backNav'
@@ -129,8 +129,155 @@ export default function PoleSeason() {
       />
     )
 
-  const left = (
-    <section className="flex min-w-0 flex-col gap-2" aria-labelledby="col-courante">
+  // ---------- Cellules (partagées par la grille de l'ordinateur et les onglets du téléphone) ----------
+
+  /** Ligne de gauche : membre d'aujourd'hui, case « Reconduire », état, Motif / Rétablir. */
+  const leftRow = (p: Player) => {
+    const out = alreadyOut(p)
+    const x = periodOf(p)
+    const why = POLE_EXITS.find((e) => e.value === x?.exitReason)?.label.toLowerCase()
+    const reason = leaving[p.id]
+    const checkId = `keep-${p.id}`
+    return (
+      <PlayerRow
+        key={p.id}
+        p={p}
+        className={`h-full ${reason || out ? 'opacity-80' : ''}`}
+        link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }}
+        pictos={false}
+        lead={
+          out ? (
+            <span className="w-5 shrink-0" aria-hidden />
+          ) : (
+            <input
+              id={checkId}
+              type="checkbox"
+              className="relative z-[1] h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent)]"
+              checked={!reason}
+              aria-label={`Reconduire ${p.lastName.toUpperCase()} ${p.firstName}`}
+              onChange={(e) => (e.target.checked ? setLeaving(({ [p.id]: _x, ...rest }) => rest) : uncheck(p))}
+            />
+          )
+        }
+        lines={
+          <span className="text-[11px]">
+            {out ? (
+              <span className="text-muted">
+                Sortie enregistrée au {fmtDay(x?.to)}
+                {why ? ` · ${why}` : ''}
+              </span>
+            ) : reason ? (
+              <span className="font-bold text-amber-300">
+                {fem ? 'Sortante' : 'Sortant'} au {fmtDay(s.exit)} · {POLE_EXITS.find((e) => e.value === reason)?.label.toLowerCase()}
+              </span>
+            ) : likely(p) ? (
+              <span className="text-amber-300">Fin de cursus probable ({programmeLabel(x?.programme) || 'programme'} : année {p.birthDate?.slice(0, 4)})</span>
+            ) : (
+              <span className="text-muted">{x?.programme ? programmeLabel(x.programme) : 'Au pôle'}{x?.from ? ` · depuis le ${fmtDay(x.from)}` : ''}</span>
+            )}
+          </span>
+        }
+        actions={
+          out ? (
+            <button className="relative z-[1] shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-bold text-muted hover:border-accent hover:text-fg" onClick={() => void reopenPoleOne(p, ref!, s)}>
+              Rétablir
+            </button>
+          ) : reason ? (
+            <button className="relative z-[1] shrink-0 px-1 text-[11px] font-bold text-muted underline hover:text-fg" onClick={() => setAsking(p)}>
+              Motif
+            </button>
+          ) : undefined
+        }
+      />
+    )
+  }
+  /** Ligne de droite : reconduit. */
+  const keptRow = (p: Player) => <PlayerRow key={p.id} p={p} link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }} pictos={false} className="h-full" lines={<Tag kind="reconduit" g={gg} />} />
+  /** Ligne de droite : nouveau déjà enregistré (entrée à venir). */
+  const savedRow = (p: Player) => {
+    const x = p.poles![periodIndexAt(p, ref, s.refNext)]
+    return (
+      <PlayerRow
+        key={p.id}
+        p={p}
+        link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }}
+        pictos={false}
+        className="h-full"
+        lines={
+          <span className="flex flex-wrap items-center gap-x-2 text-[11px]">
+            <Tag kind="nouveau" g={gg} />
+            <span className="text-muted">
+              entrée enregistrée au {fmtDay(x?.from)}
+              {x?.programme ? ` · ${programmeLabel(x.programme)}` : ''}
+            </span>
+          </span>
+        }
+      />
+    )
+  }
+  /** Ligne de droite : nouveau choisi ici (programme modifiable, ✕). */
+  const pendingRow = (a: (typeof pending)[number]) => {
+    const other = otherPoleAt(a.p, ref, s.entry)
+    return (
+      <PlayerRow
+        key={a.id}
+        p={a.p}
+        link={{ to: `/joueurs/${a.id}` }}
+        pictos={false}
+        className="h-full border-accent/60"
+        lines={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            <Tag kind="nouveau" g={gg} />
+            {ref.levels.length > 1 ? (
+              <select
+                className="field min-h-8 w-auto py-0.5 text-[11px]"
+                aria-label={`Programme de ${a.p.firstName} ${a.p.lastName}`}
+                value={a.programme ?? ''}
+                onChange={(e) => setAdding((l) => l.map((y) => (y.id === a.id ? { ...y, programme: (e.target.value || undefined) as PoleProgramme | undefined } : y)))}
+              >
+                <option value="">Programme…</option>
+                {ref.levels.map((l) => (
+                  <option key={l} value={l}>
+                    {POLE_PROGRAMMES.find((o) => o.value === l)?.label ?? 'Accession'}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-muted">{programmeLabel(a.programme) || 'programme non précisé'}</span>
+            )}
+            {other && <span className="font-bold text-amber-300">déjà au {poleName(other, regionLabel)} : sa période y sera fermée au {fmtDay(s.exit)} (autre)</span>}
+          </span>
+        }
+        actions={
+          <button
+            className="relative z-[1] flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400"
+            title="Ne pas ajouter"
+            aria-label={`Ne pas ajouter ${a.p.lastName.toUpperCase()} ${a.p.firstName}`}
+            onClick={() => setAdding((l) => l.filter((y) => y.id !== a.id))}
+          >
+            ✕
+          </button>
+        }
+      />
+    )
+  }
+  /** Emplacement vide en face d'un joueur (ordinateur) : garde chaque joueur en face de lui-même. */
+  const slot = (text: ReactNode) => <div className="flex h-full min-h-14 items-center rounded-xl border border-dashed border-line px-3 text-[11px] text-muted">{text}</div>
+  /** Ce qui s'affiche à droite en face d'un sortant. */
+  const outText = (p: Player) => {
+    const x = periodOf(p)
+    if (alreadyOut(p)) {
+      const why = POLE_EXITS.find((e) => e.value === x?.exitReason)?.label.toLowerCase()
+      return `Sortie enregistrée au ${fmtDay(x?.to)}${why ? ` · ${why}` : ''}`
+    }
+    const why = POLE_EXITS.find((e) => e.value === leaving[p.id])?.label.toLowerCase()
+    return `${fem ? 'Sortante' : 'Sortant'} au ${fmtDay(s.exit)}${why ? ` · ${why}` : ''}`
+  }
+  const NOUVEAU = fem ? 'Nouvelle' : 'Nouveau'
+  const keptIds = new Set(kept.map((p) => p.id))
+
+  const leftHead = (
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="col-courante" className="text-sm font-extrabold">
           Effectif {s.current.label} <span className="font-normal text-muted">· {pluralG(current.length, gg)}</span>
@@ -142,75 +289,10 @@ export default function PoleSeason() {
         )}
       </div>
       <p className="text-[11px] text-muted">Coché = {RECONDUIT} la saison prochaine (rien n’est écrit). Décocher = {SORTANT} au {fmtDay(s.exit)}, motif demandé.</p>
-      {!current.length && <Empty>{gw.AucunJoueur} au pôle aujourd’hui.</Empty>}
-      <PlayerList ids={current.map((p) => p.id)} bar={false} select={false}>
-        <div className="flex flex-col gap-2">
-          {current.map((p) => {
-            const out = alreadyOut(p)
-            const x = periodOf(p)
-            const why = POLE_EXITS.find((e) => e.value === x?.exitReason)?.label.toLowerCase()
-            const reason = leaving[p.id]
-            const checkId = `keep-${p.id}`
-            return (
-              <PlayerRow
-                key={p.id}
-                p={p}
-                className={reason || out ? 'opacity-80' : ''}
-                link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }}
-                pictos={false}
-                lead={
-                  out ? (
-                    <span className="w-5 shrink-0" aria-hidden />
-                  ) : (
-                    <input
-                      id={checkId}
-                      type="checkbox"
-                      className="relative z-[1] h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent)]"
-                      checked={!reason}
-                      aria-label={`Reconduire ${p.lastName.toUpperCase()} ${p.firstName}`}
-                      onChange={(e) => (e.target.checked ? setLeaving(({ [p.id]: _x, ...rest }) => rest) : uncheck(p))}
-                    />
-                  )
-                }
-                lines={
-                  <span className="text-[11px]">
-                    {out ? (
-                      <span className="text-muted">
-                        Sortie enregistrée au {fmtDay(x?.to)}
-                        {why ? ` · ${why}` : ''}
-                      </span>
-                    ) : reason ? (
-                      <span className="font-bold text-amber-300">
-                        {fem ? 'Sortante' : 'Sortant'} au {fmtDay(s.exit)} · {POLE_EXITS.find((e) => e.value === reason)?.label.toLowerCase()}
-                      </span>
-                    ) : likely(p) ? (
-                      <span className="text-amber-300">Fin de cursus probable ({programmeLabel(x?.programme) || 'programme'} : année {p.birthDate?.slice(0, 4)})</span>
-                    ) : (
-                      <span className="text-muted">{x?.programme ? programmeLabel(x.programme) : 'Au pôle'}{x?.from ? ` · depuis le ${fmtDay(x.from)}` : ''}</span>
-                    )}
-                  </span>
-                }
-                actions={
-                  out ? (
-                    <button className="relative z-[1] shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-bold text-muted hover:border-accent hover:text-fg" onClick={() => void reopenPoleOne(p, ref!, s)}>
-                      Rétablir
-                    </button>
-                  ) : reason ? (
-                    <button className="relative z-[1] shrink-0 px-1 text-[11px] font-bold text-muted underline hover:text-fg" onClick={() => setAsking(p)}>
-                      Motif
-                    </button>
-                  ) : undefined
-                }
-              />
-            )
-          })}
-        </div>
-      </PlayerList>
-    </section>
+    </div>
   )
-
-  const right = (
-    <section className="flex min-w-0 flex-col gap-2" aria-labelledby="col-prochaine">
+  const rightHead = (
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="col-prochaine" className="text-sm font-extrabold">
           Effectif {s.next.label} <span className="font-normal text-muted">· {pluralG(kept.length + savedNew.length + pending.length, gg)}</span>
@@ -222,80 +304,79 @@ export default function PoleSeason() {
       <p className="text-[11px] text-muted">
         Les {gw.nouveaux} entrent au {fmtDay(s.entry)} (programme déduit de l’âge, modifiable). On peut aussi les ajouter depuis n’importe quelle liste : « Sélectionner » → « Ajouter à un groupe » → ce groupe.
       </p>
-      {!kept.length && !savedNew.length && !pending.length && <Empty>{gw.AucunJoueur} pour la saison prochaine.</Empty>}
+    </div>
+  )
+  const noCurrent = <Empty>{gw.AucunJoueur} au pôle aujourd’hui.</Empty>
+  const noNext = <Empty>{gw.AucunJoueur} pour la saison prochaine.</Empty>
+  const nextEmpty = !kept.length && !savedNew.length && !pending.length
+
+  // Téléphone : un onglet par saison.
+  const left = (
+    <section className="flex min-w-0 flex-col gap-2" aria-labelledby="col-courante">
+      {leftHead}
+      {!current.length && noCurrent}
+      <PlayerList ids={current.map((p) => p.id)} bar={false} select={false}>
+        <div className="flex flex-col gap-2">{current.map(leftRow)}</div>
+      </PlayerList>
+    </section>
+  )
+  const right = (
+    <section className="flex min-w-0 flex-col gap-2" aria-labelledby="col-prochaine">
+      {rightHead}
+      {nextEmpty && noNext}
       <PlayerList ids={[...kept, ...savedNew, ...pending.map((a) => a.p)].map((p) => p.id)} bar={false} select={false}>
         <div className="flex flex-col gap-2">
-          {kept.map((p) => (
-            <PlayerRow key={p.id} p={p} link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }} pictos={false} lines={<Tag kind="reconduit" g={gg} />} />
-          ))}
-          {savedNew.map((p) => {
-            const x = p.poles![periodIndexAt(p, ref, s.refNext)]
-            return (
-              <PlayerRow
-                key={p.id}
-                p={p}
-                link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }}
-                pictos={false}
-                lines={
-                  <span className="flex flex-wrap items-center gap-x-2 text-[11px]">
-                    <Tag kind="nouveau" g={gg} />
-                    <span className="text-muted">
-                      entrée enregistrée au {fmtDay(x?.from)}
-                      {x?.programme ? ` · ${programmeLabel(x.programme)}` : ''}
-                    </span>
-                  </span>
-                }
-              />
-            )
-          })}
-          {pending.map((a) => {
-            const other = otherPoleAt(a.p, ref, s.entry)
-            return (
-              <PlayerRow
-                key={a.id}
-                p={a.p}
-                link={{ to: `/joueurs/${a.id}` }}
-                pictos={false}
-                className="border-accent/60"
-                lines={
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                    <Tag kind="nouveau" g={gg} />
-                    {ref.levels.length > 1 ? (
-                      <select
-                        className="field min-h-8 w-auto py-0.5 text-[11px]"
-                        aria-label={`Programme de ${a.p.firstName} ${a.p.lastName}`}
-                        value={a.programme ?? ''}
-                        onChange={(e) => setAdding((l) => l.map((y) => (y.id === a.id ? { ...y, programme: (e.target.value || undefined) as PoleProgramme | undefined } : y)))}
-                      >
-                        <option value="">Programme…</option>
-                        {ref.levels.map((l) => (
-                          <option key={l} value={l}>
-                            {POLE_PROGRAMMES.find((o) => o.value === l)?.label ?? 'Accession'}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-muted">{programmeLabel(a.programme) || 'programme non précisé'}</span>
-                    )}
-                    {other && <span className="font-bold text-amber-300">déjà au {poleName(other, regionLabel)} : sa période y sera fermée au {fmtDay(s.exit)} (autre)</span>}
-                  </span>
-                }
-                actions={
-                  <button
-                    className="relative z-[1] flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400"
-                    title="Ne pas ajouter"
-                    aria-label={`Ne pas ajouter ${a.p.lastName.toUpperCase()} ${a.p.firstName}`}
-                    onClick={() => setAdding((l) => l.filter((y) => y.id !== a.id))}
-                  >
-                    ✕
-                  </button>
-                }
-              />
-            )
-          })}
+          {kept.map(keptRow)}
+          {savedNew.map(savedRow)}
+          {pending.map(pendingRow)}
         </div>
       </PlayerList>
     </section>
+  )
+
+  // Ordinateur : UNE grille, une ligne par joueur, chacun en face de lui-même (même hauteur des deux côtés). Sortant : case
+  // vide en pointillés à droite ; nouveau : case vide à gauche.
+  const grid = (
+    <PlayerList ids={[...current, ...savedNew, ...pending.map((a) => a.p)].map((p) => p.id)} bar={false} select={false}>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <section aria-labelledby="col-courante" className="min-w-0">
+          {leftHead}
+        </section>
+        <section aria-labelledby="col-prochaine" className="min-w-0">
+          {rightHead}
+        </section>
+        {(!current.length || nextEmpty) && (
+          <>
+            <div>{!current.length && noCurrent}</div>
+            <div>{nextEmpty && noNext}</div>
+          </>
+        )}
+        {current.map((p) => (
+          <Fragment key={p.id}>
+            <div className="min-w-0">{leftRow(p)}</div>
+            <div className="min-w-0">{keptIds.has(p.id) ? keptRow(p) : slot(outText(p))}</div>
+          </Fragment>
+        ))}
+        {savedNew.map((p) => {
+          const x = p.poles![periodIndexAt(p, ref, s.refNext)]
+          return (
+            <Fragment key={p.id}>
+              <div className="min-w-0">{slot(`${NOUVEAU} · entrée au ${fmtDay(x?.from)}`)}</div>
+              <div className="min-w-0">{savedRow(p)}</div>
+            </Fragment>
+          )
+        })}
+        {pending.map((a) => {
+          const other = otherPoleAt(a.p, ref, s.entry)
+          return (
+            <Fragment key={a.id}>
+              <div className="min-w-0">{slot(other ? `${NOUVEAU} · vient du ${poleName(other, regionLabel)}` : NOUVEAU)}</div>
+              <div className="min-w-0">{pendingRow(a)}</div>
+            </Fragment>
+          )
+        })}
+      </div>
+    </PlayerList>
   )
 
   return (
@@ -328,10 +409,7 @@ export default function PoleSeason() {
         />
       )}
       {side ? (
-        <div className="grid grid-cols-2 gap-4">
-          {left}
-          {right}
-        </div>
+        grid
       ) : tab === 'courante' ? (
         left
       ) : (
