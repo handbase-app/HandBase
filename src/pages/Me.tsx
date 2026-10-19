@@ -12,6 +12,7 @@ import { supabase, syncNow, useSyncState } from '../sync'
 import { positionCodes } from '../sportConfig'
 import { canPreviewPlayerPage } from '../components/PlayerSpace'
 import { useUnsaved } from '../components/Confirm'
+import { PlayerMatches } from '../components/PlayerMatches'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
@@ -295,6 +296,8 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         </label>
         {saveBar}
       </section>
+
+      <PlayerMatches p={p} canWrite={canWrite} />
 
       {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
       {!preview && (
