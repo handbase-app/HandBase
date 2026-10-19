@@ -102,9 +102,12 @@ html { touch-action: pan-x pan-y; }
 /* Pictogrammes au bout des lignes de joueurs (components/Pictos.tsx, PlayerRow.tsx). La liste (data-plist) pose
    data-pl="2" quand un nom serait coupé à cause d'eux : toute la liste les passe sur leur propre ligne, sous le nom
    (« ⋮ » reste sur la ligne du nom ; carte trop étroite pour tous : ils vont à la ligne, jamais au-delà). data-pm : mesure en cours, noms sur une seule ligne. */
-[data-pl="2"] [data-ptop] { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-[data-pl="2"] [data-pics] { grid-column: 1 / -1; grid-row: 2; justify-self: start; margin-left: -0.375rem; padding-block: 3px 1px; flex-wrap: wrap; row-gap: 6px; }
-[data-pl="2"] [data-pmenu] { grid-column: 2; grid-row: 1; }
+/* Carte en grille (PlayerRow : data-pcol ; data-ptop sans boîte) : par défaut, pictogrammes en bloc de 4 colonnes à droite
+   du nom et du texte. data-pl="2" : ils passent sur leur ligne sous le texte, tous côte à côte (à la ligne si la carte est
+   trop étroite), « ⋮ » reste à droite du nom. */
+[data-pl="2"] [data-pics] { grid-column: 1 / 3; grid-row: 3; justify-self: start; align-self: start; margin-left: -0.375rem; padding-block: 3px 1px; grid-template-columns: repeat(8, auto); }
+[data-pl="2"] [data-pmenu] { grid-row: 1; }
+[data-pl="2"] [data-plines] { grid-row: 4; }
 [data-pm] [data-pn] { white-space: nowrap !important; overflow-wrap: normal !important; }
 /* Sélection multiple (components/Selection.tsx) : la case à cocher prend la place du « ⋮ » (le menu de la ligne reste
    au clic droit et à l'appui long ; les actions de la sélection sont dans la barre du bas). Règle de place recalculée. */
