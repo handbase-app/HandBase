@@ -435,8 +435,9 @@ export const scaleOf = (ts: Iterable<Tally>): Scale => scaleOfValues([...ts].fil
 export function fillAt(v: number | undefined, sc: Scale = FULL) {
   if (v === undefined) return NO_PLAYER
   const k = Math.min(1, Math.max(0, (tr(v, sc) - tr(sc.lo, sc)) / (tr(sc.hi, sc) - tr(sc.lo, sc) || 1)))
-  // Du très clair (8 %) au très soutenu (100 %).
-  return `color-mix(in srgb, ${TEAL} ${Math.round(8 + 92 * k)}%, var(--color-panel))`
+  // Du très clair (--scale-floor : 8 %, plus sur fond sombre pour se détacher de « aucun joueur », src/mapScale.ts) au très
+  // soutenu (100 %).
+  return `color-mix(in srgb, ${TEAL} calc(var(--scale-floor, 8%) + (100% - var(--scale-floor, 8%)) * ${k.toFixed(3)}), var(--color-panel))`
 }
 /** Couleur de la part des joueurs vus d'une zone. */
 export const fillOf = (t?: Tally, sc: Scale = FULL) => fillAt(t?.total ? share(t) : undefined, sc)
@@ -905,10 +906,13 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   // Clubs : tous les filtres.
   const inScope = useMemo(() => scopePop(inPlace, picked), [inPlace, picked])
   const clubs = useMemo(() => sortClubs(onglet, coverageByClub(inScope, counted)), [onglet, inScope, counted])
-  // Chiffres clés des joueurs retenus (tous les filtres) : clubs, départements et la valeur de chaque onglet.
+  // Club choisi (et encore présent avec ces filtres) : les chiffres clés sont les siens, pas ceux du département.
+  const clubOn = st.club !== null && clubs.some((c) => c.key === st.club)
+  const kScope = useMemo(() => (clubOn ? inScope.filter((p) => clubKey(p.club) === st.club) : inScope), [clubOn, inScope, st.club])
+  // Chiffres clés des joueurs retenus (tous les filtres, club choisi compris) : clubs, départements et la valeur de chaque onglet.
   const kpis = useMemo(() => {
-    const k = { total: inScope.length, vus: 0, mesures: 0, reperes: 0, clubs: new Set<string>(), depts: new Set<string>() }
-    for (const p of inScope) {
+    const k = { total: kScope.length, vus: 0, mesures: 0, reperes: 0, clubs: new Set<string>(), depts: new Set<string>() }
+    for (const p of kScope) {
       if (last.has(p.id)) k.vus++
       if (nat?.staff.has(p.id)) k.mesures++
       if (nat?.spotted.has(p.id)) k.reperes++
@@ -923,7 +927,7 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
       clubs: k.clubs.size,
       depts: k.depts.size,
     }
-  }, [inScope, last, nat])
+  }, [kScope, last, nat])
   // Années proposées : toutes celles de la base (quel que soit le lieu), la plus récente d'abord.
   const allYears = useMemo(() => {
     const ys = new Set(data ? livePlayers(data.players).map(birthYear) : [])
@@ -1308,7 +1312,8 @@ export default function Coverage() {
   if (!data || (st.q && !Q)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
 
   const tab = tabOf(o, g)
-  const total = totalOf(clubs)
+  // Bandeau sous les tuiles : le club choisi, sinon tous les clubs du lieu (comme les tuiles, useBilanModel kpis).
+  const total = totalOf(club ? [club] : clubs)
   const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
 
   const setOnglet = (v: Onglet) => set({ onglet: v, seenOpen: false })
@@ -1366,6 +1371,13 @@ export default function Coverage() {
     }
     requestAnimationFrame(tick)
   }
+  // Ligne d'un club touchée (téléphone) : ses joueurs s'ouvrent sous la ligne, souvent sous la barre du bas (Rapport,
+  // question) ; on remonte la ligne en haut de l'écran, sous l'en-tête, pour que la liste se voie.
+  const pickClubRow = (k: string) => {
+    const opening = club?.key !== k
+    pickClub(k)
+    if (opening && !side) scrollToClub(k)
+  }
   // Point de la carte touché : comme le club choisi dans la liste ; au téléphone, on descend jusqu'à sa ligne.
   const pickDot = (id: string) => {
     if (!clubMap?.byId.get(id)?.club) return
@@ -1419,7 +1431,7 @@ export default function Coverage() {
         clubs={clubs}
         inline={inline}
         selected={club?.key}
-        onPick={pickClub}
+        onPick={pickClubRow}
         label={yearText}
         last={last}
         {...(linked && clubMap ? { hot, onHot: setHot, dotColor: (k: string) => clubMap.color.get(k) } : {})}
@@ -2108,7 +2120,7 @@ function ClubList({
         const dot = dotColor && c.key ? dotColor(c.key) : undefined
         const bar = lens.bar(c, max)
         return (
-          <div key={c.key || 'aucun'} data-club={c.key} className="flex scroll-mt-24 flex-col gap-2">
+          <div key={c.key || 'aucun'} data-club={c.key} className="flex scroll-mt-[calc(var(--hdr)+0.75rem)] flex-col gap-2">
             <button
               onClick={() => onPick(c.key)}
               aria-expanded={on}

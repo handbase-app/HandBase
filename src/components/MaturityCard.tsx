@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { db, fmtDate, type Measurement, type Player } from '../db'
 import { Icon, InfoButton } from './ui'
-import { MEAN_APHV, offsetReliable, phase, PHASE_LABEL, round, sittingPlausible, stage, STAGE_LABEL, timing, TIMING_LABEL, type Sex } from '../maturity'
+import { MEAN_APHV, offsetReliable, pahShown, phase, PHASE_LABEL, round, sittingPlausible, stage, STAGE_LABEL, timing, TIMING_LABEL, type Sex } from '../maturity'
 import { snapshots, type Snapshot } from '../maturitySnapshot'
 import { accord, w } from '../gender'
 
@@ -208,7 +208,7 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
           <div className="text-[10px] text-muted">± {Math.round(error90)} cm (90 %)</div>
         </div>
         <div className="rounded-lg border border-line bg-panel-2 p-2">
-          <div className="text-base font-extrabold">{f1(pah)} %</div>
+          <div className="text-base font-extrabold">{f1(pahShown(pah))} %</div>
           <div className="text-[10px] text-muted">taille adulte atteinte</div>
         </div>
         <div className="rounded-lg border border-line bg-panel-2 p-2">
@@ -267,7 +267,7 @@ function History({ snaps, sex }: { snaps: Snapshot[]; sex: Sex }) {
                 <td className="px-1">{cell(s.moore)}</td>
                 {sex === 'M' && <td className="px-1">{cell(s.fransen)}</td>}
                 <td className="px-1 font-bold">{signed(s.mean.offset)}</td>
-                <td className="px-1">{s.kr ? `${f1(s.kr.pah)} %` : '—'}</td>
+                <td className="px-1">{s.kr ? `${f1(pahShown(s.kr.pah))} %` : '—'}</td>
               </tr>
             ))}
           </tbody>
