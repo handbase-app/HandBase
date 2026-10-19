@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
 import { applyUpdate, BUILD_TIME, checkForUpdate, useUpdateReady } from '../pwa'
 import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, type Criterion, type CriterionScale } from '../db'
@@ -10,7 +11,8 @@ import { exportBackup, importBackup } from '../export'
 import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
 import { categoryList, resolveCategory, type ParsedFile } from '../criteriaFormat'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
-import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
+import { supabase, syncNow, useSyncState } from '../sync'
+import { confirmLogout } from '../logout'
 import { ActivityLog } from '../components/ActivityLog'
 import { QuestionLogView } from '../components/QuestionLogView'
 import { canUseQuestionLog } from '../questionLog'
@@ -50,6 +52,8 @@ export default function Settings() {
   return (
     // Ordinateur (administrateur) : « Mon espace » à gauche, « Administration » à droite.
     <div className={`flex flex-col gap-3 ${admin ? 'side:grid side:grid-cols-2 side:items-start side:gap-x-6' : ''}`}>
+      {/* Plus un onglet : ouvert depuis le menu de la bulle de profil (en-tête), retour à l'écran d'où l'on vient. */}
+      <BackButton fallback="/" label="ACCUEIL" className="self-start side:col-span-full" />
       <h1 className="text-lg font-extrabold side:col-span-full">Réglages</h1>
 
       <div className="flex flex-col gap-3">
@@ -476,21 +480,8 @@ function Account() {
   const [busy, setBusy] = useState(false)
   const role = useRole()
 
-  /** Déconnexion : les données de l'appareil sont effacées ; on prévient s'il reste des modifications pas envoyées. */
-  async function logout() {
-    setBusy(true)
-    // Dernière chance d'envoyer ce qui attend.
-    if (navigator.onLine) await syncNow({ retry: true })
-    const pending = new Set((await db.outbox.toArray()).map((i) => `${i.table}:${i.rowId}`)).size
-    setBusy(false)
-    const ok = await ask(
-      pending
-        ? `${pending} modification(s) pas encore envoyée(s) au serveur (hors ligne, ou refusée(s)) seront PERDUES. Pour les garder, reste connecté et synchronise une fois en ligne (voir l’état de la synchronisation). Se déconnecter quand même ?`
-        : `Se déconnecter ? Les données ${appName()} seront effacées de cet appareil ; elles restent sur le serveur et reviendront à la prochaine connexion.`,
-      { ok: pending ? 'Perdre et se déconnecter' : 'Se déconnecter' },
-    )
-    if (ok) await wipeDevice({ signOut: true })
-  }
+  /** Déconnexion : logique partagée avec le menu de la bulle de profil de l'en-tête (src/logout.ts). */
+  const logout = () => confirmLogout(setBusy)
 
   useEffect(() => {
     void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
@@ -573,7 +564,7 @@ function useImportBlock(): string | null {
   if (state === 'local') return null // pas de serveur : la base de l'appareil est la seule
   if (state === 'offline') return 'Import impossible hors ligne : connecte-toi à internet pour que la base soit à jour avant d’importer.'
   if (state === 'login') return 'Connecte-toi d’abord : l’import doit partir de la base à jour.'
-  if (state === 'error') return 'La synchronisation a échoué : touche la pastille de synchronisation en haut de l’écran et attends qu’elle réussisse avant d’importer.'
+  if (state === 'error') return 'La synchronisation a échoué : touche ta bulle de profil en haut à droite, puis l’état de la synchronisation, et attends qu’elle réussisse avant d’importer.'
   if (state === 'syncing' || !caughtUp) return 'Synchronisation en cours… L’import sera possible dès que toute la base sera à jour sur cet appareil.'
   if (outbox > 0)
     return `${plural(outbox, 'modification attend', 'modifications attendent')} d’être envoyée${outbox > 1 ? 's' : ''} au serveur : garde l’appli ouverte et en ligne, l’import sera possible ensuite.`

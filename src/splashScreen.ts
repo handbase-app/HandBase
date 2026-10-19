@@ -13,7 +13,7 @@ import { splashBar, splashDecision, splashText, type SplashSync } from './splash
 const SPLASH_THEME = '#0A182D'
 /** Appli encore vide derrière (premier affichage pas fini) : on lui laisse au plus ce délai de plus. */
 const RENDER_GRACE_MS = 1500
-/** La pastille de synchro clignote une fois (classe sur <html>, voir index.css). */
+/** La bulle de profil (point de synchro) clignote une fois (classe sur <html>, voir index.css). */
 const PULSE_MS = 2400
 
 function syncKind(): SplashSync {

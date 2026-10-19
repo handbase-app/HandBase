@@ -1,11 +1,10 @@
 import { applyUpdate, useUpdateReady } from './pwa'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { pushSupport, setIconBadge, syncSubscription } from './push'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
-import { db, DEMO, TRIAL, TRIAL_LABEL } from './db'
+import { DEMO, TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
 import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
@@ -19,13 +18,13 @@ import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
 import { useAlertCount } from './alerts'
 import { useFollowNewsCount } from './follows'
-import { Icon } from './components/ui'
+import { Icon, ICONS } from './components/ui'
+import { ProfileButton } from './components/ProfileMenu'
+import { can, useRole } from './roles'
 import { useThemeVersion } from './theme'
 import { AppLockup } from './components/Brand'
 import { appName, useAppBrand } from './appBrand'
-import { syncNow, useSyncState } from './sync'
 import { SyncProgressBar } from './components/SyncProgress'
-import { percent, showProgress } from './syncProgress'
 import { BackTracker } from './backNav'
 import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
@@ -91,40 +90,18 @@ function FollowStar({ n }: { n: number }) {
   )
 }
 
-function SyncBadge() {
-  const { state, lastError, live, progress } = useSyncState()
-  const pending = useLiveQuery(() => db.outbox.count(), [], 0)
-  const map = {
-    local: { dot: 'bg-muted', text: 'Local' },
-    login: { dot: 'bg-amber-400', text: 'Non connecté' },
-    offline: { dot: 'bg-amber-400', text: 'Hors ligne' },
-    syncing: { dot: 'bg-sky-400 animate-pulse', text: showProgress(progress) ? `Synchro… ${percent(progress)} %` : 'Synchro…' },
-    synced: { dot: 'bg-emerald-400', text: live ? 'En direct' : 'Synchronisé' },
-    error: { dot: 'bg-red-500', text: 'Erreur synchro' },
-  }[state]
-  const warn = state === 'synced' && !!lastError
-  return (
-    <button
-      onClick={() => void syncNow()}
-      title={lastError || (state === 'local' ? 'Données enregistrées sur cet appareil uniquement' : `${map.text}${pending > 0 ? ` · ${pending} en attente` : ''}`)}
-      className="sync-badge flex min-w-0 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
-    >
-      <span className={`h-2 w-2 shrink-0 rounded-full ${warn ? 'bg-amber-400' : map.dot}`} />
-      {/* Téléphone étroit : le texte se coupe (…) plutôt que de passer sous la bulle ✦ du milieu de l'en-tête. */}
-      <span className="min-w-0 truncate">
-        {map.text}
-        {state !== 'local' && pending > 0 && <span className="text-amber-300"> · {pending} en attente</span>}
-      </span>
-    </button>
-  )
-}
-
+/**
+ * Onglets (barre du bas sur téléphone, menu de gauche sur ordinateur). Réglages et Confidentialité sont dans le menu de la
+ * bulle de profil de l'en-tête (src/components/ProfileMenu.tsx). Bilan : comptes qui voient le bilan de détection
+ * (can.viewCoverage, comme la tuile de l'accueil), actif sur /bilan et ses sous-pages ; même carte que la tuile.
+ * Garder TABS (src/backNav.tsx) à jour.
+ */
 const NAV = [
   { to: '/', label: 'Accueil', icon: 'M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z' },
   { to: '/joueurs', label: 'Joueurs', icon: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 4-6 8-6s8 2 8 6' },
   { to: '/evenements', label: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/groupes', label: 'Groupes', icon: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM17 11a3 3 0 1 0 0-6M3 20c0-3 3-5 6-5s6 2 6 5M17 15c2.5 0 4 1.7 4 5' },
-  { to: '/parametres', label: 'Réglages', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V4h-4v3l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v3h4v-3l2-1 2 1 2-4z' },
+  { to: '/bilan', label: 'Bilan', icon: ICONS.map },
 ]
 
 /** Lien du menu qui vérifie d'abord qu'aucune saisie en cours ne sera perdue. */
@@ -248,6 +225,8 @@ export default function App() {
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
   const header = useHeaderHeight()
+  const role = useRole()
+  const nav = NAV.filter((n) => n.to !== '/bilan' || can.viewCoverage(role))
   return (
     // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
     // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
@@ -256,7 +235,7 @@ export default function App() {
         ref={header}
         className={`app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:gap-3 side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
-        {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, synchro). Ordinateur : le logo est dans le menu
+        {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
             de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. */}
         <div className="flex min-w-0 items-center">
           <Logo className="side:hidden" />
@@ -266,7 +245,8 @@ export default function App() {
         <div className="flex min-w-0 items-center justify-end gap-3">
           <FollowStar n={followNews} />
           <AlertBell n={alerts} />
-          <SyncBadge />
+          {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
+          <ProfileButton />
         </div>
         <SyncProgressBar />
         {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
@@ -347,7 +327,7 @@ export default function App() {
       >
         <Logo stacked className="hidden side:block side:px-5 side:pt-4 side:pb-5" />
         <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:h-full rail:justify-center rail:gap-1 side:gap-0.5 side:px-2">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <GuardedLink
               key={n.to}
               to={n.to}
