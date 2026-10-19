@@ -1,3 +1,4 @@
+import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -84,7 +85,7 @@ export default function Groups() {
   const [showArchived, setShowArchived] = useSessionState('handbase.groupes.archived', false)
   // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
   // question… », micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session.
-  const { filtered: shown, active: filtering, ui: filterUi, top: filterTop } = useGroupsQuery(groups)
+  const { filtered: shown, active: filtering, ui: filterUi, top: filterTop, filtersOpen } = useGroupsQuery(groups)
   // Groupes Pôle (src/poleSeason.ts) : épinglés en tête ; unités Pôle que je dirige sans groupe : une tuile pour le créer.
   const leader = usePoleLeader()
   const refs = usePoleRefs()
@@ -157,7 +158,7 @@ export default function Groups() {
         événement.
       </p>
       <AllGroupsToggle role={role} />
-      {groups.length > 0 && filterUi}
+      {groups.length > 0 && <StickyQuery stick={!filtersOpen}>{filterUi}</StickyQuery>}
       {filterTop}
       {!active.length && filtering && <Empty>Aucun groupe ne correspond.</Empty>}
       {!groups.length && !toCreate.length && (

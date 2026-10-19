@@ -24,11 +24,12 @@ import {
   type NumCond,
 } from '../listQuery'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
-import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
+import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { useSessionState } from './PlayerFilter'
 import { chipCls, NumberInput, OPS, Select } from './RecipeChips'
-import { Icon } from './ui'
+import { Demander, recordAsk, useIncomingAsk } from './Demander'
+import type { AskPage } from '../demander'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
@@ -36,7 +37,7 @@ import { AnswerFeedback } from './AnswerFeedback'
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
  * (src/components/PlayersQuery.tsx), moteur commun src/listQuery.ts :
- *  - un seul champ « Filtrer ou poser une question… » et UN micro ✨ ; un simple nom (« Cannes », « Intercomités 83 ») reste
+ *  - la barre « Demander » (src/components/Demander.tsx : historique, suggestions, menu) et UN micro ✨ ; un simple nom (« Cannes », « Intercomités 83 ») reste
  *    une recherche locale instantanée, sans appel ; une phrase (Entrée, ✨, micro) part au mode « question » avec le contexte
  *    de la page (« evenements », « groupes ») et les NOMS des filtres posés seulement ; la recette rendue est revérifiée ici
  *    puis FUSIONNÉE : par défaut elle AJOUTE ; on n'efface ou ne retire que si c'est dit ; « Annuler » ; ligne « Ajouté : … » ;
@@ -123,7 +124,11 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
     setQy(after)
     setText('')
     setResult({ phrase, before, after: cleanListQuery(spec, after), text: [ch, calcText].filter(Boolean).join(' — ') || (sameListQuery(spec, before, after) ? '' : 'Filtres changés'), ...extra })
+    recordAsk(askPage, phrase)
   }
+  // Historique de la barre « Demander » et demandes venues de l'en-tête (pages Événements et Groupes).
+  const askPage: AskPage = id === 'groupes' ? 'groupes' : 'evenements'
+  useIncomingAsk(askPage, (a) => void ask(a.phrase))
 
   async function ask(phrase: string) {
     // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
@@ -132,6 +137,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
     setError('')
     if (!micReady || isListSearch(said, o.hays)) {
       setText(said)
+      recordAsk(askPage, said)
       return
     }
     const local = localListCommand(spec, said)
@@ -187,70 +193,26 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
   const nChips = activeListKeys(spec, qy).filter((k) => k !== 'q').length
-  const field = (
-    <form
-      className="flex min-w-0 flex-1 gap-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!nameMode) void ask(text)
-      }}
-    >
-      <input
-        className="field min-h-11 min-w-0 flex-1"
-        data-search
-        type="search"
-        enterKeyHint={nameMode ? 'search' : 'send'}
-        placeholder={micReady ? 'Filtrer ou poser une question…' : 'Rechercher…'}
-        title={micReady ? `Un nom ; ou une phrase (« ${o.hint} »), puis Entrée` : 'Nom, lieu ou créateur'}
-        aria-label={micReady ? 'Filtrer ou poser une question' : 'Rechercher'}
-        value={text}
-        maxLength={MAX_PHRASE}
-        disabled={sending || rec}
-        onChange={(e) => setText(e.target.value)}
-      />
-      {micReady && !nameMode && (
-        <button type="submit" className="btn-primary min-h-11 shrink-0 px-3 text-sm" disabled={sending || rec} aria-label="Appliquer la phrase">
-          <span aria-hidden>✨</span>
-        </button>
-      )}
-    </form>
-  )
-  const micButton = micReady && (
-    <button
-      type="button"
-      data-noswipe
-      aria-label={rec ? 'Arrêter et appliquer' : sending ? 'Phrase en cours' : 'Filtrer ou poser une question à la voix'}
-      aria-pressed={rec}
-      title={rec ? 'Arrêter : la phrase est transcrite puis appliquée' : `Touchez et dites par exemple « ${o.hint} » ; touchez à nouveau pour finir`}
-      disabled={sending}
-      className={`relative flex min-h-11 min-w-11 shrink-0 touch-none items-center justify-center rounded-md border-2 px-2 transition select-none [-webkit-touch-callout:none] ${
-        rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-line bg-panel-2 text-fg hover:border-accent active:bg-accent active:text-white'
-      } disabled:opacity-70`}
-      {...mic.buttonProps}
-    >
-      {sending ? (
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      ) : rec ? (
-        <span className="h-4 w-4 rounded-sm bg-white" />
-      ) : (
-        <>
-          <Icon name="mic" className="h-6 w-6" />
-          <span className="pointer-events-none absolute top-0.5 right-0.5 text-[11px] leading-none" aria-hidden>
-            ✨
-          </span>
-        </>
-      )}
-    </button>
-  )
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google).
   const filtersButton = (
-    <button
-      type="button"
-      onClick={() => setOpen(!open)}
-      aria-expanded={open}
-      className={`min-h-11 shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-    >
-      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
+    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
+      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
     </button>
+  )
+  const field = (
+    <Demander
+      page={askPage}
+      value={text}
+      onChange={setText}
+      onSubmit={(t) => void ask(t)}
+      canAsk={micReady}
+      nameMode={nameMode}
+      mic={micReady ? mic : undefined}
+      micHint={o.hint}
+      disabled={sending || rec}
+      label={micReady ? 'Demander : filtrer ou poser une question' : 'Rechercher'}
+      trailing={filtersButton}
+    />
   )
   const shownResult = result && (result.nothing || !result.after || sameListQuery(spec, result.after, qy)) ? result : null
   const status =
@@ -305,11 +267,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   )
   const ui = (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2">
-        {field}
-        {micButton}
-        {filtersButton}
-      </div>
+      <div className="flex gap-2">{field}</div>
       {status}
       {chips}
       {open && (
@@ -351,7 +309,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
 
   /** Change dès qu'un filtre change (position et nombre affiché remis à zéro). */
   const signature = JSON.stringify([qy.f, qy.q, qy.sort ?? null])
-  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset }
+  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset, filtersOpen: open }
 }
 
 // ---------- Pastilles ----------
@@ -450,7 +408,12 @@ function ResultView<F>({ r, onUndo, onClose }: { r: ResultLine<F>; onUndo: () =>
           ✕
         </button>
       </div>
-      <span className="truncate text-muted">Entendu : « {r.phrase} »</span>
+      <span className="truncate text-muted">
+        <span className="text-ai" aria-hidden>
+          ✦
+        </span>{' '}
+        « {r.phrase} »
+      </span>
       {!!r.unsupported?.length && (
         <span>
           <b>Pas pris en compte :</b> {r.unsupported.join(' ; ')}

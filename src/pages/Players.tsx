@@ -1,3 +1,4 @@
+import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
@@ -52,7 +53,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading, gender } = usePlayersQuery(players, { dock: !selected })
+  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading, gender, filtersOpen } = usePlayersQuery(players, { dock: false }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -140,22 +141,15 @@ export default function Players() {
       <div className={side ? 'grid grid-cols-[21rem_minmax(0,1fr)] items-start gap-5' : ''}>
       {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
       <div className="md-box">
-      {ui && <div className="mb-3">{ui}</div>}
+      {ui && <StickyQuery stick={!filtersOpen}>{ui}</StickyQuery>}
       <div className="mb-2 flex flex-col gap-2 empty:hidden">{top}</div>
-      <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
-        <span>
-          {loading ? 'Chargement…' : pluralG(filtered.length, gender)}
-          {group && (
-            <>
-              {' '}
-              ·{' '}
-              <Link to={`/groupes/${group.id}`} className="font-bold text-accent">
-                ouvrir le groupe
-              </Link>
-            </>
-          )}
-        </span>
-      </div>
+      {group && (
+        <div className="mb-2 text-[11px] text-muted">
+          <Link to={`/groupes/${group.id}`} className="font-bold text-accent">
+            Ouvrir le groupe
+          </Link>
+        </div>
+      )}
       {grouping && (
         <AddToGroupDialog playerIds={filtered.map((p) => p.id)} onClose={(text, groupId) => (setGrouping(false), setGroupMsg({ text: text ?? '', groupId }))} />
       )}
@@ -175,7 +169,12 @@ export default function Players() {
         // Pictogrammes au bout des lignes (barre « Afficher », components/Pictos.tsx) : lus pour les joueurs affichés.
         // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
         // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
-        <PlayerList ids={shown.map((p) => p.id)} all={allIds}>
+        // Nombre de joueurs dans la barre « Afficher », collée en haut : visible pendant tout le défilement.
+        <PlayerList
+          ids={shown.map((p) => p.id)}
+          all={allIds}
+          countLabel={loading ? 'Chargement…' : filtered.length < all.length ? `${pluralG(filtered.length, gender)} sur ${all.length.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
+        >
         {loading ? null : shown.length === 0 ? (
           <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
         ) : (

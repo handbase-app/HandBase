@@ -177,8 +177,8 @@ function previousPath(key: string, pathname: string): string | undefined {
   return undefined
 }
 
-// Onglets de la barre du bas : on y revient par la barre, pas besoin de bouton retour vers eux.
-const TABS = new Set(['/', '/joueurs', '/evenements', '/groupes', '/parametres'])
+// Onglets de la barre du bas (NAV, src/App.tsx) : on y revient par la barre, pas besoin de bouton retour vers eux.
+const TABS = new Set(['/', '/joueurs', '/evenements', '/groupes', '/bilan'])
 
 /** Bouton retour pour un onglet (ex. Joueurs) : seulement si l'on vient d'un autre écran que les onglets (bilan de détection, groupe…). */
 export function TabBackButton({ className = '' }: { className?: string }) {
