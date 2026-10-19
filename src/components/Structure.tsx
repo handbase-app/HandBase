@@ -25,6 +25,8 @@ import { StructureImport } from './StructureImport'
 import { fold } from './PlayerFilter'
 import { useOnline } from './TransferGroup'
 import { SectionTitle } from './ui'
+import { isPoleUnit } from '../poleSeason'
+import { POLE_PROGRAMMES } from '../db'
 
 /*
  * Réglages > « Structure et sport » (supabase/044_structure.sql) : postes du sport, niveaux, arbre des unités et
@@ -482,10 +484,12 @@ function UnitDetail({
   const update = (patch: Partial<Unit>) => save<Unit>('units', { ...unit, ...patch })
 
   const club = <ClubInfo unit={unit} />
+  const pole = isPoleUnit(unit, levels)
   if (!editable)
     return (
       <div className="flex flex-col gap-1 bg-panel-2/50 px-4 py-3 text-xs">
         {club}
+        {pole && <PoleInfo unit={unit} />}
         {unit.departments?.length ? <div>Territoire : {unit.departments.map((d) => departmentLabel(d)).join(', ')}</div> : null}
         {people.length ? (
           people.map((a) => (
@@ -538,6 +542,7 @@ function UnitDetail({
           </select>
         </label>
       </div>
+      {pole && <PoleFields unit={unit} update={update} />}
       <TerritoryPicker unit={unit} onChange={(departments) => void update({ departments: departments.length ? departments : undefined })} />
       <AssignmentsEditor unit={unit} people={people} members={members} />
       <NewUnit parentId={unit.id} onCreated={onOpen} />
@@ -554,6 +559,54 @@ function UnitDetail({
         {blocker ? `Suppression impossible : ${blocker}` : 'Supprimer l’unité'}
       </button>
     </div>
+  )
+}
+
+/** Pôle Espoirs (lecture) : sexe, site, programmes, référence et état PSQS. */
+function PoleInfo({ unit }: { unit: Unit }) {
+  const parts = [
+    unit.poleSex && (unit.poleSex === 'F' ? 'Filles' : 'Garçons'),
+    unit.poleSite,
+    unit.poleLevels?.length && unit.poleLevels.map((l) => POLE_PROGRAMMES.find((o) => o.value === l)?.short ?? 'Accession').join(', '),
+    unit.psqsRef && `PSQS ${unit.psqsRef}`,
+    unit.psqsStatus,
+  ].filter(Boolean)
+  return parts.length ? <div className="text-[11px] text-muted">{parts.join(' · ')}</div> : null
+}
+
+/**
+ * Pôle Espoirs (saisie) : référence de la structure dans le PSQS et état du dossier (texte libre), gardés sur l'unité
+ * (src/structureTree.ts, psqsRef / psqsStatus ; donnée JSON, pas de SQL). Le groupe Pôle et ses exports les reprennent.
+ */
+function PoleFields({ unit, update }: { unit: Unit; update: (patch: Partial<Unit>) => Promise<unknown> }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-line p-2">
+      <div className="text-[11px] font-bold text-muted">Pôle Espoirs</div>
+      <PoleInfo unit={unit} />
+      <div className="grid grid-cols-2 gap-2">
+        <TextField key={`ref-${unit.psqsRef ?? ''}`} label="Référence PSQS" value={unit.psqsRef ?? ''} placeholder="Référence de la structure" onSave={(v) => void update({ psqsRef: v || undefined })} />
+        <TextField key={`st-${unit.psqsStatus ?? ''}`} label="État PSQS" value={unit.psqsStatus ?? ''} placeholder="Ex. Validée" onSave={(v) => void update({ psqsStatus: v || undefined })} />
+      </div>
+    </div>
+  )
+}
+
+/** Champ texte enregistré par « OK » ou Entrée (même allure que le nom de l'unité). */
+function TextField({ label, value, placeholder, onSave }: { label: string; value: string; placeholder?: string; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value)
+  const changed = v.trim() !== value
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="label mb-0">{label}</span>
+      <div className="flex gap-2">
+        <input className="field min-h-11 min-w-0 py-1 text-xs" value={v} placeholder={placeholder} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && changed && onSave(v.trim())} />
+        {changed && (
+          <button className={`btn-primary ${TAP} shrink-0 px-3 text-xs`} onClick={() => onSave(v.trim())}>
+            OK
+          </button>
+        )}
+      </div>
+    </label>
   )
 }
 
