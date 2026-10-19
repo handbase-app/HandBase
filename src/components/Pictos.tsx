@@ -96,18 +96,18 @@ export const PICTO_ICONS: Record<PictoKind, IconName> = {
 
 /**
  * `label` : ce qui précède les pictogrammes. Liste Joueurs : le nombre de joueurs (« 7 joueurs sur 39 988 »), toujours visible
- * puisque la barre reste collée en haut ; ailleurs, « Afficher ».
+ * puisque la barre reste collée en haut ; ailleurs, rien (les pictogrammes seuls, calés à droite).
  */
 export function PictoBar({ className = '', label }: { className?: string; label?: ReactNode }) {
   const on = usePictos()
   return (
     <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-3 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${className}`}>
-      {label ? (
+      {/* Plus de mot « Afficher » : le nombre de joueurs quand la liste le donne (Joueurs), sinon rien (la liste a déjà son
+          compte au-dessus : groupe, événement, réponse du bilan…). */}
+      {label && (
         <span className="mr-1 text-[11px] font-bold whitespace-nowrap text-muted" role="status">
           {label}
         </span>
-      ) : (
-        <span className="mr-0.5 text-[10px] font-bold tracking-wider text-muted uppercase">Afficher</span>
       )}
       {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs à gauche). */}
       <span className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
