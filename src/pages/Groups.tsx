@@ -18,7 +18,7 @@ import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Participants } from '../components/Participants'
 import { GROUP_VIS, STAFF, TEAM_FOLLOW } from '../staffLabels'
 import { participantSummary, useTeams } from '../teams'
-import type { Team } from '../db'
+import type { Team, Unit } from '../db'
 import { AddPlayers } from './Events'
 import { FollowButton, FollowStar } from '../components/Follow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
@@ -171,20 +171,7 @@ export default function Groups() {
             {pinned.map((g) => (
               <GroupRow key={g.id} g={g} teams={teams} />
             ))}
-            {toCreate.map((u) => (
-              <button
-                key={u.id}
-                type="button"
-                className="card flex items-center gap-3 p-3 text-left hover:border-accent"
-                onClick={async () => nav(`/groupes/${(await createPoleGroup(u, refs.get(u.id) ?? null)).id}`)}
-              >
-                <Icon name="userPlus" className="h-4 w-4 shrink-0 text-accent" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold">Créer le groupe Pôle de {u.name}</span>
-                  <span className="block text-[11px] text-muted">Membres calculés depuis les périodes de pôle des fiches ; saison en cours et saison prochaine ; changement de saison.</span>
-                </span>
-              </button>
-            ))}
+            <PoleCreateTiles units={toCreate} onCreate={async (u) => nav(`/groupes/${(await createPoleGroup(u, refs.get(u.id) ?? null)).id}`)} />
           </div>
         </>
       )}
@@ -232,6 +219,56 @@ const SECTIONS = [
 ] as const
 
 /** Pastille « Mon staff » (team) : groupe visible par son créateur et ses participants seulement. */
+/** Sans accents ni majuscules, pour chercher un pôle par son nom. */
+const foldName = (s = '') => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/**
+ * Tuiles « Créer le groupe Pôle de … » (unités Pôle que je dirige sans groupe). Jusqu'à deux : une tuile par pôle. Au-delà
+ * (un administrateur voit tous les pôles de la structure) : une seule tuile qui s'ouvre sur une liste avec un champ de
+ * recherche, pour ne pas noyer la page sous cinquante tuiles.
+ */
+function PoleCreateTiles({ units, onCreate }: { units: Unit[]; onCreate: (u: Unit) => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  if (!units.length) return null
+  const tile = (u: Unit, compact = false) => (
+    <button key={u.id} type="button" className={`card flex items-center gap-3 text-left hover:border-accent ${compact ? 'p-2' : 'p-3'}`} onClick={() => onCreate(u)}>
+      <Icon name="userPlus" className="h-4 w-4 shrink-0 text-accent" />
+      <span className="min-w-0">
+        <span className="block text-sm font-bold">{compact ? u.name : `Créer le groupe Pôle de ${u.name}`}</span>
+        {!compact && (
+          <span className="block text-[11px] text-muted">Membres calculés depuis les périodes de pôle des fiches ; saison en cours et saison prochaine ; changement de saison.</span>
+        )}
+      </span>
+    </button>
+  )
+  if (units.length <= 2) return <>{units.map((u) => tile(u))}</>
+  const hits = q.trim() ? units.filter((u) => foldName(u.name).includes(foldName(q.trim()))) : units
+  return (
+    <div className="card flex flex-col gap-2 p-3">
+      <button type="button" className="flex items-center gap-3 text-left" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="userPlus" className="h-4 w-4 shrink-0 text-accent" />
+        <span className="min-w-0">
+          <span className="block text-sm font-bold">Créer un groupe Pôle…</span>
+          <span className="block text-[11px] text-muted">
+            {units.length} pôles de la structure sans groupe. Membres calculés depuis les périodes de pôle des fiches ; saison en cours et saison prochaine ; changement de saison.
+          </span>
+        </span>
+      </button>
+      {open && (
+        <>
+          <input className="field text-sm" placeholder="Chercher un pôle (ville, filles, garçons)…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Chercher un pôle" />
+          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+            {hits.slice(0, 30).map((u) => tile(u, true))}
+            {!hits.length && <p className="text-xs text-muted">Aucun pôle ne correspond.</p>}
+            {hits.length > 30 && <p className="text-xs text-muted">… et {hits.length - 30} de plus : précise la recherche.</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function TeamChip() {
   return (
     <span
