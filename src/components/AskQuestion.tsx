@@ -119,7 +119,7 @@ export function AskQuestion({ className = '', variant = 'full', trailing }: { cl
       mic={variant === 'full' ? mic : undefined}
       micHint={QUESTION_HINT}
       disabled={sending || rec}
-      placeholder="Demander… une question sur le bilan, ou dites-la"
+      placeholder="Une question sur le bilan, ou dites-la…"
       label="Poser une question"
       className="flex-[1_1_18rem]"
       trailing={trailing}

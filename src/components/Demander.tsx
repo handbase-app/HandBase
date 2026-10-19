@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
+import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { alive, db, today } from '../db'
 import {
@@ -31,19 +31,28 @@ import { Icon, playerName } from './ui'
 
 /*
  * « Demander » : une seule porte pour tout demander, comme la barre d'adresse d'un navigateur (partie pure : src/demander.ts).
- *  - Le CHAMP : ✦ à gauche, « Demander… un nom, une question, une action », micro ✨ à droite seulement si la dictée est
+ *  - Le CHAMP : ✦ à gauche, « Un nom, une question, une action… », micro ✨ à droite seulement si la dictée est
  *    disponible (useDictation, comme avant) ; au clavier tout marche sans micro.
  *  - Le MENU à l'ouverture (focus, toucher) : « Récemment » (historique local, horloge, un toucher relance la demande sur
  *    sa page, ✕ pour retirer une entrée), « Essaie » (trois suggestions de la page), « Mes questions enregistrées » (celles
- *    du bilan), « Afficher tout l'historique » (le menu s'allonge, « Effacer l'historique » en bas). Depuis l'EN-TÊTE, en
+ *    du bilan), « Afficher tout l'historique » (le menu s'allonge, « Effacer l'historique » en bas). Depuis la PALETTE, en
  *    tapant : « Je comprends », les propositions de routeAsk (Entrée : la première, ↑ ↓ pour choisir, Échap ferme).
  *    Clavier complet, rôles ARIA (combobox / listbox), focus gardé au champ. Téléphone : le menu devient une feuille sous
  *    le champ, fermée par le geste Retour sans quitter la page (une entrée d'historique du routeur, retirée en fermant).
  *  - PLACEMENTS : sur les listes Joueurs, Événements, Groupes et au bilan (PlayersQuery.tsx, ListQuery.tsx,
  *    AskQuestion.tsx), le champ de la page EST ce composant (même comportement qu'avant pour la phrase : recherche locale
- *    ou appel, ajout aux filtres, pastilles) ; sur ordinateur, la même barre au centre de l'en-tête de toutes les pages
- *    (HeaderAsk, src/App.tsx), raccourci « / ». Sur une page de liste, la barre de l'en-tête reste vide et envoie à la
- *    liste affichée (postAsk → useIncomingAsk) : deux champs, jamais contradictoires.
+ *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : une BULLE ronde ✦ (sans texte, dégradé
+ *    bleu → violet ; nom accessible « Demander : … », bulle d'aide « Demander · / »), sur toutes les pages (AskButton,
+ *    src/App.tsx) : ordinateur, à gauche de l'en-tête ; téléphone, au milieu de l'en-tête. Raccourci « / » hors d'un champ.
+ *  - LE BOUTON : sur une page qui a déjà sa barre (chaque barre posée sur une page s'inscrit dans `pageBars` ; la page
+ *    affichée doit être exactement la sienne, /joueurs mais pas /joueurs/:id, et la barre visible), il met le curseur dans
+ *    cette barre et ouvre son menu : jamais deux champs. Ailleurs, il ouvre la PALETTE : ordinateur = fenêtre accrochée
+ *    sous la bulle (bord gauche aligné, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
+ *    ferment), téléphone = feuille du bas posée au-dessus du clavier, fond assombri (geste
+ *    Retour : entrée d'historique du routeur, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
+ *    (`routes` = routeAsk, menu toujours ouvert) : « Je comprends », la demande part sur sa page (postAsk →
+ *    useIncomingAsk) ou ouvre la fiche, et la palette se ferme. Téléphone, appui long (≥ 450 ms, dictée disponible) : on
+ *    parle tout de suite, le bouton rouge pulse, relâcher envoie la phrase (première proposition de routeAsk).
  *  - CONFIDENTIALITÉ : l'historique reste sur l'appareil (localStorage « handbase.demander ») ; les noms de joueurs,
  *    d'événements et de groupes servent seulement à proposer « Ouvrir … », sur l'appareil. Rien de plus ne part à la
  *    fonction « transcrire » qu'avant (la phrase, le schéma, les filtres actifs).
@@ -130,6 +139,40 @@ export function useIncomingAsk(page: AskPage | null, handler: (a: AskApply) => v
   }, [page])
 }
 
+// ---------- Barre « Demander » de la page (le bouton de l'en-tête s'en sert au lieu d'ouvrir sa palette) ----------
+
+type PageBar = { page: AskPage; input: () => HTMLInputElement | null; open: () => void }
+const pageBars = new Set<RefObject<PageBar>>()
+
+/**
+ * La barre de la page affichée, s'il y en a une : posée par une liste (Joueurs, Événements, Groupes) ou par le bilan, sur
+ * SA page exactement (/joueurs, mais pas /joueurs/:id où la fiche est ouverte à côté), et visible (pas dans un panneau
+ * replié). Plusieurs : la première dans l'ordre de la page.
+ */
+function pageBarFor(pathname: string): { bar: PageBar; el: HTMLInputElement } | null {
+  const found: { bar: PageBar; el: HTMLInputElement }[] = []
+  for (const r of pageBars) {
+    const el = r.current.input()
+    if (ASK_PATH[r.current.page] !== pathname || !el || !el.isConnected || !el.getClientRects().length) continue
+    found.push({ bar: r.current, el })
+  }
+  found.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+  return found[0] ?? null
+}
+
+/** Le curseur dans la barre de la page, son menu ouvert (comme un clic dedans) ; false : la page n'en a pas. */
+function focusPageBar(pathname: string): boolean {
+  const f = pageBarFor(pathname)
+  if (!f) return false
+  const { el, bar } = f
+  const r = el.getBoundingClientRect()
+  const hdr = document.querySelector('.app-header')?.getBoundingClientRect().bottom ?? 0
+  if (r.top < hdr || r.bottom > window.innerHeight) el.scrollIntoView({ block: 'center' })
+  if (document.activeElement === el) bar.open()
+  else el.focus({ preventScroll: true }) // onFocus ouvre le menu
+  return true
+}
+
 // ---------- Le champ et son menu ----------
 
 const isPhone = () => {
@@ -170,6 +213,10 @@ export type DemanderProps = {
   onFocus?: () => void
   /** Bouton logé DANS la barre, tout à droite (listes : l'étiquette « Filtres », comme « Mode IA » chez Google). */
   trailing?: ReactNode
+  /** Dans la palette du bouton « Demander » : le menu reste ouvert, posé sous le champ (ni liste flottante ni feuille). */
+  embedded?: boolean
+  /** Palette : Échap la ferme. */
+  onEscape?: () => void
 }
 
 export function Demander(p: DemanderProps) {
@@ -190,13 +237,14 @@ export function Demander(p: DemanderProps) {
   const text = p.value.trim()
   const rec = p.mic ? p.mic.phase === 'recording' || p.mic.phase === 'opening' : false
   const sending = p.mic?.phase === 'sending'
+  const embedded = !!p.embedded
 
   // ---------- Ouverture / fermeture ----------
   const stateKey = `demander:${id}`
   const sheetPushed = useRef(false)
   const openMenu = () => {
     if (open) return
-    const ph = isPhone()
+    const ph = !embedded && isPhone()
     setSheet(ph)
     setOpen(true)
     setActive(-1)
@@ -208,7 +256,7 @@ export function Demander(p: DemanderProps) {
     }
   }
   const close = (opts: { blur?: boolean; keepEntry?: boolean } = {}) => {
-    if (!open) return
+    if (!open || embedded) return // palette : le menu reste, la palette se ferme quand la demande part
     setOpen(false)
     setActive(-1)
     if (sheet) {
@@ -230,7 +278,7 @@ export function Demander(p: DemanderProps) {
   }, [hasEntry]) // eslint-disable-line react-hooks/exhaustive-deps
   // Ordinateur : un clic ailleurs ferme (le focus part).
   useEffect(() => {
-    if (!open || sheet) return
+    if (!open || sheet || embedded) return
     const down = (e: PointerEvent) => {
       if (!wrap.current?.contains(e.target as Node)) close({ blur: true })
     }
@@ -250,6 +298,19 @@ export function Demander(p: DemanderProps) {
       window.visualViewport?.removeEventListener('resize', place)
     }
   }, [open, sheet])
+
+  // Barre posée sur une page (pas l'en-tête, pas la palette) : connue du bouton « Demander » de l'en-tête.
+  const self = useRef<PageBar>({ page: p.page, input: () => inputRef.current, open: () => {} })
+  useEffect(() => {
+    self.current = { page: p.page, input: () => inputRef.current, open: openMenu }
+  })
+  useEffect(() => {
+    if (header || embedded) return
+    pageBars.add(self)
+    return () => {
+      pageBars.delete(self)
+    }
+  }, [header, embedded])
 
   // ---------- Actions ----------
   /** Relance une demande : sur cette page (onSubmit), ou sur la page d'une entrée d'historique (postAsk + navigation). */
@@ -308,8 +369,9 @@ export function Demander(p: DemanderProps) {
     sections.push({ title, items })
     options.push(...items)
   }
+  const roomy = sheet || (embedded && isPhone())
   const rowCls = (i: number, extra = '') =>
-    `flex w-full cursor-pointer items-center gap-2.5 text-left ${sheet ? 'min-h-11 px-4 text-sm' : 'min-h-9 px-3 text-[13px]'} ${active === i ? 'bg-ai-soft' : 'hover:bg-panel-2'} ${extra}`
+    `flex w-full cursor-pointer items-center gap-2.5 text-left ${roomy ? 'min-h-11 px-4 text-sm' : 'min-h-9 px-3 text-[13px]'} ${active === i ? 'bg-ai-soft' : 'hover:bg-panel-2'} ${extra}`
   let k = 0
   if (header && text && p.routes?.length) {
     add(
@@ -353,7 +415,7 @@ export function Demander(p: DemanderProps) {
               tabIndex={-1}
               aria-label={`Retirer « ${e.text} » de l’historique`}
               title="Retirer de l’historique"
-              className={`shrink-0 rounded-md px-2 py-1 text-muted hover:text-fg ${sheet ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [[aria-selected=true]_&]:opacity-100'}`}
+              className={`shrink-0 rounded-md px-2 py-1 text-muted hover:text-fg ${roomy ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [[aria-selected=true]_&]:opacity-100'}`}
               onPointerDown={(e2) => e2.stopPropagation()}
               onClick={(e2) => {
                 e2.stopPropagation()
@@ -388,7 +450,7 @@ export function Demander(p: DemanderProps) {
         id: `l${k++}`,
         run: () => {
           close({ keepEntry: true })
-          void canLeave().then((ok) => ok && nav('/bilan', { replace: sheet }))
+          void canLeave().then((ok) => ok && nav('/bilan', { replace: sheet || !!(loc.state as Record<string, unknown> | null)?.[PALETTE_KEY] }))
         },
         node: (
           <>
@@ -439,11 +501,14 @@ export function Demander(p: DemanderProps) {
       if (open && active >= 0 && options[active]) options[active].run()
       else submit()
     } else if (e.key === 'Escape') {
-      if (open) {
+      if (embedded) {
+        e.preventDefault()
+        p.onEscape?.()
+      } else if (open) {
         e.preventDefault()
         close()
       } else if (p.value) p.onChange('')
-    } else if (e.key === 'Tab') close({ blur: true })
+    } else if (e.key === 'Tab' && !embedded) close({ blur: true })
     else if ((e.key === 'Home' || e.key === 'End') && open && active >= 0) {
       e.preventDefault()
       setActive(e.key === 'Home' ? 0 : options.length - 1)
@@ -496,7 +561,9 @@ export function Demander(p: DemanderProps) {
       )}
     </div>
   )
-  const menu = !open ? null : sheet ? (
+  const menu = embedded ? (
+    <div className="mt-2 border-t border-line">{menuBody}</div>
+  ) : !open ? null : sheet ? (
     createPortal(
       <div className="fixed inset-0 z-40" onPointerDown={(e) => e.stopPropagation()}>
         <div className="absolute inset-0 bg-black/40" style={{ top }} onClick={() => close()} aria-hidden />
@@ -549,7 +616,7 @@ export function Demander(p: DemanderProps) {
             aria-activedescendant={activeId}
             aria-haspopup="listbox"
             enterKeyHint={p.nameMode && !header ? 'search' : 'send'}
-            placeholder={p.placeholder ?? (header || p.canAsk ? 'Demander… un nom, une question, une action' : 'Demander… un nom, un club, une licence')}
+            placeholder={p.placeholder ?? (header || p.canAsk ? 'Un nom, une question, une action…' : 'Un nom, un club, une licence…')}
             aria-label={p.label ?? 'Demander : un nom, une question, une action'}
             title={p.canAsk ? `Un nom, un club, une licence ; ou une phrase${p.micHint ? ` (« ${p.micHint} »)` : ''}, puis Entrée` : 'Nom, club ou licence'}
             value={p.value}
@@ -627,11 +694,16 @@ export function Demander(p: DemanderProps) {
   )
 }
 
-// ---------- La barre de l'en-tête (ordinateur) ----------
+// ---------- Le bouton « Demander » de l'en-tête et sa palette ----------
+
+/** Entrée d'historique du routeur posée par la palette sur téléphone (le geste Retour la ferme). */
+const PALETTE_KEY = 'demander:palette'
+/** Appui long sur le bouton (téléphone) : dictée immédiate. Même seuil que « maintenir pour parler » du micro. */
+const LONG_PRESS_MS = 450
 
 /**
  * Noms de l'appareil pour « Ouvrir … » (joueurs, événements, groupes que le compte voit) : lus seulement quand on tape
- * dans la barre de l'en-tête ; jamais envoyés.
+ * dans la palette ou qu'on dicte ; jamais envoyés.
  */
 function useAskContext(wanted: boolean): AskContext {
   const names = useLiveQuery(async () => {
@@ -650,60 +722,304 @@ function useAskContext(wanted: boolean): AskContext {
   return names ?? {}
 }
 
-/** La barre « Demander » au centre de l'en-tête (ordinateur seulement ; raccourci « / »). */
-export function HeaderAsk() {
-  const nav = useNavigate()
+/** Contenu de la palette : le champ « Demander » en mode en-tête (propositions de routeAsk), son menu toujours ouvert. */
+function AskPalette({ go, inputRef, onEscape }: { go: (r: AskRoute, said: string) => void; inputRef: RefObject<HTMLInputElement | null>; onEscape: () => void }) {
   const loc = useLocation()
   const { questionReady } = useDictation()
   const [text, setText] = useState('')
-  const input = useRef<HTMLInputElement>(null)
   const ctx = useAskContext(!!text.trim())
   const routes = useMemo(() => routeAsk(text, ctx), [text, ctx])
-  const page = pageOfPath(loc.pathname)
-
-  const go = async (r: AskRoute) => {
-    if (!(await canLeave())) return
-    recordAsk(r.apply?.page ?? pageOfPath(r.to), text.trim() || r.apply?.phrase || r.label)
-    setText('')
-    if (r.apply) postAsk(r.apply)
-    if (loc.pathname !== r.to) nav(r.to)
-    input.current?.blur()
-  }
-  // Micro de l'en-tête : la phrase dite est relue comme une demande tapée (première proposition).
+  // Micro de la palette : la phrase dite est relue comme une demande tapée (première proposition).
   const mic = useMicRecorder((t) => {
     const r = routeAsk(t, ctx)[0]
-    if (r) void go(r)
+    if (r) go(r, t)
   })
-  // « / » hors d'un champ : le curseur dans la barre.
+  return (
+    <Demander
+      page={pageOfPath(loc.pathname)}
+      value={text}
+      onChange={setText}
+      onSubmit={() => {}}
+      canAsk={questionReady}
+      routes={routes}
+      go={(r) => go(r, text)}
+      inputRef={inputRef}
+      mic={questionReady ? mic : undefined}
+      micHint="ouvre la fiche de Martin » ou « les gauchers de 2011"
+      embedded
+      onEscape={onEscape}
+    />
+  )
+}
+
+/** Hauteur cachée en bas par le clavier du téléphone (la feuille se pose juste au-dessus). */
+function useKeyboardInset(on: boolean) {
+  const [kb, setKb] = useState({ bottom: 0, height: 0 })
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!on || !vv) return
+    const place = () => setKb({ bottom: Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)), height: Math.round(vv.height) })
+    place()
+    vv.addEventListener('resize', place)
+    vv.addEventListener('scroll', place)
+    return () => {
+      vv.removeEventListener('resize', place)
+      vv.removeEventListener('scroll', place)
+    }
+  }, [on])
+  return kb
+}
+
+/**
+ * Bulle ✦ « Demander » de l'en-tête, sur toutes les pages (ordinateur : à gauche ; téléphone : au milieu ; « / » hors d'un champ).
+ *  - Page qui a sa barre « Demander » (listes, bilan) : le curseur va dans cette barre, son menu s'ouvre.
+ *  - Ailleurs : la palette (ordinateur : accrochée sous la bulle ; téléphone : feuille du bas, fermée par le geste Retour).
+ *  - Téléphone, appui long (dictée disponible) : on parle tout de suite, relâcher envoie la phrase.
+ */
+export function AskButton() {
+  const nav = useNavigate()
+  const loc = useLocation()
+  const { questionReady } = useDictation()
+  const [open, setOpen] = useState(false)
+  const [phone, setPhone] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  const pushed = useRef(false)
+  const hasEntry = !!(loc.state as Record<string, unknown> | null)?.[PALETTE_KEY]
+  const kb = useKeyboardInset(open && phone)
+  // Ordinateur : la palette s'accroche sous la bulle (bord gauche aligné, 8 px dessous), sans sortir de l'écran.
+  const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null)
+  const measure = () => {
+    const b = btn.current?.getBoundingClientRect()
+    if (!b) return null
+    const width = Math.min(520, window.innerWidth - 16)
+    return { left: Math.round(Math.max(8, Math.min(b.left, window.innerWidth - width - 8))), top: Math.round(b.bottom + 8), width }
+  }
+
+  const openPalette = () => {
+    if (open) return input.current?.focus()
+    const ph = isPhone()
+    // Rendu tout de suite, pour donner le focus dans le même geste (le clavier du téléphone s'ouvre).
+    flushSync(() => {
+      setPhone(ph)
+      setPlace(ph ? null : measure())
+      setOpen(true)
+    })
+    input.current?.focus({ preventScroll: true })
+    // Téléphone : une entrée d'historique, pour que le geste Retour ferme la feuille sans quitter la page.
+    if (ph && !pushed.current) {
+      pushed.current = true
+      nav(loc.pathname + loc.search + loc.hash, { state: { ...((loc.state as object) ?? {}), [PALETTE_KEY]: true } })
+    }
+  }
+  const closePalette = () => {
+    if (!open) return
+    setOpen(false)
+    if (pushed.current) {
+      pushed.current = false
+      if (hasEntry) nav(-1)
+    }
+  }
+  const closeRef = useRef(closePalette)
+  useEffect(() => {
+    closeRef.current = closePalette
+  })
+  // Geste Retour (ou bouton du navigateur) : l'entrée de la palette disparaît, la palette se ferme.
+  useEffect(() => {
+    if (open && pushed.current && !hasEntry) {
+      pushed.current = false
+      setOpen(false)
+    }
+  }, [hasEntry]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Partie ailleurs par un lien du menu (« Mes questions enregistrées ») : la palette se ferme.
+  const path = useRef(loc.pathname)
+  useEffect(() => {
+    if (path.current === loc.pathname) return
+    path.current = loc.pathname
+    pushed.current = false
+    setOpen(false)
+  }, [loc.pathname])
+
+  // Ordinateur : un clic hors de la palette (et hors de la bulle) la ferme, et ce clic garde son effet ; la fenêtre
+  // redimensionnée, elle reste sous la bulle.
+  useEffect(() => {
+    if (!open || phone) return
+    const down = (e: PointerEvent) => {
+      const t = e.target as Node
+      if (dialog.current?.contains(t) || btn.current?.contains(t)) return
+      closeRef.current()
+    }
+    const resize = () => setPlace(measure())
+    document.addEventListener('pointerdown', down, true)
+    window.addEventListener('resize', resize)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('resize', resize)
+    }
+  }, [open, phone]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Échap, même quand le curseur n'est plus dans le champ (le champ le traite lui-même).
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) closeRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  /** Toucher, clic ou « / » : la barre de la page si elle en a une, sinon la palette. */
+  const trigger = () => {
+    if (focusPageBar(loc.pathname)) return
+    openPalette()
+  }
+  const triggerRef = useRef(trigger)
+  useEffect(() => {
+    triggerRef.current = trigger
+  })
+  // « / » hors d'un champ.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
       const t = e.target as HTMLElement | null
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
-      const el = input.current
-      if (!el || !el.offsetParent) return
       e.preventDefault()
-      el.focus()
+      triggerRef.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  /** Une demande part (palette, dictée) : relue sur sa page (postAsk), ou la page ouverte. */
+  const go = async (r: AskRoute, said: string) => {
+    if (!(await canLeave())) return
+    recordAsk(r.apply?.page ?? pageOfPath(r.to), said.trim() || r.apply?.phrase || r.label)
+    const entry = pushed.current && hasEntry
+    pushed.current = false
+    setOpen(false)
+    if (r.apply) postAsk(r.apply)
+    // L'entrée de la feuille est remplacée par la page demandée (ou retirée si l'on reste ici).
+    if (loc.pathname !== r.to) nav(r.to, { replace: entry })
+    else if (entry) nav(-1)
+  }
+
+  // ---------- Appui long : dictée immédiate (comme un vocal) ----------
+  const mic = useMicRecorder((t) => {
+    const r = routeAsk(t, ctx)[0]
+    if (r) void go(r, t)
+  })
+  const ctx = useAskContext(mic.phase !== 'idle')
+  const timer = useRef(0)
+  const long = useRef(false)
+  const rec = mic.phase === 'recording' || mic.phase === 'opening'
+  const sending = mic.phase === 'sending'
+  const press = {
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return
+      long.current = false
+      if (rec) {
+        long.current = true // ce toucher finit la dictée en cours (pas d'ouverture)
+        return mic.finish()
+      }
+      if (!questionReady || e.pointerType === 'mouse' || mic.phase !== 'idle') return
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        /* sans capture : pointercancel rattrape le doigt parti */
+      }
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => {
+        long.current = true
+        mic.start()
+      }, LONG_PRESS_MS)
+    },
+    onPointerUp: () => {
+      window.clearTimeout(timer.current)
+      if (long.current && (mic.phase === 'recording' || mic.phase === 'opening')) mic.finish() // relâcher envoie la phrase
+    },
+    onPointerCancel: () => {
+      window.clearTimeout(timer.current)
+      if (long.current) mic.finish()
+    },
+    onClick: () => {
+      if (long.current) {
+        long.current = false
+        return
+      }
+      if (open) return closePalette() // ordinateur : la bulle ouvre et referme
+      if (!sending) trigger()
+    },
+    onContextMenu: (e: ReactMouseEvent) => e.preventDefault(),
+  }
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  const body = (
+    <>
+      <AskPalette go={(r, said) => void go(r, said)} inputRef={input} onEscape={closePalette} />
+      {phone && (
+        <button type="button" className="mt-1 flex min-h-11 w-full items-center justify-center border-t border-line text-sm font-bold text-muted" onClick={closePalette}>
+          Fermer
+        </button>
+      )}
+    </>
+  )
+  const palette = !open
+    ? null
+    : createPortal(
+        phone ? (
+          // Téléphone : feuille du bas, posée au-dessus du clavier, fond assombri (un toucher dessus ferme).
+          <div className="fixed inset-0 z-40">
+            <div className="absolute inset-0 bg-black/45" aria-hidden onClick={closePalette} />
+            <div
+              ref={dialog}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Demander"
+              className="absolute inset-x-0 flex max-h-[80dvh] flex-col overflow-y-auto overscroll-contain rounded-t-2xl border-t border-ai/40 bg-panel px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl"
+              style={{ bottom: kb.bottom, ...(kb.height ? { maxHeight: Math.min(kb.height - 16, window.innerHeight * 0.8) } : {}) }}
+            >
+              {body}
+            </div>
+          </div>
+        ) : (
+          // Ordinateur : accrochée sous la bulle, là où l'on vient de cliquer (pas de fond assombri).
+          <div
+            ref={dialog}
+            role="dialog"
+            aria-label="Demander"
+            className="fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
+            style={place ? { left: place.left, top: place.top, width: place.width, maxHeight: `calc(100dvh - ${place.top + 16}px)` } : { left: 8, top: 64, width: 'min(520px, calc(100vw - 16px))' }}
+          >
+            {body}
+          </div>
+        ),
+        document.body,
+      )
+
   return (
-    <div className="hidden min-w-0 flex-1 justify-center px-4 side:flex">
-      <Demander
-        page={page}
-        value={text}
-        onChange={setText}
-        onSubmit={() => {}}
-        canAsk={questionReady}
-        routes={routes}
-        go={(r) => void go(r)}
-        inputRef={input}
-        mic={questionReady ? mic : undefined}
-        micHint="ouvre la fiche de Martin » ou « les gauchers de 2011"
-        className="max-w-[420px]"
-      />
-    </div>
+    <>
+      <button
+        type="button"
+        data-noswipe
+        aria-label={rec ? 'Demander à la voix : relâchez pour envoyer' : sending ? 'Demande en cours' : 'Demander : un nom, une question, une action'}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        ref={btn}
+        title="Demander · /"
+        className={`flex h-[38px] w-[38px] shrink-0 touch-none items-center justify-center rounded-full text-white transition select-none [-webkit-touch-callout:none] ${
+          rec ? 'animate-pulse bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'bg-[linear-gradient(135deg,#3b82f6,#7c3aed)] shadow-[0_2px_10px_rgba(59,130,246,0.45)] hover:brightness-110 active:brightness-95'
+        }`}
+        {...press}
+      >
+        {sending ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+        ) : (
+          <span className="text-[17px] leading-none" aria-hidden>
+            ✦
+          </span>
+        )}
+      </button>
+      {palette}
+    </>
   )
 }

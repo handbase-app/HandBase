@@ -33,7 +33,7 @@ import { spyTarget } from './spy'
 import MasterDetail from './components/MasterDetail'
 import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
-import { HeaderAsk } from './components/Demander'
+import { AskButton } from './components/Demander'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -70,7 +70,7 @@ const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
   return (
-    <GuardedLink to="/alertes" className="relative text-muted hover:text-fg" aria-label="Profils recherchés">
+    <GuardedLink to="/alertes" className="relative shrink-0 text-muted hover:text-fg" aria-label="Profils recherchés">
       <Icon name="target" className="h-5 w-5" />
       {n > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
@@ -82,7 +82,7 @@ function AlertBell({ n }: { n: number }) {
 /** Étoile de l'en-tête : « Mes suivis », avec le nombre de nouveautés pas encore vues. */
 function FollowStar({ n }: { n: number }) {
   return (
-    <GuardedLink to="/suivis" className="relative text-muted hover:text-fg" aria-label={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'}>
+    <GuardedLink to="/suivis" className="relative shrink-0 text-muted hover:text-fg" aria-label={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'}>
       <Icon name="star" className="h-5 w-5" />
       {n > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
@@ -106,12 +106,15 @@ function SyncBadge() {
   return (
     <button
       onClick={() => void syncNow()}
-      title={lastError || (state === 'local' ? 'Données enregistrées sur cet appareil uniquement' : '')}
-      className="sync-badge flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
+      title={lastError || (state === 'local' ? 'Données enregistrées sur cet appareil uniquement' : `${map.text}${pending > 0 ? ` · ${pending} en attente` : ''}`)}
+      className="sync-badge flex min-w-0 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[10px] font-bold text-muted"
     >
-      <span className={`h-2 w-2 rounded-full ${warn ? 'bg-amber-400' : map.dot}`} />
-      {map.text}
-      {state !== 'local' && pending > 0 && <span className="text-amber-300">· {pending} en attente</span>}
+      <span className={`h-2 w-2 shrink-0 rounded-full ${warn ? 'bg-amber-400' : map.dot}`} />
+      {/* Téléphone étroit : le texte se coupe (…) plutôt que de passer sous la bulle ✦ du milieu de l'en-tête. */}
+      <span className="min-w-0 truncate">
+        {map.text}
+        {state !== 'local' && pending > 0 && <span className="text-amber-300"> · {pending} en attente</span>}
+      </span>
     </button>
   )
 }
@@ -150,8 +153,9 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
       <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
       {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
       {TRIAL && (
-        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider whitespace-nowrap text-black ${stacked ? 'mt-2.5 block w-fit' : 'shrink-0'}`}>
-          {/* Téléphone étroit : libellé court, pour que le nom de l'appli reste entier (la bande orange du haut reste). */}
+        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider whitespace-nowrap text-black ${stacked ? 'mt-2.5 block w-fit' : 'shrink-0 max-[379px]:hidden'}`}>
+          {/* Téléphone étroit : libellé court, pour que le nom de l'appli reste entier (la bande orange du haut reste) ; sous
+              380 px, plus de place à côté de la bulle ✦ centrée : seule la bande orange du haut signale l'essai. */}
           {stacked ? TRIAL_LABEL : <><span className="min-[480px]:hidden">{DEMO ? 'DÉMO' : 'ESSAI'}</span><span className="hidden min-[480px]:inline">{TRIAL_LABEL}</span></>}
         </span>
       )}
@@ -250,12 +254,16 @@ export default function App() {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
         ref={header}
-        className={`app-header sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
+        className={`app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:flex side:justify-between side:gap-3 side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
-        <Logo className="side:hidden" />
-        {/* Barre « Demander » (ordinateur, toutes les pages ; raccourci « / ») : src/components/Demander.tsx. */}
-        <HeaderAsk />
-        <div className="flex items-center gap-3">
+        {/* Téléphone : trois colonnes (logo · bulle ✦ au milieu de l'écran · suivis, cible, synchro). Ordinateur : le logo est
+            dans le menu de gauche, la bulle ✦ à gauche de l'en-tête. */}
+        <div className="flex min-w-0 items-center side:hidden">
+          <Logo />
+        </div>
+        {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
+        <AskButton />
+        <div className="flex min-w-0 items-center justify-end gap-3">
           <FollowStar n={followNews} />
           <AlertBell n={alerts} />
           <SyncBadge />
