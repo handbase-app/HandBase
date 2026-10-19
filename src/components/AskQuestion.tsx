@@ -3,17 +3,19 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { db, POSITIONS, today } from '../db'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
-import { DictationError, ERROR_TEXT, MAX_PHRASE } from '../dictation/transcribe'
+import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon } from './ui'
+import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { appName } from '../appBrand'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
 
 /*
  * « Poser une question » au bilan de détection : le coach touche « micro ✨ Poser une question » et parle (« les joueuses
- * 2011 vues une seule fois cette saison, par département »), ou tape sa question (ordinateur). La phrase et la
+ * 2011 vues une seule fois cette saison, par département »), ou tape sa question (ordinateur) dans la barre « Demander »
+ * (src/components/Demander.tsx : historique du bilan, suggestions ; une question venue de l'en-tête arrive ici). La phrase et la
  * DESCRIPTION de la recette (src/recipe.ts : clés, opérateurs, postes, catégories et critères) partent à la fonction
  * « transcrire » (?mode=question) ; elle rend une recette brute, que la page de réponse (/bilan/question) revérifie et
  * calcule sur l'appareil. Aucune donnée de joueur ne part ; aucun nom de club, de lieu, de groupe ou d'événement non plus.
@@ -60,6 +62,7 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
       const ans = await sendQuestionRequest(said, schema, ctrl.signal)
       if (ctrl.signal.aborted) return
       setText('')
+      recordAsk('bilan', said)
       // La page de réponse relit la recette avec les listes de l'appli et la met dans l'adresse.
       nav('/bilan/question', { state: { raw: ans.recette, nonGere: ans.nonGere, heard: said } satisfies AskState })
     } catch (e) {
@@ -71,6 +74,8 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
   }
 
   const mic = useMicRecorder((t) => void ask(t))
+  // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête.
+  useIncomingAsk(questionReady && variant !== 'mic' ? 'bilan' : null, (a) => void ask(a.phrase))
   if (!questionReady) return null
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy
@@ -111,14 +116,15 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
             void ask(text)
           }}
         >
-          <input
-            className="field min-h-11 min-w-0 flex-1 text-sm"
-            placeholder="Ou tapez votre question…"
-            aria-label="Poser une question"
+          <Demander
+            page="bilan"
             value={text}
-            maxLength={MAX_PHRASE}
+            onChange={setText}
+            onSubmit={(t) => void ask(t)}
+            canAsk
             disabled={sending || rec}
-            onChange={(e) => setText(e.target.value)}
+            placeholder="Demander… ou tapez votre question"
+            label="Poser une question"
           />
           <button type="submit" className="btn-primary min-h-11 shrink-0 px-3 text-sm" disabled={!text.trim() || sending || rec} aria-label="Demander">
             <span aria-hidden>✨</span>

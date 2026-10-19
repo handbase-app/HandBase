@@ -33,6 +33,7 @@ import { spyTarget } from './spy'
 import MasterDetail from './components/MasterDetail'
 import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
+import { HeaderAsk } from './components/Demander'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -249,6 +250,8 @@ export default function App() {
         className={`app-header sticky top-0 z-20 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:justify-end side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
         <Logo className="side:hidden" />
+        {/* Barre « Demander » (ordinateur, toutes les pages ; raccourci « / ») : src/components/Demander.tsx. */}
+        <HeaderAsk />
         <div className="flex items-center gap-3">
           <FollowStar n={followNews} />
           <AlertBell n={alerts} />

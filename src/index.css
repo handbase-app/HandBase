@@ -25,6 +25,9 @@
   --color-suggest-soft: #a3e6351f;
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
+  /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
+  --color-ai: #7cacf8;
+  --color-ai-soft: #7cacf826;
   /* Changement de joueur par glissement (écran de notation). */
   /* Le joueur suivant arrive du côté opposé au geste (l'ancien vient de partir de l'autre côté). */
   --animate-slide-left: slide-left 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -132,6 +135,8 @@ body {
   color-scheme: light;
   --color-suggest: #4d7c0f;
   --color-suggest-soft: #4d7c0f1a;
+  --color-ai: #1f6feb;
+  --color-ai-soft: #e8f0fe;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }
