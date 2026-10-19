@@ -424,7 +424,7 @@ function BrandToggle() {
       <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--color-accent)]" checked={on} onChange={(e) => setShowBrand(e.target.checked)} />
       <span>
         <span className="block font-bold">Afficher le logo et le nom de l’appli</span>
-        <span className="block text-[11px] text-muted">En haut de l’écran sur téléphone, en haut du menu sur ordinateur. Réglage de cet appareil.</span>
+        <span className="block text-[11px] text-muted">En haut de l’écran sur téléphone, en haut du menu sur ordinateur. Masqués par défaut ; réglage de cet appareil.</span>
       </span>
     </label>
   )
