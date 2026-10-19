@@ -8,6 +8,7 @@ import { CLEAR, criterionMean, measureDirection, playerScore, TIE } from '../com
 import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, type Criterion, type Evaluation, type Measurement, type Player } from '../db'
 import { MQ, useMedia } from '../layout'
 import { snapshots } from '../maturitySnapshot'
+import { pahText } from '../maturity'
 import { latestByPlayer } from './Players'
 import { genderOf, w } from '../gender'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
@@ -453,7 +454,7 @@ function PlayerHead({ p, color, compact, evs, observers, ms }: { p: Player; colo
       </div>
       {kr && (
         <div className="text-[10px] text-muted" title="Khamis-Roche : estimation, pas une certitude">
-          Taille adulte prédite ≈ <b className="text-fg">{Math.round(kr.predicted)} cm</b> · {Math.round(kr.pah)} % atteint
+          Taille adulte prédite ≈ <b className="text-fg">{Math.round(kr.predicted)} cm</b> · {pahText(kr.pah)}
         </div>
       )}
     </div>

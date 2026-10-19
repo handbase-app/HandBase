@@ -4,6 +4,7 @@ import { listGender, sexLabel, w, type Gender } from './gender'
 import { fmtValue } from './components/ui'
 import { momentLabel, momentsOf } from './videos'
 import { departmentLabel } from './lists'
+import { pahShown } from './maturity'
 import { snapshots } from './maturitySnapshot'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
@@ -85,7 +86,7 @@ export async function exportCsv(only?: { id: string }[], g?: Gender) {
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', poleCols(p).name, poleCols(p).from, poleCols(p).to, lateralityLabel(p.laterality, p.sex),
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c)),
-      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr?.pah), r1(snap?.adult.mean?.height),
+      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr && pahShown(snap.kr.pah)), r1(snap?.adult.mean?.height),
       evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
     ]
   })

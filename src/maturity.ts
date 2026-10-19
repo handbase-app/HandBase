@@ -269,6 +269,14 @@ export function khamisRoche({ sex, age, height, weight, motherHeight, fatherHeig
   return { predicted, error90: k.error90 * IN, pah: (height / predicted) * 100, remaining: Math.max(0, predicted - height) }
 }
 
+/**
+ * % de taille adulte à l'écran (et à l'export) : plafonné à 100 (le calcul peut dépasser quand la taille mesurée dépasse
+ * la prédiction ; « 101 % atteint » n'a pas de sens). Le résultat du calcul (KRResult.pah) n'est pas modifié.
+ */
+export const pahShown = (pah: number) => Math.min(100, pah)
+/** « 87 % atteint », ou « taille adulte atteinte » à 100 % et au-delà (arrondi compris). */
+export const pahText = (pah: number) => (Math.round(pah) >= 100 ? 'taille adulte atteinte' : `${Math.round(pah)} % atteint`)
+
 /** Stades selon le % de taille adulte (Cumming et al. 2017). */
 export type Stage = 'prepubere' | 'debut' | 'milieu' | 'fin'
 export const stage = (pah: number): Stage => (pah < 85 ? 'prepubere' : pah < 90 ? 'debut' : pah < 95 ? 'milieu' : 'fin')

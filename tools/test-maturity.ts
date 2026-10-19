@@ -5,7 +5,7 @@
 //
 //   npx jiti tools/test-maturity.ts
 import assert from 'node:assert/strict'
-import { decimalAge, fransen, fransenRatio, meanOffset, mirwald, moore, offsetReliable, phase, remainingGrowth, sherarAdultHeight, sherarCategory, sittingPlausible, timing } from '../src/maturity'
+import { decimalAge, fransen, fransenRatio, meanOffset, mirwald, moore, offsetReliable, pahShown, pahText, phase, remainingGrowth, sherarAdultHeight, sherarCategory, sittingPlausible, timing } from '../src/maturity'
 import { adultNoParents, snapshots } from '../src/maturitySnapshot'
 import type { Measurement, Player } from '../src/db'
 
@@ -185,4 +185,11 @@ assert.equal(sherarAdultHeight({ height: 150, offset: 0, aphv: 12, sex: 'F' }), 
   near(s.adult.mirwald, sherarAdultHeight({ height: 155, offset: s.mirwald!, aphv: s.age - s.mirwald!, sex: 'M' }) ?? NaN, 'snapshot taille adulte Mirwald', 1e-9)
   assert.equal(s.adult.mean?.n, 3)
 }
+// % de taille adulte à l'écran : plafonné à 100, « taille adulte atteinte » dès 100 (arrondi compris).
+assert.equal(pahShown(101.4), 100)
+assert.equal(pahShown(92.3), 92.3)
+assert.equal(pahText(87.2), '87 % atteint')
+assert.equal(pahText(99.4), '99 % atteint')
+assert.equal(pahText(99.6), 'taille adulte atteinte')
+assert.equal(pahText(101), 'taille adulte atteinte')
 console.log('test-maturity : OK')

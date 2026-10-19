@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_APPEARANCE, cleanAppearance, STYLE_ATTRS, styleById, styleLook, type Appearance, type StyleId } from './uiStyle'
+import { DEFAULT_SCALE, scaleFloor } from './mapScale'
+import { DEFAULT_APPEARANCE, cleanAppearance, paletteOf, STYLE_ATTRS, styleById, styleLook, type Appearance, type StyleId } from './uiStyle'
 
 /*
  * Thèmes de couleurs et style de l'installation.
@@ -141,7 +142,11 @@ export function computeLook(style: StyleId, choice: string, systemLight = !!medi
           '--color-accent-soft': c.accent + '22',
         }
       : look.vars
-  return { theme: t, light: t.light, vars, attrs: look.attrs, fontHref: look.fontHref, themeColor: s.id === 'actuel' ? c.bg : (look.themeColor ?? c.bg) }
+  // Départ de l'échelle de la carte du bilan (--scale-floor, src/mapScale.ts) : sur le fond de la carte du style.
+  const p = paletteOf(s, t.light)
+  const m = p?.map ?? p
+  const scaleFloorPct = p && m ? scaleFloor(p.scale, m.panel, m.panel2) : scaleFloor(DEFAULT_SCALE, c.panel, c.panel2)
+  return { theme: t, light: t.light, vars, attrs: look.attrs, fontHref: look.fontHref, themeColor: s.id === 'actuel' ? c.bg : (look.themeColor ?? c.bg), scaleFloor: scaleFloorPct }
 }
 
 /** Feuilles de polices déjà demandées (une seule fois chacune ; hors ligne, les polices du système prennent le relais). */
@@ -176,6 +181,7 @@ export function applyTheme(choice = readThemeChoice()) {
   }
   loadFonts(look.fontHref)
   root.toggleAttribute('data-light', look.light)
+  root.style.setProperty('--scale-floor', `${look.scaleFloor}%`)
   root.style.colorScheme = look.light ? 'light' : 'dark'
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', look.themeColor)
   version++
