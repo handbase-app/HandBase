@@ -43,6 +43,9 @@ export interface UnitFields {
   poleSex?: 'M' | 'F'
   poleSite?: string
   poleLevels?: PoleProgramme[]
+  /** Pôle Espoirs : référence de la structure dans le PSQS, et état du dossier (texte libre : « Validée »…). Saisis dans Réglages → Structure. */
+  psqsRef?: string
+  psqsStatus?: string
 }
 export interface AssignmentFields {
   userId: string

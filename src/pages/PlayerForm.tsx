@@ -12,6 +12,7 @@ import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_P
 import { SEX_LABEL_ONE, w } from '../gender'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
+import { usePoleLeader } from '../components/PoleGroup'
 
 type Values = Record<string, number | string | undefined>
 
@@ -35,6 +36,10 @@ export default function PlayerForm() {
   const [testDate, setTestDate] = useState(today())
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(!editing)
+  // Bloc « Pôle Espoirs » : modifiable par les dirigeants d'un pôle et les administrateurs seulement (can.editPoles,
+  // src/roles.ts) ; les autres comptes, Ligue comprise, voient les périodes sans pouvoir les changer.
+  const poleLeader = usePoleLeader()
+  const editPoles = can.editPoles(role, poleLeader.any)
 
   useEffect(() => {
     if (!id) return
@@ -241,8 +246,19 @@ export default function PlayerForm() {
       </Collapsible>
 
       <Collapsible title="Pôle Espoirs" summary={poleSummary(p, regionLabel) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
-        <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est au pôle.</p>
-        {(p.poles ?? []).map((x, i) => {
+        {!editPoles ? (
+          <>
+            <p className="text-[11px] text-muted">Périodes en pôle : seuls les dirigeants du pôle (affectés à son unité) et les administrateurs les modifient, depuis le groupe Pôle ou ici.</p>
+            {(p.poles ?? []).filter((x) => x.from || x.to || x.regionId || x.site || x.name).length ? (
+              <p className="text-xs">{poleSummary(p, regionLabel)}</p>
+            ) : (
+              <p className="text-xs text-muted">Aucune période.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est au pôle ; une sortie se rétablit en effaçant sa date.</p>
+        )}
+        {editPoles && (p.poles ?? []).map((x, i) => {
           const upd = (patch: Partial<PolePeriod>) => set('poles', (p.poles ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
           const rest = (p.poles ?? []).filter((_, k) => k !== i)
           return (
@@ -315,9 +331,11 @@ export default function PlayerForm() {
             </div>
           )
         })}
-        <button type="button" className="btn-ghost text-xs" onClick={() => set('poles', [...(p.poles ?? []), {}])}>
-          + Ajouter une période en pôle
-        </button>
+        {editPoles && (
+          <button type="button" className="btn-ghost text-xs" onClick={() => set('poles', [...(p.poles ?? []), {}])}>
+            + Ajouter une période en pôle
+          </button>
+        )}
       </Collapsible>
 
       <Collapsible

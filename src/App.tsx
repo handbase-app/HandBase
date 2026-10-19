@@ -65,6 +65,7 @@ const Question = lazy(() => import('./pages/Question'))
 const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
 const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
+const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
 function AlertBell({ n }: { n: number }) {
@@ -173,6 +174,8 @@ const PAGE_W: [RegExp, string][] = [
   [/^\/comparer$/, 'wide:max-w-6xl'],
   // Rapport chiffré du bilan, export d'un groupe en PDF : une feuille à imprimer.
   [/^\/(bilan|groupes\/[^/]+)\/rapport$/, 'wide:max-w-4xl'],
+  // Changement de saison d'un pôle : deux colonnes.
+  [/^\/groupes\/[^/]+\/saison$/, 'wide:max-w-6xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
@@ -300,6 +303,8 @@ export default function App() {
           </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path="/groupes/:id/rapport" element={<GroupReport />} />
+          {/* Changement de saison d'un groupe Pôle (src/pages/PoleSeason.tsx). */}
+          <Route path="/groupes/:id/saison" element={<PoleSeason />} />
           <Route path={STAFF.route} element={<Teams />} />
           <Route path="/parametres" element={<Settings />} />
           <Route path="/confidentialite" element={<Privacy />} />

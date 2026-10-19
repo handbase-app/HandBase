@@ -3,6 +3,7 @@
  * d'un élément à l'autre (clic dans la liste de gauche, ‹ ›, ↑ ↓) : on compare la croissance de plusieurs joueurs sans
  * revenir chaque fois sur « Profil ». Même règle que les onglets d'un événement (src/pages/Events.tsx).
  */
+import { POLE_VIEW_DEFAULT, POLE_VIEWS, type PoleView } from './poleSeason'
 
 /** Onglets de la fiche d'un joueur (src/pages/PlayerDetail.tsx), « profil » par défaut. */
 export const PLAYER_TABS = ['profil', 'tests', 'avis', 'croissance'] as const
@@ -59,3 +60,11 @@ export function keepPlayerTab(search: string, pathname: string, current: string)
   const radar = RADAR_VIEWS.find((v) => v === new URLSearchParams(current).get(RADAR_KEY))
   return radar ? withRadarView(s, radar) : s
 }
+
+/**
+ * Vue d'un groupe Pôle (src/poleSeason.ts ; page du groupe, fiche ouverte depuis lui, export) : « Saison en cours »
+ * (sans paramètre) ou « Saison prochaine » (?saison=prochaine). Gardée d'un joueur à l'autre et au retour.
+ */
+export const POLE_VIEW_KEY = 'saison'
+export const poleViewOf = (search: string): PoleView => tabOf(search, POLE_VIEWS, POLE_VIEW_DEFAULT, POLE_VIEW_KEY)
+export const withPoleView = (search: string, view: PoleView) => withTab(search, view, POLE_VIEWS, POLE_VIEW_DEFAULT, POLE_VIEW_KEY)
