@@ -47,7 +47,7 @@ import { Icon, playerName } from './ui'
  *  - LE BOUTON : sur une page qui a déjà sa barre (chaque barre posée sur une page s'inscrit dans `pageBars` ; la page
  *    affichée doit être exactement la sienne, /joueurs mais pas /joueurs/:id, et la barre visible), il met le curseur dans
  *    cette barre et ouvre son menu : jamais deux champs. Ailleurs, il ouvre la PALETTE : ordinateur = fenêtre accrochée
- *    sous la bulle (bord gauche aligné, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
+ *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
  *    ferment), téléphone = feuille du bas posée au-dessus du clavier, fond assombri (geste
  *    Retour : entrée d'historique du routeur, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
  *    (`routes` = routeAsk, menu toujours ouvert) : « Je comprends », la demande part sur sa page (postAsk →
@@ -794,7 +794,8 @@ export function AskButton() {
     const b = btn.current?.getBoundingClientRect()
     if (!b) return null
     const width = Math.min(520, window.innerWidth - 16)
-    return { left: Math.round(Math.max(8, Math.min(b.left, window.innerWidth - width - 8))), top: Math.round(b.bottom + 8), width }
+    // Centrée sous la bulle (au milieu de l'en-tête), sans sortir de l'écran.
+    return { left: Math.round(Math.max(8, Math.min(b.left + b.width / 2 - width / 2, window.innerWidth - width - 8))), top: Math.round(b.bottom + 8), width }
   }
 
   const openPalette = () => {

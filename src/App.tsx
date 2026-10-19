@@ -254,12 +254,12 @@ export default function App() {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
         ref={header}
-        className={`app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:flex side:justify-between side:gap-3 side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
+        className={`app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:gap-3 side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
       >
-        {/* Téléphone : trois colonnes (logo · bulle ✦ au milieu de l'écran · suivis, cible, synchro). Ordinateur : le logo est
-            dans le menu de gauche, la bulle ✦ à gauche de l'en-tête. */}
-        <div className="flex min-w-0 items-center side:hidden">
-          <Logo />
+        {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, synchro). Ordinateur : le logo est dans le menu
+            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. */}
+        <div className="flex min-w-0 items-center">
+          <Logo className="side:hidden" />
         </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
         <AskButton />
