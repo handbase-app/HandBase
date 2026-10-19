@@ -48,7 +48,7 @@ import { Icon, playerName } from './ui'
  *    barre posée sur une page s'inscrit dans `pageBars` ; la page affichée doit être exactement la sienne, /joueurs mais
  *    pas /joueurs/:id, et la barre visible), il met le curseur dans cette barre et ouvre son menu. Ailleurs, la PALETTE : ordinateur = fenêtre accrochée
  *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
- *    ferment), téléphone = feuille du bas posée au-dessus du clavier, fond assombri (geste
+ *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé (geste
  *    Retour : entrée d'historique du routeur, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
  *    (`routes` = routeAsk, menu toujours ouvert) : « Je comprends », la demande part sur sa page (postAsk →
  *    useIncomingAsk) ou ouvre la fiche, et la palette se ferme. Téléphone, appui long (≥ 450 ms, dictée disponible) : on
@@ -773,7 +773,7 @@ function useKeyboardInset(on: boolean) {
 /**
  * Bulle ✦ « Demander » de l'en-tête, sur toutes les pages (ordinateur : à gauche ; téléphone : au milieu ; « / » hors d'un champ).
  *  - Page qui a sa barre « Demander » (listes, bilan) : le curseur va dans cette barre, son menu s'ouvre.
- *  - Ailleurs : la palette (ordinateur : accrochée sous la bulle ; téléphone : feuille du bas, fermée par le geste Retour).
+ *  - Ailleurs : la palette, une fenêtre flottante sous la bulle (téléphone : une marge de chaque côté, fond voilé, geste Retour).
  *  - Téléphone, appui long (dictée disponible) : on parle tout de suite, relâcher envoie la phrase.
  */
 export function AskButton() {
@@ -804,7 +804,7 @@ export function AskButton() {
     // Rendu tout de suite, pour donner le focus dans le même geste (le clavier du téléphone s'ouvre).
     flushSync(() => {
       setPhone(ph)
-      setPlace(ph ? null : measure())
+      setPlace(measure())
       setOpen(true)
     })
     input.current?.focus({ preventScroll: true })
@@ -961,27 +961,27 @@ export function AskButton() {
   const body = (
     <>
       <AskPalette go={(r, said) => void go(r, said)} inputRef={input} onEscape={closePalette} />
-      {phone && (
-        <button type="button" className="mt-1 flex min-h-11 w-full items-center justify-center border-t border-line text-sm font-bold text-muted" onClick={closePalette}>
-          Fermer
-        </button>
-      )}
     </>
   )
   const palette = !open
     ? null
     : createPortal(
         phone ? (
-          // Téléphone : feuille du bas, posée au-dessus du clavier, fond assombri (un toucher dessus ferme).
+          // Téléphone : la même fenêtre flottante que sur ordinateur, juste sous la bulle, une marge de chaque côté, sur un fond
+          // légèrement voilé (un toucher dessus ferme, le geste Retour aussi). En haut de l'écran, le clavier ne la cache pas :
+          // sa hauteur s'arrête au-dessus de lui.
           <div className="fixed inset-0 z-40">
-            <div className="absolute inset-0 bg-black/45" aria-hidden onClick={closePalette} />
+            <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" aria-hidden onClick={closePalette} />
             <div
               ref={dialog}
               role="dialog"
               aria-modal="true"
               aria-label="Demander"
-              className="absolute inset-x-0 flex max-h-[80dvh] flex-col overflow-y-auto overscroll-contain rounded-t-2xl border-t border-ai/40 bg-panel px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl"
-              style={{ bottom: kb.bottom, ...(kb.height ? { maxHeight: Math.min(kb.height - 16, window.innerHeight * 0.8) } : {}) }}
+              className="ask-pop absolute inset-x-3 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
+              style={{
+                top: place?.top ?? 64,
+                maxHeight: Math.max(160, (kb.height || window.innerHeight) - (place?.top ?? 64) - 12),
+              }}
             >
               {body}
             </div>
@@ -992,7 +992,7 @@ export function AskButton() {
             ref={dialog}
             role="dialog"
             aria-label="Demander"
-            className="fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
+            className="ask-pop fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
             style={place ? { left: place.left, top: place.top, width: place.width, maxHeight: `calc(100dvh - ${place.top + 16}px)` } : { left: 8, top: 64, width: 'min(520px, calc(100vw - 16px))' }}
           >
             {body}
