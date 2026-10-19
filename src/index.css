@@ -62,14 +62,13 @@ html { touch-action: pan-x pan-y; }
   :root { --nav-b: 0px; --nav-l: 13rem; }
 }
 
-/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 puis 3 colonnes en paysage et sur
-   ordinateur, selon la largeur disponible (à réserver aux pages larges, voir PAGE_W dans App.tsx).
+/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 colonnes AU PLUS en paysage et sur ordinateur, quelle que
+   soit la largeur (à trois, les cartes deviennent étroites et illisibles : décidé le 20/10/2026).
    Les éléments qui doivent prendre toute la ligne (« Afficher plus »…) portent col-span-full. */
 @media (orientation: landscape) and (max-height: 520px) and (min-width: 640px), (min-width: 1024px) and (min-height: 521px) {
   .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) and (min-height: 521px) {
-  .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -94,10 +93,6 @@ html { touch-action: pan-x pan-y; }
 /* Avis d'un joueur à côté de la liste (événement, components/Opinions.tsx) : avis détaillés sur deux colonnes si la place le permet. */
 @container (min-width: 44rem) {
   .avis-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-}
-/* Trois colonnes seulement sur un panneau très large : en dessous, nom, poste et club seraient coupés. */
-@container (min-width: 100rem) {
-  .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* Pictogrammes au bout des lignes de joueurs (components/Pictos.tsx, PlayerRow.tsx). La liste (data-plist) pose
    data-pl="2" quand un nom serait coupé à cause d'eux : toute la liste les passe sur leur propre ligne, sous le nom
