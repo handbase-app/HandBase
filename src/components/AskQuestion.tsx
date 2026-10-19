@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { db, POSITIONS, today } from '../db'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
@@ -31,7 +31,7 @@ export type AskState = { raw: unknown; nonGere: string[]; heard: string }
  * variant : 'full' (micro + champ, ordinateur), 'mic' (le micro seul, en un toucher : barre du bas du bilan sur téléphone),
  * 'text' (le champ seul : panneau « Taper / Mes questions » du téléphone).
  */
-export function AskQuestion({ className = '', variant = 'full' }: { className?: string; variant?: 'full' | 'mic' | 'text' }) {
+export function AskQuestion({ className = '', variant = 'full', trailing }: { className?: string; variant?: 'full' | 'mic' | 'text'; trailing?: ReactNode }) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
   const [text, setText] = useState('')
@@ -108,29 +108,22 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
           <span className="pl-1">{rec ? 'Arrêter' : 'Poser une question'}</span>
         </button>
   )
+  // Une seule barre, façon Google : le micro (ordinateur) et la flèche d'envoi sont DANS la barre « Demander ».
   const form = (
-        <form
-          className="flex min-w-0 flex-[1_1_18rem] gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void ask(text)
-          }}
-        >
-          <Demander
-            page="bilan"
-            value={text}
-            onChange={setText}
-            onSubmit={(t) => void ask(t)}
-            canAsk
-            disabled={sending || rec}
-            placeholder="Demander… ou tapez votre question"
-            label="Poser une question"
-          />
-          <button type="submit" className="btn-primary min-h-11 shrink-0 px-3 text-sm" disabled={!text.trim() || sending || rec} aria-label="Demander">
-            <span aria-hidden>✨</span>
-            <span className="hidden sm:inline">Demander</span>
-          </button>
-        </form>
+    <Demander
+      page="bilan"
+      value={text}
+      onChange={setText}
+      onSubmit={(t) => void ask(t)}
+      canAsk
+      mic={variant === 'full' ? mic : undefined}
+      micHint={QUESTION_HINT}
+      disabled={sending || rec}
+      placeholder="Demander… une question sur le bilan, ou dites-la"
+      label="Poser une question"
+      className="flex-[1_1_18rem]"
+      trailing={trailing}
+    />
   )
   const status =
       mic.phase !== 'idle' ? (
@@ -147,12 +140,11 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
         <div className="text-[11px] text-red-300" role="alert">
           {error || mic.error}
         </div>
-      ) : (
-        <div className="text-[10px] text-muted">Réponse calculée sur cet appareil ; seule la phrase est envoyée pour être comprise, jamais les données des joueurs.</div>
-      )
+      ) : null
   const notice = (
-      <p className="text-[10px] text-muted">
-        Phase de développement : vos questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
+      <p className="px-4 text-[10px] text-muted">
+        Réponse calculée sur cet appareil : seule la phrase est envoyée, jamais les données des joueurs. Phase de développement : vos
+        questions peuvent être enregistrées, sans nom de joueur, pour améliorer {appName()}.{' '}
         <Link to="/confidentialite#questions" className="underline">
           Confidentialité
         </Link>
@@ -169,12 +161,9 @@ export function AskQuestion({ className = '', variant = 'full' }: { className?: 
     )
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <div className="flex flex-wrap gap-2">
-        {variant === 'full' && micButton}
-        {form}
-      </div>
+      <div className="flex flex-wrap gap-2">{form}</div>
       {status}
-      {notice}
+      {!status && notice}
     </div>
   )
 }

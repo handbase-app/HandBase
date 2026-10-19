@@ -309,7 +309,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
 
   /** Change dès qu'un filtre change (position et nombre affiché remis à zéro). */
   const signature = JSON.stringify([qy.f, qy.q, qy.sort ?? null])
-  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset }
+  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset, filtersOpen: open }
 }
 
 // ---------- Pastilles ----------

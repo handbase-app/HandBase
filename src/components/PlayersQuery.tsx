@@ -750,7 +750,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       type="button"
       onClick={() => setOpen(!open)}
       aria-expanded={open}
-      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-md border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
+      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-full border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
     >
       Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
     </button>
@@ -926,6 +926,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const parts = {
     field,
     filtersButton,
+    /** « Filtres » en étiquette arrondie, à loger DANS une barre « Demander » (bilan : la barre du haut). */
+    filtersChip,
     below: (
       <>
         {status}
@@ -945,7 +947,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender }
+  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender, filtersOpen: open }
 }
 
 // ---------- Petits composants ----------

@@ -1559,10 +1559,14 @@ export default function Coverage() {
 
   // Barre de filtres : champ et « Filtres » au bout de la ligne des filtres du bilan ; dessous (seulement s'il y a quelque
   // chose) : ligne de résultat d'une phrase, pastilles, panneau des filtres, calcul ou mode avancé.
+  // Ordinateur avec la barre « Demander » en haut : pas de deuxième barre ni de deuxième micro sur la ligne des filtres
+  // (une phrase se pose en haut) ; il reste « Filtres ». Sans la barre du haut (dictée indisponible), la barre de la ligne garde
+  // la recherche par nom.
+  const oneBar = !phone && questionReady
   const barRow = (
-    <div className="flex min-w-0 gap-2 sm:min-w-56 sm:flex-1">
-      {bar.field}
-      {bar.filtersButton}
+    <div className={`flex min-w-0 gap-2 ${oneBar ? 'empty:hidden' : 'sm:min-w-56 sm:flex-1'}`}>
+      {!oneBar && bar.field}
+      {!oneBar && bar.filtersButton}
     </div>
   )
   const barBelow = (
@@ -1576,17 +1580,20 @@ export default function Coverage() {
   )
   const barSummary = [...bar.chipLabels, ...(st.t.trim() ? [`« ${st.t.trim()} »`] : [])]
   // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
-  const filtersBlock = (
+  const filtersInput = (
+    <div className="min-w-0 flex-1">
+      <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
+    </div>
+  )
+  const filtersBlock = oneBar ? (
+    filtersInput
+  ) : (
     <VoiceSearch<BilanVoice>
       values={{ sex, period, years: picked, region, dept, club: st.club, view }}
       apply={(v) => set({ ...v, seenOpen: v.club === st.club ? st.seenOpen : false })}
       page={voicePage}
       label="Filtrer"
-      input={
-        <div className="min-w-0 flex-1">
-          <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
-        </div>
-      }
+      input={filtersInput}
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
@@ -1627,7 +1634,7 @@ export default function Coverage() {
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
             dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
-        {!phone && <AskQuestion />}
+        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} />}
         {!(phone && questionReady) && savedQuestions}
         {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
         {phone && (
