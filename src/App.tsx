@@ -5,6 +5,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLin
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
 import { TRIAL, TRIAL_LABEL } from './db'
+import { useShowBrand } from './brandPref'
 import { useDepartments } from './lists'
 import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
@@ -135,6 +136,9 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
  */
 function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
   const { name } = useAppBrand()
+  // Réglages → Apparence : logo et nom masqués au choix (src/brandPref.ts).
+  // Menu de gauche (ordinateur) : une marge à la place, pour que « Accueil » ne colle pas au bord.
+  if (!useShowBrand()) return stacked ? <div aria-hidden className="hidden side:block side:h-4" /> : null
   return (
     <GuardedLink to="/" aria-label={`${name}, accueil`} className={`leading-none ${stacked ? 'text-lg' : 'flex min-w-0 items-center gap-2 text-[17px]'} ${className}`}>
       <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
