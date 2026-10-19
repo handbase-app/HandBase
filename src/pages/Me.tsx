@@ -28,6 +28,7 @@ import { positionCodes } from '../sportConfig'
 import { canPreviewPlayerPage } from '../components/PlayerSpace'
 import { inform, useUnsaved } from '../components/Confirm'
 import { JournalSection, TalkLink } from '../components/PlayerJournal'
+import { PlayerMatches } from '../components/PlayerMatches'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
@@ -400,6 +401,8 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         </label>
         {saveBar}
       </section>
+
+      <PlayerMatches p={p} canWrite={canWrite} />
 
       {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
