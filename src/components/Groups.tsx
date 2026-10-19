@@ -6,7 +6,7 @@ import { genderOf, pluralG, w } from '../gender'
 import { isMemberAt } from '../poleSeason'
 import { can, currentUserId, useRole } from '../roles'
 import { loadTeams } from '../teams'
-import { joinMessage, joinPoleMany, PoleChip, usePoleLeader, usePoleRefs, useSeasons } from './PoleGroup'
+import { askArrival, joinMessage, joinPoleMany, PoleChip, usePoleLeader, usePoleRefs, useSeasons } from './PoleGroup'
 import { getMe, GroupMark } from './ui'
 
 /** Ajoute des joueurs au groupe (sans doublon, ordre conservé). Renvoie le nombre de nouveaux. */
@@ -139,8 +139,10 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
             onClick={async () => {
               const ref = target!.poleUnitId ? refs.get(target!.poleUnitId) : undefined
               if (ref) {
-                const r = await joinPoleMany(ref, playerIds, s)
-                return onClose(joinMessage(r, target!.name, s, pg), target!.id)
+                const when = await askArrival(s, playerIds.length)
+                if (!when) return
+                const r = await joinPoleMany(ref, playerIds, s, undefined, when)
+                return onClose(joinMessage(r, target!.name, s, pg, when), target!.id)
               }
               const added = await addToGroup(target!, playerIds)
               onClose(added ? `${pluralG(added, pg, 'joueur ajouté')} à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)

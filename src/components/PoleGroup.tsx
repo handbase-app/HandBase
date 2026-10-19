@@ -9,6 +9,7 @@ import {
   defaultPoleGroupName,
   isPoleLeader,
   joinPole,
+  periodMatches,
   leavePole,
   membersAt,
   myPoleUnits,
@@ -24,6 +25,7 @@ import {
 } from '../poleSeason'
 import { can, currentUserId, useRole } from '../roles'
 import { Icon } from './ui'
+import { choose } from './Confirm'
 
 /*
  * Groupe « Pôle » d'une unité (src/poleSeason.ts) : lectures (unité, membres calculés, droits), écritures sur les fiches
@@ -156,18 +158,64 @@ export interface JoinManyResult {
 }
 
 /**
- * Entrée de plusieurs joueurs au pôle pour la saison prochaine (« Ajouter à un groupe », « Ajouter des joueurs ») :
- * une période par fiche (site et ligue de l'unité, entrée au 1er juillet, programme déduit de l'âge et du sexe parmi ceux
- * de l'unité, modifiable ensuite sur la fiche) ; une période en cours dans un autre pôle est fermée au 30 juin (« autre »).
+ * Arrivée au pôle : « now » = dès aujourd'hui (arrivée en cours de saison : la fiche apparaît tout de suite dans la vue
+ * « Saison en cours ») ; « next » = au 1er juillet (saison prochaine, préparation de la liste).
  */
-export async function joinPoleMany(ref: PoleRef, ids: readonly string[], s: Seasons, programmeOf?: (p: Player) => PoleProgramme | undefined): Promise<JoinManyResult> {
+export type PoleArrival = 'now' | 'next'
+
+/** Veille d'un jour AAAA-MM-JJ (sortie d'un autre pôle la veille d'une arrivée aujourd'hui). */
+const dayBefore = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
+
+/** Dates d'une arrivée : jour de référence, entrée, sortie d'un autre pôle, année de début de saison (programme proposé). */
+export function arrivalDates(s: Seasons, when: PoleArrival) {
+  return when === 'now'
+    ? { day: s.refCurrent, entry: s.refCurrent, exit: dayBefore(s.refCurrent), startYear: Number(s.current.from.slice(0, 4)) }
+    : { day: s.entry, entry: s.entry, exit: s.exit, startYear: Number(s.next.from.slice(0, 4)) }
+}
+
+/**
+ * Quand commence la période ? Dès aujourd'hui (saison en cours) ou au 1er juillet (saison prochaine). Proposé d'office :
+ * `suggested`, sinon la saison prochaine de mars à août (préparation de la liste), aujourd'hui le reste de l'année.
+ * null : annulé.
+ */
+export function askArrival(s: Seasons, n: number, suggested?: PoleArrival): Promise<PoleArrival | null> {
+  const month = Number(s.refCurrent.slice(5, 7))
+  const def: PoleArrival = suggested ?? (month >= 3 && month <= 8 ? 'next' : 'now')
+  return choose<PoleArrival | 'cancel'>(n > 1 ? `Quand commence leur période au pôle ? (${n} fiches)` : 'Quand commence sa période au pôle ?', [
+    { value: 'now', label: `Dès aujourd’hui (saison ${s.current.label})`, style: def === 'now' ? 'primary' : 'ghost', focus: def === 'now' },
+    { value: 'next', label: `Au ${d(s.entry)} (saison ${s.next.label})`, style: def === 'next' ? 'primary' : 'ghost', focus: def === 'next' },
+    { value: 'cancel', label: 'Annuler', style: 'ghost' },
+  ]).then((v) => (v === 'now' || v === 'next' ? v : null))
+}
+
+/**
+ * Entrée de plusieurs joueurs au pôle (« Ajouter à un groupe », « Ajouter des joueurs ») : une période par fiche (site et
+ * ligue de l'unité, entrée aujourd'hui ou au 1er juillet selon `when`, programme déduit de l'âge et du sexe parmi ceux de
+ * l'unité, modifiable ensuite sur la fiche) ; une période en cours dans un autre pôle est fermée la veille de l'entrée
+ * (« autre »). Arrivée aujourd'hui d'un joueur déjà inscrit pour le 1er juillet : son entrée est avancée (pas de doublon).
+ */
+export async function joinPoleMany(
+  ref: PoleRef,
+  ids: readonly string[],
+  s: Seasons,
+  programmeOf?: (p: Player) => PoleProgramme | undefined,
+  when: PoleArrival = 'next',
+): Promise<JoinManyResult> {
   const out: JoinManyResult = { added: 0, transfers: 0, already: 0 }
-  const nextYear = Number(s.next.from.slice(0, 4))
+  const a = arrivalDates(s, when)
   for (const id of new Set(ids)) {
     const p = await db.players.get(id)
     if (!p || p.deleted) continue
-    const programme = programmeOf ? programmeOf(p) : suggestProgramme(ref.levels, p, nextYear)
-    const r = joinPole(p, ref, { day: s.entry, entry: s.entry, exit: s.exit, programme })
+    if (when === 'now') {
+      const future = (p.poles ?? []).findIndex((x) => periodMatches(x, ref) && !!x.from && x.from > a.day && !x.to)
+      if (future >= 0) {
+        await save<Player>('players', { ...p, poles: (p.poles ?? []).map((x, i) => (i === future ? { ...x, from: a.entry } : x)) })
+        out.added++
+        continue
+      }
+    }
+    const programme = programmeOf ? programmeOf(p) : suggestProgramme(ref.levels, p, a.startYear)
+    const r = joinPole(p, ref, { day: a.day, entry: a.entry, exit: a.exit, programme })
     if (!r) {
       out.already++
       continue
@@ -198,9 +246,9 @@ export async function reopenPoleOne(p: Player, ref: PoleRef, s: Seasons): Promis
 }
 
 /** Message après une entrée : « 3 joueurs ajoutés au Pôle Nice (entrée le 01/07/2027, dont 1 transfert) ». */
-export function joinMessage(r: JoinManyResult, name: string, s: Seasons, sex?: string | null): string {
+export function joinMessage(r: JoinManyResult, name: string, s: Seasons, sex?: string | null, when: PoleArrival = 'next'): string {
   const g = w(sex)
-  const parts = [`entrée le ${d(s.entry)}`, r.transfers ? `dont ${r.transfers} transfert${r.transfers > 1 ? 's' : ''} depuis un autre pôle` : '', r.already ? `${r.already} déjà ${r.already > 1 ? g.inscrits : g.inscrit}` : '']
+  const parts = [when === 'now' ? 'entrée aujourd’hui, saison en cours' : `entrée le ${d(s.entry)}, saison prochaine`, r.transfers ? `dont ${r.transfers} transfert${r.transfers > 1 ? 's' : ''} depuis un autre pôle` : '', r.already ? `${r.already} déjà ${r.already > 1 ? g.inscrits : g.inscrit}` : '']
     .filter(Boolean)
     .join(', ')
   if (!r.added) return r.already ? `Déjà ${r.already > 1 ? g.tous : ''} au ${name}.`.replace('  ', ' ') : 'Rien à changer.'

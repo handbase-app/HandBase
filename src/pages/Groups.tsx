@@ -47,6 +47,7 @@ import {
   ExitReasonDialog,
   fmtDay,
   joinMessage,
+  askArrival,
   joinPoleMany,
   leavePoleOne,
   PoleChip,
@@ -860,9 +861,15 @@ function PlayerGroupDetail() {
         onCancel={() => (setAdding(false), setParams({}, { replace: true }))}
         onAdd={async (ids) => {
           if (pole && ref && pm) {
-            const r = await joinPoleMany(ref, ids, pm.s)
-            setPoleMsg(joinMessage(r, g.name, pm.s, gg))
-            if (poleView !== 'prochaine') nav(`${loc.pathname}${withPoleView(loc.search, 'prochaine')}`, { replace: true, state: loc.state })
+            // Arrivée aujourd'hui (saison en cours) ou au 1er juillet (saison prochaine) ; la vue affichée suit le choix.
+            const when = await askArrival(pm.s, ids.length, poleView === 'prochaine' ? 'next' : 'now')
+            if (!when) return
+            const r = await joinPoleMany(ref, ids, pm.s, undefined, when)
+            setPoleMsg(joinMessage(r, g.name, pm.s, gg, when))
+            setAdding(false)
+            // Remplace « ?ajout=1 » par la vue de la saison choisie (effacer tous les paramètres ramenait à la saison en cours).
+            setParams(new URLSearchParams(withPoleView('', when === 'next' ? 'prochaine' : 'courante')), { replace: true })
+            return
           } else await addToGroup(g, ids)
           setAdding(false)
           setParams({}, { replace: true })
