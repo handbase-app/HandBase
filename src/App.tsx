@@ -4,7 +4,7 @@ import { pushSupport, setIconBadge, syncSubscription } from './push'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLinkProps } from 'react-router-dom'
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
-import { DEMO, TRIAL, TRIAL_LABEL } from './db'
+import { TRIAL, TRIAL_LABEL } from './db'
 import { useDepartments } from './lists'
 import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
@@ -138,14 +138,6 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
   return (
     <GuardedLink to="/" aria-label={`${name}, accueil`} className={`leading-none ${stacked ? 'text-lg' : 'flex min-w-0 items-center gap-2 text-[17px]'} ${className}`}>
       <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
-      {/* Version d'essai (VITE_TRIAL=1, test en local) : même serveur, donc les saisies y sont réelles. */}
-      {TRIAL && (
-        <span className={`rounded bg-amber-500 px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider whitespace-nowrap text-black ${stacked ? 'mt-2.5 block w-fit' : 'shrink-0 max-[379px]:hidden'}`}>
-          {/* Téléphone étroit : libellé court, pour que le nom de l'appli reste entier (la bande orange du haut reste) ; sous
-              380 px, plus de place à côté de la bulle ✦ centrée : seule la bande orange du haut signale l'essai. */}
-          {stacked ? TRIAL_LABEL : <><span className="min-[480px]:hidden">{DEMO ? 'DÉMO' : 'ESSAI'}</span><span className="hidden min-[480px]:inline">{TRIAL_LABEL}</span></>}
-        </span>
-      )}
     </GuardedLink>
   )
 }
@@ -246,8 +238,15 @@ export default function App() {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
         ref={header}
-        className={`app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:gap-3 side:px-6 ${TRIAL ? 'border-t-4 border-t-amber-500 rail:border-t-2' : ''}`}
+        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:gap-3 side:px-6"
       >
+        {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
+            de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
+        {TRIAL && (
+          <div className="col-span-3 -mx-4 -mt-3 mb-0.5 bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black rail:-mt-1.5 rail:text-[9px] rail:leading-[14px] side:-mx-6">
+            {TRIAL_LABEL}
+          </div>
+        )}
         {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
             de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Compte joueur : ni bulle ✦,
             ni suivis, ni cible (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
