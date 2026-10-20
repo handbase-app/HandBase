@@ -1,3 +1,4 @@
+import { ACTION_DISPLAY } from './askAction'
 import { nameKey } from './nameMatch'
 
 /*
@@ -79,7 +80,7 @@ export interface QuestionLogFields {
   detail?: string
   /** Nombre de lignes du résultat (500 au plus), jamais les lignes. */
   rows?: number
-  /** Affichage proposé (nombre, joueurs, tableau, carte). */
+  /** Affichage proposé (nombre, joueurs, tableau, carte) ; « action » : demande d'action de « Demander » (detail : l'action proposée et ce qu'en a fait l'entraîneur, src/askAction.ts). */
   display?: string
   /** « Transformée en recette » : cochée par un administrateur. */
   recipeDone?: boolean
@@ -592,6 +593,9 @@ export function copyForClaude(rows: QuestionLogRow[], today = new Date().toISOSt
     if (said.length) out.push(`- Ce qu'ils voulaient : ${said.map((c) => `« ${c} »`).join(' ; ')}`)
     const missing = uniq(g.entries.flatMap((e) => e.recipeMissing ?? []))
     if (missing.length) out.push(`- Pas appliqué par la recette : ${missing.join(' ; ')}`)
+    // Actions de « Demander » (carte de validation) : l'action proposée et ce qu'en a fait l'entraîneur.
+    const acts = uniq(g.entries.filter((e) => e.display === ACTION_DISPLAY).map((e) => e.detail))
+    if (acts.length) out.push(`- Actions : ${acts.slice(0, 5).join(' ; ')}`)
     const adv = g.entries.filter((e) => e.status)
     out.push(`- Mode avancé : ${adv.length ? counted(adv.map((e) => e.status), ADVANCED_SHORT) : 'pas lancé'}`)
     const model = uniq(g.entries.flatMap((e) => e.modelMissing ?? []))

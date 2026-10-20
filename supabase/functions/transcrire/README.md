@@ -311,3 +311,30 @@ et la même règle (une phrase **ajoute** à la sélection ; effacer ou retirer 
   filtres ne part).
 
 Redéploiement nécessaire pour le micro d'Événements et de Groupes (même commande que ci-dessus).
+
+## 11. « Demander » une action (`?mode=action`)
+
+La bulle ✦ de l'en-tête et les barres « Demander » des listes savent **réaliser** quelques actions, toujours après une
+**carte de validation** (« Je vais : 1) chercher … → 23 joueurs ; 2) créer le groupe « … » », boutons **Accepter** /
+**Annuler**) : rien n'est écrit avant « Accepter » (`src/components/AskAction.tsx`, partie pure `src/askAction.ts`).
+
+- Actions de la v1 (liste blanche, rien d'autre) : `creer_groupe`, `ajouter_groupe`, `ajouter_evenement`,
+  `ouvrir_evenement`, `ouvrir_groupe` (ouvrir avec un filtre de joueurs), `filtrer_createur`. **Jamais** de suppression,
+  de retrait, de modification de fiche ni d'action sur des comptes (`interdite` : refusée par l'appli).
+- Requête : `POST ?mode=action`, JSON `{ phrase, schema, page? }` : la phrase (300 caractères au plus), la **description
+  de la recette des joueurs** (la même que `?mode=question`, `buildQuestionSchema`) et la page (`joueurs`, `evenements`,
+  `groupes`, `bilan`). **Aucune donnée, aucun nom** de joueur, de groupe, d'événement ou d'utilisateur.
+- Réponse : `{ plan, ms, model, restant_mois, restant_jour }`, `plan` = `{ action, cible?, nom?, joueurs?, createurs?,
+  liste?, nonGere }` : les noms **cités** sont recopiés tels que dits ; l'appli les retrouve sur l'appareil (au son, à une
+  ou deux lettres près ; approchant → « Tu voulais dire … ? »), relit la recette (`interpretRecipe`), calcule les joueurs
+  et vérifie les droits (`can.*`). Modèle : `MISTRAL_MODELE_ACTION` (sinon `MISTRAL_MODELE_QUESTION`, sinon
+  `mistral-small-latest`), température 0, réponse JSON. Un appel compté. Ni la phrase ni la réponse ne sont journalisées.
+- Sans ce mode, les tournures fréquentes marchent déjà (règles locales : « crée un groupe avec … », « trouve … et crée-moi
+  un groupe avec », « ajoute … au groupe X / à l'événement X », « les gauchers dans l'événement X », « les groupes que X a
+  créés ») : la partie « joueurs » passe par `?mode=question` (contexte `joueurs`). Le mode `action` sert aux autres
+  formulations.
+- Le GET annonce `action` dans `modes`.
+- Test (sans appel réseau) : `npx jiti tools/test-demander-actions.ts` (règles locales, rapprochement des noms, plan
+  invalide ou interdit rejeté, droits, carte, et chaque exemple des consignes accepté par l'appli).
+
+Redéploiement nécessaire (même commande qu'à la section 4), d'abord sur la base de test.

@@ -14,8 +14,9 @@
 //    d'événements, de groupes, de lieux ou de personnes : le texte cherché, sa présence seulement).
 // Uniquement des formulations positives ou neutres.
 
+import { matchName } from './askAction'
 import { changeText, localCommandWith, type QueryAction } from './playerQuery'
-import { normalize } from './voiceFilters'
+import { bestMatch, normalize } from './voiceFilters'
 
 export type Cmp = 'gte' | 'lte' | 'eq'
 /** Condition sur un nombre (« au moins 10 joueurs »). */
@@ -26,8 +27,30 @@ export type ListCalc = { type: 'count' } | { type: 'table'; by: string }
 
 export type ListQuery<F> = { f: F; q: string; sort?: ListSort; calc?: ListCalc }
 
-/** Ce que rend la lecture d'une phrase (recette de la page, revérifiée ici). */
-export type ListIncoming<F> = { f: Partial<F>; q?: string; sort?: ListSort; calc?: ListCalc; notes: string[]; unsupported: string[] }
+/**
+ * Nom de personne dit, approchant d'un nom connu de l'appareil (« Steve Bacher » pour « Stef bascher ») : à faire confirmer
+ * (« Tu voulais dire … ? ») avant d'appliquer le filtre ; choices : les noms possibles, le plus proche d'abord.
+ */
+export type NameConfirm = { key: 'creators'; said: string; choices: string[] }
+
+/** Ce que rend la lecture d'une phrase (recette de la page, revérifiée ici) ; confirm : noms approchants à confirmer. */
+export type ListIncoming<F> = { f: Partial<F>; q?: string; sort?: ListSort; calc?: ListCalc; notes: string[]; unsupported: string[]; confirm?: NameConfirm[] }
+
+/**
+ * Personne dite (créateur) retrouvée parmi les noms connus de l'appareil : comme avant d'abord (nom exact ou mots du nom :
+ * « Paul » trouve « Paul Fictif » s'il est seul ; plusieurs : les mots dits) ; sinon un nom APPROCHANT (son, une ou deux
+ * lettres : src/askAction.ts, matchName), à confirmer ; sinon rien. Les noms restent sur l'appareil.
+ */
+export function matchPerson(said: string, people: readonly string[]): { found: string } | { words: string } | { confirm: string[] } | { none: true } {
+  const list = [...new Set(people.filter(Boolean))]
+  const m = bestMatch(said, list, (x) => [x])
+  if ('found' in m) return { found: m.found }
+  if ('ambiguous' in m) return { words: said }
+  const f = matchName(said, list.map((name) => ({ name })))
+  if (f.kind === 'exact') return { found: f.item.name }
+  if (f.kind === 'approx') return { confirm: f.choices.map((c) => c.name) }
+  return { none: true }
+}
 
 export type ListChip = { key: string; label: string; removable: boolean }
 

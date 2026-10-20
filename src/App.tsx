@@ -35,6 +35,7 @@ import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
 import { isPlayerRole } from './roles'
 import { AskButton } from './components/Demander'
+import { AskActionHost } from './components/AskAction'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -386,6 +387,7 @@ export default function App() {
       {!player && <VideoDock />}
       {!player && <GlobalCompareBar />}
       <ConfirmHost />
+      <AskActionHost />
     </div>
   )
 }

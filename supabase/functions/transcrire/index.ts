@@ -32,6 +32,15 @@
 //   L'appli recontrôle la requête et l'exécute seulement dans le navigateur, sur une copie jetable de ses données locales :
 //   jamais de SQL sur la base Supabase. `precedent` { sql, erreur } : une seule correction après une erreur SQLite (la
 //   requête et le message d'erreur, jamais de données). Un appel compté.
+// - POST ?mode=action (JSON) : { phrase, schema, page? } → { plan, ms, model, restant_mois, restant_jour } : « Demander » une
+//   ACTION (créer un groupe avec des joueurs, les ajouter à un groupe ou à un événement existant, ouvrir un événement ou un
+//   groupe avec un filtre de joueurs, filtrer les groupes ou événements par créateur). Le modèle (MISTRAL_MODELE_ACTION,
+//   sinon MISTRAL_MODELE_QUESTION, mistral-small-latest par défaut, température 0, JSON) rend un PLAN : type d'action (liste
+//   blanche), noms CITÉS tels que dits (groupe, événement, personne) et recette des joueurs d'après le schéma envoyé (le même
+//   que « question » : src/recipe.ts). Seuls la phrase et ce schéma partent : aucune donnée, aucun nom de joueur, de groupe,
+//   d'événement ou d'utilisateur. L'appli relit le plan (src/askAction.ts, parsePlan), retrouve les noms sur l'appareil,
+//   calcule les joueurs et montre une carte de validation : rien n'est écrit sans « Accepter ». Suppression, retrait,
+//   modification, comptes : jamais (« interdite »). Un appel compté.
 // - Plafonds : TRANSCRIRE_QUOTA_MOIS appels par mois civil (heure de Paris, 2000 par défaut) pour tous,
 //   TRANSCRIRE_QUOTA_JOUR appels par jour et par compte (200 par défaut) ; au-delà : erreur « quota_atteint »
 //   ou « quota_jour_atteint ». Compteurs : supabase/042_quota_transcription.sql (des nombres seulement).
@@ -39,7 +48,7 @@
 //
 // Secrets (Edge Functions > Secrets) : MISTRAL_API_KEY ; facultatifs : TRANSCRIRE_QUOTA_MOIS, TRANSCRIRE_QUOTA_JOUR,
 // MISTRAL_MODELE (voxtral-mini-latest par défaut), MISTRAL_MODELE_FILTRES, MISTRAL_MODELE_AVIS et MISTRAL_MODELE_QUESTION
-// (mistral-small-latest par défaut), MISTRAL_MODELE_SQL (codestral-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
+// (mistral-small-latest par défaut), MISTRAL_MODELE_ACTION (sinon celui de « question »), MISTRAL_MODELE_SQL (codestral-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 // Déploiement : voir README.md à côté.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -136,7 +145,8 @@ Deno.serve(async (req) => {
       // « question_joueurs » : « question » comprend aussi le contexte de la liste Joueurs (champ « contexte », action rendue) ;
       // « question_evenements », « question_groupes » : contextes des listes Événements et Groupes (recette de la page).
       // « filtres_evenements », « filtres_groupes » : anciens micros de ces pages, gardés pour les versions précédentes.
-      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql'],
+      // « action » : « Demander » une action (plan relu par l'appli, carte de validation avant toute écriture, POST ?mode=action).
+      modes: ['dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql', 'action'],
     })
   }
 
@@ -145,6 +155,7 @@ Deno.serve(async (req) => {
   if (new URL(req.url).searchParams.get('mode') === 'avis') return await avisVocal(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'question') return await questionRecette(req, db, userId, cle, maxMois, maxJour, json)
   if (new URL(req.url).searchParams.get('mode') === 'sql') return await requeteSql(req, db, userId, cle, maxMois, maxJour, json)
+  if (new URL(req.url).searchParams.get('mode') === 'action') return await planAction(req, db, userId, cle, maxMois, maxJour, json)
   // Mode que cette version ne connaît pas : « mode_inconnu » (l'appli relit alors les modes annoncés par le GET).
   const modeDemande = new URL(req.url).searchParams.get('mode')
   if (modeDemande && modeDemande !== 'dictee') return json({ error: 'mode_inconnu' }, 400)
@@ -918,4 +929,121 @@ async function requeteSql(
   const explication = typeof sortie.explication === 'string' ? sortie.explication.replace(/\s+/g, ' ').trim().slice(0, 400) : ''
   const affichage = AFFICHAGES.includes(sortie.affichage as string) ? sortie.affichage : 'tableau'
   return json({ sql, explication, affichage, nonGere, ms, model: modele, ...restants })
+}
+
+// ---------- « Demander » une action : plan relu par l'appli (POST ?mode=action) ----------
+// Entrée (JSON) : { phrase, schema, page? } : la phrase (300 caractères au plus), la DESCRIPTION de la recette des joueurs
+// (src/recipe.ts, buildQuestionSchema : clés, opérateurs, postes, catégories et critères ; aucune donnée) et la page d'où
+// vient la demande (joueurs, evenements, groupes, bilan : un mot, sans donnée). Sortie : { plan, ms, model, restant_mois,
+// restant_jour }. Le plan n'est qu'une PROPOSITION : l'appli le relit (src/askAction.ts, parsePlan : action de la liste
+// blanche seulement, textes bornés, recette revérifiée), retrouve les noms cités sur l'appareil, calcule les joueurs et
+// demande l'accord de l'entraîneur (carte « Je vais : … », Accepter / Annuler) avant toute écriture. Ni la phrase ni la
+// réponse ne sont journalisées. Exemples relus par tools/test-demander-actions.ts (chaque plan d'exemple doit être accepté).
+
+const PAGES_ACTION = ['joueurs', 'evenements', 'groupes', 'bilan']
+
+const CONSIGNES_ACTION = `Tu traduis la demande d'un entraîneur de handball (détection de jeunes) en PLAN JSON pour son appli. L'appli retrouve les noms, calcule les joueurs et demande TOUJOURS l'accord de l'entraîneur avant d'agir : tu ne vois aucune donnée.
+Réponds seulement par ce JSON : {"action":"…","cible":"…","nom":"…","joueurs":{…},"createurs":[…],"liste":"…","nonGere":[…]}
+
+ACTION (une seule)
+- "creer_groupe" : créer un NOUVEAU groupe avec les joueurs trouvés (« crée un groupe avec… », « fais-moi un groupe des… », « trouve… et crée-moi un groupe avec »). "nom" : le nom dit (« appelé … »), sinon un nom court d'après les critères (40 caractères au plus).
+- "ajouter_groupe" : ajouter les joueurs trouvés à un groupe EXISTANT (« ajoute… au groupe X », « mets-les dans le groupe X ») ; "cible" : son nom tel que dit.
+- "ajouter_evenement" : ajouter les joueurs trouvés à un événement existant (tournoi, stage, match, rassemblement…) ; "cible" : son nom tel que dit.
+- "ouvrir_evenement" : montrer certains joueurs D'UN événement (« les gauchers dans l'événement X », « la liste des gardiens du tournoi X ») ; "cible" : le nom de l'événement ; "joueurs" : le filtre, sans l'événement.
+- "ouvrir_groupe" : même chose pour un groupe (« les gardiennes du groupe X »).
+- "filtrer_createur" : les groupes ou les événements créés par quelqu'un ; "liste" : "groupes" ou "evenements" ; "createurs" : les noms tels que dits.
+- "interdite" : supprimer, retirer, enlever, vider, modifier, renommer, archiver, déplacer ; toucher aux comptes, aux rôles, aux mots de passe ; envoyer un message. Rien d'autre à remplir.
+- "aucune" : ce n'est pas une action (simple recherche, question de calcul).
+
+RÈGLES
+- "joueurs" est une RECETTE de joueurs d'après le SCHÉMA ci-dessous : {"population":{…},"vus":{…},"avis":[…],"nbAvis":{…},"mesures":[…]} ; jamais de "sortie". Omets ce qui n'est pas dit ; n'invente aucune valeur.
+- Recette : « nés en 2010 », « les 2010 » → annee 2010 ; « filles », « joueuses » → sexe F ; « garçons » → M ; « gauchers » → lateralite gaucher ; « 1 m 80 », « 1,80 m » → 180 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax ; « gardiens » → postes ["GB"] ; clubs, régions, départements : recopiés tels que dits (« Var », « 83 »).
+- Noms de groupes, d'événements et de personnes : recopiés TELS QUE DITS, sans les corriger ; jamais dans "joueurs".
+- Ce qui ne rentre nulle part : "nonGere" (quelques mots).
+
+EXEMPLES
+« Trouve-moi tous les gauchers du Var de plus d'1,80 m et crée-moi un groupe avec » → {"action":"creer_groupe","nom":"Gauchers Var 1,80 m+","joueurs":{"population":{"lateralite":"gaucher","departements":["Var"],"tailleMin":180}},"nonGere":[]}
+« fais-moi un groupe appelé Repérés 2012 avec les filles de 2012 vues au moins deux fois » → {"action":"creer_groupe","nom":"Repérés 2012","joueurs":{"population":{"sexe":"F","annee":2012},"vus":{"op":">=","n":2}},"nonGere":[]}
+« mets les gardiens de 2011 du Var dans le groupe Pôle Aix » → {"action":"ajouter_groupe","cible":"Pôle Aix","joueurs":{"population":{"postes":["GB"],"annee":2011,"departements":["Var"]}},"nonGere":[]}
+« ajoute les pivots gauchers au tournoi de Cannes » → {"action":"ajouter_evenement","cible":"tournoi de Cannes","joueurs":{"population":{"postes":["PIV"],"lateralite":"gaucher"}},"nonGere":[]}
+« donne-moi la liste des gauchers dans l'événement Détection 2013 » → {"action":"ouvrir_evenement","cible":"Détection 2013","joueurs":{"population":{"lateralite":"gaucher"}},"nonGere":[]}
+« les gardiennes du groupe Pôle Aix » → {"action":"ouvrir_groupe","cible":"Pôle Aix","joueurs":{"population":{"sexe":"F","postes":["GB"]}},"nonGere":[]}
+« montre-moi les groupes que Paul a créés » → {"action":"filtrer_createur","liste":"groupes","createurs":["Paul"],"nonGere":[]}
+« supprime le groupe Pôle Aix » → {"action":"interdite","nonGere":[]}
+« retire les gauchers du groupe Intercomités » → {"action":"interdite","nonGere":[]}
+« combien de gauchers dans le Var ? » → {"action":"aucune","nonGere":[]}`
+
+async function planAction(
+  req: Request,
+  db: Db,
+  userId: string,
+  cle: string,
+  maxMois: number,
+  maxJour: number,
+  json: (body: unknown, status?: number) => Response,
+): Promise<Response> {
+  const taille = Number(req.headers.get('content-length') ?? 0)
+  if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
+  let entree: { phrase?: unknown; schema?: unknown; page?: unknown }
+  try {
+    entree = await req.json()
+  } catch {
+    return json({ error: 'requete_illisible' }, 400)
+  }
+  const phrase = typeof entree.phrase === 'string' ? entree.phrase.replace(/\s+/g, ' ').trim() : ''
+  if (!phrase) return json({ error: 'phrase_absente' }, 400)
+  if (phrase.length > MAX_PHRASE) return json({ error: 'phrase_trop_longue' }, 413)
+  const page = typeof entree.page === 'string' && PAGES_ACTION.includes(entree.page) ? entree.page : ''
+  // Description de la recette des joueurs : une ligne « clé : valeurs » par clé (textes seulement), rien d'autre.
+  const schema =
+    entree.schema && typeof entree.schema === 'object' && !Array.isArray(entree.schema)
+      ? Object.entries(entree.schema as Record<string, unknown>)
+          .filter(([, v]) => typeof v === 'string')
+          .map(([k, v]) => `${k.slice(0, 40)} : ${v}`)
+          .join('\n')
+      : ''
+  if (!schema || schema.length > MAX_SCHEMA) return json({ error: 'schema_invalide' }, 400)
+
+  // Plafonds : un appel compté par demande, comme une dictée.
+  const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
+  if (quotaError) return json({ error: 'quota_indisponible' }, 500)
+  if (!quota?.ok) return json({ error: quota?.raison ?? 'quota_atteint', restant_mois: quota?.restant_mois ?? 0, restant_jour: quota?.restant_jour ?? 0 }, 429)
+
+  const modele = Deno.env.get('MISTRAL_MODELE_ACTION') || Deno.env.get('MISTRAL_MODELE_QUESTION') || 'mistral-small-latest'
+  const t0 = performance.now()
+  const res = await avecRelance(() => fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modele,
+      temperature: 0,
+      max_tokens: 600,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${CONSIGNES_ACTION}\n\nSCHÉMA DE LA RECETTE DES JOUEURS (clé : valeurs)\n${schema}` },
+        { role: 'user', content: page ? `Page ${page} ; « ${phrase} »` : `« ${phrase} »` },
+      ],
+    }),
+  }))
+  const ms = Math.round(performance.now() - t0)
+  const restants = { restant_mois: quota.restant_mois, restant_jour: quota.restant_jour }
+  if (!res.ok) {
+    console.error('transcrire (action) : Mistral a répondu', res.status)
+    await res.body?.cancel()
+    const error = res.status === 429 ? 'mistral_limite' : res.status === 401 ? 'mistral_cle' : 'mistral_erreur'
+    return json({ error, status: res.status, ...restants }, 502)
+  }
+  // La réponse du modèle n'est jamais journalisée (elle reprend la phrase).
+  let plan: unknown
+  try {
+    const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
+    const contenu = out.choices?.[0]?.message?.content
+    const texte = typeof contenu === 'string' ? contenu : Array.isArray(contenu) ? contenu.map((c) => (c as { text?: string })?.text ?? '').join('') : ''
+    plan = JSON.parse(texte.replace(/^```(?:json)?\s*|\s*```$/g, ''))
+  } catch {
+    return json({ error: 'reponse_illisible', ...restants }, 502)
+  }
+  // Forme seulement : un objet de taille raisonnable (l'appli revérifie chaque champ et n'écrit rien sans accord).
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || JSON.stringify(plan).length > MAX_RECETTE) return json({ error: 'reponse_illisible', ...restants }, 502)
+  return json({ plan, ms, model: modele, ...restants })
 }

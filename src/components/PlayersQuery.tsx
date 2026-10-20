@@ -68,6 +68,8 @@ import { ClubPicker, department, hayOf, readSex, tokensOf, useSessionState, writ
 import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon, Segmented } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
+import { startAskAction } from './AskAction'
+import { detectAction } from '../askAction'
 import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { putYears, yearsOf } from '../birthYears'
@@ -325,6 +327,15 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
+    // Une action (« crée un groupe avec les gauchers de 2011 », « ajoute … au groupe X ») : la carte de validation
+    // (src/components/AskAction.tsx) ; rien n'est fait sans « Accepter ». Liste Joueurs seulement (pas le bilan ni l'ajout).
+    const act = !hosted && !opts.scope ? detectAction(said, 'joueurs') : null
+    if (act) {
+      setText('')
+      recordAsk(askPage, said)
+      startAskAction(said, 'joueurs', act)
+      return
+    }
     // Simple nom : recherche locale (dite au micro ou tapée).
     if (isNameQuery(said) || !questionReady) {
       setText(said)

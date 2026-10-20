@@ -12,15 +12,18 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
 import { understandAvis, type AvisAnswer, type AvisCritere } from './avis'
+import { askMock, onAskMock } from './askMock'
 import {
   DictationError,
   requestAccess,
   transcribe,
+  understandAction,
   understandFilters,
   understandQuestion,
   understandSql,
   type Access,
   type AccessStatus,
+  type ActionAnswer,
   type Endpoint,
   type FilterAnswer,
   type QuestionAnswer,
@@ -191,8 +194,10 @@ export function useDictation() {
   useEffect(() => {
     const l = () => force((n) => n + 1)
     listeners.add(l)
+    const off = onAskMock(l)
     return () => {
       listeners.delete(l)
+      off()
     }
   }, [])
   useEffect(() => {
@@ -207,6 +212,22 @@ export function useDictation() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [allowed])
+  // Faux modèle (développement seulement, src/dictation/askMock.ts) : tout est annoncé, rien ne part.
+  if (askMock())
+    return {
+      allowed: true,
+      available: true,
+      ready: true,
+      searchReady: true,
+      searchModes: ['question', 'question_joueurs', 'question_evenements', 'question_groupes', 'action'],
+      avisReady: false,
+      questionReady: true,
+      sqlReady: false,
+      actionReady: true,
+      enabled,
+      access: undefined,
+      setEnabled: setDictationEnabled,
+    }
   const available = allowed && access?.value.status === 'ok'
   const ready = available && enabled
   const searchReady = ready && !!access?.value.filtres
@@ -221,6 +242,9 @@ export function useDictation() {
     questionReady: searchReady && !!access?.value.modes?.includes('question'),
     // Mode avancé de « Poser une question » (requête SQL exécutée sur la copie locale) : la fonction annonce « sql ».
     sqlReady: searchReady && !!access?.value.modes?.includes('question') && !!access?.value.modes?.includes('sql'),
+    // Actions de « Demander » lues par le modèle (plan relu et validé par l'appli) : la fonction annonce « action ». Les
+    // actions reconnues par les règles locales n'en ont pas besoin (la partie « joueurs » passe par « question »).
+    actionReady: searchReady && !!access?.value.modes?.includes('action'),
     enabled,
     access: allowed ? access?.value : undefined,
     setEnabled: setDictationEnabled,
@@ -229,6 +253,8 @@ export function useDictation() {
 
 /** « Poser une question » : la phrase et la description de la recette seulement (src/recipe.ts), jamais de données de joueur. */
 export async function sendQuestionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal, extra?: QuestionExtra): Promise<QuestionAnswer> {
+  const m = askMock()
+  if (m?.question) return mockQuestion(m.question(phrase, extra?.contexte))
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
@@ -261,6 +287,36 @@ export async function sendAvisRequest(texte: string, criteres: AvisCritere[], si
   if (!ep) throw new DictationError('non_connecte')
   try {
     const r = await understandAvis(ep, texte, criteres, signal)
+    afterCall(ep.uid, r)
+    return r
+  } catch (e) {
+    afterError(ep.uid, e)
+    throw e
+  }
+}
+
+/** Réponse d'un faux modèle (développement) mise dans la forme de la vraie. */
+function mockQuestion(v: unknown): QuestionAnswer {
+  const o = (v && typeof v === 'object' ? v : {}) as { recette?: unknown; nonGere?: unknown; action?: unknown; retirer?: unknown }
+  return {
+    recette: o.recette ?? {},
+    nonGere: Array.isArray(o.nonGere) ? o.nonGere.filter((x): x is string => typeof x === 'string') : [],
+    ...(typeof o.action === 'string' ? { action: o.action } : {}),
+    ...(Array.isArray(o.retirer) ? { retirer: o.retirer } : {}),
+  }
+}
+
+/**
+ * « Demander » une action : la phrase et la description de la recette des joueurs seulement (src/recipe.ts), jamais de
+ * données ni de noms de l'appareil. Le plan rendu est relu par src/askAction.ts (parsePlan).
+ */
+export async function sendActionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal, page?: string): Promise<ActionAnswer> {
+  const m = askMock()
+  if (m?.action) return { plan: m.action(phrase) }
+  const ep = await endpoint()
+  if (!ep) throw new DictationError('non_connecte')
+  try {
+    const r = await understandAction(ep, phrase, schema, signal, page)
     afterCall(ep.uid, r)
     return r
   } catch (e) {

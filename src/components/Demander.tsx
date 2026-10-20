@@ -25,6 +25,7 @@ import { MAX_PHRASE } from '../dictation/transcribe'
 import { can } from '../roles'
 import { useSavedQuestions } from '../savedQuestions'
 import { loadTeams } from '../teams'
+import { startAskAction } from './AskAction'
 import { canLeave } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { Icon, playerName } from './ui'
@@ -324,7 +325,7 @@ export function Demander(p: DemanderProps) {
     if (header && p.go) {
       // Depuis l'en-tête : relue comme une nouvelle demande (première proposition), sur sa page d'origine si elle y colle.
       const rs = routeAsk(e.text)
-      const r = rs.find((x) => x.apply?.page === e.page) ?? rs[0]
+      const r = rs[0]?.kind === 'action' ? rs[0] : (rs.find((x) => x.apply?.page === e.page) ?? rs[0])
       if (r) {
         close({ keepEntry: true })
         p.go(r)
@@ -385,7 +386,7 @@ export function Demander(p: DemanderProps) {
         node: (
           <>
             <span className={`shrink-0 text-base font-extrabold ${r.kind === 'select' ? 'text-suggest' : 'text-ai'}`} aria-hidden>
-              {r.kind.startsWith('open') ? '↗' : r.kind === 'bilan' ? '?' : r.kind === 'select' ? '+' : '→'}
+              {r.kind.startsWith('open') ? '↗' : r.kind === 'bilan' ? '?' : r.kind === 'select' ? '+' : r.kind === 'action' ? '✦' : '→'}
             </span>
             <span className="flex min-w-0 flex-col py-1">
               <span className="truncate font-bold">{r.label}</span>
@@ -895,8 +896,18 @@ export function AskButton() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  /** Une demande part (palette, dictée) : relue sur sa page (postAsk), ou la page ouverte. */
+  /** Une demande part (palette, dictée) : relue sur sa page (postAsk), ou la page ouverte ; une action : sa carte, ici. */
   const go = async (r: AskRoute, said: string) => {
+    if (r.kind === 'action' && r.action) {
+      const page = pageOfPath(loc.pathname)
+      recordAsk(page, said.trim() || r.action.phrase)
+      const entry = pushed.current && hasEntry
+      pushed.current = false
+      setOpen(false)
+      if (entry) nav(-1)
+      startAskAction(r.action.phrase, page, r.action.detected)
+      return
+    }
     if (!(await canLeave())) return
     recordAsk(r.apply?.page ?? pageOfPath(r.to), said.trim() || r.apply?.phrase || r.label)
     const entry = pushed.current && hasEntry

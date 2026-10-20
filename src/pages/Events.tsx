@@ -32,6 +32,7 @@ import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/Playe
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
+import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
 import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
@@ -496,6 +497,8 @@ export function EventDetail() {
   const toggleAvis = (pid: string) => showAvis(openAvis === pid ? null : pid)
   // « Comparer » : cases à cocher sur les joueurs (liste et classement), deux à comparer.
   const pick = useComparePick()
+  // « Les gauchers de l'événement X » (Demander, src/components/AskAction.tsx) : la liste ne montre que ces joueurs.
+  const askFilter = useAskListFilter('evenement', id)
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id!)
     const evals = alive(await db.evaluations.where('eventId').equals(id!).toArray())
@@ -610,7 +613,8 @@ export function EventDetail() {
   const isSeen = (p: Player) => (sight.get(p.id) ?? []).length > 0
   const coverOk = (p: Player) =>
     cover === 'pasvus' ? !isSeen(p) : cover === 'vus' ? isSeen(p) : cover === 'notes' ? notedSet.has(p.id) : cover === 'arevoir' ? rewatchFrom.has(p.id) : true
-  const displayed = shownRoster.filter(coverOk)
+  const askIds = askFilter ? new Set(askFilter.ids) : null
+  const displayed = shownRoster.filter((p) => coverOk(p) && (!askIds || askIds.has(p.id)))
   // Tournoi réparti : équipes, mes équipes et leur progression.
   const tTeams = tournamentTeams(ev)
   const myTeams = myTournamentTeams(ev)
@@ -1011,6 +1015,7 @@ export function EventDetail() {
                     )}
                   </div>
                 )}
+                {askFilter && <AskFilterBanner kind="evenement" id={ev.id} f={askFilter} shown={displayed.length} />}
                 {roster.length > 1 && (
                   <RosterControls
                     roster={roster}

@@ -325,3 +325,42 @@ export async function understandSql(ep: Endpoint, phrase: string, schema: Record
     restantJour: d.restant_jour,
   }
 }
+
+/** Plan d'action rendu par le modèle (POST ?mode=action) : brut, relu par l'appli (src/askAction.ts, parsePlan). */
+export type ActionAnswer = { plan: unknown; ms?: number; restantMois?: number; restantJour?: number }
+
+/**
+ * « Demander » une action (POST ?mode=action, JSON) : envoie seulement la phrase et la DESCRIPTION de la recette des joueurs
+ * (src/recipe.ts, buildQuestionSchema), jamais de données de joueurs ni aucun nom de l'appareil (groupes, événements,
+ * personnes). Le plan rendu (action, nom cité tel que dit, recette des joueurs) est relu et calculé par l'appli, qui demande
+ * l'accord de l'entraîneur avant toute écriture.
+ */
+export async function understandAction(ep: Endpoint, phrase: string, schema: Record<string, string>, signal?: AbortSignal, page?: string): Promise<ActionAnswer> {
+  const text = phrase.replace(/\s+/g, ' ').trim()
+  if (!text) throw new DictationError('phrase_absente')
+  if (text.length > MAX_PHRASE) throw new DictationError('phrase_trop_longue')
+  const f = ep.fetch ?? fetch
+  let res: Response
+  try {
+    res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=action', {
+      method: 'POST',
+      headers: { ...ep.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: text, schema, ...(page ? { page } : {}) }),
+      signal,
+    })
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new DictationError('annule', 'Demande annulée.')
+    throw new DictationError('reseau')
+  }
+  let d: { plan?: unknown; ms?: number; error?: string; restant_mois?: number; restant_jour?: number } = {}
+  try {
+    d = await res.json()
+  } catch {
+    /* réponse vide */
+  }
+  if (!res.ok) {
+    const code = modeCode(d.error ?? (res.status === 404 ? 'absent' : res.status === 401 ? 'non_connecte' : res.status === 403 ? 'pas_admin' : 'mistral_erreur'))
+    throw new DictationError(code === 'reponse_illisible' ? 'question_illisible' : code)
+  }
+  return { plan: d.plan ?? null, ms: d.ms, restantMois: d.restant_mois, restantJour: d.restant_jour }
+}

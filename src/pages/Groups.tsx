@@ -32,6 +32,7 @@ import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } f
 import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { groupRosterKey, positionRosterView, useRosterFilter, useRosterSort } from '../rosterOrder'
+import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
 import { RosterControls, RosterSectionList } from '../components/PositionRoster'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
@@ -789,6 +790,8 @@ function PlayerGroupDetail() {
   const [removing, setRemoving] = useState(false)
   // « Comparer » : cases à cocher sur les joueurs, deux à comparer.
   const pick = useComparePick()
+  // « Les gardiennes du groupe X » (Demander, src/components/AskAction.tsx) : la liste ne montre que ces joueurs.
+  const askFilter = useAskListFilter('groupe', id)
   // « Réattribuer… » (administrateurs, supabase/038) : panneau ouvert.
   const [transferring, setTransferring] = useState(false)
   useEffect(() => setTransferring(false), [id])
@@ -840,6 +843,9 @@ function PlayerGroupDetail() {
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
   const info = pole ? [ref?.name ?? 'Unité Pôle introuvable', ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
   const view = positionRosterView(players, sort, posFilter)
+  const askIds = askFilter ? new Set(askFilter.ids) : null
+  const sections = askIds ? view.sections.map((sec) => ({ ...sec, players: sec.players.filter((p) => askIds.has(p.id)) })).filter((sec) => sec.players.length) : view.sections
+  const nAsk = askIds ? sections.reduce((n, sec) => n + sec.players.length, 0) : 0
   // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte ; pôle : sexe de l'unité), sinon déduit de ses joueurs.
   const gg = setGender(ref?.sex ?? g.sex, players)
   const gw = w(gg)
@@ -1071,10 +1077,11 @@ function PlayerGroupDetail() {
       {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
       {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
       {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
-      <PlayerList ids={view.sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
+      {askFilter && <AskFilterBanner kind="groupe" id={g.id} f={askFilter} shown={nAsk} />}
+      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
       <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         <RosterSectionList
-          sections={view.sections}
+          sections={sections}
           row={(p, i) => (
           // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;
           // le retour revient ici, à la même position.

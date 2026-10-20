@@ -16,7 +16,9 @@ import {
   parseNumCond,
   parseSort,
   type ListCalc,
+  matchPerson,
   type ListIncoming,
+  type NameConfirm,
   type ListQuery,
   type ListSpec,
   type NumCond,
@@ -357,11 +359,14 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
     else notes.push(`mes groupes ${quote(r.mes)} (valeur inconnue)`)
   }
   if (r.suivis !== undefined && isTrue(r.suivis)) f.followed = true
+  // Nom approchant (« Steve Bacher » pour « Stef bascher ») : à confirmer par l'entraîneur avant d'appliquer le filtre.
+  const confirm: NameConfirm[] = []
   for (const c of asList(r.createurs ?? r.createur)) {
     const s = asText(c)
-    const m = bestMatch(s, [...new Set(ctx.creators.filter(Boolean))], (x) => [x])
+    const m = matchPerson(s, ctx.creators)
     if ('found' in m) f.creators = [...new Set([...(f.creators ?? []), m.found])]
-    else if ('ambiguous' in m) f.creators = [...new Set([...(f.creators ?? []), s])]
+    else if ('words' in m) f.creators = [...new Set([...(f.creators ?? []), m.words])]
+    else if ('confirm' in m) confirm.push({ key: 'creators', said: s, choices: m.confirm })
     else notes.push(`créateur ${quote(s)} (aucun groupe créé par cette personne)`)
   }
   if (r.joueurs !== undefined) {
@@ -391,7 +396,7 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
       if (out.tri && !sort) notes.push(`tri ${quote(out.tri)} (inconnu)`)
     }
   }
-  return { f, ...(q ? { q } : {}), ...(sort ? { sort } : {}), ...(calc ? { calc } : {}), notes, unsupported }
+  return { f, ...(q ? { q } : {}), ...(sort ? { sort } : {}), ...(calc ? { calc } : {}), notes, unsupported, ...(confirm.length ? { confirm } : {}) }
 }
 
 // ---------- Anciens filtres (avant la recette) ----------

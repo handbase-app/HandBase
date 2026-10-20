@@ -219,7 +219,7 @@ const old = await requestAccess({ ...ep, fetch: fake({ pret: true, modes: ['dict
 assert.ok(old.filtres && !old.modes?.includes('filtres_evenements'), 'fonction déployée d’avant : pas de bouton sur Événements ni Groupes')
 assert.deepEqual(
   fn.match(/modes: \[([^\]]*)\]/)?.[1],
-  `'dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql'`,
+  `'dictee', 'filtres', 'avis', 'filtres_bilan', 'filtres_evenements', 'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql', 'action'`,
 )
 // La fonction : page inconnue ou absente → consignes de la liste Joueurs.
 assert.ok(fn.includes("Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES"))
