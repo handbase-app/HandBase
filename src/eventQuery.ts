@@ -17,7 +17,9 @@ import {
   parseNumCond,
   parseSort,
   type ListCalc,
+  matchPerson,
   type ListIncoming,
+  type NameConfirm,
   type ListQuery,
   type ListSpec,
   type NumCond,
@@ -550,11 +552,14 @@ export function readEventsRecipe(raw: unknown, nonGere: string[], ctx: EventsRea
     else if (/^(participant|participe|participants)$/.test(s)) f.who = 'participant'
     else notes.push(`mes événements ${quote(r.mes)} (valeur inconnue)`)
   }
+  // Nom approchant (« Steve Bacher » pour « Stef bascher ») : à confirmer par l'entraîneur avant d'appliquer le filtre.
+  const confirm: NameConfirm[] = []
   for (const c of asList(r.createurs ?? r.createur)) {
     const s = asText(c)
-    const m = bestMatch(s, [...new Set(ctx.creators.filter(Boolean))], (x) => [x])
+    const m = matchPerson(s, ctx.creators)
     if ('found' in m) f.creators = [...new Set([...(f.creators ?? []), m.found])]
-    else if ('ambiguous' in m) f.creators = [...new Set([...(f.creators ?? []), s])]
+    else if ('words' in m) f.creators = [...new Set([...(f.creators ?? []), m.words])]
+    else if ('confirm' in m) confirm.push({ key: 'creators', said: s, choices: m.confirm })
     else notes.push(`créateur ${quote(s)} (aucun événement créé par cette personne)`)
   }
   if (r.feuilleDeMatch !== undefined && isTrue(r.feuilleDeMatch)) f.sheet = true
@@ -601,7 +606,7 @@ export function readEventsRecipe(raw: unknown, nonGere: string[], ctx: EventsRea
       if (out.tri && !sort) notes.push(`tri ${quote(out.tri)} (inconnu)`)
     }
   }
-  return { f, ...(q ? { q } : {}), ...(sort ? { sort } : {}), ...(calc ? { calc } : {}), notes, unsupported }
+  return { f, ...(q ? { q } : {}), ...(sort ? { sort } : {}), ...(calc ? { calc } : {}), notes, unsupported, ...(confirm.length ? { confirm } : {}) }
 }
 
 /** La lecture n'a rien donné d'utile (rien à appliquer). */

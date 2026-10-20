@@ -8,6 +8,26 @@ import { loadTeams } from '../teams'
 
 // ---------- Ajouter à un événement ----------
 
+/**
+ * Ajoute des joueurs à la liste d'un événement (relu juste avant : sans doublon, ordre conservé). Rend l'événement relu et
+ * les joueurs vraiment ajoutés. Aussi utilisé par les actions de « Demander » (src/components/AskAction.tsx).
+ */
+export async function addPlayersToEvent(ev: HBEvent, playerIds: string[]): Promise<{ cur: HBEvent; added: string[] }> {
+  const cur = (await db.events.get(ev.id)) ?? ev
+  const ids = cur.playerIds ?? []
+  const added = [...new Set(playerIds)].filter((id) => !ids.includes(id))
+  if (added.length) {
+    // « Ajouté par » : posé ici pour l'affichage ; le serveur le refait (supabase/024).
+    const me = currentUserId()
+    await save<HBEvent>('events', {
+      ...cur,
+      playerIds: [...ids, ...added],
+      ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
+    })
+  }
+  return { cur, added }
+}
+
 /** Événements à venir où je peux ajouter des joueurs (organisateur, administrateur, participant) ; un toucher les ajoute. */
 export function AddToEventDialog({ playerIds, onClose, onAdded }: { playerIds: string[]; onClose: () => void; /** Après un ajout : le message (sélection multiple). */ onAdded?: (msg: string, eventId: string) => void }) {
   const role = useRole()
@@ -28,18 +48,7 @@ export function AddToEventDialog({ playerIds, onClose, onAdded }: { playerIds: s
   const who = n > 1 ? pluralG(n, pg) : w(pg).ceJoueur
 
   async function add(ev: HBEvent) {
-    const cur = (await db.events.get(ev.id)) ?? ev
-    const ids = cur.playerIds ?? []
-    const added = playerIds.filter((id) => !ids.includes(id))
-    if (added.length) {
-      // « Ajouté par » : posé ici pour l'affichage ; le serveur le refait (supabase/024).
-      const me = currentUserId()
-      await save<HBEvent>('events', {
-        ...cur,
-        playerIds: [...ids, ...added],
-        ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
-      })
-    }
+    const { cur, added } = await addPlayersToEvent(ev, playerIds)
     const msg = added.length ? `${added.length > 1 ? pluralG(added.length, pg, 'joueur ajouté') : accord('Joueur ajouté', pg)} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`
     setDone(msg)
     onAdded?.(msg, cur.id)

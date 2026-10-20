@@ -390,7 +390,7 @@ assert.ok(acc.modes?.includes('sql'))
 // ---------- Fonction : garde-fous du mode ----------
 const sFn = fn.slice(fn.indexOf('async function requeteSql'))
 assert.ok(fn.includes("searchParams.get('mode') === 'sql') return await requeteSql"), 'routage du mode')
-assert.ok(fn.includes("'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql']"), 'GET : modes annonce « sql »')
+assert.ok(fn.includes("'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql', 'action']"), 'GET : modes annonce « sql »')
 assert.ok(sFn.includes('hb_transcription_compter'), 'un appel compté')
 assert.ok(sFn.includes('avecRelance('), 'relance sur 429')
 assert.ok(sFn.includes("Deno.env.get('MISTRAL_MODELE_SQL') || 'codestral-latest'"))

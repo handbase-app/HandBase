@@ -1,3 +1,4 @@
+import { detectAction, type Detected } from './askAction'
 import { isNameQuery } from './playerQuery'
 import { nameKey, queryWords, searchByName } from './nameMatch'
 
@@ -12,9 +13,10 @@ import { nameKey, queryWords, searchByName } from './nameMatch'
  *    la première étant celle d'Entrée. Un simple nom → Joueurs (et « Ouvrir l'événement / le groupe » s'il y correspond) ;
  *    « ouvre la fiche de X » → la fiche du joueur ; une phrase d'événements → Événements ; de groupes → Groupes ; une
  *    question de calcul → le bilan ; sinon Joueurs. Les noms (joueurs, événements, groupes) sont ceux de l'appareil :
- *    ils servent ici seulement, rien ne part. Jamais une action qui écrit : « crée un groupe avec… » devient « Filtrer
- *    Joueurs puis créer le groupe avec le résultat », la sélection multiple déjà en place ; rien n'est créé sans toucher
- *    un bouton.
+ *    ils servent ici seulement, rien ne part. Une ACTION (« crée un groupe avec… », « ajoute … au groupe X », « les
+ *    gauchers de l'événement X » : src/askAction.ts, detectAction) donne d'abord « Préparer : … » (kind « action ») : la
+ *    carte de validation (src/components/AskAction.tsx) montre ce qui sera fait, et RIEN n'est écrit avant « Accepter » ;
+ *    ensuite, comme avant, « Filtrer Joueurs puis créer le groupe avec le résultat » (sélection multiple prête).
  */
 
 // ---------- Pages et historique ----------
@@ -119,7 +121,7 @@ export function suggestionsFor(page: AskPage, ctx: { today: string }): string[] 
 
 // ---------- Où envoyer une demande faite depuis l'en-tête ----------
 
-export type AskKind = 'name' | 'open-player' | 'open-event' | 'open-group' | 'players' | 'events' | 'groups' | 'bilan' | 'select'
+export type AskKind = 'name' | 'open-player' | 'open-event' | 'open-group' | 'players' | 'events' | 'groups' | 'bilan' | 'select' | 'action'
 
 /** Ce que la page de destination doit faire en arrivant (rien n'est créé : `select` prépare seulement la sélection). */
 export type AskApply = { page: AskPage; phrase: string; select?: 'groupe' | 'evenement' }
@@ -134,6 +136,8 @@ export type AskRoute = {
   to: string
   /** Demande à relancer sur la page de destination (listes et bilan). */
   apply?: AskApply
+  /** kind « action » : la carte de validation s'ouvre ici, avec ce qu'a lu detectAction (rien n'est fait sans « Accepter »). */
+  action?: { phrase: string; detected: Detected }
 }
 
 export type Named = { id: string; name: string }
@@ -217,13 +221,44 @@ const select = (phrase: string, what: 'groupe' | 'evenement'): AskRoute => ({
   apply: { page: 'joueurs', phrase, select: what },
 })
 
+/** « Préparer : … » : la carte de validation de l'action (src/components/AskAction.tsx). */
+function actionRoute(phrase: string, d: Detected): AskRoute {
+  const p = d.kind === 'plan' ? d.plan : null
+  const label =
+    d.kind === 'interdite'
+      ? 'Action non permise à l’assistant'
+      : !p
+        ? 'Préparer cette action'
+        : p.action === 'creer_groupe'
+          ? 'Préparer : créer un groupe avec le résultat'
+          : p.action === 'ajouter_groupe'
+            ? `Préparer : ajouter au groupe « ${p.target} »`
+            : p.action === 'ajouter_evenement'
+              ? `Préparer : ajouter à « ${p.target} »`
+              : `Ouvrir « ${p.target} » avec ce filtre`
+  return {
+    kind: 'action',
+    label,
+    hint: d.kind === 'interdite' ? 'Supprimer, retirer, modifier : à faire soi-même, depuis la page' : `« ${phrase} » · rien n’est fait sans « Accepter »`,
+    to: '',
+    action: { phrase, detected: d },
+  }
+}
+
 /**
  * Propositions, dans l'ordre, pour une demande faite depuis l'en-tête. Toujours au moins une (phrase vide : aucune) ;
- * la première est celle d'Entrée.
+ * la première est celle d'Entrée. Une action (sauf le filtre par créateur, fait par la liste Groupes ou Événements) :
+ * « Préparer : … » en premier.
  */
 export function routeAsk(phrase: string, ctx: AskContext = {}): AskRoute[] {
   const text = cleanText(phrase)
   if (!text) return []
+  const d = detectAction(text)
+  if (d && !(d.kind === 'plan' && d.plan.action === 'filtrer_createur')) return [actionRoute(text, d), ...routePhrase(text, ctx)]
+  return routePhrase(text, ctx)
+}
+
+function routePhrase(text: string, ctx: AskContext): AskRoute[] {
   // Même longueur que `text` (accents retirés, « montre-moi » → « montre moi ») : les morceaux se retrouvent dans l'original.
   const n = foldAsk(text).replace(/[’`´]/g, "'").replace(/-(moi|nous)\b/g, ' $1')
 
@@ -251,7 +286,7 @@ export function routeAsk(phrase: string, ctx: AskContext = {}): AskRoute[] {
       return out
     }
     // Rien de ce nom : on cherche le nom dans Joueurs, ou l'on traite le reste comme une phrase.
-    if (isNameQuery(target)) return routeAsk(target, ctx)
+    if (isNameQuery(target)) return routePhrase(target, ctx)
   }
 
   // Un simple nom (ou une licence) : recherche dans Joueurs ; un événement ou un groupe de ce nom, à ouvrir.

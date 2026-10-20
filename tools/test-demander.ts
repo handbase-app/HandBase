@@ -6,7 +6,8 @@
 //  3. routeAsk : où va une demande faite depuis l'en-tête : nom → Joueurs (+ « Ouvrir l'événement / le groupe » s'il y
 //     correspond, sans accents ni majuscules) ; « ouvre la fiche de X » → la fiche (nom approchant compris) ; phrase
 //     d'événements → Événements ; de groupes → Groupes ; question de calcul → bilan ; sinon Joueurs ; « crée un groupe
-//     avec… » → Joueurs filtrés, sélection prête (jamais une création) ; toujours au moins une proposition.
+//     avec… » → « Préparer : … » (carte de validation), puis Joueurs filtrés, sélection prête ; toujours au moins une
+//     proposition.
 // Jeu fictif : aucun nom réel.
 //
 //   npx jiti tools/test-demander.ts
@@ -221,19 +222,30 @@ const first = (p: string, c = ctx) => routeAsk(p, c)[0]
   assert.equal(first('nés en 2010 de plus d’1 m 85').kind, 'players')
   assert.equal(first('efface les filtres').kind, 'players', 'commande locale : la liste s’en charge')
 
-  // Jamais une action qui écrit : « crée un groupe avec… » filtre Joueurs avec la sélection prête ; rien n'est créé.
+  // « crée un groupe avec… » : d'abord « Préparer : … » (la carte de validation : rien n'est écrit avant « Accepter »,
+  // src/components/AskAction.tsx), puis, comme avant, Joueurs filtrés avec la sélection prête ; rien n'est créé ici.
   r = routeAsk('Crée un groupe avec les gauchers de 2011', ctx)
-  assert.equal(r[0].kind, 'select')
-  assert.equal(r[0].to, '/joueurs')
-  assert.deepEqual(r[0].apply, { page: 'joueurs', phrase: 'les gauchers de 2011', select: 'groupe' })
-  assert.ok(/créer le groupe avec le résultat/.test(r[0].label))
-  assert.ok(/rien n’est créé/.test(r[0].hint ?? ''))
-  assert.equal(r[1].kind, 'players')
+  assert.deepEqual(r.map((x) => x.kind), ['action', 'select', 'players'])
+  assert.ok(/^Préparer : créer un groupe/.test(r[0].label))
+  assert.ok(/rien n’est fait sans « Accepter »/.test(r[0].hint ?? ''))
+  assert.equal(r[0].action?.detected.kind, 'plan')
+  assert.ok(!r[0].apply, 'la carte s’ouvre ici : rien n’est relancé ailleurs')
+  assert.equal(r[1].to, '/joueurs')
+  assert.deepEqual(r[1].apply, { page: 'joueurs', phrase: 'les gauchers de 2011', select: 'groupe' })
+  assert.ok(/créer le groupe avec le résultat/.test(r[1].label))
+  assert.ok(/rien n’est créé/.test(r[1].hint ?? ''))
+  // Créer un événement : pas une action de « Demander » (v1) ; Joueurs filtrés, sélection prête, comme avant.
   assert.deepEqual(first('fais un événement avec les 2011 du Var').apply, { page: 'joueurs', phrase: 'les 2011 du Var', select: 'evenement' })
   assert.deepEqual(first('Ajoute une sélection pour les pivots gauchers').apply?.select, 'groupe')
   assert.ok(!routeAsk('crée un groupe avec les 2011', ctx).some((x) => x.to.startsWith('/groupes/nouveau')), 'jamais le formulaire de création en direct')
   // Casse et accents gardés dans la phrase relancée.
-  assert.equal(first('Crée un groupe avec les Gauchères du Var').apply?.phrase, 'les Gauchères du Var')
+  assert.equal(routeAsk('Crée un groupe avec les Gauchères du Var', ctx)[1].apply?.phrase, 'les Gauchères du Var')
+  // Autres actions : « Préparer : ajouter au groupe … », « Ouvrir … avec ce filtre », action interdite.
+  assert.equal(first('ajoute les 2011 du Var au groupe Sélection U15').label, 'Préparer : ajouter au groupe « Sélection U15 »')
+  assert.equal(first('les gauchers dans l’événement Tournoi de Fictiville').label, 'Ouvrir « Tournoi de Fictiville » avec ce filtre')
+  assert.equal(first('supprime le groupe Sélection U15').label, 'Action non permise à l’assistant')
+  // Filtre par créateur : la liste Groupes s'en charge (nom approchant confirmé là-bas).
+  assert.equal(first('les groupes que Paul a créés').kind, 'groups')
 
   // La page d'un chemin (suggestions de l'en-tête).
   assert.equal(pageOfPath('/evenements/e1'), 'evenements')

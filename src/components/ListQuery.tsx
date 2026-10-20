@@ -29,6 +29,8 @@ import { MicStatus, useMicRecorder } from './MicButton'
 import { useSessionState } from './PlayerFilter'
 import { chipCls, NumberInput, OPS, Select } from './RecipeChips'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
+import { startAskAction } from './AskAction'
+import { ACTION_DISPLAY, actionDetail, detectAction } from '../askAction'
 import type { AskPage } from '../demander'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase } from '../questionRescue'
@@ -130,17 +132,33 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   const askPage: AskPage = id === 'groupes' ? 'groupes' : 'evenements'
   useIncomingAsk(askPage, (a) => void ask(a.phrase))
 
+  // Nom de personne approchant à confirmer (« Tu voulais dire … ? ») avant d'appliquer la phrase (filtre par créateur).
+  type Pending = { phrase: string; before: ListQuery<F>; it: ListIncoming<F>; action: ReturnType<typeof decideAction>; remove: string[]; notes: string[]; local: boolean }
+  const [confirm, setConfirm] = useState<(Pending & { at: number }) | null>(null)
+
   async function ask(phrase: string) {
     // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
     const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
-    if (!micReady || isListSearch(said, o.hays)) {
+    setConfirm(null)
+    // Une action (« ajoute les gauchers au groupe X », « les gauchers dans l'événement X ») : la carte de validation
+    // (src/components/AskAction.tsx). Le filtre par créateur de CETTE liste (« les groupes que Paul a créés ») se fait ici,
+    // sans appel : le nom dit est retrouvé parmi les créateurs connus de l'appareil (approchant : à confirmer).
+    const act = detectAction(said, askPage)
+    const mine = act?.kind === 'plan' && act.plan.action === 'filtrer_createur' && act.plan.list === id ? act.plan : null
+    if (act && !mine) {
+      setText('')
+      recordAsk(askPage, said)
+      startAskAction(said, askPage, act)
+      return
+    }
+    if (!mine && (!micReady || isListSearch(said, o.hays))) {
       setText(said)
       recordAsk(askPage, said)
       return
     }
-    const local = localListCommand(spec, said)
+    const local = mine ? null : localListCommand(spec, said)
     if (local) {
       if (local.action === 'effacer') setChipOpen(null)
       applyPhrase(said, qy, local.action === 'effacer' ? emptyListQuery<F>() : removeListKeys(qy, local.keys))
@@ -151,7 +169,9 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
     abort.current = ctrl
     const before = qy
     try {
-      const ans = await sendQuestionRequest(said, o.schema(), ctrl.signal, { contexte: id, actuels: listKeysForModel(spec, before) })
+      const ans = mine
+        ? { recette: { createurs: mine.creators }, nonGere: [] as string[], action: 'ajouter', retirer: [] as unknown[] }
+        : await sendQuestionRequest(said, o.schema(), ctrl.signal, { contexte: id, actuels: listKeysForModel(spec, before) })
       if (ctrl.signal.aborted) return
       setText('')
       const it = o.read(ans.recette, ans.nonGere)
@@ -163,21 +183,52 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
         if (ks.length) remove.push(...ks)
         else if (typeof r === 'string') notes.push(`retirer « ${r.slice(0, 30)} » (filtre inconnu)`)
       }
-      const merged = mergeListQuery(spec, before, it, action, remove, o.regionOf)
-      const nothing = action === 'ajouter' && !remove.length && sameListQuery(spec, merged, before)
-      // Journal des questions (comme la liste Joueurs) : la phrase anonymisée et ce qu'en a fait la recette.
-      const logId = logQuestion(
-        { phrase: said, recipe: nothing ? 'pas_comprise' : notes.length || it.unsupported.length ? 'partielle' : 'complete', recipeMissing: [...it.unsupported, ...notes], page: id },
-        null,
-      )
-      if (nothing) setResult({ phrase: said, before, text: '', nothing: true, unsupported: [...it.unsupported, ...notes], logId })
-      else applyPhrase(said, before, merged, { notes, unsupported: it.unsupported, logId })
+      const p: Pending = { phrase: said, before, it, action, remove, notes, local: !!mine }
+      if (it.confirm?.length) setConfirm({ ...p, at: 0 })
+      else finish(p)
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
     } finally {
       if (abort.current === ctrl) abort.current = null
       setBusy('')
     }
+  }
+
+  /** Recette lue (noms confirmés) : fusionnée, notée au journal, appliquée. `confirmed` : un nom approchant a été confirmé. */
+  function finish(p: Pending, confirmed = false) {
+    const merged = mergeListQuery(spec, p.before, p.it, p.action, p.remove, o.regionOf)
+    const nothing = p.action === 'ajouter' && !p.remove.length && sameListQuery(spec, merged, p.before)
+    // Journal des questions (comme la liste Joueurs) : la phrase anonymisée et ce qu'en a fait la recette ; filtre par
+    // créateur (règle locale ou nom confirmé) : l'action et ce qu'en a fait l'entraîneur.
+    const logId = logQuestion(
+      {
+        phrase: p.phrase,
+        recipe: nothing ? 'pas_comprise' : p.notes.length || p.it.unsupported.length ? 'partielle' : 'complete',
+        recipeMissing: [...p.it.unsupported, ...p.notes],
+        page: id,
+        ...(confirmed || p.local ? { display: ACTION_DISPLAY, detail: actionDetail('filtrer_createur', confirmed ? 'acceptee' : 'appliquee') } : {}),
+      },
+      null,
+    )
+    if (nothing) setResult({ phrase: p.phrase, before: p.before, text: '', nothing: true, unsupported: [...p.it.unsupported, ...p.notes], logId })
+    else applyPhrase(p.phrase, p.before, merged, { notes: p.notes, unsupported: p.it.unsupported, logId })
+  }
+
+  /** « Oui » ou un autre nom : il remplace le nom dit ; tous les noms confirmés, la phrase s'applique. */
+  function pickName(name: string) {
+    if (!confirm) return
+    const c = confirm.it.confirm![confirm.at]
+    const f = { ...confirm.it.f } as Record<string, unknown>
+    f[c.key] = [...new Set([...((f[c.key] as string[] | undefined) ?? []), name])]
+    const it = { ...confirm.it, f: f as Partial<F> }
+    if (confirm.at + 1 < (it.confirm?.length ?? 0)) return setConfirm({ ...confirm, it, at: confirm.at + 1 })
+    setConfirm(null)
+    finish({ ...confirm, it }, true)
+  }
+  function cancelName() {
+    if (!confirm) return
+    logQuestion({ phrase: confirm.phrase, recipe: 'partielle', recipeMissing: confirm.notes, page: id, display: ACTION_DISPLAY, detail: actionDetail('filtrer_createur', 'annulee') }, null)
+    setConfirm(null)
   }
 
   const mic = useMicRecorder((t) => void ask(t))
@@ -215,8 +266,31 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
     />
   )
   const shownResult = result && (result.nothing || !result.after || sameListQuery(spec, result.after, qy)) ? result : null
-  const status =
-    mic.phase !== 'idle' ? (
+  const toConfirm = confirm?.it.confirm?.[confirm.at]
+  const status = toConfirm ? (
+    <div className="card flex flex-col gap-2 border-ai/40 p-3 text-xs" role="alert">
+      <p className="text-sm font-bold">
+        <span className="text-ai" aria-hidden>
+          ✦{' '}
+        </span>
+        Tu voulais dire « {toConfirm.choices[0]} » ?
+      </p>
+      <p className="text-[11px] text-muted">J’ai compris « {toConfirm.said} » ({o.noun[1]} créés par…), qui n’est pas un nom exact de cet appareil.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-primary min-h-10 px-4 text-xs" onClick={() => pickName(toConfirm.choices[0])}>
+          Oui
+        </button>
+        {toConfirm.choices.slice(1).map((c) => (
+          <button key={c} type="button" className="btn-ghost min-h-10 px-3 text-xs" onClick={() => pickName(c)}>
+            {c}
+          </button>
+        ))}
+        <button type="button" className="btn-ghost min-h-10 px-3 text-xs text-muted" onClick={cancelName}>
+          Annuler
+        </button>
+      </div>
+    </div>
+  ) : mic.phase !== 'idle' ? (
       <MicStatus mic={mic} dictated={false} />
     ) : busy ? (
       <div className="flex items-center gap-2 text-xs text-muted" role="status">

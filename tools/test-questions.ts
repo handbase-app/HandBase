@@ -859,7 +859,7 @@ assert.ok(acc.modes?.includes('question'))
 
 // ---------- Fonction : garde-fous du mode ----------
 const qFn = fn.slice(fn.indexOf('async function questionRecette'))
-assert.ok(fn.includes("'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql']"), 'GET : modes annonce « question » (et « sql », mode avancé)')
+assert.ok(fn.includes("'filtres_groupes', 'question', 'question_joueurs', 'question_evenements', 'question_groupes', 'sql', 'action']"), 'GET : modes annonce « question » (et « sql », mode avancé ; « action »)')
 assert.ok(fn.includes("searchParams.get('mode') === 'question') return await questionRecette"), 'routage du mode')
 assert.ok(qFn.includes("hb_transcription_compter"), 'un appel compté')
 assert.ok(qFn.includes('avecRelance('), 'relance sur 429')

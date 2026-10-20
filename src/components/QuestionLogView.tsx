@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ACTION_DISPLAY } from '../askAction'
 import type { QuestionLog } from '../db'
 import { clearQuestionLog, setRecipeDone, useQuestionLog } from '../questionLog'
 import {
@@ -131,6 +132,7 @@ function Entry({ e, withPhrase, box, avis }: { e: QuestionLog; withPhrase?: bool
       {!!e.recipeMissing?.length && <p className="text-[11px]">Pas appliqué par la recette : {e.recipeMissing.join(' ; ')}</p>}
       {!!e.modelMissing?.length && <p className="text-[11px] text-muted">Pas géré en mode avancé : {e.modelMissing.join(' ; ')}</p>}
       {e.status && e.status !== 'ok' && e.detail && <p className="text-[11px] text-muted">Précision : {e.detail}</p>}
+      {e.display === ACTION_DISPLAY && e.detail && <p className="text-[11px]">✦ {e.detail}</p>}
       <AvisList avis={avis} />
       <SqlFold e={e} />
       {box && <DoneBox rows={[e]} />}
