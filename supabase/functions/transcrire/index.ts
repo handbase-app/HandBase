@@ -677,7 +677,7 @@ Actuels [] ; « ceux avec au moins 20 joueurs et des joueurs à revoir, les plus
 Actuels ["periode"] ; « les observations de la génération 2011 créées par Paul » → {"action":"ajouter","recette":{"types":["observation"],"generation":2011,"createurs":["Paul"]},"retirer":[],"nonGere":[]}`
 
 const CONSIGNES_GROUPES = `${CONSIGNES_LISTE('Groupes (listes de joueurs : Intercomités, Pôle, sélections…)')}
-- Visibilité : prive (moi seul), mon_staff, tout_le_staff. Niveau : federation, ligue, comite. Une ligue est une région, un comité un département.
+- Visibilité : prive (moi seul), mon_staff, tout_le_staff. Niveau (« groupe de ») : liste parmi federation (la Fédération), ligue (une Ligue), comite (un Comité) ; plusieurs = l'un ou l'autre. Une ligue est une région, un comité un département.
 - « mes groupes » : mes = les_miens ; « ceux que j'ai créés » : crees ; « où je participe » : participant ; « que je suis » : suivis.
 EXEMPLES (contexte groupes)
 Actuels [] ; « les groupes de filles du Var » → {"action":"ajouter","recette":{"sexe":"F","comites":["Var"]},"retirer":[],"nonGere":[]}
@@ -687,7 +687,7 @@ Actuels ["comites"] ; « peu importe le comité, seulement les groupes privés �
 Actuels ["sexe","comites"] ; « enlève le sexe » → {"action":"retirer","recette":{},"retirer":["sexe"],"nonGere":[]}
 Actuels ["annees"] ; « efface tout et montre les groupes que je suis » → {"action":"effacer","recette":{"suivis":true},"retirer":[],"nonGere":[]}
 Actuels [] ; « mes groupes de plus de 15 joueurs, classés par nombre de joueurs » → {"action":"ajouter","recette":{"mes":"les_miens","joueurs":{"op":">","n":15},"sortie":{"type":"liste","tri":"joueurs","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
-Actuels [] ; « les groupes de ligue créés par Paul en Bretagne » → {"action":"ajouter","recette":{"niveau":"ligue","createurs":["Paul"],"ligues":["Bretagne"]},"retirer":[],"nonGere":[]}`
+Actuels [] ; « les groupes de ligue créés par Paul en Bretagne » → {"action":"ajouter","recette":{"niveau":["ligue"],"createurs":["Paul"],"ligues":["Bretagne"]},"retirer":[],"nonGere":[]}`
 
 /** Consignes de chaque contexte de liste (« joueurs » : en plus des consignes de la recette des joueurs). */
 const CONTEXTES: Record<string, string> = { joueurs: CONSIGNES_JOUEURS, evenements: CONSIGNES_EVENEMENTS, groupes: CONSIGNES_GROUPES }

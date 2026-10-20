@@ -14,6 +14,8 @@ import {
   buildPlayersIndex,
   calcRecipe,
   changeText,
+  clubPlaces,
+  clubsInPlaces,
   cleanQuery,
   decideAction,
   EMPTY_QUERY,
@@ -565,6 +567,46 @@ function legacy(list0: P[], v: FilterValues): P[] {
   // Question qui compte (bilan) : même règle.
   const ans = runRecipe(ix, cleanRecipe({ pop: { positions: ['AG', 'AD'], depts: ['83', '13'] }, out: { type: 'count' } }))
   assert.equal(ans.count, want.length)
+}
+
+// ---------- 9 bis. Lieu → clubs ; groupe ET lieu (et leurs nombres) ----------
+{
+  const places = clubPlaces(ix)
+  const key = (name: string) => [...ix.clubNames].find(([, n]) => n === name)![0]
+  const [hbc, asf, hbi, ent] = CLUBS.map(key)
+  // Départements cochés : la liste « Club » ne propose que les clubs de ces départements (régions : de ces régions).
+  assert.deepEqual(new Set(quickCounts(ix, withPop({ depts: ['83'] }), hay, toks).clubs.map(([k]) => k)), new Set([hbc, asf]))
+  assert.deepEqual(new Set(quickCounts(ix, withPop({ regions: ['region-sud'] }), hay, toks).clubs.map(([k]) => k)), new Set([hbc, asf, hbi]))
+  assert.deepEqual(new Set(quickCounts(ix, withPop({ regions: ['region-sud'], depts: ['13'] }), hay, toks).clubs.map(([k]) => k)), new Set([hbi]))
+  // Cocher un département (ou une région) retire les clubs cochés qui n'en font pas partie.
+  assert.deepEqual(clubsInPlaces([hbc, hbi, ent], places, ['83']), [hbc])
+  assert.deepEqual(clubsInPlaces([hbc, hbi, ent], places, ['83', '75']), [hbc, ent])
+  assert.deepEqual(clubsInPlaces([hbc, hbi, ent], places, undefined, ['region-sud']), [hbc, hbi])
+  assert.deepEqual(clubsInPlaces([hbc, hbi], places, ['13'], ['region-sud']), [hbi])
+  assert.equal(clubsInPlaces([ent], places, ['83']), undefined, 'plus aucun club : le champ disparaît')
+  assert.deepEqual(clubsInPlaces([hbc, ent], places, [], []), [hbc, ent], 'aucun lieu coché : clubs gardés')
+  assert.deepEqual(clubsInPlaces(['club-inconnu'], places, ['83']), ['club-inconnu'], 'club inconnu de l’appareil : gardé')
+  assert.equal(clubsInPlaces(undefined, places, ['83']), undefined)
+
+  // Groupe ET lieu : « les joueurs du groupe Intercomités qui sont du Var » (le groupe n'efface plus le lieu).
+  const ic = new Set(groups[0].playerIds)
+  const var83 = sel(withPop({ groups: ['g-ic'], depts: ['83'] })).list
+  assert.ok(var83.length > 0 && var83.length < ic.size)
+  assert.deepEqual(ids(var83), ids(players.filter((p) => ic.has(p.id) && p.department === '83')))
+  assert.deepEqual(ids(sel(withPop({ groups: ['g-ic'], depts: ['83'], clubs: [asf] })).list), ids(players.filter((p) => ic.has(p.id) && p.club === 'AS Fictive')))
+  // Nombres de la fenêtre avec un groupe ET un lieu : chacun est celui qu'on obtient en le cochant.
+  const both = withPop({ groups: ['g-ic'], depts: ['83'] })
+  const cg = quickCounts(ix, both, hay, toks)
+  for (const [d, n] of cg.depts) assert.equal(sel(withPop({ groups: ['g-ic'], depts: [d] })).list.length, n, `groupe + département ${d}`)
+  for (const [k, n] of cg.clubs) assert.equal(sel(withPop({ groups: ['g-ic'], depts: ['83'], clubs: [k] })).list.length, n, `groupe + club ${k}`)
+  for (const [r, n] of cg.regions) assert.equal(sel(withPop({ groups: ['g-ic'], regions: [r] })).list.length, n, `groupe + région ${r}`)
+  assert.equal(cg.positionTotal, var83.length)
+  // Nombre d'un groupe : ses joueurs qui répondent aux autres filtres (lieu compris), groupe coché ou non.
+  assert.equal(cg.groups.get('g-ic'), var83.length)
+  assert.equal(cg.groups.get('g-pole'), sel(withPop({ groups: ['g-pole'], depts: ['83'] })).list.length)
+  const cf = quickCounts(ix, withPop({ sex: 'F', regions: ['region-sud'] }), hay, toks)
+  for (const g of ['g-ic', 'g-pole']) assert.equal(cf.groups.get(g), sel(withPop({ sex: 'F', regions: ['region-sud'], groups: [g] })).list.length, `nombre du groupe ${g}`)
+  assert.equal(quickCounts(ix, EMPTY_QUERY, hay, toks).groups.get('g-ic'), groups[0].playerIds.length, 'sans filtre : tout le groupe')
 }
 
 // ---------- 10. Performance : 40 000 fiches ----------

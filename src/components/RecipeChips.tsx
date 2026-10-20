@@ -56,11 +56,15 @@ export const chipCls = (on: boolean) =>
 /**
  * Pastille d'un filtre posé : un toucher l'ouvre (réglage, « Retirer ») ; `onRemove` : un × la retire tout de suite
  * (barres « Demander » des listes : les filtres posés restent visibles sous la barre, fenêtre « Filtres » fermée).
+ * `opensWindow` : le toucher ouvre la fenêtre « Filtres » sur le réglage de ce filtre (src/components/FilterWindow.tsx).
  */
-export function FilterChip({ label, open, edit, onToggle, onRemove }: { label: string; open: boolean; edit: boolean; onToggle: () => void; onRemove?: () => void }) {
+export function FilterChip({ label, open, edit, onToggle, onRemove, opensWindow = false }: { label: string; open: boolean; edit: boolean; onToggle: () => void; onRemove?: () => void; opensWindow?: boolean }) {
+  const tap = opensWindow
+    ? { 'data-opens-filters': '', 'aria-haspopup': 'dialog' as const, title: 'Régler dans les filtres' }
+    : { 'aria-expanded': open }
   if (!onRemove)
     return (
-      <button type="button" className={chipCls(open)} aria-expanded={open} onClick={onToggle}>
+      <button type="button" className={chipCls(open)} {...tap} onClick={onToggle}>
         <span className="min-w-0 truncate">{label}</span>
         {edit && <span className="shrink-0 text-[10px] opacity-60">▾</span>}
       </button>
@@ -71,7 +75,7 @@ export function FilterChip({ label, open, edit, onToggle, onRemove }: { label: s
         open ? 'border-accent bg-accent text-white' : 'border-accent/50 bg-accent/10 text-fg hover:border-accent'
       }`}
     >
-      <button type="button" className="flex min-w-0 items-center gap-1 rounded-l-full py-1 pr-1 pl-3 text-left" aria-expanded={open} onClick={onToggle}>
+      <button type="button" className="flex min-w-0 items-center gap-1 rounded-l-full py-1 pr-1 pl-3 text-left" {...tap} onClick={onToggle}>
         <span className="min-w-0 truncate">{label}</span>
         {edit && <span className="shrink-0 text-[10px] opacity-60">▾</span>}
       </button>
@@ -94,6 +98,8 @@ export function RecipeChips({
   setOpen: setOpenProp,
   quickRemove = false,
   after,
+  inWindow,
+  onOpenWindow,
 }: {
   recipe: Recipe
   names: Names
@@ -108,6 +114,12 @@ export function RecipeChips({
   quickRemove?: boolean
   /** Après les pastilles (« Tout effacer »…). */
   after?: ReactNode
+  /**
+   * Barres des listes : toucher une pastille dont le réglage est dans la fenêtre « Filtres » (`inWindow`) ouvre la fenêtre
+   * sur ce réglage (`onOpenWindow`) ; les autres (conditions : vus, avis, mesures…) gardent leur petit réglage.
+   */
+  inWindow?: (c: Chip) => boolean
+  onOpenWindow?: (c: Chip) => void
 }) {
   const [openState, setOpenState] = useState<string | null>(null)
   const open = openProp !== undefined ? openProp : openState
@@ -118,23 +130,31 @@ export function RecipeChips({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5" aria-label="La question en clair, toucher une pastille pour la changer ou la retirer">
-        {chips.map((c) => (
-          <FilterChip
-            key={c.key}
-            label={c.label}
-            open={c.key === open}
-            edit={!!(c.edit || c.removable)}
-            onToggle={() => setOpen(c.key === open ? null : c.key)}
-            onRemove={
-              quickRemove && c.removable
-                ? () => {
-                    if (c.key === open) setOpen(null)
-                    onChange(removeChip(recipe, c.key))
-                  }
-                : undefined
-            }
-          />
-        ))}
+        {chips.map((c) => {
+          const win = !!onOpenWindow && !!inWindow?.(c)
+          return (
+            <FilterChip
+              key={c.key}
+              label={c.label}
+              open={c.key === open}
+              edit={!!(c.edit || c.removable)}
+              opensWindow={win}
+              onToggle={() => {
+                if (!win) return setOpen(c.key === open ? null : c.key)
+                setOpen(null)
+                onOpenWindow!(c)
+              }}
+              onRemove={
+                quickRemove && c.removable
+                  ? () => {
+                      if (c.key === open) setOpen(null)
+                      onChange(removeChip(recipe, c.key))
+                    }
+                  : undefined
+              }
+            />
+          )
+        })}
         {after}
       </div>
       {chip && <ChipEditor key={chip.key} chip={chip} recipe={recipe} model={model} onChange={onChange} onClose={() => setOpen(null)} />}

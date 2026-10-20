@@ -6,14 +6,14 @@ import { useFollows } from '../follows'
 import { currentUserId, isParticipant } from '../roles'
 import { useVoicePlaces } from '../voicePlaces'
 import { countBy, filterItems, type ListQuery } from '../listQuery'
-import { buildGroupsSchema, groupsSpec, readGroupsRecipe, SCOPE_LIST, SEX_LIST, VIS_LIST, type GroupCtx, type GroupFilters, type QGroup } from '../groupQuery'
+import { buildGroupsSchema, groupsSpec, putScopes, readGroupsRecipe, SCOPE_LIST, scopesOf, scopeTerritory, SEX_LIST, VIS_LIST, type GroupCtx, type GroupFilters, type QGroup } from '../groupQuery'
 import { SegRow, SortCalcPicker, ToggleChip, useListQuery } from './ListQuery'
 import { MultiPicker } from './MultiPicker'
 import { ChoicePills } from './FilterWindow'
 
 /*
  * Liste Groupes : filtres = recette « groupes » (src/groupQuery.ts), même expérience que les listes Joueurs et Événements
- * (src/components/ListQuery.tsx) : visibilité, niveau, garçons / filles, ligue, comité, année d'âge, mes groupes, suivis,
+ * (src/components/ListQuery.tsx) : visibilité, « Groupe de » (Fédération, Ligue, Comité), garçons / filles, ligue, comité, année d'âge, mes groupes, suivis,
  * nombre de joueurs ; tris et calculs sur la sélection.
  */
 
@@ -22,6 +22,7 @@ const WHO = [
   { value: 'created' as const, label: 'Créés par moi', short: 'Créés' },
   { value: 'participant' as const, label: 'Où je participe', short: 'Participe' },
 ]
+const IN_WINDOW = new Set(['vis', 'scope', 'regions', 'depts', 'sex', 'years', 'who', 'followed', 'sort'])
 const HINT = 'les groupes de filles du Var », « ceux de 2011 », « combien par comité ?'
 
 export function useGroupsQuery(groups: PlayerGroup[] | undefined) {
@@ -65,12 +66,15 @@ export function useGroupsQuery(groups: PlayerGroup[] | undefined) {
     regionOf: (d) => regionOfDept(d),
     hays,
     panel: (qy, setQy) => (ctx && groups ? <GroupsPanel groups={groups} ctx={ctx} qy={qy} setQy={setQy} /> : null),
+    // Pastilles réglées dans la fenêtre (créateur, nombre de joueurs : petit réglage sous la barre).
+    inWindow: (k) => IN_WINDOW.has(k),
   })
 }
 
 /**
- * Fenêtre « Filtres » : visibilité, niveau, territoire, garçons / filles, année d'âge, mes groupes, suivis, puis tri et
- * calcul. Visibilités, ligues, comités et années d'âge : plusieurs choix possibles (l'un OU l'autre).
+ * Fenêtre « Filtres » : visibilité, « Groupe de », territoire, garçons / filles, année d'âge, mes groupes, suivis, puis tri
+ * et calcul. Visibilités, « Groupe de », ligues, comités et années d'âge : plusieurs choix possibles (l'un OU l'autre).
+ * Territoire : ligue si « une Ligue » ou « un Comité » est coché (ou rien), comité si « un Comité » est coché (ou rien).
  */
 function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: GroupCtx; qy: ListQuery<GroupFilters>; setQy: (q: ListQuery<GroupFilters>) => void }) {
   const f = qy.f
@@ -82,30 +86,45 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
   const except = (k: string) => filterItems(groupsSpec, groups, qy, ctx, k) as QGroup[]
   const visOf = (g: QGroup) => (g.private ? 'private' : g.team ? 'team' : 'staff')
   const vis = countBy(except('vis'), (g) => [visOf(g)])
-  const scopes = countBy(except('scope'), (g) => [g.scope])
+  // « Groupe de » : nombre obtenu avec ce choix (territoire posé compris : il ne concerne pas les groupes qui n'en ont pas).
+  const scopes = new Map(SCOPE_LIST.map((x) => [x.value, filterItems(groupsSpec, groups, { ...qy, f: { ...f, scope: x.value } }, ctx).length]))
+  const scopeTotal = filterItems(groupsSpec, groups, { ...qy, f: { ...f, scope: undefined } }, ctx).length
   const sexes = countBy(except('sex'), (g) => [g.sex])
   const regionKey = (g: QGroup) => g.regionId ?? (g.department ? ctx.regionOf(g.department) : undefined)
-  const regions = countBy(except('regions'), (g) => [regionKey(g)])
-  const depts = countBy(except('depts'), (g) => [g.department])
+  // Nombre de chaque ligue, de chaque comité : celui qu'on obtient en le cochant (les groupes de la Fédération ou d'une Ligue
+  // cochés comptent aussi : le territoire ne les concerne pas).
+  const withTest = (k: 'regions' | 'depts', m: Map<string | undefined, number>) =>
+    new Map([...m.keys()].filter((x): x is string => !!x).map((x) => [x, except(k).filter((g) => groupsSpec.test(k, { ...f, [k]: [x] }, g, ctx)).length]))
+  const regions = withTest('regions', countBy(except('regions'), (g) => [regionKey(g)]))
+  const depts = withTest('depts', countBy(except('depts'), (g) => [g.department]))
   const years = countBy(except('years'), (g) => g.years ?? [])
   const who = new Map(WHO.map((w) => [w.value, except('who').filter((g) => groupsSpec.test('who', { who: w.value }, g, ctx)).length]))
   const nFollowed = except('followed').filter((g) => ctx.followed.has(g.id)).length
   const picked = f.regions ?? []
+  const terr = scopeTerritory(f)
   return (
     <>
-      <ChoicePills label="Visibilité" allLabel="Toutes" value={f.vis ?? []} options={VIS_LIST} counts={vis} total={except('vis').length} onChange={(vs) => setF({ vis: vs.length ? vs : undefined })} />
-      <SegRow
-        label="Niveau"
-        value={f.scope ?? ''}
+      <ChoicePills k="vis" label="Visibilité" allLabel="Toutes" value={f.vis ?? []} options={VIS_LIST} counts={vis} total={except('vis').length} onChange={(vs) => setF({ vis: vs.length ? vs : undefined })} />
+      <ChoicePills
+        k="scope"
+        label="Groupe de"
+        allLabel="Tous"
+        value={scopesOf(f)}
         options={SCOPE_LIST}
         counts={scopes}
-        total={except('scope').length}
-        onChange={(v) => setF({ scope: v || undefined, ...(v === 'federation' ? { regions: undefined, depts: undefined } : v === 'ligue' ? { depts: undefined } : {}) })}
+        total={scopeTotal}
+        // Sans « une Ligue » ni « un Comité » : pas de territoire ; sans « un Comité » : pas de comité.
+        onChange={(vs) => {
+          const next: GroupFilters = { ...f }
+          putScopes(next, vs)
+          const t = scopeTerritory(next)
+          setF({ scope: next.scope, ...(!t.regions ? { regions: undefined } : {}), ...(!t.depts ? { depts: undefined } : {}) })
+        }}
       />
-      {f.scope !== 'federation' && (regions.size > 0 || depts.size > 0 || f.regions || f.depts) && (
-        <div className="flex flex-col gap-1">
+      {terr.regions && (regions.size > 0 || depts.size > 0 || f.regions || f.depts) && (
+        <div className="flex flex-col gap-1" data-filter="regions depts">
           <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Territoire</span>
-          <div className={`grid gap-2 ${f.scope === 'ligue' ? '' : 'grid-cols-2'}`}>
+          <div className={`grid gap-2 ${terr.depts ? 'grid-cols-2' : ''}`}>
             <MultiPicker
               className="min-h-11 py-1.5 text-xs"
               label="Ligue"
@@ -122,7 +141,7 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
                 setF({ regions: rs.length ? rs : undefined, depts: keep?.length ? keep : undefined })
               }}
             />
-            {f.scope !== 'ligue' && (
+            {terr.depts && (
               <MultiPicker
                 className="min-h-11 py-1.5 text-xs"
                 label="Comité"
@@ -139,9 +158,10 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
           </div>
         </div>
       )}
-      <SegRow label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
+      <SegRow k="sex" label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
       {(years.size > 0 || f.years) && (
         <ChoicePills
+          k="years"
           label="Année d’âge"
           allLabel="Toutes"
           value={f.years ?? []}
@@ -151,8 +171,8 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
           onChange={(ys) => setF({ years: ys.length ? ys : undefined })}
         />
       )}
-      <SegRow label="Mes groupes" value={f.who ?? ''} options={WHO} counts={who} total={except('who').length} onChange={(v) => setF({ who: v || undefined })} />
-      <div className="flex flex-wrap gap-1.5">
+      <SegRow k="who" label="Mes groupes" value={f.who ?? ''} options={WHO} counts={who} total={except('who').length} onChange={(v) => setF({ who: v || undefined })} />
+      <div className="flex flex-wrap gap-1.5" data-filter="followed">
         <ToggleChip on={!!f.followed} label="Suivis" n={nFollowed} onChange={(on) => setF({ followed: on || undefined })} />
         <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => setF({ players: f.players ?? { op: 'gte', n: 10 } })}>
           + Nombre de joueurs

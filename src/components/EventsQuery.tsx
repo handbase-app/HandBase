@@ -47,6 +47,14 @@ const WHO = [
   { value: 'participant' as const, label: 'Où je participe', short: 'Participe' },
 ]
 const NONE = new Set<string>()
+/** Pastilles réglées dans la fenêtre « Filtres » ; celles rangées sous « + Ajouter une condition » (le déplier). */
+const IN_WINDOW = new Set(['types', 'who', 'places', 'regions', 'depts', 'gens', 'sheet', 'video', 'rewatch', 'sort'])
+const MORE_KEYS = new Set(['places', 'regions', 'depts', 'gens', 'sheet', 'video', 'rewatch'])
+/** Période des boutons « Date » (à venir, passés, ce mois, saison en cours) ; '' sinon. */
+const periodWhen = (p?: EventPeriod) =>
+  p && p.kind !== 'year' && p.kind !== 'between' && !('ym' in p && p.ym) && !('start' in p && p.start !== undefined) ? p.kind : ''
+/** Période réglable dans la fenêtre : boutons « Date », une année, entre deux dates (un mois ou une saison précis : non). */
+const periodInWindow = (p?: EventPeriod) => !!p && (!!periodWhen(p) || p.kind === 'year' || p.kind === 'between')
 const HINT = 'les tournois de cette saison », « à venir dans le Var », « combien par mois ?'
 
 export function useEventsQuery(events: HBEvent[] | undefined, stats: Map<string, EventStats>) {
@@ -134,7 +142,9 @@ export function useEventsQuery(events: HBEvent[] | undefined, stats: Map<string,
     sums,
     regionOf: (d) => regionOfDept(d),
     hays,
-    panel: (qy, setQy) => (ctx && events ? <EventsPanel events={events} ctx={ctx} qy={qy} setQy={setQy} onNeedInfo={() => setNeedInfo(true)} /> : null),
+    panel: (qy, setQy, focus) => (ctx && events ? <EventsPanel events={events} ctx={ctx} qy={qy} setQy={setQy} focus={focus} onNeedInfo={() => setNeedInfo(true)} /> : null),
+    // Pastilles réglées dans la fenêtre ; période d'un mois ou d'une saison précise, nombres, créateur : petit réglage.
+    inWindow: (k, qy) => IN_WINDOW.has(k) || (k === 'period' && periodInWindow(qy.f.period)),
     chipEditor: (key, qy, setQy) => (key === 'period' && qy.f.period ? <PeriodEditor value={qy.f.period} onChange={(period) => setQy({ ...qy, f: { ...qy.f, period } })} /> : null),
   })
   useEffect(() => {
@@ -152,15 +162,21 @@ function EventsPanel({
   ctx,
   qy,
   setQy,
+  focus,
   onNeedInfo,
 }: {
   events: HBEvent[]
   ctx: EventCtx
   qy: ListQuery<EventFilters>
   setQy: (q: ListQuery<EventFilters>) => void
+  focus?: { key: string; n: number }
   onNeedInfo: () => void
 }) {
-  const [more, setMore] = useState(false)
+  const [more, setMore] = useState(() => !!focus && MORE_KEYS.has(focus.key))
+  // Ouverte (ou rouverte) depuis la pastille d'un filtre rangé sous « + Ajouter une condition » : déplié.
+  useEffect(() => {
+    if (focus && MORE_KEYS.has(focus.key)) setMore(true)
+  }, [focus?.n]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (more) onNeedInfo()
   }, [more, onNeedInfo])
@@ -176,7 +192,7 @@ function EventsPanel({
   const whenCount = new Map(WHEN.map((w) => [w.value, periodBase.filter((e) => inPeriod(e, { kind: w.value } as EventPeriod, ctx.today)).length]))
   const years = countBy(periodBase, (e) => [e.date.slice(0, 4)])
   const who = new Map(WHO.map((w) => [w.value, except('who').filter((e) => eventsSpec.test('who', { who: w.value }, e, ctx)).length]))
-  const when = f.period && f.period.kind !== 'year' && f.period.kind !== 'between' && !('ym' in f.period && f.period.ym) && !('start' in f.period && f.period.start !== undefined) ? f.period.kind : ''
+  const when = periodWhen(f.period)
   const year = f.period?.kind === 'year' ? String(f.period.year) : ''
   const places = countBy(except('places'), (e) => [e.place?.trim()])
   const depts = countBy(except('depts'), (e) => ctx.info?.get(e.id)?.depts ?? [])
@@ -186,6 +202,7 @@ function EventsPanel({
   return (
     <>
       <ChoicePills
+        k="types"
         label="Type"
         value={f.types ?? []}
         options={EVENT_TYPE_LIST.map((t) => ({ ...t, short: SHORT[t.value] }))}
@@ -193,7 +210,7 @@ function EventsPanel({
         total={except('types').length}
         onChange={(vs) => setF({ types: vs.length ? vs : undefined })}
       />
-      <SegRow label="Date" value={when} options={WHEN} counts={whenCount} total={periodBase.length} onChange={(v) => setF({ period: v ? ({ kind: v } as EventPeriod) : undefined })} />
+      <SegRow k="period" label="Date" value={when} options={WHEN} counts={whenCount} total={periodBase.length} onChange={(v) => setF({ period: v ? ({ kind: v } as EventPeriod) : undefined })} />
       <div className="grid grid-cols-2 gap-2">
         <select
           className={`field min-h-11 py-1.5 text-xs ${year ? 'border-accent font-bold' : ''}`}
@@ -219,7 +236,7 @@ function EventsPanel({
         </button>
       </div>
       {f.period?.kind === 'between' && <PeriodEditor value={f.period} onChange={(period) => setF({ period })} />}
-      <SegRow label="Mes événements" value={f.who ?? ''} options={WHO} counts={who} total={except('who').length} onChange={(v) => setF({ who: v || undefined })} />
+      <SegRow k="who" label="Mes événements" value={f.who ?? ''} options={WHO} counts={who} total={except('who').length} onChange={(v) => setF({ who: v || undefined })} />
       <div className="rounded-md border border-line">
         <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
           <span className="flex-1">+ Ajouter une condition</span>
@@ -227,7 +244,7 @@ function EventsPanel({
         </button>
         {more && (
           <div className="flex flex-col gap-2 border-t border-line p-2">
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5" data-filter="sheet video rewatch">
               <ToggleChip on={!!f.sheet} label="Avec feuille de match" n={nYes('sheet')} onChange={(on) => setF({ sheet: on || undefined })} />
               <ToggleChip on={!!f.video} label="Avec vidéo" n={nYes('video')} onChange={(on) => setF({ video: on || undefined })} />
               <ToggleChip on={!!f.rewatch} label="Avec joueurs à revoir" n={nYes('rewatch')} onChange={(on) => setF({ rewatch: on || undefined })} />
@@ -239,7 +256,7 @@ function EventsPanel({
               </button>
             </div>
             {(places.size > 0 || f.places) && (
-              <FilterField label="Lieu">
+              <FilterField label="Lieu" k="places">
                 <MultiPicker
                   className="min-h-11 py-1.5 text-xs"
                   label="Lieu"
@@ -255,7 +272,7 @@ function EventsPanel({
               <p className="text-[11px] text-muted">Chargement des lieux et des générations…</p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                <FilterField label="Région">
+                <FilterField label="Région" k="regions">
                   <MultiPicker
                     className="min-h-11 py-1.5 text-xs"
                     label="Région"
@@ -272,7 +289,7 @@ function EventsPanel({
                     }
                   />
                 </FilterField>
-                <FilterField label="Département">
+                <FilterField label="Département" k="depts">
                   <MultiPicker
                     className="min-h-11 py-1.5 text-xs"
                     label="Département"
@@ -283,7 +300,7 @@ function EventsPanel({
                     onChange={(ds) => setF({ depts: ds.length ? ds : undefined })}
                   />
                 </FilterField>
-                <FilterField label="Génération des joueurs">
+                <FilterField label="Génération des joueurs" k="gens">
                   <YearPicker
                     className="min-h-11 py-1.5 text-xs"
                     label="Génération des joueurs"

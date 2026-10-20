@@ -32,6 +32,8 @@ import {
   buildPlayersIndex,
   calcRecipe,
   changeText,
+  clubPlaces,
+  clubsInPlaces,
   cleanQuery,
   decideAction,
   EMPTY_QUERY,
@@ -91,10 +93,11 @@ import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gen
  *    AJOUTE ; on n'efface ou ne retire que si c'est dit. Une question de calcul (« quelle est la taille moyenne ? »,
  *    « combien par club ? ») est calculée sur la sélection et affichée au-dessus de la liste, qui reste filtrée.
  *    « Annuler » remet les filtres d'avant ; une ligne dit « Ajouté : … / Retiré : … / Remplacé : … ».
- *  - Les filtres en PASTILLES (mêmes pastilles que la réponse du bilan) : un toucher pour changer, « Retirer », « Tout effacer ».
- *  - « Filtres » : les filtres rapides d'avant (année, trimestre, sexe, taille, latéralité, lieu, club, Pôle, vidéo, suivis,
- *    profil, groupe, poste), puis « + Ajouter une condition » (vus, notes d'avis, nombre d'avis, mesures, événement) et
- *    « Trier par ». Ils construisent la même recette.
+ *  - Les filtres en PASTILLES (mêmes pastilles que la réponse du bilan) : un toucher ouvre la fenêtre « Filtres » sur le
+ *    réglage de ce filtre (les conditions : vus, avis, mesures… gardent leur petit réglage), × retire, « Tout effacer ».
+ *  - « Filtres » : l'essentiel toujours visible (sexe, années, groupes, région et département), puis « Plus de filtres (N) »,
+ *    replié (trimestre, poste, latéralité, club, profil, suivis, vidéo, taille, Pôle, « + Ajouter une condition » : vus,
+ *    notes d'avis, nombre d'avis, mesures, événement ; « Trier par », « Mes questions »). Ils construisent la même recette.
  *  - Phrase que la recette n'applique pas entièrement : bascule automatique en MODE AVANCÉ (requête SQL calculée sur une copie
  *    locale, comme au bilan) ; résultat en tête, et la liste devient les joueurs du résultat s'il en donne (colonne joueur_id),
  *    sinon bandeau « Pas pris en compte : … ». Chaque phrase est notée au journal des questions (anonymisée).
@@ -106,6 +109,13 @@ import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gen
 
 const fr = (n: number, d = 0) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
 const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.–sept.', 'Q4 · oct.–déc.']
+/**
+ * Pastilles dont le réglage est dans la fenêtre « Filtres » (toucher : la fenêtre s'ouvre dessus) ; les autres (vus, avis,
+ * mesures, taille maximum…) gardent leur petit réglage sous la barre.
+ */
+const WINDOW_KEYS = new Set(['sex', 'years', 'quarter', 'positions', 'secondary', 'noPosition', 'hand', 'regions', 'depts', 'clubs', 'height', 'pole', 'video', 'followed', 'profiles', 'groups', 'events', 'sort'])
+/** Filtres de la partie simple de la fenêtre (toujours visibles) ; les autres sont sous « Plus de filtres ». */
+const SIMPLE_KEYS = new Set<FilterKey>(['sex', 'years', 'groups', 'regions', 'depts'])
 const POLE_LABEL: Record<string, string> = { current: 'Au Pôle Espoirs (en cours)', past: 'Sortis du Pôle Espoirs', any: 'Passés par le Pôle Espoirs (en cours ou sortis)' }
 /** Exemples du champ (aide du micro). */
 const HINT = 'nés en 2010 de plus d’1 m 85 », « quelle est leur taille moyenne ? », « enlève la taille'
@@ -452,9 +462,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
     const ps = vs.filter((v): v is Position => v !== 'none')
     setPop({ positions: listOrNone(ps), noPosition: undefined, secondary: ps.length ? p.secondary : undefined })
   }
-  // Lieu : des régions cochées écartent les départements d'ailleurs (ils ne donneraient personne).
-  const setRegions = (rs: string[]) =>
-    setPop({ regions: listOrNone(rs), depts: rs.length && p.depts ? listOrNone(p.depts.filter((d) => rs.includes(regionOfDept(d) ?? ''))) : p.depts })
+  // Lieu : des régions cochées écartent les départements d'ailleurs (ils ne donneraient personne) ; des départements ou des
+  // régions cochés écartent les clubs d'ailleurs (la liste « Club » ne propose que les leurs).
+  const places = useMemo(() => (index ? clubPlaces(index) : new Map<string, { depts: Set<string>; regions: Set<string> }>()), [index])
+  const setRegions = (rs: string[]) => {
+    const depts = rs.length && p.depts ? listOrNone(p.depts.filter((d) => rs.includes(regionOfDept(d) ?? ''))) : p.depts
+    setPop({ regions: listOrNone(rs), depts, clubs: clubsInPlaces(p.clubs, places, depts, rs) })
+  }
+  const setDepts = (ds: string[]) => setPop({ depts: listOrNone(ds), clubs: clubsInPlaces(p.clubs, places, ds, p.regions) })
   const regionOptions = [...(counts?.regions ?? [])]
     .sort((a, b) => regionLabel(a[0]).localeCompare(regionLabel(b[0]), 'fr'))
     .map(([r, n]) => ({ value: r, label: regionLabel(r), count: n }))
@@ -501,12 +516,21 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   }
 
   const saved = useSavedQuestions()
+  // « Plus de filtres » : ouvert ou fermé gardé pendant la session ; il s'ouvre de lui-même à l'ouverture de la fenêtre si un
+  // de ses filtres est posé (et quand on touche sa pastille).
+  const [advOpen, setAdvOpen] = useSessionState(`${pre}.avance`, false)
+  const advN = activeKeys(qy).filter((k) => !SIMPLE_KEYS.has(k) && k !== 'names' && k !== 'q' && !hosted?.hidden.has(k)).length
+  useEffect(() => {
+    if (open && advN > 0) setAdvOpen(true)
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (on: boolean) => `flex min-h-9 items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`
-  // Les réglages les plus utilisés d'abord (sexe, année, poste, latéralité, lieu), le reste ensuite.
+  // Deux niveaux : l'essentiel toujours visible (sexe, années, groupes, région et département) ; « Plus de filtres »
+  // (replié ; ouvert de lui-même si un de ses filtres est posé ou si l'on touche sa pastille) : le reste.
   const panel = (
     <>
       {!hosted?.hideSex && (
         <SegRow<'M' | 'F'>
+          k="sex"
           label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}
           value={p.sex ?? ''}
           options={[
@@ -517,7 +541,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
         />
       )}
       {!hosted?.hideYear && (
-        <FilterField label="Année de naissance">
+        <FilterField label="Année de naissance" k="years">
           <YearPicker
             className="min-h-10 px-2 py-1.5 text-xs"
             allLabel="Toutes les années"
@@ -527,199 +551,207 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
           />
         </FilterField>
       )}
-      <ChoicePills
-        label="Trimestre de naissance"
-        value={quartersOf(p).map(String)}
-        options={QUARTER_LABELS.map((l, i) => ({ value: String(i + 1), label: l, short: `Q${i + 1}` }))}
-        onChange={(vs) => setPopWith((pop) => putQuarters(pop, vs.map(Number)))}
-      />
-      <ChoicePills
-        label="Poste"
-        value={positionValue}
-        options={[
-          ...POSITIONS.map((x) => ({ value: x.id as string, label: x.label, short: x.short })),
-          ...((counts?.positions.none ?? 0) > 0 || p.noPosition ? [{ value: 'none', label: 'Sans poste' }] : []),
-        ]}
-        counts={counts?.positions}
-        total={counts?.positionTotal}
-        onChange={setPositions}
-        extra={
-          <label className="flex min-h-9 basis-full items-center gap-1.5 text-[11px] text-muted">
-            <input type="checkbox" className="h-4 w-4 accent-accent" checked={!!p.secondary} disabled={!p.positions} onChange={(e) => setPop({ secondary: e.target.checked || undefined })} />
-            Inclure les postes secondaires
-          </label>
-        }
-      />
-      <ChoicePills
-        label="Latéralité"
-        allLabel="Toutes"
-        value={handsOf(p)}
-        options={(['droitier', 'gaucher', 'ambidextre'] as const).map((v) => ({ value: v, label: lateralityPlural(v, gender) }))}
-        onChange={(vs) => setPopWith((pop) => putHands(pop, vs))}
-      />
-      {(regionOptions.length > 1 || p.regions || deptOptions.length > 1 || p.depts) && (
-        <div className="grid grid-cols-2 gap-2">
-          {(regionOptions.length > 1 || p.regions) && (
-            <FilterField label="Région">
-              <MultiPicker
-                className="min-h-10 px-2 py-1.5 text-xs"
-                label="Région"
-                allLabel="Toutes"
-                allCount={counts?.regionTotal}
-                noun={['région', 'régions']}
-                value={p.regions ?? []}
-                options={regionOptions}
-                onChange={setRegions}
-              />
-            </FilterField>
-          )}
-          {(deptOptions.length > 1 || p.depts) && (
-            <FilterField label="Département">
-              <MultiPicker
-                className="min-h-10 px-2 py-1.5 text-xs"
-                label="Département"
-                allLabel="Tous"
-                allCount={counts?.deptTotal}
-                noun={['département', 'départements']}
-                value={p.depts ?? []}
-                options={deptOptions}
-                onChange={(ds) => setPop({ depts: listOrNone(ds) })}
-              />
-            </FilterField>
-          )}
-        </div>
+      {groups.length > 0 && (
+        <FilterField label="Groupe" k="groups">
+          <MultiPicker
+            className="min-h-10 px-2 py-1.5 text-xs"
+            label="Groupe"
+            allLabel="Aucun"
+            noun={['groupe', 'groupes']}
+            value={p.groups ?? []}
+            // Nombre : joueurs du groupe qui répondent aux autres filtres (lieu compris).
+            options={groups.map((g) => ({ value: g.id, label: `${g.name}${groupTag(g)}${g.archived ? ' — archivé' : ''}`, count: counts?.groups.get(g.id) ?? g.playerIds.length }))}
+            // Groupe ET lieu se combinent : « les joueurs du groupe X qui sont du Var ».
+            onChange={(xs) => setPop({ groups: listOrNone(xs) })}
+          />
+        </FilterField>
       )}
-      <FilterField label="Club">
-        <MultiPicker
-          className="min-h-10 px-2 py-1.5 text-xs"
-          label="Club"
-          allLabel={`Tous les clubs (${fr(counts?.clubTotal ?? 0)})`}
-          noun={['club', 'clubs']}
-          value={p.clubs ?? []}
-          options={clubOptions}
-          onChange={(cs) => setPop({ clubs: listOrNone(cs) })}
-        />
-      </FilterField>
-      <div className="mt-1 border-t border-line pt-3 text-[10px] font-bold tracking-wider text-muted uppercase">Autres filtres</div>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="shrink-0 font-bold text-muted">Taille minimum (cm)</span>
-        <HeightInput value={p.hMin} onChange={(hMin) => setPop({ hMin })} />
-      </div>
-      <select
-        className={`field min-h-10 py-1.5 text-xs ${p.pole ? 'border-accent font-bold' : ''}`}
-        aria-label="Pôle Espoirs"
-        value={p.pole ?? ''}
-        onChange={(e) => setPop({ pole: (e.target.value || undefined) as Population['pole'] })}
-      >
-        <option value="">Pôle Espoirs : {gw.tousLesJoueurs}</option>
-        <option value="current">{POLE_LABEL.current}</option>
-        <option value="past">{POLE_LABEL.past}</option>
-        <option value="any">{POLE_LABEL.any}</option>
-      </select>
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={toggle(!!p.video)}>
-          Avec une vidéo
-        </button>
-        {(quick.followed.size > 0 || p.followed) && (
-          <button type="button" aria-pressed={!!p.followed} onClick={() => setPop({ followed: !p.followed })} className={toggle(!!p.followed)}>
-            <Icon name="star" filled={p.followed} className="h-3.5 w-3.5 text-accent" />
-            Mes suivis ({fr(quick.followed.size)})
-          </button>
-        )}
-      </div>
-      {(quick.profiles.length > 0 || groups.length > 0) && (
+      {(regionOptions.length > 0 || p.regions || deptOptions.length > 0 || p.depts) && (
         <div className="grid grid-cols-2 gap-2">
-          {quick.profiles.length > 0 && (
-            <FilterField label="Profil recherché">
-              <MultiPicker
-                className="min-h-10 px-2 py-1.5 text-xs"
-                label="Profil recherché"
-                allLabel="Aucun"
-                noun={['profil', 'profils']}
-                value={p.profiles ?? []}
-                options={quick.profiles.map((a) => ({ value: a.id, label: a.name, count: quick.profileMembers.get(a.id)?.size ?? 0 }))}
-                onChange={(xs) => setPop({ profiles: listOrNone(xs) })}
-              />
-            </FilterField>
-          )}
-          {groups.length > 0 && (
-            <FilterField label="Groupe">
-              <MultiPicker
-                className="min-h-10 px-2 py-1.5 text-xs"
-                label="Groupe"
-                allLabel="Aucun"
-                noun={['groupe', 'groupes']}
-                value={p.groups ?? []}
-                options={groups.map((g) => ({ value: g.id, label: `${g.name}${groupTag(g)}${g.archived ? ' — archivé' : ''}`, count: g.playerIds.length }))}
-                // Premier groupe choisi : le lieu choisi avant est retiré (un groupe a souvent des joueurs de partout).
-                onChange={(xs) => setPop({ groups: listOrNone(xs), ...(xs.length && !p.groups ? { regions: undefined, depts: undefined, clubs: undefined } : {}) })}
-              />
-            </FilterField>
-          )}
+          <FilterField label="Région" k="regions">
+            <MultiPicker
+              className="min-h-10 px-2 py-1.5 text-xs"
+              label="Région"
+              allLabel="Toutes"
+              allCount={counts?.regionTotal}
+              noun={['région', 'régions']}
+              value={p.regions ?? []}
+              options={regionOptions}
+              onChange={setRegions}
+            />
+          </FilterField>
+          <FilterField label="Département" k="depts">
+            <MultiPicker
+              className="min-h-10 px-2 py-1.5 text-xs"
+              label="Département"
+              allLabel="Tous"
+              allCount={counts?.deptTotal}
+              noun={['département', 'départements']}
+              value={p.depts ?? []}
+              options={deptOptions}
+              onChange={setDepts}
+            />
+          </FilterField>
         </div>
       )}
       <div className="rounded-md border border-line">
-        <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
-          <span className="flex-1">+ Ajouter une condition</span>
-          <span className={`text-muted transition ${more ? 'rotate-90' : ''}`}>›</span>
+        <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
+          <span className="flex-1">
+            Plus de filtres{advN > 0 ? ` (${advN})` : ''}
+          </span>
+          <span className={`text-muted transition ${advOpen ? 'rotate-90' : ''}`}>›</span>
         </button>
-        {more && (
-          <div className="flex flex-col gap-2 border-t border-line p-2">
-            {!full.data && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
-            <div className="flex flex-wrap gap-1.5">
-              <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('seen')}>
-                Vus (combien, quand, par qui)
-              </button>
-              {avisCriteria(criteria).length > 0 && (
-                <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('avis')}>
-                  Note d’avis
-                </button>
-              )}
-              <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('nbAvis')}>
-                Nombre d’avis
-              </button>
-              {measureCriteria(criteria).length > 0 && (
-                <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('measure')}>
-                  Mesure
-                </button>
-              )}
-              <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('heightMax')}>
-                Taille maximum
-              </button>
-            </div>
-            {(full.data?.events.length ?? 0) > 0 && (
-              <FilterField label="Vus ou inscrits à un événement">
+        {advOpen && (
+          <div className="flex flex-col gap-3 border-t border-line p-2">
+            <ChoicePills
+              k="quarter"
+              label="Trimestre de naissance"
+              value={quartersOf(p).map(String)}
+              options={QUARTER_LABELS.map((l, i) => ({ value: String(i + 1), label: l, short: `Q${i + 1}` }))}
+              onChange={(vs) => setPopWith((pop) => putQuarters(pop, vs.map(Number)))}
+            />
+            <ChoicePills
+              k="positions secondary noPosition"
+              label="Poste"
+              value={positionValue}
+              options={[
+                ...POSITIONS.map((x) => ({ value: x.id as string, label: x.label, short: x.short })),
+                ...((counts?.positions.none ?? 0) > 0 || p.noPosition ? [{ value: 'none', label: 'Sans poste' }] : []),
+              ]}
+              counts={counts?.positions}
+              total={counts?.positionTotal}
+              onChange={setPositions}
+              extra={
+                <label className="flex min-h-9 basis-full items-center gap-1.5 text-[11px] text-muted">
+                  <input type="checkbox" className="h-4 w-4 accent-accent" checked={!!p.secondary} disabled={!p.positions} onChange={(e) => setPop({ secondary: e.target.checked || undefined })} />
+                  Inclure les postes secondaires
+                </label>
+              }
+            />
+            <ChoicePills
+              k="hand"
+              label="Latéralité"
+              allLabel="Toutes"
+              value={handsOf(p)}
+              options={(['droitier', 'gaucher', 'ambidextre'] as const).map((v) => ({ value: v, label: lateralityPlural(v, gender) }))}
+              onChange={(vs) => setPopWith((pop) => putHands(pop, vs))}
+            />
+            <FilterField label="Club" k="clubs">
+              <MultiPicker
+                className="min-h-10 px-2 py-1.5 text-xs"
+                label="Club"
+                allLabel={`${p.depts || p.regions ? 'Tous leurs clubs' : 'Tous les clubs'} (${fr(counts?.clubTotal ?? 0)})`}
+                noun={['club', 'clubs']}
+                value={p.clubs ?? []}
+                options={clubOptions}
+                onChange={(cs) => setPop({ clubs: listOrNone(cs) })}
+              />
+            </FilterField>
+            {quick.profiles.length > 0 && (
+              <FilterField label="Profil recherché" k="profiles">
                 <MultiPicker
-                  className="min-h-11 px-2 py-1.5 text-xs"
-                  label="Événement"
-                  allLabel="Tous les événements"
-                  noun={['événement', 'événements']}
-                  value={p.events ?? []}
-                  options={[...(full.data?.events ?? [])]
-                    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-                    .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
-                  onChange={(xs) => setPop({ events: listOrNone(xs) })}
+                  className="min-h-10 px-2 py-1.5 text-xs"
+                  label="Profil recherché"
+                  allLabel="Aucun"
+                  noun={['profil', 'profils']}
+                  value={p.profiles ?? []}
+                  options={quick.profiles.map((a) => ({ value: a.id, label: a.name, count: quick.profileMembers.get(a.id)?.size ?? 0 }))}
+                  onChange={(xs) => setPop({ profiles: listOrNone(xs) })}
                 />
               </FilterField>
             )}
-            <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
+            <div className="flex flex-wrap gap-1.5" data-filter="video followed">
+              <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={toggle(!!p.video)}>
+                Avec une vidéo
+              </button>
+              {(quick.followed.size > 0 || p.followed) && (
+                <button type="button" aria-pressed={!!p.followed} onClick={() => setPop({ followed: !p.followed })} className={toggle(!!p.followed)}>
+                  <Icon name="star" filled={p.followed} className="h-3.5 w-3.5 text-accent" />
+                  Mes suivis ({fr(quick.followed.size)})
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs" data-filter="height">
+              <span className="shrink-0 font-bold text-muted">Taille minimum (cm)</span>
+              <HeightInput value={p.hMin} onChange={(hMin) => setPop({ hMin })} />
+            </div>
+            <select
+              data-filter="pole"
+              className={`field min-h-10 py-1.5 text-xs ${p.pole ? 'border-accent font-bold' : ''}`}
+              aria-label="Pôle Espoirs"
+              value={p.pole ?? ''}
+              onChange={(e) => setPop({ pole: (e.target.value || undefined) as Population['pole'] })}
+            >
+              <option value="">Pôle Espoirs : {gw.tousLesJoueurs}</option>
+              <option value="current">{POLE_LABEL.current}</option>
+              <option value="past">{POLE_LABEL.past}</option>
+              <option value="any">{POLE_LABEL.any}</option>
+            </select>
+            <div className="rounded-md border border-line">
+              <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
+                <span className="flex-1">+ Ajouter une condition</span>
+                <span className={`text-muted transition ${more ? 'rotate-90' : ''}`}>›</span>
+              </button>
+              {more && (
+                <div className="flex flex-col gap-2 border-t border-line p-2">
+                  {!full.data && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('seen')}>
+                      Vus (combien, quand, par qui)
+                    </button>
+                    {avisCriteria(criteria).length > 0 && (
+                      <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('avis')}>
+                        Note d’avis
+                      </button>
+                    )}
+                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('nbAvis')}>
+                      Nombre d’avis
+                    </button>
+                    {measureCriteria(criteria).length > 0 && (
+                      <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('measure')}>
+                        Mesure
+                      </button>
+                    )}
+                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('heightMax')}>
+                      Taille maximum
+                    </button>
+                  </div>
+                  {(full.data?.events.length ?? 0) > 0 && (
+                    <FilterField label="Vus ou inscrits à un événement" k="events">
+                      <MultiPicker
+                        className="min-h-11 px-2 py-1.5 text-xs"
+                        label="Événement"
+                        allLabel="Tous les événements"
+                        noun={['événement', 'événements']}
+                        value={p.events ?? []}
+                        options={[...(full.data?.events ?? [])]
+                          .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+                          .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
+                        onChange={(xs) => setPop({ events: listOrNone(xs) })}
+                      />
+                    </FilterField>
+                  )}
+                  <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
+                </div>
+              )}
+            </div>
+            {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} />}
+            {!hosted && (
+              <SavedOnList
+                saved={saved}
+                onApply={(q) => {
+                  if (q.sql) setSql({ spec: q.sql, phrase: q.name })
+                  else {
+                    setQy(queryFromSaved(q.recipe))
+                    setSql(null)
+                  }
+                  setResult(null)
+                }}
+              />
+            )}
           </div>
         )}
       </div>
-      {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} />}
-      {!hosted && (
-      <SavedOnList
-        saved={saved}
-        onApply={(q) => {
-          if (q.sql) setSql({ spec: q.sql, phrase: q.name })
-          else {
-            setQy(queryFromSaved(q.recipe))
-            setSql(null)
-          }
-          setResult(null)
-        }}
-      />
-      )}
     </>
   )
 
@@ -804,6 +836,13 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       open={chipOpen}
       setOpen={setChipOpen}
       quickRemove
+      inWindow={(c) => WINDOW_KEYS.has(c.key) && !(c.key === 'height' && p.hMax) && !(c.key === 'sort' && hosted)}
+      onOpenWindow={(c) => {
+        // Filtre rangé sous « Plus de filtres » (et « Événement » sous « + Ajouter une condition ») : déplié.
+        if (!SIMPLE_KEYS.has(c.key as FilterKey)) setAdvOpen(true)
+        if (c.key === 'events') setMore(true)
+        fw.openAt(c.key)
+      }}
       after={
         (hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? (
           <>
@@ -992,7 +1031,7 @@ function SortPicker({ recipe, model, onChange }: { recipe: Recipe; model: Recipe
   const ms = measureCriteria(model.criteria)
   const set = (patch: Partial<Recipe['out']>) => onChange({ ...recipe, out: { ...recipe.out, type: 'list', ...patch } })
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-line p-2 text-xs">
+    <div className="flex flex-col gap-1.5 rounded-md border border-line p-2 text-xs" data-filter="sort">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-bold text-muted">Trier par</span>
         <Select<SortBy | ''>

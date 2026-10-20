@@ -18,14 +18,19 @@ import { isPhone } from './MultiPicker'
  * non modal sur ordinateur (la liste derrière reste utilisable).
  * Les choix multiples ouverts depuis la fenêtre (src/components/MultiPicker.tsx, YearPicker) portent `data-popup` : les
  * toucher ne ferme pas la fenêtre, et leur Échap ne ferme qu'eux.
+ * Toucher une pastille de filtre sous la barre ouvre la fenêtre SUR le réglage de ce filtre (`openAt(clé)`) : la fenêtre
+ * défile jusqu'à l'élément `data-filter` qui porte la clé, le met un instant en évidence et y pose le focus.
  */
 
 /** État de la fenêtre et son bouton (identifiant de la fenêtre pour aria-controls). */
 export function useFilterWindow() {
-  const [open, setOpen] = useState(false)
+  const [state, setState] = useState<{ open: boolean; focus?: { key: string; n: number } }>({ open: false })
   const anchor = useRef<HTMLButtonElement | null>(null)
   const id = useId()
-  return { open, setOpen, anchor, id }
+  const setOpen = (open: boolean) => setState({ open })
+  /** Ouvre la fenêtre (ou y reste) sur le réglage du filtre `key` (pastille touchée). */
+  const openAt = (key: string) => setState((s) => ({ open: true, focus: { key, n: (s.focus?.n ?? 0) + 1 } }))
+  return { open: state.open, setOpen, openAt, focus: state.focus, anchor, id }
 }
 export type FilterWindowState = ReturnType<typeof useFilterWindow>
 
@@ -117,11 +122,40 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
     }
   }, [])
 
-  // À l'ouverture : le focus sur le premier réglage (sans faire défiler la page).
+  // À l'ouverture : le focus sur le premier réglage (sans faire défiler la page) ; ouverte depuis une pastille : sur le
+  // réglage de son filtre, amené dans la fenêtre et mis un instant en évidence (il peut n'apparaître qu'au rendu suivant :
+  // « + Ajouter une condition » déplié par la page).
   useEffect(() => {
-    const first = box.current?.querySelector<HTMLElement>(`[data-body] :is(${FOCUSABLE})`) ?? box.current
-    first?.focus({ preventScroll: true })
-  }, [])
+    const key = w.focus?.key
+    let tries = 0
+    let raf = 0
+    let timer = 0
+    const find = () => {
+      const body = box.current?.querySelector<HTMLElement>('[data-body]')
+      const el = key ? body?.querySelector<HTMLElement>(`[data-filter~="${CSS.escape(key)}"]`) : null
+      if (key && !el && tries++ < 6) {
+        raf = requestAnimationFrame(find)
+        return
+      }
+      if (!el || !body) {
+        const first = box.current?.querySelector<HTMLElement>(`[data-body] :is(${FOCUSABLE})`) ?? box.current
+        first?.focus({ preventScroll: true })
+        return
+      }
+      const top = el.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop
+      body.scrollTop = Math.max(0, top - 12)
+      el.classList.add('filter-hl')
+      timer = window.setTimeout(() => el.classList.remove('filter-hl'), 1600)
+      const target = el.querySelector<HTMLElement>('[aria-pressed="true"]') ?? el.querySelector<HTMLElement>(FOCUSABLE) ?? box.current
+      target?.focus({ preventScroll: true })
+    }
+    // Après le rendu qui place la fenêtre (sa hauteur limitée fait défiler son contenu).
+    raf = requestAnimationFrame(find)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(timer)
+    }
+  }, [w.focus?.n]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ordinateur : un clic hors de la fenêtre (et hors du bouton, qui la referme lui-même) la ferme, et ce clic garde son
   // effet. Pas dans une liste de choix ouverte depuis la fenêtre (data-popup) ni dans un autre dialogue (confirmation).
@@ -129,7 +163,8 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
   useEffect(() => {
     const down = (e: PointerEvent) => {
       const t = e.target as Element | null
-      if (!t || box.current?.contains(t) || w.anchor.current?.contains(t) || t.closest('[data-popup], [role="dialog"], [role="alertdialog"]')) return
+      // Une pastille de filtre (data-opens-filters) : la fenêtre reste ouverte et passe sur son réglage.
+      if (!t || box.current?.contains(t) || w.anchor.current?.contains(t) || t.closest('[data-popup], [data-opens-filters], [role="dialog"], [role="alertdialog"]')) return
       closeRef.current(false)
     }
     const key = (e: globalThis.KeyboardEvent) => {
@@ -231,10 +266,13 @@ export function CountText({ n, total, noun }: { n: number; total: number; noun: 
   )
 }
 
-/** Un réglage de la fenêtre : son nom (petites capitales) et ses choix. */
-export function FilterField({ label, children, id }: { label: string; children: ReactNode; id?: string }) {
+/**
+ * Un réglage de la fenêtre : son nom (petites capitales) et ses choix. `k` : filtre(s) réglé(s) ici (pastille touchée :
+ * la fenêtre s'ouvre sur ce réglage, voir `openAt`).
+ */
+export function FilterField({ label, children, id, k }: { label: string; children: ReactNode; id?: string; k?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1" role={id ? undefined : 'group'} aria-label={id ? undefined : label}>
+    <div className="flex min-w-0 flex-col gap-1" role={id ? undefined : 'group'} aria-label={id ? undefined : label} data-filter={k}>
       <span id={id} className="text-[10px] font-bold tracking-wider text-muted uppercase">
         {label}
       </span>
@@ -257,7 +295,10 @@ export function ChoicePills<V extends string>({
   total,
   allLabel = 'Tous',
   extra,
+  k,
 }: {
+  /** Filtre(s) réglé(s) ici (voir FilterField). */
+  k?: string
   label: string
   value: readonly V[]
   options: readonly { value: V; label: string; short?: string; title?: string }[]
@@ -273,7 +314,7 @@ export function ChoicePills<V extends string>({
     `min-h-9 rounded-full border px-2.5 text-xs font-bold transition disabled:opacity-40 ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
   const num = (n?: number) => (n === undefined ? null : <span className="ml-1 text-[10px] font-normal tabular-nums opacity-75">{n.toLocaleString('fr-FR')}</span>)
   return (
-    <FilterField label={label}>
+    <FilterField label={label} k={k}>
       <div className="flex flex-wrap gap-1.5">
         <button type="button" aria-pressed={!value.length} className={pill(!value.length)} onClick={() => onChange([])}>
           {allLabel}
