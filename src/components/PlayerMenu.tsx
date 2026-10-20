@@ -19,8 +19,10 @@ import { genderOf, pluralG, w } from '../gender'
 /*
  * Menu d'une ligne de joueur (toutes les listes passent par PlayerRow) : voir la fiche, évaluer, à revoir, suivre,
  * ajouter à un événement ou à un groupe, comparer, modifier la fiche, actions propres à la liste (retirer de
- * l'événement, du groupe), supprimer la fiche (administrateurs, après confirmation). Seulement ce que les droits
- * permettent (can.*), avec les fenêtres existantes.
+ * l'événement, du groupe, du pôle), supprimer la fiche (administrateurs, après confirmation, et seulement si la liste le
+ * demande : `deletable`, la liste générale Joueurs ; jamais dans un groupe, un événement ou le changement de saison, où
+ * « Supprimer » à côté de « Retirer » fait effacer des fiches au lieu de les retirer de la liste). Seulement ce que les
+ * droits permettent (can.*), avec les fenêtres existantes.
  */
 
 /** Action propre à la liste (« Retirer de cet événement »…), après les actions communes. */
@@ -31,7 +33,22 @@ export const PlayerMenuScope = createContext<{ pick?: ComparePick; eventId?: str
 
 type Phase = 'menu' | 'rewatch' | 'event' | 'group'
 
-export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Player; anchor: MenuAnchor; fiche: RowLink; extras?: MenuExtra[]; onClose: () => void }) {
+export function PlayerMenu({
+  p,
+  anchor,
+  fiche,
+  extras = [],
+  deletable = false,
+  onClose,
+}: {
+  p: Player
+  anchor: MenuAnchor
+  fiche: RowLink
+  extras?: MenuExtra[]
+  /** « Supprimer la fiche » proposé (liste générale Joueurs seulement) ; absent par défaut. */
+  deletable?: boolean
+  onClose: () => void
+}) {
   const role = useRole()
   const nav = useNavigate()
   const { pathname } = useLocation()
@@ -87,7 +104,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
     },
     can.editPlayer(role, p) && { label: can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition', icon: 'pencil', onSelect: () => nav(`/joueurs/${p.id}/modifier`) },
     ...extras.map((x, i) => (i === 0 ? { ...x, separated: true } : x)),
-    can.deletePlayers(role) && {
+    deletable && can.deletePlayers(role) && {
       label: 'Supprimer la fiche',
       icon: 'trash',
       danger: true,

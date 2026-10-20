@@ -6,6 +6,7 @@ import { w } from '../gender'
 import { useAssignments, useLevels, useUnits } from '../installation'
 import { officialRegions, regionOfDept, useRegions } from '../lists'
 import {
+  cancelArrival,
   defaultPoleGroupName,
   isPoleLeader,
   joinPole,
@@ -22,6 +23,7 @@ import {
   type PoleRef,
   type PoleView,
   type Seasons,
+  upcomingIndex,
 } from '../poleSeason'
 import { can, currentUserId, useRole } from '../roles'
 import { Icon } from './ui'
@@ -29,7 +31,7 @@ import { choose } from './Confirm'
 
 /*
  * Groupe « Pôle » d'une unité (src/poleSeason.ts) : lectures (unité, membres calculés, droits), écritures sur les fiches
- * (entrer, sortir, rétablir : on écrit des dates, jamais un statut) et fenêtre « motif de sortie », partagées par la page
+ * (entrer, sortir, rétablir, annuler une arrivée à venir : on écrit des dates, jamais un statut) et fenêtre « motif de sortie », partagées par la page
  * Groupes (src/pages/Groups.tsx), la fiche ouverte depuis le groupe (GroupPlayers.tsx), « Ajouter à un groupe »
  * (components/Groups.tsx) et le changement de saison (src/pages/PoleSeason.tsx).
  */
@@ -37,6 +39,13 @@ import { choose } from './Confirm'
 const d = (s?: string) => (s ? s.split('-').reverse().join('/') : '?')
 /** « 01/07/2027 ». */
 export const fmtDay = d
+
+/** « 1er juillet 2027 ». */
+export const fmtLongDay = (s?: string) => {
+  if (!s) return '?'
+  const t = new Date(`${s}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+  return t.replace(/^1 /, '1er ')
+}
 
 /** Structure de l'appareil : unités, niveaux, affectations (non supprimées). */
 export function useStructure() {
@@ -231,6 +240,35 @@ export async function joinPoleMany(
 export async function leavePoleOne(p: Player, ref: PoleRef, s: Seasons, reason: PoleExit, to = s.exit): Promise<boolean> {
   const fresh = (await db.players.get(p.id)) ?? p
   const poles = leavePole(fresh, ref, s.refCurrent, to, reason)
+  if (!poles) return false
+  await save<Player>('players', { ...fresh, poles })
+  return true
+}
+
+/**
+ * Période de ce pôle pas encore commencée (arrivée à venir) vue au jour `day` (vue « Saison prochaine ») : le menu de la
+ * ligne propose alors « Annuler l’arrivée » à la place de « Retirer du pôle… ». undefined : aucune.
+ */
+export function upcomingArrival(p: Player, ref: PoleRef, s: Seasons, day?: string) {
+  const i = upcomingIndex(p, ref, s.refCurrent, day)
+  return i < 0 ? undefined : p.poles![i]
+}
+
+/**
+ * « Annuler l’arrivée » : confirmation simple, puis retire seulement la période à venir de ce pôle (cancelArrival) ; sans
+ * date ni motif, les autres périodes ne changent pas. Faux si refusé ou s'il n'y avait rien à annuler.
+ */
+export async function cancelArrivalOne(p: Player, ref: PoleRef, s: Seasons, groupName: string, day?: string): Promise<boolean> {
+  const x = upcomingArrival(p, ref, s, day)
+  if (!x) return false
+  const msg = `Annuler l’arrivée de ${p.lastName.toUpperCase()} ${p.firstName} au ${groupName} prévue le ${fmtLongDay(x.from)} ? Ses autres périodes de pôle et sa fiche ne changent pas.`
+  const ok = await choose(msg, [
+    { value: 'keep', label: 'Garder l’arrivée', style: 'ghost' },
+    { value: 'cancel', label: 'Annuler l’arrivée', style: 'primary' },
+  ])
+  if (ok !== 'cancel') return false
+  const fresh = (await db.players.get(p.id)) ?? p
+  const poles = cancelArrival(fresh, ref, s.refCurrent, day)
   if (!poles) return false
   await save<Player>('players', { ...fresh, poles })
   return true

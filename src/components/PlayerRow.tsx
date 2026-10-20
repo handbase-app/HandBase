@@ -110,6 +110,12 @@ type RowProps = {
   cardProps?: Record<string, string | undefined>
   /** Actions propres à la liste dans le menu de la ligne (« Retirer de cet événement »…). */
   menuExtras?: MenuExtra[]
+  /**
+   * « Supprimer la fiche » dans le menu de la ligne (administrateurs). Absent par défaut : seulement la liste générale
+   * Joueurs (src/pages/Players.tsx) ; jamais une liste de groupe, d'événement ou de saison, où la ligne propose de
+   * retirer le joueur de la liste, pas d'effacer sa fiche. La page de la fiche a son propre « Supprimer la fiche ».
+   */
+  deletable?: boolean
 }
 
 /** Ligne pleine (photo 44 px). */
@@ -144,6 +150,7 @@ function Row({
   className = '',
   cardProps,
   menuExtras,
+  deletable = false,
   compact,
 }: RowProps & { compact: boolean }) {
   const menu = useRowMenu()
@@ -230,7 +237,7 @@ function Row({
   const opened = menu.anchor && (
     // Hors de la carte ; les événements du menu et de ses fenêtres ne remontent pas jusqu'à la liste.
     <div className="contents" onClick={stop} onKeyDown={stop} onPointerDown={stop} onContextMenu={stop}>
-      <PlayerMenu p={p} anchor={menu.anchor} fiche={fiche} extras={menuExtras} onClose={menu.close} />
+      <PlayerMenu p={p} anchor={menu.anchor} fiche={fiche} extras={menuExtras} deletable={deletable} onClose={menu.close} />
     </div>
   )
   if (!below)

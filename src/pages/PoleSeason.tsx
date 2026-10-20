@@ -6,7 +6,7 @@ import { BackButton, useGoBack } from '../backNav'
 import { ask } from '../components/Confirm'
 import { PlayerList } from '../components/Pictos'
 import { PlayerRow } from '../components/PlayerRow'
-import { ExitReasonDialog, fmtDay, programmeLabel, reopenPoleOne, usePoleLeader, usePoleMembers, usePoleRef } from '../components/PoleGroup'
+import { cancelArrivalOne, ExitReasonDialog, fmtDay, fmtLongDay, programmeLabel, reopenPoleOne, upcomingArrival, usePoleLeader, usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { Empty, Segmented } from '../components/ui'
 import { db, POLE_EXITS, POLE_PROGRAMMES, poleName, save, type Player, type PoleExit, type PoleProgramme } from '../db'
 import { pluralG, setGender, w } from '../gender'
@@ -24,7 +24,8 @@ import { AddPlayers } from './Events'
  *  - à droite « Effectif <saison prochaine> » : reconduits, nouveaux déjà enregistrés (entrée à venir) et nouveaux choisis
  *    ici (« Ajouter des joueurs », programme déduit de l'âge, modifiable).
  * « Enregistrer » montre le récapitulatif et les deux dates (sortie 30 juin, entrée 1er juillet, modifiables une fois pour
- * tout le lot), puis écrit : sortants → sortie + motif ; nouveaux → nouvelle période ; reconduits → rien.
+ * tout le lot), puis écrit : sortants → sortie + motif ; nouveaux → nouvelle période ; reconduits → rien. Un nouveau
+ * déjà enregistré (entrée à venir) s'annule depuis le menu de sa ligne : « Annuler l’arrivée » retire sa période.
  * Réservé aux dirigeants du pôle et aux administrateurs (can.editPoles).
  */
 
@@ -193,9 +194,10 @@ export default function PoleSeason() {
   }
   /** Ligne de droite : reconduit. */
   const keptRow = (p: Player) => <PlayerRow key={p.id} p={p} link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }} pictos={false} className="h-full" lines={<Tag kind="reconduit" g={gg} />} />
-  /** Ligne de droite : nouveau déjà enregistré (entrée à venir). */
+  /** Ligne de droite : nouveau déjà enregistré (entrée à venir) ; son menu propose « Annuler l’arrivée ». */
   const savedRow = (p: Player) => {
     const x = p.poles![periodIndexAt(p, ref, s.refNext)]
+    const upcoming = upcomingArrival(p, ref, s, s.refNext)
     return (
       <PlayerRow
         key={p.id}
@@ -203,6 +205,18 @@ export default function PoleSeason() {
         link={{ to: `/groupes/${g.id}/joueurs/${p.id}`, state: { md: true } }}
         pictos={false}
         className="h-full"
+        menuExtras={
+          upcoming && [
+            {
+              label: 'Annuler l’arrivée',
+              icon: 'close',
+              hint: `prévue le ${fmtLongDay(upcoming.from)}`,
+              onSelect: async () => {
+                if (await cancelArrivalOne(p, ref, s, g.name, s.refNext)) setDone(`${p.lastName.toUpperCase()} ${p.firstName} : arrivée du ${fmtDay(upcoming.from)} annulée (période retirée de sa fiche).`)
+              },
+            },
+          ]
+        }
         lines={
           <span className="flex flex-wrap items-center gap-x-2 text-[11px]">
             <Tag kind="nouveau" g={gg} />

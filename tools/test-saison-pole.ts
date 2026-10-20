@@ -1,7 +1,7 @@
 // Test du groupe « Pôle » d'une unité et du changement de saison (src/poleSeason.ts) : correspondance unité / période
 // (avec et sans accents, ancien champ `name`, ligue), vue en cours / prochaine avec des dates futures, reconduit = rien
 // écrit, sortant = sortie + motif, nouveau = période créée, transfert d'un pôle à l'autre, rétablir, propositions par âge
-// pour les trois programmes, statut de saison, droits (affecté à l'unité, à une autre unité, administrateur, observateur).
+// pour les trois programmes, annuler une arrivée à venir, statut de saison, droits (affecté à l'unité, à une autre unité, administrateur, observateur).
 // Données fictives seulement.
 //
 //   npx jiti tools/test-saison-pole.ts
@@ -10,6 +10,7 @@ import type { PolePeriod } from '../src/db'
 import {
   applySeason,
   batchSize,
+  cancelArrival,
   closePeriod,
   defaultPoleGroupName,
   exportGaps,
@@ -34,6 +35,7 @@ import {
   seasonSummary,
   suggestProgramme,
   unitRegionId,
+  upcomingIndex,
   viewLabel,
 } from '../src/poleSeason'
 import { poleViewOf, withPoleView } from '../src/tabQuery'
@@ -235,6 +237,48 @@ t('transfert : la période de l’autre pôle est fermée au 30 juin avec le mot
     { regionId: 'region-sud', site: 'Aix-en-Provence', from: '2025-07-01', to: '2027-06-30', exitReason: 'autre' },
     { regionId: 'region-sud', site: 'Saint-Raphaël', programme: 'accession', from: '2027-07-01' },
   ])
+})
+
+t('annuler l’arrivée : arrivée à venir seule → plus aucune période', () => {
+  // f : entrée enregistrée au 1er juillet 2027, rien d'autre.
+  assert.equal(upcomingIndex(players[5], SR, today), 0)
+  assert.deepEqual(cancelArrival(players[5], SR, today), [])
+  assert.deepEqual(cancelArrival(players[5], SR, today, s.refNext), []) // vue « Saison prochaine »
+  assert.deepEqual(players[5].poles, [sr({ from: '2027-07-01' })]) // la fiche d'origine n'est pas touchée
+  assert.equal(isMemberAt({ poles: cancelArrival(players[5], SR, today)! }, SR, s.refNext), false)
+})
+
+t('annuler l’arrivée : après une période passée, seule l’arrivée disparaît', () => {
+  const past = sr({ from: '2023-07-01', to: '2025-06-30', exitReason: 'autre' })
+  const p = P('r', '2011-01-01', [past, sr({ from: '2027-07-01', programme: 'accession' })])
+  assert.equal(upcomingIndex(p, SR, today), 1)
+  assert.deepEqual(cancelArrival(p, SR, today), [past])
+  // Transfert : la période de l'autre pôle fermée au 30 juin par cette arrivée reste telle quelle (pas rouverte).
+  const moved = joinPole(players[4], SR, { day: s.entry, entry: s.entry, exit: s.exit, programme: 'accession' })!.poles
+  assert.deepEqual(cancelArrival({ poles: moved }, SR, today), [moved[0]])
+})
+
+t('annuler l’arrivée : période déjà commencée → rien à annuler (elle se ferme)', () => {
+  assert.equal(upcomingIndex(players[0], SR, today), -1)
+  assert.equal(cancelArrival(players[0], SR, today), null)
+  assert.equal(cancelArrival(players[0], SR, today, s.refNext), null)
+  // Arrivée aujourd'hui même : déjà commencée.
+  assert.equal(cancelArrival(P('t', '2011-01-01', [sr({ from: today })]), SR, today), null)
+  // Sortie déjà enregistrée (période en cours fermée au 30 juin) : rien non plus.
+  assert.equal(cancelArrival(players[6], SR, today), null)
+})
+
+t('annuler l’arrivée : un autre pôle reste intact', () => {
+  const aix = { regionId: 'region-sud', site: 'Aix-en-Provence', from: '2027-07-01' }
+  const both = P('o', '2011-01-01', [sr(), aix])
+  // Arrivée à venir à Aix seulement : rien à annuler à Saint-Raphaël (période en cours) ; à Aix, seule celle-ci part.
+  assert.equal(cancelArrival(both, SR, today), null)
+  assert.deepEqual(cancelArrival(both, { regionId: 'region-sud', site: 'Aix-en-Provence' }, today), [sr()])
+  // Arrivée à venir à Saint-Raphaël, période en cours ailleurs : celle d'ailleurs ne bouge pas.
+  const other = P('q', '2011-01-01', [{ regionId: 'region-sud', site: 'Aix-en-Provence', from: '2025-07-01' }, sr({ from: '2027-07-01' })])
+  assert.deepEqual(cancelArrival(other, SR, today), [{ regionId: 'region-sud', site: 'Aix-en-Provence', from: '2025-07-01' }])
+  // Le jour de la vue ne couvre pas l'arrivée : rien.
+  assert.equal(cancelArrival(players[5], SR, today, today), null)
 })
 
 t('lot : reconduit = rien écrit, sortant = sortie + motif, nouveau = période, transfert signalé', () => {

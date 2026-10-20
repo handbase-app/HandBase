@@ -191,6 +191,7 @@ export default function Players() {
                   selected={selected === p.id}
                   link={{ to: `/joueurs/${p.id}${tabQuery}` }}
                   linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
+                  deletable
                   badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
                   sub={playerSub(p, a !== null && `${a} ans`)}
                   lines={
