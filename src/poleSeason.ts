@@ -15,7 +15,7 @@ import { ancestors, assignmentsOf, unitDepartments, type AssignmentRole, type As
  * ce sont les joueurs qui ont une période de pôle (Player.poles) correspondant à l'unité et couvrant une date de référence.
  * Deux vues : « Saison en cours » (périodes couvrant aujourd'hui) et « Saison prochaine » (périodes couvrant le 1er septembre
  * de la saison suivante). On n'écrit jamais un « statut » : on écrit des dates. « Au pôle », « reconduit », « nouveau »,
- * « sorti » sont calculés.
+ * « sorti » sont calculés. Une arrivée pas encore commencée s'annule en retirant sa période (cancelArrival).
  *
  * TODO (plus tard) : cas « pressenti » (dossier en attente, pas encore de période) — non traité ici.
  */
@@ -260,6 +260,24 @@ export function reopenPeriod(poles: readonly PolePeriod[], index: number): PoleP
 export function leavePole(p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, day: string, to: string, exitReason: PoleExit): PolePeriod[] | null {
   const i = periodIndexAt(p, ref, day)
   return i < 0 ? null : closePeriod(p.poles ?? [], i, to, exitReason)
+}
+
+/**
+ * Arrivée à venir dans ce pôle : indice de la période de ce pôle qui n'a pas encore commencé (`from` après `today`). Avec
+ * `day` : celle qui couvre ce jour (la vue « Saison prochaine »), sinon la première à venir. −1 : aucune (une période déjà
+ * commencée ne s'annule pas : elle se ferme, « Retirer du pôle… »).
+ */
+export function upcomingIndex(p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, today: string, day?: string): number {
+  return (p.poles ?? []).findIndex((x) => periodMatches(x, ref) && !!x.from && x.from > today && (!day || isCurrentAt(x, day)))
+}
+
+/**
+ * « Annuler l'arrivée » : retire seulement la période à venir de ce pôle (upcomingIndex) ; les autres périodes restent
+ * telles quelles (une période d'un autre pôle fermée par ce transfert n'est pas rouverte). null : rien à annuler.
+ */
+export function cancelArrival(p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, today: string, day?: string): PolePeriod[] | null {
+  const i = upcomingIndex(p, ref, today, day)
+  return i < 0 ? null : (p.poles ?? []).filter((_, j) => j !== i)
 }
 
 export interface JoinResult {

@@ -27,7 +27,7 @@ import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { HiddenPlayers } from '../components/HiddenPlayers'
 import { hiddenCount } from '../perimeter'
-import { PlayerMenuScope } from '../components/PlayerMenu'
+import { PlayerMenuScope, type MenuExtra } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
@@ -45,8 +45,10 @@ import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { choose } from '../components/Confirm'
 import {
   createPoleGroup,
+  cancelArrivalOne,
   ExitReasonDialog,
   fmtDay,
+  fmtLongDay,
   joinMessage,
   askArrival,
   joinPoleMany,
@@ -59,6 +61,7 @@ import {
   usePoleMembers,
   usePoleRef,
   usePoleRefs,
+  upcomingArrival,
   VIEW_OPTIONS,
   type PoleMembers,
 } from '../components/PoleGroup'
@@ -885,6 +888,23 @@ function PlayerGroupDetail() {
       await removeFromGroup(g!, [p.id])
   }
 
+  // Menu d'une ligne du groupe Pôle : arrivée pas encore commencée → « Annuler l'arrivée » (on retire seulement cette
+  // période, sans date ni motif) ; période commencée → « Retirer du pôle… » (sortie et motif).
+  function poleMenuItem(p: Player): MenuExtra {
+    const day = poleView === 'prochaine' ? pm?.s.refNext : pm?.s.refCurrent
+    const x = ref && pm ? upcomingArrival(p, ref, pm.s, day) : undefined
+    if (!x) return { label: 'Retirer du pôle…', icon: 'close', hint: 'sortie et motif sur la fiche', onSelect: () => void removeOne(p) }
+    return {
+      label: 'Annuler l’arrivée',
+      icon: 'close',
+      hint: `prévue le ${fmtLongDay(x.from)}`,
+      onSelect: async () => {
+        if (!ref || !pm || !(await cancelArrivalOne(p, ref, pm.s, g!.name, day))) return
+        setPoleMsg(`${p.lastName.toUpperCase()} ${p.firstName} : arrivée du ${fmtDay(x.from)} annulée (période retirée de sa fiche).`)
+      },
+    }
+  }
+
   return (
     <PlayerMenuScope.Provider value={{ pick }}>
     <div className="flex flex-col gap-4">
@@ -1080,7 +1100,7 @@ function PlayerGroupDetail() {
             menuExtras={
               pole
                 ? leads
-                  ? [{ label: 'Retirer du pôle…', icon: 'close', hint: 'sortie et motif sur la fiche', onSelect: () => void removeOne(p) }]
+                  ? [poleMenuItem(p)]
                   : undefined
                 : can.removeFromGroup(role, g, p.id)
                   ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
