@@ -38,6 +38,8 @@ import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, Seen
 import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
 import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 import { FoldSection } from '../components/FoldSection'
+import { afterWindow, FormWindow } from '../components/FormWindow'
+import { DuplicateEvent } from '../components/DuplicateEvent'
 import { foldKey, startsOpen } from '../fold'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
@@ -111,10 +113,19 @@ export default function Events() {
     })
     return m
   }, [], NO_STATS)
-  // Depuis un groupe : « Créer un événement » ouvre le formulaire avec ses joueurs.
+  // « + Événement » : fenêtre « Nouvel événement » par-dessus la liste (src/components/FormWindow.tsx). Depuis un groupe
+  // (?groupe=…, « Créer un événement ») : la même, avec ses joueurs ; le paramètre est retiré de l'adresse avant
+  // l'ouverture (un retour depuis l'événement créé ne rouvre pas la fenêtre).
   const [params, setParams] = useSearchParams()
   const fromGroup = params.get('groupe') ?? undefined
-  const [creating, setCreating] = useState(!!fromGroup)
+  const [creating, setCreating] = useState<{ groupId?: string } | null>(null)
+  useEffect(() => {
+    if (!fromGroup) return
+    const next = new URLSearchParams(params)
+    next.delete('groupe')
+    setParams(next, { replace: true })
+    setCreating({ groupId: fromGroup })
+  }, [fromGroup]) // eslint-disable-line react-hooks/exhaustive-deps
   const [fromSheet, setFromSheet] = useState(false)
   const nav = useNavigate()
   // Ordinateur, événement ouvert à droite : son bouton « Évaluer » est le seul bouton principal de l'écran ;
@@ -146,7 +157,7 @@ export default function Events() {
             <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
               + Feuille de match
             </button>
-            <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating(true)}>
+            <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating({})}>
               + Événement
             </button>
           </div>
@@ -163,16 +174,16 @@ export default function Events() {
         </Suspense>
       )}
       {creating && (
-        <div className="card p-3">
+        <FormWindow title="Nouvel événement" onClose={() => setCreating(null)}>
           <NewEventForm
-            groupId={fromGroup}
+            groupId={creating.groupId}
             onDone={(ev) => {
-              setCreating(false)
-              if (fromGroup) setParams({}, { replace: true })
+              setCreating(null)
+              // Ouvre l'événement créé : il prend la place de l'entrée d'historique de la fenêtre.
               if (ev) nav(`/evenements/${ev.id}`)
             }}
           />
-        </div>
+        </FormWindow>
       )}
       {territoryOn && allEvents.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
@@ -327,7 +338,7 @@ async function deleteEvent(ev: HBEvent, role: Role) {
 }
 
 /** Menu d'une ligne d'événement (appui long, clic droit, « ⋮ ») : seulement ce que les droits permettent. */
-function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMenu> }) {
+function EventMenu({ ev, menu, onDuplicate }: { ev: HBEvent; menu: ReturnType<typeof useRowMenu>; onDuplicate: () => void }) {
   const role = useRole()
   const nav = useNavigate()
   const { pathname } = useLocation()
@@ -338,6 +349,8 @@ function EventMenu({ ev, menu }: { ev: HBEvent; menu: ReturnType<typeof useRowMe
     { label: `Évaluer des ${w(ev.sex).joueurs}`, icon: 'check', onSelect: () => nav(`/evaluer?evenement=${ev.id}`) },
     (manage || can.contributeEvent(role, ev)) && { label: `Ajouter des ${w(ev.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/evenements/${ev.id}?ajout=1`) },
     manage && { label: 'Modifier', icon: 'pencil', onSelect: () => nav(`/evenements/${ev.id}?modifier=1`) },
+    // Copie à compléter (« Dupliquer l'événement ») : rien n'est écrit avant « Créer ».
+    can.manageEvents(role) && { label: 'Dupliquer…', icon: 'list', hint: 'choisir ce qui est copié', onSelect: onDuplicate },
     manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void toggleArchiveEvent(ev) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
     manage && {
@@ -366,6 +379,7 @@ function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: 
   // Ordinateur : événement ouvert dans le panneau de droite.
   const on = useSelected('/evenements') === ev.id
   const menu = useRowMenu()
+  const [duplicating, setDuplicating] = useState(false)
   // Ordinateur, un événement déjà ouvert à droite : on passe à un autre en gardant l'onglet choisi (Classement, Vidéo).
   const { search } = useLocation()
   const keep = new URLSearchParams(search).get('onglet')
@@ -418,7 +432,8 @@ function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: 
       </div>
       <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${ev.name} »`} className="-mr-1.5" />
     </Link>
-    <EventMenu ev={ev} menu={menu} />
+    <EventMenu ev={ev} menu={menu} onDuplicate={() => setDuplicating(true)} />
+    {duplicating && <DuplicateEvent ev={ev} onClose={() => setDuplicating(false)} />}
     </>
   )
 }
@@ -446,7 +461,9 @@ export function EventDetail() {
   // Infos secondaires (organisateur, avis donnés par, participants, création) : repliées, dépliées pendant la session.
   const [infos, setInfos] = useSessionState('handbase.evenement.infos', false)
   const [adding, setAdding] = useState(params.has('ajout'))
-  const [editing, setEditing] = useState(params.has('modifier'))
+  // « Modifier » : fenêtre par-dessus la page (ouverte aussi par ?modifier=1, une fois le paramètre retiré de l'adresse).
+  const [editing, setEditing] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
   // Après Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
   const leave = useBack('/evenements', 'ÉVÉNEMENTS')
   // « Modifier » choisi depuis un autre écran (menu d'une ligne de la liste) : Enregistrer ou Annuler y ramène.
@@ -726,6 +743,14 @@ export function EventDetail() {
   const withAvis = new Set(evals.map((e) => e.playerId))
   avisOrder.current = [...sections.flatMap((sec) => sec.players), ...settled].map((p) => p.id).filter((pid) => withAvis.has(pid))
 
+  // Fin de « Modifier » (fenêtre) : Enregistrer, Annuler ou ✕. Ouvert depuis un autre écran (menu d'une ligne de la
+  // liste) : retour à cet écran, une fois l'entrée d'historique de la fenêtre retirée.
+  function doneEditing() {
+    setEditing(false)
+    if (editOutside.current && origin.known) afterWindow(origin.go)
+    editOutside.current = false
+  }
+
   // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation.
   async function removeOne(p: Player) {
     const n = evals.filter((e) => e.playerId === p.id).length
@@ -755,6 +780,8 @@ export function EventDetail() {
           subtitle: [typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · '),
           items: [
             manage && !editing && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+            // Copie à compléter (« Dupliquer l'événement ») : rien n'est écrit avant « Créer ».
+            can.manageEvents(role) && { label: 'Dupliquer…', icon: 'list', hint: 'choisir ce qui est copié', onSelect: () => setDuplicating(true) },
             // Archiver : retiré des listes (Évaluer, événements), avis conservés.
             manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
             { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
@@ -769,20 +796,12 @@ export function EventDetail() {
           ],
         }}
       />
-      {editing ? (
-        <div className="card p-3">
-          <NewEventForm
-            key={ev.id}
-            event={ev}
-            onDone={() => {
-              setEditing(false)
-              if (editOutside.current && origin.known) origin.go()
-              editOutside.current = false
-            }}
-            extra={importSheet}
-          />
-        </div>
-      ) : (
+      {editing && (
+        <FormWindow title="Modifier l’événement" onClose={doneEditing}>
+          <NewEventForm key={ev.id} event={ev} onDone={doneEditing} extra={importSheet} />
+        </FormWindow>
+      )}
+      {duplicating && <DuplicateEvent ev={ev} onClose={() => setDuplicating(false)} />}
         <div>
           {ev.archived && <div className="mb-1 w-fit rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-bold text-muted">ARCHIVÉ</div>}
           <h1 className="text-lg font-extrabold">{ev.name}</h1>
@@ -832,7 +851,6 @@ export function EventDetail() {
             </div>
           )}
         </div>
-      )}
 
       {importing && (
         <Suspense fallback={null}>
@@ -863,14 +881,13 @@ export function EventDetail() {
       {!bar && tab === 'classement' && evaluate('btn-primary')}
 
       {/* Joueurs : la répartition par équipe en haut (repliée), puis la liste. */}
-      {tab === 'joueurs' && !adding && !editing && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
+      {tab === 'joueurs' && !adding && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
         <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} g={eg} />
       )}
 
       {/* Vidéo : vidéos, feuille de match (calage, moments, déroulé) et son import. Toujours monté, seulement masqué sur
           les autres onglets : le lecteur (VideoDock), le mode édition du séquençage et l'état des cartes (déroulé ouvert…)
           ne se ferment ni ne se rechargent en changeant d'onglet. */}
-      {!editing && (
         <div role="tabpanel" data-testid="onglet-video" aria-hidden={tab !== 'video'} className={tab === 'video' ? 'flex flex-col gap-4' : 'hidden'}>
           <VideoSection
             kind="event"
@@ -916,7 +933,6 @@ export function EventDetail() {
             )
           )}
         </div>
-      )}
 
       {tab === 'video' ? null : tab === 'joueurs' ? (
         adding ? (

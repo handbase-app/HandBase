@@ -22,7 +22,12 @@ import { isPhone } from './MultiPicker'
  * toucher ne ferme pas la fenêtre, et leur Échap ne ferme qu'eux.
  * Toucher une pastille de filtre sous la barre ouvre la fenêtre SUR le réglage de ce filtre (`openAt(clé)`) : la fenêtre
  * défile jusqu'à l'élément `data-filter` qui porte la clé, le met un instant en évidence et y pose le focus.
+ * Même fenêtre, en dialogue modal (`modal`), pour les formulaires de création et de modification (src/components/FormWindow.tsx) :
+ * centrée sur ordinateur (fond voilé, flouté et inactif), plein écran sur téléphone, pied `footer` à la place du compte.
  */
+
+/** Fenêtre modale (formulaires) : largeur maximale sur ordinateur ; `phoneFull` : plein écran sur téléphone. */
+export type ModalOpts = { width?: number; phoneFull?: boolean }
 
 /** État de la fenêtre et son bouton (identifiant de la fenêtre pour aria-controls). */
 export function useFilterWindow() {
@@ -71,19 +76,30 @@ export function FiltersButton({ w, n, variant = 'chip', compact = false }: { w: 
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** La fenêtre (rien si fermée). `count` : « 1 234 joueurs sur 40 001 » ; `onClear` : « Tout effacer » (absent : rien à effacer). */
-export function FilterWindow({ w, count, onClear, children, title = 'Filtres' }: { w: FilterWindowState; count: ReactNode; onClear?: () => void; children: ReactNode; title?: string }) {
-  if (!w.open) return null
-  return createPortal(
-    <Win w={w} count={count} onClear={onClear} title={title}>
-      {children}
-    </Win>,
-    document.body,
-  )
+type WinProps = {
+  w: FilterWindowState
+  count?: ReactNode
+  onClear?: () => void
+  children: ReactNode
+  title?: string
+  /** Dialogue modal centré (formulaires) au lieu de la fenêtre accrochée au bouton « Filtres ». */
+  modal?: ModalOpts
+  /** Pied de la fenêtre à la place du compte, de « Tout effacer » et de « Fermer » (boutons d'un formulaire). */
+  footer?: ReactNode
+  /** Nom du bouton ✕ pour les lecteurs d'écran. */
+  closeLabel?: string
 }
 
-function Win({ w, count, onClear, children, title }: { w: FilterWindowState; count: ReactNode; onClear?: () => void; children: ReactNode; title: string }) {
+/** La fenêtre (rien si fermée). `count` : « 1 234 joueurs sur 40 001 » ; `onClear` : « Tout effacer » (absent : rien à effacer). */
+export function FilterWindow({ title = 'Filtres', ...props }: WinProps) {
+  if (!props.w.open) return null
+  return createPortal(<Win title={title} {...props} />, document.body)
+}
+
+function Win({ w, count, onClear, children, title, modal, footer, closeLabel = 'Fermer les filtres' }: WinProps) {
   const [phone] = useState(isPhone)
+  const full = !!modal && phone && modal.phoneFull !== false
+  const backdrop = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const titleId = `${w.id}-titre`
   const kb = useKeyboardInset(phone)
@@ -142,7 +158,8 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
         return
       }
       if (!el || !body) {
-        const first = box.current?.querySelector<HTMLElement>(`[data-body] :is(${FOCUSABLE})`) ?? box.current
+        // Formulaire sur téléphone : pas de clavier qui surgit à l'ouverture (le focus reste sur la fenêtre).
+        const first = (modal && phone ? null : box.current?.querySelector<HTMLElement>(`[data-body] :is(${FOCUSABLE})`)) ?? box.current
         first?.focus({ preventScroll: true })
         return
       }
@@ -177,13 +194,28 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
       if (a && a !== document.body && (box.current?.contains(a) || a.closest('[data-popup], [role="dialog"], [role="alertdialog"]'))) return
       closeRef.current(true)
     }
-    if (!phone) document.addEventListener('pointerdown', down, true)
+    if (!phone && !modal) document.addEventListener('pointerdown', down, true)
     window.addEventListener('keydown', key)
     return () => {
       document.removeEventListener('pointerdown', down, true)
       window.removeEventListener('keydown', key)
     }
   }, [phone]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Modal : la page derrière ne défile pas sous la molette ou le doigt (le contenu de la fenêtre, lui, défile).
+  useEffect(() => {
+    const el = backdrop.current
+    if (!modal || !el) return
+    const stop = (e: Event) => {
+      if (!box.current?.contains(e.target as Node)) e.preventDefault()
+    }
+    el.addEventListener('wheel', stop, { passive: false })
+    el.addEventListener('touchmove', stop, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', stop)
+      el.removeEventListener('touchmove', stop)
+    }
+  }, [modal])
 
   // Clavier dans la fenêtre : Échap ferme (les listes de choix ouvertes depuis elle arrêtent leur Échap) ; téléphone
   // (dialogue modal) : Tab reste dans la fenêtre.
@@ -196,7 +228,7 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
       close(true)
       return
     }
-    if (e.key !== 'Tab' || !phone) return
+    if (e.key !== 'Tab' || !(phone || modal)) return
     const all = [...(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((x) => x.offsetParent !== null)
     if (!all.length) return
     const i = all.indexOf(document.activeElement as HTMLElement)
@@ -209,23 +241,38 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
     }
   }
 
+  const vh = kb.height || window.innerHeight
   const card = (
     <div
       ref={box}
       id={w.id}
       role="dialog"
-      aria-modal={phone ? 'true' : undefined}
+      aria-modal={phone || modal ? 'true' : undefined}
       aria-labelledby={titleId}
       tabIndex={-1}
       onKeyDown={keys}
-      className="ask-pop fixed z-40 flex flex-col overflow-hidden rounded-win border border-ai/40 bg-panel shadow-2xl outline-none"
-      style={pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxH } : { left: -9999, top: 0 }}
+      className={
+        !modal
+          ? 'ask-pop fixed z-40 flex flex-col overflow-hidden rounded-win border border-ai/40 bg-panel shadow-2xl outline-none'
+          : full
+            ? 'fixed inset-x-0 top-0 flex flex-col overflow-hidden bg-panel outline-none'
+            : 'ask-pop relative flex w-full flex-col overflow-hidden rounded-win border border-line bg-panel shadow-2xl outline-none'
+      }
+      style={
+        !modal
+          ? pos
+            ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxH }
+            : { left: -9999, top: 0 }
+          : full
+            ? { height: vh }
+            : { maxWidth: modal.width ?? 640, maxHeight: vh - (phone ? 24 : 48) }
+      }
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3.5">
         <h2 id={titleId} className="min-w-0 flex-1 text-sm font-extrabold">
           {title}
         </h2>
-        <button type="button" className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg" aria-label="Fermer les filtres" onClick={() => close(true)}>
+        <button type="button" className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg" aria-label={closeLabel} onClick={() => close(true)}>
           <span aria-hidden className="text-base leading-none">
             ✕
           </span>
@@ -235,20 +282,32 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
         {children}
       </div>
       <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel-2/60 px-3.5 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-2">
-        <p className="min-w-0 flex-1 text-xs" aria-live="polite">
-          {count}
-        </p>
-        {onClear && (
-          <button type="button" className="min-h-10 shrink-0 px-1 text-[11px] font-bold text-muted underline hover:text-fg" onClick={onClear}>
-            Tout effacer
-          </button>
+        {footer ?? (
+          <>
+            <p className="min-w-0 flex-1 text-xs" aria-live="polite">
+              {count}
+            </p>
+            {onClear && (
+              <button type="button" className="min-h-10 shrink-0 px-1 text-[11px] font-bold text-muted underline hover:text-fg" onClick={onClear}>
+                Tout effacer
+              </button>
+            )}
+            <button type="button" className="btn-primary min-h-10 shrink-0 px-4 text-xs" onClick={() => close(true)}>
+              {phone ? 'Voir' : 'Fermer'}
+            </button>
+          </>
         )}
-        <button type="button" className="btn-primary min-h-10 shrink-0 px-4 text-xs" onClick={() => close(true)}>
-          {phone ? 'Voir' : 'Fermer'}
-        </button>
       </div>
     </div>
   )
+  // Modal (formulaire) : fond voilé et flouté, inactif (un clic dessus ne ferme pas : la saisie n'est pas perdue par mégarde).
+  if (modal)
+    return (
+      <div ref={backdrop} className={`fixed inset-0 z-40 flex justify-center ${full ? '' : 'items-center p-3 sm:p-6'}`}>
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-[3px]" aria-hidden />
+        {card}
+      </div>
+    )
   if (!phone) return card
   // Téléphone : fond légèrement voilé et flouté (comme la fenêtre ✦) ; un toucher dessus ferme.
   return (

@@ -104,15 +104,21 @@ export function Segmented<T extends string>({
   options,
   onChange,
   columns,
+  className,
 }: {
   value: T | undefined
   options: { value: T; label: string; icon?: IconName }[]
   onChange: (v: T) => void
   /** Nombre de colonnes (sinon tout sur une ligne). */
   columns?: number
+  /** Grille posée par l'appelant (ex. 2 colonnes, 4 quand la place le permet : `grid grid-cols-2 @lg:grid-cols-4 gap-2`). */
+  className?: string
 }) {
   return (
-    <div className={columns ? 'grid gap-2' : 'flex gap-2'} style={columns ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}>
+    <div
+      className={className ?? (columns ? 'grid gap-2' : 'flex gap-2')}
+      style={columns && !className ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+    >
       {options.map((o) => (
         <button
           key={o.value}
