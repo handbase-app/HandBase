@@ -52,7 +52,7 @@ function ViewAsList() {
     void Promise.all([supabase.auth.getSession(), supabase.rpc('hb_members')]).then(([{ data: s }, { data, error }]) => {
       setMe(s.session?.user.id ?? null)
       if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'La liste des membres se consulte en ligne.')
-      else setList((data as Member[]).filter((m) => m.role && m.role !== 'admin'))
+      else setList((data as Member[]).filter((m) => m.role && m.role !== 'admin' && m.role !== 'joueur')) // comptes joueur : aperçu depuis la fiche
     })
   }, [])
 

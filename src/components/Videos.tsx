@@ -24,6 +24,7 @@ import { ask } from './Confirm'
 import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
 import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
+import { ProposalBar } from './PlayerProposed'
 
 /*
  * Section « Vidéos » d'une fiche joueur ou d'un événement (supabase/036_videos.sql) : liens vers des vidéos
@@ -426,6 +427,7 @@ function VideoRow({
               {when}
             </span>
           </div>
+          <ProposalBar table="videos" row={v} />
         </div>
         {/* Modifier et Retirer : dans le ⋮ seulement (pas d'icônes en double sur la ligne). */}
         {menuItems.length > 0 && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour la vidéo ${v.title || source}`} className="-mr-1" />}

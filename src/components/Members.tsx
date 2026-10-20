@@ -31,7 +31,8 @@ interface Access {
   isNew: boolean
 }
 
-type StaffRole = 'observateur' | 'preparateur'
+// « joueur » (espace joueur, supabase/051) : le compte d'un jeune, relié ensuite à sa fiche par un code donné depuis la fiche.
+type StaffRole = 'observateur' | 'preparateur' | 'joueur'
 
 /** Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (un toutes les 30 s, supabase/030). */
 const ONLINE_MS = 90_000
@@ -386,12 +387,25 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   const [name, setName] = useState(member?.full_name ?? '')
   const [email, setEmail] = useState(member?.email ?? '')
   const [phone, setPhone] = useState(member?.phone ?? '')
-  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : 'observateur')
+  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : member?.role === 'joueur' ? 'joueur' : 'observateur')
   const [depts, setDepts] = useState<string[]>(member?.departments ?? [])
   const [password, setPassword] = useState(member ? '' : generatePassword())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const valid = name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && (member ? !password || password.length >= 8 : password.length >= 8)
+
+  /** Un membre du staff qui devient joueur : confirmation explicite (il perd tout ce que voit le staff, et son secteur). */
+  async function pickRole(r: StaffRole) {
+    if (r === 'joueur' && member && (member.role === 'preparateur' || member.role === 'observateur') && role !== 'joueur') {
+      const who = member.full_name || member.email || 'Ce compte'
+      const ok = await ask(
+        `${who} ne sera plus membre du staff : il ne verra plus ni joueurs, ni avis, ni événements, et perd son secteur. Ses avis, mesures et groupes restent dans l’appli. Faire de ce compte un compte joueur ?`,
+        { ok: 'En faire un compte joueur', danger: true, focusCancel: true },
+      )
+      if (!ok) return
+    }
+    setRole(r)
+  }
 
   async function submit() {
     setBusy(true)
@@ -402,7 +416,8 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           p_email: email.trim(),
           p_full_name: name.trim(),
           p_role: role,
-          p_departments: depts,
+          // Un compte joueur n'a pas de secteur (le serveur le retire aussi, 052).
+          p_departments: role === 'joueur' ? [] : depts,
           p_password: password || null,
           p_phone: phone.trim(),
         })
@@ -475,13 +490,16 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         <span className="label">Rôle</span>
         <Segmented<StaffRole>
           value={role}
-          onChange={setRole}
+          onChange={(r) => void pickRole(r)}
           options={[
             { value: 'observateur', label: 'Observateur' },
             { value: 'preparateur', label: 'Encadrant' },
+            { value: 'joueur', label: 'Joueur' },
           ]}
         />
+        {role === 'joueur' && <p className="mt-1 text-[11px] text-muted">Compte d’un jeune (ou de sa famille) : il ne verra que sa fiche, une fois relié par le code donné depuis la fiche (carte « Espace joueur »).</p>}
       </div>
+      {role !== 'joueur' && (
       <div>
         <ZonePicker
           label="Secteur"
@@ -490,6 +508,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           emptyLabel={role === 'preparateur' ? 'Aucun : valide tous les départements' : 'Aucun département'}
         />
       </div>
+      )}
       {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « lien » s'en occupe. */}
       {!member && (
         <div>

@@ -1,12 +1,13 @@
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
-import { clearRole, refreshRole } from '../roles'
-import { claimDevice, supabase } from '../sync'
+import { clearRole, isPlayerRole, myPlayerId, refreshRole, useRole } from '../roles'
+import { claimDevice, supabase, syncNow } from '../sync'
 import { TRIAL, TRIAL_LABEL } from '../db'
 import { useAppBrand } from '../appBrand'
 import { BRAND_FONT } from './Brand'
 import { useMe } from './ui'
-import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
+import { CHARTER_VERSION, CharterText, PLAYER_CHARTER_VERSION, PlayerCharterText, PrivacyText } from '../pages/Privacy'
+import { claimErrorText, formatInviteCode, INVITE_LENGTH, isInviteCode, normalizeInviteCode } from '../playerSpace'
 
 /**
  * Lien d'accès envoyé par un administrateur : …/HandBase/#acces=<e-mail>:<mot de passe provisoire>.
@@ -139,11 +140,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [offline])
 
   // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion (pas en mode hors ligne).
+  // Un compte joueur (espace joueur) n'a pas la même suite d'écrans que le staff : on attend d'avoir relu le rôle (ou de savoir
+  // qu'on est hors ligne : rôle gardé sur l'appareil) avant d'afficher quoi que ce soit, pour ne pas montrer la charte du staff
+  // à un jeune le temps d'une requête.
   const uid = session?.user.id
+  const [roleReady, setRoleReady] = useState(false)
+  const role = useRole()
   useEffect(() => {
     if (!supabase) return // mode local : l'unique utilisateur garde tous les droits
-    if (session === null) clearRole()
-    else if (uid && !offline) void refreshRole()
+    if (session === null) {
+      clearRole()
+      setRoleReady(false)
+    } else if (uid && !offline) void refreshRole().finally(() => setRoleReady(true))
+    else if (uid && offline) setRoleReady(true)
   }, [uid, session, offline])
 
   // Données locales d'un autre compte (changement de compte par lien d'accès…) : on efface d'abord.
@@ -161,9 +170,76 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // Mot de passe provisoire (compte créé par un administrateur) ou lien « mot de passe oublié ».
   if (recovery || session.user.user_metadata?.must_change_password) return <NewPassword recovery={recovery} onDone={() => setRecovery(false)} />
   if (!name) return <AskName />
+  if (!roleReady) return null
+  // Compte joueur (espace joueur, supabase/051) : sa charte à lui, puis son code tant que sa fiche n'est pas reliée ; ensuite
+  // l'appli, qui ne lui montre que sa page (src/App.tsx → /moi).
+  if (isPlayerRole(role)) {
+    if (session.user.user_metadata?.player_charter_version !== PLAYER_CHARTER_VERSION) return <AcceptCharter player />
+    if (!myPlayerId()) return <ClaimCode />
+    return <>{children}</>
+  }
   // Charte d'utilisation : acceptée une fois (et de nouveau si elle change).
   if (session.user.user_metadata?.charter_version !== CHARTER_VERSION) return <AcceptCharter />
   return <>{children}</>
+}
+
+/**
+ * Compte joueur sans fiche reliée : il ne voit rien d'autre que cet écran. Le code (8 caractères, remis par l'encadrant depuis
+ * la fiche) est vérifié par le serveur (hb_claim_invite) : code, validité, date de naissance et âge minimum de la fiche.
+ */
+function ClaimCode() {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ok = isInviteCode(code)
+  return (
+    <Shell>
+      <form
+        className="card flex flex-col gap-3 p-5"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          setErr('')
+          if (!navigator.onLine) return setErr('Pas de connexion internet : il faut être en ligne pour entrer ton code.')
+          setBusy(true)
+          const { error } = await supabase!.rpc('hb_claim_invite', { p_code: normalizeInviteCode(code) })
+          if (error) {
+            setBusy(false)
+            return setErr(error.code === 'PGRST202' ? 'L’espace joueur n’est pas encore ouvert sur ce serveur : demande à ton encadrant.' : claimErrorText(error.message))
+          }
+          // Fiche reliée : le rôle relu porte sa fiche, la synchronisation la ramène, l'appli s'ouvre sur sa page.
+          await refreshRole()
+          void syncNow()
+          setBusy(false)
+        }}
+      >
+        <div className="text-sm font-extrabold">Entre ton code</div>
+        <p className="text-[11px] text-muted">
+          Ton encadrant t’a donné un code de 8 caractères : il relie ce compte à ta fiche. Tu ne verras que ta page.
+        </p>
+        <input
+          className="field text-center font-mono text-lg tracking-[0.3em] uppercase"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoComplete="one-time-code"
+          spellCheck={false}
+          maxLength={INVITE_LENGTH + 1}
+          placeholder="XXXX XXXX"
+          aria-label="Code"
+          value={formatInviteCode(code)}
+          onChange={(e) => setCode(normalizeInviteCode(e.target.value).slice(0, INVITE_LENGTH))}
+          required
+        />
+        <button className="btn-primary" disabled={!ok || busy}>
+          {busy ? 'Vérification…' : 'Relier ma fiche'}
+        </button>
+        {err && <p className="text-[11px] text-red-300">{err}</p>}
+        <p className="text-[11px] text-muted">Pas de code, ou code perdu ? Demande à ton encadrant : il peut t’en donner un nouveau.</p>
+        <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => void supabase!.auth.signOut()}>
+          Se déconnecter
+        </button>
+      </form>
+    </Shell>
+  )
 }
 
 /**
@@ -297,8 +373,11 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
   )
 }
 
-/** Charte d'utilisation à accepter avant d'utiliser l'appli ; l'acceptation est gardée sur le compte. */
-function AcceptCharter() {
+/**
+ * Charte d'utilisation à accepter avant d'utiliser l'appli ; l'acceptation est gardée sur le compte.
+ * `player` : la charte de l'espace joueur (mots simples), sous sa propre clé : un compte qui change de rôle relit la bonne.
+ */
+function AcceptCharter({ player = false }: { player?: boolean }) {
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -310,18 +389,19 @@ function AcceptCharter() {
           e.preventDefault()
           setErr('')
           setBusy(true)
-          const { error } = await supabase!.auth.updateUser({ data: { charter_version: CHARTER_VERSION, charter_accepted_at: new Date().toISOString() } })
+          const at = new Date().toISOString()
+          const { error } = await supabase!.auth.updateUser({
+            data: player ? { player_charter_version: PLAYER_CHARTER_VERSION, player_charter_accepted_at: at } : { charter_version: CHARTER_VERSION, charter_accepted_at: at },
+          })
           setBusy(false)
           if (error) setErr('Impossible d’enregistrer (connexion internet ?).')
         }}
       >
-        <div className="text-sm font-extrabold">Charte d’utilisation</div>
-        <div className="max-h-[55dvh] overflow-y-auto rounded-md border border-line bg-panel-2 p-3">
-          <CharterText />
-        </div>
+        <div className="text-sm font-extrabold">{player ? 'Ta page, comment ça marche' : 'Charte d’utilisation'}</div>
+        <div className="max-h-[55dvh] overflow-y-auto rounded-md border border-line bg-panel-2 p-3">{player ? <PlayerCharterText /> : <CharterText />}</div>
         <label className="flex items-start gap-2 text-xs">
           <input type="checkbox" className="mt-0.5" checked={ok} onChange={(e) => setOk(e.target.checked)} />
-          J’ai lu la charte et je m’engage à la respecter.
+          {player ? 'J’ai lu et j’ai compris.' : 'J’ai lu la charte et je m’engage à la respecter.'}
         </label>
         <button className="btn-primary" disabled={!ok || busy}>
           {busy ? 'Enregistrement…' : 'Accepter et continuer'}

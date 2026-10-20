@@ -12,6 +12,9 @@ export { POSITIONS, positionLabel, type Position } from './sportConfig'
 import type { Position } from './sportConfig'
 import { isKeeper } from './sportConfig'
 import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
+// Espace joueur (supabase/051_espace_joueur.sql, src/playerSpace.ts) : ce que le jeune écrit lui-même sur sa fiche.
+export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, SelfMarks, SelfPath } from './playerSpace'
+import type { PlayerSelf } from './playerSpace'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -150,6 +153,15 @@ export interface Player extends Syncable {
   mergedFrom?: MergeTrace[]
   /** Fiche supprimée par fusion : celle qui l'a remplacée. */
   mergedInto?: string
+  /**
+   * Espace joueur (supabase/051_espace_joueur.sql, 052_journal_joueur.sql) : ce que le jeune (ou sa famille) a écrit lui-même
+   * depuis son compte joueur (src/playerSpace.ts) : `letter` (« Ma lettre ») et `letterAt` (sa date), `letterHistory` (versions
+   * précédentes, 20 au plus, tenues par le serveur), `marks` (« Mes repères »), `path` (« Mon parcours »). Écrit par le serveur
+   * seul (hb_player_self_update), jamais par hb_upsert ni par le staff (le serveur remet `self` en place, 052). Montré sur la
+   * fiche (section « Ce que dit le joueur ») ; absent des exports CSV / PDF du staff. Le journal du hand n'est PAS ici : table
+   * hb_player_journal, privée, lue à la demande (src/playerJournal.ts).
+   */
+  self?: PlayerSelf
 }
 
 /** Trace d'une fiche fondue dans une autre : qui l'avait proposée, si elle avait été mise hors cadre… */

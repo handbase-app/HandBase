@@ -31,6 +31,8 @@ import { usePerimeter } from '../installation'
 import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
+import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
+import { StaffJournal } from '../components/PlayerJournal'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
 const TABS: readonly { id: PlayerTab; label: string }[] = [
@@ -208,6 +210,16 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
               onSelect: () => void exportPlayer(p.id),
             },
             { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
+            // Espace joueur (supabase/051) : la carte de l'onglet Profil fait tout (donner / retirer l'accès, aperçu) ; ici, on y va.
+            (canInvite(role, p) || canPreviewPlayerPage(role)) && {
+              label: 'Espace joueur',
+              icon: 'key',
+              hint: 'donner ou retirer l’accès, voir sa page',
+              onSelect: () => {
+                setTab('profil')
+                setTimeout(() => document.querySelector('[data-testid="espace-joueur"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
+              },
+            },
             can.deletePlayers(role) && { label: 'Supprimer la fiche', icon: 'trash', danger: true, onSelect: () => void del() },
           ],
         }}
@@ -330,6 +342,12 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           </div>
         )}
 
+        {/* Espace joueur (supabase/051, 052) : ce qu'il a écrit lui-même (si quelque chose), son journal du hand (tendance des
+            humeurs, notes partagées), puis l'accès (compte, code, retrait, aperçu). */}
+        <SelfSection player={p} />
+        <StaffJournal player={p} />
+        <PlayerSpaceCard player={p} />
+
         {p.mergedFrom && p.mergedFrom.length > 0 && (
           <div className="card p-4">
             <div className="section-title">Fiches fondues dans celle-ci</div>
@@ -414,6 +432,12 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       )}
     </div>
   )
+}
+
+/** Carte « Espace joueur » de la fiche (src/components/PlayerSpace.tsx) : l'état de l'accès est lu ici, pour cette fiche. */
+function PlayerSpaceCard({ player }: { player: Player }) {
+  const access = usePlayerAccess(player)
+  return <PlayerAccessCard player={player} access={access} />
 }
 
 /** « Suivi des mesures » : courbe d'évolution d'un critère factuel et historique (saisie : page Séance de tests). */

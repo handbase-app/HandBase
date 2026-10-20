@@ -9,6 +9,8 @@ import { appName } from '../appBrand'
  */
 
 export const CHARTER_VERSION = 1
+/** Charte de l'espace joueur (src/components/AuthGate.tsx, clé player_charter_version du compte) : même mécanisme, clé distincte. */
+export const PLAYER_CHARTER_VERSION = 2
 
 function H({ children }: { children: ReactNode }) {
   return <h3 className="mt-3 text-xs font-extrabold">{children}</h3>
@@ -67,8 +69,81 @@ export function PrivacyText() {
       <p>
         Le joueur ou ses parents peuvent demander à tout moment une copie de toutes les données le concernant, leur correction,
         leur effacement, ou s’opposer à leur utilisation. Il suffit de le demander à un encadrant ou à un administrateur, qui y
-        répond dans un délai d’un mois. En cas de désaccord, il est possible de saisir la CNIL (cnil.fr).
+        répond dans un délai d’un mois. Avec un espace joueur, le jeune télécharge aussi lui-même, depuis sa page, la copie
+        complète de ce qu’il a écrit (« Télécharger mes données »). En cas de désaccord, il est possible de saisir la CNIL (cnil.fr).
       </p>
+
+      <H>Espace joueur</H>
+      <p>
+        Un jeune (ou sa famille) peut recevoir un accès personnel à {appName()}, relié à sa seule fiche : son encadrant (ou un
+        administrateur) crée son compte depuis la fiche, ou lui remet un code s’il a déjà un compte. Il y voit son identité (nom,
+        année de naissance, club, poste) et ses passages en pôle, tels que le staff les tient, et rien d’autre : ni avis, ni
+        mesures, ni classement, ni aucun autre joueur. Il y écrit lui-même, s’il le souhaite, « Ma lettre » (ce que le hand lui
+        apporte, un moment dont il est fier, ce qu’il veut travailler ; les 20 versions précédentes sont gardées pour voir le
+        chemin parcouru), « Mes repères » (le joueur ou la joueuse qu’il préfère, son équipe préférée, son poste rêvé, un match marquant) et « Mon parcours »
+        (clubs, postes joués, sélections, palmarès) : c’est lu par les encadrants et administrateurs qui voient sa fiche, et par
+        personne d’autre ; il peut le modifier ou l’effacer à tout moment.
+      </p>
+      <p>
+        « Mon journal du hand » : des notes datées sur ce que le hand lui fait vivre (un match, un entraînement, une envie), avec
+        une humeur s’il le veut ; c’est le ressenti sportif, pas la santé ni la vie privée. Le journal est PRIVÉ : seul le jeune
+        le lit. Il choisit, note par note, celles qu’il partage avec son encadrant, et peut reprendre ce partage, corriger ou
+        supprimer une note à tout moment (une note supprimée est effacée tout de suite). Le staff qui suit sa fiche voit en plus
+        la tendance de ses humeurs (combien de notes par humeur et par semaine, sur 8 semaines), jamais le texte, sans aucune IA.
+        Les 200 notes les plus récentes sont gardées. Le journal n’entre dans aucun export du staff ; la copie demandée au staff
+        ne contient que les notes partagées.
+      </p>
+      <p>
+        Un bouton « J’ai besoin d’en parler », toujours visible sur sa page, donne la personne à contacter choisie par
+        l’administrateur et les numéros officiels gratuits et anonymes (3018, 119, 3114, Fil Santé Jeunes, Signal-sports) : rien
+        n’est envoyé ni détecté automatiquement, c’est le jeune qui choisit d’appeler. Il télécharge lui-même, depuis sa page, la
+        copie complète de ce qu’il a écrit (notes privées comprises). L’accès peut être retiré par son encadrant. L’accord des
+        familles : au pôle, il est signé à l’inscription ; sinon, il est demandé au moment de créer le compte ou de remettre le
+        code. Durée de conservation : celle de la fiche (fiche effacée : tout ce qu’il a écrit, journal compris, part avec elle).
+      </p>
+    </div>
+  )
+}
+
+/** Charte de l'espace joueur : en mots simples, acceptée une fois par le jeune (ou sa famille) à la première connexion. */
+export function PlayerCharterText() {
+  return (
+    <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
+      <p>Bienvenue sur ta page {appName()}. Avant de commencer, voici comment ça marche.</p>
+
+      <H>Ce que tu vois</H>
+      <p>
+        Ta fiche seulement : ton nom, ton année de naissance, ton club, ton poste et tes passages en pôle. Ces informations sont tenues
+        par ton encadrant ; si quelque chose est faux, dis-le-lui.
+      </p>
+
+      <H>Ce que tu écris</H>
+      <p>
+        « Ma lettre », « Mes repères », « Mon parcours » et « Mon journal du hand » : c’est toi qui écris, quand tu veux, ce que tu
+        veux. Tu peux changer ou effacer tes réponses et tes notes à tout moment. Rien n’est obligatoire.
+      </p>
+
+      <H>Ce que ton encadrant voit</H>
+      <p>
+        Ta lettre (et ses versions précédentes), tes repères et ton parcours, sur ta fiche, pour mieux te connaître et t’accompagner.
+        Ton journal est privé : ton encadrant voit seulement la tendance de tes humeurs (jamais le texte) et les notes que tu choisis
+        de partager. Personne d’autre ne lit ce que tu écris.
+      </p>
+
+      <H>Si ça ne va pas</H>
+      <p>
+        Le bouton « J’ai besoin d’en parler », en bas de ta page, te donne à qui parler et des numéros gratuits et anonymes. Tu peux
+        aussi télécharger tout ce que tu as écrit (« Télécharger mes données »).
+      </p>
+
+      <H>Ce qu’on ne fait jamais</H>
+      <p>
+        Pas de classement, pas de jugement, pas de comparaison avec les autres. Tu ne vois pas les avis ni les mesures du staff, et tu
+        ne vois aucun autre joueur ni aucune autre joueuse.
+      </p>
+
+      <H>Ton compte</H>
+      <p>Il est à toi (ou à ta famille) : garde ton mot de passe pour toi. Si tu as une question, demande à ton encadrant.</p>
     </div>
   )
 }
@@ -170,6 +245,10 @@ export default function Privacy() {
       <section id="charte" className="card scroll-mt-16 p-4">
         <div className="section-title">Charte d’utilisation du staff</div>
         <CharterText />
+      </section>
+      <section id="charte-joueur" className="card scroll-mt-16 p-4">
+        <div className="section-title">Charte de l’espace joueur</div>
+        <PlayerCharterText />
       </section>
       <section id="questions" className="card scroll-mt-16 p-4">
         <div className="section-title">Questions posées (phase de développement)</div>

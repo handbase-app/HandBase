@@ -17,6 +17,7 @@ import {
   parentChoices,
   subtreeCounts,
   wouldCycle,
+  type AssignmentRole,
   type TreeNode,
 } from '../structureTree'
 import { supabase } from '../sync'
@@ -683,7 +684,7 @@ function TerritoryPicker({ unit, onChange }: { unit: Unit; onChange: (d: string[
 
 function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assignment[]; members: ReturnType<typeof useMembers> }) {
   const [chosen, setChosen] = useState<string[]>([])
-  const [role, setRole] = useState<Role>('preparateur')
+  const [role, setRole] = useState<AssignmentRole>('preparateur')
   const [q, setQ] = useState('')
   // Liste déroulante du champ de recherche : ouverte au toucher ou à la frappe, refermée au choix, à Échap ou en sortant du champ.
   const [open, setOpen] = useState(false)
@@ -730,7 +731,7 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
             className="field min-h-11 w-36 shrink-0 py-1 text-xs"
             value={a.role}
             aria-label="Rôle dans l’unité"
-            onChange={(e) => void save<Assignment>('assignments', { ...a, role: e.target.value as Role })}
+            onChange={(e) => void save<Assignment>('assignments', { ...a, role: e.target.value as AssignmentRole })}
           >
             {ASSIGNMENT_ROLES.map((r) => (
               <option key={r} value={r}>
@@ -852,7 +853,7 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="field min-h-11 min-w-0 flex-1 py-1 text-xs" value={role} aria-label="Rôle" onChange={(e) => setRole(e.target.value as Role)}>
+            <select className="field min-h-11 min-w-0 flex-1 py-1 text-xs" value={role} aria-label="Rôle" onChange={(e) => setRole(e.target.value as AssignmentRole)}>
               {ASSIGNMENT_ROLES.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}

@@ -28,6 +28,7 @@ import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGr
 import { RosterChip, RosterControls, RosterSectionList } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { PageHeader } from '../components/PageHeader'
+import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
@@ -387,6 +388,7 @@ function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: 
         <div className="line-clamp-2 text-sm font-bold">
           {ev.name}
           {ev.archived && <span className="ml-1.5 rounded bg-panel-2 px-1 py-px align-middle text-[9px] text-muted">ARCHIVÉ</span>}
+          <ProposedBadge row={ev} className="ml-1.5" />
         </div>
         <div className="truncate text-[11px] text-muted">
           {typeLabel(ev.type)}
@@ -771,6 +773,7 @@ export function EventDetail() {
             {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
+          <ProposalBar table="events" row={ev} />
           {/* Infos secondaires repliées en une ligne : l'entrée de l'événement va droit aux onglets. */}
           <button
             type="button"
@@ -877,6 +880,7 @@ export function EventDetail() {
           {ev.matchSheet ? (
             <Suspense fallback={null}>
               <MatchSheetCard ev={ev} manage={manage} />
+              <PlayerMarksCard ev={ev} />
             </Suspense>
           ) : (
             manage && (

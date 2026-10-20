@@ -33,6 +33,7 @@ import { spyTarget } from './spy'
 import MasterDetail from './components/MasterDetail'
 import VideoDock from './components/VideoDock'
 import { MQ, useMedia } from './layout'
+import { isPlayerRole } from './roles'
 import { AskButton } from './components/Demander'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
@@ -65,6 +66,8 @@ const Question = lazy(() => import('./pages/Question'))
 const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
 const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
+// Espace joueur (/moi) : la seule page d'un compte joueur ; aperçu pour un administrateur depuis une fiche.
+const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 
 /** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
@@ -105,6 +108,13 @@ const NAV = [
   { to: '/bilan', label: 'Bilan', icon: ICONS.map },
 ]
 
+/** Compte joueur (espace joueur, supabase/051) : sa page et des réglages réduits (apparence, déconnexion), rien d'autre. */
+const NAV_PLAYER = [
+  { to: '/moi', label: 'Ma page', icon: NAV[1].icon },
+  // Icône des Réglages (plus dans NAV : ils sont dans la bulle de profil pour le staff).
+  { to: '/parametres', label: 'Réglages', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V4h-4v3l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v3h4v-3l2-1 2 1 2-4z' },
+]
+
 /** Lien du menu qui vérifie d'abord qu'aucune saisie en cours ne sera perdue. */
 function GuardedLink(props: NavLinkProps & { to: string }) {
   const navigate = useNavigate()
@@ -141,7 +151,7 @@ function Logo({ className = '', stacked = false }: { className?: string; stacked
  * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
  */
 const PAGE_W: [RegExp, string][] = [
-  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite)$/, ''],
+  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|moi)$/, ''],
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
@@ -214,15 +224,18 @@ export default function App() {
   useSportConfig()
   // Expiration RGPD des fiches proposées jamais traitées (si le serveur ne le fait pas la nuit).
   useDailyPurge()
+  // Compte joueur : une seule page (/moi), menu réduit, pas de notifications ni de pictogrammes du staff dans l'en-tête.
+  const player = isPlayerRole(useRole())
   // Notifications : l'abonnement de ce téléphone est réenregistré sur le serveur à chaque ouverture.
   useEffect(() => {
-    if (pushSupport() === 'ok') void syncSubscription()
-  }, [])
+    if (pushSupport() === 'ok' && !player) void syncSubscription()
+  }, [player])
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
   const header = useHeaderHeight()
   const role = useRole()
-  const nav = NAV.filter((n) => n.to !== '/bilan' || can.viewCoverage(role))
+  // Compte joueur : sa navigation à lui ; staff : le Bilan seulement pour qui a le droit de le voir.
+  const nav = player ? NAV_PLAYER : NAV.filter((n) => n.to !== '/bilan' || can.viewCoverage(role))
   return (
     // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
     // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
@@ -239,15 +252,16 @@ export default function App() {
           </div>
         )}
         {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
-            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. */}
+            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Compte joueur : ni bulle ✦,
+            ni suivis, ni cible (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
         <div className="flex min-w-0 items-center">
           <Logo className="side:hidden" />
         </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
-        <AskButton />
+        {player ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">
-          <FollowStar n={followNews} />
-          <AlertBell n={alerts} />
+          {!player && <FollowStar n={followNews} />}
+          {!player && <AlertBell n={alerts} />}
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
           <ProfileButton />
         </div>
@@ -262,8 +276,19 @@ export default function App() {
       >
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
         <PageWidth>
+        {player ? (
+          // Espace joueur : sa page, des réglages réduits, la confidentialité ; toute autre adresse ramène à sa page.
+          <Routes>
+            <Route path="/moi" element={<Me />} />
+            <Route path="/parametres" element={<Settings />} />
+            <Route path="/confidentialite" element={<Privacy />} />
+            <Route path="*" element={<Navigate to="/moi" replace />} />
+          </Routes>
+        ) : (
         <Routes>
           <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
+          {/* Aperçu de l'espace joueur (?joueur=<id>) : administrateurs, mode essai. */}
+          <Route path="/moi" element={<Me />} />
           <Route path="/suivis" element={<Follows />} />
           {/* Listes en maître-détail : /joueurs/:id = liste + fiche sur ordinateur, fiche seule sur téléphone. */}
           <Route path="/joueurs" element={<MasterDetail base="/joueurs" list={<Players />} listCol={PLAYERS_COL} />}>
@@ -319,6 +344,7 @@ export default function App() {
             <Route path=":pid" element={<QuestionPlayer />} />
           </Route>
         </Routes>
+        )}
         </PageWidth>
         </Suspense>
       </main>
@@ -357,8 +383,8 @@ export default function App() {
       </nav>
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
-      <VideoDock />
-      <GlobalCompareBar />
+      {!player && <VideoDock />}
+      {!player && <GlobalCompareBar />}
       <ConfirmHost />
     </div>
   )

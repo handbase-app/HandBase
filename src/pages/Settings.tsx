@@ -4,14 +4,14 @@ import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
 import { applyUpdate, BUILD_TIME, checkForUpdate, useUpdateReady } from '../pwa'
-import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, type Criterion, type CriterionScale } from '../db'
+import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, TRIAL, type ConfigItem, type Criterion, type CriterionScale } from '../db'
 import { categoryStyles, defaultColor, defaultZone, RADAR_PALETTE, RADAR_ZONES, styleOf, type RadarZone } from '../radarZones'
 import { clearDemo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
 import { categoryList, resolveCategory, type ParsedFile } from '../criteriaFormat'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
-import { supabase, syncNow, useSyncState } from '../sync'
+import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
 import { confirmLogout } from '../logout'
 import { setShowBrand, useShowBrand } from '../brandPref'
 import { ActivityLog } from '../components/ActivityLog'
@@ -21,7 +21,9 @@ import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
 import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
-import { can, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { useConfigRows } from '../installation'
+import { DEFAULT_PLAYER_MIN_AGE, PLAYER_CONTACT_MAX, PLAYER_SPACE_KEY, playerContactOf, playerMinAgeOf } from '../playerSpace'
 import { AdminTools } from '../components/ViewAs'
 import { departmentLabel } from '../lists'
 import { usePerimeter } from '../installation'
@@ -50,6 +52,8 @@ export default function Settings() {
   const role = useRole()
 
   const admin = can.manageRoles(role)
+  // Compte joueur (espace joueur) : apparence, déconnexion, confidentialité ; rien du staff.
+  if (isPlayerRole(role)) return <PlayerSettings />
   return (
     // Ordinateur (administrateur) : « Mon espace » à gauche, « Administration » à droite.
     <div className={`flex flex-col gap-3 ${admin ? 'side:grid side:grid-cols-2 side:items-start side:gap-x-6' : ''}`}>
@@ -132,6 +136,10 @@ export default function Settings() {
           {/* Style de l'installation (polices, arrondis, couleurs ; nom et logo de l'organisation) : configuration partagée, src/uiStyle.ts. */}
           <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo de l’organisation">
             <InstallationStyle editable={can.editStructure(role)} />
+          </Fold>
+          {/* Espace joueur (supabase/051) : âge minimum pour relier un compte à une fiche ; aperçu en mode essai. */}
+          <Fold id="espace-joueur" icon="key" title="Espace joueur" summary="Âge minimum pour qu’un jeune ait son accès ; aperçu">
+            <PlayerSpaceSettings />
           </Fold>
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
             {can.editCriteria(role) && <CriteriaTransfer />}
@@ -220,6 +228,157 @@ export default function Settings() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Espace joueur (administrateurs) : âge minimum (réglage de l'installation, hb_config « espace_joueur » ; lu par le serveur au
+ * moment où un jeune entre son code : hb_claim_invite, ou quand on crée son compte depuis la fiche), personne à contacter
+ * (affichée par « J'ai besoin d'en parler » sur la page du jeune, 052), et aperçu de la page d'un joueur sans compte réel
+ * (mode essai / local).
+ */
+function PlayerSpaceSettings() {
+  const rows = useConfigRows()
+  const current = playerMinAgeOf(rows)
+  const currentContact = playerContactOf(rows)
+  const [age, setAge] = useState(String(current))
+  const [contact, setContact] = useState(currentContact)
+  const [msg, setMsg] = useState('')
+  const [contactMsg, setContactMsg] = useState('')
+  useEffect(() => setAge(String(current)), [current])
+  useEffect(() => setContact(currentContact), [currentContact])
+  // Les deux réglages vivent dans la même valeur : chacun garde l'autre.
+  const value = () => {
+    const row = rows.find((r) => (r.key ?? r.id) === PLAYER_SPACE_KEY)
+    return row?.value && typeof row.value === 'object' && !Array.isArray(row.value) ? (row.value as Record<string, unknown>) : {}
+  }
+  const n = Number(age)
+  const valid = Number.isInteger(n) && n >= 6 && n <= 18
+  const demo = useLiveQuery(() => db.players.filter((p) => !p.deleted).first(), [])
+  return (
+    <section className="card flex flex-col gap-3 p-4" data-testid="reglage-espace-joueur">
+      <SectionTitle
+        info={
+          <>
+            <p>
+              Un jeune (ou sa famille) relie son compte à sa fiche avec un code donné depuis la fiche (onglet Profil, carte « Espace joueur »). Le serveur
+              refuse le code si la fiche n’a pas de date de naissance ou si l’âge est en dessous de ce minimum.
+            </p>
+            <p>La fédération tranchera ; on monte ou on baisse. Par défaut : {DEFAULT_PLAYER_MIN_AGE} ans.</p>
+          </>
+        }
+      >
+        Âge minimum
+      </SectionTitle>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className="field min-h-11 w-20 text-center" inputMode="numeric" min={6} max={18} type="number" aria-label="Âge minimum (ans)" value={age} onChange={(e) => setAge(e.target.value)} />
+        <span className="text-xs text-muted">ans (entre 6 et 18)</span>
+        <button
+          className="btn-primary min-h-11 px-4 text-xs"
+          disabled={!valid || n === current}
+          onClick={async () => {
+            await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: { ...value(), playerMinAge: n } })
+            setMsg(`Enregistré : ${n} ans.`)
+          }}
+        >
+          Enregistrer
+        </button>
+        {msg && <span className="text-[11px] text-emerald-300">{msg}</span>}
+      </div>
+      <div className="border-t border-line pt-3">
+        <SectionTitle info="Affichée au jeune quand il touche « J’ai besoin d’en parler » sur sa page, avec les numéros officiels gratuits et anonymes (3018, 119, 3114, Fil Santé Jeunes, Signal-sports). Rien n’est envoyé : c’est le jeune qui choisit d’appeler.">
+          Personne à contacter
+        </SectionTitle>
+        <input
+          className="field min-h-11 w-full"
+          placeholder="Personne à contacter (nom, téléphone)"
+          aria-label="Personne à contacter (nom, téléphone)"
+          maxLength={PLAYER_CONTACT_MAX}
+          value={contact}
+          onChange={(e) => setContact(e.target.value)}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            className="btn-primary min-h-11 px-4 text-xs"
+            disabled={contact.trim() === currentContact}
+            onClick={async () => {
+              const v = { ...value() }
+              if (contact.trim()) v.contact = contact.trim()
+              else delete v.contact
+              await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: v })
+              setContactMsg(contact.trim() ? 'Enregistré.' : 'Retiré.')
+            }}
+          >
+            Enregistrer
+          </button>
+          {contactMsg && <span className="text-[11px] text-emerald-300">{contactMsg}</span>}
+        </div>
+      </div>
+      {(TRIAL || !supabase) && (
+        <div className="border-t border-line pt-3">
+          <p className="mb-2 text-[11px] text-muted">
+            {supabase ? 'Mode essai' : 'Mode local'} : voir la page telle qu’un jeune la voit, sans compte réel (lecture seule avec le serveur ; sur cet appareil seulement sans serveur).
+          </p>
+          {demo ? (
+            <Link to={`/moi?joueur=${demo.id}`} className="btn-ghost inline-block px-3 py-2 text-xs">
+              Voir l’espace joueur (essai) : {playerName(demo)}
+            </Link>
+          ) : (
+            <p className="text-[11px] text-muted">Aucune fiche sur l’appareil : charge la démonstration (Imports et sauvegarde) ou crée un joueur.</p>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Réglages d'un compte joueur : apparence, compte (déconnexion), confidentialité. Rien du staff. */
+function PlayerSettings() {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
+  }, [])
+  return (
+    <div className="flex flex-col gap-3" data-testid="reglages-joueur">
+      <h1 className="text-lg font-extrabold">Réglages</h1>
+      <ApparenceFold />
+      <Fold id="compte" icon="user" title="Mon compte" summary={email || 'Compte joueur'}>
+        <section className="card flex flex-col gap-2 p-4">
+          {email && (
+            <p className="text-xs">
+              Connecté : <b>{email}</b>
+            </p>
+          )}
+          <p className="text-[11px] text-muted">Se déconnecter efface ta page de cet appareil ; elle revient à la prochaine connexion.</p>
+          {supabase && (
+            <button
+              className="btn-ghost min-h-11 text-xs"
+              disabled={busy}
+              onClick={async () => {
+                if (!(await ask('Se déconnecter ?', { ok: 'Se déconnecter' }))) return
+                setBusy(true)
+                await wipeDevice({ signOut: true })
+              }}
+            >
+              Se déconnecter
+            </button>
+          )}
+        </section>
+        {supabase && <PasswordChange />}
+      </Fold>
+      <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Ta page, comment ça marche">
+        <div className="flex gap-2">
+          <Link to="/confidentialite#charte-joueur" className="btn-ghost flex-1 text-center text-xs">
+            Ta page, comment ça marche
+          </Link>
+          <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
+            Données et droits
+          </Link>
+        </div>
+      </Fold>
+      <UpdateCheck />
     </div>
   )
 }
