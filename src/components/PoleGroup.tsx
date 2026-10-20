@@ -264,7 +264,7 @@ export async function cancelArrivalOne(p: Player, ref: PoleRef, s: Seasons, grou
   const msg = `Annuler l’arrivée de ${p.lastName.toUpperCase()} ${p.firstName} au ${groupName} prévue le ${fmtLongDay(x.from)} ? Ses autres périodes de pôle et sa fiche ne changent pas.`
   const ok = await choose(msg, [
     { value: 'keep', label: 'Garder l’arrivée', style: 'ghost' },
-    { value: 'cancel', label: 'Annuler l’arrivée', style: 'primary' },
+    { value: 'cancel', label: 'Annuler l’arrivée', style: 'ghost' },
   ])
   if (ok !== 'cancel') return false
   const fresh = (await db.players.get(p.id)) ?? p
