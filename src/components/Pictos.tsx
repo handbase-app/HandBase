@@ -98,11 +98,53 @@ export const PICTO_ICONS: Record<PictoKind, IconName> = {
 /**
  * `label` : ce qui précède les pictogrammes. Liste Joueurs : le nombre de joueurs (« 7 joueurs sur 39 988 »), toujours visible
  * puisque la barre reste collée en haut ; ailleurs, rien (les pictogrammes seuls, calés à droite).
+ * `lead` : filtres placés dans la capsule, à gauche (pastilles des postes d'un événement ou d'un groupe, BarChip). Assez de
+ * place : pastilles et pictogrammes sur la même ligne, la suite des pastilles passant à la ligne à gauche des
+ * pictogrammes. Liste étroite (téléphone, < 30rem) : les pastilles sur leur propre ligne, qui défile de côté (fondu au
+ * bord tant qu'il en reste à voir), les pictogrammes en dessous. Sur deux lignes, la capsule prend les coins des fenêtres.
  */
-export function PictoBar({ className = '', label }: { className?: string; label?: ReactNode }) {
+export function PictoBar({ className = '', label, lead }: { className?: string; label?: ReactNode; lead?: ReactNode }) {
   const on = usePictos()
+  const box = useRef<HTMLDivElement>(null)
+  const row = useRef<HTMLDivElement>(null)
+  const pics = useRef<HTMLSpanElement>(null)
+  // Plus d'une ligne (mesurée) ; pastilles cachées à gauche / à droite de leur ligne (fondu).
+  const [multi, setMulti] = useState(false)
+  const [fade, setFade] = useState({ l: false, r: false })
+  const measure = useRef(() => {})
+  measure.current = () => {
+    const b = box.current
+    const p = pics.current
+    if (b && p) setMulti(b.clientHeight > p.offsetHeight + 12)
+    const r = row.current
+    // Ligne qui défile seulement sur liste étroite (sinon ses pastilles sont posées dans la capsule : largeur nulle).
+    if (!r) return
+    const l = r.scrollLeft > 1
+    const rt = r.scrollLeft + r.clientWidth < r.scrollWidth - 1
+    setFade((f) => (f.l === l && f.r === rt ? f : { l, r: rt }))
+  }
+  const hasLead = !!lead
+  useLayoutEffect(() => {
+    if (hasLead) measure.current()
+    else setMulti(false)
+  })
+  useEffect(() => {
+    if (!hasLead) return
+    const ro = new ResizeObserver(() => measure.current())
+    if (box.current) ro.observe(box.current)
+    if (row.current) ro.observe(row.current)
+    return () => ro.disconnect()
+  }, [hasLead])
+  const mask = fade.l || fade.r ? `linear-gradient(to right, ${fade.l ? 'transparent, #000 1.5rem' : '#000'}, ${fade.r ? '#000 calc(100% - 2rem), transparent' : '#000'})` : undefined
   return (
-    <div role="group" aria-label="Pictogrammes affichés au bout des lignes" className={`flex flex-wrap items-center gap-1 rounded-full border border-line bg-panel py-1 pr-1.5 pl-3 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${className}`}>
+    <div
+      ref={box}
+      role="group"
+      aria-label="Pictogrammes affichés au bout des lignes"
+      className={`flex flex-wrap items-center gap-1 border border-line bg-panel py-1 pr-1.5 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${
+        lead ? `pl-1 ${multi ? 'rounded-win' : 'rounded-full'}` : 'rounded-full pl-3'
+      } ${className}`}
+    >
       {/* Plus de mot « Afficher » : le nombre de joueurs quand la liste le donne (Joueurs), sinon rien (la liste a déjà son
           compte au-dessus : groupe, événement, réponse du bilan…). */}
       {label && (
@@ -110,8 +152,18 @@ export function PictoBar({ className = '', label }: { className?: string; label?
           {label}
         </span>
       )}
-      {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs à gauche). */}
-      <span className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
+      {lead && (
+        <div
+          ref={row}
+          onScroll={() => measure.current()}
+          style={{ maskImage: mask, WebkitMaskImage: mask }}
+          className="contents @max-[30rem]/plb:flex @max-[30rem]/plb:w-full @max-[30rem]/plb:gap-[3px] @max-[30rem]/plb:overflow-x-auto @max-[30rem]/plb:[scrollbar-width:none] @max-[30rem]/plb:[&::-webkit-scrollbar]:hidden"
+        >
+          {lead}
+        </div>
+      )}
+      {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs ou les filtres à gauche). */}
+      <span ref={pics} className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
       {PICTO_KINDS.map((k) => {
         const pressed = on.includes(k)
         return (
@@ -132,6 +184,38 @@ export function PictoBar({ className = '', label }: { className?: string; label?
       })}
       </span>
     </div>
+  )
+}
+
+/**
+ * Pastille de filtre dans la capsule (PictoBar `lead`) : hauteur des pictogrammes sur liste étroite (28 px), texte 11 px,
+ * nombre discret après le nom (« Gardien 3 »), active en couleur d'accent.
+ */
+export function BarChip({ on, onClick, n, title, children }: { on: boolean; onClick: () => void; n?: number; title?: string; children: ReactNode }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  // Choisie dans une ligne qui défile (liste étroite) : ramenée dans la ligne, sans faire défiler la page.
+  useEffect(() => {
+    const el = ref.current
+    const row = el?.parentElement
+    if (!on || !el || !row || row.scrollWidth <= row.clientWidth) return
+    const left = el.offsetLeft - row.offsetLeft
+    if (left < row.scrollLeft) row.scrollLeft = left - 24
+    else if (left + el.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left + el.offsetWidth - row.clientWidth + 32
+  }, [on])
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-pressed={on}
+      title={title}
+      onClick={onClick}
+      className={`flex h-7 shrink-0 items-center rounded-full border px-2.5 text-[11px] font-bold whitespace-nowrap transition ${
+        on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+      }`}
+    >
+      {children}
+      {n !== undefined && <span className="ml-1 text-[10px] font-normal tabular-nums opacity-70">{n}</span>}
+    </button>
   )
 }
 
@@ -206,6 +290,7 @@ export function PlayerList({
   ids,
   all = ids,
   countLabel,
+  barLead,
   context,
   children,
   className = 'flex flex-col gap-2',
@@ -217,6 +302,8 @@ export function PlayerList({
   all?: readonly string[]
   /** Nombre affiché dans la barre à la place de « Afficher » (liste Joueurs). */
   countLabel?: ReactNode
+  /** Filtres posés dans la capsule, à gauche des pictogrammes (pastilles des postes : événement, groupe). */
+  barLead?: ReactNode
   context?: SelContext
   children: ReactNode
   className?: string
@@ -287,7 +374,7 @@ export function PlayerList({
               {bar && (
                 // Conteneur (plb) : la barre se resserre selon la place de la liste (colonne de contexte comprise).
                 <div className="@container/plb flex items-stretch gap-1">
-                  <PictoBar className="min-w-0 flex-1" label={countLabel} />
+                  <PictoBar className="min-w-0 flex-1" label={countLabel} lead={barLead} />
                 </div>
               )}
               {sel.on && <SelectionHeader store={sel.store} />}
