@@ -25,7 +25,7 @@ import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
-import { RosterChip, RosterControls, RosterSectionList } from '../components/PositionRoster'
+import { RosterChip, RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
@@ -1032,11 +1032,8 @@ export function EventDetail() {
                 {askFilter && <AskFilterBanner kind="evenement" id={ev.id} f={askFilter} shown={displayed.length} />}
                 {roster.length > 1 && (
                   <RosterControls
-                    roster={roster}
                     sort={sort}
                     setSort={setSort}
-                    pos={posFilter}
-                    setPos={setPosFilter}
                     showSort={!byTeam}
                     top={
                       tTeams.length > 0 && (
@@ -1071,7 +1068,14 @@ export function EventDetail() {
                   <Empty>{cover === 'pasvus' ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
-                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ eventId: ev.id }} select={!removing && !pick.on} className="flex flex-col gap-2">
+                {/* Postes (filtre) dans la capsule des pictogrammes, collée en haut : à portée pendant le défilement. */}
+                <PlayerList
+                  ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
+                  barLead={roster.length > 1 && rosterBarLead({ roster, pos: posFilter, setPos: setPosFilter })}
+                  context={{ eventId: ev.id }}
+                  select={!removing && !pick.on}
+                  className="flex flex-col gap-2"
+                >
                 <RosterSectionList
                   sections={sections}
                   row={(p, i) => {
