@@ -42,7 +42,7 @@ import {
   type EventsReadCtx,
   type QEvent,
 } from '../src/eventQuery'
-import { buildGroupsSchema, groupsSpec, legacyGroupsToQuery, putScopes, readGroupsRecipe, scopesOf, scopeTerritory, type GroupCtx, type GroupFilters, type GroupsReadCtx, type QGroup } from '../src/groupQuery'
+import { buildGroupsSchema, groupsSpec, legacyGroupsToQuery, readGroupsRecipe, type GroupCtx, type GroupFilters, type GroupsReadCtx, type QGroup } from '../src/groupQuery'
 import { decideAction } from '../src/playerQuery'
 import { understandQuestion, type Endpoint } from '../src/dictation/transcribe'
 
@@ -187,7 +187,6 @@ const gctx: GroupCtx = {
     return GROUPS.filter(
       (g) =>
         words.every((w) => fold(`${g.name} ${g.description ?? ''} ${g.createdByName ?? ''}`).includes(w)) &&
-        (!v.scope || g.scope === v.scope) &&
         (!v.sex || g.sex === v.sex) &&
         (!v.dept || g.department === v.dept) &&
         (!v.region || g.regionId === v.region) &&
@@ -200,9 +199,7 @@ const gctx: GroupCtx = {
       for (const sex of ['', 'M', 'F', 'mixte'])
         for (const [dept, region] of [['', ''], ['83', 'region-sud'], ['', 'region-bre'], ['75', '']])
           for (const year of ['', '2010', '2012']) {
-            // Combinaisons que les anciens filtres ne posaient pas (Fédération : pas de territoire ; Ligue : pas de comité) :
-            // le territoire ne concerne plus les groupes qui n'en ont pas quand leur « Groupe de » est coché (voir plus bas).
-            if ((scope === 'federation' && (dept || region)) || (scope === 'ligue' && dept)) continue
+            // L'ancien niveau (« scope ») n'est plus un filtre : ignoré, mêmes groupes que sans lui.
             const v = { q, scope, sex, dept, region, year }
             assert.deepEqual(
               selectItems(groupsSpec, GROUPS, legacyGroupsToQuery(v), gctx).map((g) => g.id),
@@ -211,7 +208,7 @@ const gctx: GroupCtx = {
             )
             n++
           }
-  console.log(`Groupes : mêmes résultats que les anciens filtres sur ${n} combinaisons`)
+  console.log(`Groupes : mêmes résultats que les anciens filtres (niveau ignoré) sur ${n} combinaisons`)
 }
 
 // ---------- 3. Fusion : ajout par défaut, remplacement d'une clé redite, retrait, effacement ----------
@@ -251,12 +248,11 @@ const gctx: GroupCtx = {
   assert.equal(m7.q, 'fictiville')
   assert.equal(removeListKeys(m7, listKeysOfWord(eventsSpec, 'le nom')).q, '')
 
-  // Groupes : Fédération écarte le territoire ; ligue écarte le comité ; un comité ajouté garde la ligue de sa région.
+  // Groupes : une ligue d'ailleurs écarte les comités ; un comité ajouté garde la ligue de sa région.
   const g0: ListQuery<GroupFilters> = { f: { sex: 'F', depts: ['83'], regions: ['region-sud'] }, q: '' }
-  assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { scope: 'federation' } }, 'ajouter', [], regionOf).f, { sex: 'F', scope: 'federation' })
-  assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { scope: 'ligue' } }, 'ajouter', [], regionOf).f, { sex: 'F', regions: ['region-sud'], scope: 'ligue' })
   assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { regions: ['region-bre'] } }, 'ajouter', [], regionOf).f, { sex: 'F', regions: ['region-bre'] })
-  assert.deepEqual(mergeListQuery(groupsSpec, { f: { scope: 'federation' }, q: '' }, { f: { depts: ['13'] } }, 'ajouter', [], regionOf).f, { depts: ['13'] })
+  assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { depts: ['13'] } }, 'ajouter', [], regionOf).f, { sex: 'F', depts: ['13'], regions: ['region-sud'] })
+  assert.deepEqual(mergeListQuery(groupsSpec, { f: { regions: ['region-bre'] }, q: '' }, { f: { depts: ['13'] } }, 'ajouter', [], regionOf).f, { depts: ['13'] })
   const g1 = mergeListQuery(groupsSpec, g0, { f: { years: ['2011'] } }, 'ajouter', [], regionOf)
   assert.deepEqual(g1.f, { ...g0.f, years: ['2011'] })
   assert.equal(listChangeText(groupsSpec, g0, g1, gctx).text, 'Ajouté : année 2011')
@@ -367,8 +363,8 @@ const gctx: GroupCtx = {
   assert.ok(g({ players: { op: 'lte', n: 5 } }).every((x) => x.playerIds.length <= 5))
   assert.ok(g({ years: ['2010', '2011'] }).every((x) => x.years?.some((y) => y === '2010' || y === '2011')))
   // Nombres des menus : chaque menu compte les éléments qui passent les AUTRES filtres.
-  const qy: ListQuery<GroupFilters> = { f: { sex: 'F', scope: 'comite' }, q: '' }
-  assert.equal(filterItems(groupsSpec, GROUPS, qy, gctx, 'sex').length, GROUPS.filter((x) => x.scope === 'comite').length)
+  const qy: ListQuery<GroupFilters> = { f: { sex: 'F', depts: ['83'] }, q: '' }
+  assert.equal(filterItems(groupsSpec, GROUPS, qy, gctx, 'sex').length, GROUPS.filter((x) => x.department === '83').length)
 }
 
 // ---------- 6 bis. Choix multiples : OU dans un champ, ET entre les champs ----------
@@ -442,8 +438,8 @@ const grcx: GroupsReadCtx = { today: TODAY, names: GROUPS.map((x) => x.name), cr
   assert.deepEqual([r.q, r.calc], ['tournoi fictiville', { type: 'table', by: 'month' }])
   r = readEventsRecipe({ sortie: { type: 'liste', tri: 'joueurs', ordre: 'croissant' } }, [], ercx)
   assert.deepEqual(r.sort, { by: 'players', dir: 'asc' })
-  let gr = readGroupsRecipe({ visibilite: ['prive', 'mon_staff'], niveau: 'régional', sexe: 'mixtes', comites: ['13'], annees: [2011, '2012'] }, [], grcx)
-  assert.deepEqual(gr.f, { vis: ['private', 'team'], scope: 'ligue', sex: 'mixte', depts: ['13'], years: ['2011', '2012'] })
+  let gr = readGroupsRecipe({ visibilite: ['prive', 'mon_staff'], sexe: 'mixtes', comites: ['13'], annees: [2011, '2012'] }, [], grcx)
+  assert.deepEqual(gr.f, { vis: ['private', 'team'], sex: 'mixte', depts: ['13'], years: ['2011', '2012'] })
   gr = readGroupsRecipe({ ligues: ['PACA'], suivis: true, mes: 'participant', createurs: ['marc'], sortie: { type: 'tableau', par: 'comite' } }, [], grcx)
   assert.deepEqual([gr.f, gr.calc], [{ regions: ['region-sud'], who: 'participant', followed: true, creators: ['Marc Imaginaire'] }, { type: 'table', by: 'dept' }])
   assert.deepEqual(parseNumCond('12'), { op: 'gte', n: 12 })
@@ -451,62 +447,30 @@ const grcx: GroupsReadCtx = { today: TODAY, names: GROUPS.map((x) => x.name), cr
   assert.equal(parseNumCond({ op: '>=', n: -3 }), undefined)
 }
 
-// ---------- 9 bis. Groupes : « Groupe de » (ancien « Niveau ») en choix multiple ----------
+// ---------- 9 bis. Groupes : plus de filtre sur le niveau (Fédération, ligue, comité) ----------
 {
   const g = (f: GroupFilters) => selectItems(groupsSpec, GROUPS, { f, q: '' }, gctx).map((x) => x.id)
-  const has = (f: GroupFilters) => groupsSpec.clean(f)
-  // Lecture : ancienne valeur simple (adresses, filtres enregistrés) ou liste ; valeurs inconnues écartées ; ordre fixe.
-  assert.deepEqual(has({ scope: 'ligue' }), { scope: 'ligue' })
-  assert.deepEqual(has({ scope: ['comite', 'federation', 'federation'] } as GroupFilters), { scope: ['federation', 'comite'] })
-  assert.deepEqual(has({ scope: ['ligue'] }), { scope: 'ligue' }, 'une seule valeur : écrite comme avant')
-  assert.deepEqual(has({ scope: ['national', 'x'] } as unknown as GroupFilters), {})
-  assert.deepEqual(scopesOf({ scope: 'comite' }), ['comite'])
-  assert.deepEqual(scopesOf({}), [])
-  const f: GroupFilters = { sex: 'F' }
-  putScopes(f, ['ligue', 'federation'])
-  assert.deepEqual(f, { sex: 'F', scope: ['federation', 'ligue'] })
-  putScopes(f, [])
-  assert.deepEqual(f, { sex: 'F' })
-  // Ancienne valeur simple : mêmes groupes que la liste d'une valeur.
-  for (const s of ['federation', 'ligue', 'comite'] as const) assert.deepEqual(g({ scope: s }), g({ scope: [s] }))
-  // OU dans le champ.
-  const fl = g({ scope: ['federation', 'ligue'] })
-  assert.deepEqual(fl, GROUPS.filter((x) => x.scope === 'federation' || x.scope === 'ligue').map((x) => x.id))
-  assert.ok(fl.length > g({ scope: 'federation' }).length && fl.length > g({ scope: 'ligue' }).length)
-  // Territoire selon les choix : Fédération seule → aucun ; Ligue seule → ligue sans comité ; Comité coché (ou rien) → les deux.
-  assert.deepEqual(scopeTerritory({ scope: 'federation' }), { regions: false, depts: false })
-  assert.deepEqual(scopeTerritory({ scope: 'ligue' }), { regions: true, depts: false })
-  assert.deepEqual(scopeTerritory({ scope: ['federation', 'ligue'] }), { regions: true, depts: false })
-  assert.deepEqual(scopeTerritory({ scope: ['federation', 'comite'] }), { regions: true, depts: true })
-  assert.deepEqual(scopeTerritory({}), { regions: true, depts: true })
-  // « la Fédération ou une Ligue » + ligue Sud : les groupes de la Fédération (sans territoire) et ceux de la ligue Sud.
-  const sud = g({ scope: ['federation', 'ligue'], regions: ['region-sud'] })
-  const regionOfG = (x: QGroup) => x.regionId ?? (x.department ? regionOf(x.department) : undefined)
-  assert.deepEqual(sud, GROUPS.filter((x) => (x.scope === 'federation' && !regionOfG(x)) || ((x.scope === 'federation' || x.scope === 'ligue') && regionOfG(x) === 'region-sud')).map((x) => x.id))
-  assert.ok(sud.some((id) => GROUPS.find((x) => x.id === id)!.scope === 'federation'))
-  // « une Ligue ou un Comité » + Var : les groupes de ligue (sans comité) et ceux du comité du Var ; rien coché + Var : comme avant.
-  const lc = g({ scope: ['ligue', 'comite'], depts: ['83'] })
-  assert.deepEqual(lc, GROUPS.filter((x) => (x.scope === 'ligue' || x.scope === 'comite') && (x.department ? x.department === '83' : x.scope === 'ligue')).map((x) => x.id))
+  const old = { scope: 'ligue', sex: 'F' } as unknown as GroupFilters
+  // Ancienne valeur (adresse, filtre enregistré, session) : ignorée à la lecture, sans erreur, sans pastille ni filtrage caché.
+  assert.deepEqual(groupsSpec.clean(old), { sex: 'F' })
+  assert.deepEqual(groupsSpec.clean({ scope: ['federation', 'comite'] }), {})
+  assert.deepEqual(cleanListQuery(groupsSpec, { f: { scope: 'comite', depts: ['83'] }, q: '', calc: { type: 'table', by: 'scope' } }), { f: { depts: ['83'] }, q: '' })
+  assert.deepEqual(selectItems(groupsSpec, GROUPS, cleanListQuery(groupsSpec, { f: old, q: '' }), gctx).map((x) => x.id), g({ sex: 'F' }))
+  assert.deepEqual(listChips(groupsSpec, cleanListQuery(groupsSpec, { f: old, q: '' }), gctx).map((c) => c.key), ['sex'])
+  assert.equal(listFilterCount(groupsSpec, cleanListQuery(groupsSpec, { f: old, q: '' })), 1)
+  assert.deepEqual(legacyGroupsToQuery({ q: '', scope: 'federation', sex: '', dept: '83', region: '', year: '' }).f, { depts: ['83'] })
+  // Territoire sans niveau : un comité ne garde que les groupes de ce comité.
   assert.deepEqual(g({ depts: ['83'] }), GROUPS.filter((x) => x.department === '83').map((x) => x.id))
-  // Pastille, nombre de filtres.
-  const chip = (f: GroupFilters) => listChips(groupsSpec, { f, q: '' }, gctx).find((c) => c.key === 'scope')?.label
-  assert.equal(chip({ scope: 'federation' }), 'groupe de la Fédération')
-  assert.equal(chip({ scope: ['ligue', 'comite'] }), 'groupe d’une Ligue ou d’un Comité')
-  assert.equal(listFilterCount(groupsSpec, { f: { scope: ['federation', 'ligue', 'comite'], sex: 'F' }, q: '' }), 2)
-  // Phrase : liste ou valeur simple ; fusion : Fédération seule efface le territoire, Ligue seule le comité.
-  assert.deepEqual(readGroupsRecipe({ niveau: ['national', 'départemental'] }, [], grcx).f, { scope: ['federation', 'comite'] })
-  assert.deepEqual(readGroupsRecipe({ niveau: 'ligue' }, [], grcx).f, { scope: 'ligue' })
-  assert.equal(readGroupsRecipe({ niveau: ['ligue', 'planétaire'] }, [], grcx).notes.length, 1)
-  assert.ok(/liste/.test(buildGroupsSchema(TODAY).niveau), 'description envoyée : une liste')
-  const g0: ListQuery<GroupFilters> = { f: { depts: ['83'], regions: ['region-sud'] }, q: '' }
-  assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { scope: ['federation', 'ligue'] } }, 'ajouter', [], regionOf).f, { regions: ['region-sud'], scope: ['federation', 'ligue'] })
-  assert.deepEqual(mergeListQuery(groupsSpec, g0, { f: { scope: ['federation', 'comite'] } }, 'ajouter', [], regionOf).f, { depts: ['83'], regions: ['region-sud'], scope: ['federation', 'comite'] })
-  assert.deepEqual(mergeListQuery(groupsSpec, { f: { scope: 'ligue' }, q: '' }, { f: { depts: ['13'] } }, 'ajouter', [], regionOf).f, { depts: ['13'] }, 'un comité dit après « de ligue » : le choix s’en va')
-  assert.deepEqual(mergeListQuery(groupsSpec, { f: { scope: ['ligue', 'comite'] }, q: '' }, { f: { depts: ['13'] } }, 'ajouter', [], regionOf).f, { scope: ['ligue', 'comite'], depts: ['13'] })
+  // Ce qui part au modèle : plus de niveau ; un « niveau » rendu quand même est dit non pris en compte.
+  const schema = buildGroupsSchema(TODAY)
+  assert.ok(!('niveau' in schema) && !/niveau/.test(schema.sortie), 'description sans niveau')
+  assert.ok(!listKeysForModel(groupsSpec, { f: { sex: 'M' }, q: '' }).includes('niveau'))
+  const gr = readGroupsRecipe({ niveau: 'ligue', sexe: 'F' }, [], grcx)
+  assert.deepEqual([gr.f, gr.unsupported], [{ sex: 'F' }, ['« niveau »']])
   // Le sexe des groupes ne change pas : Garçons / Filles / Mixte, un seul choix.
-  assert.deepEqual(has({ sex: 'mixte' }), { sex: 'mixte' })
+  assert.deepEqual(groupsSpec.clean({ sex: 'mixte' }), { sex: 'mixte' })
   assert.deepEqual(g({ sex: 'mixte' }), GROUPS.filter((x) => x.sex === 'mixte').map((x) => x.id))
-  console.log('Groupes : « Groupe de » en choix multiple, anciennes valeurs simples comprises')
+  console.log('Groupes : plus de filtre sur le niveau, anciennes valeurs ignorées')
 }
 
 // ---------- 10. Exemples des consignes « evenements » et « groupes » de la fonction ----------
@@ -543,7 +507,7 @@ function examples(name: string) {
     'enlève le sexe': (q) => assert.deepEqual(q.f, { depts: ['35'] }),
     'efface tout et montre les groupes que je suis': (q) => assert.deepEqual(q.f, { followed: true }),
     'mes groupes de plus de 15 joueurs, classés par nombre de joueurs': (q) => assert.deepEqual([q.f, q.sort], [{ who: 'mine', players: { op: 'gte', n: 16 } }, { by: 'players', dir: 'desc' }]),
-    'les groupes de ligue créés par Paul en Bretagne': (q) => assert.deepEqual(q.f, { scope: 'ligue', regions: ['region-bre'], creators: ['Paul Fictif'] }),
+    'les groupes créés par Paul en Bretagne': (q) => assert.deepEqual(q.f, { regions: ['region-bre'], creators: ['Paul Fictif'] }),
   }
   checkExamples('CONSIGNES_GROUPES', groupsSpec, value, expect, (raw, ng) => readGroupsRecipe(raw, ng, grcx), buildGroupsSchema(TODAY))
 }

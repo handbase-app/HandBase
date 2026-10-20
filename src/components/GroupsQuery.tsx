@@ -6,14 +6,14 @@ import { useFollows } from '../follows'
 import { currentUserId, isParticipant } from '../roles'
 import { useVoicePlaces } from '../voicePlaces'
 import { countBy, filterItems, type ListQuery } from '../listQuery'
-import { buildGroupsSchema, groupsSpec, putScopes, readGroupsRecipe, SCOPE_LIST, scopesOf, scopeTerritory, SEX_LIST, VIS_LIST, type GroupCtx, type GroupFilters, type QGroup } from '../groupQuery'
+import { buildGroupsSchema, groupsSpec, readGroupsRecipe, SEX_LIST, VIS_LIST, type GroupCtx, type GroupFilters, type QGroup } from '../groupQuery'
 import { SegRow, SortCalcPicker, ToggleChip, useListQuery } from './ListQuery'
 import { MultiPicker } from './MultiPicker'
 import { ChoicePills } from './FilterWindow'
 
 /*
  * Liste Groupes : filtres = recette « groupes » (src/groupQuery.ts), même expérience que les listes Joueurs et Événements
- * (src/components/ListQuery.tsx) : visibilité, « Groupe de » (Fédération, Ligue, Comité), garçons / filles, ligue, comité, année d'âge, mes groupes, suivis,
+ * (src/components/ListQuery.tsx) : visibilité, garçons / filles, ligue, comité, année d'âge, mes groupes, suivis,
  * nombre de joueurs ; tris et calculs sur la sélection.
  */
 
@@ -22,7 +22,7 @@ const WHO = [
   { value: 'created' as const, label: 'Créés par moi', short: 'Créés' },
   { value: 'participant' as const, label: 'Où je participe', short: 'Participe' },
 ]
-const IN_WINDOW = new Set(['vis', 'scope', 'regions', 'depts', 'sex', 'years', 'who', 'followed', 'sort'])
+const IN_WINDOW = new Set(['vis', 'regions', 'depts', 'sex', 'years', 'who', 'followed', 'sort'])
 const HINT = 'les groupes de filles du Var », « ceux de 2011 », « combien par comité ?'
 
 export function useGroupsQuery(groups: PlayerGroup[] | undefined) {
@@ -72,9 +72,8 @@ export function useGroupsQuery(groups: PlayerGroup[] | undefined) {
 }
 
 /**
- * Fenêtre « Filtres » : visibilité, « Groupe de », territoire, garçons / filles, année d'âge, mes groupes, suivis, puis tri
- * et calcul. Visibilités, « Groupe de », ligues, comités et années d'âge : plusieurs choix possibles (l'un OU l'autre).
- * Territoire : ligue si « une Ligue » ou « un Comité » est coché (ou rien), comité si « un Comité » est coché (ou rien).
+ * Fenêtre « Filtres » : visibilité, territoire (ligue, comité : toujours proposé), garçons / filles, année d'âge, mes groupes,
+ * suivis, puis tri et calcul. Visibilités, ligues, comités et années d'âge : plusieurs choix possibles (l'un OU l'autre).
  */
 function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: GroupCtx; qy: ListQuery<GroupFilters>; setQy: (q: ListQuery<GroupFilters>) => void }) {
   const f = qy.f
@@ -86,78 +85,50 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
   const except = (k: string) => filterItems(groupsSpec, groups, qy, ctx, k) as QGroup[]
   const visOf = (g: QGroup) => (g.private ? 'private' : g.team ? 'team' : 'staff')
   const vis = countBy(except('vis'), (g) => [visOf(g)])
-  // « Groupe de » : nombre obtenu avec ce choix (territoire posé compris : il ne concerne pas les groupes qui n'en ont pas).
-  const scopes = new Map(SCOPE_LIST.map((x) => [x.value, filterItems(groupsSpec, groups, { ...qy, f: { ...f, scope: x.value } }, ctx).length]))
-  const scopeTotal = filterItems(groupsSpec, groups, { ...qy, f: { ...f, scope: undefined } }, ctx).length
   const sexes = countBy(except('sex'), (g) => [g.sex])
   const regionKey = (g: QGroup) => g.regionId ?? (g.department ? ctx.regionOf(g.department) : undefined)
-  // Nombre de chaque ligue, de chaque comité : celui qu'on obtient en le cochant (les groupes de la Fédération ou d'une Ligue
-  // cochés comptent aussi : le territoire ne les concerne pas).
-  const withTest = (k: 'regions' | 'depts', m: Map<string | undefined, number>) =>
-    new Map([...m.keys()].filter((x): x is string => !!x).map((x) => [x, except(k).filter((g) => groupsSpec.test(k, { ...f, [k]: [x] }, g, ctx)).length]))
-  const regions = withTest('regions', countBy(except('regions'), (g) => [regionKey(g)]))
-  const depts = withTest('depts', countBy(except('depts'), (g) => [g.department]))
+  const regions = countBy(except('regions'), (g) => [regionKey(g)])
+  const depts = countBy(except('depts'), (g) => [g.department])
   const years = countBy(except('years'), (g) => g.years ?? [])
   const who = new Map(WHO.map((w) => [w.value, except('who').filter((g) => groupsSpec.test('who', { who: w.value }, g, ctx)).length]))
   const nFollowed = except('followed').filter((g) => ctx.followed.has(g.id)).length
   const picked = f.regions ?? []
-  const terr = scopeTerritory(f)
   return (
     <>
       <ChoicePills k="vis" label="Visibilité" allLabel="Toutes" value={f.vis ?? []} options={VIS_LIST} counts={vis} total={except('vis').length} onChange={(vs) => setF({ vis: vs.length ? vs : undefined })} />
-      <ChoicePills
-        k="scope"
-        label="Groupe de"
-        allLabel="Tous"
-        value={scopesOf(f)}
-        options={SCOPE_LIST}
-        counts={scopes}
-        total={scopeTotal}
-        // Sans « une Ligue » ni « un Comité » : pas de territoire ; sans « un Comité » : pas de comité.
-        onChange={(vs) => {
-          const next: GroupFilters = { ...f }
-          putScopes(next, vs)
-          const t = scopeTerritory(next)
-          setF({ scope: next.scope, ...(!t.regions ? { regions: undefined } : {}), ...(!t.depts ? { depts: undefined } : {}) })
-        }}
-      />
-      {terr.regions && (regions.size > 0 || depts.size > 0 || f.regions || f.depts) && (
-        <div className="flex flex-col gap-1" data-filter="regions depts">
-          <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Territoire</span>
-          <div className={`grid gap-2 ${terr.depts ? 'grid-cols-2' : ''}`}>
-            <MultiPicker
-              className="min-h-11 py-1.5 text-xs"
-              label="Ligue"
-              allLabel={`Toutes les ligues (${except('regions').length})`}
-              noun={['ligue', 'ligues']}
-              value={picked}
-              options={[...regions.entries()]
-                .filter(([r]) => ctx.regionName(r))
-                .map(([r, n]) => ({ value: r as string, label: ctx.regionName(r)!, count: n }))
-                .sort((a, b) => a.label.localeCompare(b.label, 'fr'))}
-              // Des ligues cochées écartent les comités d'ailleurs.
-              onChange={(rs) => {
-                const keep = rs.length && f.depts ? f.depts.filter((d) => rs.includes(ctx.regionOf(d) ?? '')) : f.depts
-                setF({ regions: rs.length ? rs : undefined, depts: keep?.length ? keep : undefined })
-              }}
-            />
-            {terr.depts && (
-              <MultiPicker
-                className="min-h-11 py-1.5 text-xs"
-                label="Comité"
-                allLabel={`${picked.length ? 'Tous leurs comités' : 'Tous les comités'} (${except('depts').length})`}
-                noun={['comité', 'comités']}
-                value={f.depts ?? []}
-                options={[...depts.entries()]
-                  .filter(([d]) => !!d && (!picked.length || picked.includes(ctx.regionOf(d!) ?? '')))
-                  .sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''))
-                  .map(([d, n]) => ({ value: d as string, label: ctx.deptName(d!), count: n }))}
-                onChange={(ds) => setF({ depts: ds.length ? ds : undefined })}
-              />
-            )}
-          </div>
+      <div className="flex flex-col gap-1" data-filter="regions depts">
+        <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Territoire</span>
+        <div className="grid grid-cols-2 gap-2">
+          <MultiPicker
+            className="min-h-11 py-1.5 text-xs"
+            label="Ligue"
+            allLabel={`Toutes les ligues (${except('regions').length})`}
+            noun={['ligue', 'ligues']}
+            value={picked}
+            options={[...regions.entries()]
+              .filter(([r]) => ctx.regionName(r))
+              .map(([r, n]) => ({ value: r as string, label: ctx.regionName(r)!, count: n }))
+              .sort((a, b) => a.label.localeCompare(b.label, 'fr'))}
+            // Des ligues cochées écartent les comités d'ailleurs.
+            onChange={(rs) => {
+              const keep = rs.length && f.depts ? f.depts.filter((d) => rs.includes(ctx.regionOf(d) ?? '')) : f.depts
+              setF({ regions: rs.length ? rs : undefined, depts: keep?.length ? keep : undefined })
+            }}
+          />
+          <MultiPicker
+            className="min-h-11 py-1.5 text-xs"
+            label="Comité"
+            allLabel={`${picked.length ? 'Tous leurs comités' : 'Tous les comités'} (${except('depts').length})`}
+            noun={['comité', 'comités']}
+            value={f.depts ?? []}
+            options={[...depts.entries()]
+              .filter(([d]) => !!d && (!picked.length || picked.includes(ctx.regionOf(d!) ?? '')))
+              .sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''))
+              .map(([d, n]) => ({ value: d as string, label: ctx.deptName(d!), count: n }))}
+            onChange={(ds) => setF({ depts: ds.length ? ds : undefined })}
+          />
         </div>
-      )}
+      </div>
       <SegRow k="sex" label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
       {(years.size > 0 || f.years) && (
         <ChoicePills
