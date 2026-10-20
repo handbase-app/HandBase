@@ -206,6 +206,35 @@ export function membersAt<P extends Pick<Player, 'poles'>>(players: readonly P[]
   return players.filter((p) => isMemberAt(p, ref, day))
 }
 
+/** Références de toutes les unités Pôle (identifiant de l'unité → référence ; les unités qui ne sont pas des pôles sont écartées). */
+export function poleRefsOf(units: readonly UnitRow[], levels: readonly LevelRow[], opts: Omit<Parameters<typeof unitRegionId>[2], 'levels'>): Map<string, PoleRef> {
+  const m = new Map<string, PoleRef>()
+  for (const u of units) {
+    const r = poleRefOf(units, levels, u.id, opts)
+    if (r) m.set(u.id, r)
+  }
+  return m
+}
+
+/**
+ * Groupes « matérialisés » pour la LECTURE (filtres, recettes, questions, suivis, pictogrammes…) : un groupe Pôle dont
+ * l'unité est encore un pôle reçoit une COPIE dont `playerIds` = ses membres calculés à `day` (la vue « Saison en cours » :
+ * s.refCurrent), dans l'ordre de `players` ; les autres groupes (et un groupe Pôle dont l'unité a disparu) sont rendus
+ * tels quels. Ces copies ne s'enregistrent JAMAIS (les membres d'un groupe Pôle vivent dans les périodes des fiches) :
+ * src/poleMembers.ts les lit pour les écrans, aucun de ceux-là n'écrit de groupe.
+ */
+export function materializePoleGroups<G extends { poleUnitId?: string; playerIds: string[] }>(
+  groups: readonly G[],
+  refs: ReadonlyMap<string, Pick<PoleRef, 'regionId' | 'site'>>,
+  players: readonly Pick<Player, 'id' | 'poles'>[],
+  day: string,
+): G[] {
+  return groups.map((g) => {
+    const ref = g.poleUnitId ? refs.get(g.poleUnitId) : undefined
+    return ref ? { ...g, playerIds: membersAt(players, ref, day).map((p) => p.id) } : g
+  })
+}
+
 /** Période en cours à cette date dans un AUTRE pôle (« déjà au pôle de X ») ; undefined sinon. */
 export function otherPoleAt(p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, day: string): PolePeriod | undefined {
   return (p.poles ?? []).find((x) => isCurrentAt(x, day) && !periodMatches(x, ref))

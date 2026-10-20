@@ -19,6 +19,7 @@ import { DictationTextarea } from '../components/MicButton'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
+import { withPoleMembers } from '../poleMembers'
 import {
   alive,
   CONTEXT_TYPES,
@@ -1054,8 +1055,9 @@ export function NewEventForm({
   onDone: (ev?: HBEvent) => void
   extra?: ReactNode
 }) {
-  // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
-  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g)))), [], [])
+  // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite). Groupe Pôle : ses membres
+  // en cours, calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée comme groupe).
+  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => withPoleMembers(alive(gs).filter((g) => !g.archived && can.seeGroup(g))))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
   const picked = groups.find((g) => g.id === group)
   const [name, setName] = useState(event?.name ?? '')

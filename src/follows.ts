@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from 'react'
 import { alive, contextLabel, db, localDay, remove, save, type Criterion, type Follow, type HBEvent, type PlayerGroup } from './db'
+import { POLE_MEMBER_TABLES, withPoleMembers } from './poleMembers'
 import { fmtValue } from './components/ui'
 import { sharedQuery, useShared } from './live'
 import { can, currentUserId, isParticipant, useRole } from './roles'
@@ -66,6 +67,9 @@ export async function computeFollows(): Promise<FollowsResult> {
     .map((group) => ({ group, personal: groupIds.has(group.id), team: teamFollowed(group, uid) }))
     .filter((g) => g.personal || g.team)
     .sort((a, b) => a.group.name.localeCompare(b.group.name, 'fr'))
+  // Groupe Pôle suivi : ses membres en cours, calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée).
+  const withMembers = await withPoleMembers(followedGroups.map((f) => f.group))
+  withMembers.forEach((group, i) => (followedGroups[i] = { ...followedGroups[i], group }))
   const followed = new Set(players)
   const via = new Map<string, string[]>()
   for (const { group } of followedGroups)
@@ -80,7 +84,7 @@ export async function computeFollows(): Promise<FollowsResult> {
 
 let computedFor: string | null | undefined
 const followsStore = sharedQuery(
-  ['follows', 'groups', 'teams'],
+  ['follows', 'groups', 'teams', ...POLE_MEMBER_TABLES],
   () => {
     computedFor = currentUserId()
     return computeFollows()

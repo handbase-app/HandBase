@@ -11,6 +11,7 @@ import { latestByPlayer } from './pages/Players'
 import { appName, appSlug } from './appBrand'
 import { clubYears, journalDay, letterQuestions, markFields, moodLabel } from './playerSpace'
 import { fetchNotes } from './playerJournal'
+import { withPoleMembers } from './poleMembers'
 
 const esc = (v: unknown) => {
   let s = v === undefined || v === null ? '' : String(v)
@@ -210,7 +211,8 @@ export async function exportPlayer(id: string) {
     .filter((e) => !e.deleted && (e.playerIds ?? []).includes(id))
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((e) => [fmtDate(e.date), e.name, e.place])
-  const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
+  // Groupe Pôle : s'il y est en ce moment (périodes de la fiche, src/poleMembers.ts).
+  const grps = (await withPoleMembers(groups, [p])).filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
   // Repérage (supabase/041) : événements où il a été vu, « à revoir » (destinations, commentaire).
   const sights = seen
     .map((s) => [ev.get(s.eventId)?.date ? fmtDate(ev.get(s.eventId)!.date) : '', ev.get(s.eventId)?.name ?? 'Événement', s.createdByName])
