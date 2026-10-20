@@ -28,6 +28,8 @@ import { loadTeams } from '../teams'
 import { startAskAction } from './AskAction'
 import { canLeave } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
+import { Spark, useWait, WaitBar } from './Attente'
+import { useAiFlight } from '../aiWait'
 import { Icon, playerName } from './ui'
 
 /*
@@ -218,6 +220,13 @@ export type DemanderProps = {
   embedded?: boolean
   /** Palette : Échap la ferme. */
   onEscape?: () => void
+  /**
+   * La page attend l'assistant pour cette barre (phrase envoyée) : ✦ qui tourne, « Je cherche… », fine barre sous la pilule,
+   * « Annuler » si `cancel` est donné ; `phrase` (dite au micro) s'affiche dans le champ vide. La transcription du micro de la barre (mic) fait de même, sans rien à passer.
+   */
+  wait?: { cancel?: () => void; phrase?: string } | null | false
+  /** La liste se recalcule sur l'appareil : fine barre en va-et-vient sous la pilule (si le calcul dure). */
+  calculating?: boolean
 }
 
 export function Demander(p: DemanderProps) {
@@ -239,6 +248,9 @@ export function Demander(p: DemanderProps) {
   const rec = p.mic ? p.mic.phase === 'recording' || p.mic.phase === 'opening' : false
   const sending = p.mic?.phase === 'sending'
   const embedded = !!p.embedded
+  // Attente de l'assistant (phrase envoyée par la page, ou transcription du micro) : signe dans la pilule et juste dessous.
+  const wait = useWait(!!p.wait || sending, sending ? 'dictee' : 'question')
+  const cancelWait = p.wait ? p.wait.cancel : sending ? p.mic?.cancel : undefined
 
   // ---------- Ouverture / fermeture ----------
   const stateKey = `demander:${id}`
@@ -598,9 +610,7 @@ export function Demander(p: DemanderProps) {
         <div
           className={`flex ${h} min-w-0 flex-1 items-center gap-1 rounded-full border border-line bg-panel py-0 pr-1.5 pl-4 shadow-sm transition-shadow focus-within:border-ai focus-within:shadow-md ${p.compact ? 'text-xs' : ''}`}
         >
-          <span className="shrink-0 text-ai" aria-hidden>
-            ✦
-          </span>
+          <Spark busy={wait.on} />
           <input
             ref={inputRef}
             id={`${id}-in`}
@@ -617,12 +627,13 @@ export function Demander(p: DemanderProps) {
             aria-activedescendant={activeId}
             aria-haspopup="listbox"
             enterKeyHint={p.nameMode && !header ? 'search' : 'send'}
-            placeholder={p.placeholder ?? (header || p.canAsk ? 'Un nom, une question, une action…' : 'Un nom, un club, une licence…')}
+            placeholder={wait.on ? '' : (p.placeholder ?? (header || p.canAsk ? 'Un nom, une question, une action…' : 'Un nom, un club, une licence…'))}
             aria-label={p.label ?? 'Demander : un nom, une question, une action'}
             title={p.canAsk ? `Un nom, un club, une licence ; ou une phrase${p.micHint ? ` (« ${p.micHint} »)` : ''}, puis Entrée` : 'Nom, club ou licence'}
-            value={p.value}
+            value={p.value || (wait.on && p.wait ? (p.wait.phrase ?? '') : '')}
             maxLength={MAX_PHRASE}
             disabled={p.disabled || sending || rec}
+            aria-busy={wait.on || undefined}
             onChange={(e) => {
               p.onChange(e.target.value)
               setActive(-1)
@@ -635,7 +646,26 @@ export function Demander(p: DemanderProps) {
             onClick={openMenu}
             onKeyDown={onKey}
           />
-          {p.value && (
+          {wait.on && (
+            // Pendant l'attente : le texte court (et « ≈ 2 s » si fiable) à la place des boutons, puis « Annuler ».
+            <>
+              <span role="status" className={`shrink-0 px-1 font-bold whitespace-nowrap text-ai ${p.compact ? 'text-[11px]' : 'text-xs'}`}>
+                {wait.text}
+                {wait.eta && <span className="ml-1 font-normal tabular-nums text-muted">{wait.eta}</span>}
+              </span>
+              {cancelWait && (
+                <button
+                  type="button"
+                  className={`shrink-0 rounded-full px-2 font-bold text-muted underline hover:text-fg ${p.compact ? 'min-h-7 text-[11px]' : 'min-h-9 text-xs'}`}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={cancelWait}
+                >
+                  Annuler
+                </button>
+              )}
+            </>
+          )}
+          {p.value && !wait.on && (
             <button
               type="button"
               tabIndex={-1}
@@ -650,7 +680,7 @@ export function Demander(p: DemanderProps) {
               ✕
             </button>
           )}
-          {p.canAsk && !p.nameMode && !header && text && !rec && !sending ? (
+          {wait.on ? null : p.canAsk && !p.nameMode && !header && text && !rec && !sending ? (
             // Une phrase tapée : l'envoi remplace le micro (une seule action à droite).
             <button
               type="submit"
@@ -690,6 +720,8 @@ export function Demander(p: DemanderProps) {
           {p.trailing}
         </div>
       </form>
+      {/* Fine barre juste sous la pilule (pas de nouvelle barre : elle ne prend pas de place). */}
+      <WaitBar wait={wait} calc={!!p.calculating && !wait.on} className={`absolute bottom-[-5px] ${p.compact ? 'inset-x-3' : 'inset-x-5'}`} />
       {menu}
     </div>
   )
@@ -781,6 +813,8 @@ export function AskButton() {
   const nav = useNavigate()
   const loc = useLocation()
   const { questionReady } = useDictation()
+  // Une demande à l'assistant en cours, où qu'elle soit (liste, bilan, carte d'action) : la bulle ✦ tourne doucement.
+  const flight = useAiFlight()
   const [open, setOpen] = useState(false)
   const [phone, setPhone] = useState(false)
   const input = useRef<HTMLInputElement>(null)
@@ -1017,7 +1051,8 @@ export function AskButton() {
       <button
         type="button"
         data-noswipe
-        aria-label={rec ? 'Demander à la voix : relâchez pour envoyer' : sending ? 'Demande en cours' : 'Demander : un nom, une question, une action'}
+        aria-label={rec ? 'Demander à la voix : relâchez pour envoyer' : sending || flight ? 'Demander : je cherche…' : 'Demander : un nom, une question, une action'}
+        aria-busy={sending || !!flight || undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         ref={btn}
@@ -1027,13 +1062,9 @@ export function AskButton() {
         }`}
         {...press}
       >
-        {sending ? (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
-        ) : (
-          <span className="text-[17px] leading-none" aria-hidden>
-            ✦
-          </span>
-        )}
+        <span className={`text-[17px] leading-none ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+          ✦
+        </span>
       </button>
       {palette}
     </>

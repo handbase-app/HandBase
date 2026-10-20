@@ -8,6 +8,7 @@ import { avisProposals, buildAvisPayload, decideAll, droppedText, interpretAvis,
 import { newId, type Criterion, type Position } from '../db'
 import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
 import { MAX_COMMENT, VOCAL_VERDICT_LABEL, VOCAL_VERDICTS, type VocalVerdict } from '../questionLogCore'
+import { useWait, WaitLine } from './Attente'
 
 /*
  * « Avis vocal » (essai) sur l'écran de notation : le coach parle librement du joueur, l'appli PROPOSE des notes et des
@@ -90,6 +91,7 @@ export function AvisVocal({
   }
 
   const mic = useMicRecorder((text) => void analyse(text))
+  const wait = useWait(busy, 'avis')
 
   // ---- Journal des évaluations vocales (une ligne par analyse) ----
   const logged = useRef(new Map<string, string>()) // analyse → ligne du journal
@@ -211,12 +213,7 @@ export function AvisVocal({
       {rec || mic.phase === 'sending' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
-        <div className="flex items-center gap-2 text-xs text-muted" role="status">
-          <span className="min-w-0 flex-1">Je cherche les critères dont vous parlez…</span>
-          <button type="button" className="min-h-11 shrink-0 px-2 text-[11px] font-bold underline" onClick={() => abort.current?.abort()}>
-            Annuler
-          </button>
-        </div>
+        <WaitLine wait={wait} label="Je cherche les critères dont vous parlez…" onCancel={() => abort.current?.abort()} />
       ) : error || mic.error ? (
         <div className="text-[11px] text-red-300" role="alert">
           {error || mic.error}

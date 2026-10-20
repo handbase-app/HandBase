@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from 'react'
 import { appName } from '../appBrand'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
@@ -73,6 +73,7 @@ import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChips'
 import { YearPicker } from '../components/YearPicker'
 import { parseYearsParam, sortYearStrings, yearsParam, yearsPhrase, yearsShort } from '../birthYears'
+import { WaitBar } from '../components/Attente'
 
 /*
  * Bilan de détection (/bilan) : UNE carte de France (src/components/FranceMap.tsx) et des onglets de mesure, dans l'adresse
@@ -746,7 +747,10 @@ export function useBilanState() {
       /* stockage indisponible */
     }
   }, [raw])
-  const set = (patch: Partial<BilanState>) => {
+  // Calcul du bilan après un choix (filtre, lieu, onglet) : en arrière-plan ; `busy` pendant ce temps (signe d'attente).
+  const [busy, startBusy] = useTransition()
+  const set = (patch: Partial<BilanState>) => startBusy(() => apply(patch))
+  const apply = (patch: Partial<BilanState>) => {
     // Préférences de l'appareil : sexe (commun aux filtres de joueurs), période, vue, couleur de la carte.
     const keep: [keyof BilanState, string][] = [
       ['sex', SEX_KEY],
@@ -823,7 +827,7 @@ export function useBilanState() {
   }, [loc.key])
   /** Étage au-dessus du lieu affiché (undefined : la France, on quitte le bilan). */
   const up = placeParent(st)
-  return { st, set, search: `?${bilanQuery(st)}`, national, up: up && (() => goPlace({ ...st, ...up, seenOpen: false })), upPlace: up }
+  return { st, set, busy, search: `?${bilanQuery(st)}`, national, up: up && (() => startBusy(() => goPlace({ ...st, ...up, seenOpen: false }))), upPlace: up }
 }
 
 /**
@@ -1193,7 +1197,7 @@ export default function Coverage() {
   const regionLabel = useRegionLabel()
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
-  const { st, set, search, national, up, upPlace } = useBilanState()
+  const { st, set, busy, search, national, up, upPlace } = useBilanState()
   const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, years: picked, region, dept } = st
   // Accord (src/gender.ts) : filtre « Féminin » du bilan (ou de la question posée) ; sinon masculin générique.
@@ -1271,6 +1275,7 @@ export default function Coverage() {
       hideYear: !st.q,
       compact: !phone,
       full: bilan.qm,
+      busy,
     },
   }).parts
   useEffect(() => setBarFull(bar.wantFull), [bar.wantFull])
@@ -1607,7 +1612,7 @@ export default function Coverage() {
 
   return (
     <WhoCtx.Provider value={who}>
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" aria-busy={busy || undefined}>
       {/* Fenêtre « Filtres » de la barre (posée au-dessus de la page) : rendue même quand les filtres sont repliés (téléphone). */}
       {bar.window}
       <div className="flex flex-col gap-2">
@@ -1634,9 +1639,11 @@ export default function Coverage() {
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
             dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
-        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} />}
+        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} calculating={busy} />}
         {!(phone && questionReady) && savedQuestions}
         {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
+        {/* Téléphone : pas de barre en haut ; le bilan qui se recalcule, en fine barre juste au-dessus des pastilles des filtres. */}
+        {phone && <WaitBar calc={busy} className="-my-1" />}
         {phone && (
           <FilterSummary
             sex={sex}

@@ -12,7 +12,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
 import { understandAvis, type AvisAnswer, type AvisCritere } from './avis'
-import { askMock, onAskMock } from './askMock'
+import { askMock, mockDelay, onAskMock } from './askMock'
+import { timeAi } from '../aiWait'
 import {
   DictationError,
   requestAccess,
@@ -155,7 +156,7 @@ export async function sendDictation(blob: Blob, seconds: number, signal?: AbortS
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await transcribe(ep, blob, seconds, signal)
+    const r = await timeAi('dictee', () => transcribe(ep, blob, seconds, signal))
     afterCall(ep.uid, r)
     return r
   } catch (e) {
@@ -169,7 +170,7 @@ export async function sendFilterRequest(phrase: string, schema: unknown, actuels
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandFilters(ep, phrase, schema, actuels, signal, page)
+    const r = await timeAi('filtres', () => understandFilters(ep, phrase, schema, actuels, signal, page))
     afterCall(ep.uid, r)
     return r
   } catch (e) {
@@ -254,11 +255,14 @@ export function useDictation() {
 /** « Poser une question » : la phrase et la description de la recette seulement (src/recipe.ts), jamais de données de joueur. */
 export async function sendQuestionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal, extra?: QuestionExtra): Promise<QuestionAnswer> {
   const m = askMock()
-  if (m?.question) return mockQuestion(m.question(phrase, extra?.contexte))
+  if (m?.question) {
+    const q = m.question
+    return timeAi('question', async () => (await mockDelay(signal), mockQuestion(q(phrase, extra?.contexte))))
+  }
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandQuestion(ep, phrase, schema, signal, extra)
+    const r = await timeAi('question', () => understandQuestion(ep, phrase, schema, signal, extra))
     afterCall(ep.uid, r)
     return r
   } catch (e) {
@@ -272,7 +276,7 @@ export async function sendSqlRequest(phrase: string, schema: Record<string, stri
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandSql(ep, phrase, schema, precedent, signal)
+    const r = await timeAi('sql', () => understandSql(ep, phrase, schema, precedent, signal))
     afterCall(ep.uid, r)
     return r
   } catch (e) {
@@ -286,7 +290,7 @@ export async function sendAvisRequest(texte: string, criteres: AvisCritere[], si
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandAvis(ep, texte, criteres, signal)
+    const r = await timeAi('avis', () => understandAvis(ep, texte, criteres, signal))
     afterCall(ep.uid, r)
     return r
   } catch (e) {
@@ -312,11 +316,14 @@ function mockQuestion(v: unknown): QuestionAnswer {
  */
 export async function sendActionRequest(phrase: string, schema: Record<string, string>, signal?: AbortSignal, page?: string): Promise<ActionAnswer> {
   const m = askMock()
-  if (m?.action) return { plan: m.action(phrase) }
+  if (m?.action) {
+    const a = m.action
+    return timeAi('action', async () => (await mockDelay(signal), { plan: a(phrase) }))
+  }
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await understandAction(ep, phrase, schema, signal, page)
+    const r = await timeAi('action', () => understandAction(ep, phrase, schema, signal, page))
     afterCall(ep.uid, r)
     return r
   } catch (e) {

@@ -6,6 +6,7 @@ import { AnswerFeedback } from './AnswerFeedback'
 import { sendFilterRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { localCommand, notFoundText, outcomeText, pageApply, pageHas, pageSame, unsupportedText, type Outcome, type VoicePage } from '../voiceFilters'
+import { useWait, WaitLine } from './Attente'
 
 /*
  * Recherche en langage naturel (essai) : « tous les joueurs nés en 2010 qui mesurent plus d'1 m 80 », puis « ajoute le Var »,
@@ -99,6 +100,7 @@ export function VoiceSearch<V extends object>({
   }
 
   const mic = useMicRecorder((text) => void understand(text))
+  const wait = useWait(!!busy, 'filtres')
   if (!searchReady || (page.mode && !searchModes.includes(page.mode))) return <div className="flex gap-2">{input}{after}</div>
 
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
@@ -147,13 +149,7 @@ export function VoiceSearch<V extends object>({
       {mic.phase !== 'idle' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
-        <div className="flex items-center gap-2 text-xs text-muted" role="status">
-          <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          <span className="min-w-0 flex-1 truncate">« {busy} » : je remplis les filtres…</span>
-          <button type="button" className="shrink-0 px-2 py-1 text-[11px] font-bold underline" onClick={() => abort.current?.abort()}>
-            Annuler
-          </button>
-        </div>
+        <WaitLine wait={wait} label={`« ${busy} » : je remplis les filtres…`} onCancel={() => abort.current?.abort()} />
       ) : error || mic.error ? (
         <div className="text-[11px] text-red-300" role="alert">
           {error || mic.error}

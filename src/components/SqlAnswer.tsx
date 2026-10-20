@@ -14,6 +14,7 @@ import { PlayerRow } from './PlayerRow'
 import { PlayerList } from './Pictos'
 import { Empty, Icon, SectionTitle } from './ui'
 import { sexLabel } from '../gender'
+import { Spark, useWait, WaitBar } from './Attente'
 
 /*
  * « Poser une question », MODE AVANCÉ (secours de la recette, src/recipe.ts) : la phrase et la DESCRIPTION des tables de la
@@ -191,15 +192,21 @@ export function useAdvancedAsk(
 
 /** Attente du mode avancé (bascule automatique ou bouton). */
 export function AdvancedBusy({ heard, onCancel }: { heard?: string; onCancel: () => void }) {
+  // ✦ qui tourne et fine barre d'après la durée habituelle du mode avancé (src/components/Attente.tsx).
+  const wait = useWait(true, 'sql')
   return (
-    <div className="card flex items-center gap-2 border-sky-500/40 p-3 text-xs" role="status">
-      <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      <span className="min-w-0 flex-1">
-        Mode avancé{heard ? <> pour « {heard} »</> : null} : je prépare une requête, calculée ensuite sur cet appareil…
-      </span>
-      <button type="button" className="min-h-11 shrink-0 px-2 text-[11px] font-bold underline" onClick={onCancel}>
-        Annuler
-      </button>
+    <div className="card flex flex-col gap-2 border-sky-500/40 p-3 text-xs" role="status">
+      <div className="flex items-center gap-2">
+        <Spark busy={wait.on} />
+        <span className="min-w-0 flex-1">
+          {wait.slow ? wait.text : <>Mode avancé{heard ? <> pour « {heard} »</> : null} : je prépare une requête, calculée ensuite sur cet appareil…</>}
+          {wait.eta && <span className="ml-1.5 tabular-nums text-muted">{wait.eta}</span>}
+        </span>
+        <button type="button" className="min-h-11 shrink-0 px-2 text-[11px] font-bold underline" onClick={onCancel}>
+          Annuler
+        </button>
+      </div>
+      <WaitBar wait={wait} />
     </div>
   )
 }

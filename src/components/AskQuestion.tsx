@@ -6,6 +6,7 @@ import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
+import { useWait, WaitLine } from './Attente'
 import { Icon } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { appName } from '../appBrand'
@@ -31,7 +32,18 @@ export type AskState = { raw: unknown; nonGere: string[]; heard: string }
  * variant : 'full' (micro + champ, ordinateur), 'mic' (le micro seul, en un toucher : barre du bas du bilan sur téléphone),
  * 'text' (le champ seul : panneau « Taper / Mes questions » du téléphone).
  */
-export function AskQuestion({ className = '', variant = 'full', trailing }: { className?: string; variant?: 'full' | 'mic' | 'text'; trailing?: ReactNode }) {
+export function AskQuestion({
+  className = '',
+  variant = 'full',
+  trailing,
+  calculating,
+}: {
+  className?: string
+  variant?: 'full' | 'mic' | 'text'
+  trailing?: ReactNode
+  /** La page se recalcule (bilan : filtre, lieu) : fine barre en va-et-vient sous la pilule. */
+  calculating?: boolean
+}) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
   const [text, setText] = useState('')
@@ -74,6 +86,7 @@ export function AskQuestion({ className = '', variant = 'full', trailing }: { cl
   }
 
   const mic = useMicRecorder((t) => void ask(t))
+  const wait = useWait(!!busy && variant === 'mic')
   // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête.
   useIncomingAsk(questionReady && variant !== 'mic' ? 'bilan' : null, (a) => void ask(a.phrase))
   if (!questionReady) return null
@@ -119,23 +132,21 @@ export function AskQuestion({ className = '', variant = 'full', trailing }: { cl
       mic={variant === 'full' ? mic : undefined}
       micHint={QUESTION_HINT}
       disabled={sending || rec}
+      wait={busy ? { phrase: busy, cancel: () => abort.current?.abort() } : null}
+      calculating={calculating}
       placeholder="Une question sur le bilan, ou dites-la…"
       label="Poser une question"
       className="flex-[1_1_18rem]"
       trailing={trailing}
     />
   )
+  // Barre « Demander » : l'attente est dans la pilule et juste dessous. Micro seul (barre du bas du téléphone) : une ligne
+  // d'attente (✦ qui tourne, texte, fine barre, « Annuler »).
   const status =
-      mic.phase !== 'idle' ? (
+      rec || (variant === 'mic' && mic.phase === 'sending') ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
-        <div className="flex items-center gap-2 text-xs text-muted" role="status">
-          <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          <span className="min-w-0 flex-1 truncate">« {busy} » : je prépare la réponse…</span>
-          <button type="button" className="shrink-0 px-2 py-1 text-[11px] font-bold underline" onClick={() => abort.current?.abort()}>
-            Annuler
-          </button>
-        </div>
+        variant === 'mic' ? <WaitLine wait={wait} label={`« ${busy} » : je prépare la réponse…`} onCancel={() => abort.current?.abort()} /> : null
       ) : error || mic.error ? (
         <div className="text-[11px] text-red-300" role="alert">
           {error || mic.error}

@@ -265,6 +265,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       mic={micReady ? mic : undefined}
       micHint={o.hint}
       disabled={sending || rec}
+      wait={busy ? { phrase: busy, cancel: () => abort.current?.abort() } : null}
       label={micReady ? 'Demander : filtrer ou poser une question' : 'Rechercher'}
       trailing={filtersButton}
     />
@@ -294,17 +295,9 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
         </button>
       </div>
     </div>
-  ) : mic.phase !== 'idle' ? (
+  ) : rec ? (
       <MicStatus mic={mic} dictated={false} />
-    ) : busy ? (
-      <div className="flex items-center gap-2 text-xs text-muted" role="status">
-        <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        <span className="min-w-0 flex-1 truncate">« {busy} » : je prépare la recette…</span>
-        <button type="button" className="min-h-9 shrink-0 px-2 text-[11px] font-bold underline" onClick={() => abort.current?.abort()}>
-          Annuler
-        </button>
-      </div>
-    ) : error ? (
+    ) : sending ? null : error ? (
       <div className="text-[11px] text-red-300" role="alert">
         {error}
       </div>

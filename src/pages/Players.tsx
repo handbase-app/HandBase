@@ -40,8 +40,16 @@ export default function Players() {
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
   // Fiches : la base (fiches proposées comprises) ; les proposées seules ; les fiches hors cadre, gardées pour mémoire.
   const [view, setView] = useSessionState<'base' | 'pending' | 'refused'>('handbase.joueurs.view', 'base')
-  const nPending = all?.filter((p) => p.review === 'pending').length ?? 0
-  const nRefused = all?.filter((p) => p.review === 'refused').length ?? 0
+  // Comptés une fois par lecture de la base (pas à chaque lettre tapée : 40 000 fiches).
+  const { nPending, nRefused } = useMemo(() => {
+    let nPending = 0
+    let nRefused = 0
+    for (const p of all ?? []) {
+      if (p.review === 'pending') nPending++
+      else if (p.review === 'refused') nRefused++
+    }
+    return { nPending, nRefused }
+  }, [all])
   const players = useMemo(
     () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
     [all, view],
@@ -53,7 +61,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, gender } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
+  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -80,10 +88,78 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
+  const allIds = useMemo(() => filtered.map((p) => p.id), [filtered])
+
+  const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit])
+  const shownIds = useMemo(() => shown.map((p) => p.id), [shown])
+  const total = all?.length ?? 0
+  // La liste (ses lignes et sa barre) : refaite quand elle change, pas à chaque lettre tapée dans la barre « Demander »
+  // (60 lignes et leur mise en page : la moitié du temps d'une frappe sur 40 000 fiches). Pendant un calcul (filtre, nom
+  // tapé) : nombre estompé et aria-busy, posés autour (sans redessiner la liste) ; la fine barre est sous la pilule.
+  const list = useMemo(
+    () => (
+      <PlayerList
+        ids={shownIds}
+        all={allIds}
+        countLabel={
+          <span className="wait-count">
+            {loading ? 'Chargement…' : filtered.length < total ? `${pluralG(filtered.length, gender)} sur ${total.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
+          </span>
+        }
+      >
+      {loading ? null : shown.length === 0 ? (
+        <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
+      ) : (
+        <div className="cols flex flex-col gap-2">
+          {shown.map((p) => {
+            const l = latest.get(p.id)
+            const a = age(p.birthDate)
+            // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
+            const v = valueOf(p)
+            return (
+              <PlayerRow
+                key={p.id}
+                p={p}
+                selected={selected === p.id}
+                link={{ to: `/joueurs/${p.id}${tabQuery}` }}
+                linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
+                deletable
+                badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
+                sub={playerSub(p, a !== null && `${a} ans`)}
+                lines={
+                  (l?.get('taille') || l?.get('poids') || p.laterality || v) && (
+                    <>
+                      {(l?.get('taille') || l?.get('poids') || p.laterality) && (
+                        <span className="truncate text-[10px] text-muted">
+                          {[
+                            l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
+                            l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
+                            lateralityLabel(p.laterality, p.sex),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                      {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
+                    </>
+                  )
+                }
+              />
+            )
+          })}
+          {filtered.length > shown.length && (
+            <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
+              Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
+            </button>
+          )}
+        </div>
+      )}
+      </PlayerList>
+    ),
+    [shownIds, allIds, loading, filtered.length, total, gender, shown, latest, valueOf, selected, tabQuery, setLimit],
+  )
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
-  const shown = filtered.slice(0, limit)
-  const allIds = filtered.map((p) => p.id)
 
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
@@ -169,59 +245,9 @@ export default function Players() {
         // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
         // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
         // Nombre de joueurs dans la barre « Afficher », collée en haut : visible pendant tout le défilement.
-        <PlayerList
-          ids={shown.map((p) => p.id)}
-          all={allIds}
-          countLabel={loading ? 'Chargement…' : filtered.length < all.length ? `${pluralG(filtered.length, gender)} sur ${all.length.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
-        >
-        {loading ? null : shown.length === 0 ? (
-          <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
-        ) : (
-          <div className="cols flex flex-col gap-2">
-            {shown.map((p) => {
-              const l = latest.get(p.id)
-              const a = age(p.birthDate)
-              // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
-              const v = valueOf(p)
-              return (
-                <PlayerRow
-                  key={p.id}
-                  p={p}
-                  selected={selected === p.id}
-                  link={{ to: `/joueurs/${p.id}${tabQuery}` }}
-                  linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected === p.id || undefined }}
-                  deletable
-                  badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
-                  sub={playerSub(p, a !== null && `${a} ans`)}
-                  lines={
-                    (l?.get('taille') || l?.get('poids') || p.laterality || v) && (
-                      <>
-                        {(l?.get('taille') || l?.get('poids') || p.laterality) && (
-                          <span className="truncate text-[10px] text-muted">
-                            {[
-                              l?.get('taille') && `${fmtValue(undefined, l.get('taille')!.value)} cm`,
-                              l?.get('poids') && `${fmtValue(undefined, l.get('poids')!.value)} kg`,
-                              lateralityLabel(p.laterality, p.sex),
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </span>
-                        )}
-                        {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
-                      </>
-                    )
-                  }
-                />
-              )
-            })}
-            {filtered.length > shown.length && (
-              <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
-                Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
-              </button>
-            )}
-          </div>
-        )}
-        </PlayerList>
+        <div aria-busy={calculating || undefined} className={calculating ? 'wait-busy' : undefined}>
+          {list}
+        </div>
       )}
       </div>
       </div>
