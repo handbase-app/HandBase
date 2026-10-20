@@ -44,8 +44,9 @@ import { CountText, FilterWindow, FiltersButton, useFilterWindow } from './Filte
  *    une recherche locale instantanée, sans appel ; une phrase (Entrée, ✨, micro) part au mode « question » avec le contexte
  *    de la page (« evenements », « groupes ») et les NOMS des filtres posés seulement ; la recette rendue est revérifiée ici
  *    puis FUSIONNÉE : par défaut elle AJOUTE ; on n'efface ou ne retire que si c'est dit ; « Annuler » ; ligne « Ajouté : … » ;
- *  - les filtres en PASTILLES (toucher : régler ; × : retirer), « Tout effacer » ; « Filtres » : la fenêtre des filtres de la
- *    page, posée au-dessus de la liste (src/components/FilterWindow.tsx), chaque choix appliqué tout de suite ;
+ *  - les filtres en PASTILLES (toucher : la fenêtre « Filtres » s'ouvre sur le réglage de ce filtre, ou un petit réglage
+ *    pour ceux qui n'y sont pas ; × : retirer), « Tout effacer » ; « Filtres » : la fenêtre des filtres de la page, posée
+ *    au-dessus de la liste (src/components/FilterWindow.tsx), chaque choix appliqué tout de suite ;
  *  - question de calcul (« combien par mois ? ») : réponse au-dessus de la liste, qui reste filtrée ;
  *  - état gardé pendant la session : « Retour » depuis un événement ou un groupe retrouve la même liste, les mêmes pastilles.
  * Micro seulement si la fonction déployée annonce le contexte (« question_evenements », « question_groupes ») ; sinon le
@@ -68,8 +69,13 @@ export type ListQueryOptions<F extends object, T, C> = {
   schema: () => Record<string, string>
   /** Exemples du micro (« les tournois de cette saison », « combien par mois ? »). */
   hint: string
-  /** Réglages de la fenêtre « Filtres » de la page (filtres rapides, conditions, tri). */
-  panel: (qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void) => ReactNode
+  /**
+   * Réglages de la fenêtre « Filtres » de la page (filtres rapides, conditions, tri). Chaque réglage porte `data-filter`
+   * (clé du filtre) ; `focus` : la fenêtre a été ouverte depuis la pastille de ce filtre (déplier ce qui le cache).
+   */
+  panel: (qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void, focus?: { key: string; n: number }) => ReactNode
+  /** Pastilles dont le réglage est dans la fenêtre « Filtres » (toucher : la fenêtre s'ouvre dessus) ; les autres gardent `chipEditor`. */
+  inWindow?: (key: string, qy: ListQuery<F>) => boolean
   /** Réglage d'une pastille propre à la page (période…) ; sinon nombre (op, n) ou « Retirer » seulement. */
   chipEditor?: (key: string, qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void) => ReactNode
   /** Totaux affichés avec un calcul (« 125 joueurs · 340 avis »). */
@@ -320,6 +326,8 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       open={chipOpen}
       setOpen={setChipOpen}
       editor={o.chipEditor}
+      inWindow={o.inWindow ? (k) => o.inWindow!(k, qy) : undefined}
+      onOpenWindow={fw.openAt}
       after={
         hasListQuery(spec, qy) || qy.calc ? (
           <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
@@ -347,7 +355,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
         count={<CountText n={filtered.length} total={items?.length ?? 0} noun={(n) => o.noun[n > 1 ? 1 : 0]} />}
         onClear={hasListQuery(spec, qy) || qy.calc ? reset : undefined}
       >
-        {o.panel(qy, setQy)}
+        {o.panel(qy, setQy, fw.focus)}
         {privacy}
       </FilterWindow>
     </div>
@@ -397,6 +405,8 @@ function ListChips<F extends object, T, C>({
   setOpen,
   editor,
   after,
+  inWindow,
+  onOpenWindow,
 }: {
   spec: ListSpec<F, T, C>
   qy: ListQuery<F>
@@ -406,6 +416,8 @@ function ListChips<F extends object, T, C>({
   setOpen: (k: string | null) => void
   editor?: (key: string, qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void) => ReactNode
   after?: ReactNode
+  inWindow?: (key: string) => boolean
+  onOpenWindow: (key: string) => void
 }) {
   const chips = listChips(spec, qy, ctx)
   const chip = chips.find((c) => c.key === open)
@@ -414,20 +426,29 @@ function ListChips<F extends object, T, C>({
   const num = value && typeof value === 'object' && 'op' in (value as object) && 'n' in (value as object) ? (value as NumCond) : undefined
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5" aria-label="Filtres posés : toucher une pastille pour la régler ou la retirer">
-        {chips.map((c) => (
-          <FilterChip
-            key={c.key}
-            label={c.label}
-            open={c.key === open}
-            edit
-            onToggle={() => setOpen(c.key === open ? null : c.key)}
-            onRemove={() => {
-              if (c.key === open) setOpen(null)
-              setQy(removeListKeys(qy, [c.key]))
-            }}
-          />
-        ))}
+      <div className="flex flex-wrap items-center gap-1.5" aria-label="Filtres posés : toucher une pastille pour la régler, × pour la retirer">
+        {chips.map((c) => {
+          // Réglage dans la fenêtre « Filtres » : elle s'ouvre dessus ; sinon (nombre de joueurs, créateur…) petit réglage.
+          const win = !!inWindow?.(c.key)
+          return (
+            <FilterChip
+              key={c.key}
+              label={c.label}
+              open={c.key === open}
+              edit
+              opensWindow={win}
+              onToggle={() => {
+                if (!win) return setOpen(c.key === open ? null : c.key)
+                setOpen(null)
+                onOpenWindow(c.key)
+              }}
+              onRemove={() => {
+                if (c.key === open) setOpen(null)
+                setQy(removeListKeys(qy, [c.key]))
+              }}
+            />
+          )
+        })}
         {after}
       </div>
       {chip && (
@@ -572,7 +593,10 @@ export function SegRow<V extends string>({
   counts,
   total,
   onChange,
+  k,
 }: {
+  /** Filtre réglé ici (pastille touchée : la fenêtre s'ouvre sur ce réglage). */
+  k?: string
   label: string
   value: V | ''
   options: readonly { value: V; label: string; short?: string }[]
@@ -581,7 +605,7 @@ export function SegRow<V extends string>({
   onChange: (v: V | '') => void
 }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" data-filter={k}>
       <span className="text-[10px] font-bold tracking-wider text-muted uppercase">{label}</span>
       <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold" role="group" aria-label={label}>
         {[{ value: '' as const, label: 'Tous', short: 'Tous' }, ...options].map((x) => {
@@ -625,7 +649,7 @@ export function ToggleChip({ on, label, n, onChange }: { on: boolean; label: str
 export function SortCalcPicker<F extends object, T, C>({ spec, qy, setQy }: { spec: ListSpec<F, T, C>; qy: ListQuery<F>; setQy: (q: ListQuery<F>) => void }) {
   const calcValue = !qy.calc ? '' : qy.calc.type === 'count' ? 'count' : qy.calc.by
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-line p-2 text-xs">
+    <div className="flex flex-col gap-2 rounded-md border border-line p-2 text-xs" data-filter="sort">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-bold text-muted">Trier par</span>
         <Select

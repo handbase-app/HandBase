@@ -592,6 +592,19 @@ export function quickCounts<P extends QPlayer>(ix: QIndex<P>, qy: JoueursQuery, 
   const clubBase = base.filter((x) => okDept(x) && okYear(x) && okPos(x))
   const yearBase = base.filter((x) => okDept(x) && okClub(x))
   const scoped = yearBase.filter(okYear)
+  // Groupes : nombre de joueurs de chaque groupe qui répondent aux AUTRES filtres (lieu compris : « groupe X du Var »).
+  const groupBase0 = p.groups ? runRecipe(ix, { ...rest, pop: { ...rest.pop, groups: undefined }, out: { type: 'count' } }).match : base0
+  const groupIds = new Set(
+    groupBase0
+      .filter((x) => (!p.regions || (!!info(x).region && p.regions.includes(info(x).region!))) && okDept(x) && okClub(x) && okYear(x) && okPos(x))
+      .map((x) => x.id),
+  )
+  const groups = new Map<string, number>()
+  for (const [g, members] of ix.groupMembers) {
+    let n = 0
+    for (const id of members) if (groupIds.has(id)) n++
+    groups.set(g, n)
+  }
   const searched = searchByName(scoped, qy.q, hay, tokens).list
   const positions: Record<string, number> = { none: 0 }
   for (const x of searched) {
@@ -608,7 +621,40 @@ export function quickCounts<P extends QPlayer>(ix: QIndex<P>, qy: JoueursQuery, 
     years: count(yearBase.filter(okPos), (x) => info(x).year).sort((a, b) => b[0].localeCompare(a[0])),
     positions,
     positionTotal: searched.length,
+    groups,
   }
+}
+
+/** Départements et régions des joueurs de chaque club (clé de club, src/coverage.ts clubKey). */
+export function clubPlaces<P extends QPlayer>(ix: QIndex<P>): Map<string, { depts: Set<string>; regions: Set<string> }> {
+  const m = new Map<string, { depts: Set<string>; regions: Set<string> }>()
+  for (const x of ix.info.values()) {
+    if (!x.club) continue
+    let e = m.get(x.club)
+    if (!e) m.set(x.club, (e = { depts: new Set(), regions: new Set() }))
+    if (x.dept) e.depts.add(x.dept)
+    if (x.region) e.regions.add(x.region)
+  }
+  return m
+}
+
+/**
+ * Clubs cochés gardés quand des départements ou des régions sont cochés : seulement ceux qui en font partie (comme les
+ * départements d'une autre région s'en vont quand on coche une région). Un club inconnu de l'appareil est gardé.
+ */
+export function clubsInPlaces(
+  clubs: string[] | undefined,
+  places: Map<string, { depts: Set<string>; regions: Set<string> }>,
+  depts?: string[],
+  regions?: string[],
+): string[] | undefined {
+  if (!clubs) return clubs
+  const keep = clubs.filter((c) => {
+    const at = places.get(c)
+    if (!at) return true
+    return (!depts?.length || depts.some((d) => at.depts.has(d))) && (!regions?.length || regions.some((r) => at.regions.has(r)))
+  })
+  return keep.length ? keep : undefined
 }
 
 // ---------- Anciens filtres rapides ----------

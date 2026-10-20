@@ -1,7 +1,8 @@
 // Liste Groupes = ÉDITEUR DE RECETTE (même expérience que les listes Joueurs et Événements, moteur commun src/listQuery.ts).
-// Recette « groupes » : visibilité (moi seul / mes groupes de travail / tout le monde), niveau (fédération, ligue, comité), garçons / filles
-// / mixte, ligue, comité, année d'âge, créés par moi / où je suis participant / suivis, créés par…, nombre de joueurs ; tris
+// Recette « groupes » : visibilité (moi seul / mes groupes de travail / tout le monde), garçons / filles / mixte, ligue, comité, année d'âge, créés par moi / où je suis participant / suivis, créés par…, nombre de joueurs ; tris
 // (nom, joueurs, dernière modification) ; calculs sur la sélection (combien, par visibilité, par comité, par année…).
+// Pas de filtre sur le niveau du groupe (Fédération, ligue, comité) : une ancienne valeur « scope » (adresse, filtre
+// enregistré, session) est ignorée à la lecture, sans filtrage caché ni pastille.
 // Fonctions pures (tools/test-filtres-recette-pages.ts). Rien de ce qui part au modèle ne contient de données : noms de
 // groupes, de lieux et de personnes sont recopiés tels que dits et retrouvés ICI.
 
@@ -50,7 +51,6 @@ export type GroupVis = 'private' | 'team' | 'staff'
 
 export type GroupFilters = {
   vis?: GroupVis[]
-  scope?: 'federation' | 'ligue' | 'comite'
   sex?: 'M' | 'F' | 'mixte'
   regions?: string[]
   depts?: string[]
@@ -80,11 +80,6 @@ export const VIS_LIST: { value: GroupVis; label: string }[] = [
   { value: 'team', label: GROUP_VIS.label.team },
   { value: 'staff', label: GROUP_VIS.label.staff },
 ]
-export const SCOPE_LIST = [
-  { value: 'federation' as const, label: 'Fédération' },
-  { value: 'ligue' as const, label: 'Ligue' },
-  { value: 'comite' as const, label: 'Comité' },
-]
 export const SEX_LIST = [
   { value: 'M' as const, label: SEX_LABELS.M },
   { value: 'F' as const, label: SEX_LABELS.F },
@@ -96,7 +91,6 @@ const VIS_ALIASES: Record<GroupVis, string[]> = {
   team: ['mes groupes de travail', 'groupes de travail', 'groupe de travail', 'mon staff', 'mon_staff', 'equipe', 'staff restreint'],
   staff: ['tout le monde', 'tout le staff', 'tout_le_staff', 'public', 'partage', 'partagés', 'du staff'],
 }
-const SCOPE_ALIASES: Record<string, string[]> = { federation: ['FFHB', 'national', 'nationaux', 'France'], ligue: ['ligues', 'régional', 'régionaux'], comite: ['comités', 'départemental', 'départementaux'] }
 
 /** Ligue d'un groupe : la sienne, sinon celle de son comité. */
 const regionOfGroup = (g: QGroup, ctx: Pick<GroupCtx, 'regionOf'>) => g.regionId ?? (g.department ? ctx.regionOf(g.department) : undefined)
@@ -106,7 +100,6 @@ function cleanGroupFilters(v: unknown): GroupFilters {
   const f: GroupFilters = {}
   const vis = cleanStrings(o.vis)?.filter((x): x is GroupVis => VIS_LIST.some((y) => y.value === x))
   if (vis?.length) f.vis = vis
-  if (SCOPE_LIST.some((x) => x.value === o.scope)) f.scope = o.scope as GroupFilters['scope']
   if (o.sex === 'M' || o.sex === 'F' || o.sex === 'mixte') f.sex = o.sex
   const regions = cleanStrings(o.regions)
   if (regions) f.regions = regions
@@ -139,7 +132,6 @@ export const GROUP_SORTS = [
 
 export const GROUP_GROUPINGS = [
   { value: 'vis', label: 'Par visibilité' },
-  { value: 'scope', label: 'Par niveau' },
   { value: 'sex', label: 'Par masculin / féminin' },
   { value: 'region', label: 'Par ligue' },
   { value: 'dept', label: 'Par comité' },
@@ -149,10 +141,9 @@ export const GROUP_GROUPINGS = [
 
 export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
   id: 'groupes',
-  keys: ['vis', 'scope', 'sex', 'regions', 'depts', 'years', 'who', 'followed', 'creators', 'players'],
+  keys: ['vis', 'sex', 'regions', 'depts', 'years', 'who', 'followed', 'creators', 'players'],
   modelKey: {
     vis: 'visibilite',
-    scope: 'niveau',
     sex: 'sexe',
     regions: 'ligues',
     depts: 'comites',
@@ -166,7 +157,6 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
   },
   keyLabel: {
     vis: 'visibilité',
-    scope: 'niveau',
     sex: 'masculin / féminin',
     regions: 'ligue',
     depts: 'comité',
@@ -179,8 +169,8 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
     q: 'recherche',
   },
   words: {
-    visibilite: ['vis'], portee: ['vis', 'scope'], prive: ['vis'], prives: ['vis'], staff: ['vis'],
-    niveau: ['scope'], federation: ['scope'],
+    visibilite: ['vis'], prive: ['vis'], prives: ['vis'], staff: ['vis'],
+    portee: ['vis'],
     sexe: ['sex'], genre: ['sex'], garcons: ['sex'], filles: ['sex'], mixte: ['sex'], mixtes: ['sex'],
     garcon: ['sex'], fille: ['sex'], masculin: ['sex'], masculins: ['sex'], feminin: ['sex'], feminins: ['sex'], feminine: ['sex'], feminines: ['sex'],
     ligue: ['regions'], ligues: ['regions'], region: ['regions'], regions: ['regions'], territoire: ['regions', 'depts'],
@@ -198,8 +188,6 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
     switch (k) {
       case 'vis':
         return f.vis!.map((v) => VIS_LIST.find((x) => x.value === v)!.label).join(' ou ')
-      case 'scope':
-        return SCOPE_LIST.find((x) => x.value === f.scope)!.label
       case 'sex':
         return f.sex === 'mixte' ? 'mixtes' : f.sex === 'F' ? 'féminins' : 'masculins'
       case 'regions':
@@ -223,8 +211,6 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
     switch (k) {
       case 'vis':
         return f.vis!.includes(visOf(g))
-      case 'scope':
-        return g.scope === f.scope
       case 'sex':
         return g.sex === f.sex
       case 'regions':
@@ -255,23 +241,16 @@ export const groupsSpec: ListSpec<GroupFilters, QGroup, GroupCtx> = {
   ],
   groupings: [
     { ...GROUP_GROUPINGS[0], keys: (g) => [visOf(g)], name: (k) => VIS_LIST.find((x) => x.value === k)?.label ?? k },
-    { ...GROUP_GROUPINGS[1], keys: (g) => (g.scope ? [g.scope] : []), name: (k) => SCOPE_LIST.find((x) => x.value === k)?.label ?? k },
-    { ...GROUP_GROUPINGS[2], keys: (g) => (g.sex ? [g.sex] : []), name: (k) => SEX_LIST.find((x) => x.value === k)?.label ?? k },
-    { ...GROUP_GROUPINGS[3], keys: (g, ctx) => (regionOfGroup(g, ctx) ? [regionOfGroup(g, ctx)!] : []), name: (k, ctx) => ctx.regionName(k) ?? k },
-    { ...GROUP_GROUPINGS[4], keys: (g) => (g.department ? [g.department] : []), name: (k, ctx) => ctx.deptName(k) },
-    { ...GROUP_GROUPINGS[5], keys: (g) => g.years ?? [] },
-    { ...GROUP_GROUPINGS[6], keys: (g) => (g.createdByName ? [g.createdByName] : []) },
+    { ...GROUP_GROUPINGS[1], keys: (g) => (g.sex ? [g.sex] : []), name: (k) => SEX_LIST.find((x) => x.value === k)?.label ?? k },
+    { ...GROUP_GROUPINGS[2], keys: (g, ctx) => (regionOfGroup(g, ctx) ? [regionOfGroup(g, ctx)!] : []), name: (k, ctx) => ctx.regionName(k) ?? k },
+    { ...GROUP_GROUPINGS[3], keys: (g) => (g.department ? [g.department] : []), name: (k, ctx) => ctx.deptName(k) },
+    { ...GROUP_GROUPINGS[4], keys: (g) => g.years ?? [] },
+    { ...GROUP_GROUPINGS[5], keys: (g) => (g.createdByName ? [g.createdByName] : []) },
   ],
   fix(f, added, regionOf) {
-    // Fédération : pas de territoire ; ligue : pas de comité (comme le panneau) ; un comité d'ailleurs écarte la ligue.
-    if (added.has('scope') && f.scope === 'federation') {
-      delete f.regions
-      delete f.depts
-    }
-    if (added.has('scope') && f.scope === 'ligue') delete f.depts
+    // Un comité d'ailleurs écarte la ligue ; une ligue écarte les comités d'ailleurs.
     if (added.has('depts') && f.regions && !added.has('regions') && !f.depts!.some((d) => f.regions!.includes(regionOf(d) ?? ''))) delete f.regions
     if (added.has('regions') && f.depts && !added.has('depts') && !f.depts.every((d) => f.regions!.includes(regionOf(d) ?? ''))) delete f.depts
-    if ((added.has('regions') || added.has('depts')) && f.scope === 'federation' && !added.has('scope')) delete f.scope
   },
 }
 
@@ -282,7 +261,6 @@ export function buildGroupsSchema(today: string): Record<string, string> {
   return {
     aujourdhui: today,
     visibilite: 'liste : prive (moi seul) | mon_staff (mes groupes de travail) | tout_le_staff (tout le monde)',
-    niveau: 'federation | ligue | comite',
     sexe: 'M (garçons) | F (filles) | mixte',
     ligues: 'liste de ligues (régions) telles que dites',
     comites: 'liste de comités (départements : numéros ou noms) tels que dits',
@@ -293,7 +271,7 @@ export function buildGroupsSchema(today: string): Record<string, string> {
     joueurs: '{op (>= | <= | =), n} nombre de joueurs',
     noms: 'liste de noms de groupes tels que dits (recherche dans le nom)',
     sortie:
-      'objet : type (liste | nombre | tableau) ; liste : tri (nom | joueurs | recent), ordre (croissant | decroissant) ; tableau : par (visibilite | niveau | sexe | ligue | comite | annee | createur)',
+      'objet : type (liste | nombre | tableau) ; liste : tri (nom | joueurs | recent), ordre (croissant | decroissant) ; tableau : par (visibilite | sexe | ligue | comite | annee | createur)',
   }
 }
 
@@ -307,7 +285,7 @@ export type GroupsReadCtx = {
   geo: Places
 }
 
-const KNOWN = new Set(['visibilite', 'portee', 'niveau', 'sexe', 'ligues', 'ligue', 'regions', 'region', 'comites', 'comite', 'departements', 'departement', 'annees', 'annee', 'mes', 'suivis', 'createurs', 'createur', 'joueurs', 'noms', 'nom', 'recherche', 'sortie'])
+const KNOWN = new Set(['visibilite', 'portee', 'sexe', 'ligues', 'ligue', 'regions', 'region', 'comites', 'comite', 'departements', 'departement', 'annees', 'annee', 'mes', 'suivis', 'createurs', 'createur', 'joueurs', 'noms', 'nom', 'recherche', 'sortie'])
 
 /** Lit la recette rendue par le modèle pour la liste Groupes (chaque valeur revérifiée ici). */
 export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsReadCtx): ListIncoming<GroupFilters> {
@@ -322,13 +300,6 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
     const m = bestMatch(s, VIS_LIST, (x) => [x.label, x.value, ...VIS_ALIASES[x.value]])
     if ('found' in m) f.vis = [...new Set([...(f.vis ?? []), m.found.value])]
     else notes.push(`visibilité ${quote(s)} (valeur inconnue)`)
-  }
-  if (r.niveau !== undefined) {
-    const s = asText(r.niveau)
-    const exact = SCOPE_LIST.find((x) => x.value === normalize(s))
-    const m = exact ? { found: exact } : bestMatch(s, SCOPE_LIST, (x) => [x.label, x.value, ...(SCOPE_ALIASES[x.value] ?? [])])
-    if ('found' in m) f.scope = m.found.value
-    else notes.push(`niveau ${quote(s)} (valeur inconnue)`)
   }
   if (r.sexe !== undefined) {
     const s = normalize(asText(r.sexe))
@@ -388,7 +359,7 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
     if (type === 'nombre' || type === 'compte') calc = { type: 'count' }
     else if (type === 'tableau') {
       const by = normalize(asText(out.par))
-      const map: Record<string, string> = { visibilite: 'vis', portee: 'vis', niveau: 'scope', sexe: 'sex', ligue: 'region', region: 'region', comite: 'dept', departement: 'dept', annee: 'year', createur: 'creator' }
+      const map: Record<string, string> = { visibilite: 'vis', portee: 'vis', sexe: 'sex', ligue: 'region', region: 'region', comite: 'dept', departement: 'dept', annee: 'year', createur: 'creator' }
       if (map[by]) calc = { type: 'table', by: map[by] }
       else notes.push(`tableau par ${quote(out.par)} (regroupement inconnu)`)
     } else if (type === 'liste' || out.tri) {
@@ -401,10 +372,9 @@ export function readGroupsRecipe(raw: unknown, nonGere: string[], ctx: GroupsRea
 
 // ---------- Anciens filtres (avant la recette) ----------
 
-/** Anciens filtres de la liste Groupes ({ q, scope, sex, dept, region, year }) en requête : mêmes groupes retenus. */
+/** Anciens filtres de la liste Groupes ({ q, scope, sex, dept, region, year }) en requête (le niveau « scope » est ignoré). */
 export function legacyGroupsToQuery(v: { q: string; scope: string; sex: string; dept: string; region: string; year: string }): GroupsQuery {
   const f: GroupFilters = {}
-  if (v.scope) f.scope = v.scope as GroupFilters['scope']
   if (v.sex) f.sex = v.sex as GroupFilters['sex']
   if (v.region) f.regions = [v.region]
   if (v.dept) f.depts = [v.dept]

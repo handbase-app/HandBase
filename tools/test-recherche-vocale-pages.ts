@@ -162,7 +162,7 @@ assert.deepEqual(pageApply(bilan, JSON.parse(toulon[3]), { ...B0, years: ['2010'
 // lisibles (JSON, actions connues, clés de l'ancien schéma).
 const OLD_KEYS: Record<string, string[]> = {
   evenements: ['recherche', 'type', 'annee', 'mesEvenements'],
-  groupes: ['recherche', 'portee', 'sexe', 'region', 'departement', 'annee'],
+  groupes: ['recherche', 'sexe', 'region', 'departement', 'annee'],
 }
 for (const [name, keys] of Object.entries(OLD_KEYS)) {
   const { ex } = pageExamples(name)
