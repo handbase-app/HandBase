@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useBackCloses } from '../backNav'
 import { db } from '../db'
 import { confirmLogout } from '../logout'
 import { ROLE_LABEL, useRole } from '../roles'
@@ -53,39 +54,19 @@ export function ProfileButton() {
   const sync = useSyncInfo()
   const nav = useNavigate()
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
-  // Téléphone : une entrée d'historique en plus pendant que la feuille est ouverte ; le geste Retour la referme.
-  const pushed = useRef(false)
-  // Action à faire une fois cette entrée retirée (aller dans Réglages…), pour ne pas mélanger les deux navigations.
-  const after = useRef<(() => void) | null>(null)
-
-  useEffect(() => {
-    const onPop = () => {
-      if (!pushed.current) return
-      pushed.current = false
-      setAnchor(null)
-      const then = after.current
-      after.current = null
-      then?.()
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [])
+  // Téléphone : feuille du bas, que le geste Retour referme sans quitter la page (src/backNav.tsx, useBackCloses).
+  const [sheet, setSheet] = useState(false)
+  useBackCloses(() => setAnchor(null), !!anchor && sheet)
 
   const open = (a: MenuAnchor) => {
-    if (isPhone()) {
-      // Même état que l'entrée en cours : le routeur ne voit pas de changement d'écran au retour.
-      window.history.pushState(window.history.state, '')
-      pushed.current = true
-    }
+    setSheet(isPhone())
     setAnchor(a)
   }
-  /** Ferme le menu, puis lance `then` (une fois l'entrée d'historique de la feuille retirée). */
+  /**
+   * Ferme le menu, puis lance `then` (aller dans Réglages…) : l'écran ouvert prend la place de l'entrée d'historique de
+   * la feuille (le retour ramène à l'écran d'avant, en un geste).
+   */
   const close = (then?: () => void) => {
-    if (pushed.current) {
-      after.current = then ?? null
-      window.history.back()
-      return
-    }
     setAnchor(null)
     then?.()
   }

@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton } from '../backNav'
+import { BackButton, useBack } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StampLine } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
@@ -93,6 +93,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const panel = usePanel()
   // ?fusion=<id> : ouvre la fusion avec cette autre fiche (lien « Comparer et fusionner »).
   const [params, setParams] = useSearchParams()
+  // Après une suppression : retour à l'écran d'origine (src/backNav.tsx).
+  const leave = useBack('/joueurs', 'JOUEURS')
   const mergeWith = params.get('fusion')
   // Onglet dans l'adresse (?onglet=avis ; ?fiche=… sous /bilan/joueurs, où `onglet` est celui du bilan) : on le
   // retrouve en revenant sur la fiche, et il reste ouvert en passant à un autre joueur de la liste (src/tabQuery.ts).
@@ -190,7 +192,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   async function del() {
     if (!(await ask(`Supprimer la fiche de ${playerName(p)} ?`, { ok: 'Supprimer' }))) return
     await remove('players', p.id)
-    nav('/joueurs', { replace: true })
+    // L'écran d'où l'on vient (liste, événement, groupe…), dans le même état ; entrée directe : la liste des joueurs.
+    leave.exit()
   }
 
   return (

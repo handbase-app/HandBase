@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
+import { useEntryState } from '../backNav'
 import { buildFeed, FEED_KINDS, FEED_TABLES, feedSeen, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
 import { useAlerts } from '../alerts'
@@ -140,7 +141,8 @@ export function HomeFeed() {
 /** Page « Quoi de neuf » : tout le fil, jour par jour. */
 export default function Feed() {
   // La pastille compte ce qui est arrivé depuis la visite précédente.
-  const [seen] = useState(feedSeen)
+  // Gardée avec l'entrée de l'historique : au retour d'une fiche, les mêmes nouveautés restent marquées.
+  const [seen] = useEntryState('actualite.vu', feedSeen)
   useEffect(() => markFeedSeen(), [])
   // Période affichée : retrouvée au retour d'une fiche (pendant la session).
   const [days, setDays] = useSessionState('handbase.actualite.days', 30)

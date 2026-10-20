@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useBackCloses } from '../backNav'
 import { alive, db, today } from '../db'
 import {
   ASK_PATH,
@@ -41,7 +42,7 @@ import { Icon, playerName } from './ui'
  *    du bilan), « Afficher tout l'historique » (le menu s'allonge, « Effacer l'historique » en bas). Depuis la PALETTE, en
  *    tapant : « Je comprends », les propositions de routeAsk (Entrée : la première, ↑ ↓ pour choisir, Échap ferme).
  *    Clavier complet, rôles ARIA (combobox / listbox), focus gardé au champ. Téléphone : le menu devient une feuille sous
- *    le champ, fermée par le geste Retour sans quitter la page (une entrée d'historique du routeur, retirée en fermant).
+ *    le champ, fermée par le geste Retour sans quitter la page (src/backNav.tsx, useBackCloses).
  *  - PLACEMENTS : sur les listes Joueurs, Événements, Groupes et au bilan (PlayersQuery.tsx, ListQuery.tsx,
  *    AskQuestion.tsx), le champ de la page EST ce composant (même comportement qu'avant pour la phrase : recherche locale
  *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : une BULLE ronde ✦ (sans texte, dégradé
@@ -51,8 +52,8 @@ import { Icon, playerName } from './ui'
  *    barre posée sur une page s'inscrit dans `pageBars` ; la page affichée doit être exactement la sienne, /joueurs mais
  *    pas /joueurs/:id, et la barre visible), il met le curseur dans cette barre et ouvre son menu. Ailleurs, la PALETTE : ordinateur = fenêtre accrochée
  *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
- *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé (geste
- *    Retour : entrée d'historique du routeur, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
+ *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé. Le retour du
+ *    téléphone ou du navigateur la ferme (useBackCloses, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
  *    (`routes` = routeAsk, menu toujours ouvert) : « Je comprends », la demande part sur sa page (postAsk →
  *    useIncomingAsk) ou ouvre la fiche, et la palette se ferme. Téléphone, appui long (≥ 450 ms, dictée disponible) : on
  *    parle tout de suite, le bouton rouge pulse, relâcher envoie la phrase (première proposition de routeAsk).
@@ -232,7 +233,6 @@ export type DemanderProps = {
 export function Demander(p: DemanderProps) {
   const id = useId()
   const nav = useNavigate()
-  const loc = useLocation()
   const history = useAskHistory()
   const saved = useSavedQuestions()
   const [open, setOpen] = useState(false)
@@ -253,8 +253,6 @@ export function Demander(p: DemanderProps) {
   const cancelWait = p.wait ? p.wait.cancel : sending ? p.mic?.cancel : undefined
 
   // ---------- Ouverture / fermeture ----------
-  const stateKey = `demander:${id}`
-  const sheetPushed = useRef(false)
   const openMenu = () => {
     if (open) return
     const ph = !embedded && isPhone()
@@ -262,33 +260,24 @@ export function Demander(p: DemanderProps) {
     setOpen(true)
     setActive(-1)
     setShowAll(false)
-    // Téléphone : une entrée d'historique, pour que le geste Retour ferme la feuille sans quitter la page.
-    if (ph && !sheetPushed.current) {
-      sheetPushed.current = true
-      nav(loc.pathname + loc.search + loc.hash, { state: { ...((loc.state as object) ?? {}), [stateKey]: true } })
-    }
   }
-  const close = (opts: { blur?: boolean; keepEntry?: boolean } = {}) => {
+  const close = (opts: { blur?: boolean } = {}) => {
     if (!open || embedded) return // palette : le menu reste, la palette se ferme quand la demande part
     setOpen(false)
     setActive(-1)
-    if (sheet) {
-      // L'entrée d'historique de la feuille est retirée (sauf si l'on part ailleurs : elle est remplacée).
-      if (sheetPushed.current && !opts.keepEntry && (loc.state as Record<string, unknown> | null)?.[stateKey]) nav(-1)
-      sheetPushed.current = false
-      inputRef.current?.blur()
-    } else if (!opts.blur) inputRef.current?.focus({ preventScroll: true })
+    if (sheet) inputRef.current?.blur()
+    else if (!opts.blur) inputRef.current?.focus({ preventScroll: true })
   }
-  // Geste Retour (ou bouton du navigateur) : l'entrée de la feuille disparaît, la feuille se ferme.
-  const hasEntry = !!(loc.state as Record<string, unknown> | null)?.[stateKey]
-  useEffect(() => {
-    if (open && sheet && sheetPushed.current && !hasEntry) {
-      sheetPushed.current = false
+  // Téléphone : le geste Retour (ou le bouton du navigateur) ferme la feuille sans quitter la page ; une page ouverte
+  // depuis la feuille prend la place de son entrée d'historique (src/backNav.tsx, useBackCloses).
+  useBackCloses(
+    () => {
       setOpen(false)
       setActive(-1)
       inputRef.current?.blur()
-    }
-  }, [hasEntry]) // eslint-disable-line react-hooks/exhaustive-deps
+    },
+    open && sheet,
+  )
   // Ordinateur : un clic ailleurs ferme (le focus part).
   useEffect(() => {
     if (!open || sheet || embedded) return
@@ -339,21 +328,21 @@ export function Demander(p: DemanderProps) {
       const rs = routeAsk(e.text)
       const r = rs[0]?.kind === 'action' ? rs[0] : (rs.find((x) => x.apply?.page === e.page) ?? rs[0])
       if (r) {
-        close({ keepEntry: true })
+        close()
         p.go(r)
       }
       return
     }
     if (!(await canLeave())) return
     postAsk({ page: e.page, phrase: e.text })
-    close({ keepEntry: true })
-    nav(ASK_PATH[e.page], { replace: sheet })
+    close()
+    nav(ASK_PATH[e.page])
   }
   const pickSuggestion = (s: string) => {
     if (header && p.go) {
       const r = routeAsk(s)[0]
       if (!r) return
-      close({ keepEntry: true })
+      close()
       p.go(r)
       return
     }
@@ -366,7 +355,7 @@ export function Demander(p: DemanderProps) {
     if (header && p.go) {
       const r = p.routes?.[0] ?? routeAsk(text)[0]
       if (!r) return
-      close({ keepEntry: true })
+      close()
       p.go(r)
       return
     }
@@ -392,7 +381,7 @@ export function Demander(p: DemanderProps) {
       p.routes.map((r) => ({
         id: `r${k++}`,
         run: () => {
-          close({ keepEntry: true })
+          close()
           p.go?.(r)
         },
         node: (
@@ -462,8 +451,9 @@ export function Demander(p: DemanderProps) {
       links.push({
         id: `l${k++}`,
         run: () => {
-          close({ keepEntry: true })
-          void canLeave().then((ok) => ok && nav('/bilan', { replace: sheet || !!(loc.state as Record<string, unknown> | null)?.[PALETTE_KEY] }))
+          close()
+          // Ouvert depuis la feuille ou la palette ✦ : le bilan prend la place de leur entrée d'historique.
+          void canLeave().then((ok) => ok && nav('/bilan'))
         },
         node: (
           <>
@@ -729,8 +719,6 @@ export function Demander(p: DemanderProps) {
 
 // ---------- Le bouton « Demander » de l'en-tête et sa palette ----------
 
-/** Entrée d'historique du routeur posée par la palette sur téléphone (le geste Retour la ferme). */
-const PALETTE_KEY = 'demander:palette'
 /** Appui long sur le bouton (téléphone) : dictée immédiate. Même seuil que « maintenir pour parler » du micro. */
 const LONG_PRESS_MS = 450
 
@@ -820,8 +808,6 @@ export function AskButton() {
   const input = useRef<HTMLInputElement>(null)
   const btn = useRef<HTMLButtonElement>(null)
   const dialog = useRef<HTMLDivElement>(null)
-  const pushed = useRef(false)
-  const hasEntry = !!(loc.state as Record<string, unknown> | null)?.[PALETTE_KEY]
   const kb = useKeyboardInset(open && phone)
   // Ordinateur : la palette s'accroche sous la bulle (bord gauche aligné, 8 px dessous), sans sortir de l'écran.
   const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null)
@@ -843,37 +829,23 @@ export function AskButton() {
       setOpen(true)
     })
     input.current?.focus({ preventScroll: true })
-    // Téléphone : une entrée d'historique, pour que le geste Retour ferme la feuille sans quitter la page.
-    if (ph && !pushed.current) {
-      pushed.current = true
-      nav(loc.pathname + loc.search + loc.hash, { state: { ...((loc.state as object) ?? {}), [PALETTE_KEY]: true } })
-    }
   }
   const closePalette = () => {
     if (!open) return
     setOpen(false)
-    if (pushed.current) {
-      pushed.current = false
-      if (hasEntry) nav(-1)
-    }
   }
+  // Geste Retour (ou bouton du navigateur) : ferme la palette sans quitter la page ; une page ouverte depuis la palette
+  // prend la place de son entrée d'historique (src/backNav.tsx, useBackCloses).
+  useBackCloses(() => setOpen(false), open)
   const closeRef = useRef(closePalette)
   useEffect(() => {
     closeRef.current = closePalette
   })
-  // Geste Retour (ou bouton du navigateur) : l'entrée de la palette disparaît, la palette se ferme.
-  useEffect(() => {
-    if (open && pushed.current && !hasEntry) {
-      pushed.current = false
-      setOpen(false)
-    }
-  }, [hasEntry]) // eslint-disable-line react-hooks/exhaustive-deps
   // Partie ailleurs par un lien du menu (« Mes questions enregistrées ») : la palette se ferme.
   const path = useRef(loc.pathname)
   useEffect(() => {
     if (path.current === loc.pathname) return
     path.current = loc.pathname
-    pushed.current = false
     setOpen(false)
   }, [loc.pathname])
 
@@ -935,22 +907,17 @@ export function AskButton() {
     if (r.kind === 'action' && r.action) {
       const page = pageOfPath(loc.pathname)
       recordAsk(page, said.trim() || r.action.phrase)
-      const entry = pushed.current && hasEntry
-      pushed.current = false
+      // La carte d'action s'ouvre par-dessus l'écran (sa propre entrée d'historique).
       setOpen(false)
-      if (entry) nav(-1)
       startAskAction(r.action.phrase, page, r.action.detected)
       return
     }
     if (!(await canLeave())) return
     recordAsk(r.apply?.page ?? pageOfPath(r.to), said.trim() || r.apply?.phrase || r.label)
-    const entry = pushed.current && hasEntry
-    pushed.current = false
     setOpen(false)
     if (r.apply) postAsk(r.apply)
-    // L'entrée de la feuille est remplacée par la page demandée (ou retirée si l'on reste ici).
-    if (loc.pathname !== r.to) nav(r.to, { replace: entry })
-    else if (entry) nav(-1)
+    // La page demandée prend la place de l'entrée d'historique de la palette (retirée si l'on reste ici).
+    if (loc.pathname !== r.to) nav(r.to)
   }
 
   // ---------- Appui long : dictée immédiate (comme un vocal) ----------

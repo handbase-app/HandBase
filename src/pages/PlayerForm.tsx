@@ -1,13 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useGoBack } from '../backNav'
+import { useBack, useTargetLabel } from '../backNav'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { poleSites } from '../poles'
 import { departmentChoices, officialRegions, regionLabel, useRegions } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
+import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, playerName, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
 import { SEX_LABEL_ONE, w } from '../gender'
 import { latestByPlayer } from './Players'
@@ -23,12 +23,16 @@ export default function PlayerForm() {
   const role = useRole()
   const listedRegions = useRegions()
   const regions = listedRegions.length ? listedRegions : officialRegions()
-  // Ouvert depuis la notation : on y revient après l'enregistrement (adresse interne à l'appli uniquement).
-  // Annuler : retour d'où l'on vient (fiche, liste…) ; ouvert directement : la fiche ou la liste.
-  const goBack = useGoBack(id ? `/joueurs/${id}` : '/joueurs')
   const [params] = useSearchParams()
+  // `retour` : écran où revenir quand l'historique ne le connaît pas (adresse interne à l'appli uniquement).
   const retour = params.get('retour')
   const back = retour && retour.startsWith('/') && !retour.startsWith('//') ? retour : null
+  // Annuler, « ← », et Enregistrer d'une fiche existante : l'écran d'où l'on vient, par l'historique, dans le même état
+  // (fiche dans un événement ou un groupe, notation, liste…) ; ouvert directement : `retour`, sinon la fiche ou la liste.
+  // Nom de la fiche telle qu'ouverte (libellé du retour vers elle, pas la saisie en cours).
+  const [shownName, setShownName] = useState('')
+  const backName = useTargetLabel(back?.replace(/[?#].*$/, ''))
+  const leave = useBack(back ?? (id ? `/joueurs/${id}` : '/joueurs'), back ? (backName ?? 'RETOUR') : id ? shownName || 'FICHE DU JOUEUR' : 'JOUEURS')
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'factual')))
   const [p, setP] = useState<Partial<Player>>({})
   const [values, setValues] = useState<Values>({})
@@ -51,6 +55,7 @@ export default function PlayerForm() {
       const v: Values = {}
       latest?.forEach((m, cid) => (v[cid] = m.value))
       setP(player)
+      setShownName(playerName(player))
       setValues(v)
       setInitial(v)
       setLoaded(true)
@@ -78,7 +83,9 @@ export default function PlayerForm() {
       if (v === undefined || v === '' || v === initial[cid]) continue
       await save<Measurement>('measurements', { id: newId(), playerId: player.id, criterionId: cid, value: v, date: testDate, author })
     }
-    nav(back ?? `/joueurs/${player.id}`, { replace: true })
+    // Fiche modifiée : retour à l'écran d'origine ; nouvelle fiche : on l'ouvre, à la place du formulaire.
+    if (editing) leave.exit()
+    else nav(back ?? `/joueurs/${player.id}`, { replace: true })
   }
 
   if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -88,10 +95,11 @@ export default function PlayerForm() {
       return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier cette fiche.</div>
     return (
       <div className="flex flex-col gap-4">
-        <button onClick={() => goBack()} className="self-start text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER MA PROPOSITION' : `PROPOSER ${w(p.sex).unJoueur.toUpperCase()}`}
+        <button onClick={leave.go} className="self-start min-w-0 truncate text-xs font-bold text-muted">
+          ← {leave.label}
         </button>
-        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : goBack())} />
+        <h1 className="-mt-2 text-lg font-extrabold">{editing ? 'Modifier ma proposition' : `Proposer ${w(p.sex).unJoueur}`}</h1>
+        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl && !editing ? nav(`/joueurs/${pl.id}`, { replace: true }) : leave.exit())} />
       </div>
     )
   }
@@ -104,10 +112,11 @@ export default function PlayerForm() {
   return (
     <div className="flex flex-col gap-3 pb-16">
       <div className="flex items-center justify-between">
-        <button onClick={() => goBack()} className="text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER LA FICHE' : w(p.sex).NouveauJoueur.toUpperCase()}
+        <button onClick={leave.go} className="min-w-0 truncate text-xs font-bold text-muted">
+          ← {leave.label}
         </button>
       </div>
+      <h1 className="-mt-1 text-lg font-extrabold">{editing ? 'Modifier la fiche' : w(p.sex).NouveauJoueur}</h1>
 
       {error && <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
 
@@ -414,7 +423,7 @@ export default function PlayerForm() {
         <button className="btn-primary flex-1" onClick={() => void submit()}>
           Enregistrer
         </button>
-        <button className="btn text-muted" onClick={() => goBack()}>
+        <button className="btn text-muted" onClick={leave.exit}>
           Annuler
         </button>
       </div>

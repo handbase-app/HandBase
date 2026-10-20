@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useEntryState } from '../backNav'
 import { alive, db, fmtDate, localDay, plural, type Player } from '../db'
 import { listGender, pluralG, setGender, w, type Gender } from '../gender'
 import { buildFollowNews, followsSeen, markFollowsSeen, NEWS_TABLES, setFollow, useFollows, type FollowNews, type FollowsResult } from '../follows'
@@ -235,7 +236,8 @@ function SectionHead({ s, follows, players }: { s: FollowSection; follows: Follo
  */
 export default function Follows() {
   // Ce qui est arrivé depuis la visite précédente est marqué ; la visite compte dès l'ouverture.
-  const [seen] = useState(followsSeen)
+  // Gardée avec l'entrée de l'historique : au retour d'une fiche, les mêmes nouveautés restent marquées.
+  const [seen] = useEntryState('suivis.vu', followsSeen)
   useEffect(() => markFollowsSeen(), [])
   // Période affichée : retrouvée au retour d'une fiche (pendant la session).
   const [days, setDays] = useSessionState('handbase.suivis.days', 30)

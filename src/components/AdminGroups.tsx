@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { BackButton } from '../backNav'
+import { Link } from 'react-router-dom'
+import { BackButton, useBack } from '../backNav'
 import { alive, db, type Player, type PlayerGroup } from '../db'
 import { useRegionName } from '../lists'
 import type { Role } from '../roles'
@@ -222,7 +222,8 @@ function OtherRow({ g, info }: { g: OtherGroup; info: Info }) {
 
 /** Groupe d'un autre ouvert depuis « Groupes des autres » (/groupes/:id, absent de l'appareil). */
 export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
-  const nav = useNavigate()
+  // Après Supprimer ou une réattribution : l'écran d'origine, par l'historique ; entrée directe : la liste des groupes.
+  const leave = useBack('/groupes', 'GROUPES')
   const panel = usePanel()
   const online = useOnline()
   const regionName = useRegionName()
@@ -280,7 +281,7 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
     setBusy(false)
     if (error) return inform(`Suppression impossible : ${errText(error)}`)
     refreshOtherGroups()
-    nav('/groupes', { replace: true })
+    leave.exit()
     await inform(`Groupe « ${g.name} » supprimé.`)
   }
 
@@ -305,7 +306,7 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
           foreign
           onClose={() => setTransferring(false)}
           onDone={refreshOtherGroups}
-          onHidden={() => nav('/groupes', { replace: true })}
+          onHidden={leave.exit}
         />
       )}
 

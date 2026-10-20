@@ -2,7 +2,7 @@ import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton, useGoBack } from '../backNav'
+import { BackButton, useBack, useOrigin } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
@@ -358,7 +358,7 @@ function GroupMenu({ g, menu, count }: { g: PlayerGroup; menu: ReturnType<typeof
     (pole ? leads : manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
     pole && leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
     manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
-    !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+    !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
     { label: 'Exporter en PDF', icon: 'download', hint: 'à imprimer', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
     !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
@@ -688,15 +688,17 @@ export function NewGroup() {
   const role = useRole()
   const location = useLocation()
   const playerIds: string[] = (location.state as { playerIds?: string[] } | null)?.playerIds ?? []
-  const goBack = useGoBack('/groupes')
+  // Annuler : l'écran d'où l'on vient ; enregistré : le nouveau groupe, à la place du formulaire.
+  const leave = useBack('/groupes', 'GROUPES')
   // « Les 12 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
   const chosenG = useLiveQuery(() => db.players.bulkGet(playerIds).then((ps) => genderOf(ps)), [playerIds.join(',')])
   if (!can.manageGroups(role)) return <div className="py-20 text-center text-sm text-muted">Ton rôle ne permet pas de créer des groupes.</div>
   return (
     <div className="flex flex-col gap-4">
-      <button onClick={goBack} className="self-start text-xs font-bold text-muted">
-        ← NOUVEAU GROUPE
+      <button onClick={leave.go} className="self-start min-w-0 truncate text-xs font-bold text-muted">
+        ← {leave.label}
       </button>
+      <h1 className="-mt-2 text-lg font-extrabold">Nouveau groupe</h1>
       <div className="card flex flex-col gap-3 p-4">
         <p className="text-[11px] text-muted">
           {playerIds.length
@@ -705,7 +707,7 @@ export function NewGroup() {
         </p>
         <GroupForm
           playerIds={playerIds}
-          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : goBack())}
+          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : leave.exit())}
         />
       </div>
     </div>
@@ -788,6 +790,11 @@ function PlayerGroupDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const role = useRole()
+  // Après Supprimer ou une réattribution : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
+  const leave = useBack('/groupes', 'GROUPES')
+  // « Modifier » choisi depuis un autre écran (menu d'une ligne de la liste, ?modifier=1) : Enregistrer ou Annuler y
+  // ramène. Copie toute neuve (« Dupliquer », ?modifier=copie) : elle reste ouverte.
+  const origin = useOrigin()
   const regionName = useRegionName()
   // Groupe tout juste créé sans joueurs : on ouvre directement l'ajout ; tout juste copié : sa fiche.
   const [params, setParams] = useSearchParams()
@@ -944,7 +951,7 @@ function PlayerGroupDetail() {
                 items: [
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
                   // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
-                  !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=1`) },
+                  !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
                   leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
                   manage && { label: pole ? 'Renommer' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
                   !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
@@ -964,7 +971,7 @@ function PlayerGroupDetail() {
                     icon: 'trash',
                     danger: true,
                     onSelect: async () => {
-                      if (await deleteGroup(g)) nav('/groupes', { replace: true })
+                      if (await deleteGroup(g)) leave.exit()
                     },
                   },
                 ],
@@ -973,7 +980,7 @@ function PlayerGroupDetail() {
       />
 
       {transferring && !editing && canTransferGroup(role) && (
-        <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={() => nav('/groupes', { replace: true })} />
+        <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={leave.exit} />
       )}
 
       {editing ? (
@@ -983,9 +990,11 @@ function PlayerGroupDetail() {
             group={g}
             onDone={(saved) => {
               setEditing(false)
-              if (params.has('modifier')) setParams({}, { replace: true })
               // Rendu moins visible (privé, mon staff) : c'est un nouveau groupe (voir GroupForm).
-              if (saved && saved.id !== g.id) nav(`/groupes/${saved.id}`, { replace: true })
+              if (saved && saved.id !== g.id) return nav(`/groupes/${saved.id}`, { replace: true })
+              const from = params.get('modifier')
+              if (from !== null && from !== 'copie' && origin.known) return origin.go()
+              if (from !== null) setParams({}, { replace: true })
             }}
           />
         </div>

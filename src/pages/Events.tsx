@@ -2,7 +2,7 @@ import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton } from '../backNav'
+import { BackButton, useBack, useOrigin } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
@@ -447,12 +447,18 @@ export function EventDetail() {
   const [infos, setInfos] = useSessionState('handbase.evenement.infos', false)
   const [adding, setAdding] = useState(params.has('ajout'))
   const [editing, setEditing] = useState(params.has('modifier'))
+  // Après Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
+  const leave = useBack('/evenements', 'ÉVÉNEMENTS')
+  // « Modifier » choisi depuis un autre écran (menu d'une ligne de la liste) : Enregistrer ou Annuler y ramène.
+  const origin = useOrigin()
+  const editOutside = useRef(params.has('modifier'))
   useEffect(() => {
     const add = params.has('ajout')
     const edit = params.has('modifier')
     if (!add && !edit) return
     setAdding(add)
     setEditing(edit)
+    if (edit) editOutside.current = true
     const next = new URLSearchParams(params)
     next.delete('ajout')
     next.delete('modifier')
@@ -757,7 +763,7 @@ export function EventDetail() {
               icon: 'trash',
               danger: true,
               onSelect: async () => {
-                if (await deleteEvent(ev, role)) nav('/evenements', { replace: true })
+                if (await deleteEvent(ev, role)) leave.exit()
               },
             },
           ],
@@ -765,7 +771,16 @@ export function EventDetail() {
       />
       {editing ? (
         <div className="card p-3">
-          <NewEventForm key={ev.id} event={ev} onDone={() => setEditing(false)} extra={importSheet} />
+          <NewEventForm
+            key={ev.id}
+            event={ev}
+            onDone={() => {
+              setEditing(false)
+              if (editOutside.current && origin.known) origin.go()
+              editOutside.current = false
+            }}
+            extra={importSheet}
+          />
         </div>
       ) : (
         <div>
