@@ -569,7 +569,7 @@ export function Demander(p: DemanderProps) {
       <div className="fixed inset-0 z-40" onPointerDown={(e) => e.stopPropagation()}>
         <div className="absolute inset-0 bg-black/40" style={{ top }} onClick={() => close()} aria-hidden />
         <div
-          className="absolute inset-x-0 bottom-0 flex flex-col overflow-y-auto overscroll-contain border-t border-ai/40 bg-panel pb-[max(0.5rem,var(--nav-b))] shadow-2xl"
+          className="absolute inset-x-0 bottom-0 flex flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-ai/40 bg-panel pb-[max(0.5rem,var(--nav-b))] shadow-2xl"
           style={{ top }}
         >
           {menuBody}
@@ -581,7 +581,7 @@ export function Demander(p: DemanderProps) {
       document.body,
     )
   ) : (
-    <div className="absolute inset-x-0 top-full z-40 mt-1 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-xl border border-ai/40 bg-panel shadow-2xl">{menuBody}</div>
+    <div className="absolute inset-x-0 top-full z-40 mt-1 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-win border border-ai/40 bg-panel shadow-2xl">{menuBody}</div>
   )
 
   const h = p.compact ? 'min-h-9' : 'min-h-12'
@@ -988,7 +988,7 @@ export function AskButton() {
               role="dialog"
               aria-modal="true"
               aria-label="Demander"
-              className="ask-pop absolute inset-x-3 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
+              className="ask-pop absolute inset-x-3 flex flex-col overflow-y-auto overscroll-contain rounded-win border border-ai/40 bg-panel p-3 shadow-2xl"
               style={{
                 top: place?.top ?? 64,
                 maxHeight: Math.max(160, (kb.height || window.innerHeight) - (place?.top ?? 64) - 12),
@@ -1003,7 +1003,7 @@ export function AskButton() {
             ref={dialog}
             role="dialog"
             aria-label="Demander"
-            className="ask-pop fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-2xl border border-ai/40 bg-panel p-3 shadow-2xl"
+            className="ask-pop fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-win border border-ai/40 bg-panel p-3 shadow-2xl"
             style={place ? { left: place.left, top: place.top, width: place.width, maxHeight: `calc(100dvh - ${place.top + 16}px)` } : { left: 8, top: 64, width: 'min(520px, calc(100vw - 16px))' }}
           >
             {body}

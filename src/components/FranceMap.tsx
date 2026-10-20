@@ -749,7 +749,7 @@ export function FranceMap({
       {withDots && activeDot && dots && !tip && (
         // Bulle d'un point (survolé, touché, ou sa ligne survolée dans la liste) : au-dessus ou au-dessous du point.
         <div
-          className={`absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl ${dotPinned ? '' : 'pointer-events-none'}`}
+          className={`absolute z-10 w-52 rounded-win border border-line bg-panel p-2.5 text-xs shadow-xl ${dotPinned ? '' : 'pointer-events-none'}`}
           style={(() => {
             const x = fit.ox + activeDot.x * fit.s
             const y = fit.oy + activeDot.y * fit.s
@@ -767,7 +767,7 @@ export function FranceMap({
       )}
       {tip && (
         <div
-          className={`absolute z-10 w-52 rounded-lg border border-line bg-panel p-2.5 text-xs shadow-xl ${tip.pinned ? '' : 'pointer-events-none'}`}
+          className={`absolute z-10 w-52 rounded-win border border-line bg-panel p-2.5 text-xs shadow-xl ${tip.pinned ? '' : 'pointer-events-none'}`}
           style={{
             left: Math.min(Math.max(tip.x - 104, 0), tip.w - 208),
             top: tip.y > tip.h / 2 ? tip.y - 12 : tip.y + 16,

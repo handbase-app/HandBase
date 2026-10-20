@@ -238,8 +238,8 @@ export function ChoiceSheet({
         style={sheet ? undefined : { left: pos?.left ?? -9999, top: pos?.top ?? 0, width: pos?.width }}
         className={
           sheet
-            ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-2xl border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
-            : 'fixed flex max-h-[min(70dvh,26rem)] flex-col rounded-xl border border-line bg-panel py-1 shadow-2xl'
+            ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-hidden rounded-t-win border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
+            : 'fixed flex max-h-[min(70dvh,26rem)] flex-col overflow-hidden rounded-win border border-line bg-panel py-1 shadow-2xl'
         }
       >
         {sheet && (

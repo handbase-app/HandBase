@@ -2359,7 +2359,7 @@ function ReportDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="rapport-titre"
-        className="card flex max-h-[85dvh] w-full max-w-md flex-col gap-4 overflow-y-auto p-4 shadow-2xl"
+        className="win flex max-h-[85dvh] w-full max-w-md flex-col gap-4 overflow-y-auto p-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div>

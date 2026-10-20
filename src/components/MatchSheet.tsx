@@ -86,7 +86,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="flex h-full w-full flex-col bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:rounded-lg sm:border sm:border-line sm:shadow-2xl"
+        className="flex h-full w-full flex-col bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:overflow-hidden sm:rounded-win sm:border sm:border-line sm:shadow-2xl"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
           <h2 className="min-w-0 flex-1 truncate text-sm font-extrabold">{title}</h2>

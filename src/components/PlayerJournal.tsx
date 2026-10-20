@@ -38,7 +38,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="card max-h-[90dvh] w-full max-w-sm overflow-y-auto p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="win max-h-[90dvh] w-full max-w-sm overflow-y-auto p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-2">
           <h2 className="text-base font-extrabold">{title}</h2>
           <button className="min-h-9 min-w-9 shrink-0 text-muted" aria-label="Fermer" onClick={onClose}>

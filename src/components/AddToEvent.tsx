@@ -56,7 +56,7 @@ export function AddToEventDialog({ playerIds, onClose, onAdded }: { playerIds: s
 
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" className="card flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" className="win flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="text-sm font-extrabold">Ajouter {who} à un événement</div>
         {done ? (
           <p className="text-xs text-emerald-300">{done}</p>

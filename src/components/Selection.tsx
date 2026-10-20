@@ -404,7 +404,7 @@ function FormDialog({ title, onClose, children }: { title: string; onClose: () =
   }, [onClose])
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby={id} className="card flex max-h-[88dvh] w-full max-w-md flex-col gap-3 overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-labelledby={id} className="win flex max-h-[88dvh] w-full max-w-md flex-col gap-3 overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
         <div id={id} className="text-sm font-extrabold">
           {title}
         </div>
