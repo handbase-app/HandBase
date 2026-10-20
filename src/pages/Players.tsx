@@ -53,7 +53,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, side, top, signature: filterSig, group, valueOf, loading, gender, filtersOpen } = usePlayersQuery(players, { dock: false }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans
+  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, gender } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -138,10 +138,9 @@ export default function Players() {
         </p>
       )}
 
-      <div className={side ? 'grid grid-cols-[21rem_minmax(0,1fr)] items-start gap-5' : ''}>
-      {side && <aside className="sticky top-[4.75rem] max-h-[calc(100dvh-6rem)] overflow-y-auto">{side}</aside>}
+      <div>
       <div className="md-box">
-      {ui && <StickyQuery stick={!filtersOpen}>{ui}</StickyQuery>}
+      <StickyQuery>{ui}</StickyQuery>
       <div className="mb-2 flex flex-col gap-2 empty:hidden">{top}</div>
       {group && (
         <div className="mb-2 text-[11px] text-muted">
@@ -178,7 +177,7 @@ export default function Players() {
         {loading ? null : shown.length === 0 ? (
           <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
         ) : (
-          <div className={`cols flex flex-col gap-2 ${side ? 'cols-2' : ''}`}>
+          <div className="cols flex flex-col gap-2">
             {shown.map((p) => {
               const l = latest.get(p.id)
               const a = age(p.birthDate)

@@ -17,6 +17,7 @@ import {
   cleanQuery,
   decideAction,
   EMPTY_QUERY,
+  filterCount,
   isNameQuery,
   keysForModel,
   keysOfWord,
@@ -34,7 +35,7 @@ import {
   selectPlayers,
   type JoueursQuery,
 } from '../src/playerQuery'
-import { cleanRecipe, interpretRecipe, recipeChips, runRecipe, type Names, type QCriterion, type QData, type QPlayer, type QuestionContext, type Recipe } from '../src/recipe'
+import { buildQuestionSchema, cleanRecipe, decodeRecipe, encodeRecipe, handsOf, interpretRecipe, orText, parseSaved, putHands, putQuarters, quartersOf, recipeChips, removeChip, runRecipe, toggleIn, type Names, type QCriterion, type QData, type QPlayer, type QuestionContext, type Recipe } from '../src/recipe'
 import { EMPTY_FILTERS, type FilterValues } from '../src/voiceSearch'
 import { nameTokens, playerHaystack, searchByName } from '../src/nameMatch'
 import { understandQuestion, type Endpoint } from '../src/dictation/transcribe'
@@ -475,6 +476,97 @@ function legacy(list0: P[], v: FilterValues): P[] {
   assert.deepEqual(Object.keys(calls[1].body), ['phrase', 'schema'])
 }
 
+// ---------- 9 bis. Choix multiples : OU dans un champ, ET entre les champs ----------
+{
+  // Anciennes valeurs simples (questions enregistrées, adresses, historique) : toujours lues, et réécrites pareil.
+  const old = cleanRecipe({ pop: { hand: 'gaucher', quarter: 2, positions: ['AG'] } })
+  assert.deepEqual(old.pop, { positions: ['AG'], hand: 'gaucher', quarter: 2 })
+  assert.deepEqual([handsOf(old.pop), quartersOf(old.pop)], [['gaucher'], [2]])
+  assert.deepEqual(decodeRecipe(encodeRecipe(old))?.pop, old.pop, 'adresse : aller-retour sans changement')
+  assert.deepEqual(cleanQuery({ recipe: { pop: { hand: 'droitier', quarter: 4 } }, q: '' }).recipe.pop, { hand: 'droitier', quarter: 4 }, 'session d’avant')
+  const saved = parseSaved([{ id: 'q1', name: 'Gauchers T1', recipe: { pop: { hand: 'gaucher', quarter: 1 }, avis: [], measures: [], out: { type: 'list' } }, vars: [], at: 1 }])
+  assert.deepEqual(saved[0].recipe.pop, { hand: 'gaucher', quarter: 1 }, 'question enregistrée d’avant')
+  // Plusieurs valeurs : une liste (ordre fixe, sans doublon, valeurs inconnues écartées) ; une seule : valeur simple, comme avant.
+  assert.deepEqual(cleanRecipe({ pop: { hand: ['ambidextre', 'gaucher', 'gaucher', 'gaucher-gauche'], quarter: [3, 1, 9, '2'] } }).pop, { hand: ['gaucher', 'ambidextre'], quarter: [1, 3] })
+  assert.deepEqual(cleanRecipe({ pop: { hand: ['gaucher'], quarter: [2] } }).pop, { hand: 'gaucher', quarter: 2 }, 'une seule valeur : écrite comme avant')
+  assert.deepEqual(cleanRecipe({ pop: { hand: [], quarter: [] } }).pop, {})
+  const pp: Recipe['pop'] = {}
+  putHands(pp, ['ambidextre', 'droitier'])
+  putQuarters(pp, [4])
+  assert.deepEqual(pp, { hand: ['droitier', 'ambidextre'], quarter: 4 })
+  putHands(pp, [])
+  assert.deepEqual(pp, { quarter: 4 })
+  assert.deepEqual(toggleIn(['AG'], 'AD'), ['AG', 'AD'])
+  assert.equal(toggleIn(['AG'], 'AG'), undefined, 'plus rien de coché : le champ disparaît')
+  // Pastilles : « l'un ou l'autre ».
+  assert.equal(orText(['Var']), 'Var')
+  assert.equal(orText(['Var', 'Bouches-du-Rhône']), 'Var ou Bouches-du-Rhône')
+  assert.equal(orText(['Var', 'Gard', 'Hérault']), 'Var, Gard ou Hérault')
+  assert.equal(orText(['A', 'B', 'C', 'D', 'E']), 'A, B, C +2')
+  const chips = (pop: Recipe['pop']) => new Map(recipeChips(cleanRecipe({ pop }), { ...names, dept: (c) => ctx.depts.find((d) => d.code === c)?.name ?? c }).map((c) => [c.key, c.label]))
+  const c1 = chips({ positions: ['AG', 'AD'], depts: ['83', '13'], hand: ['gaucher', 'ambidextre'], quarter: [1, 2] })
+  assert.equal(c1.get('positions'), 'Ailier gauche ou Ailier droit')
+  assert.equal(c1.get('depts'), 'Var ou Bouches-du-Rhône')
+  assert.equal(c1.get('hand'), 'gauchers ou ambidextres')
+  assert.equal(c1.get('quarter'), 'nés en Q1 ou Q2')
+  assert.equal(chips({ sex: 'F', hand: ['droitier', 'gaucher'], quarter: [3, 4] }).get('hand'), 'droitières ou gauchères')
+  assert.equal(chips({ sex: 'F', quarter: [3, 4] }).get('quarter'), 'nées en Q3 ou Q4')
+  assert.equal(chips({ hand: 'gaucher', quarter: 2 }).get('quarter'), 'Q2 · avril–juin', 'une seule valeur : comme avant')
+  assert.equal(chips({ groups: ['g-ic', 'g-pole'] }).get('groups'), 'groupe : Intercomités ou Sélection Pôle')
+  // Retirer la pastille retire toutes ses valeurs.
+  assert.deepEqual(removeChip(cleanRecipe({ pop: { hand: ['gaucher', 'droitier'], depts: ['83'] } }), 'hand').pop, { depts: ['83'] })
+
+  // Le cas de Stef : les ailiers gauches ET droits du Var ET des Bouches-du-Rhône (OU dans chaque champ, ET entre les champs).
+  const wings = withPop({ positions: ['AG', 'AD'], depts: ['83', '13'] })
+  const got = sel(wings).list
+  const want = players.filter((p) => (p.position === 'AG' || p.position === 'AD') && (p.department === '83' || p.department === '13'))
+  assert.ok(want.length > 5 && want.some((p) => p.position === 'AG') && want.some((p) => p.position === 'AD') && want.some((p) => p.department === '13'), 'jeu fictif : des deux postes et des deux départements')
+  assert.deepEqual(ids(got), ids(want), 'ailiers G. ou D., du Var ou des Bouches-du-Rhône')
+  assert.ok(got.every((p) => p.department !== '75' && p.position !== 'PIV'))
+  // ET avec un autre champ : seulement les gauchers ou ambidextres parmi eux.
+  const lefties = sel(withPop({ positions: ['AG', 'AD'], depts: ['83', '13'], hand: ['gaucher', 'ambidextre'] })).list
+  assert.deepEqual(ids(lefties), ids(want.filter((p) => p.laterality === 'gaucher' || p.laterality === 'ambidextre')))
+  // Trimestres : l'un ou l'autre.
+  const q13 = sel(withPop({ quarter: [1, 3] })).list
+  const month = (p: P) => Number(p.birthDate!.slice(5, 7))
+  assert.deepEqual(ids(q13), ids(players.filter((p) => [1, 2, 3, 7, 8, 9].includes(month(p)))))
+  // Un champ à une seule valeur, ancienne forme : mêmes joueurs que la liste d'une valeur.
+  assert.deepEqual(ids(sel(withPop({ hand: 'gaucher' })).list), ids(sel({ recipe: listRecipe(cleanRecipe({ pop: { hand: ['gaucher'] } })), q: '' }).list))
+  // Nombres des menus : chaque département garde le nombre qu'on obtient en le cochant (les autres champs appliqués).
+  const qc = quickCounts(ix, wings, hay, toks)
+  const n83 = qc.depts.find(([d]) => d === '83')?.[1]
+  assert.equal(n83, want.filter((p) => p.department === '83').length)
+  assert.equal(qc.positions.AG, want.filter((p) => p.position === 'AG').length, 'nombre du poste : avec les deux départements')
+  for (const [d, n] of qc.depts) assert.equal(sel(withPop({ positions: ['AG', 'AD'], depts: [d] })).list.length, n, `département ${d}, postes cochés`)
+  for (const [y, n] of qc.years) assert.equal(sel(withPop({ positions: ['AG', 'AD'], depts: ['83', '13'], years: [Number(y), Number(y)] })).list.length, n, `année ${y}, postes cochés`)
+  for (const [k, n] of qc.clubs) assert.equal(sel(withPop({ positions: ['AG', 'AD'], depts: ['83', '13'], clubs: [k] })).list.length, n, `club ${k}, postes cochés`)
+
+  // Nombre de filtres posés (bouton « Filtres 3 ») : un par champ, quel que soit le nombre de valeurs cochées.
+  assert.equal(filterCount(wings), 2)
+  assert.equal(filterCount(withPop({ positions: ['AG', 'AD'], depts: ['83', '13'], hand: ['gaucher', 'ambidextre'] }, 'Martin')), 3, 'le nom cherché ne compte pas')
+  assert.equal(filterCount(withPop({ sex: 'M', years: [2010, 2010] }), new Set(['sex', 'years'] as const)), 0, 'barre posée : sans les commandes de l’écran')
+  assert.equal(filterCount(EMPTY_QUERY), 0)
+
+  // Phrase : « les gauchers ou ambidextres nés au 1er ou au 2e trimestre » (listes rendues par le modèle).
+  const it = interpretRecipe({ population: { lateralite: ['gaucher', 'ambidextre'], trimestre: [1, '2e'], postes: ['AG', 'AD'], departements: ['Var', '13'] } }, [], ctx)
+  assert.deepEqual(it.recipe.pop, { positions: ['AG', 'AD'], depts: ['83', '13'], hand: ['gaucher', 'ambidextre'], quarter: [1, 2] })
+  assert.deepEqual(it.notes, [])
+  // Une valeur simple, comme avant.
+  assert.equal(interpretRecipe({ population: { lateralite: 'gauchère', trimestre: 'T3' } }, [], ctx).recipe.pop.hand, 'gaucher')
+  const bad = interpretRecipe({ population: { lateralite: ['gaucher', 'manchot'] } }, [], ctx)
+  assert.equal(bad.recipe.pop.hand, 'gaucher')
+  assert.equal(bad.notes.length, 1, 'valeur inconnue signalée')
+  // Fusion d'une phrase : la nouvelle liste remplace la clé (comme une valeur simple avant).
+  const merged = mergeQuery(withPop({ hand: 'droitier', sex: 'M' }), cleanRecipe({ pop: { hand: ['gaucher', 'ambidextre'] } }), 'ajouter')
+  assert.deepEqual(merged.recipe.pop, { sex: 'M', hand: ['gaucher', 'ambidextre'] })
+  // Description envoyée au modèle : latéralité et trimestre peuvent être des listes.
+  const schema = buildQuestionSchema(ctx)
+  assert.ok(/lateralite \([^)]*liste/.test(schema.population) && /trimestre \([^)]*liste/.test(schema.population), 'schéma : listes permises')
+  // Question qui compte (bilan) : même règle.
+  const ans = runRecipe(ix, cleanRecipe({ pop: { positions: ['AG', 'AD'], depts: ['83', '13'] }, out: { type: 'count' } }))
+  assert.equal(ans.count, want.length)
+}
+
 // ---------- 10. Performance : 40 000 fiches ----------
 {
   seed = 11
@@ -491,6 +583,7 @@ function legacy(list0: P[], v: FilterValues): P[] {
     withPop({ sex: 'M', years: [2010, 2010], hMin: 185 }),
     withPop({ depts: ['83'], hand: 'gaucher', positions: ['PIV'], secondary: true }),
     withPop({ regions: ['region-sud'], quarter: 1, groups: ['g-ic'] }, 'martin'),
+    withPop({ positions: ['AG', 'AD'], depts: ['83', '13'], hand: ['gaucher', 'ambidextre'], quarter: [1, 2] }),
     { recipe: listRecipe(cleanRecipe({ pop: { sex: 'F' }, out: { type: 'list', sort: { by: 'height', dir: 'desc' } } })), q: '' },
     withPop({ sex: 'F' }, 'Dupond'),
   ]

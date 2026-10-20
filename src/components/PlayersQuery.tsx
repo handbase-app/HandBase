@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { alive, db, POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
-import { MQ, useMedia } from '../layout'
 import { can, groupTag } from '../roles'
 import { loadTeams } from '../teams'
 import { categoryStyles, styleOf } from '../radarZones'
@@ -11,9 +10,13 @@ import {
   answersNothing,
   avisCriteria,
   defaultSort,
+  handsOf,
   interpretRecipe,
   measureCriteria,
   PRIORITY_TEXT,
+  putHands,
+  putQuarters,
+  quartersOf,
   recipeChips,
   runRecipe,
   shareText,
@@ -32,6 +35,7 @@ import {
   cleanQuery,
   decideAction,
   EMPTY_QUERY,
+  filterCount,
   hasQuery,
   isNameQuery,
   JOUEURS_KEYS,
@@ -63,8 +67,7 @@ import { cleanSqlSpec, type SqlSpec } from '../sqlGuard'
 import { AdvancedBusy, SqlAnswerView, sqlPlayers, useAdvancedAsk, useSqlResult } from './SqlAnswer'
 import { ask as confirmAsk } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
-import { CourtFilter } from './CourtPicker'
-import { ClubPicker, department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
+import { department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
 import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon, Segmented } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
@@ -72,6 +75,9 @@ import { startAskAction } from './AskAction'
 import { detectAction } from '../askAction'
 import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
+import { MultiPicker } from './MultiPicker'
+import { ChoicePills, CountText, FilterField, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
+import { SegRow } from './ListQuery'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
 import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gender'
@@ -99,7 +105,6 @@ import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gen
  */
 
 const fr = (n: number, d = 0) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
-const QUARTER_ACTIVE = ['border-emerald-500 text-emerald-300', 'border-yellow-500 text-yellow-300', 'border-orange-500 text-orange-300', 'border-red-500 text-red-300']
 const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.–sept.', 'Q4 · oct.–déc.']
 const POLE_LABEL: Record<string, string> = { current: 'Au Pôle Espoirs (en cours)', past: 'Sortis du Pôle Espoirs', any: 'Passés par le Pôle Espoirs (en cours ou sortis)' }
 /** Exemples du champ (aide du micro). */
@@ -151,10 +156,8 @@ export type HostedBar = {
  * « ajout-evenement », « ajout-groupe ») : son propre état de session, sans toucher à la liste Joueurs ni à son ‹ ›.
  * `hosted` : barre posée sur un autre écran (le bilan), voir HostedBar.
  */
-export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boolean; scope?: string; hosted?: HostedBar }) {
+export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar }) {
   const hosted = opts.hosted
-  const wide = useMedia(MQ.xl)
-  const docked = opts.dock && wide
   const keys = opts.scope
     ? { query: `handbase.${opts.scope}.recette`, text: `handbase.${opts.scope}.texte`, result: `handbase.${opts.scope}.resultat`, sql: `handbase.${opts.scope}.sql` }
     : JOUEURS_KEYS
@@ -187,7 +190,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     const spec = rawSql ? cleanSqlSpec(rawSql.spec) : null
     return spec && rawSql ? { ...rawSql, spec, partial: rawSql.partial ? cleanQuery(rawSql.partial) : undefined } : null
   }, [rawSql])
-  const [open, setOpen] = useSessionState(`${pre}.filtres`, false)
+  // Fenêtre « Filtres » (src/components/FilterWindow.tsx) : posée au-dessus de la liste, ouverte de n'importe où.
+  const fw = useFilterWindow()
+  const open = fw.open
   const [more, setMore] = useSessionState(`${pre}.conditions`, false)
   const [chipOpen, setChipOpen] = useState<string | null>(null)
   const [asked, setAsked] = useState(false)
@@ -421,9 +426,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy || !!pending
 
-  // ---------- Filtres rapides ----------
-  const panelShown = docked || open
-  const counts = useMemo(() => (index && panelShown && !heavyMissing ? quickCounts(index, qy, hayOf, tokensOf) : null), [index, qy, panelShown, heavyMissing])
+  // ---------- Fenêtre « Filtres » : les réglages ----------
+  const counts = useMemo(() => (index && open && !heavyMissing ? quickCounts(index, qy, hayOf, tokensOf) : null), [index, qy, open, heavyMissing])
   const p = qy.recipe.pop
   const groups = useMemo(() => (full.data?.groups ?? light?.groups ?? []).filter((g) => !g.archived || p.groups?.includes(g.id)), [full.data, light, p.groups])
   const currentGroup = p.groups?.length === 1 ? groups.find((g) => g.id === p.groups![0]) : undefined
@@ -434,7 +438,30 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     putYears(pop, ys)
     setRecipe({ ...qy.recipe, pop })
   }
-  const position: Position | 'all' | 'none' = p.noPosition ? 'none' : p.positions?.length === 1 ? p.positions[0] : 'all'
+  // Choix multiples (src/recipe.ts) : dans un champ, l'une OU l'autre valeur ; entre les champs, ET.
+  const setPopWith = (put: (pop: Population) => void) => {
+    const pop: Population = { ...p }
+    put(pop)
+    setRecipe({ ...qy.recipe, pop })
+  }
+  const listOrNone = <T,>(xs: T[]) => (xs.length ? xs : undefined)
+  // Poste : postes cochés (l'un ou l'autre), ou « Sans poste » (seul).
+  const positionValue = p.noPosition ? ['none'] : (p.positions ?? [])
+  const setPositions = (vs: string[]) => {
+    if (vs.includes('none') && !p.noPosition) return setPop({ noPosition: true, positions: undefined, secondary: undefined })
+    const ps = vs.filter((v): v is Position => v !== 'none')
+    setPop({ positions: listOrNone(ps), noPosition: undefined, secondary: ps.length ? p.secondary : undefined })
+  }
+  // Lieu : des régions cochées écartent les départements d'ailleurs (ils ne donneraient personne).
+  const setRegions = (rs: string[]) =>
+    setPop({ regions: listOrNone(rs), depts: rs.length && p.depts ? listOrNone(p.depts.filter((d) => rs.includes(regionOfDept(d) ?? ''))) : p.depts })
+  const regionOptions = [...(counts?.regions ?? [])]
+    .sort((a, b) => regionLabel(a[0]).localeCompare(regionLabel(b[0]), 'fr'))
+    .map(([r, n]) => ({ value: r, label: regionLabel(r), count: n }))
+  const deptOptions = (counts?.depts ?? []).map(([d, n]) => ({ value: d, label: departmentLabel(d), count: n }))
+  const clubOptions = [...(counts?.clubs ?? [])].sort((a, b) => a[2].localeCompare(b[2], 'fr')).map(([k, n, name]) => ({ value: k, label: name, count: n }))
+  // Un club coché qui n'est plus proposé (autres filtres) garde son nom.
+  for (const k of p.clubs ?? []) if (!clubOptions.some((o) => o.value === k)) clubOptions.push({ value: k, label: names.club(k), count: 0 })
 
   // Filtres visibles (barre posée : sans ceux que l'écran commande lui-même).
   const shownKeys = activeKeys(qy).filter((k) => !hosted?.hidden.has(k))
@@ -474,105 +501,112 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
   }
 
   const saved = useSavedQuestions()
+  const toggle = (on: boolean) => `flex min-h-9 items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`
+  // Les réglages les plus utilisés d'abord (sexe, année, poste, latéralité, lieu), le reste ensuite.
   const panel = (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
+    <>
       {!hosted?.hideSex && (
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {(
-          [
-            ['all', 'Tous'],
-            ['M', SEX_LABELS.M],
-            ['F', SEX_LABELS.F],
-          ] as const
-        ).map(([v, label]) => (
-          <button key={v} onClick={() => setPop({ sex: v === 'all' ? undefined : v })} className={`min-h-9 flex-1 py-1.5 ${(p.sex ?? 'all') === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      )}
-      <div className={hosted?.hideYear ? 'grid' : 'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2'}>
-        {!hosted?.hideYear && (
-        <YearPicker
-          className="px-2 py-1.5 text-xs"
-          allLabel="Toutes années"
-          value={years}
-          options={(counts?.years ?? []).map(([y, n]) => ({ value: y, count: n }))}
-          onChange={setYears}
+        <SegRow<'M' | 'F'>
+          label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}
+          value={p.sex ?? ''}
+          options={[
+            { value: 'M', label: SEX_LABELS.M },
+            { value: 'F', label: SEX_LABELS.F },
+          ]}
+          onChange={(v) => setPop({ sex: v || undefined })}
         />
-        )}
-        <select
-          className={`field px-2 py-1.5 text-xs ${p.quarter ? `font-bold ${QUARTER_ACTIVE[p.quarter - 1]}` : ''}`}
-          aria-label="Trimestre de naissance"
-          value={p.quarter ?? 0}
-          onChange={(e) => setPop({ quarter: Number(e.target.value) || undefined })}
-        >
-          <option value={0}>Tous trimestres</option>
-          {QUARTER_LABELS.map((l, i) => (
-            <option key={i} value={i + 1}>
-              {l}
-            </option>
-          ))}
-        </select>
-      </div>
+      )}
+      {!hosted?.hideYear && (
+        <FilterField label="Année de naissance">
+          <YearPicker
+            className="min-h-10 px-2 py-1.5 text-xs"
+            allLabel="Toutes les années"
+            value={years}
+            options={(counts?.years ?? []).map(([y, n]) => ({ value: y, count: n }))}
+            onChange={setYears}
+          />
+        </FilterField>
+      )}
+      <ChoicePills
+        label="Trimestre de naissance"
+        value={quartersOf(p).map(String)}
+        options={QUARTER_LABELS.map((l, i) => ({ value: String(i + 1), label: l, short: `Q${i + 1}` }))}
+        onChange={(vs) => setPopWith((pop) => putQuarters(pop, vs.map(Number)))}
+      />
+      <ChoicePills
+        label="Poste"
+        value={positionValue}
+        options={[
+          ...POSITIONS.map((x) => ({ value: x.id as string, label: x.label, short: x.short })),
+          ...((counts?.positions.none ?? 0) > 0 || p.noPosition ? [{ value: 'none', label: 'Sans poste' }] : []),
+        ]}
+        counts={counts?.positions}
+        total={counts?.positionTotal}
+        onChange={setPositions}
+        extra={
+          <label className="flex min-h-9 basis-full items-center gap-1.5 text-[11px] text-muted">
+            <input type="checkbox" className="h-4 w-4 accent-accent" checked={!!p.secondary} disabled={!p.positions} onChange={(e) => setPop({ secondary: e.target.checked || undefined })} />
+            Inclure les postes secondaires
+          </label>
+        }
+      />
+      <ChoicePills
+        label="Latéralité"
+        allLabel="Toutes"
+        value={handsOf(p)}
+        options={(['droitier', 'gaucher', 'ambidextre'] as const).map((v) => ({ value: v, label: lateralityPlural(v, gender) }))}
+        onChange={(vs) => setPopWith((pop) => putHands(pop, vs))}
+      />
+      {(regionOptions.length > 1 || p.regions || deptOptions.length > 1 || p.depts) && (
+        <div className="grid grid-cols-2 gap-2">
+          {(regionOptions.length > 1 || p.regions) && (
+            <FilterField label="Région">
+              <MultiPicker
+                className="min-h-10 px-2 py-1.5 text-xs"
+                label="Région"
+                allLabel="Toutes"
+                allCount={counts?.regionTotal}
+                noun={['région', 'régions']}
+                value={p.regions ?? []}
+                options={regionOptions}
+                onChange={setRegions}
+              />
+            </FilterField>
+          )}
+          {(deptOptions.length > 1 || p.depts) && (
+            <FilterField label="Département">
+              <MultiPicker
+                className="min-h-10 px-2 py-1.5 text-xs"
+                label="Département"
+                allLabel="Tous"
+                allCount={counts?.deptTotal}
+                noun={['département', 'départements']}
+                value={p.depts ?? []}
+                options={deptOptions}
+                onChange={(ds) => setPop({ depts: listOrNone(ds) })}
+              />
+            </FilterField>
+          )}
+        </div>
+      )}
+      <FilterField label="Club">
+        <MultiPicker
+          className="min-h-10 px-2 py-1.5 text-xs"
+          label="Club"
+          allLabel={`Tous les clubs (${fr(counts?.clubTotal ?? 0)})`}
+          noun={['club', 'clubs']}
+          value={p.clubs ?? []}
+          options={clubOptions}
+          onChange={(cs) => setPop({ clubs: listOrNone(cs) })}
+        />
+      </FilterField>
+      <div className="mt-1 border-t border-line pt-3 text-[10px] font-bold tracking-wider text-muted uppercase">Autres filtres</div>
       <div className="flex items-center gap-2 text-xs">
         <span className="shrink-0 font-bold text-muted">Taille minimum (cm)</span>
         <HeightInput value={p.hMin} onChange={(hMin) => setPop({ hMin })} />
       </div>
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-        {(
-          [
-            ['all', 'Toutes'],
-            ['droitier', lateralityPlural('droitier', gender)],
-            ['gaucher', lateralityPlural('gaucher', gender)],
-            ['ambidextre', 'Ambi.'],
-          ] as const
-        ).map(([v, label]) => (
-          <button key={v} onClick={() => setPop({ hand: v === 'all' ? undefined : v })} className={`min-h-9 flex-1 py-1.5 ${(p.hand ?? 'all') === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {(counts?.regions.length ?? 0) > 1 || p.regions ? (
-        <select
-          className={`field py-1.5 text-xs ${p.regions ? 'border-accent font-bold' : ''}`}
-          aria-label="Région"
-          value={p.regions?.[0] ?? ''}
-          onChange={(e) => setPop({ regions: e.target.value ? [e.target.value] : undefined, depts: undefined, clubs: undefined })}
-        >
-          <option value="">Toutes les régions ({fr(counts?.regionTotal ?? 0)})</option>
-          {[...(counts?.regions ?? []), ...(p.regions && !counts?.regions.some(([r]) => r === p.regions![0]) ? [[p.regions[0], 0] as [string, number]] : [])]
-            .sort((a, b) => regionLabel(a[0]).localeCompare(regionLabel(b[0]), 'fr'))
-            .map(([r, n]) => (
-              <option key={r} value={r}>
-                {regionLabel(r)} ({fr(n)})
-              </option>
-            ))}
-        </select>
-      ) : null}
-      {(counts?.depts.length ?? 0) > 1 || p.depts ? (
-        <select
-          className={`field py-1.5 text-xs ${p.depts ? 'border-accent font-bold' : ''}`}
-          aria-label="Département"
-          value={p.depts?.[0] ?? ''}
-          onChange={(e) => setPop({ depts: e.target.value ? [e.target.value] : undefined, clubs: undefined })}
-        >
-          <option value="">Tous les départements ({fr(counts?.deptTotal ?? 0)})</option>
-          {[...(counts?.depts ?? []), ...(p.depts && !counts?.depts.some(([d]) => d === p.depts![0]) ? [[p.depts[0], 0] as [string, number]] : [])].map(([d, n]) => (
-            <option key={d} value={d}>
-              {departmentLabel(d)} ({fr(n)})
-            </option>
-          ))}
-        </select>
-      ) : null}
-      <ClubPicker
-        clubs={(counts?.clubs ?? []).map(([, n, name]) => [name, n] as [string, number])}
-        total={counts?.clubTotal ?? 0}
-        value={p.clubs?.length ? p.clubs.map((k) => names.club(k)).join(', ') : ''}
-        onChange={(name) => setPop({ clubs: name ? [counts?.clubs.find(([, , n]) => n === name)?.[0] ?? name.toLowerCase().replace(/\s+/g, ' ').trim()] : undefined })}
-      />
       <select
-        className={`field py-1.5 text-xs ${p.pole ? 'border-accent font-bold' : ''}`}
+        className={`field min-h-10 py-1.5 text-xs ${p.pole ? 'border-accent font-bold' : ''}`}
         aria-label="Pôle Espoirs"
         value={p.pole ?? ''}
         onChange={(e) => setPop({ pole: (e.target.value || undefined) as Population['pole'] })}
@@ -582,86 +616,48 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         <option value="past">{POLE_LABEL.past}</option>
         <option value="any">{POLE_LABEL.any}</option>
       </select>
-      <button
-        onClick={() => setPop({ video: !p.video })}
-        className={`flex min-h-9 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-bold ${p.video ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`}
-      >
-        Seulement les {gw.joueurs} avec une vidéo
-      </button>
-      {(quick.followed.size > 0 || p.followed) && (
-        <button
-          onClick={() => setPop({ followed: !p.followed })}
-          className={`flex min-h-9 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-bold ${p.followed ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`}
-        >
-          <Icon name="star" filled={p.followed} className="h-3.5 w-3.5 text-accent" />
-          Seulement mes suivis ({fr(quick.followed.size)})
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={toggle(!!p.video)}>
+          Avec une vidéo
         </button>
-      )}
-      {quick.profiles.length > 0 && (
-        <select
-          className={`field py-1.5 text-xs ${p.profiles ? 'border-accent font-bold' : ''}`}
-          aria-label="Profil recherché"
-          value={p.profiles?.[0] ?? ''}
-          onChange={(e) => setPop({ profiles: e.target.value ? [e.target.value] : undefined })}
-        >
-          <option value="">{gw.TousLesJoueurs} (sans profil recherché)</option>
-          {quick.profiles.map((a) => (
-            <option key={a.id} value={a.id}>
-              Profil : {a.name} ({fr(quick.profileMembers.get(a.id)?.size ?? 0)})
-            </option>
-          ))}
-        </select>
-      )}
-      {groups.length > 0 && (
-        <select
-          className={`field py-1.5 text-xs ${p.groups ? 'border-accent font-bold' : ''}`}
-          aria-label="Groupe"
-          value={p.groups?.[0] ?? ''}
-          onChange={(e) => setPop({ groups: e.target.value ? [e.target.value] : undefined, regions: undefined, depts: undefined, clubs: undefined })}
-        >
-          <option value="">{gw.TousLesJoueurs} (sans groupe choisi)</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              Groupe : {g.name}
-              {groupTag(g)} ({fr(g.playerIds.length)}){g.archived ? ' — archivé' : ''}
-            </option>
-          ))}
-        </select>
-      )}
-      <div className="flex flex-col gap-1.5 rounded-md border border-line bg-panel-2/50 p-2">
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="font-bold text-muted">Poste</span>
-          <span className="flex gap-1.5">
-            <button
-              onClick={() => setPop({ positions: undefined, noPosition: undefined, secondary: undefined })}
-              className={`min-h-7 rounded-md border px-2 py-0.5 font-bold ${position === 'all' && !p.positions ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
-            >
-              Tous {counts?.positionTotal ?? ''}
-            </button>
-            {((counts?.positions.none ?? 0) > 0 || p.noPosition) && (
-              <button
-                onClick={() => setPop({ noPosition: !p.noPosition || undefined, positions: undefined, secondary: undefined })}
-                className={`min-h-7 rounded-md border px-2 py-0.5 font-bold ${p.noPosition ? 'border-accent bg-accent text-white' : 'border-line text-muted'}`}
-              >
-                Sans poste {counts?.positions.none ?? 0}
-              </button>
-            )}
-          </span>
-        </div>
-        <CourtFilter
-          value={position}
-          counts={counts?.positions ?? {}}
-          onChange={(v) =>
-            v === 'all' || v === 'none'
-              ? setPop({ positions: undefined, noPosition: v === 'none' || undefined, secondary: undefined })
-              : setPop({ positions: [v], noPosition: undefined })
-          }
-        />
-        <label className="flex min-h-7 items-center gap-1.5 self-start text-[11px] text-muted">
-          <input type="checkbox" checked={!!p.secondary} disabled={!p.positions} onChange={(e) => setPop({ secondary: e.target.checked || undefined })} />
-          Inclure les postes secondaires
-        </label>
+        {(quick.followed.size > 0 || p.followed) && (
+          <button type="button" aria-pressed={!!p.followed} onClick={() => setPop({ followed: !p.followed })} className={toggle(!!p.followed)}>
+            <Icon name="star" filled={p.followed} className="h-3.5 w-3.5 text-accent" />
+            Mes suivis ({fr(quick.followed.size)})
+          </button>
+        )}
       </div>
+      {(quick.profiles.length > 0 || groups.length > 0) && (
+        <div className="grid grid-cols-2 gap-2">
+          {quick.profiles.length > 0 && (
+            <FilterField label="Profil recherché">
+              <MultiPicker
+                className="min-h-10 px-2 py-1.5 text-xs"
+                label="Profil recherché"
+                allLabel="Aucun"
+                noun={['profil', 'profils']}
+                value={p.profiles ?? []}
+                options={quick.profiles.map((a) => ({ value: a.id, label: a.name, count: quick.profileMembers.get(a.id)?.size ?? 0 }))}
+                onChange={(xs) => setPop({ profiles: listOrNone(xs) })}
+              />
+            </FilterField>
+          )}
+          {groups.length > 0 && (
+            <FilterField label="Groupe">
+              <MultiPicker
+                className="min-h-10 px-2 py-1.5 text-xs"
+                label="Groupe"
+                allLabel="Aucun"
+                noun={['groupe', 'groupes']}
+                value={p.groups ?? []}
+                options={groups.map((g) => ({ value: g.id, label: `${g.name}${groupTag(g)}${g.archived ? ' — archivé' : ''}`, count: g.playerIds.length }))}
+                // Premier groupe choisi : le lieu choisi avant est retiré (un groupe a souvent des joueurs de partout).
+                onChange={(xs) => setPop({ groups: listOrNone(xs), ...(xs.length && !p.groups ? { regions: undefined, depts: undefined, clubs: undefined } : {}) })}
+              />
+            </FilterField>
+          )}
+        </div>
+      )}
       <div className="rounded-md border border-line">
         <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
           <span className="flex-1">+ Ajouter une condition</span>
@@ -692,22 +688,19 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
               </button>
             </div>
             {(full.data?.events.length ?? 0) > 0 && (
-              <select
-                className={`field min-h-11 py-1.5 text-xs ${p.events ? 'border-accent font-bold' : ''}`}
-                aria-label="Vus ou inscrits à un événement"
-                value={p.events?.[0] ?? ''}
-                onChange={(e) => setPop({ events: e.target.value ? [e.target.value] : undefined })}
-              >
-                <option value="">Événement : tous</option>
-                {[...(full.data?.events ?? [])]
-                  .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-                  .map((ev) => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.name}
-                      {ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}
-                    </option>
-                  ))}
-              </select>
+              <FilterField label="Vus ou inscrits à un événement">
+                <MultiPicker
+                  className="min-h-11 px-2 py-1.5 text-xs"
+                  label="Événement"
+                  allLabel="Tous les événements"
+                  noun={['événement', 'événements']}
+                  value={p.events ?? []}
+                  options={[...(full.data?.events ?? [])]
+                    .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+                    .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
+                  onChange={(xs) => setPop({ events: listOrNone(xs) })}
+                />
+              </FilterField>
             )}
             <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
           </div>
@@ -727,21 +720,17 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         }}
       />
       )}
-    </div>
+    </>
   )
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
-  const nChips = shownKeys.filter((k) => k !== 'q').length
+  const nChips = filterCount(qy, hosted?.hidden)
   const keepChip = (c: Chip) =>
     c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length) && !hosted?.hidden.has(c.key as FilterKey)
   // Le micro charge les données de la recette pendant qu'on parle.
   const micForField = questionReady && !hosted ? { ...mic, buttonProps: { ...mic.buttonProps, onPointerDown: (e: Parameters<typeof mic.buttonProps.onPointerDown>[0]) => (!asked && setAsked(true), mic.buttonProps.onPointerDown(e)) } } : undefined
   // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google) ; la barre posée du bilan garde son bouton.
-  const filtersChip = (
-    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
-      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
-    </button>
-  )
+  const filtersChip = <FiltersButton w={fw} n={nChips} />
   const field = (
     <Demander
       page={askPage}
@@ -756,19 +745,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       disabled={sending || rec}
       compact={hosted?.compact}
       label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
-      trailing={!hosted && !docked ? filtersChip : undefined}
+      trailing={!hosted ? filtersChip : undefined}
     />
   )
-  const filtersButton = !docked && (
-    <button
-      type="button"
-      onClick={() => setOpen(!open)}
-      aria-expanded={open}
-      className={`${hosted?.compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-full border px-3 text-xs font-bold ${open || nChips ? 'border-accent text-fg' : 'border-line text-muted'} ${open ? 'bg-accent/15' : 'bg-panel-2'}`}
-    >
-      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} {open ? '▴' : '▾'}
-    </button>
-  )
+  const filtersButton = <FiltersButton w={fw} n={nChips} variant="pill" compact={hosted?.compact} />
   // La ligne reste tant que les filtres sont ceux posés par la phrase.
   const shownResult = result && (result.nothing || !result.after || sameQuery(result.after, qy)) ? result : null
   const status =
@@ -823,13 +803,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       keep={keepChip}
       open={chipOpen}
       setOpen={setChipOpen}
+      quickRemove
       after={
         (hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? (
           <>
             <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
               Tout effacer
             </button>
-            {!saving && (
+            {!saving && !hosted && (
               <button type="button" className="flex min-h-9 items-center gap-1 px-1 text-[11px] font-bold text-muted underline" onClick={() => setSaving(true)}>
                 <Icon name="star" className="h-3 w-3" />
                 Enregistrer ce filtre
@@ -851,27 +832,27 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
     </p>
   )
 
-  const ui = docked ? null : (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2">{field}</div>
-      {status}
-      {chips}
-      {saveForm}
-      {open && panel}
-      {open && privacy}
-    </div>
-  )
-  const side = docked ? (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2">{field}</div>
-      {status}
-      {chips}
-      {saveForm}
-      <span className="section-title mb-0">Filtres{nChips > 0 && ` (${nChips})`}</span>
+  // La fenêtre « Filtres » : réglages, puis « 1 234 joueurs sur 40 001 », « Tout effacer », « Fermer ».
+  const filterWindow = (
+    <FilterWindow
+      w={fw}
+      count={<CountText n={filtered.length} total={players?.length ?? 0} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
+      onClear={(hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? reset : undefined}
+    >
       {panel}
       {privacy}
+    </FilterWindow>
+  )
+
+  const ui = (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2">{field}</div>
+      {status}
+      {chips}
+      {saveForm}
+      {filterWindow}
     </div>
-  ) : null
+  )
 
   // ---------- Au-dessus de la liste : calcul, mode avancé ----------
   const top = (
@@ -949,19 +930,15 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
         {saveForm}
       </>
     ),
-    panel: open ? (
-      <>
-        {panel}
-        {privacy}
-      </>
-    ) : null,
+    /** La fenêtre « Filtres » (posée dans le document, au-dessus de l'écran) : à rendre même quand la barre est repliée. */
+    window: filterWindow,
     top,
     open,
     nChips,
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, side, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender, filtersOpen: open }
+  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender }
 }
 
 // ---------- Petits composants ----------

@@ -165,24 +165,3 @@ function PositionButtons({ value, sec, onTap, counts }: { value?: Position; sec:
     </div>
   )
 }
-
-/** Filtre par poste sur le demi-terrain : un appui choisit le poste, un second appui le retire. */
-export function CourtFilter({
-  value,
-  counts,
-  onChange,
-}: {
-  value: Position | 'all' | 'none'
-  counts: Record<string, number>
-  onChange: (v: Position | 'all' | 'none') => void
-}) {
-  return (
-    <Court
-      value={value === 'all' || value === 'none' ? undefined : value}
-      sec={[]}
-      counts={counts}
-      onTap={(pos) => onChange(value === pos ? 'all' : pos)}
-      className="mx-auto max-w-[260px]"
-    />
-  )
-}

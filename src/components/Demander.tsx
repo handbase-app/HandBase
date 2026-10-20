@@ -754,7 +754,7 @@ function AskPalette({ go, inputRef, onEscape }: { go: (r: AskRoute, said: string
 }
 
 /** Hauteur cachée en bas par le clavier du téléphone (la feuille se pose juste au-dessus). */
-function useKeyboardInset(on: boolean) {
+export function useKeyboardInset(on: boolean) {
   const [kb, setKb] = useState({ bottom: 0, height: 0 })
   useEffect(() => {
     const vv = window.visualViewport
