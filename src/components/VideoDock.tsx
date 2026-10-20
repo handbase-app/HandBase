@@ -19,7 +19,7 @@ const VideoPlayer = lazy(() =>
   import('./VideoPlayer').catch(() => ({
     default: ({ onClose }: { onClose: () => void }) => (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
-        <p className="card max-w-sm p-4 text-sm">Le lecteur n’a pas pu être chargé (connexion ?). Réessaie plus tard ou ouvre la vidéo sur son site.</p>
+        <p className="win max-w-sm p-4 text-sm">Le lecteur n’a pas pu être chargé (connexion ?). Réessaie plus tard ou ouvre la vidéo sur son site.</p>
       </div>
     ),
   })),

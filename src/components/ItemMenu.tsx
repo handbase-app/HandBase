@@ -258,8 +258,8 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: 
         style={sheet ? undefined : { left: pos?.left ?? -9999, top: pos?.top ?? 0 }}
         className={
           sheet
-            ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-y-auto overscroll-contain rounded-t-2xl border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
-            : 'fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-xl border border-line bg-panel py-1 shadow-2xl'
+            ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
+            : 'fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel py-1 shadow-2xl'
         }
       >
         {sheet && <div className="mx-auto mt-2 mb-1 h-1 w-10 shrink-0 rounded-full bg-line" aria-hidden />}

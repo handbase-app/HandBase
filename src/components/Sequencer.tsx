@@ -403,7 +403,7 @@ export default function Sequencer({
                   Types{filtered ? ` ${shownCats}/${present.length}` : ''} <span aria-hidden>▾</span>
                 </button>
                 {typesOpen && (
-                  <div className="absolute right-0 bottom-full z-40 mb-1 w-[min(30rem,80vw)] rounded-lg bg-black/90 p-2 ring-1 ring-white/20" role="dialog" aria-label="Types d’actions affichés">
+                  <div className="absolute right-0 bottom-full z-40 mb-1 w-[min(30rem,80vw)] rounded-win bg-black/90 p-2 ring-1 ring-white/20" role="dialog" aria-label="Types d’actions affichés">
                     {typeChips}
                   </div>
                 )}

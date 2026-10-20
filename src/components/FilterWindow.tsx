@@ -214,7 +214,7 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
       aria-labelledby={titleId}
       tabIndex={-1}
       onKeyDown={keys}
-      className="ask-pop fixed z-40 flex flex-col overflow-hidden rounded-2xl border border-ai/40 bg-panel shadow-2xl outline-none"
+      className="ask-pop fixed z-40 flex flex-col overflow-hidden rounded-win border border-ai/40 bg-panel shadow-2xl outline-none"
       style={pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxH } : { left: -9999, top: 0 }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3.5">

@@ -652,7 +652,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="ask-action-title"
-        className="card flex max-h-[88dvh] w-full max-w-md flex-col gap-3 overflow-y-auto border-ai/40 p-4"
+        className="win flex max-h-[88dvh] w-full max-w-md flex-col gap-3 overflow-y-auto border-ai/40 p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-2">

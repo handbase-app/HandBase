@@ -354,7 +354,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
   // Dans le document (portail) : ouverte depuis une ligne de liste, elle ne doit pas être dans son lien.
   return createPortal(
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={(e) => (stop(e), onClose())}>
-      <div role="dialog" aria-modal="true" className="card flex max-h-[85dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" className="win flex max-h-[85dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div>
           <div className="text-sm font-extrabold">À revoir : {name}</div>
           <p className="text-[11px] text-muted">

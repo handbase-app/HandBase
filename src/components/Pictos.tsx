@@ -333,7 +333,7 @@ function PictoInfo({ icon, label, cls, filled = false }: { icon: IconName; label
     <button type="button" className={PICTO_CELL} title={label} aria-label={label} aria-expanded={open} onClick={(e) => (stop(e), setOpen(!open))} onBlur={() => setOpen(false)}>
       <Icon name={icon} filled={filled} className={`h-4 w-4 ${cls}`} />
       {open && (
-        <span role="status" className="absolute top-full right-0 z-20 mt-1 w-max max-w-[16rem] rounded-md border border-line bg-panel px-2 py-1 text-left text-[11px] font-normal whitespace-normal text-fg shadow-lg">
+        <span role="status" className="absolute top-full right-0 z-20 mt-1 w-max max-w-[16rem] rounded-win border border-line bg-panel px-2 py-1 text-left text-[11px] font-normal whitespace-normal text-fg shadow-lg">
           {label}
         </span>
       )}

@@ -178,7 +178,7 @@ function UnitSearch({
           <div
             id={listId}
             role="listbox"
-            className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-md border border-line bg-panel shadow-lg"
+            className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-win border border-line bg-panel shadow-lg"
             onScroll={(e) => {
               const el = e.currentTarget
               if (limit < found.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 120) setLimit((n) => n + STEP)
