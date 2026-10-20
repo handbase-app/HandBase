@@ -108,6 +108,18 @@ export function releaseLeaveGuard(g: Guard) {
   if (guard === g) guard = null
 }
 
+/**
+ * Pose `g` par-dessus la garde en place (fenêtre de formulaire ouverte au-dessus d'un écran qui a la sienne) ; la fonction
+ * renvoyée la retire et remet celle d'avant (si personne n'en a posé d'autre entre-temps).
+ */
+export function pushLeaveGuard(g: Guard): () => void {
+  const prev = guard
+  guard = g
+  return () => {
+    if (guard === g) guard = prev
+  }
+}
+
 /** true si on peut quitter l'écran courant (rien en cours, ou l'utilisateur a choisi). */
 export async function canLeave(): Promise<boolean> {
   return guard ? guard() : true

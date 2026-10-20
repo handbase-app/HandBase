@@ -1,7 +1,7 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
@@ -44,6 +44,7 @@ import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { PageHeader } from '../components/PageHeader'
+import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { choose } from '../components/Confirm'
 import {
@@ -85,6 +86,21 @@ export default function Groups() {
   const tab: GroupsTab = params.get('onglet') === STAFF.tab ? STAFF.tab : 'joueurs'
   const bar = useMedia(MQ.side)
   const [creatingTeam, setCreatingTeam] = useState(false)
+  // « + Groupe » : fenêtre « Nouveau groupe » par-dessus la liste. Ouverte aussi par l'adresse /groupes/nouveau (avec les
+  // joueurs choisis ailleurs, ex. la sélection de la liste Joueurs) : devenue ?nouveau=1, retirée de l'adresse avant
+  // l'ouverture (un retour ne la rouvre pas) ; Annuler y ramène alors à l'écran d'origine.
+  const [newGroup, setNewGroup] = useState<{ playerIds: string[]; fromUrl: boolean } | null>(null)
+  const leave = useBack('/groupes', 'GROUPES')
+  const wantNew = params.has('nouveau')
+  useEffect(() => {
+    if (!wantNew) return
+    const playerIds = (loc.state as { playerIds?: string[] } | null)?.playerIds ?? []
+    const next = new URLSearchParams(params)
+    next.delete('nouveau')
+    const q = next.toString()
+    nav({ pathname: loc.pathname, search: q ? `?${q}` : '' }, { replace: true })
+    if (can.manageGroups(role)) setNewGroup({ playerIds, fromUrl: true })
+  }, [wantNew]) // eslint-disable-line react-hooks/exhaustive-deps
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup))))
   const teams = useTeams() ?? []
   // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
@@ -137,9 +153,9 @@ export default function Groups() {
         </button>
       )
     : can.manageGroups(role) && (
-        <Link to="/groupes/nouveau" className="btn-primary px-3 py-1.5 text-xs">
+        <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
           + Groupe
-        </Link>
+        </button>
       )
 
   return (
@@ -153,6 +169,15 @@ export default function Groups() {
           {tabs('w-full @2xl:w-auto @2xl:min-w-96 @2xl:max-w-md @2xl:flex-1')}
         </div>
       </div>
+      {newGroup && (
+        <NewGroupWindow
+          playerIds={newGroup.playerIds}
+          onClose={(created) => {
+            setNewGroup(null)
+            if (!created && newGroup.fromUrl) afterWindow(leave.exit)
+          }}
+        />
+      )}
       {work ? (
         <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
       ) : (
@@ -626,7 +651,7 @@ export function GroupForm({
       </div>
 
       {!complete && <p className="mt-2 text-[11px] text-amber-300">À compléter : {missing.join(', ')}.</p>}
-      <div className="mt-2 flex gap-2">
+      <FormActions className="mt-2 flex gap-2">
         <button
           className="btn-primary flex-1"
           disabled={!complete}
@@ -677,40 +702,41 @@ export function GroupForm({
         <button className="btn text-muted" onClick={() => onDone()}>
           Annuler
         </button>
-      </div>
+      </FormActions>
     </div>
   )
 }
 
-/** Création d'un groupe (page à part, comme un événement), éventuellement avec des joueurs déjà choisis. */
+/**
+ * /groupes/nouveau (lien d'ailleurs, éventuellement avec des joueurs déjà choisis dans l'état de navigation) : la liste des
+ * groupes avec la fenêtre « Nouveau groupe » ouverte (?nouveau=1, voir Groups).
+ */
 export function NewGroup() {
-  const nav = useNavigate()
-  const role = useRole()
   const location = useLocation()
-  const playerIds: string[] = (location.state as { playerIds?: string[] } | null)?.playerIds ?? []
-  // Annuler : l'écran d'où l'on vient ; enregistré : le nouveau groupe, à la place du formulaire.
-  const leave = useBack('/groupes', 'GROUPES')
+  return <Navigate to="/groupes?nouveau=1" replace state={location.state} />
+}
+
+/** Fenêtre « Nouveau groupe » : créé, on ouvre le groupe (l'ajout de joueurs s'il est vide). `onClose(true)` : créé. */
+function NewGroupWindow({ playerIds, onClose }: { playerIds: string[]; onClose: (created?: boolean) => void }) {
+  const nav = useNavigate()
   // « Les 12 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
   const chosenG = useLiveQuery(() => db.players.bulkGet(playerIds).then((ps) => genderOf(ps)), [playerIds.join(',')])
-  if (!can.manageGroups(role)) return <div className="py-20 text-center text-sm text-muted">Ton rôle ne permet pas de créer des groupes.</div>
   return (
-    <div className="flex flex-col gap-4">
-      <button onClick={leave.go} className="self-start min-w-0 truncate text-xs font-bold text-muted">
-        ← {leave.label}
-      </button>
-      <h1 className="-mt-2 text-lg font-extrabold">Nouveau groupe</h1>
-      <div className="card flex flex-col gap-3 p-4">
-        <p className="text-[11px] text-muted">
-          {playerIds.length
-            ? `Les ${pluralG(playerIds.length, chosenG, 'joueur choisi')} seront dans le groupe ; tu pourras en ajouter ou en retirer ensuite.`
-            : 'Donne un nom au groupe, puis ajoute ses joueurs (par filtres ou un par un).'}
-        </p>
-        <GroupForm
-          playerIds={playerIds}
-          onDone={(g) => (g ? nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`, { replace: true }) : leave.exit())}
-        />
-      </div>
-    </div>
+    <FormWindow title="Nouveau groupe" onClose={() => onClose()}>
+      <p className="text-[11px] text-muted">
+        {playerIds.length
+          ? `Les ${pluralG(playerIds.length, chosenG, 'joueur choisi')} seront dans le groupe ; tu pourras en ajouter ou en retirer ensuite.`
+          : 'Donne un nom au groupe, puis ajoute ses joueurs (par filtres ou un par un).'}
+      </p>
+      <GroupForm
+        playerIds={playerIds}
+        onDone={(g) => {
+          onClose(!!g)
+          // Ouvre le groupe créé : il prend la place de l'entrée d'historique de la fenêtre.
+          if (g) nav(`/groupes/${g.id}${playerIds.length ? '' : '?ajout=1'}`)
+        }}
+      />
+    </FormWindow>
   )
 }
 
@@ -912,6 +938,17 @@ function PlayerGroupDetail() {
       />
     )
 
+  // Fin de « Modifier » (fenêtre) : Enregistrer, Annuler ou ✕.
+  function doneEditing(saved?: PlayerGroup) {
+    setEditing(false)
+    // Rendu moins visible (privé, mon staff) : c'est un nouveau groupe (voir GroupForm).
+    if (saved && saved.id !== g!.id) return nav(`/groupes/${saved.id}`, { replace: true })
+    const from = params.get('modifier')
+    // Après la fermeture de la fenêtre (son entrée d'historique retirée) : retour à l'écran d'origine.
+    if (from !== null && from !== 'copie' && origin.known) return afterWindow(origin.go)
+    if (from !== null) setParams({}, { replace: true })
+  }
+
   // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation (groupe Pôle : fenêtre du motif de sortie).
   async function removeOne(p: Player) {
     if (pole) return setExiting(p)
@@ -983,22 +1020,11 @@ function PlayerGroupDetail() {
         <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={leave.exit} />
       )}
 
-      {editing ? (
-        <div className="card p-3">
-          <GroupForm
-            key={g.id}
-            group={g}
-            onDone={(saved) => {
-              setEditing(false)
-              // Rendu moins visible (privé, mon staff) : c'est un nouveau groupe (voir GroupForm).
-              if (saved && saved.id !== g.id) return nav(`/groupes/${saved.id}`, { replace: true })
-              const from = params.get('modifier')
-              if (from !== null && from !== 'copie' && origin.known) return origin.go()
-              if (from !== null) setParams({}, { replace: true })
-            }}
-          />
-        </div>
-      ) : (
+      {editing && (
+        <FormWindow title={pole ? 'Renommer le groupe' : 'Modifier le groupe'} onClose={() => doneEditing()}>
+          <GroupForm key={g.id} group={g} onDone={doneEditing} />
+        </FormWindow>
+      )}
         <div>
           <h1 className="text-lg font-extrabold">
             {g.private && (
@@ -1036,7 +1062,6 @@ function PlayerGroupDetail() {
             <StampLine row={g} />
           </div>
         </div>
-      )}
 
       {/* Groupe Pôle : vue « Saison en cours | Saison prochaine » dans l'adresse (?saison=prochaine), gardée au retour. */}
       {pole && pm && (

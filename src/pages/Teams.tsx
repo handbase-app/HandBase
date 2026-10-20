@@ -6,6 +6,7 @@ import { ask } from '../components/Confirm'
 import { copyLink } from '../components/ItemMenu'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { PageHeader } from '../components/PageHeader'
+import { FormActions, FormWindow } from '../components/FormWindow'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Empty, Icon } from '../components/ui'
 import { alive, db, fmtDate, newId, plural, remove, save, type HBEvent, type PlayerGroup, type Team } from '../db'
@@ -57,7 +58,7 @@ function usesText(u?: { groups: PlayerGroup[]; events: HBEvent[] }) {
   return [g && plural(g, 'groupe'), e && plural(e, 'événement')].filter(Boolean).join(', ')
 }
 
-/** Onglet « Groupes de travail » de la page Groupes : la liste, et le formulaire de création quand il est demandé. */
+/** Onglet « Groupes de travail » de la page Groupes : la liste, et la fenêtre de création quand elle est demandée. */
 export function WorkGroupsTab({ teams, creating, onCreated }: { teams: Team[]; creating: boolean; onCreated: () => void }) {
   const role = useRole()
   const nav = useNavigate()
@@ -69,18 +70,17 @@ export function WorkGroupsTab({ teams, creating, onCreated }: { teams: Team[]; c
       <p className="text-[11px] text-muted">{STAFF.privacy}</p>
 
       {creating && (
-        <div className="card p-3">
-          <div className="section-title">{STAFF.create}</div>
+        <FormWindow title={STAFF.create} onClose={onCreated}>
           <TeamForm
             onDone={(t) => {
               onCreated()
               if (t) nav(workGroupPath(t.id))
             }}
           />
-        </div>
+        </FormWindow>
       )}
 
-      {!teams.length && !creating && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
+      {!teams.length && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
 
       <div className="cols flex flex-col gap-3">
         {teams.map((t) => (
@@ -157,22 +157,21 @@ export function WorkGroupDetail({ id }: { id: string }) {
               }
         }
       />
-      {editing ? (
-        <div className="card p-3">
+      {editing && (
+        <FormWindow title="Modifier le groupe de travail" onClose={() => setEditing(false)}>
           <TeamForm key={t.id} team={t} onDone={() => setEditing(false)} />
-        </div>
-      ) : (
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-extrabold">
-            <Icon name="users" className="h-4 w-4 shrink-0 text-muted" />
-            <span className="min-w-0 break-words">{t.name}</span>
-          </h1>
-          {t.description && <div className="text-xs text-muted">{t.description}</div>}
-          <div className="text-[11px] text-muted">
-            {[manage ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member].filter(Boolean).join(' · ')}
-          </div>
-        </div>
+        </FormWindow>
       )}
+      <div>
+        <h1 className="flex items-center gap-2 text-lg font-extrabold">
+          <Icon name="users" className="h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0 break-words">{t.name}</span>
+        </h1>
+        {t.description && <div className="text-xs text-muted">{t.description}</div>}
+        <div className="text-[11px] text-muted">
+          {[manage ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member].filter(Boolean).join(' · ')}
+        </div>
+      </div>
 
       <section className="flex flex-col gap-1.5">
         <div className="section-title mb-0">
@@ -223,7 +222,7 @@ export function WorkGroupDetail({ id }: { id: string }) {
   )
 }
 
-/** Création ou modification d'un groupe de travail : nom, description, membres (encadrants). */
+/** Création ou modification d'un groupe de travail : nom, description, membres (encadrants). Dans une <FormWindow>. */
 function TeamForm({ team, onDone }: { team?: Team; onDone: (t?: Team) => void }) {
   const role = useRole()
   const [name, setName] = useState(team?.name ?? '')
@@ -248,7 +247,7 @@ function TeamForm({ team, onDone }: { team?: Team; onDone: (t?: Team) => void })
       ) : (
         <p className="text-[11px] text-muted">{STAFF.offline}</p>
       )}
-      <div className="mt-2 flex gap-2">
+      <FormActions className="mt-2 flex gap-2">
         <button
           className="btn-primary flex-1"
           disabled={!name.trim()}
@@ -269,7 +268,7 @@ function TeamForm({ team, onDone }: { team?: Team; onDone: (t?: Team) => void })
         <button className="btn text-muted" onClick={() => onDone()}>
           Annuler
         </button>
-      </div>
+      </FormActions>
     </div>
   )
 }

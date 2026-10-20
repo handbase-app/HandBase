@@ -20,6 +20,8 @@ import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type 
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
+import { FormActions } from '../components/FormWindow'
+import type { EventDraft } from '../eventCopy'
 import {
   alive,
   CONTEXT_TYPES,
@@ -1040,11 +1042,15 @@ const isFilled = (v: unknown): v is number | string => typeof v === 'number' || 
 /**
  * Création d'un événement, ou modification de `event` (nom, type, date, lieu). `extra` : actions rangées au bas du
  * formulaire de modification (ex. « + Importer une feuille de match (PDF) » sur la page de l'événement).
+ * `copy` : création pré-remplie par « Dupliquer l'événement » (src/eventCopy.ts) : champs, liste des joueurs et équipes
+ * copiés, enregistrés comme une création normale à « Créer ».
+ * Boutons dans <FormActions> : dans le pied de la fenêtre (src/components/FormWindow.tsx), sinon sous le formulaire.
  */
 export function NewEventForm({
   event,
   groupId,
   playerIds,
+  copy,
   onDone,
   extra,
 }: {
@@ -1052,30 +1058,36 @@ export function NewEventForm({
   groupId?: string
   /** Création avec ces joueurs déjà dans la liste (sélection multiple d'une liste de joueurs) ; sexe déduit d'eux. */
   playerIds?: string[]
+  /** Création à partir d'une copie (« Dupliquer l'événement »). */
+  copy?: EventDraft
   onDone: (ev?: HBEvent) => void
   extra?: ReactNode
 }) {
+  const from = event ? undefined : copy
   // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite). Groupe Pôle : ses membres
   // en cours, calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée comme groupe).
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => withPoleMembers(alive(gs).filter((g) => !g.archived && can.seeGroup(g))))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
   const picked = groups.find((g) => g.id === group)
-  const [name, setName] = useState(event?.name ?? '')
-  const [type, setType] = useState<EventType>(event?.type ?? 'match')
-  const [date, setDate] = useState(event?.date ?? today())
-  const [place, setPlace] = useState(event?.place ?? '')
+  const init = event ?? from
+  const [name, setName] = useState(init?.name ?? '')
+  const [type, setType] = useState<EventType>(init?.type ?? 'match')
+  const [date, setDate] = useState(init?.date ?? today())
+  const [place, setPlace] = useState(init?.place ?? '')
   // Garçons / Filles / Mixte (facultatif, src/gender.ts) : sans choix, déduit des joueurs de la liste (toutes des filles → féminin).
-  const [sex, setSex] = useState<HBEvent['sex']>(event?.sex)
-  const chosen = !event && playerIds?.length ? [...new Set(playerIds)] : undefined
+  const [sex, setSex] = useState<HBEvent['sex']>(init?.sex)
+  // Copie : sa liste, comme une liste choisie (mais chaque joueur garde celui qui l'avait ajouté).
+  const copied = from?.playerIds?.length ? from.playerIds : undefined
+  const chosen = !event && (copied ?? playerIds)?.length ? [...new Set(copied ?? playerIds)] : undefined
   const rosterIds = event ? (event.playerIds ?? []) : (chosen ?? picked?.playerIds ?? [])
   const guessed = useLiveQuery(async () => genderOf(await db.players.bulkGet(rosterIds)), [rosterIds.join(',')])
   const auto: Gender = (!event && picked?.sex) || guessed
   // Unité organisatrice (src/eventOrganizer.ts) : à la création, celle du créateur, posée d'office ; modifiable.
-  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: event?.organizerUnitId ?? '', name: event?.organizerName })
+  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: init?.organizerUnitId ?? '', name: init?.organizerName })
   // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
-  const [editors, setEditors] = useState<string[]>(event?.editors ?? [])
+  const [editors, setEditors] = useState<string[]>(init?.editors ?? [])
   // Staffs choisis (supabase/034) : leurs membres du moment co-organisent. Ceux que je ne vois pas restent tels quels.
-  const [teams, setTeams] = useState<string[]>(event?.teams ?? [])
+  const [teams, setTeams] = useState<string[]>(init?.teams ?? [])
   const canPick = useCanPickStaff()
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
   const chip = (on: boolean) =>
@@ -1083,12 +1095,15 @@ export function NewEventForm({
   return (
     <div className="flex flex-col gap-2">
       <input className="field" autoFocus={!!playerIds?.length} aria-label="Nom de l’événement" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
-      <Segmented value={type} onChange={setType} options={EVENT_TYPES} columns={2} />
+      {/* 2 colonnes (téléphone, formulaire étroit), 4 de front dès que la place le permet (fenêtre d'ordinateur). */}
+      <div className="@container">
+        <Segmented value={type} onChange={setType} options={EVENT_TYPES} className="grid grid-cols-2 gap-2 @lg:grid-cols-4" />
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />
       </div>
-      <OrganizerField value={organizer} onChange={setOrganizer} auto={!event} />
+      <OrganizerField value={organizer} onChange={setOrganizer} auto={!event && !from} />
       <span className="label mt-1">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()}</span>
       <div className="flex gap-1" role="radiogroup" aria-label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}>
         {EVENT_SEXES.map((x) => (
@@ -1098,7 +1113,18 @@ export function NewEventForm({
         ))}
       </div>
       {!sex && <p className="-mt-1 text-[11px] text-muted">Facultatif : sans choix, déduit des joueurs de la liste{auto ? ` (${EVENT_SEXES.find((x) => x.value === auto)?.label.toLowerCase()})` : ''}.</p>}
-      {chosen && <p className="text-[11px] text-muted">Liste : {pluralG(chosen.length, guessed, 'joueur choisi')} (modifiable ensuite).</p>}
+      {chosen && (
+        <p className="text-[11px] text-muted">
+          Liste : {pluralG(chosen.length, guessed, copied ? 'joueur copié' : 'joueur choisi')}
+          {copied ? ` de « ${from!.from} »` : ''} (modifiable ensuite){copied ? ', sans leurs avis' : ''}.
+        </p>
+      )}
+      {from?.tournament && (
+        <p className="text-[11px] text-muted">
+          Équipes : {from.tournament.teams.length > 1 ? `${from.tournament.teams.length} équipes copiées` : '1 équipe copiée'}
+          {from.tournament.players ? ', avec les numéros de maillot' : ''} (sans résultats).
+        </p>
+      )}
       {!event && !chosen && groups.length > 0 && (
         <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
@@ -1127,7 +1153,7 @@ export function NewEventForm({
           />
         </>
       )}
-      <div className="flex gap-2">
+      <FormActions>
         <button
           className="btn-primary flex-1"
           disabled={!name.trim()}
@@ -1160,7 +1186,10 @@ export function NewEventForm({
                       ...(chosen && me ? { addedBy: Object.fromEntries(chosen.map((id) => [id, me])) } : {}),
                       // Depuis un groupe : chaque joueur garde celui qui l'avait ajouté au groupe.
                       ...(!chosen && { addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined }),
-                      names: { ...picked?.names, ...fields.names },
+                      names: { ...picked?.names, ...from?.names, ...fields.names },
+                      // Copie (« Dupliquer l'événement ») : chacun garde celui qui l'avait ajouté ; équipes et numéros.
+                      ...(copied && { addedBy: { ...(me ? Object.fromEntries(copied.map((id) => [id, me])) : {}), ...from!.addedBy } }),
+                      ...(from?.tournament && { tournament: from.tournament }),
                     },
               ),
             )
@@ -1171,7 +1200,7 @@ export function NewEventForm({
         <button className="btn text-muted" onClick={() => onDone()}>
           Annuler
         </button>
-      </div>
+      </FormActions>
       {extra}
     </div>
   )
