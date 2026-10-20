@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { useBack } from '../backNav'
 import { ask, inform, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { CriterionInput, fmtValue, getMe, groupBy, NoCriteria, QuarterBadge } from '../components/ui'
 import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
@@ -24,7 +25,6 @@ const readOpen = (): string[] => {
  */
 export default function MeasureSession() {
   const { id } = useParams()
-  const nav = useNavigate()
   const role = useRole()
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
@@ -50,6 +50,10 @@ export default function MeasureSession() {
     return () => setLeaveGuard(null)
   }, [])
   useUnsaved(pending > 0)
+  // Enregistrer ou Annuler : l'écran d'où l'on vient (fiche, fiche dans un événement ou un groupe : même onglet, même
+  // position), par l'historique ; adresse ouverte directement : l'onglet Tests de la fiche.
+  const name = data?.player ? `${data.player.lastName} ${data.player.firstName}`.toUpperCase() : 'FICHE DU JOUEUR'
+  const leave = useBack(`/joueurs/${id}?onglet=tests`, name)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data === null || data.player.deleted) return <div className="py-20 text-center text-sm text-muted">Joueur introuvable.</div>
@@ -62,7 +66,7 @@ export default function MeasureSession() {
     (c) => c.category,
   )
   const filled = Object.entries(values).filter(([, v]) => v !== undefined && v !== '')
-  const back = () => nav(`/joueurs/${p.id}?onglet=tests`, { replace: true })
+  const back = leave.exit
 
   const toggle = (cat: string) => {
     const next = open.includes(cat) ? open.filter((x) => x !== cat) : [...open, cat]
@@ -99,11 +103,11 @@ export default function MeasureSession() {
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      {/* Même en-tête que les autres pages : « ← DESTINATION » en capitales (la fiche du joueur, onglet Tests). */}
+      {/* Même en-tête que les autres pages : « ← DESTINATION » en capitales (l'écran d'où l'on vient, en général la fiche). */}
       <PageHeader
         back={
-          <button onClick={() => void cancel()} className="min-w-0 truncate text-left text-xs font-bold text-muted hover:text-fg" title="Retour à la fiche (onglet Tests)">
-            ← {`${p.lastName} ${p.firstName}`.toUpperCase()}
+          <button onClick={() => void cancel()} className="min-w-0 truncate text-left text-xs font-bold text-muted hover:text-fg" title="Retour">
+            ← {leave.label}
           </button>
         }
       />

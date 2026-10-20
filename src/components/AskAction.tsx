@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
+import { useBackCloses } from '../backNav'
 import { db, newId, POSITIONS, remove, save, today, type HBEvent, type Player, type PlayerGroup } from '../db'
 import {
   ACTION_DISPLAY,
@@ -452,6 +453,9 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   useEffect(() => {
     cancelRef.current = cancel
   })
+  // Retour du téléphone ou du navigateur : ferme la carte (comme ✕), on reste sur l'écran. Carte acceptée qui ouvre un
+  // groupe ou un événement : il prend la place de l'entrée de la carte (src/backNav.tsx, useBackCloses).
+  useBackCloses(() => cancelRef.current())
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && cancelRef.current()
     window.addEventListener('keydown', esc)

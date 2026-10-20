@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton, useGoBack } from '../backNav'
+import { BackButton, useBack, useEntryState } from '../backNav'
 import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
 import { Empty, Icon, Segmented } from '../components/ui'
@@ -112,29 +112,41 @@ function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; pla
 /** Détail d'une alerte : ses joueurs, les nouveaux en tête ; ouvrir l'alerte les marque comme vus. */
 export function AlertDetail() {
   const { id } = useParams()
-  const nav = useNavigate()
   const role = useRole()
   const [params, setParams] = useSearchParams()
   const editing = params.has('modifier')
+  // Après Enregistrer, Annuler ou Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
+  const leave = useBack('/alertes', 'PROFILS RECHERCHÉS')
+  // Formulaire ouvert depuis un autre écran (« Modifier » du menu d'une ligne de la liste) : on y revient en le fermant.
+  const [editFromOutside] = useState(editing)
   const data = useLiveQuery(async () => {
     const alert = await db.alerts.get(id!)
     return { alert, ctx: await loadAlertContext() }
   }, [id])
   const players = useMemo(() => (data?.alert ? data.ctx.players.filter((p) => matches(p, data.alert!.rules, data.ctx)) : []), [data])
-  // Nouveaux à l'ouverture : gardés pour l'affichage, puis marqués comme vus.
-  const [fresh, setFresh] = useState<Set<string> | null>(null)
+  // Nouveaux à l'ouverture : gardés pour l'affichage, puis marqués comme vus. Gardés avec l'entrée de l'historique : au
+  // retour d'une fiche, les mêmes restent marqués « nouveau », dans le même ordre ; neufs à la visite suivante.
+  const [freshIds, setFreshIds] = useEntryState<string[] | null>(`alerte.${id}.nouveaux`, null)
+  const fresh = useMemo(() => (freshIds ? new Set(freshIds) : null), [freshIds])
   useEffect(() => {
-    if (!data?.alert || fresh) return
+    if (!data?.alert || freshIds) return
     // Première ouverture sur cet appareil : la liste du moment sert de départ (rien de « nouveau »).
     const known = seenFor(data.alert.id, players.map((p) => p.id))
-    setFresh(new Set(players.filter((p) => !known.has(p.id)).map((p) => p.id)))
+    setFreshIds(players.filter((p) => !known.has(p.id)).map((p) => p.id))
     markSeen(data.alert.id, players.map((p) => p.id))
-  }, [data, players, fresh])
+  }, [data, players, freshIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { alert, ctx } = data
   if (!alert || alert.deleted || !can.seeGroup(alert)) return <div className="py-20 text-center text-sm text-muted">Profil recherché introuvable.</div>
-  if (editing) return <AlertForm alert={alert} onDone={() => setParams({}, { replace: true })} />
+  if (editing)
+    return (
+      <AlertForm
+        alert={alert}
+        backLabel={editFromOutside && leave.known ? leave.label : alert.name.toUpperCase()}
+        onDone={() => (editFromOutside && leave.known ? leave.exit() : setParams({}, { replace: true }))}
+      />
+    )
   const manage = can.editGroup(role, alert)
   // Accord (src/gender.ts) : profil « Féminin », ou liste faite seulement de filles.
   const g: Gender = listGender(alert.rules.sex, players)
@@ -156,7 +168,7 @@ export function AlertDetail() {
                     icon: 'trash',
                     danger: true,
                     onSelect: async () => {
-                      if (await deleteAlert(alert)) nav('/alertes', { replace: true })
+                      if (await deleteAlert(alert)) leave.exit()
                     },
                   },
                 ],
@@ -220,13 +232,14 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
 /** Nouvelle alerte (page « /alertes/nouvelle »). */
 export function NewAlert() {
   const nav = useNavigate()
-  // Annuler : retour d'où l'on vient (liste des profils, accueil…).
-  const goBack = useGoBack('/alertes')
-  return <AlertForm onDone={(a) => (a ? nav(`/alertes/${a.id}`, { replace: true }) : goBack())} />
+  // Annuler : retour d'où l'on vient (liste des profils, accueil…) ; enregistré : le nouveau profil, à la place du formulaire.
+  const leave = useBack('/alertes', 'PROFILS RECHERCHÉS')
+  return <AlertForm backLabel={leave.label} onDone={(a) => (a ? nav(`/alertes/${a.id}`, { replace: true }) : leave.exit())} />
 }
 
 /** Formulaire d'alerte, avec le nombre de joueurs qui correspondent en direct. */
-function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void }) {
+/** `backLabel` : l'écran où ramène « ← » (et Annuler). */
+function AlertForm({ alert, onDone, backLabel }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void; backLabel: string }) {
   const role = useRole()
   useDepartments()
   const [name, setName] = useState(alert?.name ?? '')
@@ -277,7 +290,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
   return (
     <div className="flex flex-col gap-3 pb-16">
       <button onClick={() => onDone(alert)} className="self-start text-xs font-bold text-muted">
-        ← {alert ? alert.name : 'ALERTES'}
+        ← {backLabel}
       </button>
       <h1 className="text-lg font-extrabold">{alert ? 'Modifier le profil recherché' : 'Nouveau profil recherché'}</h1>
 

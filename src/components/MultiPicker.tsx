@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useBackCloses } from '../backNav'
 import { orText, toggleIn } from '../recipe'
 import { fold } from './PlayerFilter'
 
@@ -148,6 +149,8 @@ export function ChoiceSheet({
   useEffect(() => {
     close.current = onClose
   })
+  // Téléphone (feuille du bas) : le geste Retour ferme la feuille, et elle seule (la fenêtre « Filtres » reste ouverte).
+  useBackCloses(() => close.current(), sheet)
 
   // Menu déroulant : sous le bouton (au moins sa largeur), au-dessus faute de place, toujours dans l'écran. Recalé après
   // chaque changement (une pastille qui apparaît au-dessus déplace le bouton), au défilement et au redimensionnement.

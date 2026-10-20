@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useNavigationType, type Location, type NavigationType } from 'react-router-dom'
+import { backTarget, createBackLayers, newKey, noteEntry, type BackLayers, type Entry, type Layer } from './backCore'
 import { canLeave } from './components/Confirm'
 import { db } from './db'
 import { playerName } from './components/ui'
@@ -11,8 +12,8 @@ import { playerName } from './components/ui'
 // Gardé dans sessionStorage : survit à un rechargement de l'onglet.
 // Chaque entrée retient aussi sa position (page, et zones qui défilent seules marquées `data-keep-scroll="nom"`) :
 // en revenant par l'historique (bouton retour de l'appli ou du navigateur), l'écran est remis où on l'avait laissé.
+// Logique pure (chemin, écran visé, fenêtres et geste Retour) : src/backCore.ts.
 
-type Entry = { path: string; prev?: string; y?: number; s?: Record<string, number> }
 const STORE = 'hb-back'
 const MAX = 300
 
@@ -38,26 +39,32 @@ function persist() {
   }
 }
 
+/**
+ * Page chargée par une adresse ouverte directement (lien partagé, notification, adresse tapée), pas par un rechargement
+ * ni un retour : sa première entrée ne vient de nulle part dans l'appli.
+ */
+let freshLoad = false
+if (typeof window !== 'undefined') {
+  try {
+    freshLoad = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'navigate'
+  } catch {
+    freshLoad = false
+  }
+  // Entrée directe : le routeur la nommerait « default », comme toutes les entrées directes d'avant dans cet onglet (dont
+  // le chemin noté n'a rien à voir avec celle-ci). Une clé neuve, gardée par l'historique (un rechargement la retrouve).
+  try {
+    const st = history.state as { key?: unknown } | null
+    if (!st || typeof st !== 'object' || typeof st.key !== 'string') history.replaceState({ ...(st ?? {}), key: newKey() }, '')
+  } catch {
+    /* historique indisponible */
+  }
+}
+
 /** Note la navigation en cours (idempotent : appelé pendant le rendu, avant les écrans). */
 function track(loc: Location, type: NavigationType) {
   // On quitte l'écran en cours (encore affiché pendant ce rendu) : sa position exacte.
   if (cur && cur !== loc.key) snapshot(cur)
-  const known = map[loc.key]
-  if (known) {
-    // Même clé, autre écran (adresse tapée ou ouverte directement : clé « default ») : position oubliée.
-    if (known.path !== loc.pathname) {
-      known.path = loc.pathname
-      delete known.y
-      delete known.s
-      persist()
-    }
-  } else {
-    const prev = type === 'PUSH' ? cur : type === 'REPLACE' && cur ? map[cur]?.prev : undefined
-    // Remplacement (filtre noté dans l'adresse, joueur suivant…) : même écran, même position.
-    const was = type === 'REPLACE' && cur ? map[cur] : undefined
-    map[loc.key] = { path: loc.pathname, prev, ...(was?.y !== undefined && { y: was.y }), ...(was?.s && { s: { ...was.s } }) }
-    persist()
-  }
+  if (noteEntry(map, cur, loc.key, loc.pathname, type, freshLoad)) persist()
   cur = loc.key
 }
 
@@ -163,18 +170,9 @@ export function BackTracker() {
   return null
 }
 
-// Formulaires et écrans de passage : on ne revient pas dessus.
-const TRANSIENT = /\/(nouveau|nouvelle|modifier|mesures)$/
-
 /** Écran d'où l'on vient (même règle que useBack), ou undefined. */
 function previousPath(key: string, pathname: string): string | undefined {
-  for (let e = map[key], steps = 0; e?.prev && steps < 50; steps++) {
-    const t = map[e.prev]
-    if (!t) return undefined
-    if (t.path !== pathname && !TRANSIENT.test(t.path)) return t.path
-    e = t
-  }
-  return undefined
+  return backTarget(map, key, pathname).target
 }
 
 // Onglets de la barre du bas (NAV, src/App.tsx) : on y revient par la barre, pas besoin de bouton retour vers eux.
@@ -190,34 +188,77 @@ export function TabBackButton({ className = '' }: { className?: string }) {
 
 /**
  * Retour : l'écran d'où l'on vient (en sautant le même écran et les formulaires), par l'historique, donc dans l'état où
- * on l'a laissé (filtres, choix, position) ; sinon (adresse ouverte directement, lien partagé) `fallback`.
+ * on l'a laissé (filtres, choix, onglet, position) ; sinon (adresse ouverte directement, lien partagé) `fallback`.
  * Libellé : le nom de cet écran ; `fallbackLabel` quand c'est justement `fallback` (nom plus parlant : « Tournoi U15 »…).
- * `replace` : sans écran d'origine, `fallback` remplace l'écran actuel (fermeture d'une fiche ouverte par un lien).
+ * `go` demande d'abord si une saisie en cours peut être perdue ; `exit` non (après un enregistrement, une suppression ou
+ * une annulation déjà confirmée) : `fallback` y remplace toujours l'écran actuel (formulaire, fiche supprimée).
+ * `replace` : sans écran d'origine, `go` aussi remplace l'écran actuel par `fallback` (fermeture d'une fiche ouverte par un lien).
+ * `known` : l'écran d'origine est connu (on y revient par l'historique).
  */
-export function useBack(fallback: string, fallbackLabel: string, opts: { replace?: boolean } = {}): { label: string; go: () => void; known: boolean } {
+export function useBack(
+  fallback: string,
+  fallbackLabel: string,
+  opts: { replace?: boolean } = {},
+): { label: string; go: () => void; exit: () => void; known: boolean } {
   const loc = useLocation()
   const nav = useNavigate()
-  let target: string | undefined
-  let steps = 0
-  for (let e = map[loc.key]; e?.prev && steps < 50; ) {
-    const t = map[e.prev]
-    if (!t) break
-    steps++
-    if (t.path !== loc.pathname && !TRANSIENT.test(t.path)) {
-      target = t.path
-      break
-    }
-    e = t
-  }
+  const { target, steps } = backTarget(map, loc.key, loc.pathname)
   const label = useTargetLabel(target)
-  if (!target) return { label: fallbackLabel, known: false, go: async () => (await canLeave()) && nav(fallback, { replace: !!opts.replace }) }
+  if (!target)
+    return {
+      label: fallbackLabel,
+      known: false,
+      go: async () => (await canLeave()) && nav(fallback, { replace: !!opts.replace }),
+      exit: () => nav(fallback, { replace: true }),
+    }
   const same = target === fallback.replace(/[?#].*$/, '')
-  return { label: same ? fallbackLabel : (label ?? 'RETOUR'), known: true, go: async () => (await canLeave()) && nav(-steps) }
+  return { label: same ? fallbackLabel : (label ?? 'RETOUR'), known: true, go: async () => (await canLeave()) && nav(-steps), exit: () => nav(-steps) }
+}
+
+/**
+ * L'entrée juste avant celle-ci dans l'appli, même à la même adresse (« Modifier » choisi dans le menu d'une ligne de la
+ * liste, l'élément déjà ouvert à côté) : `go` y revient par l'historique, tel quel. `known` : false pour une entrée directe.
+ */
+export function useOrigin(): { known: boolean; go: () => void } {
+  const loc = useLocation()
+  const nav = useNavigate()
+  const prev = map[loc.key]?.prev
+  return { known: !!prev && !!map[prev], go: () => nav(-1) }
 }
 
 /** Annuler un formulaire : retour d'où l'on vient ; ouvert directement (lien, rechargement), `fallback` le remplace. */
 export function useGoBack(fallback: string): () => void {
   return useBack(fallback, '', { replace: true }).go
+}
+
+/**
+ * État attaché à l'entrée de l'historique (gardé avec elle, sessionStorage) : retrouvé en revenant sur cet écran (retour
+ * d'une fiche…), neuf à la visite suivante. Ex. les joueurs « nouveaux » à l'ouverture d'un profil recherché, qui sont
+ * aussitôt marqués comme vus : au retour d'une fiche, les mêmes restent marqués, dans le même ordre.
+ */
+export function useEntryState<T>(name: string, initial: T | (() => T)): [T, (v: T) => void] {
+  const { key } = useLocation()
+  const id = `${key}\n${name}`
+  const read = (): T => {
+    const st = map[key]?.st
+    if (st && Object.prototype.hasOwnProperty.call(st, name)) return st[name] as T
+    return typeof initial === 'function' ? (initial as () => T)() : initial
+  }
+  const [box, setBox] = useState(() => ({ id, v: read() }))
+  let shown = box
+  // Autre entrée (ou autre nom) sans remontage de l'écran : sa propre valeur.
+  if (box.id !== id) {
+    shown = { id, v: read() }
+    setBox(shown)
+  }
+  const v = shown.v
+  useEffect(() => {
+    const e = map[key]
+    if (!e) return
+    ;(e.st ??= {})[name] = v as unknown
+    persist()
+  }, [key, name, v])
+  return [v, (next: T) => setBox({ id, v: next })]
 }
 
 const STATIC: Record<string, string> = {
@@ -242,7 +283,7 @@ const STATIC: Record<string, string> = {
 }
 
 /** Nom de l'écran visé : fixe, ou lu dans la base (joueur, événement, groupe, alerte). */
-function useTargetLabel(path?: string): string | undefined {
+export function useTargetLabel(path?: string): string | undefined {
   // Fiche ouverte depuis un événement, un groupe ou le bilan (/evenements/:id/joueurs/:pid, /groupes/:id/joueurs/:pid,
   // /bilan/joueurs/:pid) : le nom du joueur.
   const [, kind, id] = path?.replace(/^\/((evenements|groupes)\/[^/]+|bilan(\/question)?)(?=\/joueurs\/[^/]+$)/, '').match(/^\/(joueurs|evenements|groupes|alertes)\/([^/]+)$/) ?? []
@@ -267,4 +308,50 @@ export function BackButton({ fallback, label, className = '' }: { fallback: stri
       ← {back.label}
     </button>
   )
+}
+
+// ---------- Fenêtres par-dessus l'écran : le geste Retour les ferme ----------
+
+let layers: BackLayers | undefined
+if (typeof window !== 'undefined') {
+  try {
+    layers = createBackLayers(window)
+  } catch {
+    layers = undefined
+  }
+}
+
+/**
+ * Fenêtre par-dessus l'écran (Filtres, bulle ✦, carte d'action, lecteur vidéo…), ouverte tant que `active` : le retour du
+ * téléphone ou du navigateur la ferme (`onClose`) et laisse sur l'écran, dans le même état ; fermée par son ✕ ou Échap,
+ * son entrée d'historique est retirée. Fenêtre ouverte depuis une autre : chacune la sienne, le retour ferme celle du
+ * dessus. Fermée parce que l'appli ouvre un autre écran : il prend la place de son entrée (voir src/backCore.ts).
+ */
+export function useBackCloses(onClose: () => void, active = true) {
+  const cb = useRef(onClose)
+  useLayoutEffect(() => {
+    cb.current = onClose
+  })
+  const held = useRef<Layer | null>(null)
+  useEffect(() => {
+    if (!active || !layers) return
+    const engine = layers
+    let l = held.current
+    // StrictMode (développement) démonte et remonte aussitôt : même fenêtre, même entrée.
+    if (l && l.releasing && !l.gone) l.releasing = false
+    else {
+      l = engine.open(() => cb.current())
+      held.current = l
+    }
+    const mine = l
+    return () => {
+      mine.releasing = true
+      // Un peu plus tard : une navigation lancée en même temps (carte acceptée…) prend la place de l'entrée, sans retour.
+      setTimeout(() => {
+        if (!mine.releasing) return
+        engine.release(mine)
+        if (held.current === mine) held.current = null
+      }, 0)
+    }
+  }, [active])
 }

@@ -5,6 +5,7 @@ import { DEFAULT_DUR, embedOf, fmtMoment, momentLabel, momentsOf, openUrl, passa
 import TypeChips, { useTypeFilter } from './TypeChips'
 import { Icon } from './ui'
 import { useMedia } from '../layout'
+import { useBackCloses } from '../backNav'
 
 /*
  * Lecteur vidéo intégré (chargé à la demande par VideoDock.tsx, posé à la racine de l'appli : rien n'est téléchargé avant le
@@ -531,6 +532,8 @@ export default function VideoPlayer({
   const armed = useRef(false)
   const startedAt = useRef(0)
   const closeBtn = useRef<HTMLButtonElement>(null)
+  // Retour du téléphone ou du navigateur : ferme le lecteur, on reste sur l'écran de la vidéo (même onglet, même position).
+  useBackCloses(onClose)
   // Plein écran de notre bloc (vidéo, commandes, frise) : celui du navigateur (apiFs) ou, sans l'API (iPhone) ou refusé,
   // bloc posé sur tout l'écran (cssFs).
   const stage = useRef<HTMLDivElement>(null)

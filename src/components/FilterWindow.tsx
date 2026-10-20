@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
+import { useBackCloses } from '../backNav'
 import { useKeyboardInset } from './Demander'
 import { isPhone } from './MultiPicker'
 
@@ -16,6 +17,7 @@ import { isPhone } from './MultiPicker'
  * (« 1 234 joueurs sur 40 001 »), « Tout effacer », « Fermer » (« Voir »). Fermeture : ✕, Échap, clic ou toucher à côté ;
  * le focus revient au bouton « Filtres ». Vrai dialogue : titre, aria-modal sur téléphone (fond voilé, focus gardé dedans),
  * non modal sur ordinateur (la liste derrière reste utilisable).
+ * Retour du téléphone ou du navigateur : ferme la fenêtre, la liste reste à l'écran (src/backNav.tsx, useBackCloses).
  * Les choix multiples ouverts depuis la fenêtre (src/components/MultiPicker.tsx, YearPicker) portent `data-popup` : les
  * toucher ne ferme pas la fenêtre, et leur Échap ne ferme qu'eux.
  * Toucher une pastille de filtre sous la barre ouvre la fenêtre SUR le réglage de ce filtre (`openAt(clé)`) : la fenêtre
@@ -97,6 +99,8 @@ function Win({ w, count, onClear, children, title }: { w: FilterWindowState; cou
   useEffect(() => {
     closeRef.current = close
   })
+  // Geste Retour : ferme la fenêtre au lieu de quitter la liste.
+  useBackCloses(() => closeRef.current(true))
 
   // Place : sous le bouton, bord droit aligné sur le sien, dans l'écran ; hauteur jusqu'au bas de l'écran (au-dessus du
   // clavier du téléphone). Recalée au défilement (le bouton suit la barre collée en haut, ou s'en va) et au redimensionnement.
