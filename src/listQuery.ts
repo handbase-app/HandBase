@@ -108,6 +108,9 @@ export function activeListKeys<F extends object, T, C>(spec: ListSpec<F, T, C>, 
 
 export const hasListQuery = <F extends object, T, C>(spec: ListSpec<F, T, C>, qy: ListQuery<F>) => activeListKeys(spec, qy).length > 0
 
+/** Nombre montré sur le bouton « Filtres » : un par champ posé (plusieurs valeurs cochées comptent pour un), tri compris, sans la recherche. */
+export const listFilterCount = <F extends object, T, C>(spec: ListSpec<F, T, C>, qy: ListQuery<F>) => activeListKeys(spec, qy).filter((k) => k !== 'q').length
+
 /** Envoyé avec la phrase : les NOMS des filtres posés, jamais leurs valeurs (le texte cherché : sa présence seulement). */
 export const listKeysForModel = <F extends object, T, C>(spec: ListSpec<F, T, C>, qy: ListQuery<F>): string[] =>
   activeListKeys(spec, qy).map((k) => spec.modelKey[k] ?? k)

@@ -67,7 +67,11 @@ export type Population = {
   /** Taille (dernière mesure « taille »), en cm. */
   hMin?: number
   hMax?: number
-  hand?: Laterality
+  /**
+   * Latéralité : une valeur (recettes d'avant, un seul choix) ou plusieurs (« gauchers ou ambidextres » : l'une OU l'autre).
+   * Poser avec putHands, lire avec handsOf.
+   */
+  hand?: Laterality | Laterality[]
   /** Identifiants de groupes et d'événements. */
   groups?: string[]
   events?: string[]
@@ -75,8 +79,11 @@ export type Population = {
   /** Prénoms ou noms dits (« s'appellent Lucas ») : chaque mot est un mot du prénom ou du nom, sans accents ni majuscules. */
   names?: string[]
   // Filtres rapides de la liste Joueurs (src/playerQuery.ts), aussi compris par « Poser une question ».
-  /** Trimestre de naissance (1 = janvier–mars … 4 = octobre–décembre). */
-  quarter?: number
+  /**
+   * Trimestre de naissance (1 = janvier–mars … 4 = octobre–décembre) : un nombre (recettes d'avant, un seul choix) ou
+   * plusieurs (l'un OU l'autre). Poser avec putQuarters, lire avec quartersOf.
+   */
+  quarter?: number | number[]
   /** Postes : compter aussi les postes secondaires. */
   secondary?: boolean
   /** Seulement les joueurs sans poste. */
@@ -87,6 +94,48 @@ export type Population = {
   video?: boolean
   /** Profils recherchés (identifiants d'alertes, QData.profileMembers). */
   profiles?: string[]
+}
+
+// ---------- Choix multiples ----------
+// Dans un champ, plusieurs valeurs = l'une OU l'autre (« Ailier G. ou Ailier D. ») ; entre les champs : ET (« … du Var ou des
+// Bouches-du-Rhône »). Postes, clubs, régions, départements, groupes, événements, profils et années sont déjà des listes ;
+// latéralité et trimestre étaient une valeur simple : une seule valeur reste écrite comme avant (lue par les recettes
+// enregistrées, les adresses et l'historique), plusieurs deviennent une liste.
+
+const HANDS: readonly Laterality[] = ['droitier', 'gaucher', 'ambidextre']
+
+/** Valeurs d'un champ : une valeur simple ou une liste (vide : aucun choix). */
+export const manyOf = <T>(v: T | readonly T[] | undefined): T[] => (v === undefined ? [] : Array.isArray(v) ? [...(v as readonly T[])] : [v as T])
+/** Latéralités choisies (vide : toutes). */
+export const handsOf = (p: Pick<Population, 'hand'>): Laterality[] => manyOf(p.hand)
+/** Trimestres de naissance choisis (vide : tous). */
+export const quartersOf = (p: Pick<Population, 'quarter'>): number[] => manyOf(p.quarter)
+
+/** Pose les latéralités (ordre fixe, sans doublon) : une seule = valeur simple, comme avant ; aucune : le champ disparaît. */
+export function putHands(p: Population, xs: readonly unknown[]): void {
+  const v = HANDS.filter((h) => xs.includes(h))
+  if (!v.length) delete p.hand
+  else p.hand = v.length === 1 ? v[0] : v
+}
+
+/** Pose les trimestres (1 à 4, croissants, sans doublon) : un seul = nombre simple, comme avant ; aucun : le champ disparaît. */
+export function putQuarters(p: Population, xs: readonly unknown[]): void {
+  const v = [1, 2, 3, 4].filter((q) => xs.includes(q))
+  if (!v.length) delete p.quarter
+  else p.quarter = v.length === 1 ? v[0] : v
+}
+
+/** Ajoute ou retire une valeur d'une liste de choix (undefined : plus rien de choisi). */
+export function toggleIn<T>(xs: readonly T[] | undefined, v: T): T[] | undefined {
+  const cur = xs ?? []
+  const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]
+  return next.length ? next : undefined
+}
+
+/** Valeurs d'un champ en clair : « Var », « Var ou Bouches-du-Rhône », « Var, Gard ou Hérault », « Var, Gard, Hérault +2 ». */
+export function orText(xs: readonly string[], max = 3): string {
+  if (xs.length > max) return `${xs.slice(0, max).join(', ')} +${xs.length - max}`
+  return xs.length > 1 ? `${xs.slice(0, -1).join(', ')} ou ${xs[xs.length - 1]}` : (xs[0] ?? '')
 }
 
 export type SeenRule = {
@@ -204,7 +253,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
   return {
     aujourdhui: `${ctx.today} (saison ${s.label} : du 1er septembre au 31 août)`,
     population:
-      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees (liste d’entiers : les années citées) ou annees {de, a} (plage), trimestre (1 à 4 : trimestre de naissance), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
+      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees (liste d’entiers : les années citées) ou annees {de, a} (plage), trimestre (1 à 4 : trimestre de naissance ; liste si plusieurs), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre ; liste si plusieurs sont dites : ["gaucher", "ambidextre"]), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
     vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
     avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5), calcul (moyenne par défaut | max : la meilleure note, une par une | min : la plus basse)} ; score combiné : sur "combine", nom [liste de noms]',
@@ -534,11 +583,14 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     else skip(`taille ${quote(p.tailleMax)}`, 'entre 100 et 230 cm')
   }
   if (r.pop.hMin && r.pop.hMax && r.pop.hMin > r.pop.hMax) [r.pop.hMin, r.pop.hMax] = [r.pop.hMax, r.pop.hMin]
-  if (present(p.lateralite)) {
-    const v = parseHand(p.lateralite)
-    if (v) r.pop.hand = v
-    else skip(`latéralité ${quote(p.lateralite)}`, 'valeur inconnue')
+  // Une latéralité, ou plusieurs (« gauchers ou ambidextres » : l'une ou l'autre).
+  const hands: Laterality[] = []
+  for (const v of asList(p.lateralite)) {
+    const h = parseHand(v)
+    if (h) hands.push(h)
+    else skip(`latéralité ${quote(v)}`, 'valeur inconnue')
   }
+  putHands(r.pop, hands)
   const groups: string[] = []
   for (const v of [...asList(p.groupes), ...asList(p.groupe)]) {
     const m = bestMatch(asText(v), ctx.groups, (g) => [g.name])
@@ -563,11 +615,14 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     if (v) r.pop.pole = v
     else skip(`Pôle ${quote(p.pole)}`, 'valeur inconnue')
   }
-  if (present(p.trimestre)) {
-    const m = /^(?:q|t)?\s*([1-4])(?:er|e|eme)?$/.exec(normalize(asText(p.trimestre)))
-    if (m) r.pop.quarter = Number(m[1])
-    else skip(`trimestre ${quote(p.trimestre)}`, 'de 1 à 4')
+  // Un trimestre, ou plusieurs (l'un ou l'autre).
+  const quarters: number[] = []
+  for (const v of asList(p.trimestre)) {
+    const m = /^(?:q|t)?\s*([1-4])(?:er|e|eme)?$/.exec(normalize(asText(v)))
+    if (m) quarters.push(Number(m[1]))
+    else skip(`trimestre ${quote(v)}`, 'de 1 à 4')
   }
+  putQuarters(r.pop, quarters)
   if (isTrue(p.postesSecondaires) && r.pop.positions) r.pop.secondary = true
   if (isTrue(p.sansPoste) && !r.pop.positions) r.pop.noPosition = true
   if (isTrue(p.suivis)) r.pop.followed = true
@@ -917,14 +972,13 @@ export function cleanRecipe(v: unknown): Recipe {
   const hMax = int(p.hMax, LIMITS.height)
   if (hMin !== undefined) pop.hMin = hMin
   if (hMax !== undefined) pop.hMax = hMax
-  const hand = oneOf(p.hand, ['droitier', 'gaucher', 'ambidextre'] as const)
-  if (hand) pop.hand = hand
+  // Une valeur simple (recettes d'avant) ou une liste (plusieurs choix).
+  putHands(pop, asList(p.hand))
   const pole = oneOf(p.pole, ['current', 'past', 'any'] as const)
   if (pole) pop.pole = pole
   const nm = (Array.isArray(p.names) ? p.names : []).filter((x): x is string => okId(x) && x.length <= MAX_NAME && !!nameKey(x)).slice(0, MAX_NAMES_POP)
   if (nm.length) pop.names = nm
-  const quarter = int(p.quarter, [1, 4])
-  if (quarter) pop.quarter = quarter
+  putQuarters(pop, asList(p.quarter).filter((q) => int(q, [1, 4]) !== undefined))
   if (p.secondary === true && pop.positions) pop.secondary = true
   if (p.noPosition === true && !pop.positions) pop.noPosition = true
   if (p.followed === true) pop.followed = true
@@ -1317,9 +1371,9 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
   if (pop.positions && !(p.position && pop.positions.includes(p.position)) && !(pop.secondary && p.secondaryPositions?.some((x) => pop.positions!.includes(x))))
     return false
   if (pop.noPosition && p.position) return false
-  if (pop.quarter) {
+  if (pop.quarter !== undefined) {
     const m = /^\d{4}-(\d{2})/.exec(p.birthDate ?? '')
-    if (!m || Math.ceil(Number(m[1]) / 3) !== pop.quarter) return false
+    if (!m || !quartersOf(pop).includes(Math.ceil(Number(m[1]) / 3))) return false
   }
   if (pop.followed && !ix.data.followed?.has(p.id)) return false
   if (pop.video && !ix.data.videos?.has(p.id)) return false
@@ -1327,7 +1381,7 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
   if (pop.depts && !(i.dept && pop.depts.includes(i.dept))) return false
   if (pop.regions && !(i.region && pop.regions.includes(i.region))) return false
   if (pop.clubs && !pop.clubs.includes(i.club)) return false
-  if (pop.hand && p.laterality !== pop.hand) return false
+  if (pop.hand && !(p.laterality && handsOf(pop).includes(p.laterality))) return false
   if (pop.hMin || pop.hMax) {
     const h = ix.last.get(HEIGHT_ID)?.get(p.id)
     if (h === undefined || (pop.hMin && h < pop.hMin) || (pop.hMax && h > pop.hMax)) return false
@@ -1754,10 +1808,11 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   if (p.sex) c.push({ key: 'sex', label: f ? SEX_LABELS.F : SEX_LABELS.M, edit: 'sex', removable: true })
   if (p.names) c.push({ key: 'names', label: `prénom ou nom : ${list(p.names)}`, removable: true })
   if (p.years) c.push({ key: 'years', label: yearsPhrase(yearsOf(p) ?? [], e), edit: 'years', removable: true })
-  if (p.positions) c.push({ key: 'positions', label: list(p.positions.map(names.position)), removable: true })
-  if (p.regions) c.push({ key: 'regions', label: list(p.regions.map(names.region)), removable: true })
-  if (p.depts) c.push({ key: 'depts', label: list(p.depts.map(names.dept)), removable: true })
-  if (p.clubs) c.push({ key: 'clubs', label: `${p.clubs.length > 1 ? 'clubs' : 'club'} : ${list(p.clubs.map(names.club))}`, removable: true })
+  // Plusieurs valeurs d'un champ : l'une OU l'autre (« Ailier gauche ou Ailier droit », « Var ou Bouches-du-Rhône »).
+  if (p.positions) c.push({ key: 'positions', label: orText(p.positions.map(names.position)), removable: true })
+  if (p.regions) c.push({ key: 'regions', label: orText(p.regions.map(names.region)), removable: true })
+  if (p.depts) c.push({ key: 'depts', label: orText(p.depts.map(names.dept)), removable: true })
+  if (p.clubs) c.push({ key: 'clubs', label: `club : ${orText(p.clubs.map(names.club))}`, removable: true })
   if (p.hMin || p.hMax)
     c.push({
       key: 'height',
@@ -1765,16 +1820,19 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
       edit: 'height',
       removable: true,
     })
-  if (p.hand) c.push({ key: 'hand', label: p.hand === 'gaucher' ? (f ? 'gauchères' : 'gauchers') : p.hand === 'droitier' ? (f ? 'droitières' : 'droitiers') : 'ambidextres', removable: true })
-  if (p.groups) c.push({ key: 'groups', label: `groupe : ${list(p.groups.map(names.group))}`, removable: true })
-  if (p.events) c.push({ key: 'events', label: `événement : ${list(p.events.map(names.event))}`, removable: true })
+  if (p.hand) c.push({ key: 'hand', label: orText(handsOf(p).map((h) => (h === 'gaucher' ? (f ? 'gauchères' : 'gauchers') : h === 'droitier' ? (f ? 'droitières' : 'droitiers') : 'ambidextres'))), removable: true })
+  if (p.groups) c.push({ key: 'groups', label: `groupe : ${orText(p.groups.map(names.group))}`, removable: true })
+  if (p.events) c.push({ key: 'events', label: `événement : ${orText(p.events.map(names.event))}`, removable: true })
   if (p.pole) c.push({ key: 'pole', label: POLE_TEXT[p.pole], removable: true })
-  if (p.quarter) c.push({ key: 'quarter', label: `Q${p.quarter} · ${QUARTER_TEXT[p.quarter - 1]}`, removable: true })
+  if (p.quarter !== undefined) {
+    const qs = quartersOf(p)
+    c.push({ key: 'quarter', label: qs.length === 1 ? `Q${qs[0]} · ${QUARTER_TEXT[qs[0] - 1]}` : `nés en ${orText(qs.map((q) => `Q${q}`), 4)}`.replace('nés', f ? 'nées' : 'nés'), removable: true })
+  }
   if (p.secondary) c.push({ key: 'secondary', label: '+ postes secondaires', removable: true })
   if (p.noPosition) c.push({ key: 'noPosition', label: 'sans poste', removable: true })
   if (p.followed) c.push({ key: 'followed', label: 'mes suivis', removable: true })
   if (p.video) c.push({ key: 'video', label: 'avec une vidéo', removable: true })
-  if (p.profiles) c.push({ key: 'profiles', label: `profil : ${list(p.profiles.map((id) => names.profile?.(id) ?? 'profil recherché'))}`, removable: true })
+  if (p.profiles) c.push({ key: 'profiles', label: `profil : ${orText(p.profiles.map((id) => names.profile?.(id) ?? 'profil recherché'))}`, removable: true })
   if (r.seen) {
     const s = r.seen
     const unit = s.by === 'event' ? (s.n > 1 ? 'événements' : 'événement') : s.n > 1 ? 'personnes du staff' : 'personne du staff'

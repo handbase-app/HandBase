@@ -1,0 +1,305 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
+import { createPortal } from 'react-dom'
+import { useKeyboardInset } from './Demander'
+import { isPhone } from './MultiPicker'
+
+/*
+ * Fenêtre « Filtres » des listes (Joueurs, Événements, Groupes, bilan, « Ajouter des joueurs » d'un événement ou d'un
+ * groupe) : posée AU-DESSUS de la liste, ouverte par le bouton « Filtres » de la barre « Demander » (qui suit le
+ * défilement) : on la règle de n'importe où dans la liste, sans remonter en haut, et la liste ne bouge pas.
+ *  - Ordinateur : accrochée sous le bouton, bord droit aligné, ~420 px, hauteur limitée (le contenu défile dedans) ; même
+ *    allure que la fenêtre de la bulle ✦ (src/components/Demander.tsx : `ask-pop`). Pas de fond voilé : la liste reste
+ *    utilisable, un clic à côté ferme (et garde son effet).
+ *  - Téléphone : carte flottante comme la fenêtre ✦ (une marge de chaque côté, fond légèrement voilé et flouté ; un toucher
+ *    dessus ferme), bouton « Voir » en bas.
+ * Chaque choix s'applique tout de suite (pas de bouton « Appliquer ») ; le pied dit combien d'éléments restent
+ * (« 1 234 joueurs sur 40 001 »), « Tout effacer », « Fermer » (« Voir »). Fermeture : ✕, Échap, clic ou toucher à côté ;
+ * le focus revient au bouton « Filtres ». Vrai dialogue : titre, aria-modal sur téléphone (fond voilé, focus gardé dedans),
+ * non modal sur ordinateur (la liste derrière reste utilisable).
+ * Les choix multiples ouverts depuis la fenêtre (src/components/MultiPicker.tsx, YearPicker) portent `data-popup` : les
+ * toucher ne ferme pas la fenêtre, et leur Échap ne ferme qu'eux.
+ */
+
+/** État de la fenêtre et son bouton (identifiant de la fenêtre pour aria-controls). */
+export function useFilterWindow() {
+  const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLButtonElement | null>(null)
+  const id = useId()
+  return { open, setOpen, anchor, id }
+}
+export type FilterWindowState = ReturnType<typeof useFilterWindow>
+
+/**
+ * Bouton « Filtres » (nombre de filtres posés : « Filtres 3 »). `chip` : étiquette arrondie logée DANS la barre
+ * « Demander » ; `pill` : bouton à côté d'un champ (bilan sans la barre du haut).
+ */
+export function FiltersButton({ w, n, variant = 'chip', compact = false }: { w: FilterWindowState; n: number; variant?: 'chip' | 'pill'; compact?: boolean }) {
+  const cls =
+    variant === 'chip'
+      ? `flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${w.open || n ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`
+      : `${compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-full border px-3 text-xs font-bold ${w.open || n ? 'border-accent text-fg' : 'border-line text-muted'} ${w.open ? 'bg-accent/15' : 'bg-panel-2'}`
+  return (
+    <button
+      ref={w.anchor as Ref<HTMLButtonElement>}
+      type="button"
+      onClick={() => w.setOpen(!w.open)}
+      aria-haspopup="dialog"
+      aria-expanded={w.open}
+      aria-controls={w.open ? w.id : undefined}
+      aria-label={n ? `Filtres : ${n} posé${n > 1 ? 's' : ''}` : 'Filtres'}
+      className={cls}
+    >
+      Filtres
+      {n > 0 && (
+        <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white" aria-hidden>
+          {n}
+        </span>
+      )}
+      <span className="ml-1" aria-hidden>
+        {w.open ? '▴' : '▾'}
+      </span>
+    </button>
+  )
+}
+
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/** La fenêtre (rien si fermée). `count` : « 1 234 joueurs sur 40 001 » ; `onClear` : « Tout effacer » (absent : rien à effacer). */
+export function FilterWindow({ w, count, onClear, children, title = 'Filtres' }: { w: FilterWindowState; count: ReactNode; onClear?: () => void; children: ReactNode; title?: string }) {
+  if (!w.open) return null
+  return createPortal(
+    <Win w={w} count={count} onClear={onClear} title={title}>
+      {children}
+    </Win>,
+    document.body,
+  )
+}
+
+function Win({ w, count, onClear, children, title }: { w: FilterWindowState; count: ReactNode; onClear?: () => void; children: ReactNode; title: string }) {
+  const [phone] = useState(isPhone)
+  const box = useRef<HTMLDivElement>(null)
+  const titleId = `${w.id}-titre`
+  const kb = useKeyboardInset(phone)
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; maxH: number } | null>(null)
+
+  /** Ferme ; `back` : le focus revient au bouton « Filtres » (✕, Échap, « Fermer », toucher le fond). */
+  const close = (back: boolean) => {
+    const a = w.anchor.current
+    w.setOpen(false)
+    if (back && a?.isConnected) a.focus({ preventScroll: true })
+  }
+  const closeRef = useRef(close)
+  useEffect(() => {
+    closeRef.current = close
+  })
+
+  // Place : sous le bouton, bord droit aligné sur le sien, dans l'écran ; hauteur jusqu'au bas de l'écran (au-dessus du
+  // clavier du téléphone). Recalée au défilement (le bouton suit la barre collée en haut, ou s'en va) et au redimensionnement.
+  const place = useRef(() => {})
+  place.current = () => {
+    const r = w.anchor.current?.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = kb.height || window.innerHeight
+    const width = phone ? vw - 24 : Math.min(420, vw - 16)
+    const left = phone ? 12 : Math.max(8, Math.min((r?.right ?? vw - 8) - width, vw - width - 8))
+    const top = Math.round(Math.max(phone ? 56 : 8, Math.min((r?.bottom ?? 64) + 8, vh - (phone ? 260 : 220))))
+    const maxH = Math.max(200, vh - top - 12)
+    setPos((p) => (p && p.left === left && p.top === top && p.width === width && p.maxH === maxH ? p : { left, top, width, maxH }))
+  }
+  useLayoutEffect(() => place.current())
+  useEffect(() => {
+    const again = () => place.current()
+    window.addEventListener('resize', again)
+    window.addEventListener('scroll', again, true)
+    return () => {
+      window.removeEventListener('resize', again)
+      window.removeEventListener('scroll', again, true)
+    }
+  }, [])
+
+  // À l'ouverture : le focus sur le premier réglage (sans faire défiler la page).
+  useEffect(() => {
+    const first = box.current?.querySelector<HTMLElement>(`[data-body] :is(${FOCUSABLE})`) ?? box.current
+    first?.focus({ preventScroll: true })
+  }, [])
+
+  // Ordinateur : un clic hors de la fenêtre (et hors du bouton, qui la referme lui-même) la ferme, et ce clic garde son
+  // effet. Pas dans une liste de choix ouverte depuis la fenêtre (data-popup) ni dans un autre dialogue (confirmation).
+  // Échap quand le focus n'est pas dans la fenêtre (ni dans un autre dialogue) : ferme aussi.
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t || box.current?.contains(t) || w.anchor.current?.contains(t) || t.closest('[data-popup], [role="dialog"], [role="alertdialog"]')) return
+      closeRef.current(false)
+    }
+    const key = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const a = document.activeElement
+      if (a && a !== document.body && (box.current?.contains(a) || a.closest('[data-popup], [role="dialog"], [role="alertdialog"]'))) return
+      closeRef.current(true)
+    }
+    if (!phone) document.addEventListener('pointerdown', down, true)
+    window.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('keydown', key)
+    }
+  }, [phone]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clavier dans la fenêtre : Échap ferme (les listes de choix ouvertes depuis elle arrêtent leur Échap) ; téléphone
+  // (dialogue modal) : Tab reste dans la fenêtre.
+  const keys = (e: KeyboardEvent) => {
+    // Les touches restent dans la fenêtre (les flèches de la liste derrière, src/components/PlayerFilter.tsx arrowNav, ne
+    // les voient pas).
+    e.stopPropagation()
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      close(true)
+      return
+    }
+    if (e.key !== 'Tab' || !phone) return
+    const all = [...(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter((x) => x.offsetParent !== null)
+    if (!all.length) return
+    const i = all.indexOf(document.activeElement as HTMLElement)
+    if (e.shiftKey && i <= 0) {
+      e.preventDefault()
+      all[all.length - 1].focus()
+    } else if (!e.shiftKey && i === all.length - 1) {
+      e.preventDefault()
+      all[0].focus()
+    }
+  }
+
+  const card = (
+    <div
+      ref={box}
+      id={w.id}
+      role="dialog"
+      aria-modal={phone ? 'true' : undefined}
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      onKeyDown={keys}
+      className="ask-pop fixed z-40 flex flex-col overflow-hidden rounded-2xl border border-ai/40 bg-panel shadow-2xl outline-none"
+      style={pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxH } : { left: -9999, top: 0 }}
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3.5">
+        <h2 id={titleId} className="min-w-0 flex-1 text-sm font-extrabold">
+          {title}
+        </h2>
+        <button type="button" className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg" aria-label="Fermer les filtres" onClick={() => close(true)}>
+          <span aria-hidden className="text-base leading-none">
+            ✕
+          </span>
+        </button>
+      </div>
+      <div data-body className="flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain px-3.5 py-3">
+        {children}
+      </div>
+      <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel-2/60 px-3.5 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-2">
+        <p className="min-w-0 flex-1 text-xs" aria-live="polite">
+          {count}
+        </p>
+        {onClear && (
+          <button type="button" className="min-h-10 shrink-0 px-1 text-[11px] font-bold text-muted underline hover:text-fg" onClick={onClear}>
+            Tout effacer
+          </button>
+        )}
+        <button type="button" className="btn-primary min-h-10 shrink-0 px-4 text-xs" onClick={() => close(true)}>
+          {phone ? 'Voir' : 'Fermer'}
+        </button>
+      </div>
+    </div>
+  )
+  if (!phone) return card
+  // Téléphone : fond légèrement voilé et flouté (comme la fenêtre ✦) ; un toucher dessus ferme.
+  return (
+    <div className="fixed inset-0 z-40">
+      <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" aria-hidden onClick={() => close(true)} />
+      {card}
+    </div>
+  )
+}
+
+/** « 1 234 joueurs sur 40 001 » (nombre en gras), ou « 1 234 joueurs » quand rien n'est filtré. */
+export function CountText({ n, total, noun }: { n: number; total: number; noun: (n: number) => string }) {
+  const fr = (x: number) => x.toLocaleString('fr-FR')
+  return (
+    <>
+      <b className="tabular-nums">{fr(n)}</b> {noun(n)}
+      {total !== n && <span className="text-muted"> sur {fr(total)}</span>}
+    </>
+  )
+}
+
+/** Un réglage de la fenêtre : son nom (petites capitales) et ses choix. */
+export function FilterField({ label, children, id }: { label: string; children: ReactNode; id?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1" role={id ? undefined : 'group'} aria-label={id ? undefined : label}>
+      <span id={id} className="text-[10px] font-bold tracking-wider text-muted uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Pastilles à cocher (listes courtes : postes, latéralité, trimestre, type…) : « Tous » (rien de coché) puis chaque valeur,
+ * avec son nombre (les AUTRES filtres appliqués) ; plusieurs cochées = l'une OU l'autre. Une valeur à 0 est grisée (sauf
+ * cochée). Boutons à bascule (aria-pressed).
+ */
+export function ChoicePills<V extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  counts,
+  total,
+  allLabel = 'Tous',
+  extra,
+}: {
+  label: string
+  value: readonly V[]
+  options: readonly { value: V; label: string; short?: string; title?: string }[]
+  onChange: (v: V[]) => void
+  counts?: ReadonlyMap<string, number> | Readonly<Record<string, number>>
+  total?: number
+  allLabel?: string
+  /** Après les valeurs (« Sans poste »…). */
+  extra?: ReactNode
+}) {
+  const nOf = (v: string) => (counts ? (counts instanceof Map ? (counts.get(v) ?? 0) : ((counts as Record<string, number>)[v] ?? 0)) : undefined)
+  const pill = (on: boolean) =>
+    `min-h-9 rounded-full border px-2.5 text-xs font-bold transition disabled:opacity-40 ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
+  const num = (n?: number) => (n === undefined ? null : <span className="ml-1 text-[10px] font-normal tabular-nums opacity-75">{n.toLocaleString('fr-FR')}</span>)
+  return (
+    <FilterField label={label}>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" aria-pressed={!value.length} className={pill(!value.length)} onClick={() => onChange([])}>
+          {allLabel}
+          {num(total)}
+        </button>
+        {options.map((o) => {
+          const on = value.includes(o.value)
+          const n = nOf(o.value)
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={on}
+              title={o.title ?? (o.short && o.short !== o.label ? o.label : undefined)}
+              aria-label={o.short && o.short !== o.label ? `${o.title ?? o.label}${n !== undefined ? ` (${n})` : ''}` : undefined}
+              disabled={n === 0 && !on}
+              className={pill(on)}
+              onClick={() => onChange(on ? value.filter((x) => x !== o.value) : [...value, o.value])}
+            >
+              {o.short ?? o.label}
+              {num(n)}
+            </button>
+          )
+        })}
+        {extra}
+      </div>
+    </FilterField>
+  )
+}

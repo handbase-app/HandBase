@@ -18,6 +18,7 @@ import {
   isListSearch,
   listChangeText,
   listChips,
+  listFilterCount,
   listKeysForModel,
   listKeysOfWord,
   localListCommand,
@@ -365,6 +366,32 @@ const gctx: GroupCtx = {
   // Nombres des menus : chaque menu compte les éléments qui passent les AUTRES filtres.
   const qy: ListQuery<GroupFilters> = { f: { sex: 'F', scope: 'comite' }, q: '' }
   assert.equal(filterItems(groupsSpec, GROUPS, qy, gctx, 'sex').length, GROUPS.filter((x) => x.scope === 'comite').length)
+}
+
+// ---------- 6 bis. Choix multiples : OU dans un champ, ET entre les champs ----------
+{
+  // Événements : tournois OU matchs, dans le Var OU les Bouches-du-Rhône.
+  const qy: ListQuery<EventFilters> = { f: { types: ['tournoi', 'match'], depts: ['83', '13'] }, q: '' }
+  const got = selectItems(eventsSpec, EVENTS, qy, ectx).map((e) => e.id)
+  const depts = (e: QEvent) => ectx.info!.get(e.id)!.depts
+  const want = EVENTS.filter((e) => (e.type === 'tournoi' || e.type === 'match') && depts(e).some((d) => d === '83' || d === '13')).map((e) => e.id)
+  assert.ok(want.length > 5)
+  assert.deepEqual(got, want)
+  const chips = new Map(listChips(eventsSpec, qy, ectx).map((c) => [c.key, c.label]))
+  assert.equal(chips.get('types'), 'Tournoi ou Match')
+  assert.equal(chips.get('depts'), 'Var ou Bouches-du-Rhône')
+  assert.equal(listFilterCount(eventsSpec, qy), 2, 'un par champ, quel que soit le nombre de valeurs')
+  assert.equal(listFilterCount(eventsSpec, { ...qy, q: 'tournoi', sort: { by: 'date', dir: 'asc' } }), 3, 'tri compris, recherche non')
+  // Nombre d'un type (les autres champs appliqués) : celui qu'on obtient en le cochant seul.
+  const others = filterItems(eventsSpec, EVENTS, qy, ectx, 'types')
+  for (const t of TYPES) assert.equal(others.filter((e) => e.type === t).length, selectItems(eventsSpec, EVENTS, { ...qy, f: { ...qy.f, types: [t] } }, ectx).length, t)
+  // Groupes : visibilités, ligues, comités, années d'âge : l'un ou l'autre.
+  const gq: ListQuery<GroupFilters> = { f: { depts: ['83', '13'], years: ['2010', '2011'] }, q: '' }
+  const g = selectItems(groupsSpec, GROUPS, gq, gctx).map((x) => x.id)
+  assert.deepEqual(g, GROUPS.filter((x) => (x.department === '83' || x.department === '13') && x.years?.some((y) => y === '2010' || y === '2011')).map((x) => x.id))
+  assert.equal(new Map(listChips(groupsSpec, gq, gctx).map((c) => [c.key, c.label])).get('depts'), 'Var ou Bouches-du-Rhône')
+  // Session d'avant (une seule valeur) : toujours lue.
+  assert.deepEqual(cleanListQuery(eventsSpec, { f: { types: 'tournoi', depts: '83' }, q: '' }).f, { types: ['tournoi'], depts: ['83'] })
 }
 
 // ---------- 7. Simple nom ou phrase ----------

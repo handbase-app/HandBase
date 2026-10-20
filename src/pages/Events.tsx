@@ -123,7 +123,7 @@ export default function Events() {
   const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
-  const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading, filtersOpen } = useEventsQuery(events, stats)
+  const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
 
   if (!events || !allEvents) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const orgOf = (ev: HBEvent) => organizerLabel(ev, units)
@@ -200,7 +200,7 @@ export default function Events() {
           )}
         </div>
       )}
-      {events.length > 0 && <StickyQuery stick={!filtersOpen}>{filterUi}</StickyQuery>}
+      {events.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
       {filterTop}
       {searching ? (
         <>
@@ -1171,7 +1171,7 @@ export function AddPlayers({
   scope?: string
 }) {
   const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
-  const { filtered, ui, top } = usePlayersQuery(all, { dock: false, scope })
+  const { filtered, ui, top } = usePlayersQuery(all, { scope })
   // Dans le panneau de droite (ordinateur), la barre se colle en haut du panneau, qui défile seul.
   const inPanel = !!usePanel()
   const [picked, setPicked] = useState<Set<string>>(new Set())

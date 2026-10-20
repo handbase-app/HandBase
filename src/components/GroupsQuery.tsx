@@ -8,6 +8,8 @@ import { useVoicePlaces } from '../voicePlaces'
 import { countBy, filterItems, type ListQuery } from '../listQuery'
 import { buildGroupsSchema, groupsSpec, readGroupsRecipe, SCOPE_LIST, SEX_LIST, VIS_LIST, type GroupCtx, type GroupFilters, type QGroup } from '../groupQuery'
 import { SegRow, SortCalcPicker, ToggleChip, useListQuery } from './ListQuery'
+import { MultiPicker } from './MultiPicker'
+import { ChoicePills } from './FilterWindow'
 
 /*
  * Liste Groupes : filtres = recette « groupes » (src/groupQuery.ts), même expérience que les listes Joueurs et Événements
@@ -66,7 +68,10 @@ export function useGroupsQuery(groups: PlayerGroup[] | undefined) {
   })
 }
 
-/** Panneau « Filtres » : visibilité, niveau, territoire, garçons / filles, année d'âge, mes groupes, suivis, puis tri et calcul. */
+/**
+ * Fenêtre « Filtres » : visibilité, niveau, territoire, garçons / filles, année d'âge, mes groupes, suivis, puis tri et
+ * calcul. Visibilités, ligues, comités et années d'âge : plusieurs choix possibles (l'un OU l'autre).
+ */
 function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: GroupCtx; qy: ListQuery<GroupFilters>; setQy: (q: ListQuery<GroupFilters>) => void }) {
   const f = qy.f
   const setF = (patch: Partial<GroupFilters>) => {
@@ -85,10 +90,10 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
   const years = countBy(except('years'), (g) => g.years ?? [])
   const who = new Map(WHO.map((w) => [w.value, except('who').filter((g) => groupsSpec.test('who', { who: w.value }, g, ctx)).length]))
   const nFollowed = except('followed').filter((g) => ctx.followed.has(g.id)).length
-  const region = f.regions?.length === 1 ? f.regions[0] : ''
+  const picked = f.regions ?? []
   return (
     <>
-      <SegRow label="Visibilité" value={f.vis?.length === 1 ? f.vis[0] : ''} options={VIS_LIST} counts={vis} total={except('vis').length} onChange={(v) => setF({ vis: v ? [v] : undefined })} />
+      <ChoicePills label="Visibilité" allLabel="Toutes" value={f.vis ?? []} options={VIS_LIST} counts={vis} total={except('vis').length} onChange={(vs) => setF({ vis: vs.length ? vs : undefined })} />
       <SegRow
         label="Niveau"
         value={f.scope ?? ''}
@@ -101,66 +106,50 @@ function GroupsPanel({ groups, ctx, qy, setQy }: { groups: PlayerGroup[]; ctx: G
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Territoire</span>
           <div className={`grid gap-2 ${f.scope === 'ligue' ? '' : 'grid-cols-2'}`}>
-            <select
-              className={`field min-h-11 py-1.5 text-xs ${f.regions ? 'border-accent font-bold' : ''}`}
-              aria-label="Ligue"
-              value={region}
-              onChange={(e) => {
-                const r = e.target.value
-                setF({ regions: r ? [r] : undefined, ...(f.depts && r && !f.depts.every((d) => ctx.regionOf(d) === r) ? { depts: undefined } : {}) })
-              }}
-            >
-              <option value="">Toutes les ligues ({except('regions').length})</option>
-              {[...regions.entries()]
+            <MultiPicker
+              className="min-h-11 py-1.5 text-xs"
+              label="Ligue"
+              allLabel={`Toutes les ligues (${except('regions').length})`}
+              noun={['ligue', 'ligues']}
+              value={picked}
+              options={[...regions.entries()]
                 .filter(([r]) => ctx.regionName(r))
-                .sort((a, b) => (ctx.regionName(a[0]) ?? '').localeCompare(ctx.regionName(b[0]) ?? '', 'fr'))
-                .map(([r, n]) => (
-                  <option key={r} value={r}>
-                    {ctx.regionName(r)} ({n})
-                  </option>
-                ))}
-            </select>
+                .map(([r, n]) => ({ value: r as string, label: ctx.regionName(r)!, count: n }))
+                .sort((a, b) => a.label.localeCompare(b.label, 'fr'))}
+              // Des ligues cochées écartent les comités d'ailleurs.
+              onChange={(rs) => {
+                const keep = rs.length && f.depts ? f.depts.filter((d) => rs.includes(ctx.regionOf(d) ?? '')) : f.depts
+                setF({ regions: rs.length ? rs : undefined, depts: keep?.length ? keep : undefined })
+              }}
+            />
             {f.scope !== 'ligue' && (
-              <select
-                className={`field min-h-11 py-1.5 text-xs ${f.depts ? 'border-accent font-bold' : ''}`}
-                aria-label="Comité"
-                value={f.depts?.length === 1 ? f.depts[0] : ''}
-                onChange={(e) => setF({ depts: e.target.value ? [e.target.value] : undefined })}
-              >
-                <option value="">
-                  {region ? 'Tous ses comités' : 'Tous les comités'} ({except('depts').length})
-                </option>
-                {[...depts.entries()]
-                  .filter(([d]) => !region || ctx.regionOf(d) === region)
-                  .sort((a, b) => a[0].localeCompare(b[0]))
-                  .map(([d, n]) => (
-                    <option key={d} value={d}>
-                      {ctx.deptName(d)} ({n})
-                    </option>
-                  ))}
-              </select>
+              <MultiPicker
+                className="min-h-11 py-1.5 text-xs"
+                label="Comité"
+                allLabel={`${picked.length ? 'Tous leurs comités' : 'Tous les comités'} (${except('depts').length})`}
+                noun={['comité', 'comités']}
+                value={f.depts ?? []}
+                options={[...depts.entries()]
+                  .filter(([d]) => !!d && (!picked.length || picked.includes(ctx.regionOf(d!) ?? '')))
+                  .sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? ''))
+                  .map(([d, n]) => ({ value: d as string, label: ctx.deptName(d!), count: n }))}
+                onChange={(ds) => setF({ depts: ds.length ? ds : undefined })}
+              />
             )}
           </div>
         </div>
       )}
       <SegRow label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={f.sex ?? ''} options={SEX_LIST} counts={sexes} total={except('sex').length} onChange={(v) => setF({ sex: v || undefined })} />
-      {years.size > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-bold tracking-wider text-muted uppercase">Année d’âge</span>
-          <div className="flex flex-wrap gap-1.5">
-            {[...years.entries()]
-              .sort((a, b) => b[0].localeCompare(a[0]))
-              .map(([y, n]) => (
-                <ToggleChip
-                  key={y}
-                  on={!!f.years?.includes(y)}
-                  label={y}
-                  n={n}
-                  onChange={(on) => setF({ years: on ? [...(f.years ?? []), y] : (f.years ?? []).filter((x) => x !== y).length ? (f.years ?? []).filter((x) => x !== y) : undefined })}
-                />
-              ))}
-          </div>
-        </div>
+      {(years.size > 0 || f.years) && (
+        <ChoicePills
+          label="Année d’âge"
+          allLabel="Toutes"
+          value={f.years ?? []}
+          options={[...new Set([...years.keys(), ...(f.years ?? [])])].sort((a, b) => b.localeCompare(a)).map((y) => ({ value: y, label: y }))}
+          counts={years}
+          total={except('years').length}
+          onChange={(ys) => setF({ years: ys.length ? ys : undefined })}
+        />
       )}
       <SegRow label="Mes groupes" value={f.who ?? ''} options={WHO} counts={who} total={except('who').length} onChange={(v) => setF({ who: v || undefined })} />
       <div className="flex flex-wrap gap-1.5">

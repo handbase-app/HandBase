@@ -2,7 +2,7 @@
 // mémorisé, état gardé pendant la session, choix du club, flèches du clavier, « Voir dans Joueurs » d'un groupe.
 // (Les anciens filtres rapides usePlayerFilter ne servent plus : toutes les listes de joueurs ont leurs filtres en recette,
 // src/components/PlayersQuery.tsx.)
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Player } from '../db'
 import { nameTokens, playerHaystack } from '../nameMatch'
 import { JOUEURS_KEYS, type JoueursQuery } from '../playerQuery'
@@ -72,94 +72,6 @@ export function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev:
     }
   }, [key, value])
   return [value, setValue]
-}
-
-/** Choix du club en tapant une partie de son nom (la ligue compte une centaine de clubs). */
-export function ClubPicker({
-  clubs,
-  total,
-  value,
-  onChange,
-}: {
-  clubs: [string, number][]
-  total: number
-  value: string
-  onChange: (club: string) => void
-}) {
-  const [text, setText] = useState('')
-  const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(0)
-  const blurTimer = useRef<number | undefined>(undefined)
-  const listRef = useRef<HTMLDivElement>(null)
-  const words = fold(text).split(/\s+/).filter(Boolean)
-  const matches = clubs.filter(([c]) => words.every((w) => fold(c).includes(w)))
-  useEffect(() => setActive(0), [text])
-  useEffect(() => {
-    listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [active])
-
-  const pick = (c: string) => {
-    onChange(c)
-    setText('')
-    setOpen(false)
-  }
-
-  return (
-    <div className="relative">
-      <input
-        className={`field py-1.5 pr-7 text-xs ${value && !open ? 'font-bold' : ''}`}
-        placeholder={`Tous les clubs (${total.toLocaleString('fr-FR')}) — taper un nom…`}
-        value={open ? text : value}
-        onFocus={() => {
-          window.clearTimeout(blurTimer.current)
-          setText('')
-          setOpen(true)
-        }}
-        // Laisse le temps au clic sur une proposition d'être pris en compte.
-        onBlur={() => (blurTimer.current = window.setTimeout(() => setOpen(false), 150))}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          // ↑ ↓ pour se déplacer dans les propositions, Entrée pour choisir, Échap pour fermer.
-          if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            setActive((i) => Math.min(i + 1, matches.length - 1))
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            setActive((i) => Math.max(i - 1, 0))
-          } else if (e.key === 'Enter' && matches[active]) {
-            pick(matches[active][0])
-            ;(e.target as HTMLInputElement).blur()
-          } else if (e.key === 'Escape') (e.target as HTMLInputElement).blur()
-        }}
-      />
-      {value && !open && (
-        <button className="absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted hover:text-fg" title="Tous les clubs" onClick={() => pick('')}>
-          ✕
-        </button>
-      )}
-      {open && (
-        <div ref={listRef} className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-md border border-line bg-panel shadow-xl">
-          <button className="block w-full px-3 py-2 text-left text-xs text-muted hover:bg-panel-2" onMouseDown={(e) => e.preventDefault()} onClick={() => pick('')}>
-            Tous les clubs ({total.toLocaleString('fr-FR')})
-          </button>
-          {matches.map(([c, n], i) => (
-            <button
-              key={c}
-              data-i={i}
-              onMouseEnter={() => setActive(i)}
-              className={`flex w-full justify-between gap-2 px-3 py-2 text-left text-xs ${i === active ? 'bg-panel-2' : ''} ${c === value ? 'text-accent' : ''}`}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pick(c)}
-            >
-              <span className="truncate">{c}</span>
-              <span className="shrink-0 text-muted">{n}</span>
-            </button>
-          ))}
-          {!matches.length && <div className="px-3 py-2 text-xs text-muted">Aucun club ne correspond.</div>}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /**

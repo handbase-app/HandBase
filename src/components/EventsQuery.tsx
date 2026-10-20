@@ -22,6 +22,8 @@ import {
 import { department } from './PlayerFilter'
 import { SegRow, SortCalcPicker, ToggleChip, useListQuery } from './ListQuery'
 import { YearPicker } from './YearPicker'
+import { MultiPicker } from './MultiPicker'
+import { ChoicePills, FilterField } from './FilterWindow'
 import { uniqYears } from '../birthYears'
 
 /*
@@ -141,7 +143,10 @@ export function useEventsQuery(events: HBEvent[] | undefined, stats: Map<string,
   return { ...lq, loading: !ctx }
 }
 
-/** Panneau « Filtres » : type, date, mes événements, puis « + Ajouter une condition », tri et calcul. */
+/**
+ * Fenêtre « Filtres » : type, date, mes événements, puis « + Ajouter une condition », tri et calcul. Types, lieux, régions,
+ * départements et générations : plusieurs choix possibles (l'un OU l'autre).
+ */
 function EventsPanel({
   events,
   ctx,
@@ -175,17 +180,18 @@ function EventsPanel({
   const year = f.period?.kind === 'year' ? String(f.period.year) : ''
   const places = countBy(except('places'), (e) => [e.place?.trim()])
   const depts = countBy(except('depts'), (e) => ctx.info?.get(e.id)?.depts ?? [])
+  const regions = countBy(except('regions'), (e) => (ctx.info?.get(e.id)?.depts ?? []).map((d) => ctx.regionOf(d)))
   const gens = countBy(except('gens'), (e) => (ctx.info?.get(e.id)?.years ?? []).map(String))
   const nYes = (k: 'sheet' | 'video' | 'rewatch') => except(k).filter((e) => eventsSpec.test(k, { [k]: true }, e, ctx)).length
   return (
     <>
-      <SegRow
+      <ChoicePills
         label="Type"
-        value={f.types?.length === 1 ? f.types[0] : ''}
+        value={f.types ?? []}
         options={EVENT_TYPE_LIST.map((t) => ({ ...t, short: SHORT[t.value] }))}
         counts={types}
         total={except('types').length}
-        onChange={(v) => setF({ types: v ? [v] : undefined })}
+        onChange={(vs) => setF({ types: vs.length ? vs : undefined })}
       />
       <SegRow label="Date" value={when} options={WHEN} counts={whenCount} total={periodBase.length} onChange={(v) => setF({ period: v ? ({ kind: v } as EventPeriod) : undefined })} />
       <div className="grid grid-cols-2 gap-2">
@@ -232,50 +238,61 @@ function EventsPanel({
                 Nombre d’avis
               </button>
             </div>
-            {places.size > 0 && (
-              <select
-                className={`field min-h-11 py-1.5 text-xs ${f.places ? 'border-accent font-bold' : ''}`}
-                aria-label="Lieu"
-                value={f.places?.length === 1 ? f.places[0] : ''}
-                onChange={(e) => setF({ places: e.target.value ? [e.target.value] : undefined })}
-              >
-                <option value="">Lieu : tous</option>
-                {[...places.entries()]
-                  .sort((a, b) => a[0].localeCompare(b[0], 'fr'))
-                  .map(([p, n]) => (
-                    <option key={p} value={p}>
-                      {p} ({n})
-                    </option>
-                  ))}
-              </select>
+            {(places.size > 0 || f.places) && (
+              <FilterField label="Lieu">
+                <MultiPicker
+                  className="min-h-11 py-1.5 text-xs"
+                  label="Lieu"
+                  allLabel="Tous les lieux"
+                  noun={['lieu', 'lieux']}
+                  value={f.places ?? []}
+                  options={[...places.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr')).map(([p, n]) => ({ value: p, count: n }))}
+                  onChange={(xs) => setF({ places: xs.length ? xs : undefined })}
+                />
+              </FilterField>
             )}
             {!ctx.info ? (
               <p className="text-[11px] text-muted">Chargement des lieux et des générations…</p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                <select
-                  className={`field min-h-11 py-1.5 text-xs ${f.depts ? 'border-accent font-bold' : ''}`}
-                  aria-label="Département"
-                  value={f.depts?.length === 1 ? f.depts[0] : ''}
-                  onChange={(e) => setF({ depts: e.target.value ? [e.target.value] : undefined, regions: undefined })}
-                >
-                  <option value="">Département : tous</option>
-                  {[...depts.entries()]
-                    .sort((a, b) => a[0].localeCompare(b[0]))
-                    .map(([d, n]) => (
-                      <option key={d} value={d}>
-                        {ctx.deptName(d)} ({n})
-                      </option>
-                    ))}
-                </select>
-                <YearPicker
-                  className="min-h-11 py-1.5 text-xs"
-                  label="Génération des joueurs"
-                  allLabel="Génération : toutes"
-                  value={(f.gens ?? []).map(String).reverse()}
-                  options={[...gens.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([y, n]) => ({ value: y, count: n }))}
-                  onChange={(ys) => setF({ gens: ys.length ? uniqYears(ys) : undefined })}
-                />
+                <FilterField label="Région">
+                  <MultiPicker
+                    className="min-h-11 py-1.5 text-xs"
+                    label="Région"
+                    allLabel="Toutes"
+                    noun={['région', 'régions']}
+                    value={f.regions ?? []}
+                    options={[...regions.entries()]
+                      .filter(([r]) => ctx.regionName(r))
+                      .map(([r, n]) => ({ value: r, label: ctx.regionName(r)!, count: n }))
+                      .sort((a, b) => a.label.localeCompare(b.label, 'fr'))}
+                    // Des régions cochées écartent les départements d'ailleurs.
+                    onChange={(rs) =>
+                      setF({ regions: rs.length ? rs : undefined, ...(rs.length && f.depts ? { depts: f.depts.filter((d) => rs.includes(ctx.regionOf(d) ?? '')).length ? f.depts.filter((d) => rs.includes(ctx.regionOf(d) ?? '')) : undefined } : {}) })
+                    }
+                  />
+                </FilterField>
+                <FilterField label="Département">
+                  <MultiPicker
+                    className="min-h-11 py-1.5 text-xs"
+                    label="Département"
+                    allLabel="Tous"
+                    noun={['département', 'départements']}
+                    value={f.depts ?? []}
+                    options={[...depts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([d, n]) => ({ value: d, label: ctx.deptName(d), count: n }))}
+                    onChange={(ds) => setF({ depts: ds.length ? ds : undefined })}
+                  />
+                </FilterField>
+                <FilterField label="Génération des joueurs">
+                  <YearPicker
+                    className="min-h-11 py-1.5 text-xs"
+                    label="Génération des joueurs"
+                    allLabel="Toutes"
+                    value={(f.gens ?? []).map(String).reverse()}
+                    options={[...gens.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([y, n]) => ({ value: y, count: n }))}
+                    onChange={(ys) => setF({ gens: ys.length ? uniqYears(ys) : undefined })}
+                  />
+                </FilterField>
               </div>
             )}
             <p className="text-[10px] text-muted">Lieu : d’après le lieu écrit, sinon le département de la plupart de ses joueurs. Génération : au moins un quart de ses joueurs.</p>

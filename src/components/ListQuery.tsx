@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { decideAction } from '../playerQuery'
 import {
-  activeListKeys,
   calcList,
   cleanListQuery,
   emptyListQuery,
   hasListQuery,
   isListSearch,
+  listFilterCount,
   listChangeText,
   listChips,
   listKeysForModel,
@@ -27,7 +27,7 @@ import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { useSessionState } from './PlayerFilter'
-import { chipCls, NumberInput, OPS, Select } from './RecipeChips'
+import { FilterChip, NumberInput, OPS, Select } from './RecipeChips'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { startAskAction } from './AskAction'
 import { ACTION_DISPLAY, actionDetail, detectAction } from '../askAction'
@@ -35,6 +35,7 @@ import type { AskPage } from '../demander'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
+import { CountText, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
 
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
@@ -43,11 +44,12 @@ import { AnswerFeedback } from './AnswerFeedback'
  *    une recherche locale instantanée, sans appel ; une phrase (Entrée, ✨, micro) part au mode « question » avec le contexte
  *    de la page (« evenements », « groupes ») et les NOMS des filtres posés seulement ; la recette rendue est revérifiée ici
  *    puis FUSIONNÉE : par défaut elle AJOUTE ; on n'efface ou ne retire que si c'est dit ; « Annuler » ; ligne « Ajouté : … » ;
- *  - les filtres en PASTILLES (toucher : régler ou « Retirer »), « Tout effacer » ; « Filtres » : le panneau de la page ;
+ *  - les filtres en PASTILLES (toucher : régler ; × : retirer), « Tout effacer » ; « Filtres » : la fenêtre des filtres de la
+ *    page, posée au-dessus de la liste (src/components/FilterWindow.tsx), chaque choix appliqué tout de suite ;
  *  - question de calcul (« combien par mois ? ») : réponse au-dessus de la liste, qui reste filtrée ;
  *  - état gardé pendant la session : « Retour » depuis un événement ou un groupe retrouve la même liste, les mêmes pastilles.
  * Micro seulement si la fonction déployée annonce le contexte (« question_evenements », « question_groupes ») ; sinon le
- * champ reste une recherche locale (et les filtres, le panneau), sans régression.
+ * champ reste une recherche locale (et les filtres, la fenêtre), sans régression.
  */
 
 const fr = (n: number) => n.toLocaleString('fr-FR')
@@ -66,7 +68,7 @@ export type ListQueryOptions<F extends object, T, C> = {
   schema: () => Record<string, string>
   /** Exemples du micro (« les tournois de cette saison », « combien par mois ? »). */
   hint: string
-  /** Panneau « Filtres » de la page (filtres rapides, conditions, tri). */
+  /** Réglages de la fenêtre « Filtres » de la page (filtres rapides, conditions, tri). */
   panel: (qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void) => ReactNode
   /** Réglage d'une pastille propre à la page (période…) ; sinon nombre (op, n) ou « Retirer » seulement. */
   chipEditor?: (key: string, qy: ListQuery<F>, setQy: (q: ListQuery<F>) => void) => ReactNode
@@ -90,7 +92,8 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   const qy = useMemo(() => cleanListQuery(spec, raw), [spec, raw])
   const [text, setText] = useSessionState(`handbase.${id}.texte`, qy.q)
   const [result, setResult] = useSessionState<ResultLine<F> | null>(`handbase.${id}.resultat`, null)
-  const [open, setOpen] = useSessionState(`handbase.${id}.filtres`, false)
+  // Fenêtre « Filtres » (src/components/FilterWindow.tsx) : posée au-dessus de la liste, ouverte de n'importe où.
+  const fw = useFilterWindow()
   const [chipOpen, setChipOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -243,13 +246,8 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   }
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
-  const nChips = activeListKeys(spec, qy).filter((k) => k !== 'q').length
-  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google).
-  const filtersButton = (
-    <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={`flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${open || nChips ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`}>
-      Filtres{nChips > 0 && <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white">{nChips}</span>} <span className="ml-1">{open ? '▴' : '▾'}</span>
-    </button>
-  )
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google), avec le nombre de filtres posés.
+  const filtersButton = <FiltersButton w={fw} n={listFilterCount(spec, qy)} />
   const field = (
     <Demander
       page={askPage}
@@ -344,12 +342,14 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       <div className="flex gap-2">{field}</div>
       {status}
       {chips}
-      {open && (
-        <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel p-2.5">
-          {o.panel(qy, setQy)}
-        </div>
-      )}
-      {open && privacy}
+      <FilterWindow
+        w={fw}
+        count={<CountText n={filtered.length} total={items?.length ?? 0} noun={(n) => o.noun[n > 1 ? 1 : 0]} />}
+        onClear={hasListQuery(spec, qy) || qy.calc ? reset : undefined}
+      >
+        {o.panel(qy, setQy)}
+        {privacy}
+      </FilterWindow>
     </div>
   )
 
@@ -383,7 +383,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
 
   /** Change dès qu'un filtre change (position et nombre affiché remis à zéro). */
   const signature = JSON.stringify([qy.f, qy.q, qy.sort ?? null])
-  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset, filtersOpen: open }
+  return { qy, setQy, filtered, active: hasListQuery(spec, qy), ui, top, signature, reset }
 }
 
 // ---------- Pastilles ----------
@@ -416,10 +416,17 @@ function ListChips<F extends object, T, C>({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5" aria-label="Filtres posés : toucher une pastille pour la régler ou la retirer">
         {chips.map((c) => (
-          <button key={c.key} type="button" className={chipCls(c.key === open)} aria-expanded={c.key === open} onClick={() => setOpen(c.key === open ? null : c.key)}>
-            <span className="min-w-0 truncate">{c.label}</span>
-            <span className="shrink-0 text-[10px] opacity-60">▾</span>
-          </button>
+          <FilterChip
+            key={c.key}
+            label={c.label}
+            open={c.key === open}
+            edit
+            onToggle={() => setOpen(c.key === open ? null : c.key)}
+            onRemove={() => {
+              if (c.key === open) setOpen(null)
+              setQy(removeListKeys(qy, [c.key]))
+            }}
+          />
         ))}
         {after}
       </div>

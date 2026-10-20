@@ -23,7 +23,7 @@
 // Uniquement des formulations positives ou neutres sur les jeunes.
 
 import { putYears, yearsOf } from './birthYears'
-import { cleanRecipe, decodeRecipe, encodeRecipe, type Interpreted, type Population, type QuestionContext, type Recipe } from './recipe'
+import { cleanRecipe, decodeRecipe, encodeRecipe, handsOf, type Interpreted, type Population, type QuestionContext, type Recipe } from './recipe'
 import type { Laterality } from './db'
 import { normalize, REGION_ALIASES } from './voiceFilters'
 
@@ -193,7 +193,7 @@ export function rescueInterpretation(it: Interpreted, phrase: string, ctx: Quest
   const hand = handIn(ws)
   if (hand) {
     r.pop.hand ??= hand
-    if (r.pop.hand === hand) handled.push(HAND_RE)
+    if (handsOf(r.pop).includes(hand)) handled.push(HAND_RE)
   }
   let followUp = false
   if (opts.scope !== 'liste') {

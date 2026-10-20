@@ -244,6 +244,13 @@ export function activeKeys(qy: JoueursQuery): FilterKey[] {
 /** Au moins un filtre (ou un tri) posé. */
 export const hasQuery = (qy: JoueursQuery) => activeKeys(qy).length > 0
 
+/**
+ * Nombre montré sur le bouton « Filtres » (« Filtres 3 ») : un par champ posé, quel que soit le nombre de valeurs cochées
+ * (« Ailier G. ou Ailier D. » compte pour un), tri compris ; ni le nom cherché (il est dans le champ) ni les filtres que
+ * l'écran commande lui-même (`hidden` : barre posée du bilan).
+ */
+export const filterCount = (qy: JoueursQuery, hidden?: ReadonlySet<FilterKey>) => activeKeys(qy).filter((k) => k !== 'q' && !hidden?.has(k)).length
+
 /** Envoyé avec la phrase : les NOMS des filtres posés, jamais leurs valeurs (le nom cherché : sa présence seulement). */
 export const keysForModel = (qy: JoueursQuery): string[] => activeKeys(qy).map((k) => MODEL_KEYS[k])
 
@@ -573,10 +580,16 @@ export function quickCounts<P extends QPlayer>(ix: QIndex<P>, qy: JoueursQuery, 
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'))
   }
-  const regionBase = base0.filter((x) => okClub(x) && okYear(x))
+  // Poste(s) cochés : comptés dans les nombres des lieux et des années (le nombre d'un département est celui qu'on obtient en
+  // le cochant, postes compris) ; les nombres des postes, eux, sans le filtre des postes.
+  const okPos = (x: P) =>
+    p.noPosition
+      ? !x.position
+      : !p.positions || (!!x.position && p.positions.includes(x.position)) || (!!p.secondary && !!x.secondaryPositions?.some((s) => p.positions!.includes(s)))
+  const regionBase = base0.filter((x) => okClub(x) && okYear(x) && okPos(x))
   const base = p.regions ? base0.filter((x) => !!info(x).region && p.regions!.includes(info(x).region!)) : base0
-  const deptBase = base.filter((x) => okClub(x) && okYear(x))
-  const clubBase = base.filter((x) => okDept(x) && okYear(x))
+  const deptBase = base.filter((x) => okClub(x) && okYear(x) && okPos(x))
+  const clubBase = base.filter((x) => okDept(x) && okYear(x) && okPos(x))
   const yearBase = base.filter((x) => okDept(x) && okClub(x))
   const scoped = yearBase.filter(okYear)
   const searched = searchByName(scoped, qy.q, hay, tokens).list
@@ -592,7 +605,7 @@ export function quickCounts<P extends QPlayer>(ix: QIndex<P>, qy: JoueursQuery, 
     deptTotal: deptBase.length,
     clubs: count(clubBase, (x) => info(x).club).map(([k, n]) => [k, n, ix.clubNames.get(k) ?? k] as [string, number, string]),
     clubTotal: clubBase.length,
-    years: count(yearBase, (x) => info(x).year).sort((a, b) => b[0].localeCompare(a[0])),
+    years: count(yearBase.filter(okPos), (x) => info(x).year).sort((a, b) => b[0].localeCompare(a[0])),
     positions,
     positionTotal: searched.length,
   }

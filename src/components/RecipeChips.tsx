@@ -53,6 +53,37 @@ export const chipCls = (on: boolean) =>
     on ? 'border-accent bg-accent text-white' : 'border-accent/50 bg-accent/10 text-fg hover:border-accent'
   }`
 
+/**
+ * Pastille d'un filtre posé : un toucher l'ouvre (réglage, « Retirer ») ; `onRemove` : un × la retire tout de suite
+ * (barres « Demander » des listes : les filtres posés restent visibles sous la barre, fenêtre « Filtres » fermée).
+ */
+export function FilterChip({ label, open, edit, onToggle, onRemove }: { label: string; open: boolean; edit: boolean; onToggle: () => void; onRemove?: () => void }) {
+  if (!onRemove)
+    return (
+      <button type="button" className={chipCls(open)} aria-expanded={open} onClick={onToggle}>
+        <span className="min-w-0 truncate">{label}</span>
+        {edit && <span className="shrink-0 text-[10px] opacity-60">▾</span>}
+      </button>
+    )
+  return (
+    <span
+      className={`flex min-h-9 max-w-full items-stretch rounded-full border text-xs font-bold transition ${
+        open ? 'border-accent bg-accent text-white' : 'border-accent/50 bg-accent/10 text-fg hover:border-accent'
+      }`}
+    >
+      <button type="button" className="flex min-w-0 items-center gap-1 rounded-l-full py-1 pr-1 pl-3 text-left" aria-expanded={open} onClick={onToggle}>
+        <span className="min-w-0 truncate">{label}</span>
+        {edit && <span className="shrink-0 text-[10px] opacity-60">▾</span>}
+      </button>
+      <button type="button" className="flex w-8 shrink-0 items-center justify-center rounded-r-full opacity-70 hover:opacity-100" aria-label={`Retirer « ${label} »`} title="Retirer" onClick={onRemove}>
+        <span aria-hidden className="text-sm leading-none">
+          ×
+        </span>
+      </button>
+    </span>
+  )
+}
+
 export function RecipeChips({
   recipe,
   names,
@@ -61,6 +92,7 @@ export function RecipeChips({
   keep,
   open: openProp,
   setOpen: setOpenProp,
+  quickRemove = false,
   after,
 }: {
   recipe: Recipe
@@ -72,6 +104,8 @@ export function RecipeChips({
   /** Pastille ouverte, quand l'écran la choisit (« + Ajouter une condition » ouvre la nouvelle). */
   open?: string | null
   setOpen?: (key: string | null) => void
+  /** Un × sur chaque pastille retirable (la retire sans l'ouvrir). */
+  quickRemove?: boolean
   /** Après les pastilles (« Tout effacer »…). */
   after?: ReactNode
 }) {
@@ -85,10 +119,21 @@ export function RecipeChips({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5" aria-label="La question en clair, toucher une pastille pour la changer ou la retirer">
         {chips.map((c) => (
-          <button key={c.key} type="button" className={chipCls(c.key === open)} aria-expanded={c.key === open} onClick={() => setOpen(c.key === open ? null : c.key)}>
-            <span className="min-w-0 truncate">{c.label}</span>
-            {(c.edit || c.removable) && <span className="shrink-0 text-[10px] opacity-60">▾</span>}
-          </button>
+          <FilterChip
+            key={c.key}
+            label={c.label}
+            open={c.key === open}
+            edit={!!(c.edit || c.removable)}
+            onToggle={() => setOpen(c.key === open ? null : c.key)}
+            onRemove={
+              quickRemove && c.removable
+                ? () => {
+                    if (c.key === open) setOpen(null)
+                    onChange(removeChip(recipe, c.key))
+                  }
+                : undefined
+            }
+          />
         ))}
         {after}
       </div>

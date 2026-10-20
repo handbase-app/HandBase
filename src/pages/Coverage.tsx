@@ -1258,7 +1258,6 @@ export default function Coverage() {
   const barHide = useMemo(() => barHidden(barState), [barKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const barPlayers = useMemo(() => (data ? livePlayers(data.players) : undefined), [data])
   const bar = usePlayersQuery(barPlayers, {
-    dock: false,
     scope: 'bilan-barre',
     hosted: {
       value: barValue,
@@ -1572,8 +1571,6 @@ export default function Coverage() {
   const barBelow = (
     <div className="flex flex-col gap-2 empty:hidden">
       {bar.below}
-      {/* Ordinateur : le panneau des filtres sous le bouton « Filtres », à droite. */}
-      {bar.panel && <div className="flex flex-col gap-2 sm:w-[30rem] sm:max-w-full sm:self-end">{bar.panel}</div>}
       {bar.top}
       {bilan.popLoading && <p className="text-[11px] text-muted">Chargement des filtres…</p>}
     </div>
@@ -1611,6 +1608,8 @@ export default function Coverage() {
   return (
     <WhoCtx.Provider value={who}>
     <div className="flex flex-col gap-4">
+      {/* Fenêtre « Filtres » de la barre (posée au-dessus de la page) : rendue même quand les filtres sont repliés (téléphone). */}
+      {bar.window}
       <div className="flex flex-col gap-2">
         {/* Sur un lieu, le retour remonte d'un étage (club → département → région → France). Depuis la France : le bilan est un
             onglet, retour seulement si l'on vient d'un autre écran que les onglets (TabBackButton). */}
