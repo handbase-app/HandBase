@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Player, Position } from '../db'
 import { BarChip } from './Pictos'
+import { courtTag } from './CourtPicker'
 import { ROSTER_SORTS, type RosterSection, type RosterSort, rosterPositions } from '../positionOrder'
 
 /*
@@ -23,15 +24,16 @@ export function RosterChip({ on, onClick, children }: { on: boolean; onClick: ()
 }
 
 /**
- * Pastilles des postes (« Gardien 3 »), qui filtrent : posées à gauche dans la capsule des pictogrammes (PlayerList
+ * Pastilles des postes (ronds du terrain : « G », « ALG »… et leur nombre), qui filtrent : posées à gauche dans la capsule des pictogrammes (PlayerList
  * `barLead`). Rien quand la liste n'a qu'un poste (ou aucun) : la capsule reste comme ailleurs.
  */
 export function rosterBarLead({ roster, pos, setPos }: { roster: Player[]; pos: Position | ''; setPos: (p: Position | '') => void }): ReactNode {
   const positions = rosterPositions(roster)
   if (positions.length <= 1) return undefined
   return positions.map((x) => (
-    <BarChip key={x.id} on={pos === x.id} n={x.n} title={`${x.label} : ${pos === x.id ? 'toucher pour tout afficher' : 'afficher ce poste seulement'}`} onClick={() => setPos(pos === x.id ? '' : x.id)}>
-      {x.short}
+    // Rond du terrain de la fiche (G, ALG, ARG…) pour tenir dans la capsule ; nom complet au survol et pour les lecteurs d'écran.
+    <BarChip key={x.id} dot on={pos === x.id} n={x.n} label={`${x.label}, ${x.n}`} title={`${x.label} : ${pos === x.id ? 'toucher pour tout afficher' : 'afficher ce poste seulement'}`} onClick={() => setPos(pos === x.id ? '' : x.id)}>
+      {courtTag(x.id)}
     </BarChip>
   ))
 }

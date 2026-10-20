@@ -191,7 +191,24 @@ export function PictoBar({ className = '', label, lead }: { className?: string; 
  * Pastille de filtre dans la capsule (PictoBar `lead`) : hauteur des pictogrammes sur liste étroite (28 px), texte 11 px,
  * nombre discret après le nom (« Gardien 3 »), active en couleur d'accent.
  */
-export function BarChip({ on, onClick, n, title, children }: { on: boolean; onClick: () => void; n?: number; title?: string; children: ReactNode }) {
+export function BarChip({
+  on,
+  onClick,
+  n,
+  title,
+  label,
+  dot,
+  children,
+}: {
+  on: boolean
+  onClick: () => void
+  n?: number
+  title?: string
+  label?: string
+  /** Rond du terrain de la fiche (poste : G, ALG…) avec le nombre en petite pastille, au lieu d'une pilule. */
+  dot?: boolean
+  children: ReactNode
+}) {
   const ref = useRef<HTMLButtonElement>(null)
   // Choisie dans une ligne qui défile (liste étroite) : ramenée dans la ligne, sans faire défiler la page.
   useEffect(() => {
@@ -207,14 +224,34 @@ export function BarChip({ on, onClick, n, title, children }: { on: boolean; onCl
       ref={ref}
       type="button"
       aria-pressed={on}
+      aria-label={label}
       title={title}
       onClick={onClick}
-      className={`flex h-7 shrink-0 items-center rounded-full border px-2.5 text-[11px] font-bold whitespace-nowrap transition ${
-        on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
-      }`}
+      className={
+        dot
+          ? `relative mt-1.5 mr-2.5 flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border-[1.5px] px-1 text-[9px] font-bold whitespace-nowrap transition ${
+              on ? 'border-[var(--color-on-accent,#fff)] bg-accent text-[var(--color-on-accent,#fff)]' : 'border-muted bg-panel text-fg'
+            }`
+          : `flex h-7 shrink-0 items-center rounded-full border px-2 text-[11px] font-bold whitespace-nowrap transition ${
+              on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+            }`
+      }
     >
       {children}
-      {n !== undefined && <span className="ml-1 text-[10px] font-normal tabular-nums opacity-70">{n}</span>}
+      {n !== undefined &&
+        (dot ? (
+          // Nombre en pastille en haut à droite du rond, comme sur le terrain du filtre des postes.
+          <span
+            aria-hidden
+            className={`absolute -top-1.5 -right-2 flex h-3.5 min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-none font-bold tabular-nums ${
+              on ? 'bg-[var(--color-on-accent,#fff)] text-accent' : 'bg-line text-fg'
+            }`}
+          >
+            {n}
+          </span>
+        ) : (
+          <span className="ml-0.5 text-[10px] font-normal tabular-nums opacity-70">{n}</span>
+        ))}
     </button>
   )
 }

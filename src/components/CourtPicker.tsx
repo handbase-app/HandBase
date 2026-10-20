@@ -22,6 +22,9 @@ const SPOTS: Partial<Record<string, { x: number; y: number; tag: string }>> = {
   PIV: { x: 150, y: 117, tag: 'P' },
 }
 
+/** Étiquette d'un poste sur le terrain (G, ALG, ARG, DC, ARD, ALD, P) ; le code tel quel pour un poste sans place. */
+export const courtTag = (id: string) => SPOTS[id]?.tag ?? id
+
 /**
  * Demi-terrain cliquable : le premier poste touché est le poste principal (rond plein), les suivants
  * sont des postes secondaires (rond entouré, retouché = retiré). Retoucher le principal propose de le
