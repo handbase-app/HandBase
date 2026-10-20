@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { alive, db, POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
@@ -271,7 +271,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const heavyMissing = needsFullData(qy) && !full.data
 
   // ---------- Liste ----------
-  const sel = useMemo(() => (index && !heavyMissing ? selectPlayers(index, qy, hayOf, tokensOf) : null), [index, qy, heavyMissing])
+  // Calculée en arrière-plan (useDeferredValue) : le champ, les cases et les pastilles suivent tout de suite, la liste (et son
+  // nombre) suit dès que le calcul est fait ; pendant ce temps, fine barre sous la pilule et nombre estompé (`calculating`).
+  const listQy = useDeferredValue(qy)
+  const sel = useMemo(() => (index && !heavyMissing ? selectPlayers(index, listQy, hayOf, tokensOf) : null), [index, listQy, heavyMissing])
   const calcR = useMemo(() => calcRecipe(qy), [qy])
   const calcAns = useMemo(() => (index && calcR && !heavyMissing ? runRecipe(index, calcR) : null), [index, calcR, heavyMissing])
   const viewById = useMemo(() => new Map((players ?? []).map((p) => [p.id, p])), [players])
@@ -307,6 +310,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
 
   // ---------- Recherche par nom (instantanée, avec un léger délai pendant la frappe) ----------
   const nameMode = !questionReady || isNameQuery(text)
+  // Nom tapé pas encore cherché (délai de frappe), ou liste en cours de calcul : le signe d'attente de la liste.
+  const typing = nameMode && text.replace(/\s+/g, ' ').trim() !== qy.q.trim()
+  const calculating = !!index && !heavyMissing && (typing || listQy !== qy)
   useEffect(() => {
     const q = nameMode ? text.replace(/\s+/g, ' ').trim() : ''
     if (q === qy.q.trim()) return
@@ -437,7 +443,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const sending = mic.phase === 'sending' || !!busy || !!pending
 
   // ---------- Fenêtre « Filtres » : les réglages ----------
-  const counts = useMemo(() => (index && open && !heavyMissing ? quickCounts(index, qy, hayOf, tokensOf) : null), [index, qy, open, heavyMissing])
+  const counts = useMemo(() => (index && open && !heavyMissing ? quickCounts(index, listQy, hayOf, tokensOf) : null), [index, listQy, open, heavyMissing])
   const p = qy.recipe.pop
   const groups = useMemo(() => (full.data?.groups ?? light?.groups ?? []).filter((g) => !g.archived || p.groups?.includes(g.id)), [full.data, light, p.groups])
   const currentGroup = p.groups?.length === 1 ? groups.find((g) => g.id === p.groups![0]) : undefined
@@ -775,6 +781,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       mic={micForField}
       micHint={HINT}
       disabled={sending || rec}
+      wait={busy || pending ? { phrase: busy || pending?.phrase, cancel: busy ? () => abort.current?.abort() : undefined } : null}
+      calculating={calculating}
       compact={hosted?.compact}
       label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
       trailing={!hosted ? filtersChip : undefined}
@@ -783,20 +791,11 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const filtersButton = <FiltersButton w={fw} n={nChips} variant="pill" compact={hosted?.compact} />
   // La ligne reste tant que les filtres sont ceux posés par la phrase.
   const shownResult = result && (result.nothing || !result.after || sameQuery(result.after, qy)) ? result : null
+  // Attente de l'assistant (phrase envoyée, transcription) : dans la pilule et juste dessous (Demander), pas de ligne en plus.
   const status =
-    mic.phase !== 'idle' ? (
+    rec ? (
       <MicStatus mic={mic} dictated={false} />
-    ) : busy || pending ? (
-      <div className="flex items-center gap-2 text-xs text-muted" role="status">
-        <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        <span className="min-w-0 flex-1 truncate">« {busy || pending?.phrase} » : je prépare la recette…</span>
-        {busy && (
-          <button type="button" className="min-h-9 shrink-0 px-2 text-[11px] font-bold underline" onClick={() => abort.current?.abort()}>
-            Annuler
-          </button>
-        )}
-      </div>
-    ) : error ? (
+    ) : sending ? null : error ? (
       <div className="text-[11px] text-red-300" role="alert">
         {error}
       </div>
@@ -977,7 +976,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, fromSql, parts, gender }
+  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, calculating: calculating && !fromSql, fromSql, parts, gender }
 }
 
 // ---------- Petits composants ----------

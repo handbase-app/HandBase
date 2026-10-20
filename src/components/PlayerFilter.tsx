@@ -15,7 +15,13 @@ export const hayOf = (p: Player) => {
   if (h === undefined) hays.set(p, (h = playerHaystack(p)))
   return h
 }
-export const tokensOf = (p: Player) => nameTokens(p)
+// Mots du nom (recherche approchante) : gardés aussi, sinon refaits pour chaque fiche à chaque lettre tapée.
+const toks = new WeakMap<Player, string[]>()
+export const tokensOf = (p: Player) => {
+  let t = toks.get(p)
+  if (t === undefined) toks.set(p, (t = nameTokens(p)))
+  return t
+}
 
 /** Texte sans accents ni majuscules, pour la recherche. */
 export const fold = (s: string) =>

@@ -3,6 +3,7 @@ import { Icon } from './ui'
 import { useDictation, sendDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_SECONDS, pickMimeType } from '../dictation/transcribe'
 import { insertDictation } from '../dictation/insert'
+import { useWait, WaitLine } from './Attente'
 
 /*
  * Dictée vocale d'un commentaire (essai, Voxtral par la fonction « transcrire ») :
@@ -202,8 +203,9 @@ export function useMicRecorder(onText: (text: string) => void) {
     }
   }, [phase])
 
-  // `start` : début sans bouton (appui long sur le bouton « Demander » de l'en-tête, qui gère lui-même son appui).
-  return { phase, seconds, error, held, buttonProps, start: () => void start(), finish: () => stop(), cancel: () => stop(true), clearError: () => setError('') }
+  // `start` : début sans bouton (appui long sur le bouton « Demander » de l'en-tête, qui gère lui-même son appui) ; `cancel` :
+  // jette l'enregistrement, ou interrompt la transcription en cours.
+  return { phase, seconds, error, held, buttonProps, start: () => void start(), finish: () => stop(), cancel: () => (phaseRef.current === 'sending' ? abort.current?.abort() : stop(true)), clearError: () => setError('') }
 }
 
 const fmtSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -250,12 +252,7 @@ export function MicStatus({ mic, dictated }: { mic: ReturnType<typeof useMicReco
         </button>
       </div>
     )
-  if (mic.phase === 'sending')
-    return (
-      <div className="text-xs text-muted" role="status">
-        transcription…
-      </div>
-    )
+  if (mic.phase === 'sending') return <SendingLine cancel={mic.cancel} />
   if (mic.error)
     return (
       <div className="text-[11px] text-red-300" role="alert">
@@ -264,6 +261,12 @@ export function MicStatus({ mic, dictated }: { mic: ReturnType<typeof useMicReco
     )
   if (dictated) return <div className="text-[11px] text-muted">Texte dicté : relisez avant d’enregistrer.</div>
   return null
+}
+
+/** Transcription en cours : ✦ qui tourne, « J’écris ce que vous avez dit… », fine barre (durée habituelle), « Annuler ». */
+function SendingLine({ cancel }: { cancel: () => void }) {
+  const wait = useWait(true, 'dictee')
+  return <WaitLine wait={wait} label="J’écris ce que vous avez dit…" onCancel={cancel} />
 }
 
 type AreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & {

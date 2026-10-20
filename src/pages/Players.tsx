@@ -40,8 +40,16 @@ export default function Players() {
   const measurements = useLiveQuery(() => db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(), [], [])
   // Fiches : la base (fiches proposées comprises) ; les proposées seules ; les fiches hors cadre, gardées pour mémoire.
   const [view, setView] = useSessionState<'base' | 'pending' | 'refused'>('handbase.joueurs.view', 'base')
-  const nPending = all?.filter((p) => p.review === 'pending').length ?? 0
-  const nRefused = all?.filter((p) => p.review === 'refused').length ?? 0
+  // Comptés une fois par lecture de la base (pas à chaque lettre tapée : 40 000 fiches).
+  const { nPending, nRefused } = useMemo(() => {
+    let nPending = 0
+    let nRefused = 0
+    for (const p of all ?? []) {
+      if (p.review === 'pending') nPending++
+      else if (p.review === 'refused') nRefused++
+    }
+    return { nPending, nRefused }
+  }, [all])
   const players = useMemo(
     () => all?.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view)),
     [all, view],
@@ -53,7 +61,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, gender } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
+  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   const signature = `${view}|${filterSig}`
@@ -80,10 +88,10 @@ export default function Players() {
   }, [])
 
   const latest = useMemo(() => latestByPlayer(measurements), [measurements])
+  const allIds = useMemo(() => filtered.map((p) => p.id), [filtered])
 
   if (!players || !all) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const shown = filtered.slice(0, limit)
-  const allIds = filtered.map((p) => p.id)
 
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
@@ -169,10 +177,16 @@ export default function Players() {
         // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
         // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
         // Nombre de joueurs dans la barre « Afficher », collée en haut : visible pendant tout le défilement.
+        // Liste en cours de calcul (filtre, nom tapé) : nombre estompé, aria-busy ; la fine barre est sous la pilule.
+        <div aria-busy={calculating || undefined}>
         <PlayerList
           ids={shown.map((p) => p.id)}
           all={allIds}
-          countLabel={loading ? 'Chargement…' : filtered.length < all.length ? `${pluralG(filtered.length, gender)} sur ${all.length.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
+          countLabel={
+            <span className={calculating ? 'wait-dim' : undefined}>
+              {loading ? 'Chargement…' : filtered.length < all.length ? `${pluralG(filtered.length, gender)} sur ${all.length.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
+            </span>
+          }
         >
         {loading ? null : shown.length === 0 ? (
           <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
@@ -222,6 +236,7 @@ export default function Players() {
           </div>
         )}
         </PlayerList>
+        </div>
       )}
       </div>
       </div>

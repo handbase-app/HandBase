@@ -39,6 +39,7 @@ import { postAsk } from './Demander'
 import { addToGroup, removeFromGroup } from './Groups'
 import { department, hayOf, tokensOf } from './PlayerFilter'
 import { playerName } from './ui'
+import { useWait, WaitLine } from './Attente'
 
 /*
  * Actions de « Demander » : la CARTE DE VALIDATION (partie pure : src/askAction.ts). Une phrase d'action, dite ou tapée dans
@@ -462,15 +463,15 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }, [step.k])
 
   // ---------- Rendu ----------
+  // Plan en préparation (assistant appelé) : ✦ qui tourne, fine barre d'après la durée habituelle (src/components/Attente.tsx).
+  const preparing = step.k === 'plan' || (step.k === 'ready' && !card)
+  const wait = useWait(preparing, 'action')
   const spinner = <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
   let body: ReactNode
   if (step.k === 'plan' || (step.k === 'ready' && !card)) {
     body = (
       <>
-        <div className="flex items-center gap-2 text-xs text-muted" role="status">
-          {spinner}
-          <span>Je prépare… (rien n’est fait sans ton accord)</span>
-        </div>
+        <WaitLine wait={wait} label="Je prépare… (rien n’est fait sans ton accord)" />
         <div className="flex justify-end">
           <button type="button" data-autofocus className="btn-ghost px-4 text-xs" onClick={cancel}>
             Annuler

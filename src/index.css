@@ -304,3 +304,22 @@ body {
 @keyframes filter-hl { from { box-shadow: 0 0 0 3px var(--color-accent, #3b82f6); } to { box-shadow: 0 0 0 3px transparent; } }
 .filter-hl { border-radius: 0.5rem; animation: filter-hl 1.6s ease-out; }
 @media (prefers-reduced-motion: reduce) { .filter-hl { animation: none; outline: 2px solid var(--color-accent, #3b82f6); outline-offset: 2px; } }
+/* Signe d'attente (components/Attente.tsx) : ✦ qui tourne doucement pendant une demande à l'assistant ; fine barre sous la
+   pilule « Demander » (avancée d'après la durée habituelle, ou va-et-vient pendant un calcul de la liste). Animations faites
+   par le navigateur (transform) : elles continuent pendant un calcul qui occupe la page. Réduire les animations : ni rotation
+   ni va-et-vient, la barre change par paliers. */
+@keyframes wait-spin { to { transform: rotate(360deg); } }
+.wait-spin { display: inline-block; animation: wait-spin 1.6s linear infinite; }
+.wait-bar { transform-origin: left center; transition: transform 160ms linear, opacity 200ms ease-out; }
+@keyframes wait-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.wait-slide { animation: wait-slide 1.1s ease-in-out infinite; }
+/* Calcul court : rien ne s'affiche (pas de clignotement) ; au-delà de 150 ms, la barre et le nombre estompé apparaissent. */
+@keyframes wait-show { from { opacity: 0; } to { opacity: 1; } }
+.wait-late { animation: wait-show 120ms ease-out 150ms both; }
+.wait-dim { animation: wait-dim 120ms ease-out 150ms both; }
+@keyframes wait-dim { from { opacity: 1; } to { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .wait-spin, .wait-slide { animation: none; }
+  .wait-bar { transition: none; }
+  .wait-slide { transform: none; width: 100% !important; opacity: 0.5; }
+}
