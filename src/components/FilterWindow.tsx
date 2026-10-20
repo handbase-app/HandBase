@@ -281,10 +281,14 @@ export function FilterField({ label, children, id, k }: { label: string; childre
   )
 }
 
+/** Pastille à bascule des réglages (cochée : pleine, couleur d'accent). `small` : 32 px de haut, texte de 11 px. */
+export const pillClass = (on: boolean, small?: boolean) =>
+  `${small ? 'min-h-8 px-2 text-[11px]' : 'min-h-9 px-2.5 text-xs'} rounded-full border font-bold transition disabled:opacity-40 ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
+
 /**
  * Pastilles à cocher (listes courtes : postes, latéralité, trimestre, type…) : « Tous » (rien de coché) puis chaque valeur,
  * avec son nombre (les AUTRES filtres appliqués) ; plusieurs cochées = l'une OU l'autre. Une valeur à 0 est grisée (sauf
- * cochée). Boutons à bascule (aria-pressed).
+ * cochée). Boutons à bascule (aria-pressed). `small` : pastilles plus serrées (« Plus de filtres » de la liste Joueurs).
  */
 export function ChoicePills<V extends string>({
   label,
@@ -296,6 +300,7 @@ export function ChoicePills<V extends string>({
   allLabel = 'Tous',
   extra,
   k,
+  small,
 }: {
   /** Filtre(s) réglé(s) ici (voir FilterField). */
   k?: string
@@ -308,14 +313,15 @@ export function ChoicePills<V extends string>({
   allLabel?: string
   /** Après les valeurs (« Sans poste »…). */
   extra?: ReactNode
+  /** Pastilles plus petites (32 px de haut, texte de 11 px). */
+  small?: boolean
 }) {
   const nOf = (v: string) => (counts ? (counts instanceof Map ? (counts.get(v) ?? 0) : ((counts as Record<string, number>)[v] ?? 0)) : undefined)
-  const pill = (on: boolean) =>
-    `min-h-9 rounded-full border px-2.5 text-xs font-bold transition disabled:opacity-40 ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
+  const pill = (on: boolean) => pillClass(on, small)
   const num = (n?: number) => (n === undefined ? null : <span className="ml-1 text-[10px] font-normal tabular-nums opacity-75">{n.toLocaleString('fr-FR')}</span>)
   return (
     <FilterField label={label} k={k}>
-      <div className="flex flex-wrap gap-1.5">
+      <div className={`flex flex-wrap ${small ? 'gap-1' : 'gap-1.5'}`}>
         <button type="button" aria-pressed={!value.length} className={pill(!value.length)} onClick={() => onChange([])}>
           {allLabel}
           {num(total)}
