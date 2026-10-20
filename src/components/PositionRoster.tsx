@@ -1,11 +1,12 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Player, Position } from '../db'
+import { BarChip } from './Pictos'
 import { ROSTER_SORTS, type RosterSection, type RosterSort, rosterPositions } from '../positionOrder'
 
 /*
  * Rangement par poste d'une liste de joueurs (page d'un événement, page d'un groupe, « Mes suivis ») : un encadré de réglages
- * (« Dans chaque poste, trier par », pastilles des postes avec leur nombre, qui filtrent) et la liste découpée
- * par poste (titres GARDIEN, AILIER GAUCHE…, en colonnes sur grand écran). La logique (tri, découpage) est
+ * (« Dans chaque poste, trier par »…), les pastilles des postes avec leur nombre, qui filtrent (dans la capsule des
+ * pictogrammes, collée en haut : rosterBarLead), et la liste découpée par poste (titres GARDIEN, AILIER GAUCHE…, en colonnes sur grand écran). La logique (tri, découpage) est
  * dans src/positionOrder.ts ; la ligne de chaque joueur est fournie par la page (ses actions propres).
  */
 
@@ -22,56 +23,61 @@ export function RosterChip({ on, onClick, children }: { on: boolean; onClick: ()
 }
 
 /**
- * Encadré de réglages. `top` : au-dessus (ex. regroupement par équipe d'un tournoi) ; `showSort` : le sélecteur
- * (masqué quand la liste est rangée par équipe) ; `chips` : pastilles avant celles des postes ; `note` : ligne d'aide.
+ * Pastilles des postes (« Gardien 3 »), qui filtrent : posées à gauche dans la capsule des pictogrammes (PlayerList
+ * `barLead`). Rien quand la liste n'a qu'un poste (ou aucun) : la capsule reste comme ailleurs.
+ */
+export function rosterBarLead({ roster, pos, setPos }: { roster: Player[]; pos: Position | ''; setPos: (p: Position | '') => void }): ReactNode {
+  const positions = rosterPositions(roster)
+  if (positions.length <= 1) return undefined
+  return positions.map((x) => (
+    <BarChip key={x.id} on={pos === x.id} n={x.n} title={`${x.label} : ${pos === x.id ? 'toucher pour tout afficher' : 'afficher ce poste seulement'}`} onClick={() => setPos(pos === x.id ? '' : x.id)}>
+      {x.short}
+    </BarChip>
+  ))
+}
+
+/**
+ * Encadré de réglages, sur une ligne quand la place le permet. `top` : au-dessus (ex. regroupement par équipe d'un
+ * tournoi) ; `showSort` : le sélecteur (masqué quand la liste est rangée par équipe) ; `chips` : pastilles à côté
+ * (« Masquer ceux que j'ai notés ») ; `note` : aide en petit, à la suite. Les postes sont dans la capsule (rosterBarLead).
  */
 export function RosterControls({
-  roster,
   sort,
   setSort,
-  pos,
-  setPos,
   showSort = true,
   top,
   chips,
   note,
 }: {
-  roster: Player[]
   sort: RosterSort
   setSort: (s: RosterSort) => void
-  pos: Position | ''
-  setPos: (p: Position | '') => void
   showSort?: boolean
   top?: ReactNode
   chips?: ReactNode
   note?: ReactNode
 }) {
-  const positions = rosterPositions(roster)
+  if (!top && !showSort && !chips && !note) return null
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-panel-2 p-2.5">
+    <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-panel-2 px-2.5 py-1.5">
       {top}
-      {showSort && (
-        <label className="flex items-center gap-2 text-xs">
-          <span className="shrink-0 font-bold text-muted">Dans chaque poste, trier par</span>
-          <select className="field flex-1 py-1 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
-            {ROSTER_SORTS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      {(showSort || chips || note) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {showSort && (
+            <label className="flex min-w-0 items-center gap-2 text-xs">
+              <span className="shrink-0 font-bold text-muted">Dans chaque poste, trier par</span>
+              <select className="field min-w-0 py-0.5 text-xs" value={sort} onChange={(e) => setSort(e.target.value as RosterSort)}>
+                {ROSTER_SORTS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {chips}
+          {note && <p className="text-[10px] text-muted">{note}</p>}
+        </div>
       )}
-      <div className="flex flex-wrap gap-1">
-        {chips}
-        {positions.length > 1 &&
-          positions.map((x) => (
-            <RosterChip key={x.id} on={pos === x.id} onClick={() => setPos(pos === x.id ? '' : x.id)}>
-              {x.short} ({x.n})
-            </RosterChip>
-          ))}
-      </div>
-      {note && <p className="text-[10px] text-muted">{note}</p>}
     </div>
   )
 }

@@ -35,7 +35,7 @@ import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { groupRosterKey, positionRosterView, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
-import { RosterControls, RosterSectionList } from '../components/PositionRoster'
+import { RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
@@ -1092,11 +1092,17 @@ function PlayerGroupDetail() {
       </div>
       {!players.length && !hidden && <Empty>{gw.AucunJoueur} dans ce groupe.</Empty>}
       <HiddenPlayers count={hidden} />
-      {players.length > 1 && <RosterControls roster={view.roster} sort={sort} setSort={setSort} pos={posFilter} setPos={setPosFilter} />}
+      {players.length > 1 && <RosterControls sort={sort} setSort={setSort} />}
       {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
       {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
       {askFilter && <AskFilterBanner kind="groupe" id={g.id} f={askFilter} shown={nAsk} />}
-      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
+      {/* Postes (filtre) dans la capsule des pictogrammes, collée en haut : à portée pendant le défilement. */}
+      <PlayerList
+        ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
+        barLead={players.length > 1 && rosterBarLead({ roster: view.roster, pos: posFilter, setPos: setPosFilter })}
+        context={{ groupId: g.id }}
+        select={!removing && !pick.on}
+      >
       <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
         <RosterSectionList
           sections={sections}
