@@ -15,7 +15,7 @@ import {
   membersAt,
   myPoleUnits,
   periodIndexAt,
-  poleRefOf,
+  poleRefsOf,
   refDate,
   reopenPeriod,
   seasons,
@@ -65,14 +65,7 @@ function useRegionOpts() {
 export function usePoleRefs(): Map<string, PoleRef> {
   const { units, levels } = useStructure()
   const opts = useRegionOpts()
-  return useMemo(() => {
-    const m = new Map<string, PoleRef>()
-    for (const u of units) {
-      const r = poleRefOf(units, levels, u.id, opts)
-      if (r) m.set(u.id, r)
-    }
-    return m
-  }, [units, levels, opts])
+  return useMemo(() => poleRefsOf(units, levels, opts), [units, levels, opts])
 }
 
 /** Référence de l'unité Pôle d'un groupe (null : pas de pôle, unité supprimée ou pas un pôle). */

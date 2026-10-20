@@ -1,7 +1,7 @@
 // Test du groupe « Pôle » d'une unité et du changement de saison (src/poleSeason.ts) : correspondance unité / période
 // (avec et sans accents, ancien champ `name`, ligue), vue en cours / prochaine avec des dates futures, reconduit = rien
 // écrit, sortant = sortie + motif, nouveau = période créée, transfert d'un pôle à l'autre, rétablir, propositions par âge
-// pour les trois programmes, annuler une arrivée à venir, statut de saison, droits (affecté à l'unité, à une autre unité, administrateur, observateur).
+// pour les trois programmes, annuler une arrivée à venir, groupes Pôle matérialisés (membres en cours), statut de saison, droits (affecté à l'unité, à une autre unité, administrateur, observateur).
 // Données fictives seulement.
 //
 //   npx jiti tools/test-saison-pole.ts
@@ -20,11 +20,13 @@ import {
   joinPole,
   leavePole,
   likelyEnd,
+  materializePoleGroups,
   membersAt,
   myPoleUnits,
   otherPoleAt,
   periodMatches,
   poleRefOf,
+  poleRefsOf,
   POLE_ENTRY_DAY,
   POLE_EXIT_DAY,
   refDate,
@@ -168,6 +170,42 @@ t('vue en cours et vue prochaine : les dates futures font le travail', () => {
   assert.equal(isMemberAt(players[4], SR, today), false)
   assert.deepEqual(otherPoleAt(players[4], SR, today), players[4].poles![0])
   assert.equal(otherPoleAt(players[0], SR, today), undefined)
+})
+
+// ---------- Groupes Pôle matérialisés (filtres, recettes, questions : src/poleMembers.ts) ----------
+
+t('références de toutes les unités Pôle : les pôles seulement, pas une unité supprimée', () => {
+  const refs = poleRefsOf(units, levels, opts)
+  assert.deepEqual([...refs.keys()].sort(), ['pole-amiens', 'pole-nice', 'pole-sr', 'pole-tlse'])
+  assert.deepEqual(refs.get('pole-sr'), SR)
+})
+
+t('groupe Pôle matérialisé : membres en cours ; arrivée future pas comptée ; groupe ordinaire et unité supprimée inchangés', () => {
+  const refs = poleRefsOf(units, levels, opts)
+  const pole = { id: 'g-sr', name: 'Pôle Saint-Raphaël', poleUnitId: 'pole-sr', playerIds: ['vieux'] }
+  const plain = { id: 'g-1', name: 'Repérés', playerIds: ['c', 'e'] }
+  const orphan = { id: 'g-x', name: 'Pôle supprimé', poleUnitId: 'pole-x', playerIds: ['old'] }
+  const nice = { id: 'g-nice', name: 'Pôle Nice', poleUnitId: 'pole-nice', playerIds: [] as string[] }
+  const out = materializePoleGroups([pole, plain, orphan, nice], refs, players, s.refCurrent)
+  // Membres calculés à la date de la vue « Saison en cours » : f (entrée au 1er juillet prochain) n'y est pas, d (sorti) non plus.
+  assert.deepEqual(out[0].playerIds, ['a', 'b', 'g', 'h'])
+  assert.deepEqual(out[0].playerIds, membersAt(players, SR, s.refCurrent).map((p) => p.id))
+  assert.equal(out[0].playerIds.includes('f'), false)
+  assert.equal(out[0].name, 'Pôle Saint-Raphaël')
+  // Copie : le groupe lu n'est pas modifié (rien à réenregistrer).
+  assert.notEqual(out[0], pole)
+  assert.deepEqual(pole.playerIds, ['vieux'])
+  // Groupe ordinaire : le même objet, playerIds tels quels.
+  assert.equal(out[1], plain)
+  // Unité supprimée (plus de référence) : playerIds d'origine.
+  assert.equal(out[2], orphan)
+  assert.deepEqual(out[2].playerIds, ['old'])
+  // Pôle sans membre : liste vide.
+  assert.deepEqual(out[3].playerIds, [])
+  // Vue « Saison prochaine » (autre date) : f arrive, g est sorti.
+  assert.deepEqual(materializePoleGroups([pole], refs, players, s.refNext)[0].playerIds, ['a', 'b', 'f', 'h'])
+  // Aucun pôle connu : tout inchangé.
+  assert.equal(materializePoleGroups([pole], new Map(), players, s.refCurrent)[0], pole)
 })
 
 // ---------- Propositions ----------

@@ -51,6 +51,7 @@ import {
   type JoueursQuery,
 } from '../playerQuery'
 import { useQuestionModel, useRecipeNames, type QuestionModel } from '../questionModel'
+import { withPoleMembers } from '../poleMembers'
 import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
@@ -220,7 +221,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { dock: boo
       loadTeams().then(() => db.groups.orderBy('name').toArray()),
       db.events.toArray(),
     ])
-    return { measures, criteria: alive(criteria), groups: alive(groups).filter((g) => can.seeGroup(g)), events: alive(events), staff: new Map<string, string>() }
+    // Groupes Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts), pour le compteur et le filtre « Groupe ».
+    const visible = await withPoleMembers(alive(groups).filter((g) => can.seeGroup(g)))
+    return { measures, criteria: alive(criteria), groups: visible, events: alive(events), staff: new Map<string, string>() }
   }, [])
   const quick = full.quick
   const index = useMemo(() => {

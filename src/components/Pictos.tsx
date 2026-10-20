@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef,
 import { useHref, useNavigate } from 'react-router-dom'
 import { db, poleStatus, poleSummary, type Evaluation, type Player, type PlayerGroup, type Rewatch, type Seen } from '../db'
 import { regionLabel } from '../lists'
+import { withPoleMembers } from '../poleMembers'
 import {
   buildFacts,
   ficheOnTab,
@@ -176,7 +177,8 @@ function usePictoData(ids: readonly string[], on: readonly PictoKind[]): Pick<Pi
         need('videos') ? (big ? db.videos.toArray() : db.videos.where('targetId').anyOf(ids as string[]).toArray()) : [],
         // Mesures récentes : par date (index), quelle que soit la taille de la liste.
         need('mesures') ? db.measurements.where('date').aboveOrEqual(since).toArray() : [],
-        need('groupes') ? db.groups.toArray() : [],
+        // Groupe Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée).
+        need('groupes') ? db.groups.toArray().then((gs) => withPoleMembers(gs)) : [],
       ])
       const rw = new Map<string, Rewatch[]>()
       for (const r of rewatch) if (!r.deleted) rw.set(r.playerId, [...(rw.get(r.playerId) ?? []), r])

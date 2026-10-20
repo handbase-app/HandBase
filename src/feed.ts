@@ -3,6 +3,7 @@ import { genderOf, pluralG, setGender } from './gender'
 import { department } from './components/PlayerFilter'
 import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
+import { withPoleMembers } from './poleMembers'
 import { momentsShort, sourceLabel } from './videos'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
@@ -94,7 +95,7 @@ export async function buildFeed({
   const me = currentUserId()
   // Staffs relus d'abord : ils comptent dans les participants (can.seeGroup).
   await loadTeams()
-  const [players, measurements, evaluations, events, groups, criteria, videos] = await Promise.all([
+  const [players, measurements, evaluations, events, storedGroups, criteria, videos] = await Promise.all([
     db.players.toArray(),
     db.measurements.toArray().then(alive),
     db.evaluations.toArray().then(alive),
@@ -103,6 +104,8 @@ export async function buildFeed({
     db.criteria.toArray(),
     db.videos.toArray().then(alive),
   ])
+  // Groupe Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée).
+  const groups = await withPoleMembers(storedGroups, players)
   const byId = new Map(players.map((p) => [p.id, p]))
   const evById = new Map<string, HBEvent>(events.map((e) => [e.id, e]))
   const crit = new Map(criteria.map((c) => [c.id, c.label]))

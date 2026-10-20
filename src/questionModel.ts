@@ -5,6 +5,7 @@ import { useAlerts } from './alerts'
 import { useFollows } from './follows'
 import { regionOfDept, useDepartments, useRegionLabel } from './lists'
 import { useThrottledQuery } from './live'
+import { POLE_MEMBER_TABLES, withPoleMembers } from './poleMembers'
 import { can } from './roles'
 import { scoutId } from './scouting'
 import { loadTeams } from './teams'
@@ -94,14 +95,15 @@ export function useQuestionData(enabled = true) {
           .map((e) => ({ playerId: e.playerId, observer: e.observerId || e.observer, day: dayOf(e.date), scores: e.scores })),
         measures,
         criteria: alive(criteria),
-        groups: alive(groups).filter((g) => can.seeGroup(g)),
+        // Groupes Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts), jamais enregistrés.
+        groups: await withPoleMembers(alive(groups).filter((g) => can.seeGroup(g)), players),
         events: alive(events),
         // Mode avancé (copie locale en tables, src/sqlMirror.ts) : avis tels quels, en attente compris (colonne « valide »).
         rawEvals: evals.filter((e) => !e.deleted && e.review !== 'refused' && !(e.eventId && dead.has(e.eventId))),
       }
     },
     [enabled],
-    ['players', 'seen', 'evaluations', 'events', 'measurements', 'criteria', 'groups', 'teams'],
+    ['players', 'seen', 'evaluations', 'events', 'measurements', 'criteria', 'groups', 'teams', ...POLE_MEMBER_TABLES],
     300,
   )
 }
