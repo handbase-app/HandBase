@@ -70,15 +70,15 @@ import { AdvancedBusy, SqlAnswerView, sqlPlayers, useAdvancedAsk, useSqlResult }
 import { ask as confirmAsk } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
-import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, Select, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
-import { Icon, Segmented } from './ui'
+import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
+import { Icon } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { startAskAction } from './AskAction'
 import { detectAction } from '../askAction'
 import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { MultiPicker } from './MultiPicker'
-import { ChoicePills, CountText, FilterField, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
+import { ChoicePills, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
 import { SegRow } from './ListQuery'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
@@ -536,7 +536,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   useEffect(() => {
     if (open && advN > 0) setAdvOpen(true)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
-  const toggle = (on: boolean) => `flex min-h-9 items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-fg' : 'border-line bg-panel-2 text-muted'}`
+  // Réglages de « Plus de filtres » : tous de la même hauteur et du même texte que ceux du haut (40 px, 12 px).
+  const ctl = 'min-h-10 px-2 py-1.5 text-xs'
   // Deux niveaux : l'essentiel toujours visible (sexe, années, groupes, région et département) ; « Plus de filtres »
   // (replié ; ouvert de lui-même si un de ses filtres est posé ou si l'on touche sa pastille) : le reste.
   const panel = (
@@ -615,8 +616,11 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
           <span className={`text-muted transition ${advOpen ? 'rotate-90' : ''}`}>›</span>
         </button>
         {advOpen && (
-          <div className="flex flex-col gap-3 border-t border-line p-2">
+          // Un seul gabarit : nom en petites capitales au-dessus, réglage dessous ; champs courts deux par ligne quand la
+          // place le permet (conteneur d'au moins 22 rem) ; outils (conditions, tri, mes questions) après un filet.
+          <div className="@container flex flex-col gap-3 border-t border-line px-2.5 py-3">
             <ChoicePills
+              small
               k="quarter"
               label="Trimestre de naissance"
               value={quartersOf(p).map(String)}
@@ -624,6 +628,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
               onChange={(vs) => setPopWith((pop) => putQuarters(pop, vs.map(Number)))}
             />
             <ChoicePills
+              small
               k="positions secondary noPosition"
               label="Poste"
               value={positionValue}
@@ -635,13 +640,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
               total={counts?.positionTotal}
               onChange={setPositions}
               extra={
-                <label className="flex min-h-9 basis-full items-center gap-1.5 text-[11px] text-muted">
+                <label className={`flex min-h-8 basis-full items-center gap-1.5 text-[11px] text-muted ${p.positions ? '' : 'opacity-60'}`}>
                   <input type="checkbox" className="h-4 w-4 accent-accent" checked={!!p.secondary} disabled={!p.positions} onChange={(e) => setPop({ secondary: e.target.checked || undefined })} />
                   Inclure les postes secondaires
                 </label>
               }
             />
             <ChoicePills
+              small
               k="hand"
               label="Latéralité"
               allLabel="Toutes"
@@ -649,119 +655,131 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
               options={(['droitier', 'gaucher', 'ambidextre'] as const).map((v) => ({ value: v, label: lateralityPlural(v, gender) }))}
               onChange={(vs) => setPopWith((pop) => putHands(pop, vs))}
             />
-            <FilterField label="Club" k="clubs">
-              <MultiPicker
-                className="min-h-10 px-2 py-1.5 text-xs"
-                label="Club"
-                allLabel={`${p.depts || p.regions ? 'Tous leurs clubs' : 'Tous les clubs'} (${fr(counts?.clubTotal ?? 0)})`}
-                noun={['club', 'clubs']}
-                value={p.clubs ?? []}
-                options={clubOptions}
-                onChange={(cs) => setPop({ clubs: listOrNone(cs) })}
-              />
-            </FilterField>
-            {quick.profiles.length > 0 && (
-              <FilterField label="Profil recherché" k="profiles">
+            <div className={`grid gap-3 ${quick.profiles.length > 0 ? '@min-[22rem]:grid-cols-2 @min-[22rem]:gap-2' : ''}`}>
+              <FilterField label="Club" k="clubs">
                 <MultiPicker
-                  className="min-h-10 px-2 py-1.5 text-xs"
-                  label="Profil recherché"
-                  allLabel="Aucun"
-                  noun={['profil', 'profils']}
-                  value={p.profiles ?? []}
-                  options={quick.profiles.map((a) => ({ value: a.id, label: a.name, count: quick.profileMembers.get(a.id)?.size ?? 0 }))}
-                  onChange={(xs) => setPop({ profiles: listOrNone(xs) })}
+                  className={ctl}
+                  label="Club"
+                  allLabel={`${p.depts || p.regions ? 'Tous leurs clubs' : 'Tous les clubs'} (${fr(counts?.clubTotal ?? 0)})`}
+                  noun={['club', 'clubs']}
+                  value={p.clubs ?? []}
+                  options={clubOptions}
+                  onChange={(cs) => setPop({ clubs: listOrNone(cs) })}
                 />
               </FilterField>
-            )}
-            <div className="flex flex-wrap gap-1.5" data-filter="video followed">
-              <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={toggle(!!p.video)}>
-                Avec une vidéo
-              </button>
-              {(quick.followed.size > 0 || p.followed) && (
-                <button type="button" aria-pressed={!!p.followed} onClick={() => setPop({ followed: !p.followed })} className={toggle(!!p.followed)}>
-                  <Icon name="star" filled={p.followed} className="h-3.5 w-3.5 text-accent" />
-                  Mes suivis ({fr(quick.followed.size)})
+              {quick.profiles.length > 0 && (
+                <FilterField label="Profil recherché" k="profiles">
+                  <MultiPicker
+                    className={ctl}
+                    label="Profil recherché"
+                    allLabel="Aucun"
+                    noun={['profil', 'profils']}
+                    value={p.profiles ?? []}
+                    options={quick.profiles.map((a) => ({ value: a.id, label: a.name, count: quick.profileMembers.get(a.id)?.size ?? 0 }))}
+                    onChange={(xs) => setPop({ profiles: listOrNone(xs) })}
+                  />
+                </FilterField>
+              )}
+            </div>
+            <FilterField label="Seulement" k="video followed">
+              <div className="flex flex-wrap gap-1">
+                <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={pillClass(!!p.video, true)}>
+                  Avec une vidéo
                 </button>
+                {(quick.followed.size > 0 || p.followed) && (
+                  <button type="button" aria-pressed={!!p.followed} onClick={() => setPop({ followed: !p.followed })} className={`inline-flex items-center gap-1 ${pillClass(!!p.followed, true)}`}>
+                    <Icon name="star" filled={p.followed} className={`h-3 w-3 ${p.followed ? '' : 'text-accent'}`} />
+                    Mes suivis
+                    <span className="text-[10px] font-normal tabular-nums opacity-75">{fr(quick.followed.size)}</span>
+                  </button>
+                )}
+              </div>
+            </FilterField>
+            <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+              <FilterField label="Taille min. (cm)" k="height">
+                <HeightInput className={ctl} value={p.hMin} onChange={(hMin) => setPop({ hMin })} />
+              </FilterField>
+              <FilterField label="Pôle Espoirs" k="pole">
+                <CompactSelect
+                  className={`${ctl} ${p.pole ? 'border-accent font-bold' : ''}`}
+                  label="Pôle Espoirs"
+                  value={p.pole ?? ''}
+                  onChange={(v) => setPop({ pole: (v || undefined) as Population['pole'] })}
+                  options={[
+                    { value: '', label: gw.tousLesJoueurs[0].toUpperCase() + gw.tousLesJoueurs.slice(1) },
+                    { value: 'current', label: POLE_LABEL.current },
+                    { value: 'past', label: POLE_LABEL.past },
+                    { value: 'any', label: POLE_LABEL.any },
+                  ]}
+                />
+              </FilterField>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-line pt-3">
+              <div className="flex flex-col gap-2">
+                <button type="button" className="flex min-h-9 w-full items-center gap-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
+                  <span className="flex-1">
+                    <span className="text-accent">+</span> Ajouter une condition
+                  </span>
+                  <span className={`text-muted transition ${more ? 'rotate-90' : ''}`}>›</span>
+                </button>
+                {more && (
+                  <>
+                    {!full.data && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
+                    <div className="flex flex-wrap gap-1">
+                      <button type="button" className={pillClass(false, true)} onClick={() => addCondition('seen')}>
+                        Vus (combien, quand, par qui)
+                      </button>
+                      {avisCriteria(criteria).length > 0 && (
+                        <button type="button" className={pillClass(false, true)} onClick={() => addCondition('avis')}>
+                          Note d’avis
+                        </button>
+                      )}
+                      <button type="button" className={pillClass(false, true)} onClick={() => addCondition('nbAvis')}>
+                        Nombre d’avis
+                      </button>
+                      {measureCriteria(criteria).length > 0 && (
+                        <button type="button" className={pillClass(false, true)} onClick={() => addCondition('measure')}>
+                          Mesure
+                        </button>
+                      )}
+                      <button type="button" className={pillClass(false, true)} onClick={() => addCondition('heightMax')}>
+                        Taille maximum
+                      </button>
+                    </div>
+                    {(full.data?.events.length ?? 0) > 0 && (
+                      <FilterField label="Vus ou inscrits à un événement" k="events">
+                        <MultiPicker
+                          className={ctl}
+                          label="Événement"
+                          allLabel="Tous les événements"
+                          noun={['événement', 'événements']}
+                          value={p.events ?? []}
+                          options={[...(full.data?.events ?? [])]
+                            .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+                            .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
+                          onChange={(xs) => setPop({ events: listOrNone(xs) })}
+                        />
+                      </FilterField>
+                    )}
+                    <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
+                  </>
+                )}
+              </div>
+              {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} ctl={ctl} />}
+              {!hosted && (
+                <SavedOnList
+                  saved={saved}
+                  onApply={(q) => {
+                    if (q.sql) setSql({ spec: q.sql, phrase: q.name })
+                    else {
+                      setQy(queryFromSaved(q.recipe))
+                      setSql(null)
+                    }
+                    setResult(null)
+                  }}
+                />
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs" data-filter="height">
-              <span className="shrink-0 font-bold text-muted">Taille minimum (cm)</span>
-              <HeightInput value={p.hMin} onChange={(hMin) => setPop({ hMin })} />
-            </div>
-            <select
-              data-filter="pole"
-              className={`field min-h-10 py-1.5 text-xs ${p.pole ? 'border-accent font-bold' : ''}`}
-              aria-label="Pôle Espoirs"
-              value={p.pole ?? ''}
-              onChange={(e) => setPop({ pole: (e.target.value || undefined) as Population['pole'] })}
-            >
-              <option value="">Pôle Espoirs : {gw.tousLesJoueurs}</option>
-              <option value="current">{POLE_LABEL.current}</option>
-              <option value="past">{POLE_LABEL.past}</option>
-              <option value="any">{POLE_LABEL.any}</option>
-            </select>
-            <div className="rounded-md border border-line">
-              <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>
-                <span className="flex-1">+ Ajouter une condition</span>
-                <span className={`text-muted transition ${more ? 'rotate-90' : ''}`}>›</span>
-              </button>
-              {more && (
-                <div className="flex flex-col gap-2 border-t border-line p-2">
-                  {!full.data && <p className="text-[11px] text-muted">Chargement des avis et des passages…</p>}
-                  <div className="flex flex-wrap gap-1.5">
-                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('seen')}>
-                      Vus (combien, quand, par qui)
-                    </button>
-                    {avisCriteria(criteria).length > 0 && (
-                      <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('avis')}>
-                        Note d’avis
-                      </button>
-                    )}
-                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('nbAvis')}>
-                      Nombre d’avis
-                    </button>
-                    {measureCriteria(criteria).length > 0 && (
-                      <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('measure')}>
-                        Mesure
-                      </button>
-                    )}
-                    <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => addCondition('heightMax')}>
-                      Taille maximum
-                    </button>
-                  </div>
-                  {(full.data?.events.length ?? 0) > 0 && (
-                    <FilterField label="Vus ou inscrits à un événement" k="events">
-                      <MultiPicker
-                        className="min-h-11 px-2 py-1.5 text-xs"
-                        label="Événement"
-                        allLabel="Tous les événements"
-                        noun={['événement', 'événements']}
-                        value={p.events ?? []}
-                        options={[...(full.data?.events ?? [])]
-                          .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-                          .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
-                        onChange={(xs) => setPop({ events: listOrNone(xs) })}
-                      />
-                    </FilterField>
-                  )}
-                  <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
-                </div>
-              )}
-            </div>
-            {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} />}
-            {!hosted && (
-              <SavedOnList
-                saved={saved}
-                onApply={(q) => {
-                  if (q.sql) setSql({ spec: q.sql, phrase: q.name })
-                  else {
-                    setQy(queryFromSaved(q.recipe))
-                    setSql(null)
-                  }
-                  setResult(null)
-                }}
-              />
-            )}
           </div>
         )}
       </div>
@@ -989,7 +1007,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
 // ---------- Petits composants ----------
 
 /** Taille minimum (cm) : texte libre, appliqué dès qu'il est lisible (100 à 230). */
-function HeightInput({ value, onChange }: { value?: number; onChange: (v: number | undefined) => void }) {
+function HeightInput({ value, onChange, className = '' }: { value?: number; onChange: (v: number | undefined) => void; className?: string }) {
   const [text, setText] = useState(value ? String(value) : '')
   const shown = useRef(value)
   useEffect(() => {
@@ -1000,7 +1018,7 @@ function HeightInput({ value, onChange }: { value?: number; onChange: (v: number
   }, [value])
   return (
     <input
-      className={`field min-w-0 flex-1 py-1.5 text-xs ${value ? 'border-accent font-bold' : ''}`}
+      className={`field min-w-0 ${className} ${value ? 'border-accent font-bold' : ''}`}
       type="number"
       inputMode="numeric"
       placeholder="ex. 180"
@@ -1031,16 +1049,37 @@ const SORTS: { value: SortBy | ''; label: string }[] = [
   { value: 'priority', label: 'À voir en priorité' },
 ]
 
-/** « Trier par » : le tri de la liste (même recette que « classés par taille » dit au micro). */
-function SortPicker({ recipe, model, onChange }: { recipe: Recipe; model: RecipeModel; onChange: (r: Recipe) => void }) {
+/**
+ * Liste déroulante de « Plus de filtres » : même bouton que les choix multiples (MultiPicker : hauteur, texte, flèche
+ * dessinée), mais une vraie liste du navigateur.
+ */
+function CompactSelect<T extends string>({ value, options, onChange, label, className = '' }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string; className?: string }) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <select className={`field appearance-none truncate pr-6 ${className}`} aria-label={label} value={value} onChange={(e) => onChange(e.target.value as T)}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <svg viewBox="0 0 12 12" className="pointer-events-none absolute top-1/2 right-2 h-3 w-3 -translate-y-1/2 opacity-70" aria-hidden>
+        <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  )
+}
+
+/** « Trier par » : le tri de la liste (même recette que « classés par taille » dit au micro). `ctl` : hauteur et texte des réglages. */
+function SortPicker({ recipe, model, onChange, ctl }: { recipe: Recipe; model: RecipeModel; onChange: (r: Recipe) => void; ctl: string }) {
   const s = recipe.out.sort
   const ms = measureCriteria(model.criteria)
   const set = (patch: Partial<Recipe['out']>) => onChange({ ...recipe, out: { ...recipe.out, type: 'list', ...patch } })
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-line p-2 text-xs" data-filter="sort">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-bold text-muted">Trier par</span>
-        <Select<SortBy | ''>
+    <FilterField label="Trier par" k="sort">
+      <div className="flex items-stretch gap-2">
+        <CompactSelect<SortBy | ''>
+          className={`${ctl} ${s ? 'border-accent font-bold' : ''}`}
           label="Trier par"
           value={s?.by ?? ''}
           options={SORTS.filter((o) => o.value !== 'measure' || ms.length)}
@@ -1050,26 +1089,44 @@ function SortPicker({ recipe, model, onChange }: { recipe: Recipe; model: Recipe
           }}
         />
         {s && s.by !== 'priority' && (
-          <Segmented<'asc' | 'desc'>
-            value={s.dir}
-            onChange={(dir) => set({ sort: { by: s.by, dir } })}
-            options={[
-              { value: 'asc', label: '↑' },
-              { value: 'desc', label: '↓' },
-            ]}
-          />
+          <div className="flex shrink-0 overflow-hidden rounded-md border border-line text-xs font-bold" role="group" aria-label="Sens du tri">
+            {(
+              [
+                ['asc', '↑', 'Croissant'],
+                ['desc', '↓', 'Décroissant'],
+              ] as const
+            ).map(([dir, arrow, name]) => (
+              <button
+                key={dir}
+                type="button"
+                aria-pressed={s.dir === dir}
+                aria-label={name}
+                title={name}
+                onClick={() => set({ sort: { by: s.by, dir } })}
+                className={`min-h-10 w-10 ${s.dir === dir ? 'bg-accent text-white' : 'bg-panel-2 text-muted hover:text-fg'}`}
+              >
+                {arrow}
+              </button>
+            ))}
+          </div>
         )}
       </div>
       {s && (s.by === 'avg' || s.by === 'progress') && (
         <TargetPicker value={recipe.out.avg ?? recipe.avis[0]?.target ?? { on: 'global' }} model={model} onChange={(t) => set({ avg: t })} />
       )}
       {s?.by === 'measure' && (
-        <Select label="Mesure" value={recipe.out.measure ?? recipe.measures[0]?.id ?? ms[0]?.id ?? ''} onChange={(m) => set({ measure: m })} options={ms.map((c) => ({ value: c.id, label: c.label }))} />
+        <CompactSelect
+          className={ctl}
+          label="Mesure"
+          value={recipe.out.measure ?? recipe.measures[0]?.id ?? ms[0]?.id ?? ''}
+          onChange={(m) => set({ measure: m })}
+          options={ms.map((c) => ({ value: c.id, label: c.label }))}
+        />
       )}
       {s && (s.by === 'seen' || s.by === 'priority') && (
         <PeriodPicker value={recipe.out.period ?? recipe.seen?.period ?? { kind: 'season' }} onChange={(period) => set({ period })} />
       )}
-    </div>
+    </FilterField>
   )
 }
 
@@ -1078,32 +1135,29 @@ function SavedOnList({ saved, onApply }: { saved: ReturnType<typeof useSavedQues
   const [open, setOpen] = useState(false)
   if (!saved.length) return null
   return (
-    <div className="rounded-md border border-line">
-      <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <div className="flex flex-col gap-1">
+      <button type="button" className="flex min-h-9 w-full items-center gap-2 text-left text-xs font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon name="star" className="h-3.5 w-3.5 text-accent" />
         <span className="flex-1">Mes questions ({saved.length})</span>
         <span className={`text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
       </button>
-      {open && (
-        <div className="flex flex-col gap-1 border-t border-line p-2">
-          {saved.map((q) => (
-            <div key={q.id} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-xs">{q.name}</span>
-              <button type="button" className="btn-primary min-h-11 shrink-0 px-3 text-xs" onClick={() => onApply(q)}>
-                Appliquer
-              </button>
-              <button
-                type="button"
-                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center text-muted hover:text-fg"
-                aria-label={`Supprimer « ${q.name} »`}
-                onClick={async () => (await confirmAskLocal(`Supprimer la question « ${q.name} » de cet appareil ?`)) && deleteQuestion(q.id)}
-              >
-                <Icon name="trash" className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        saved.map((q) => (
+          <div key={q.id} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs">{q.name}</span>
+            <button type="button" className="btn-primary min-h-9 shrink-0 px-3 text-xs" onClick={() => onApply(q)}>
+              Appliquer
+            </button>
+            <button
+              type="button"
+              className="flex min-h-9 min-w-9 shrink-0 items-center justify-center text-muted hover:text-fg"
+              aria-label={`Supprimer « ${q.name} »`}
+              onClick={async () => (await confirmAskLocal(`Supprimer la question « ${q.name} » de cet appareil ?`)) && deleteQuestion(q.id)}
+            >
+              <Icon name="trash" className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
     </div>
   )
 }
