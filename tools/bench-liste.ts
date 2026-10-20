@@ -1,6 +1,6 @@
 // Mesure (pas un test) : temps des calculs de la liste Joueurs sur 40 000 fiches fictives (src/playerQuery.ts), frappe
-// lettre par lettre d'un nom (exact puis approchant), filtres cochés, nombres des menus. Sur ordinateur ; un téléphone milieu
-// de gamme est en gros 4 à 6 fois plus lent (ralentissement CPU ×4 du navigateur).
+// lettre par lettre d'un nom (exact puis approchant), filtres cochés, nombres des menus ; puis ceux du bilan
+// (src/coverage.ts). Sur ordinateur ; un téléphone milieu de gamme est en gros 4 à 6 fois plus lent.
 //
 //   npx jiti tools/bench-liste.ts
 // Mesures du 20/10/2026 (ordinateur), frappe approchante « marix », « marixx » : 54 et 65 ms avant (mots du nom refaits à
@@ -10,6 +10,8 @@ import { buildPlayersIndex, cleanQuery, EMPTY_QUERY, listRecipe, quickCounts, se
 import { cleanRecipe, type QPlayer, type Recipe } from '../src/recipe'
 import { nameTokens, playerHaystack } from '../src/nameMatch'
 import type { Laterality, Position } from '../src/db'
+import { coverageByClub, coverageByPlace, coverageByYear, filterPlayers, livePlayers } from '../src/coverage'
+import { playerDepartment } from '../src/perimeter'
 
 type P = QPlayer & { department?: string; license?: string }
 const SYL = ['ma', 'ri', 'lo', 'du', 'pon', 'ber', 'nar', 'le', 'fe', 'vre', 'mo', 'reau', 'ga', 'tier', 'dre', 'si', 'mon', 'la', 'cour', 'ti', 'neau', 'bou', 'chet', 'roy']
@@ -92,3 +94,19 @@ console.log(`  garçons 2010 ≥ 185                    ${ms(() => selectPlayers
 console.log(`  dépt + gaucher + pivot                ${ms(() => selectPlayers(ix, withPop({ depts: ['83'], hand: 'gaucher', positions: ['PIV'] }), hay, tokCache))} ms`)
 console.log(`  tri par taille (filles)               ${ms(() => selectPlayers(ix, { recipe: listRecipe(cleanRecipe({ pop: { sex: 'F' }, out: { type: 'list', sort: { by: 'height', dir: 'desc' } } })), q: '' }, hay, tokCache))} ms`)
 console.log(`  nombres des menus (quickCounts)       ${ms(() => quickCounts(ix, withPop({ sex: 'M', depts: ['83'] }), hay, tokCache))} ms`)
+
+// ---------- Bilan de détection : calculs refaits à chaque choix (sexe, année, lieu) ----------
+{
+  const bp = players.map((p, i) => ({ ...p, clubCode: `63${String(10 + (i % 85)).padStart(2, '0')}${String(i % 400).padStart(3, '0')}` })) as (P & { clubCode: string })[]
+  const seen = new Set(bp.filter((_, i) => i % 3 === 0).map((p) => p.id))
+  const place = { deptOf: (p: { clubCode?: string; license?: string; department?: string }) => playerDepartment(p), regionOf: (d: string) => (Number(d) < 50 ? 'r1' : 'r2') }
+  const all = bp as never[]
+  console.log(`Bilan, 40 000 fiches (un choix refait tout cela)`)
+  console.log(`  joueurs de la base (livePlayers)      ${ms(() => livePlayers(all))} ms`)
+  console.log(`  carte : filtre sexe                   ${ms(() => filterPlayers(all, { sex: 'M' }, place as never))} ms`)
+  const male = filterPlayers(all, { sex: 'M' }, place as never)
+  console.log(`  carte : par lieu (coverageByPlace)    ${ms(() => coverageByPlace(male, seen, place as never))} ms`)
+  console.log(`  générations (coverageByYear)          ${ms(() => coverageByYear(male, seen))} ms`)
+  console.log(`  clubs (coverageByClub)                ${ms(() => coverageByClub(male, seen))} ms`)
+  console.log(`  département de chaque fiche (×1)      ${ms(() => male.forEach((p) => playerDepartment(p as never)))} ms`)
+}

@@ -32,7 +32,18 @@ export type AskState = { raw: unknown; nonGere: string[]; heard: string }
  * variant : 'full' (micro + champ, ordinateur), 'mic' (le micro seul, en un toucher : barre du bas du bilan sur téléphone),
  * 'text' (le champ seul : panneau « Taper / Mes questions » du téléphone).
  */
-export function AskQuestion({ className = '', variant = 'full', trailing }: { className?: string; variant?: 'full' | 'mic' | 'text'; trailing?: ReactNode }) {
+export function AskQuestion({
+  className = '',
+  variant = 'full',
+  trailing,
+  calculating,
+}: {
+  className?: string
+  variant?: 'full' | 'mic' | 'text'
+  trailing?: ReactNode
+  /** La page se recalcule (bilan : filtre, lieu) : fine barre en va-et-vient sous la pilule. */
+  calculating?: boolean
+}) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
   const [text, setText] = useState('')
@@ -122,6 +133,7 @@ export function AskQuestion({ className = '', variant = 'full', trailing }: { cl
       micHint={QUESTION_HINT}
       disabled={sending || rec}
       wait={busy ? { phrase: busy, cancel: () => abort.current?.abort() } : null}
+      calculating={calculating}
       placeholder="Une question sur le bilan, ou dites-la…"
       label="Poser une question"
       className="flex-[1_1_18rem]"

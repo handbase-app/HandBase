@@ -1,6 +1,6 @@
 import { geoConicConformal, geoPath } from 'd3-geo'
 import type { FeatureCollection, Geometry, MultiLineString } from 'geojson'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { focusProjection, spreadDots } from '../clubMap'
 import { regionOfDept, useDepartments } from '../lists'
 import { fitFont, inkOn, inside, LABEL_INK, parseCssColor, poleOfInaccessibility, type Poly, type Pt } from '../mapLabels'
@@ -92,7 +92,9 @@ export function useDeptName() {
     for (const f of geo?.features ?? []) if (!m.has(codeOf(f.properties.code))) m.set(codeOf(f.properties.code), f.properties.nom)
     return m
   }, [geo])
-  return (code: string) => lists.find((d) => d.code === code)?.name ?? geoNames.get(code) ?? `Département ${code}`
+  // Stable tant que les listes ne changent pas : les noms des pastilles (useRecipeNames) et ce qui en dépend ne sont pas
+  // recalculés à chaque rendu (chaque lettre tapée dans la barre « Demander »).
+  return useCallback((code: string) => lists.find((d) => d.code === code)?.name ?? geoNames.get(code) ?? `Département ${code}`, [lists, geoNames])
 }
 
 /** Anneaux (contours) d'un département, polygone simple ou multiple. */

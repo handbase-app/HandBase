@@ -649,7 +649,7 @@ export function Demander(p: DemanderProps) {
           {wait.on && (
             // Pendant l'attente : le texte court (et « ≈ 2 s » si fiable) à la place des boutons, puis « Annuler ».
             <>
-              <span role="status" className={`shrink-0 truncate px-1 font-bold whitespace-nowrap text-ai ${p.compact ? 'text-[11px]' : 'text-xs'}`}>
+              <span role="status" className={`shrink-0 px-1 font-bold whitespace-nowrap text-ai ${p.compact ? 'text-[11px]' : 'text-xs'}`}>
                 {wait.text}
                 {wait.eta && <span className="ml-1 font-normal tabular-nums text-muted">{wait.eta}</span>}
               </span>

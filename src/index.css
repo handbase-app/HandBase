@@ -316,7 +316,7 @@ body {
 /* Calcul court : rien ne s'affiche (pas de clignotement) ; au-delà de 150 ms, la barre et le nombre estompé apparaissent. */
 @keyframes wait-show { from { opacity: 0; } to { opacity: 1; } }
 .wait-late { animation: wait-show 120ms ease-out 150ms both; }
-.wait-dim { animation: wait-dim 120ms ease-out 150ms both; }
+.wait-dim, .wait-busy .wait-count { animation: wait-dim 120ms ease-out 150ms both; }
 @keyframes wait-dim { from { opacity: 1; } to { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) {
   .wait-spin, .wait-slide { animation: none; }

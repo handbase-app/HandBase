@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { alive, db, POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
@@ -159,6 +159,8 @@ export type HostedBar = {
   hideYear?: boolean
   compact?: boolean
   full?: QuestionModel
+  /** L'écran se recalcule (bilan : filtre, lieu) : même signe que la liste qui se recalcule, sous la pilule. */
+  busy?: boolean
 }
 
 /**
@@ -288,14 +290,19 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   useEffect(() => {
     if (!opts.scope) contextIds = filtered.map((p) => p.id)
   }, [filtered, opts.scope])
-  const sortRecipe = useMemo(() => listRecipe(qy.recipe), [qy])
-  const sorted = !!(qy.recipe.out.sort || qy.recipe.avis.length)
-  const valueOf = (p: Player): string => {
-    if (fromSql) return sqlList.extra.get(p.id) ?? ''
-    if (!sorted) return ''
-    const v = sel?.values.get(p.id)
-    return v ? valueText(sortRecipe, names, v.value, v.tag) : ''
-  }
+  // Tri et valeurs : ceux de la liste affichée (calculée en arrière-plan), pour qu'ils aillent avec ses lignes.
+  const sortRecipe = useMemo(() => listRecipe(listQy.recipe), [listQy])
+  const sorted = !!(listQy.recipe.out.sort || listQy.recipe.avis.length)
+  // Stable tant que la liste ne change pas : les lignes ne sont pas redessinées à chaque lettre tapée (src/pages/Players.tsx).
+  const valueOf = useCallback(
+    (p: Player): string => {
+      if (fromSql) return sqlList.extra.get(p.id) ?? ''
+      if (!sorted) return ''
+      const v = sel?.values.get(p.id)
+      return v ? valueText(sortRecipe, names, v.value, v.tag) : ''
+    },
+    [fromSql, sqlList, sorted, sel, sortRecipe, names],
+  )
 
   // Historique de la barre « Demander » : la page où la demande est faite (bilan : barre posée).
   const askPage = hosted ? 'bilan' : 'joueurs'
@@ -782,7 +789,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       micHint={HINT}
       disabled={sending || rec}
       wait={busy || pending ? { phrase: busy || pending?.phrase, cancel: busy ? () => abort.current?.abort() : undefined } : null}
-      calculating={calculating}
+      calculating={calculating || !!hosted?.busy}
       compact={hosted?.compact}
       label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
       trailing={!hosted ? filtersChip : undefined}
