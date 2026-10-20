@@ -1,5 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { defineConfig, loadEnv } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -8,6 +10,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 const trial = !!process.env.VITE_TRIAL
 // VITE_DEMO=1 : démonstration en ligne (dépôt HandBase-demo, base de test, données fictives).
 const demo = !!process.env.VITE_DEMO
+// HB_HTTPS=1 : serveur local en https (certificat auto-signé de ~/.config/handbase-https, hors du dépôt), pour essayer
+// depuis un téléphone sur le même Wi-Fi avec un contexte sécurisé (micro de la dictée, etc.).
+const certDir = `${homedir()}/.config/handbase-https`
+const https =
+  process.env.HB_HTTPS && existsSync(`${certDir}/key.pem`)
+    ? { key: readFileSync(`${certDir}/key.pem`), cert: readFileSync(`${certDir}/cert.pem`) }
+    : undefined
 
 export default defineConfig(({ mode }) => {
   // VITE_APP_NAME : nom de l'appli installée (icône, écran de démarrage, titre de l'onglet), figé à la construction.
@@ -93,6 +102,6 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
-    server: { host: true },
+    server: { host: true, https },
   }
 })
