@@ -123,7 +123,7 @@ export function flash(msg: string) {
   const el = document.createElement('div')
   el.setAttribute('role', 'status')
   el.className =
-    'pointer-events-none fixed bottom-[calc(var(--nav-b)+1rem)] left-1/2 z-[60] max-w-[90vw] -translate-x-1/2 rounded-lg border border-line bg-panel px-3 py-2 text-xs font-bold shadow-lg'
+    'pointer-events-none fixed bottom-[calc(var(--nav-b)+1rem)] left-1/2 z-[60] max-w-[90vw] -translate-x-1/2 rounded-win border border-line bg-panel px-3 py-2 text-xs font-bold shadow-lg'
   el.textContent = msg
   document.body.appendChild(el)
   setTimeout(() => el.remove(), 2000)

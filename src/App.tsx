@@ -200,7 +200,7 @@ function UpdateBanner() {
   if (!ready) return null
   return (
     <div className="no-print fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
-      <div className="flex w-full items-center gap-3 rounded-lg border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
+      <div className="flex w-full items-center gap-3 rounded-win border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
         <span className="min-w-0 flex-1">Nouvelle version de {appName()} disponible.</span>
         <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
           Mettre à jour
