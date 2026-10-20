@@ -16,6 +16,8 @@ import { Empty, Icon } from './ui'
 import { PlayerRow } from './PlayerRow'
 import { PlayerList } from './Pictos'
 import { PageHeader } from './PageHeader'
+import { FoldSection } from './FoldSection'
+import { foldKey, startsOpen } from '../fold'
 
 /*
  * « Voir tous les groupes » (administrateurs, supabase/039_admin_groupes.sql) : les groupes privés et « Mon staff » des
@@ -149,11 +151,15 @@ export function OtherGroupsSection({ role, info }: { role: Role; info: Info }) {
   }, [active])
 
   if (!active) return null
+  // Repliable comme les autres sections de la page (src/components/FoldSection.tsx) ; dépliée au départ.
   return (
-    <>
-      <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-        <Icon name="eye" className="h-3.5 w-3.5" /> {ADMIN_GROUPS.section}
-      </div>
+    <FoldSection
+      storeKey={foldKey('groupes', 'autres')}
+      defaultOpen={startsOpen('current')}
+      icon={<Icon name="eye" className="h-3.5 w-3.5" />}
+      title={ADMIN_GROUPS.section}
+      count={list?.length}
+    >
       {!supabase ? (
         <p className="text-[11px] text-amber-300">{ADMIN_GROUPS.noServer}</p>
       ) : !online ? (
@@ -171,7 +177,7 @@ export function OtherGroupsSection({ role, info }: { role: Role; info: Info }) {
           ))}
         </div>
       )}
-    </>
+    </FoldSection>
   )
 }
 

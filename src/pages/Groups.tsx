@@ -1,12 +1,14 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useGoBack } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
-import { arrowNav, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
+import { arrowNav, showGroupInPlayers } from '../components/PlayerFilter'
+import { FoldSection } from '../components/FoldSection'
+import { foldKey, startsOpen } from '../fold'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
@@ -85,8 +87,6 @@ export default function Groups() {
   const [creatingTeam, setCreatingTeam] = useState(false)
   const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter(can.seeGroup))))
   const teams = useTeams() ?? []
-  // Archivés affichés : retrouvé au retour (pendant la session), comme les filtres.
-  const [showArchived, setShowArchived] = useSessionState('handbase.groupes.archived', false)
   // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
   // question… », micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session.
   const { filtered: shown, active: filtering, ui: filterUi, top: filterTop } = useGroupsQuery(groups)
@@ -164,52 +164,70 @@ export default function Groups() {
       <AllGroupsToggle role={role} />
       {groups.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
       {filterTop}
-      {!active.length && filtering && <Empty>Aucun groupe ne correspond.</Empty>}
+      {!active.length && filtering && (
+        // « Archivés » est replié au départ : on dit où sont les groupes qui répondent.
+        <Empty>{archived.length ? `Aucun groupe en cours ne correspond ; ${archived.length > 1 ? `${archived.length} dans « Archivés »` : '1 dans « Archivés »'}.` : 'Aucun groupe ne correspond.'}</Empty>
+      )}
       {!groups.length && !toCreate.length && (
         <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
       )}
+      {/* Groupes de groupes repliables (src/components/FoldSection.tsx) : dépliés au départ, sauf « Archivés » ; le choix
+          est gardé pendant la session. Filtre actif : le titre compte les groupes de la section qui répondent. */}
       {(pinned.length > 0 || toCreate.length > 0) && (
-        <>
-          <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-            <Icon name="target" className="h-3.5 w-3.5" /> Pôles Espoirs
-          </div>
+        <FoldSection
+          storeKey={foldKey('groupes', 'poles')}
+          defaultOpen={startsOpen('current')}
+          icon={<Icon name="target" className="h-3.5 w-3.5" />}
+          title="Pôles Espoirs"
+          count={pinned.length}
+        >
           <div className="cols flex flex-col gap-3">
             {pinned.map((g) => (
               <GroupRow key={g.id} g={g} teams={teams} />
             ))}
             <PoleCreateTiles units={toCreate} onCreate={async (u) => nav(`/groupes/${(await createPoleGroup(u, refs.get(u.id) ?? null)).id}`)} />
           </div>
-        </>
+        </FoldSection>
       )}
-      {SECTIONS.map(
-        (sec) =>
-          active.some((g) => groupVisibility(g) === sec.vis) && (
-            <Fragment key={sec.vis}>
-              <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
-                <Icon name={sec.icon} className="h-3.5 w-3.5" /> {sec.title}
-              </div>
+      {SECTIONS.map((sec) => {
+        const list = active.filter((g) => groupVisibility(g) === sec.vis)
+        return (
+          list.length > 0 && (
+            <FoldSection
+              key={sec.vis}
+              storeKey={foldKey('groupes', sec.vis)}
+              defaultOpen={startsOpen('current')}
+              icon={<Icon name={sec.icon} className="h-3.5 w-3.5" />}
+              title={sec.title}
+              count={list.length}
+            >
               <div className="cols flex flex-col gap-3">
-                {active
-                  .filter((g) => groupVisibility(g) === sec.vis)
-                  .map((g) => (
-                    <GroupRow key={g.id} g={g} teams={teams} />
-                  ))}
+                {list.map((g) => (
+                  <GroupRow key={g.id} g={g} teams={teams} />
+                ))}
               </div>
-            </Fragment>
-          ),
-      )}
+            </FoldSection>
+          )
+        )
+      })}
       <OtherGroupsSection role={role} info={groupInfo} />
       {archived.length > 0 && (
-        <button className="self-start text-[11px] font-bold text-muted underline" onClick={() => setShowArchived((x) => !x)}>
-          {showArchived ? 'Masquer' : 'Voir'} les groupes archivés ({archived.length})
-        </button>
-      )}
-      {showArchived && (
-        <div className="cols flex flex-col gap-3">
-          {archived.map((g) => (
-            <GroupRow key={g.id} g={g} teams={teams} />
-          ))}
-        </div>
+        // Même clé de session qu'avant (« Voir les groupes archivés ») : le choix déjà fait reste.
+        <FoldSection
+          storeKey="handbase.groupes.archived"
+          defaultOpen={startsOpen('archived')}
+          icon={<Icon name="archive" className="h-3.5 w-3.5" />}
+          title="Archivés"
+          count={archived.length}
+          muted
+          className="mt-2"
+        >
+          <div className="cols flex flex-col gap-3">
+            {archived.map((g) => (
+              <GroupRow key={g.id} g={g} teams={teams} />
+            ))}
+          </div>
+        </FoldSection>
       )}
         </>
       )}

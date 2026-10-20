@@ -37,6 +37,8 @@ import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
 import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
 import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
+import { FoldSection } from '../components/FoldSection'
+import { foldKey, startsOpen } from '../fold'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
 const loadSheet = () => import('../components/MatchSheet')
@@ -118,9 +120,8 @@ export default function Events() {
   // Ordinateur, événement ouvert à droite : son bouton « Évaluer » est le seul bouton principal de l'écran ;
   // « + Événement » passe en secondaire.
   const detailOpen = !!useSelected('/evenements')
-  // Tout afficher, archivés : retrouvés au retour (pendant la session), comme les filtres.
+  // Tout afficher (passés) : retrouvé au retour (pendant la session), comme les filtres.
   const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
-  const [showArchived, setShowArchived] = useSessionState('handbase.evenements.archived', false)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
   const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
@@ -220,19 +221,21 @@ export default function Events() {
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs personnes puissent y donner leur avis sur les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
         <>
-          <div className="section-title mt-1 mb-0">À venir</div>
-          {upcoming.length ? (
-            <div className="cols flex flex-col gap-3">
-              {upcoming.map((ev) => (
-                <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
-              ))}
-            </div>
-          ) : (
-            <p className="text-[11px] text-muted">Aucun événement prévu.</p>
-          )}
+          {/* Sections repliables (src/components/FoldSection.tsx) : « À venir » dépliée, « Passés » et « Archivés » repliées au
+              départ ; le choix est gardé pendant la session. */}
+          <FoldSection storeKey={foldKey('evenements', 'avenir')} defaultOpen={startsOpen('current')} title="À venir" count={upcoming.length}>
+            {upcoming.length ? (
+              <div className="cols flex flex-col gap-3">
+                {upcoming.map((ev) => (
+                  <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted">Aucun événement prévu.</p>
+            )}
+          </FoldSection>
           {past.length > 0 && (
-            <>
-              <div className="section-title mt-3 mb-0">Passés</div>
+            <FoldSection storeKey={foldKey('evenements', 'passes')} defaultOpen={startsOpen('past')} title="Passés" count={past.length} className="mt-2">
               <div className="cols flex flex-col gap-3">
                 {past.slice(0, showAll ? undefined : 10).map((ev) => (
                   <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
@@ -243,21 +246,17 @@ export default function Events() {
                   Afficher les {past.length - 10} plus anciens
                 </button>
               )}
-            </>
+            </FoldSection>
           )}
           {archived.length > 0 && (
-            <>
-              <button className="section-title mt-3 mb-0 flex items-center gap-1.5 text-left text-muted" onClick={() => setShowArchived(!showArchived)}>
-                Archivés ({archived.length}) <span>{showArchived ? '▴' : '▾'}</span>
-              </button>
-              {showArchived && (
-                <div className="cols flex flex-col gap-3">
-                  {archived.map((ev) => (
-                    <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
-                  ))}
-                </div>
-              )}
-            </>
+            // Même clé de session qu'avant (« Archivés » ouvert ou fermé) : le choix déjà fait reste.
+            <FoldSection storeKey="handbase.evenements.archived" defaultOpen={startsOpen('archived')} title="Archivés" count={archived.length} muted className="mt-2">
+              <div className="cols flex flex-col gap-3">
+                {archived.map((ev) => (
+                  <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
+                ))}
+              </div>
+            </FoldSection>
           )}
         </>
       )}
