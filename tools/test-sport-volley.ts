@@ -1,6 +1,7 @@
 // Test du profil volley (phase 1) : choix du sport (ligne « sport » de hb_config, sinon VITE_SPORT, sinon handball),
 // postes du volley (4 par défaut, libéro ajouté par l'installation), étiquettes du terrain (courtTag), fonctions propres au
-// handball (sportHas), familles de postes, vocabulaire de dictée, points d'accroche de la phase 2. Données fictives seulement.
+// handball (sportHas), familles de postes, vocabulaire de dictée, points d'accroche de la phase 2 (remplis depuis : leur
+// contenu est testé dans tools/test-volley-contenu.ts). Données fictives seulement.
 //
 //   npx jiti tools/test-sport-volley.ts
 import assert from 'node:assert/strict'
@@ -186,7 +187,10 @@ t('mots du sport : « le hand », « le volley » ; fédération', () => {
 t('dictée : aucun terme du handball injecté en volley', () => {
   assert.ok(dictationVocabulary('handball').mots.length > 0)
   assert.ok(dictationVocabulary('handball').corrections.length > 0)
-  assert.deepEqual(dictationVocabulary('volley'), { mots: [], corrections: [] })
+  // Volley (phase 2) : ses propres mots, aucun du handball.
+  const volley = dictationVocabulary('volley').mots
+  assert.ok(volley.includes('passeur') && volley.includes('libéro'))
+  for (const m of ['pivot', 'demi-centre', 'gardien', 'roucoulette', 'chabala', '7 contre 6', 'jet de 7 mètres', 'Intercomités']) assert.ok(!volley.includes(m), m)
   assert.deepEqual(dictationVocabulary('basket'), { mots: [], corrections: [] })
   assert.equal(correct('une roue coulette', 'handball').texte, 'une roucoulette')
   assert.equal(correct('une roue coulette', 'volley').texte, 'une roue coulette')
@@ -194,12 +198,16 @@ t('dictée : aucun terme du handball injecté en volley', () => {
 
 // ---------- 6. Points d'accroche de la phase 2 ----------
 
-t('critères et tests : un fichier par sport ; volley encore vide', () => {
+t('critères et tests : un fichier par sport ; volley rempli (phase 2), lu avec les postes du volley', () => {
   assert.equal(sportContent('handball').demoCriteria, 'demo/criteres-demo.json')
   assert.equal(sportContent('basket'), SPORT_CONTENT.handball)
   const file = (f: string) => readFileSync(new URL(`../public/${f}`, import.meta.url), 'utf8')
   assert.ok(existsSync(new URL(`../public/${sportContent('volley').demoCriteria}`, import.meta.url)))
-  assert.equal(parseRows(rowsFromJson(file(sportContent('volley').demoCriteria))).rows.length, 0)
+  applySportConfig(resolveSportConfig([], 'volley'))
+  const volley = parseRows(rowsFromJson(file(sportContent('volley').demoCriteria)))
+  assert.ok(volley.rows.length > 0)
+  assert.deepEqual(volley.errors, [])
+  applySportConfig(resolveSportConfig([], 'handball'))
   assert.ok(parseRows(rowsFromJson(file(sportContent('handball').demoCriteria))).rows.length > 0)
 })
 t('aide « postes » du classeur de critères : codes du sport en cours', () => {
@@ -208,9 +216,10 @@ t('aide « postes » du classeur de critères : codes du sport en cours', () => 
   applySportConfig(resolveSportConfig([], 'handball'))
   assert.match(positionsHelp(), /\(handball : GB, AG, ARG, DC, ARD, AD, PIV\)/)
 })
-t('séquenceur : table de pastilles par sport (volley vide : libellés de la feuille gardés)', () => {
+t('séquenceur : table de pastilles par sport (volley : ses gestes ; une action de la feuille garde son libellé)', () => {
   applySportConfig(resolveSportConfig([], 'volley'))
   assert.equal(pillLabel('but').short, 'BUT')
+  assert.equal(pillLabel('attaque_reussi').long, 'Attaque réussie')
   applySportConfig(resolveSportConfig([], 'handball'))
   assert.equal(pillLabel('but').short, 'BUT')
   assert.equal(currentSport().sport, 'handball')

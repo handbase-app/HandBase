@@ -1,7 +1,8 @@
 import { loadDemoCriteria } from './criteriaImport'
 import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
+import { buildVolleyDemo } from './demoVolley'
 import { scoutId } from './scouting'
-import type { HandballPosition } from './sportConfig'
+import { currentSport, type HandballPosition } from './sportConfig'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -9,7 +10,14 @@ import type { HandballPosition } from './sportConfig'
  * Les données ne sont pas mises dans la file de synchro : elles restent sur l'appareil.
  * Critères : l'appli n'en livre aucun ; ceux qui manquent sont lus dans public/demo/criteres-demo.json (mêmes
  * identifiants que les mesures et avis ci-dessous : taille, sprint_10, vision, gb_placement…).
+ * Volley (sport de l'installation) : sa propre démonstration, src/demoVolley.ts, et ses critères (criteres-volley.json).
  */
+
+/** Ce que contient la démonstration du sport de l'installation (Réglages → Données de démonstration). */
+export const demoInfo = () =>
+  currentSport().sport === 'volley'
+    ? '40 joueuses et joueurs fictifs (M13 à M18), 5 observateurs, 6 événements de la filière (détection, stages CDE et CRE, Volleyades, Interpôles), un pôle espoirs fictif et leurs avis, pour tester l’app. Elles restent sur cet appareil et s’effacent sans toucher à tes vraies données.'
+    : "24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données."
 
 const PREFIX = 'demo-'
 
@@ -81,6 +89,7 @@ const SUBJ_GB = ['gb_placement', 'gb_reflexes', 'gb_lecture', 'gb_relance', 'gb_
 const QUICK = new Set(['vision', 'decision', 'efficacite_tir', 'agressivite', 'engagement', 'pression', 'gb_placement', 'gb_reflexes'])
 
 export async function loadDemo() {
+  if (currentSport().sport === 'volley') return loadVolleyDemo()
   await clearDemo()
   const criteria = await loadDemoCriteria()
   rand = rng(2026)
@@ -268,6 +277,25 @@ export async function loadDemo() {
     await db.videos.bulkPut(videos)
   })
   return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+}
+
+/** Démonstration du volley (src/demoVolley.ts) : joueurs, mesures, événements, avis, groupes, vidéos, repérage. */
+async function loadVolleyDemo() {
+  await clearDemo()
+  const criteria = await loadDemoCriteria()
+  const d = buildVolleyDemo(Date.now(), scoutId() ?? 'local', localDay)
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
+    await db.teams.bulkPut(d.teams)
+    await db.groups.bulkPut(d.groups)
+    await db.players.bulkPut(d.players)
+    await db.measurements.bulkPut(d.measurements)
+    await db.events.bulkPut(d.events)
+    await db.seen.bulkPut(d.seen)
+    await db.rewatch.bulkPut(d.rewatch)
+    await db.evaluations.bulkPut(d.evaluations)
+    await db.videos.bulkPut(d.videos)
+  })
+  return { criteria, players: d.players.length, measurements: d.measurements.length, events: d.events.length, evaluations: d.evaluations.length, videos: d.videos.length }
 }
 
 /**

@@ -24,7 +24,7 @@ import { asText, bestMatch, isTrue, matchDept, matchRegion, normalize, parseSex,
 import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSearch'
 import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
-import { familySkips, isHandball, positionCodes } from './sportConfig'
+import { familySkips, isHandball, positionCodes, proposedOnly } from './sportConfig'
 import { cleanYearFields, inYears, parseSaidYears, putYears, yearsOf, yearsPhrase } from './birthYears'
 
 // ---------- Recette ----------
@@ -226,7 +226,8 @@ export type QuestionContext = Places & {
 }
 
 const isScore = (scale: string) => scale === 'score5' || scale === 'score3' || scale === 'score2'
-const usable = (c: QCriterion) => !c.deleted && c.active !== false
+// Critères d'un poste seulement proposé par le sport (volley : le libéro, pas ajouté) : aucun joueur, ni noms à proposer.
+const usable = (c: QCriterion) => !c.deleted && c.active !== false && !(c.positions?.length && c.positions.every(proposedOnly))
 /** Critères notés dans les avis (échelle de notes). */
 export const avisCriteria = (cs: QCriterion[]) => cs.filter((c) => usable(c) && c.kind === 'subjective' && isScore(c.scale))
 /** Critères mesurés (valeur chiffrée). */

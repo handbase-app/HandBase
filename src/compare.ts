@@ -80,7 +80,8 @@ const HIGHER = new Set([
  * inconnu (sprint : plus petit ; gainage : plus grand).
  */
 export function measureDirection(c: Criterion): 1 | -1 | 0 {
-  // Tests communs, puis ceux propres au sport de l'installation (src/sportContent.ts ; volley : phase 2).
+  // Tests communs, puis ceux propres au sport de l'installation (src/sportContent.ts ; volley : T-test, hauteurs d'attaque
+  // et de contre, médecine-ball).
   const own = sportContent()
   if (LOWER.has(c.id) || own.lowerIsBetter.includes(c.id)) return -1
   if (HIGHER.has(c.id) || own.higherIsBetter.includes(c.id)) return 1

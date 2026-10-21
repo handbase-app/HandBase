@@ -1,5 +1,5 @@
 import type { Criterion, CriterionKind, CriterionScale } from './db'
-import { currentSport, positionCodes, type Position } from './sportConfig'
+import { currentSport, positionCodes, sportProfile, type Position } from './sportConfig'
 import type { Cell, Sheet } from './xlsx'
 
 /*
@@ -100,10 +100,12 @@ export function parseRows(table: Cell[][]): ParsedFile {
     const options = [...new Set(str(get('options')).split('|').map((x) => x.trim()).filter(Boolean))]
     if (scale === 'choice' && ix.options >= 0 && options.length < 2) return fail('échelle choice : indique au moins 2 options séparées par « | »')
 
-    // Codes des postes de l'installation (src/sportConfig.ts ; handball par défaut), sans tenir compte de la casse.
+    // Codes des postes de l'installation (src/sportConfig.ts ; handball par défaut), sans tenir compte de la casse, et ceux
+    // que le sport propose à l'ajout (volley : L, le libéro) : ses critères s'importent avant que le poste soit ajouté.
     const codes = positionCodes()
-    const posList = str(get('positions')).split(/[\s,;/|]+/).filter(Boolean).map((x) => codes.find((c) => c.toUpperCase() === x.toUpperCase()) ?? x.toUpperCase())
-    const badPos = posList.filter((x) => !codes.includes(x))
+    const known = [...codes, ...sportProfile().extraPositions.map((p) => p.code).filter((c) => !codes.includes(c))]
+    const posList = str(get('positions')).split(/[\s,;/|]+/).filter(Boolean).map((x) => known.find((c) => c.toUpperCase() === x.toUpperCase()) ?? x.toUpperCase())
+    const badPos = posList.filter((x) => !known.includes(x))
     if (badPos.length) return fail(`poste${badPos.length > 1 ? 's' : ''} inconnu${badPos.length > 1 ? 's' : ''} : ${badPos.join(', ')} (${codes.join(', ')})`)
 
     const bool = (f: 'quick' | 'active', dflt: boolean) => {

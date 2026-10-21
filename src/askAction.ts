@@ -1,5 +1,6 @@
 import { pluralG, type Gender } from './gender'
 import { levenshtein, nameKey, phonetic } from './nameMatch'
+import { currentSport } from './sportConfig'
 
 /*
  * « Demander » sait RÉALISER quelques actions (bulle ✦ de l'en-tête et barres « Demander » des listes), toujours après une
@@ -181,6 +182,11 @@ const CREATOR_RE = RE(
 /** Mots de joueurs (la partie « joueurs » d'une phrase d'ouverture doit en contenir un, ou une année). */
 const PLAYER_WORD =
   /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demis?|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|garcons?|filles?|grands?|grandes?|petits?|petites?|licencies?|licenciees?|jeunes?|(19|20)\d\d)\b/
+/** Postes d'un autre sport (selon l'installation) : des mots de joueurs aussi (« les passeuses du groupe X »). */
+const PLAYER_WORD_SPORT: Record<string, RegExp> = {
+  volley: /\b(passeurs?|passeuses?|central|centraux|centrales?|pointus?|pointues?|opposes?|opposees?|liberos?|receptionneurs?|receptionneuses?|attaquants?|attaquantes?|r4)\b/,
+}
+const playerWord = (s: string) => PLAYER_WORD.test(s) || !!PLAYER_WORD_SPORT[currentSport().sport]?.test(s)
 /** « vus au tournoi », « présents au stage » : une condition de la liste Joueurs, pas une action. */
 const SEEN_END = /\b(vus?|vues?|presents?|presentes?|passes?|passees?|venus?|venues?|observes?|observees?|notes?|notees?|evalues?|evaluees?|inscrits?|inscrites?|joue|jouent|selectionnes?|selectionnees?|convoques?|convoquees?)$/
 const PRONOUNS = /^(moi|me|nous|toi|vous|je|j'|j|lui|elle|eux|elles|personne|quelqu'un|on|il|ils)$/
@@ -239,7 +245,7 @@ function targetOf(text: string, m: RegExpExecArray, base: number): { kind: 'grou
  */
 function openable(n: string, m: RegExpExecArray): boolean {
   const who = m[1]
-  if (!PLAYER_WORD.test(who) || SEEN_END.test(who)) return false
+  if (!playerWord(who) || SEEN_END.test(who)) return false
   if (/^(?:(?:tous|toutes|les|des|mes|ces)\s+)*(?:joueurs?|joueuses?|jeunes|licencies?|licenciees?)$/.test(who)) return false
   const explicit = !!(m[2] || m[3])
   return explicit || /\s(?:dans|parmi|pendant|lors de|lors du)\s/.test(n)

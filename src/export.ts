@@ -8,6 +8,7 @@ import { pahShown } from './maturity'
 import { snapshots } from './maturitySnapshot'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
+import { sportProfile } from './sportConfig'
 import { appName, appSlug } from './appBrand'
 import { clubYears, journalDay, letterQuestions, markFields, moodLabel } from './playerSpace'
 import { fetchNotes } from './playerJournal'
@@ -265,7 +266,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 <h2>Écrit par le joueur (espace joueur)</h2>${self.length ? table(['Rubrique', 'Texte'], self) : '<p class="m">Rien.</p>'}
 ${versions.length ? `<h2>Versions précédentes de sa lettre</h2>${table(['Version du', 'Question', 'Texte'], versions)}` : ''}
-<h2>Journal du hand : notes partagées (${sharedRows.length})</h2>${shared.ok ? table(['Date', 'Humeur', 'Note'], sharedRows) : `<p class="m">Non lues : ${h(shared.error)}</p>`}
+<h2>Journal du ${h(sportProfile().word)} : notes partagées (${sharedRows.length})</h2>${shared.ok ? table(['Date', 'Humeur', 'Note'], sharedRows) : `<p class="m">Non lues : ${h(shared.error)}</p>`}
 <p class="m">Notes privées du journal : téléchargeables uniquement par le joueur ou la joueuse depuis sa page.</p>
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')

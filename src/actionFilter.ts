@@ -3,6 +3,8 @@ import { pillLabel, type PillKind, type PillLabel } from './seqPills'
 import { kindRank, type SeqItem } from './sequencer'
 import type { VideoMoment } from './db'
 import { fmtMoment, momentAt, stepMoment } from './videos'
+import { currentSport } from './sportConfig'
+import { VOLLEY_CAT_SPECS, volleyMomentKind, type VolleySkill } from './volleyActions'
 
 /*
  * Visibilité par type d'action (calcul pur, partagé) : pastilles à cocher BUT, 7 M, TIR (raté), PASSE, ARRÊT, PERTE, 2′,
@@ -14,9 +16,13 @@ import { fmtMoment, momentAt, stepMoment } from './videos'
  *   (sequencer.ts, matchSheet.ts timeline) ne change pas : elle se fait sur toute la feuille.
  * - Lecture (VideoPlayer.tsx) : la liste des moments, ⏮ ⏭, P / N et « Voir les actions » ne passent que par les moments
  *   des types cochés ; le type d'un moment se lit dans sa note (« But 2-1 · feuille ») ; les autres moments : « AUTRE ».
+ *
+ * Catégories du sport de l'installation (catsFor) : handball ci-dessous (CATS) ; volley : un geste par pastille (SERVICE,
+ * RÉCEPTION, PASSE, ATTAQUE, CONTRE, DÉFENSE), ses trois résultats regroupés comme « 7 M » regroupe les jets de 7 m, le type
+ * d'un moment lu dans sa note (« Attaque réussie · n° 7 » : src/volleyActions.ts).
  */
 
-export type CatId = 'but' | '7m' | 'tir' | 'passe' | 'arret' | 'perte' | '2mn' | 'carton' | 'tm' | 'autre'
+export type CatId = 'but' | '7m' | 'tir' | 'passe' | 'arret' | 'perte' | '2mn' | 'carton' | 'tm' | 'autre' | VolleySkill
 
 export interface Cat {
   id: CatId
@@ -27,9 +33,10 @@ export interface Cat {
   kinds: PillKind[]
 }
 
-const cat = (id: CatId, kinds: PillKind[], plural: string, label: Partial<PillLabel> = {}): Cat => ({ id, kinds, plural, label: { ...pillLabel(kinds[0]), ...label } })
+// Libellés du handball, quel que soit le sport de l'installation au chargement (« passe » : passe décisive).
+const cat = (id: CatId, kinds: PillKind[], plural: string, label: Partial<PillLabel> = {}): Cat => ({ id, kinds, plural, label: { ...pillLabel(kinds[0], undefined, 'handball'), ...label } })
 
-/** Types montrés, dans l'ordre des pastilles. TIR : tir raté (un tir réussi est un but). 7 M : tous les jets de 7 m. */
+/** Types montrés (handball), dans l'ordre des pastilles. TIR : tir raté (un tir réussi est un but). 7 M : tous les jets de 7 m. */
 export const CATS: Cat[] = [
   cat('but', ['but'], 'buts'),
   cat('7m', ['but7', 'tir7', 'arret7'], '7 m', { long: 'Jets de 7 m' }),
@@ -42,9 +49,20 @@ export const CATS: Cat[] = [
   cat('tm', ['tm'], 'temps morts'),
   cat('autre', ['autre'], 'autres', { short: 'AUTRE', long: 'Autres' }),
 ]
-const BY_KIND = new Map(CATS.flatMap((c) => c.kinds.map((k) => [k, c.id] as const)))
-export const catOf = (k: PillKind): CatId => BY_KIND.get(k) ?? 'autre'
-export const catById = (id: CatId) => CATS.find((c) => c.id === id)!
+/** Volley : un geste par pastille (avec ou sans résultat), puis les autres moments. */
+export const VOLLEY_CATS: Cat[] = [...VOLLEY_CAT_SPECS.map((c) => ({ ...c, label: { ...c.label } })), cat('autre', ['autre'], 'autres', { short: 'AUTRE', long: 'Autres' })]
+
+const CATS_BY_SPORT: Record<string, Cat[]> = { handball: CATS, volley: VOLLEY_CATS }
+/** Catégories du sport (de l'installation par défaut) ; un sport sans catégories propres : celles du handball. */
+export const catsFor = (sport: string = currentSport().sport): Cat[] => CATS_BY_SPORT[sport] ?? CATS
+const BY_KIND = new Map<Cat[], Map<PillKind, CatId>>()
+function kindMap(cats: Cat[]) {
+  let m = BY_KIND.get(cats)
+  if (!m) BY_KIND.set(cats, (m = new Map(cats.flatMap((c) => c.kinds.map((k) => [k, c.id] as const)))))
+  return m
+}
+export const catOf = (k: PillKind): CatId => kindMap(catsFor()).get(k) ?? 'autre'
+export const catById = (id: CatId) => catsFor().find((c) => c.id === id)!
 
 /** Ce qui est masqué (ce qui est coché par défaut : un type nouveau apparaît coché). */
 export interface TypeFilter {
@@ -58,7 +76,7 @@ export const SHOW_ALL: TypeFilter = { hide: [], sides: [] }
 export function parseFilter(raw: string | null | undefined): TypeFilter {
   try {
     const v = JSON.parse(raw ?? '')
-    const ids = new Set(CATS.map((c) => c.id as string))
+    const ids = new Set(catsFor().map((c) => c.id as string))
     return {
       hide: Array.isArray(v?.hide) ? v.hide.filter((x: unknown): x is CatId => typeof x === 'string' && ids.has(x)) : [],
       sides: Array.isArray(v?.sides) ? v.sides.filter((x: unknown): x is Side => x === 'home' || x === 'away') : [],
@@ -82,7 +100,7 @@ export const showNone = (f: TypeFilter, present: CatId[]): TypeFilter => ({ ...f
 export function presentCats(kinds: PillKind[]): { cat: Cat; n: number }[] {
   const n = new Map<CatId, number>()
   for (const k of kinds) n.set(catOf(k), (n.get(catOf(k)) ?? 0) + 1)
-  return CATS.flatMap((c) => (n.get(c.id) ? [{ cat: c, n: n.get(c.id)! }] : []))
+  return catsFor().flatMap((c) => (n.get(c.id) ? [{ cat: c, n: n.get(c.id)! }] : []))
 }
 
 /** Compteur sur la sélection : « 5/12 », « 5/12 buts » quand un seul type présent est coché. */
@@ -116,9 +134,11 @@ const LABELS = (Object.entries(KIND_LABEL) as [ActionKind, string][]).filter(([k
 /**
  * Type d'un moment d'après sa note, écrite d'après la feuille : « But 7m 3-2 · feuille » (moment généré) ou « But 3-2 ·
  * n° 7 (Équipe) » (moments d'une vidéo d'événement, matchSheet.ts sheetMoments) → libellé du type puis le score. Moment
- * ajouté à la main ou autre ligne : autre.
+ * ajouté à la main ou autre ligne : autre. Volley (pas de feuille) : geste et résultat en tête de la note (« Attaque
+ * réussie · n° 7 », src/volleyActions.ts).
  */
-export function momentKind(m: Pick<VideoMoment, 'note'>): ActionKind {
+export function momentKind(m: Pick<VideoMoment, 'note'>): PillKind {
+  if (currentSport().sport === 'volley') return volleyMomentKind(m.note)
   const note = m.note ?? ''
   return LABELS.find(([, l]) => note.startsWith(`${l} `) && /^\d+-\d+(\s·|$)/.test(note.slice(l.length + 1)))?.[0] ?? 'autre'
 }

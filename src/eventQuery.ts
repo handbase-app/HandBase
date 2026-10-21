@@ -25,6 +25,7 @@ import {
   type NumCond,
 } from './listQuery'
 import { asText, bestMatch, isTrue, matchDept, matchRegion, normalize, quote, readName, type Places } from './voiceFilters'
+import { sportHas } from './sportConfig'
 
 /** Ce qu'il faut d'un événement (src/db.ts HBEvent). */
 export type QEvent = {
@@ -444,7 +445,8 @@ export function buildEventsSchema(today: string): Record<string, string> {
     regions: 'liste de régions (ligues) telles que dites',
     mes: 'les_miens (créés par moi ou où je suis participant) | crees (créés par moi) | participant (où je suis participant)',
     createurs: 'liste de noms de personnes (créateur de l’événement) tels que dits',
-    feuilleDeMatch: 'true : avec une feuille de match importée',
+    // Feuille de match FFHB : handball seulement (src/sportConfig.ts, sportHas).
+    ...(sportHas('feuilleMatchFFHB') ? { feuilleDeMatch: 'true : avec une feuille de match importée' } : {}),
     video: 'true : avec une vidéo',
     joueurs: '{op (>= | <= | =), n} nombre de joueurs',
     avis: '{op (>= | <= | =), n} nombre d’avis',
