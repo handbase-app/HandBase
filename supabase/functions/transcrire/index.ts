@@ -78,7 +78,7 @@ const MAX_SCHEMA = 40_000
 const MAX_ACTUELS = 2_000
 const ACTIONS = ['remplacer', 'ajouter', 'retirer', 'effacer']
 const TOUS = '00000000-0000-0000-0000-000000000000'
-const ORIGINES = ['https://handbase-demo.github.io', 'https://handbase-app.github.io']
+const ORIGINES = ['https://handbase-demo.github.io', 'https://handbase-app.github.io', 'https://volleybase-demo.github.io']
 // Essais locaux : localhost, ou le serveur de test ouvert depuis un téléphone du même Wi-Fi (http ou https, adresse 192.168.x.x).
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/
 
