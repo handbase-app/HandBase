@@ -6,7 +6,7 @@ import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconNam
 import { applyUpdate, BUILD_TIME, checkForUpdate, useUpdateReady } from '../pwa'
 import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, TRIAL, type ConfigItem, type Criterion, type CriterionScale } from '../db'
 import { categoryStyles, defaultColor, defaultZone, RADAR_PALETTE, RADAR_ZONES, styleOf, type RadarZone } from '../radarZones'
-import { clearDemo, loadDemo } from '../demo'
+import { clearDemo, demoInfo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
 import { categoryList, resolveCategory, type ParsedFile } from '../criteriaFormat'
@@ -185,7 +185,7 @@ export default function Settings() {
               )}
               {can.loadDemo(role) && (
               <section className="card flex flex-col gap-2 p-4">
-                <SectionTitle info="24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données.">
+                <SectionTitle info={demoInfo()}>
                   Données de démonstration
                 </SectionTitle>
                 <div className="flex gap-2">

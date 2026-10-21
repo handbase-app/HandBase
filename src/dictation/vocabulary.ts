@@ -149,17 +149,106 @@ export const motsVoxtral: string[] = [
   'U13', 'U15', 'U17', 'U18',
 ]
 
+// ---------- Volley ----------
+// Vocabulaire du volley en salle (usages de la détection et de la filière fédérale) : postes (passeur, réceptionneur-attaquant
+// ou R4, pointu, central, libéro), gestes, zones, tests et filière (CDE, CRE, Volleyades, Interpôles…). Mots du terrain en
+// français : « attaque » (pas « smash »), « défense » (pas « dig »), « contre » ou « bloc ». Aucun terme du handball.
+
+export const vocabulaireVolley: Record<string, string[]> = {
+  postes: [
+    'passeur', 'passeuse', 'réceptionneur-attaquant', 'réceptionneuse-attaquante', 'R4', 'pointu', 'pointue', 'opposé',
+    'opposée', 'central', 'centrale', 'libéro', 'polyvalent', 'poste 2', 'poste 3', 'poste 4', 'gaucher', 'droitier',
+    'ambidextre',
+  ],
+  gestes: [
+    'service', 'service flottant', 'service sauté', 'service sauté flottant', 'service smashé', 'ace', 'réception',
+    'manchette', 'plateforme', 'passe', 'passe haute', 'passe à dix doigts', 'passe arrière', 'passe en suspension',
+    'deuxième main', 'première main', 'décalée', 'tempo', 'jeu rapide', 'attaque', 'attaque de la ligne arrière',
+    'attaque rapide', "course d'élan", 'frappe', 'feinte', 'ligne', 'diagonale', 'sortie de contre', 'contre',
+    'contre offensif', 'contre à deux', 'bloc', 'défense', 'plongeon', 'roulade', 'couverture', 'balle facile',
+    'contre-attaque', 'transition', 'jeu sans ballon',
+  ],
+  systemes: [
+    'zone 1', 'zone 2', 'zone 3', 'zone 4', 'zone 5', 'zone 6', 'ligne des 3 mètres', 'ligne de fond', 'filet', '5-1', '4-2',
+    'rotation', 'système de réception',
+  ],
+  regles: [
+    'faute de filet', 'faute de pied', 'ballon dehors', 'touche de contre', 'quatre touches', 'double touche', 'temps mort',
+    'set', 'tie-break', 'échange', 'remplacement',
+  ],
+  profil: [
+    'taille', 'taille assise', 'envergure', 'atteinte', 'détente', 'hauteur d\'attaque', 'hauteur de contre', 'CMJ', 'T-test',
+    'médecine-ball', 'taille adulte prédite', 'pic de croissance', 'maturité', 'vitesse', 'explosivité', 'appuis',
+    'coordination', 'lecture du jeu', 'anticipation', 'prise de décision', 'leadership', 'engagement', 'combativité',
+    'concentration', 'persévérance', "esprit d'équipe", 'autonomie', 'latéralité', 'marge de progression', 'potentiel',
+  ],
+  parcours: [
+    'M11', 'M13', 'M15', 'M18', 'M21', 'CDE', 'CRE', 'CEP', 'ETD', 'ETR', 'CTS', 'DTN', 'PPF', 'Pôle Espoirs', 'Pôle France',
+    'CNVB', 'Volleyades', 'Mini-Volleyades', 'Interpôles', 'TSD', 'sélection départementale', 'sélection régionale',
+    'détection', 'stage', 'tournoi', 'comité', 'ligue', 'club formateur', 'CFCP', 'Élite Avenir', 'Coupe de France jeunes',
+    'Relève', 'double projet',
+  ],
+}
+
+export const motsClesVolley = [...new Set(Object.values(vocabulaireVolley).flat())]
+
+const ZONE: Record<string, string> = { un: '1', deux: '2', trois: '3', quatre: '4', cinq: '5', six: '6' }
+
+// Prudentes, comme celles du handball : formes écrites des termes du volley, sigles des catégories, noms des compétitions.
+export const correctionsVolley: Correction[] = [
+  { faux: 'libero', juste: 'libéro' },
+  { faux: 'liberos', juste: 'libéros' },
+  { faux: 'manchete', juste: 'manchette' },
+  { faux: 'man chette', juste: 'manchette' },
+  { faux: 'contre attaque', juste: 'contre-attaque' },
+  { faux: 'contre attaques', juste: 'contre-attaques' },
+  { faux: 'tie break', juste: 'tie-break' },
+  { faux: 'service smash', juste: 'service smashé' },
+  { faux: 'medecine ball', juste: 'médecine-ball' },
+  { faux: new RegExp(G + '(passe|touche) à 10 doigts' + D, 'giu'), juste: '$1 à dix doigts' },
+  // Zones et postes dits en lettres : « zone quatre » → « zone 4 ».
+  { faux: new RegExp(G + '(zone|poste) (un|deux|trois|quatre|cinq|six)' + D, 'giu'), juste: (_m, a, b) => `${a} ${ZONE[b.toLowerCase()]}` },
+  // Sigles : « R 4 », « M 15 », « T test », « c m j » (majuscules seulement pour R et M : « 1 m 15 » n'est pas une catégorie).
+  { faux: new RegExp(G + 'R[ -](?:4|quatre)' + D, 'gu'), juste: 'R4' },
+  { faux: new RegExp(G + 'M[ -](11|13|15|18|21)' + D, 'gu'), juste: 'M$1' },
+  { faux: new RegExp(G + 't[ -]?test' + D, 'giu'), juste: 'T-test' },
+  { faux: new RegExp(G + 'c[ .]m[ .]j' + D, 'giu'), juste: 'CMJ' },
+  // Compétitions et structures.
+  { faux: new RegExp(G + 'mini[ -]?volley[ -]?ades?' + D, 'giu'), juste: 'Mini-Volleyades' },
+  { faux: new RegExp(G + '(?<!mini[ -])volley[ -]?ades?' + D, 'giu'), juste: 'Volleyades' },
+  { faux: new RegExp(G + 'inter[ -]?p[oô]les?' + D, 'giu'), juste: 'Interpôles' },
+  { faux: new RegExp(G + '(?:paul|pole|pôle) espoirs?' + D, 'giu'), juste: 'Pôle Espoirs' },
+  { faux: new RegExp(G + '(?:pole|pôle) france' + D, 'giu'), juste: 'Pôle France' },
+]
+
+// Mots de contexte pour Voxtral (100 au plus) : le jargon du volley le plus rare (les mots courants n'en ont pas besoin).
+export const motsVoxtralVolley: string[] = [
+  'passeur', 'passeuse', 'réceptionneur-attaquant', 'réceptionneuse-attaquante', 'R4', 'pointu', 'pointue', 'opposé',
+  'central', 'centrale', 'libéro', 'polyvalent',
+  'service flottant', 'service sauté', 'service smashé', 'ace', 'réception', 'manchette', 'plateforme', 'passe haute',
+  'passe à dix doigts', 'passe arrière', 'passe en suspension', 'deuxième main', 'décalée', 'tempo', 'jeu rapide',
+  'attaque de la ligne arrière', "course d'élan", 'feinte', 'diagonale', 'sortie de contre', 'contre offensif',
+  'contre à deux', 'plongeon', 'roulade', 'couverture', 'balle facile', 'contre-attaque', 'transition', 'jeu sans ballon',
+  'ligne des 3 mètres', 'zone 1', 'zone 2', 'zone 3', 'zone 4', 'zone 5', 'zone 6', '5-1', 'rotation', 'faute de filet',
+  'faute de pied', 'touche de contre', 'double touche', 'tie-break',
+  'envergure', 'atteinte', 'détente', "hauteur d'attaque", 'hauteur de contre', 'CMJ', 'T-test', 'médecine-ball',
+  'taille assise', 'taille adulte prédite', 'pic de croissance', 'maturité', 'appuis', 'lecture du jeu', 'anticipation',
+  'prise de décision', 'latéralité',
+  'M13', 'M15', 'M18', 'M21', 'CDE', 'CRE', 'CEP', 'ETD', 'ETR', 'CTS', 'PPF', 'Pôle Espoirs', 'Pôle France', 'CNVB',
+  'Volleyades', 'Mini-Volleyades', 'Interpôles', 'TSD', 'sélection départementale', 'sélection régionale', 'double projet',
+]
+
 // ---------- Par sport ----------
 
 export type SportVocabulary = { mots: readonly string[]; corrections: readonly Correction[] }
 
 /**
  * Vocabulaire de dictée de chaque sport (src/sportConfig.ts, currentSport().sport) : mots de contexte envoyés à Voxtral et
- * corrections. Volley : vide pour l'instant (à remplir : termes du volley) ; un sport absent : rien d'injecté.
+ * corrections. Handball et volley ; un sport absent : rien d'injecté.
  */
 export const VOCABULAIRE_PAR_SPORT: Record<string, SportVocabulary> = {
   handball: { mots: motsVoxtral, corrections },
-  volley: { mots: [], corrections: [] },
+  volley: { mots: motsVoxtralVolley, corrections: correctionsVolley },
 }
 
 export const dictationVocabulary = (sport: string): SportVocabulary => VOCABULAIRE_PAR_SPORT[sport] ?? { mots: [], corrections: [] }

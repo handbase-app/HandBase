@@ -11,7 +11,8 @@
 // Rien n'est enregistré ici : les propositions s'affichent sur la fiche, le coach les accepte ou les écarte, puis enregistre.
 
 import { scaleMax, scaleMin, criterionApplies, type Criterion, type Position } from '../db'
-import { DictationError, ERROR_TEXT, modeCode, type Endpoint } from './transcribe'
+import { sportContent } from '../sportContent'
+import { DictationError, ERROR_TEXT, modeCode, sportField, type Endpoint } from './transcribe'
 
 /** Texte dicté : 60 s de parole font environ 1 000 caractères ; marge pour un texte tapé ou corrigé. */
 export const MAX_AVIS_TEXTE = 2000
@@ -20,8 +21,11 @@ const MAX_DESCRIPTION = 200
 const MAX_COMMENT = 400
 const MAX_AMBIGUS = 5
 
-/** Repères de l'échelle 1 à 5 (les mêmes que la légende de l'écran de notation). */
-const LIBELLES_5: Record<string, string> = { '1': 'très insuffisant', '3': 'niveau attendu', '5': 'remarquable' }
+/**
+ * Repères de l'échelle 1 à 5 : ceux du sport, les mêmes que la légende de l'écran de notation (src/sportContent.ts ;
+ * handball : 1 très insuffisant, 3 niveau attendu, 5 remarquable ; volley : En découverte… Remarquable).
+ */
+const libelles5 = (): Record<string, string> => ({ ...sportContent().scoreLabels })
 
 export type AvisCritere = { id: string; label: string; description?: string; echelle: { min: number; max: number; libelles?: Record<string, string> } }
 export type AvisRef = { criterionId: string; label: string; min: number; max: number }
@@ -44,7 +48,7 @@ export function buildAvisPayload(criteria: Criterion[], position?: Position): Av
     const id = `c${criteres.length + 1}`
     const label = clip(c.label, MAX_LABEL)
     const description = c.description ? clip(c.description, MAX_DESCRIPTION) : ''
-    criteres.push({ id, label, ...(description && { description }), echelle: { min, max, ...(c.scale === 'score5' && { libelles: LIBELLES_5 }) } })
+    criteres.push({ id, label, ...(description && { description }), echelle: { min, max, ...(c.scale === 'score5' && { libelles: libelles5() }) } })
     refs[id] = { criterionId: c.id, label, min, max }
   }
   return { criteres, refs }
@@ -330,7 +334,7 @@ export async function understandAvis(ep: Endpoint, texte: string, criteres: Avis
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=avis', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ texte: text, criteres }),
+      body: JSON.stringify({ texte: text, criteres, ...sportField() }),
       signal,
     })
   } catch (e) {

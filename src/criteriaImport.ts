@@ -179,10 +179,10 @@ export async function exportCriteria(format: 'xlsx' | 'csv' | 'json') {
 
 /**
  * Critères de la démonstration (loadDemo) : lus dans le fichier du sport de l'installation (src/sportContent.ts ; handball :
- * public/demo/criteres-demo.json, fichier de données, pas le code), ajoutés seulement s'ils manquent, sur l'appareil
- * seulement (comme le reste de la démo : pas d'envoi au serveur ; updatedAt = 0, comme les anciens critères livrés : un vrai
- * import les remplace, voir retireUnpublishedCriteria). Fichier du sport encore vide (volley, phase 2) : ceux du handball,
- * pour que la démonstration (joueurs fictifs du handball) reste complète.
+ * public/demo/criteres-demo.json ; volley : public/demo/criteres-volley.json ; fichiers de données, pas le code), ajoutés
+ * seulement s'ils manquent, sur l'appareil seulement (comme le reste de la démo : pas d'envoi au serveur ; updatedAt = 0,
+ * comme les anciens critères livrés : un vrai import les remplace, voir retireUnpublishedCriteria). Fichier d'un sport vide :
+ * ceux du handball, pour que la démonstration reste complète.
  */
 export async function loadDemoCriteria() {
   const read = async (file: string) => {

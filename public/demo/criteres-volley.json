@@ -2,5 +2,556 @@
   "format": "handbase-criteres",
   "version": 1,
   "exportedAt": "2026-10-21T00:00:00.000Z",
-  "criteria": []
+  "criteria": [
+    {
+      "id": "taille",
+      "category": "Gabarit",
+      "label": "Taille",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Debout, pieds nus, talons, fesses et omoplates contre la toise, regard horizontal ; 2 mesures",
+      "active": true,
+      "order": 0
+    },
+    {
+      "id": "poids",
+      "category": "Gabarit",
+      "label": "Poids",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "kg",
+      "description": "Balance, tenue légère",
+      "active": true,
+      "order": 1
+    },
+    {
+      "id": "taille_assise",
+      "category": "Mensurations",
+      "label": "Taille assise",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Assis sur un banc de hauteur connue, dos droit ; on soustrait la hauteur du banc. Sert au calcul de la maturité",
+      "active": true,
+      "order": 2
+    },
+    {
+      "id": "envergure",
+      "category": "Mensurations",
+      "label": "Envergure",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Dos au mur, bras en croix, distance entre les deux majeurs",
+      "active": true,
+      "order": 3
+    },
+    {
+      "id": "atteinte",
+      "category": "Mensurations",
+      "label": "Atteinte debout (1 bras)",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "De profil au mur ou sous un Vertec, pieds à plat, bras dominant tendu au maximum",
+      "active": true,
+      "order": 4
+    },
+    {
+      "id": "hauteur_attaque",
+      "category": "Détente",
+      "label": "Hauteur d’attaque",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Élan libre (2-3 pas), impulsion deux pieds, toucher le plus haut possible d’une main ; meilleur de 3 essais. Détente avec élan = attaque − atteinte debout",
+      "active": true,
+      "order": 5
+    },
+    {
+      "id": "hauteur_contre",
+      "category": "Détente",
+      "label": "Hauteur de contre",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Face au mur ou au filet, sans élan (ou pas chassé), saut deux pieds, deux mains au-dessus",
+      "active": true,
+      "order": 6
+    },
+    {
+      "id": "cmj_hauteur",
+      "category": "Détente",
+      "label": "Détente CMJ",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "cm",
+      "description": "Sans élan, contre-mouvement, mains aux hanches (tapis, Optojump ou appli) ; meilleur de 3",
+      "active": true,
+      "order": 7
+    },
+    {
+      "id": "t_test",
+      "category": "Vitesse et puissance",
+      "label": "T-test",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "s",
+      "description": "Parcours en T : 10 m en avant, 5 m en pas chassés à gauche, 10 m à droite, 5 m à gauche, retour en arrière",
+      "active": true,
+      "order": 8
+    },
+    {
+      "id": "medecine_ball",
+      "category": "Vitesse et puissance",
+      "label": "Lancer de médecine-ball",
+      "kind": "factual",
+      "scale": "number",
+      "unit": "m",
+      "description": "Assis jambes tendues, dos au mur, lancer à deux mains au-dessus de la tête ; 1 kg en M13, 2 kg ensuite",
+      "active": true,
+      "order": 9
+    },
+    {
+      "id": "champ_service",
+      "category": "Joueur de champ",
+      "label": "Service",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Régularité et intention : flottant placé ou service sauté qui met la réception sous pression",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 10
+    },
+    {
+      "id": "champ_reception",
+      "category": "Joueur de champ",
+      "label": "Réception",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Qualité du premier contact : ballon remis jouable au passeur, orientation des appuis",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 11
+    },
+    {
+      "id": "champ_attaque",
+      "category": "Joueur de champ",
+      "label": "Attaque",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Course d’élan, frappe haute, variété (ligne, diagonale, feinte, sortie de contre)",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 12
+    },
+    {
+      "id": "champ_contre",
+      "category": "Joueur de champ",
+      "label": "Contre",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Placement au filet, pas de déplacement, mains pénétrantes, timing",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 13
+    },
+    {
+      "id": "champ_defense",
+      "category": "Joueur de champ",
+      "label": "Défense",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Lecture de l’attaquant, posture basse, ballon relevé et maintenu en jeu",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 14
+    },
+    {
+      "id": "champ_deplacements",
+      "category": "Joueur de champ",
+      "label": "Déplacements",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Vitesse et justesse des appuis entre les différentes phases de jeu (transition contre-attaque)",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 15
+    },
+    {
+      "id": "champ_lecture",
+      "category": "Joueur de champ",
+      "label": "Lecture du jeu",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Repère tôt la passe, l’attaquant adverse et les zones libres",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 16
+    },
+    {
+      "id": "champ_sans_ballon",
+      "category": "Joueur de champ",
+      "label": "Jeu sans ballon",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Couverture de l’attaque, appels, disponibilité pour le passeur",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 17
+    },
+    {
+      "id": "champ_engagement",
+      "category": "Joueur de champ",
+      "label": "Engagement",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Intensité, combativité, envie sur chaque ballon",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 18
+    },
+    {
+      "id": "champ_communication",
+      "category": "Joueur de champ",
+      "label": "Communication et attitude",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Parle sur le terrain, encourage, réagit positivement après une erreur",
+      "positions": [
+        "R4",
+        "C",
+        "PT"
+      ],
+      "active": true,
+      "order": 19
+    },
+    {
+      "id": "passeur_precision",
+      "category": "Passeur",
+      "label": "Précision de la passe",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Hauteur et distance régulières, ballon « attaquable » pour l’attaquant",
+      "positions": [
+        "P"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 20
+    },
+    {
+      "id": "passeur_vitesse",
+      "category": "Passeur",
+      "label": "Vitesse vers le ballon",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Arrive tôt sous le ballon, même après une réception imparfaite",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 21
+    },
+    {
+      "id": "passeur_deux_mains",
+      "category": "Passeur",
+      "label": "Technique à deux mains",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Contact propre, mains hautes, sortie de ballon identique quelle que soit la destination",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 22
+    },
+    {
+      "id": "passeur_distribution",
+      "category": "Passeur",
+      "label": "Distribution et choix",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Varie les attaquants, exploite le contre adverse le plus faible",
+      "positions": [
+        "P"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 23
+    },
+    {
+      "id": "passeur_jeu_rapide",
+      "category": "Passeur",
+      "label": "Jeu rapide avec le central",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Construit des tempos courts (1re main / « décalée »)",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 24
+    },
+    {
+      "id": "passeur_arriere_suspension",
+      "category": "Passeur",
+      "label": "Passe arrière et en suspension",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Masque ses intentions, passe en suspension",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 25
+    },
+    {
+      "id": "passeur_attaque_2e_main",
+      "category": "Passeur",
+      "label": "Attaque du passeur et 2e main",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Utilise la 2e main ou la feinte à bon escient",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 26
+    },
+    {
+      "id": "passeur_contre_defense",
+      "category": "Passeur",
+      "label": "Contre et défense du passeur",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Tient sa place au contre en zone 2 et défend en zone 1",
+      "positions": [
+        "P"
+      ],
+      "active": true,
+      "order": 27
+    },
+    {
+      "id": "passeur_leadership",
+      "category": "Passeur",
+      "label": "Leadership",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Organise l’équipe, calme le jeu, parle à chaque échange",
+      "positions": [
+        "P"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 28
+    },
+    {
+      "id": "libero_reception_flottant",
+      "category": "Libéro",
+      "label": "Réception flottant",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Plateforme stable, ballon au passeur sur les services flottants",
+      "positions": [
+        "L"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 29
+    },
+    {
+      "id": "libero_reception_saute",
+      "category": "Libéro",
+      "label": "Réception sauté",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Absorbe la puissance, garde le ballon dans la zone de passe",
+      "positions": [
+        "L"
+      ],
+      "active": true,
+      "order": 30
+    },
+    {
+      "id": "libero_defense",
+      "category": "Libéro",
+      "label": "Défense",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Lecture des trajectoires, ballons relevés hauts et au centre",
+      "positions": [
+        "L"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 31
+    },
+    {
+      "id": "libero_plongeons",
+      "category": "Libéro",
+      "label": "Plongeons et récupérations",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Utilise les techniques d’urgence (plongeon, roulade) en sécurité",
+      "positions": [
+        "L"
+      ],
+      "active": true,
+      "order": 32
+    },
+    {
+      "id": "libero_couverture",
+      "category": "Libéro",
+      "label": "Couverture",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Toujours placé sous le contre et en couverture de l’attaque",
+      "positions": [
+        "L"
+      ],
+      "active": true,
+      "order": 33
+    },
+    {
+      "id": "libero_passe_haute",
+      "category": "Libéro",
+      "label": "Passe haute derrière les 3 m",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Passe haute à dix doigts derrière la ligne des 3 m : seconde touche propre quand le passeur ne peut pas jouer",
+      "positions": [
+        "L"
+      ],
+      "active": true,
+      "order": 34
+    },
+    {
+      "id": "libero_lecture",
+      "category": "Libéro",
+      "label": "Lecture et anticipation",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Placement défensif juste avant la frappe adverse",
+      "positions": [
+        "L"
+      ],
+      "active": true,
+      "order": 35
+    },
+    {
+      "id": "libero_animation",
+      "category": "Libéro",
+      "label": "Animation et communication",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Organise la réception, annonce les services, donne de l’énergie",
+      "positions": [
+        "L"
+      ],
+      "quick": true,
+      "active": true,
+      "order": 36
+    },
+    {
+      "id": "mental_concentration",
+      "category": "Mental et comportement",
+      "label": "Concentration",
+      "kind": "subjective",
+      "scale": "score5",
+      "quick": true,
+      "active": true,
+      "order": 37
+    },
+    {
+      "id": "mental_perseverance",
+      "category": "Mental et comportement",
+      "label": "Persévérance",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Motivation à l’effort",
+      "active": true,
+      "order": 38
+    },
+    {
+      "id": "mental_reaction_erreur",
+      "category": "Mental et comportement",
+      "label": "Réaction après l’erreur",
+      "kind": "subjective",
+      "scale": "score5",
+      "active": true,
+      "order": 39
+    },
+    {
+      "id": "mental_esprit_equipe",
+      "category": "Mental et comportement",
+      "label": "Esprit d’équipe",
+      "kind": "subjective",
+      "scale": "score5",
+      "quick": true,
+      "active": true,
+      "order": 40
+    },
+    {
+      "id": "mental_ecoute",
+      "category": "Mental et comportement",
+      "label": "Écoute des consignes",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Écoute et mise en œuvre des consignes",
+      "active": true,
+      "order": 41
+    },
+    {
+      "id": "mental_autonomie",
+      "category": "Mental et comportement",
+      "label": "Autonomie",
+      "kind": "subjective",
+      "scale": "score5",
+      "description": "Double projet scolaire et sportif",
+      "active": true,
+      "order": 42
+    }
+  ]
 }

@@ -20,6 +20,7 @@ import { loadTeams } from '../teams'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Participants } from '../components/Participants'
 import { GROUP_VIS, STAFF, TEAM_FOLLOW } from '../staffLabels'
+import { sportContent } from '../sportContent'
 import { participantSummary, useTeams } from '../teams'
 import type { Team, Unit } from '../db'
 import { AddPlayers } from './Events'
@@ -183,7 +184,7 @@ export default function Groups() {
       ) : (
         <>
       <p className="text-[11px] text-muted">
-        Des listes de joueurs réutilisables (Intercomités 83, Pôle, Sport-études…) : un clic pour les filtrer, les exporter ou remplir un
+        Des listes de joueurs réutilisables ({sportContent().examples.groups}) : un clic pour les filtrer, les exporter ou remplir un
         événement.
       </p>
       <AllGroupsToggle role={role} />
@@ -543,7 +544,7 @@ export function GroupForm({
   return (
     <div className="flex flex-col gap-2">
       <span className="label">Nom du groupe</span>
-      <input className="field" autoFocus={!group} placeholder="Ex. Intercomités 83 – 2010, Pôle Espoirs masculin…" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="field" autoFocus={!group} placeholder={sportContent().examples.groupName} value={name} onChange={(e) => setName(e.target.value)} />
       <span className="label">Description</span>
       <input className="field" placeholder="Saison, encadrant… — facultatif" value={description} onChange={(e) => setDescription(e.target.value)} />
 

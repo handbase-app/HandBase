@@ -9,6 +9,15 @@ import { cleanDetail, type Replacement } from './clean'
 import { currentSport } from '../sportConfig'
 import { dictationVocabulary } from './vocabulary'
 
+/**
+ * Sport de l'installation, pour les consignes de la fonction (« entraîneur de volley », postes et gestes du volley :
+ * supabase/functions/transcrire/sport.ts). Handball (le défaut) : rien n'est ajouté, la requête reste celle d'avant.
+ * Un mot seulement, jamais de donnée de joueur ; une version de la fonction qui ne le connaît pas l'ignore.
+ */
+export function sportField(sport: string = currentSport().sport): { sport?: string } {
+  return sport && sport !== 'handball' ? { sport } : {}
+}
+
 /** Limites de la fonction (à garder alignées sur supabase/functions/transcrire/index.ts). */
 export const MAX_SECONDS = 60
 export const MAX_BYTES = 2 * 1024 * 1024
@@ -131,7 +140,7 @@ export async function transcribe(ep: Endpoint, blob: Blob, seconds: number, sign
   const form = new FormData()
   form.append('file', blob, fileNameFor(blob.type))
   form.append('duree', String(Math.min(Math.max(Math.ceil(seconds * 10) / 10, 0.1), MAX_SECONDS)))
-  // Mots de contexte du sport de l'installation (volley : aucun pour l'instant).
+  // Mots de contexte du sport de l'installation (src/dictation/vocabulary.ts : handball ou volley).
   for (const m of dictationVocabulary(currentSport().sport).mots) form.append('context_bias', m)
   const f = ep.fetch ?? fetch
   let res: Response
@@ -185,7 +194,7 @@ export async function understandFilters(
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=filtres', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: text, schema, actuels, ...(page && page !== 'joueurs' ? { page } : {}) }),
+      body: JSON.stringify({ phrase: text, schema, actuels, ...(page && page !== 'joueurs' ? { page } : {}), ...sportField() }),
       signal,
     })
   } catch (e) {
@@ -248,7 +257,7 @@ export async function understandQuestion(ep: Endpoint, phrase: string, schema: R
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=question', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(extra ? { phrase: text, schema, contexte: extra.contexte, actuels: extra.actuels.slice(0, 40) } : { phrase: text, schema }),
+      body: JSON.stringify({ ...(extra ? { phrase: text, schema, contexte: extra.contexte, actuels: extra.actuels.slice(0, 40) } : { phrase: text, schema }), ...sportField() }),
       signal,
     })
   } catch (e) {
@@ -300,6 +309,7 @@ export async function understandSql(ep: Endpoint, phrase: string, schema: Record
         phrase: text,
         schema,
         ...(precedent ? { precedent: { sql: precedent.sql.slice(0, 4200), erreur: precedent.erreur.replace(/\s+/g, ' ').slice(0, 300) } } : {}),
+        ...sportField(),
       }),
       signal,
     })
@@ -347,7 +357,7 @@ export async function understandAction(ep: Endpoint, phrase: string, schema: Rec
     res = await f(ep.url + (ep.url.includes('?') ? '&' : '?') + 'mode=action', {
       method: 'POST',
       headers: { ...ep.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phrase: text, schema, ...(page ? { page } : {}) }),
+      body: JSON.stringify({ phrase: text, schema, ...(page ? { page } : {}), ...sportField() }),
       signal,
     })
   } catch (e) {

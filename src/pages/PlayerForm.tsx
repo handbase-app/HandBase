@@ -215,7 +215,7 @@ export default function PlayerForm() {
           </div>
           <div>
             <span className="label">Catégorie / niveau</span>
-            <input className="field" placeholder="-18 nat" value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
+            <input className="field" placeholder={content.examples.category} value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
           </div>
           <div>
             <span className="label">Club</span>

@@ -47,7 +47,8 @@ npx supabase functions deploy transcrire --project-ref <ref-test>
 ```
 
 Garder la vérification JWT (ne pas ajouter `--no-verify-jwt`). Sans la ligne de commande : *Edge Functions* →
-*Deploy a new function* → *Via Editor*, nom `transcrire`, coller `index.ts`, laisser *Verify JWT* activé, *Deploy*.
+*Deploy a new function* → *Via Editor*, nom `transcrire`, coller `index.ts` **et** ajouter le fichier `sport.ts` (même
+dossier : `index.ts` l'importe), laisser *Verify JWT* activé, *Deploy*. La ligne de commande envoie les deux d'elle-même.
 
 ## 5. Vérification
 
@@ -338,3 +339,18 @@ La bulle ✦ de l'en-tête et les barres « Demander » des listes savent **réa
   invalide ou interdit rejeté, droits, carte, et chaque exemple des consignes accepté par l'appli).
 
 Redéploiement nécessaire (même commande qu'à la section 4), d'abord sur la base de test.
+
+## 12. Sport de l'installation (champ `sport`, tous les modes JSON)
+
+- L'appli ajoute `"sport": "volley"` aux requêtes `filtres`, `avis`, `question`, `sql` et `action` d'une installation de
+  volley (src/dictation/transcribe.ts, `sportField`) ; au handball, rien n'est ajouté : la requête est celle d'avant.
+  Un mot seulement, aucune donnée.
+- La fonction prend alors les consignes du volley (`sport.ts`, `consignesDuSport`) : « entraîneur de volley », exemples
+  avec les postes P, R4, C, PT, les gestes (« en attaque » : le critère Attaque), les grilles (« Joueur de champ »,
+  « Passeur », « Mental et comportement »), M15, Volleyades, la hauteur d'attaque. Champ absent, `handball` ou inconnu :
+  les consignes du handball, identiques octet pour octet. Une version de la fonction sans `sport.ts` ignore le champ.
+- `sport.ts` remplace des passages des consignes d'`index.ts` ; chaque passage doit y être présent (test :
+  `npx jiti tools/test-volley-contenu.ts`, qui vérifie aussi que chaque exemple du volley est accepté par l'appli).
+  Modifier une consigne d'`index.ts` sans mettre `sport.ts` à jour fait échouer ce test.
+
+Redéploiement nécessaire (index.ts et sport.ts), d'abord sur la base de test.

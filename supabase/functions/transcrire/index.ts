@@ -45,12 +45,16 @@
 //   TRANSCRIRE_QUOTA_JOUR appels par jour et par compte (200 par défaut) ; au-delà : erreur « quota_atteint »
 //   ou « quota_jour_atteint ». Compteurs : supabase/042_quota_transcription.sql (des nombres seulement).
 // - Rien n'est journalisé du son ni du texte : seulement des codes d'erreur.
+// - Sport (modes JSON : filtres, avis, question, sql, action) : champ facultatif « sport » de la requête, envoyé par l'appli
+//   hors handball. « volley » : consignes et exemples du volley (« entraîneur de volley », postes P, R4, C, PT, gestes),
+//   d'après sport.ts ; absent, « handball » ou inconnu : consignes du handball, identiques à avant. Un mot, aucune donnée.
 //
 // Secrets (Edge Functions > Secrets) : MISTRAL_API_KEY ; facultatifs : TRANSCRIRE_QUOTA_MOIS, TRANSCRIRE_QUOTA_JOUR,
 // MISTRAL_MODELE (voxtral-mini-latest par défaut), MISTRAL_MODELE_FILTRES, MISTRAL_MODELE_AVIS et MISTRAL_MODELE_QUESTION
 // (mistral-small-latest par défaut), MISTRAL_MODELE_ACTION (sinon celui de « question »), MISTRAL_MODELE_SQL (codestral-latest par défaut). SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis par Supabase.
 // Déploiement : voir README.md à côté.
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { consignesDuSport, sportDe, type NomConsignes } from './sport.ts'
 
 // Offre gratuite Mistral : environ 1 requête par seconde. Dictée puis recherche s'enchaînent en moins d'une seconde :
 // sur un refus 429, on attend (Retry-After s'il est donné, au plus 5 s) et on réessaie, 3 fois au plus.
@@ -354,7 +358,7 @@ async function rechercheFiltres(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown; actuels?: unknown; page?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; actuels?: unknown; page?: unknown; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -374,8 +378,11 @@ async function rechercheFiltres(
   // Filtres actifs (clés du schéma) : pour « ajoute… », « enlève… ».
   const actuels = entree.actuels && typeof entree.actuels === 'object' && !Array.isArray(entree.actuels) ? JSON.stringify(entree.actuels) : '{}'
   if (actuels.length > MAX_ACTUELS) return json({ error: 'schema_invalide' }, 400)
-  // Page d'où vient la phrase (bilan, événements, groupes) : ses consignes ; absente ou inconnue : liste Joueurs.
-  const consignes = (typeof entree.page === 'string' && Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES
+  // Page d'où vient la phrase (bilan, événements, groupes) : ses consignes ; absente ou inconnue : liste Joueurs. Puis dans
+  // les mots du sport de l'installation (champ « sport » : volley ; sinon handball, inchangées).
+  const consignesPage = (typeof entree.page === 'string' && Object.hasOwn(CONSIGNES_PAGES, entree.page) && CONSIGNES_PAGES[entree.page]) || CONSIGNES
+  const nomPage = (consignesPage !== CONSIGNES && typeof entree.page === 'string' ? entree.page : 'filtres') as NomConsignes
+  const consignes = consignesDuSport(consignesPage, nomPage, sportDe(entree.sport))
 
   // Plafonds : un appel compté par phrase, comme une dictée.
   const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
@@ -469,7 +476,7 @@ async function avisVocal(
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > 64 * 1024) return json({ error: 'trop_gros' }, 413)
   // deno-lint-ignore no-explicit-any
-  let entree: { texte?: unknown; criteres?: any }
+  let entree: { texte?: unknown; criteres?: any; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -511,7 +518,7 @@ async function avisVocal(
       max_tokens: 900,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: CONSIGNES_AVIS },
+        { role: 'system', content: consignesDuSport(CONSIGNES_AVIS, 'avis', sportDe(entree.sport)) },
         { role: 'user', content: `Critères (JSON) :\n${JSON.stringify(criteres)}\n\nTexte dicté :\n"""${texte.replace(/"""/g, '"')}"""` },
       ],
     }),
@@ -702,7 +709,7 @@ async function questionRecette(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown; contexte?: unknown; actuels?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; contexte?: unknown; actuels?: unknown; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -727,6 +734,12 @@ async function questionRecette(
           .join('\n')
       : ''
   if (!schema || schema.length > MAX_SCHEMA) return json({ error: 'schema_invalide' }, 400)
+  // Consignes dans les mots du sport de l'installation (volley ; sinon handball, inchangées).
+  const sport = sportDe(entree.sport)
+  const consignes =
+    contexte && !joueurs
+      ? consignesDuSport(CONTEXTES[contexte], `contexte_${contexte}` as NomConsignes, sport)
+      : `${consignesDuSport(CONSIGNES_QUESTION, 'question', sport)}${joueurs ? `\n${consignesDuSport(CONSIGNES_JOUEURS, 'joueurs', sport)}` : ''}`
 
   // Plafonds : un appel compté par question, comme une dictée.
   const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
@@ -746,7 +759,7 @@ async function questionRecette(
       messages: [
         {
           role: 'system',
-          content: `${contexte && !joueurs ? CONTEXTES[contexte] : `${CONSIGNES_QUESTION}${joueurs ? `\n${CONSIGNES_JOUEURS}` : ''}`}\n\nSCHÉMA (clé : valeurs)\n${schema}`,
+          content: `${consignes}\n\nSCHÉMA (clé : valeurs)\n${schema}`,
         },
         { role: 'user', content: contexte ? `Actuels ${JSON.stringify(actuels)} ; « ${phrase} »` : `« ${phrase} »` },
       ],
@@ -850,7 +863,7 @@ async function requeteSql(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + MAX_SQL + 8192) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown; precedent?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; precedent?: unknown; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -894,7 +907,7 @@ async function requeteSql(
       max_tokens: 1200,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES_SQL}\n\nSCHÉMA (table : colonnes)\n${schema}` },
+        { role: 'system', content: `${consignesDuSport(CONSIGNES_SQL, 'sql', sportDe(entree.sport))}\n\nSCHÉMA (table : colonnes)\n${schema}` },
         { role: 'user', content: question },
       ],
     }),
@@ -984,7 +997,7 @@ async function planAction(
 ): Promise<Response> {
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > MAX_SCHEMA + 4096) return json({ error: 'trop_gros' }, 413)
-  let entree: { phrase?: unknown; schema?: unknown; page?: unknown }
+  let entree: { phrase?: unknown; schema?: unknown; page?: unknown; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -1020,7 +1033,7 @@ async function planAction(
       max_tokens: 600,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${CONSIGNES_ACTION}\n\nSCHÉMA DE LA RECETTE DES JOUEURS (clé : valeurs)\n${schema}` },
+        { role: 'system', content: `${consignesDuSport(CONSIGNES_ACTION, 'action', sportDe(entree.sport))}\n\nSCHÉMA DE LA RECETTE DES JOUEURS (clé : valeurs)\n${schema}` },
         { role: 'user', content: page ? `Page ${page} ; « ${phrase} »` : `« ${phrase} »` },
       ],
     }),

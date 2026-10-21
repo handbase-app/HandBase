@@ -1,7 +1,7 @@
 import { detectAction, type Detected } from './askAction'
 import { isNameQuery } from './playerQuery'
 import { nameKey, queryWords, searchByName } from './nameMatch'
-import { isHandball, POSITIONS } from './sportConfig'
+import { currentSport, isHandball, POSITIONS } from './sportConfig'
 
 /*
  * « Demander » : une seule porte pour tout demander (src/components/Demander.tsx), comme la barre d'adresse d'un
@@ -157,6 +157,11 @@ const MAX_NAMED = 3
 // Mots qui disent de quoi parle la phrase. Les mots de joueurs l'emportent (« les joueurs du tournoi de Cannes » : Joueurs).
 const PLAYER_WORDS =
   /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demi|demis|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|n(?:e|es|ee|ees) en|licencies?|licenciees?|garcons?|filles?|taille|mesurent|suivis|cm|metre|metres|fiche|fiches)\b/
+/** Postes d'un autre sport (selon l'installation) : des mots de joueurs aussi (« les passeuses du stage CRE » : Joueurs). */
+const PLAYER_WORDS_SPORT: Record<string, RegExp> = {
+  volley: /\b(passeurs?|passeuses?|central|centraux|centrales?|pointus?|pointues?|opposes?|opposees?|liberos?|receptionneurs?|receptionneuses?|attaquants?|attaquantes?|r4)\b/,
+}
+const playerWords = (n: string) => PLAYER_WORDS.test(n) || !!PLAYER_WORDS_SPORT[currentSport().sport]?.test(n)
 const EVENT_WORDS = /\b(evenements?|tournois?|matchs?|matches|stages?|rassemblements?|entrainements?|observations?|a venir|passes)\b/
 const GROUP_WORDS = /\b(groupes?|equipes?|selections?|collectifs?)\b/
 /** Début de phrase sans sujet (« les », « combien de », « quels sont les »…), retiré pour lire le sujet. */
@@ -305,8 +310,8 @@ function routePhrase(text: string, ctx: AskContext): AskRoute[] {
   const calc = CALC_WORDS.test(n)
   // Le sujet de la phrase : dit en tête (« les groupes de filles » : Groupes), sinon les mots de joueurs l'emportent.
   const head = n.replace(LEAD_RE, '')
-  const events = EVENT_WORDS.test(head.split(' ')[0]) || (!PLAYER_WORDS.test(n) && EVENT_WORDS.test(n))
-  const groups = !events && (GROUP_WORDS.test(head.split(' ')[0]) || (!PLAYER_WORDS.test(n) && GROUP_WORDS.test(n)))
+  const events = EVENT_WORDS.test(head.split(' ')[0]) || (!playerWords(n) && EVENT_WORDS.test(n))
+  const groups = !events && (GROUP_WORDS.test(head.split(' ')[0]) || (!playerWords(n) && GROUP_WORDS.test(n)))
   const out = events
     ? [list('evenements', text, true), list('joueurs', text), ...(calc ? [bilan(text)] : [])]
     : groups

@@ -5,7 +5,7 @@
 //   de phrase ou entre virgules (en fait, tu vois, tu sais, du coup, voilà en début ou en fin) ;
 // - retire les répétitions immédiates d'un mot ou d'un groupe de 2 à 3 mots (« le le », « très très ») ;
 // - corrige les espaces et la ponctuation à la française, met une majuscule en début de phrase ;
-// - corrige pour finir les erreurs de reconnaissance connues du vocabulaire du sport (vocabulary.ts ; handball seulement pour l'instant).
+// - corrige pour finir les erreurs de reconnaissance connues du vocabulaire du sport (vocabulary.ts : handball, volley).
 // Aucun autre mot n'est retiré, rien n'est reformulé : le sens est gardé.
 
 import { currentSport } from '../sportConfig'
@@ -102,7 +102,7 @@ function patternFrom(faux: Correction['faux']): RegExp {
 }
 type Compiled = { re: RegExp; juste: Correction['juste'] }[]
 const COMPILED = new Map<string, Compiled>()
-/** Corrections du sport (handball : celles de vocabulary.ts ; volley : aucune pour l'instant), compilées une fois. */
+/** Corrections du sport (vocabulary.ts : celles du handball ou du volley), compilées une fois. */
 function compiledFor(sport: string): Compiled {
   let c = COMPILED.get(sport)
   if (!c) COMPILED.set(sport, (c = dictationVocabulary(sport).corrections.map((x) => ({ re: patternFrom(x.faux), juste: x.juste }))))

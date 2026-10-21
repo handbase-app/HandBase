@@ -70,6 +70,21 @@ export function Glyph({ g, card, size = 11 }: { g: GlyphName; card?: string; siz
           <rect x="7" y="2" width="2.4" height="8" rx=".5" />
         </svg>
       )
+    // Volley : contre (deux mains au-dessus du filet) et réception (avant-bras joints sous le ballon).
+    case 'block':
+      return (
+        <svg {...common}>
+          <path d="M1 9.2h10" strokeWidth={1.2} />
+          <path d="M4.3 7.6V2.2M7.7 7.6V2.2" strokeWidth={2} strokeLinecap="round" />
+        </svg>
+      )
+    case 'platform':
+      return (
+        <svg {...common}>
+          <circle cx="6" cy="2.6" r="1.7" fill="currentColor" stroke="none" />
+          <path d="M1.8 6.2L6 10l4.2-3.8" strokeLinejoin="round" />
+        </svg>
+      )
     default:
       return (
         <svg {...common} stroke="none" fill="currentColor">

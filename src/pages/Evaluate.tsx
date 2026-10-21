@@ -20,6 +20,7 @@ import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type 
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
+import { scoreLegend } from '../sportContent'
 import { FormActions } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
 import {
@@ -671,7 +672,8 @@ export default function Evaluate() {
               )}
             </div>
           )}
-          <div className="text-[11px] text-muted">1 = très insuffisant · 3 = niveau attendu · 5 = remarquable. Laisse vide ce que tu n'as pas vu.</div>
+          {/* Repères de l'échelle du sport (src/sportContent.ts) ; handball : « 1 = très insuffisant · 3 = niveau attendu · 5 = remarquable ». */}
+          <div className="text-[11px] text-muted">{scoreLegend()}. Laisse vide ce que tu n'as pas vu.</div>
           <AvisVocal
             playerId={player.id}
             position={player.position}

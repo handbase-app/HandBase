@@ -2,7 +2,7 @@ import { currentSport } from './sportConfig'
 
 /*
  * Contenus propres à chaque sport, choisis d'après le sport de l'installation (src/sportConfig.ts). Handball : les données
- * d'aujourd'hui. Volley : points d'accroche de la phase 2 (critères, tests et actions à venir), vides pour l'instant.
+ * d'aujourd'hui. Volley : critères, tests et repères de l'échelle des usages de la détection en volley (filière fédérale).
  *
  * Où vit quoi :
  *  - grille d'évaluation (critères subjectifs) ET définitions des tests / mesures (critères factuels : unité, échelle) :
@@ -11,7 +11,14 @@ import { currentSport } from './sportConfig'
  *  - sens des tests (plus petit / plus grand = meilleur, src/compare.ts) : lowerIsBetter / higherIsBetter, en plus des
  *    tests communs déjà connus (sprints, sauts, charges…) ;
  *  - catégories du « Profil physique » du formulaire de la fiche (src/pages/PlayerForm.tsx) : profileCategories ;
+ *  - repères de l'échelle de notation 1 à 5 (légende de l'écran de notation, avis vocal) : scoreLabels ;
  *  - actions du séquenceur (pastilles de la frise) : src/seqPills.ts (PILLS_BY_SPORT), volley dans src/volleyActions.ts.
+ *
+ * Volley (public/demo/criteres-volley.json) : 3 grilles notées de 1 à 5 (« Joueur de champ » pour R4, C et PT ;
+ * « Passeur » pour P ; « Libéro » pour L, poste facultatif), le bloc « Mental et comportement » pour tous, et 10 tests
+ * (taille, poids, taille assise, envergure, atteinte debout, hauteurs d'attaque et de contre, détente CMJ, T-test, lancer de
+ * médecine-ball). Taille, poids et taille assise gardent les identifiants du calcul de la maturité (taille, poids,
+ * taille_assise : src/maturitySnapshot.ts, MaturityCard.tsx).
  */
 
 export interface SportContent {
@@ -25,6 +32,13 @@ export interface SportContent {
   profileCategories: readonly string[]
   /** Résumé de ce bloc replié ; absent : les libellés des critères affichés. */
   profileSummary?: string
+  /**
+   * Repères de l'échelle de notation 1 à 5 (score5), par note : légende de l'écran de notation (src/pages/Evaluate.tsx) et
+   * libellés envoyés à l'avis vocal (src/dictation/avis.ts). L'échelle elle-même (1 à 5, des chiffres) est la même partout.
+   */
+  scoreLabels: Readonly<Record<string, string>>
+  /** Exemples de textes à l'écran : groupes de joueurs (aide, nom), groupe de travail (nom), catégorie d'une fiche. */
+  examples: { groups: string; groupName: string; workGroupName: string; category: string }
 }
 
 export const SPORT_CONTENT: Record<string, SportContent> = {
@@ -34,11 +48,39 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
     higherIsBetter: [],
     profileCategories: ['Gabarit', 'Critères physiologiques'],
     profileSummary: 'Taille, poids, explosivité, puissance, vitesse, détente, tir',
+    scoreLabels: { '1': 'très insuffisant', '3': 'niveau attendu', '5': 'remarquable' },
+    examples: {
+      groups: 'Intercomités 83, Pôle, Sport-études…',
+      groupName: 'Ex. Intercomités 83 – 2010, Pôle Espoirs masculin…',
+      workGroupName: 'Ex. ETD Var, Pôles Région Sud, Intercomités 83…',
+      category: '-18 nat',
+    },
   },
-  // Phase 2 : critères et tests du volley dans public/demo/criteres-volley.json, sens de ses tests et catégories du
-  // profil physique ici (en attendant : les mêmes noms de catégories que le handball).
-  volley: { demoCriteria: 'demo/criteres-volley.json', lowerIsBetter: [], higherIsBetter: [], profileCategories: ['Gabarit', 'Critères physiologiques'] },
+  volley: {
+    demoCriteria: 'demo/criteres-volley.json',
+    // T-test : déjà connu comme test commun (src/compare.ts) ; redit ici pour que la liste du volley soit complète.
+    lowerIsBetter: ['t_test'],
+    // Détente CMJ : identifiant commun cmj_hauteur (déjà « plus grand = meilleur »). Taille, envergure et atteinte debout
+    // décrivent le gabarit : pas de « meilleur », comme la taille au handball.
+    higherIsBetter: ['hauteur_attaque', 'hauteur_contre', 'medecine_ball'],
+    profileCategories: ['Gabarit', 'Mensurations', 'Détente'],
+    profileSummary: 'Taille, poids, taille assise, envergure, atteinte, hauteurs d’attaque et de contre, CMJ',
+    // Échelle 1 à 5 des grilles du volley, uniquement positive.
+    scoreLabels: { '1': 'En découverte', '2': 'En construction', '3': 'Acquis', '4': 'Point fort', '5': 'Remarquable' },
+    examples: {
+      groups: 'sélection départementale 69, Volleyades M15, Pôle, Sport-études…',
+      groupName: 'Ex. Sélection départementale 69 – 2014, Pôle Espoirs féminin…',
+      workGroupName: 'Ex. ETD Var, Pôles Région Sud, staff du CRE…',
+      category: 'M15',
+    },
+  },
 }
 
 /** Contenus du sport en cours ; un sport sans contenus propres : ceux du handball. */
 export const sportContent = (sport: string = currentSport().sport): SportContent => SPORT_CONTENT[sport] ?? SPORT_CONTENT.handball
+
+/** Légende de l'écran de notation : « 1 = très insuffisant · 3 = niveau attendu · 5 = remarquable ». */
+export const scoreLegend = (sport?: string) =>
+  Object.entries(sportContent(sport).scoreLabels)
+    .map(([n, l]) => `${n} = ${l}`)
+    .join(' · ')

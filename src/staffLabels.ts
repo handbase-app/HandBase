@@ -1,3 +1,5 @@
+import { sportContent } from './sportContent'
+
 /*
  * Libellés affichés des groupes de travail (ex-« staffs » : équipes d'encadrants enregistrées,
  * supabase/034_equipes_encadrants.sql) et de la visibilité « Mes groupes de travail » des groupes de joueurs
@@ -26,7 +28,10 @@ export const STAFF = {
   create: 'Nouveau groupe de travail',
   /** Champ « Nom » du formulaire, et son exemple. */
   nameLabel: 'Nom du groupe de travail',
-  namePlaceholder: 'Ex. ETD Var, Pôles Région Sud, Intercomités 83…',
+  /** Exemple du sport de l'installation (handball : « Ex. ETD Var, Pôles Région Sud, Intercomités 83… »). */
+  get namePlaceholder() {
+    return sportContent().examples.workGroupName
+  },
   descriptionPlaceholder: 'Saison, rôle… — facultatif',
   membersLabel: 'Membres',
   intro:

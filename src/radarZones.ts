@@ -62,10 +62,14 @@ export const fold = (s: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
 
-/** Famille d'une catégorie d'après son nom (« Mental & attitude » → mental, « Vitesse & endurance » → physique…). */
+/**
+ * Famille d'une catégorie d'après son nom (« Mental & attitude » → mental, « Vitesse & endurance » → physique…). Volley :
+ * « Libéro », le poste à part, dans la famille du gardien (zone et couleur du spécifique gardien).
+ */
 export function categoryKind(name: string): CategoryKind {
   const n = fold(name)
   if (/gardien|\bgb\b/.test(n)) return /arret|zone|\btirs?\b/.test(n) ? 'gardien-arrets' : 'gardien'
+  if (/\bliberos?\b/.test(n)) return 'gardien'
   if (/mental|attitude|comportement|psych|caract/.test(n)) return 'mental'
   if (/intelligence|tactique|lecture|cognit/.test(n)) return 'intelligence'
   if (/defens/.test(n)) return 'defense'

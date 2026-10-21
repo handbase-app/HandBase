@@ -137,9 +137,10 @@ export const SPORTS: Record<string, SportProfile> = {
     features: [],
     families: { gardien: 'Libéro', champ: 'Autre poste' },
     familyHint: 'Famille : le libéro a ses propres critères (pas classé en attaque)',
-    // Le libéro défend mais n'attaque pas. Phase 2 : catégorie propre au libéro (radarZones) à exclure pour les autres.
+    // Le libéro défend mais n'attaque pas ; les autres postes ne sont pas classés sur une catégorie du libéro (« Libéro » :
+    // famille « gardien » de src/radarZones.ts, comme « Spécifique gardien » au handball).
     specialSkips: ['attaque'],
-    othersSkip: [],
+    othersSkip: ['gardien'],
     extraPositions: [LIBERO],
   },
 }
@@ -271,11 +272,20 @@ export const positionLabel = (p?: string | null) => (p ? (def(p)?.short ?? p) : 
 /** Poste en toutes lettres pour les exports (« Gardien de but »), vide sans poste. */
 export const positionFull = (p?: string | null) => (p ? (def(p)?.full ?? def(p)?.label ?? p) : '')
 
-/** Le poste est-il de la famille « gardien » (le poste à part du sport) ? Handball : GB ; volley : L s'il est ajouté. Code inconnu : non. */
-export const isKeeper = (p?: string | null) => def(p)?.family === 'gardien'
+/**
+ * Le poste est-il de la famille « gardien » (le poste à part du sport) ? Handball : GB ; volley : L, qu'il soit ajouté ou
+ * seulement proposé par le sport (ses critères ne s'affichent pas pour un joueur sans poste). Code inconnu : non.
+ */
+export const isKeeper = (p?: string | null) => (def(p) ?? (p ? sportProfile().extraPositions.find((x) => x.code === p) : undefined))?.family === 'gardien'
 
 /** Codes des postes de l'installation, dans l'ordre. */
 export const positionCodes = () => POSITIONS.map((p) => p.id as string)
+
+/**
+ * Poste proposé par le sport mais pas (encore) ajouté par l'installation (volley : L, le libéro, tant qu'il n'est pas dans
+ * « Structure et sport »). Ses critères restent dans la base, sans joueur à qui s'appliquer. Handball : jamais.
+ */
+export const proposedOnly = (code: string) => !positionCodes().includes(code) && sportProfile().extraPositions.some((x) => x.code === code)
 
 // ---------- Sport en cours : fonctions propres, familles ----------
 

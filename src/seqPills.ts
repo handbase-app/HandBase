@@ -1,6 +1,6 @@
 import type { ActionKind, Side } from './matchSheet'
 import { currentSport } from './sportConfig'
-import { VOLLEY_PILLS } from './volleyActions'
+import { VOLLEY_PILLS, type VolleyActionKind } from './volleyActions'
 
 /*
  * Pastilles de la frise défilante du séquençage (calcul pur ; l'écran : src/components/Sequencer.tsx et SeqPill.tsx).
@@ -19,10 +19,15 @@ import { VOLLEY_PILLS } from './volleyActions'
  * « tir » (et « tir7 ») est toujours un TIR RATÉ : un tir réussi est un but (« but », « but7 »). Il n'y a pas de type
  * « tir réussi ». Sur la pastille : « TIR » ; dans l'annonce : « Tir raté ».
  */
-export type PillKind = ActionKind | 'perte' | 'passe'
+export type HandballPillKind = ActionKind | 'perte' | 'passe'
+/** Volley : un geste et son résultat (« attaque_reussi »), ou le geste seul (src/volleyActions.ts). */
+export type PillKind = HandballPillKind | VolleyActionKind
 
-/** Pictogramme simple (dessiné en SVG par SeqPill.tsx, aucun émoji). */
-export type Glyph = 'ball' | 'miss' | 'save' | 'shot' | 'pass' | 'turnover' | 'clock' | 'card' | 'pause' | 'dot'
+/**
+ * Pictogramme simple (dessiné en SVG par SeqPill.tsx, aucun émoji). « block » (mains au-dessus du filet) et « platform »
+ * (avant-bras joints sous le ballon) : contre et réception du volley.
+ */
+export type Glyph = 'ball' | 'miss' | 'save' | 'shot' | 'pass' | 'turnover' | 'clock' | 'card' | 'pause' | 'dot' | 'block' | 'platform'
 
 export interface PillLabel {
   /** Sur la pastille, en capitales : « BUT », « 7 M », « 2' ». */
@@ -36,7 +41,7 @@ export interface PillLabel {
 
 export const CARD = { jaune: '#facc15', rouge: '#dc2626', bleu: '#2563eb' }
 
-const PILL: Record<PillKind, PillLabel> = {
+const PILL: Record<HandballPillKind, PillLabel> = {
   but: { short: 'BUT', long: 'But', glyph: 'ball' },
   but7: { short: '7 M', long: 'But sur 7 m', glyph: 'ball' },
   /** Tir raté (un tir réussi est un but). */
@@ -57,13 +62,16 @@ const PILL: Record<PillKind, PillLabel> = {
 
 /**
  * Pastilles de chaque sport, par identifiant d'action. Handball : PILL (actions de la feuille de match FFHB). Volley :
- * src/volleyActions.ts (phase 2). Une action absente de la table du sport garde le libellé handball, puis « ACTION ».
+ * src/volleyActions.ts (gestes et résultats). Une action absente de la table du sport garde le libellé handball, puis « ACTION ».
  */
 export const PILLS_BY_SPORT: Record<string, Partial<Record<string, PillLabel>>> = { handball: PILL, volley: VOLLEY_PILLS }
 
-/** Libellés d'une action ; « autre » prend le libellé lu sur la feuille (« Commotion » → « COMMOTION »). */
-export function pillLabel(k: PillKind, l?: string): PillLabel {
-  const p = PILLS_BY_SPORT[currentSport().sport]?.[k] ?? PILL[k] ?? PILL.autre
+/**
+ * Libellés d'une action ; « autre » prend le libellé lu sur la feuille (« Commotion » → « COMMOTION »). `sport` : celui de
+ * l'installation par défaut (les catégories du filtre du handball le donnent : mêmes libellés quel que soit le sport).
+ */
+export function pillLabel(k: PillKind, l?: string, sport: string = currentSport().sport): PillLabel {
+  const p = PILLS_BY_SPORT[sport]?.[k] ?? PILL[k as HandballPillKind] ?? PILL.autre
   if (k !== 'autre' || !l?.trim()) return p
   const long = l.trim()
   const word = long.split(/\s+/)[0].toUpperCase()
