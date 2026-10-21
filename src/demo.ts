@@ -1,6 +1,7 @@
 import { loadDemoCriteria } from './criteriaImport'
-import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Position, type Rewatch, type Seen, type Team, type Video } from './db'
+import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
 import { scoutId } from './scouting'
+import type { HandballPosition } from './sportConfig'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -33,7 +34,7 @@ const LAST = ['Martin', 'Bernard', 'Robert', 'Richard', 'Durand', 'Moreau', 'Lau
 const CLUBS = ['HBC Rhône Sud', 'Entente Drôme-Ardèche', 'AS Vallée Bleue', 'Handball Collines']
 
 // Gabarit typique par poste : [taille min, taille max]
-const HEIGHT: Record<Position, [number, number]> = {
+const HEIGHT: Record<HandballPosition, [number, number]> = {
   GB: [184, 196],
   AG: [171, 181],
   AD: [171, 181],
@@ -43,7 +44,7 @@ const HEIGHT: Record<Position, [number, number]> = {
   PIV: [187, 199],
 }
 // Répartition d'un effectif de 24
-const ROSTER: Position[] = ['GB', 'GB', 'GB', 'AG', 'AG', 'AG', 'AD', 'AD', 'AD', 'ARG', 'ARG', 'ARG', 'ARG', 'ARD', 'ARD', 'ARD', 'DC', 'DC', 'DC', 'DC', 'PIV', 'PIV', 'PIV', 'PIV']
+const ROSTER: HandballPosition[] = ['GB', 'GB', 'GB', 'AG', 'AG', 'AG', 'AD', 'AD', 'AD', 'ARG', 'ARG', 'ARG', 'ARG', 'ARD', 'ARD', 'ARD', 'DC', 'DC', 'DC', 'DC', 'PIV', 'PIV', 'PIV', 'PIV']
 
 const OBSERVERS = [
   { name: 'Coach Paul', bias: 0, noise: 0.5 },

@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useSportProfile } from '../installation'
 import { BackButton } from '../backNav'
 import { appName } from '../appBrand'
 
@@ -17,10 +18,13 @@ function H({ children }: { children: ReactNode }) {
 }
 
 export function PrivacyText() {
+  // Sport de l'installation (src/sportConfig.ts) : « le hand », « le volley » ; Gest'Hand : handball seulement.
+  const sport = useSportProfile()
+  const gestHand = sport.features.includes('licencesGestHand')
   return (
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>
-        {appName()} est l’outil du staff de détection pour suivre les jeunes joueuses et joueurs de handball : tests physiques, avis
+        {appName()} est l’outil du staff de détection pour suivre les jeunes joueuses et joueurs de {sport.config.sportName.toLowerCase()} : tests physiques, avis
         du staff, participation aux rassemblements. Cette page explique quelles données sont enregistrées, pourquoi, qui
         les voit et comment exercer vos droits (Règlement général sur la protection des données, RGPD).
       </p>
@@ -33,7 +37,7 @@ export function PrivacyText() {
 
       <H>Quelles données ?</H>
       <ul className="ml-4 list-disc">
-        <li>Identité et licence : nom, prénom, sexe, date de naissance, nationalité, club, numéro et état de licence (issus de Gest’Hand, la base de la Fédération).</li>
+        <li>Identité et licence : nom, prénom, sexe, date de naissance, nationalité, club, numéro et état de licence ({gestHand ? 'issus de Gest’Hand, la base de la Fédération' : 'issus de la base des licences de la Fédération'}).</li>
         <li>Profil sportif : poste(s), latéralité, groupes, rassemblements suivis.</li>
         <li>Mesures et tests physiques : taille, poids, envergure, tests de vitesse, de saut, de force… et, si elles sont données, les tailles des parents (pour estimer la taille adulte).</li>
         <li>Avis du staff : notes et commentaires sur le jeu, signés par leur auteur.</li>
@@ -78,14 +82,14 @@ export function PrivacyText() {
         Un jeune (ou sa famille) peut recevoir un accès personnel à {appName()}, relié à sa seule fiche : son encadrant (ou un
         administrateur) crée son compte depuis la fiche, ou lui remet un code s’il a déjà un compte. Il y voit son identité (nom,
         année de naissance, club, poste) et ses passages en pôle, tels que le staff les tient, et rien d’autre : ni avis, ni
-        mesures, ni classement, ni aucun autre joueur. Il y écrit lui-même, s’il le souhaite, « Ma lettre » (ce que le hand lui
+        mesures, ni classement, ni aucun autre joueur. Il y écrit lui-même, s’il le souhaite, « Ma lettre » (ce que le {sport.word} lui
         apporte, un moment dont il est fier, ce qu’il veut travailler ; les 20 versions précédentes sont gardées pour voir le
         chemin parcouru), « Mes repères » (le joueur ou la joueuse qu’il préfère, son équipe préférée, son poste rêvé, un match marquant) et « Mon parcours »
         (clubs, postes joués, sélections, palmarès) : c’est lu par les encadrants et administrateurs qui voient sa fiche, et par
         personne d’autre ; il peut le modifier ou l’effacer à tout moment.
       </p>
       <p>
-        « Mon journal du hand » : des notes datées sur ce que le hand lui fait vivre (un match, un entraînement, une envie), avec
+        « Mon journal du {sport.word} » : des notes datées sur ce que le {sport.word} lui fait vivre (un match, un entraînement, une envie), avec
         une humeur s’il le veut ; c’est le ressenti sportif, pas la santé ni la vie privée. Le journal est PRIVÉ : seul le jeune
         le lit. Il choisit, note par note, celles qu’il partage avec son encadrant, et peut reprendre ce partage, corriger ou
         supprimer une note à tout moment (une note supprimée est effacée tout de suite). Le staff qui suit sa fiche voit en plus
@@ -107,6 +111,7 @@ export function PrivacyText() {
 
 /** Charte de l'espace joueur : en mots simples, acceptée une fois par le jeune (ou sa famille) à la première connexion. */
 export function PlayerCharterText() {
+  const sport = useSportProfile()
   return (
     <div className="flex flex-col gap-1.5 text-[12px] leading-relaxed">
       <p>Bienvenue sur ta page {appName()}. Avant de commencer, voici comment ça marche.</p>
@@ -119,7 +124,7 @@ export function PlayerCharterText() {
 
       <H>Ce que tu écris</H>
       <p>
-        « Ma lettre », « Mes repères », « Mon parcours » et « Mon journal du hand » : c’est toi qui écris, quand tu veux, ce que tu
+        « Ma lettre », « Mes repères », « Mon parcours » et « Mon journal du {sport.word} » : c’est toi qui écris, quand tu veux, ce que tu
         veux. Tu peux changer ou effacer tes réponses et tes notes à tout moment. Rien n’est obligatoire.
       </p>
 

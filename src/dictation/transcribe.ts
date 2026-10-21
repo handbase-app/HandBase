@@ -6,7 +6,8 @@
 // Le son n'est jamais gardé : le Blob reçu n'est référencé que le temps de l'envoi.
 
 import { cleanDetail, type Replacement } from './clean'
-import { motsVoxtral } from './vocabulary'
+import { currentSport } from '../sportConfig'
+import { dictationVocabulary } from './vocabulary'
 
 /** Limites de la fonction (à garder alignées sur supabase/functions/transcrire/index.ts). */
 export const MAX_SECONDS = 60
@@ -130,7 +131,8 @@ export async function transcribe(ep: Endpoint, blob: Blob, seconds: number, sign
   const form = new FormData()
   form.append('file', blob, fileNameFor(blob.type))
   form.append('duree', String(Math.min(Math.max(Math.ceil(seconds * 10) / 10, 0.1), MAX_SECONDS)))
-  for (const m of motsVoxtral) form.append('context_bias', m)
+  // Mots de contexte du sport de l'installation (volley : aucun pour l'instant).
+  for (const m of dictationVocabulary(currentSport().sport).mots) form.append('context_bias', m)
   const f = ep.fetch ?? fetch
   let res: Response
   try {

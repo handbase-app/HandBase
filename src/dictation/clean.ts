@@ -5,10 +5,11 @@
 //   de phrase ou entre virgules (en fait, tu vois, tu sais, du coup, voilà en début ou en fin) ;
 // - retire les répétitions immédiates d'un mot ou d'un groupe de 2 à 3 mots (« le le », « très très ») ;
 // - corrige les espaces et la ponctuation à la française, met une majuscule en début de phrase ;
-// - corrige pour finir les erreurs de reconnaissance connues du vocabulaire du handball (vocabulary.ts).
+// - corrige pour finir les erreurs de reconnaissance connues du vocabulaire du sport (vocabulary.ts ; handball seulement pour l'instant).
 // Aucun autre mot n'est retiré, rien n'est reformulé : le sens est gardé.
 
-import { corrections, type Correction } from './vocabulary'
+import { currentSport } from '../sportConfig'
+import { dictationVocabulary, type Correction } from './vocabulary'
 
 const NBSP = ' '
 // Toujours des hésitations, où qu'elles soient.
@@ -99,15 +100,22 @@ function patternFrom(faux: Correction['faux']): RegExp {
   }
   return new RegExp('(?<![\\p{L}\\p{N}])' + src + '(?![\\p{L}\\p{N}])', 'giu')
 }
-const COMPILED = corrections.map((c) => ({ re: patternFrom(c.faux), juste: c.juste }))
+type Compiled = { re: RegExp; juste: Correction['juste'] }[]
+const COMPILED = new Map<string, Compiled>()
+/** Corrections du sport (handball : celles de vocabulary.ts ; volley : aucune pour l'instant), compilées une fois. */
+function compiledFor(sport: string): Compiled {
+  let c = COMPILED.get(sport)
+  if (!c) COMPILED.set(sport, (c = dictationVocabulary(sport).corrections.map((x) => ({ re: patternFrom(x.faux), juste: x.juste }))))
+  return c
+}
 
 export type Replacement = { de: string; vers: string }
 
 /** Applique les corrections du vocabulaire ; renvoie le texte et la liste des remplacements réellement faits. */
-export function correct(texte: string): { texte: string; corrections: Replacement[] } {
+export function correct(texte: string, sport: string = currentSport().sport): { texte: string; corrections: Replacement[] } {
   const faites: Replacement[] = []
   let t = texte
-  for (const { re, juste } of COMPILED) {
+  for (const { re, juste } of compiledFor(sport)) {
     re.lastIndex = 0
     t = t.replace(re, (...args: unknown[]) => {
       const m = args[0] as string

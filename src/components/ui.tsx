@@ -51,7 +51,8 @@ export function Avatar({ p, size = 40 }: { p: Pick<Player, 'firstName' | 'lastNa
   )
 }
 
-const POS_COLORS: Record<Position, string> = {
+// Couleur de la pastille de chaque poste connu (handball, volley) ; un autre code : pastille neutre.
+const POS_COLORS: Partial<Record<Position, string>> = {
   GB: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
   AG: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
   AD: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
@@ -59,13 +60,19 @@ const POS_COLORS: Record<Position, string> = {
   ARD: 'bg-violet-500/20 text-violet-300 border-violet-500/40',
   DC: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
   PIV: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+  // Volley : le libéro, poste à part, comme le gardien.
+  P: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  R4: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+  C: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+  PT: 'bg-violet-500/20 text-violet-300 border-violet-500/40',
+  L: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
 }
 
 export function PosBadge({ pos }: { pos?: Position }) {
   if (!pos) return null
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${POS_COLORS[pos]}`}>
-      {POSITIONS.find((p) => p.id === pos)?.short}
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${POS_COLORS[pos] ?? 'border-line bg-panel-2 text-muted'}`}>
+      {POSITIONS.find((p) => p.id === pos)?.short ?? pos}
     </span>
   )
 }

@@ -1,5 +1,5 @@
 import type { Criterion, CriterionKind, CriterionScale } from './db'
-import { positionCodes, type Position } from './sportConfig'
+import { currentSport, positionCodes, type Position } from './sportConfig'
 import type { Cell, Sheet } from './xlsx'
 
 /*
@@ -23,7 +23,7 @@ export const COLUMNS = [
   { field: 'unit', head: 'unité', keys: ['unite', 'unit'], help: 'Pour l’échelle number : cm, kg, s, km/h…' },
   { field: 'options', head: 'options', keys: ['options'], help: 'Pour l’échelle choice : au moins 2 options, séparées par « | ».' },
   { field: 'description', head: 'description', keys: ['description', 'definition'], help: 'Ce qu’on observe ou mesure (facultatif).' },
-  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés : leurs codes, séparés par des virgules (handball : GB, AG, ARG, DC, ARD, AD, PIV) ; vide = tous.' },
+  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés : leurs codes, séparés par des virgules ; vide = tous.' },
   { field: 'quick', head: 'mode rapide', keys: ['moderapide', 'rapide', 'quick'], help: 'oui : fait partie de l’évaluation rapide (critères subjectifs).' },
   { field: 'active', head: 'actif', keys: ['actif', 'active'], help: 'non : critère masqué (son historique est gardé). Vide = oui.' },
   { field: 'order', head: 'ordre', keys: ['ordre', 'order'], help: 'Rang d’affichage (nombre). Vide = rang de la ligne dans le fichier.' },
@@ -188,11 +188,15 @@ export function toRows(criteria: CriterionFields[]): Cell[][] {
   ]
 }
 
+/** Aide de la colonne « postes » : les codes du sport de l'installation (« handball : GB, AG, ARG, DC, ARD, AD, PIV »). */
+export const positionsHelp = () =>
+  `Postes concernés : leurs codes, séparés par des virgules (${currentSport().sportName.toLowerCase()} : ${positionCodes().join(', ')}) ; vide = tous.`
+
 /** Feuilles d'un classeur de critères : « Critères » puis « Aide » (colonnes et valeurs permises). */
 export function toSheets(criteria: CriterionFields[]): Sheet[] {
   return [
     { name: 'Critères', rows: toRows(criteria), widths: [18, 24, 32, 11, 10, 8, 18, 50, 26, 12, 7, 7] },
-    { name: 'Aide', rows: [['colonne', 'contenu'], ...COLUMNS.map((c) => [c.head, c.help])], widths: [14, 110] },
+    { name: 'Aide', rows: [['colonne', 'contenu'], ...COLUMNS.map((c) => [c.head, c.field === 'positions' ? positionsHelp() : c.help])], widths: [14, 110] },
   ]
 }
 

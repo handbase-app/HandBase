@@ -166,8 +166,8 @@ export function mergeFollowUp(prev: Recipe, next: Recipe, phrase: string, ctx: Q
 // ---------- Relecture d'après la phrase ----------
 
 const HAND_RE = /lateralit|gauch|droiti|ambidex/
-const WHOLE_WORDS = /\bfrance\b|\bfederation\b|\bffhb\b|base de donnees|\bdans la base\b|\bnational|\btout le pays\b|\bpartout\b|\brepertorie/
-const WHOLE_RE = /\bfrance\b|federation|\bffhb\b|base de donnees|\bbase\b|\bnational|\bpays\b|\bpartout\b|repertori/
+const WHOLE_WORDS = /\bfrance\b|\bfederation\b|\bffhb\b|\bffvb\b|base de donnees|\bdans la base\b|\bnational|\btout le pays\b|\bpartout\b|\brepertorie/
+const WHOLE_RE = /\bfrance\b|federation|\bffhb\b|\bffvb\b|base de donnees|\bbase\b|\bnational|\bpays\b|\bpartout\b|repertori/
 const LICENCE_RE = /licenci|inscrit/
 const FOLLOW_NOTE_RE = /precedent|meme chose|pareil|idem|meme question|d avant/
 const NEG_NOTE_RE = /\baucun|\bau moins\b|\bpas de\b|\bpas un\b|\bzero\b|\bsans\b|\bni\b/

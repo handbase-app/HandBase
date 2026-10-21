@@ -35,6 +35,7 @@ import {
   runRecipe,
 } from './recipe'
 import { localCommand, normalize } from './voiceFilters'
+import { currentSport } from './sportConfig'
 import { searchByName } from './nameMatch'
 import { clubKey } from './coverage'
 import { inYears, putYears, yearsOf } from './birthYears'
@@ -314,6 +315,15 @@ const NOT_NAME = new Set(
     'evenement evenements tournoi stage saison depuis cm metre metres dis donne'
   ).split(' '),
 )
+// Postes d'un autre sport que le handball (selon le sport de l'installation) : des mots de critère aussi, pas des noms.
+const NOT_NAME_SPORT: Record<string, Set<string>> = {
+  volley: new Set(
+    (
+      'passeur passeurs passeuse passeuses central centraux centrale centrales pointu pointus pointue pointues oppose opposes opposee opposees ' +
+      'libero liberos receptionneur receptionneurs receptionneuse receptionneuses attaquant attaquants attaquante attaquantes r4'
+    ).split(' '),
+  ),
+}
 // Particules des noms composés (« De La Cruz », « Van Damme ») : jamais seules.
 const PARTICLES = new Set(['de', 'du', 'la', 'le', 'van', 'von', 'da', 'di', 'del', 'della', 'ben', 'el', 'al', 'mc', 'mac', 'dos', 'das', 'st', 'saint', 'sainte'])
 
@@ -329,7 +339,8 @@ export function isNameQuery(text: string): boolean {
   if (/[^\p{L}\s'’-]/u.test(t)) return false
   const ws = normalize(t).split(' ').filter(Boolean)
   if (!ws.length || ws.length > 4) return false
-  if (ws.some((w) => NOT_NAME.has(w))) return false
+  const sportWords = NOT_NAME_SPORT[currentSport().sport]
+  if (ws.some((w) => NOT_NAME.has(w) || sportWords?.has(w))) return false
   // Prénom et nom composés (« Jean Pierre Martin », « De La Cruz ») : trois mots au plus, particules en plus.
   const real = ws.filter((w) => !PARTICLES.has(w))
   return real.length > 0 && real.length <= 3

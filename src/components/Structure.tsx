@@ -3,7 +3,7 @@ import { newId, plural, remove, save, saveMany, type Assignment, type ConfigItem
 import { useAssignments, useConfigRows, useLevels, useSportConfig, useUnits } from '../installation'
 import { departmentLabel, useDepartments } from '../lists'
 import { ROLE_LABEL, type Role } from '../roles'
-import { CONFIG_KEYS, HANDBALL, type PositionDef } from '../sportConfig'
+import { CONFIG_KEYS, familyLabel, sportProfile, type PositionDef } from '../sportConfig'
 import { findUnits } from '../structureImport'
 import {
   ancestors,
@@ -69,6 +69,13 @@ function PositionsEditor({ editable }: { editable: boolean }) {
   const sig = JSON.stringify(cfg.positions)
   const changed = JSON.stringify(draft) !== sig
   const valid = draft.every((p) => p.label.trim() && p.short.trim())
+  const profile = sportProfile(cfg.sport)
+  // Postes proposés à l'ajout (volley : le libéro), absents des postes par défaut ; un poste ajouté peut être retiré.
+  const defaults = new Set(profile.config.positions.map((p) => p.code))
+  const addable = profile.extraPositions.filter((x) => !draft.some((p) => p.code === x.code))
+  const add = (x: PositionDef) => setDraft([...draft, { ...x, order: draft.length + 1 }])
+  const drop = (i: number) => setDraft(draft.filter((_, j) => j !== i).map((p, k) => ({ ...p, order: k + 1 })))
+  const fam = { gardien: familyLabel('gardien'), champ: familyLabel('champ') }
   const set = (i: number, patch: Partial<PositionDef>) => setDraft(draft.map((p, j) => (j === i ? { ...p, ...patch } : p)))
   const move = (i: number, d: -1 | 1) => {
     const j = i + d
@@ -91,7 +98,7 @@ function PositionsEditor({ editable }: { editable: boolean }) {
       <Fold summary={`Postes : ${cfg.positions.map((p) => p.short || p.code).join(' · ')}`} editable={editable} keepOpen={changed}>
       <p className="text-[11px] text-muted">
         Postes. Les codes ({draft.map((p) => p.code).join(', ')}) restent les mêmes : seuls le libellé, le libellé court, l’ordre
-        et la famille (gardien / champ) se règlent.
+        et la famille ({fam.gardien.toLowerCase()} / {fam.champ.toLowerCase()}) se règlent.
       </p>
       <div className="divide-y divide-line rounded-lg border border-line">
         {draft.map((p, i) => (
@@ -123,15 +130,29 @@ function PositionsEditor({ editable }: { editable: boolean }) {
               <button
                 className={`${TAP} shrink-0 rounded-md border px-3 text-[11px] font-bold ${p.family === 'gardien' ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2 text-muted'}`}
                 disabled={!editable}
-                title="Famille : un gardien n’est pas évalué sur les critères des joueurs de champ"
+                title={profile.familyHint}
                 onClick={() => set(i, { family: p.family === 'gardien' ? 'champ' : 'gardien' })}
               >
-                {p.family === 'gardien' ? 'Gardien' : 'Champ'}
+                {p.family === 'gardien' ? fam.gardien : fam.champ}
               </button>
+              {editable && !defaults.has(p.code) && (
+                <button className={`btn-ghost ${TAP} shrink-0 px-2 text-[11px]`} aria-label={`Retirer le poste ${p.label}`} onClick={() => drop(i)}>
+                  Retirer
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
+      {editable && addable.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {addable.map((x) => (
+            <button key={x.code} className={`btn-ghost ${TAP} text-xs`} onClick={() => add(x)}>
+              + {x.label} ({x.code})
+            </button>
+          ))}
+        </div>
+      )}
       {editable && (
         <div className="flex flex-wrap gap-2">
           <button className={`btn-primary ${TAP} flex-1 text-xs`} disabled={!changed || !valid} onClick={() => void submit()}>
@@ -146,7 +167,7 @@ function PositionsEditor({ editable }: { editable: boolean }) {
             <button
               className={`btn-ghost ${TAP} text-xs`}
               onClick={async () => {
-                if (await ask(`Revenir aux postes par défaut (${HANDBALL.sportName}) ?`, { ok: 'Revenir', danger: false })) await remove('config', CONFIG_KEYS.positions)
+                if (await ask(`Revenir aux postes par défaut (${profile.config.sportName}) ?`, { ok: 'Revenir', danger: false })) await remove('config', CONFIG_KEYS.positions)
               }}
             >
               Valeurs par défaut
@@ -162,6 +183,7 @@ function PositionsEditor({ editable }: { editable: boolean }) {
 // ---------- Niveaux ----------
 
 function LevelsSection({ editable }: { editable: boolean }) {
+  const { sportName } = useSportConfig()
   const levels = useLevels()
   const units = useUnits()
   const [name, setName] = useState('')
@@ -194,7 +216,7 @@ function LevelsSection({ editable }: { editable: boolean }) {
       </div>
       {editable && !levels.length && (
         <button className={`btn-ghost ${TAP} text-xs`} onClick={() => void saveMany<Level>('levels', HANDBALL_LEVELS)}>
-          Proposer les niveaux du handball ({HANDBALL_LEVELS.map((l) => l.name).join(', ')})
+          Proposer les niveaux du {sportName.toLowerCase()} ({HANDBALL_LEVELS.map((l) => l.name).join(', ')})
         </button>
       )}
       {editable && (

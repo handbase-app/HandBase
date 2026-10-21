@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { db, newId, plural, saveMany, type Level, type Unit } from '../db'
 import { useLevels, useUnits } from '../installation'
+import { sportProfile } from '../sportConfig'
 import {
   DEFAULT_OPTIONS,
   FIELD_LABELS,
@@ -80,7 +81,7 @@ export function StructureImport() {
   const [file, setFile] = useState('')
   const [table, setTable] = useState<CsvTable | null>(null)
   const [mapping, setMapping] = useState<Mapping>({})
-  const [options, setOptions] = useState<ImportOptions>(DEFAULT_OPTIONS)
+  const [options, setOptions] = useState<ImportOptions>(() => ({ ...DEFAULT_OPTIONS, rootName: sportProfile().federation }))
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null)
   const [record, setRecord] = useState<ImportRecord | null>(loadRecord)
   const [done, setDone] = useState('')

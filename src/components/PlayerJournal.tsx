@@ -18,6 +18,7 @@ import {
 } from '../playerSpace'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
+import { useSportProfile } from '../installation'
 import { Icon, SectionTitle } from './ui'
 
 /*
@@ -142,6 +143,7 @@ export function MoodChip({ mood, sex }: { mood?: string; sex?: string | null }) 
  * Aperçu d'un administrateur avec le serveur : rien n'est lu (le journal est privé).
  */
 export function JournalSection({ player, canWrite, preview }: { player: Player; canWrite: boolean; preview: boolean }) {
+  const sport = useSportProfile()
   const sex = player.sex
   const hidden = preview && !!supabase
   const [notes, setNotes] = useState<JournalNote[] | null>(null)
@@ -207,12 +209,12 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
     <section className="card flex flex-col gap-3 p-4" data-testid="journal-du-hand">
       <div className="flex flex-wrap items-center justify-between gap-x-3">
         <SectionTitle info="Une note quand tu veux : un match, un entraînement, une envie, ce que tu as ressenti. Le ressenti sportif : pas ta santé ni ta vie privée. Tu peux corriger ou supprimer tes notes à tout moment. Les 200 notes les plus récentes sont gardées : au-delà, les plus anciennes ne le sont plus.">
-          Mon journal du hand
+          Mon journal du {sport.word}
         </SectionTitle>
         <TalkLink sex={sex} />
       </div>
       <p className="text-[11px] text-muted">
-        C’est ton journal de handball, il est à toi : tes notes restent privées. Ton encadrant voit seulement la tendance de tes humeurs et les notes que tu
+        C’est ton journal de {sport.config.sportName.toLowerCase()}, il est à toi : tes notes restent privées. Ton encadrant voit seulement la tendance de tes humeurs et les notes que tu
         choisis de partager.
       </p>
 
@@ -227,7 +229,7 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                 <textarea
                   className="field min-h-11 w-full resize-y"
                   rows={3}
-                  placeholder="Ce que le hand t’a fait vivre cette semaine : un match, un entraînement, une envie…"
+                  placeholder={`Ce que le ${sport.word} t’a fait vivre cette semaine : un match, un entraînement, une envie…`}
                   maxLength={SELF_LIMITS.note}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
@@ -325,6 +327,7 @@ const shortDay = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('fr
  * pastilles), et les notes que le jeune a choisi de partager (les 5 dernières, puis « Voir tout »). Rien s'il n'y a rien.
  */
 export function StaffJournal({ player }: { player: Player }) {
+  const sport = useSportProfile()
   const g = w(player.sex)
   const [trend, setTrend] = useState<MoodTrend | null>(null)
   const [notes, setNotes] = useState<JournalNote[]>([])
@@ -346,7 +349,7 @@ export function StaffJournal({ player }: { player: Player }) {
   const shown = all ? notes : notes.slice(0, 5)
   return (
     <div className="card p-4" data-testid="journal-staff">
-      <div className="section-title">Journal du hand</div>
+      <div className="section-title">Journal du {sport.word}</div>
       <p className="mb-2 text-[10px] text-muted">
         Le journal est privé : {g.leJoueur} choisit les notes qu’{g.il} partage. Tendance des humeurs : des nombres, jamais le texte. Lecture seule.
       </p>

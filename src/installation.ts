@@ -7,7 +7,7 @@ import { currentUserId, useRole } from './roles'
 import { spyTarget } from './spy'
 import { setViewAsScope } from './viewAsFilter'
 import { perimeterSignature } from './viewAsScope'
-import { applySportConfig, currentSport, resolveSportConfig, type SportConfig } from './sportConfig'
+import { applySportConfig, currentSport, resolveSportConfig, sportHas, sportProfile, type SportConfig, type SportFeature, type SportProfile } from './sportConfig'
 import { sortLevels } from './structureTree'
 import { setInstallationAppearance } from './theme'
 import { resolveAppearance } from './uiStyle'
@@ -44,6 +44,12 @@ export function useSportConfig(): SportConfig {
   }, [])
   return currentSport()
 }
+
+/** Le sport de l'installation a-t-il cette fonction (Gest'Hand, feuille de match FFHB) ? Redessine quand le sport change. */
+export const useSportHas = (f: SportFeature) => sportHas(f, useSportConfig().sport)
+
+/** Profil du sport en cours (mot courant « hand » / « volley », fédération…), suivi comme useSportConfig. */
+export const useSportProfile = (): SportProfile => sportProfile(useSportConfig().sport)
 
 /** Lignes brutes de la configuration (écran Structure). */
 export const useConfigRows = () => useLiveQuery(() => db.config.toArray().then(alive), [], [] as ConfigItem[])

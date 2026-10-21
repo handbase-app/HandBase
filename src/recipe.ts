@@ -24,7 +24,7 @@ import { asText, bestMatch, isTrue, matchDept, matchRegion, normalize, parseSex,
 import { parseHand, parseHeight, parsePole, POSITION_ALIASES } from './voiceSearch'
 import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
-import { isKeeper, positionCodes } from './sportConfig'
+import { familySkips, isHandball, positionCodes } from './sportConfig'
 import { cleanYearFields, inYears, parseSaidYears, putYears, yearsOf, yearsPhrase } from './birthYears'
 
 // ---------- Recette ----------
@@ -377,7 +377,7 @@ const KNOWN_POP = [
 ]
 /** « en France », « toute la France », « au niveau national » : tous les lieux (aucune limite, rien d'écarté). */
 const WHOLE_COUNTRY =
-  /^(?:(?:en|dans|de|sur|a) )?(?:toute )?(?:la |l )?(?:france(?: entiere| metropolitaine)?|national|niveau national|au niveau national|pays|tout le pays|partout|federation(?: francaise)?(?: de handball)?|ffhb|base(?: de donnees)?|toute la base)$/
+  /^(?:(?:en|dans|de|sur|a) )?(?:toute )?(?:la |l )?(?:france(?: entiere| metropolitaine)?|national|niveau national|au niveau national|pays|tout le pays|partout|federation(?: francaise)?(?: de (?:handball|volley(?: ball)?))?|ffhb|ffvb|base(?: de donnees)?|toute la base)$/
 export const isWholeCountry = (v: unknown) => WHOLE_COUNTRY.test(normalize(asText(v)))
 const KNOWN_SEEN = ['compter', 'op', 'n', 'periode', 'depuis']
 const KNOWN_OUT = ['type', 'par', 'valeur', 'garder', 'tri', 'ordre', 'moyenne', 'mesure', 'limite', 'periode']
@@ -1158,9 +1158,8 @@ export function buildIndex<P extends QPlayer>(data: QData<P>): QIndex<P> {
     if (ps) return !!pos && ps.has(pos)
     if (!byFamily || !pos) return true
     // Sans postes réglés, moyenne d'une catégorie ou d'une zone : un gardien n'y est pas classé sur la défense ou l'attaque
-    // des joueurs de champ, un joueur de champ pas sur les catégories de gardien.
-    const k = critKind.get(cid)
-    return isKeeper(pos) ? k !== 'defense' && k !== 'attaque' : k !== 'gardien' && k !== 'gardien-arrets'
+    // des joueurs de champ, un joueur de champ pas sur les catégories de gardien (règle du sport : familySkips).
+    return !familySkips(pos, critKind.get(cid))
   }
   return { data, players, info, sights, evals, last, groupMembers, eventMembers, norm, applies, clubNames }
 }
@@ -2047,7 +2046,9 @@ export function parseSaved(raw: unknown): SavedQuestion[] {
 
 // ---------- Aide ----------
 
-export const QUESTION_HINT = 'les joueuses 2011 vues une seule fois cette saison, par département », « combien de gardiens 2009 mesurent plus de 1 m 85'
+/** Exemple de question (micro du bilan) ; hors handball, sans poste du handball. */
+export const questionHint = () =>
+  `les joueuses 2011 vues une seule fois cette saison, par département », « combien de ${isHandball() ? 'gardiens' : 'joueurs'} 2009 mesurent plus de 1 m 85`
 
 /** Questions qui marchent, montrées quand une question n'a pas été comprise. */
 export const QUESTION_EXAMPLES = [

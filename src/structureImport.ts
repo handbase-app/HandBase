@@ -21,6 +21,7 @@
 import { parseCsv } from './criteriaFormat'
 import { POLE_SITES, type PoleSite } from './poles'
 import { OFFICIAL_REGIONS, REGION_FALLBACK } from './regionsOfficial'
+import { sportProfile } from './sportConfig'
 import { HANDBALL_LEVELS, type LevelRow, type UnitRow } from './structureTree'
 
 // ---------- Lecture et correspondance des colonnes ----------
@@ -274,7 +275,7 @@ export function planImport(input: {
       rootId = existing.id
       if (!existing.code) plan('root', 'federation', { name: existing.name }, () => existing)
       else counts.root.same++
-    } else rootId = plan('root', 'federation', { name: cut(options.rootName.trim() || DEFAULT_OPTIONS.rootName) }, () => undefined).row.id
+    } else rootId = plan('root', 'federation', { name: cut(options.rootName.trim() || sportProfile().federation) }, () => undefined).row.id
   }
 
   /** Parent pour une ligne sans ligue (ou une ligue) : la Fédération si demandée, sinon aucun (en tête, à ranger). */
