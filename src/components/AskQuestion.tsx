@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { db, POSITIONS, today } from '../db'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
-import { buildQuestionSchema, QUESTION_HINT } from '../recipe'
+import { buildQuestionSchema, questionHint } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { useWait, WaitLine } from './Attente'
 import { Icon } from './ui'
@@ -99,7 +99,7 @@ export function AskQuestion({
           data-noswipe
           aria-label={rec ? 'Poser une question : arrêter et demander' : sending ? 'Question en cours' : 'Poser une question à la voix'}
           aria-pressed={rec}
-          title={rec ? 'Arrêter : la question est transcrite puis calculée' : `Touchez et dites par exemple « ${QUESTION_HINT} » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)`}
+          title={rec ? 'Arrêter : la question est transcrite puis calculée' : `Touchez et dites par exemple « ${questionHint()} » ; touchez à nouveau pour finir (ou maintenez pendant que vous parlez)`}
           disabled={sending}
           className={`relative flex min-h-11 shrink-0 touch-none items-center justify-center gap-2 rounded-md border-2 px-3 text-sm font-bold transition select-none [-webkit-touch-callout:none] ${
             rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-accent/60 bg-accent/10 text-fg hover:border-accent active:bg-accent active:text-white'
@@ -130,7 +130,7 @@ export function AskQuestion({
       onSubmit={(t) => void ask(t)}
       canAsk
       mic={variant === 'full' ? mic : undefined}
-      micHint={QUESTION_HINT}
+      micHint={questionHint()}
       disabled={sending || rec}
       wait={busy ? { phrase: busy, cancel: () => abort.current?.abort() } : null}
       calculating={calculating}

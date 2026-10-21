@@ -25,6 +25,7 @@ import { fetchNotes } from '../playerJournal'
 import { isPlayerRole, myPlayerId, refreshRole, useRole } from '../roles'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { positionCodes } from '../sportConfig'
+import { useSportProfile } from '../installation'
 import { canPreviewPlayerPage } from '../components/PlayerSpace'
 import { inform, useUnsaved } from '../components/Confirm'
 import { JournalSection, TalkLink } from '../components/PlayerJournal'
@@ -132,6 +133,9 @@ export default function Me() {
 function MePage({ p, preview }: { p: Player; preview: boolean }) {
   const g = w(p.sex)
   const role = useRole()
+  const sport = useSportProfile()
+  // « Mes matchs » : feuilles de match FFHB (handball seulement, src/sportConfig.ts).
+  const sheets = sport.features.includes('feuilleMatchFFHB')
   // Un compte joueur écrit (serveur) ; sans serveur (mode local / essai), l'aperçu permet d'essayer, sur l'appareil seulement ;
   // avec le serveur, l'aperçu d'un administrateur est en lecture seule (jamais d'écriture au nom du jeune).
   const canWrite = isPlayerRole(role) || !supabase
@@ -320,7 +324,7 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
 
       {/* Mes repères (052) */}
       <section className="card flex flex-col gap-3 p-4" data-testid="mes-reperes">
-        <SectionTitle info="Quelques mots, si tu veux : ce qui te fait rêver dans le hand.">Mes repères</SectionTitle>
+        <SectionTitle info={`Quelques mots, si tu veux : ce qui te fait rêver dans le ${sport.word}.`}>Mes repères</SectionTitle>
         {marks.map((m) => (
           <label key={m.key} className="block">
             <span className="label">{m.label}</span>
@@ -402,7 +406,7 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         {saveBar}
       </section>
 
-      <PlayerMatches p={p} canWrite={canWrite} />
+      {sheets && <PlayerMatches p={p} canWrite={canWrite} />}
 
       {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

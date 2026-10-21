@@ -13,6 +13,8 @@
  * Fichier pur (ni Dexie ni React) : testé par tools/test-espace-joueur.ts.
  */
 
+import { sportProfile } from './sportConfig'
+
 // ---------- Ce que le joueur écrit ----------
 
 /** « Ma lettre » : trois questions guidées, positives et ouvertes, plus un champ libre. */
@@ -124,7 +126,7 @@ export type LetterKey = (typeof LETTER_KEYS)[number]
 export function letterQuestions(sex?: string | null): { key: LetterKey; label: string; hint: string }[] {
   const fier = sex === 'F' ? 'fière' : 'fier'
   return [
-    { key: 'why', label: 'Qu’est-ce que le hand t’apporte ?', hint: 'Ce que tu aimes, ce que ça te donne, avec qui…' },
+    { key: 'why', label: `Qu’est-ce que le ${sportProfile().word} t’apporte ?`, hint: 'Ce que tu aimes, ce que ça te donne, avec qui…' },
     { key: 'proud', label: `Un moment dont tu es ${fier}`, hint: 'Un match, un entraînement, un geste, une progression…' },
     { key: 'work', label: 'Ce que tu veux travailler', hint: 'Ce que tu as envie d’améliorer, à ton rythme.' },
     { key: 'free', label: 'Si tu veux ajouter quelque chose', hint: 'Libre : une question, une envie, un message à ton encadrant…' },

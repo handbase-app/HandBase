@@ -19,7 +19,7 @@ export const normalize = (s: string) =>
     .trim()
 
 // Mots qui ne distinguent rien (« le club de Toulon », « HBC », « département du Var »).
-const STOP = new Set(['le', 'la', 'les', 'l', 'de', 'du', 'des', 'd', 'et', 'en', 'sur', 'a', 'au', 'aux', 'club', 'hand', 'handball', 'ball', 'hb', 'hbc', 'departement', 'region', 'ligue', 'groupe', 'profil'])
+const STOP = new Set(['le', 'la', 'les', 'l', 'de', 'du', 'des', 'd', 'et', 'en', 'sur', 'a', 'au', 'aux', 'club', 'hand', 'handball', 'ball', 'hb', 'hbc', 'volley', 'volleyball', 'vb', 'vbc', 'departement', 'region', 'ligue', 'groupe', 'profil'])
 /** Mots qui distinguent (sans accents ni mots vides). */
 export const words = (s: string) => normalize(s).split(' ').filter((w) => w && !STOP.has(w))
 

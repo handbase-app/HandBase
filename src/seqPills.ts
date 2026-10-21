@@ -1,4 +1,6 @@
 import type { ActionKind, Side } from './matchSheet'
+import { currentSport } from './sportConfig'
+import { VOLLEY_PILLS } from './volleyActions'
 
 /*
  * Pastilles de la frise défilante du séquençage (calcul pur ; l'écran : src/components/Sequencer.tsx et SeqPill.tsx).
@@ -53,9 +55,15 @@ const PILL: Record<PillKind, PillLabel> = {
   autre: { short: 'ACTION', long: 'Action', glyph: 'dot' },
 }
 
+/**
+ * Pastilles de chaque sport, par identifiant d'action. Handball : PILL (actions de la feuille de match FFHB). Volley :
+ * src/volleyActions.ts (phase 2). Une action absente de la table du sport garde le libellé handball, puis « ACTION ».
+ */
+export const PILLS_BY_SPORT: Record<string, Partial<Record<string, PillLabel>>> = { handball: PILL, volley: VOLLEY_PILLS }
+
 /** Libellés d'une action ; « autre » prend le libellé lu sur la feuille (« Commotion » → « COMMOTION »). */
 export function pillLabel(k: PillKind, l?: string): PillLabel {
-  const p = PILL[k] ?? PILL.autre
+  const p = PILLS_BY_SPORT[currentSport().sport]?.[k] ?? PILL[k] ?? PILL.autre
   if (k !== 'autre' || !l?.trim()) return p
   const long = l.trim()
   const word = long.split(/\s+/)[0].toUpperCase()

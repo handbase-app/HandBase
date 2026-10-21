@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
   // Défaut « Nextar ». Lu dans l'environnement ou les fichiers .env (voir .env.example). Le nom affiché dans
   // l'interface reste réglable à part (src/appBrand.ts).
   const appName = (process.env.VITE_APP_NAME || loadEnv(mode, process.cwd(), 'VITE_').VITE_APP_NAME || '').trim() || 'Nextar'
+  // VITE_SPORT=volley : installation de volley par défaut (src/sportConfig.ts) ; ici, la description de l'appli seulement.
+  const sport = (process.env.VITE_SPORT || loadEnv(mode, process.cwd(), 'VITE_').VITE_SPORT || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  const sportWord = sport === 'volley' || sport === 'volleyball' ? 'volley' : 'handball'
   const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
   return {
@@ -35,7 +38,7 @@ export default defineConfig(({ mode }) => {
       // Nom de l'appli dans index.html (<title>, apple-mobile-web-app-title, application-name) : %APP_NAME%.
       {
         name: 'app-name-html',
-        transformIndexHtml: { order: 'pre', handler: (html: string) => html.replace(/%APP_NAME%/g, escapeHtml(appName)) },
+        transformIndexHtml: { order: 'pre', handler: (html: string) => html.replace(/%APP_NAME%/g, escapeHtml(appName)).replace(/%SPORT%/g, sportWord) },
       },
       VitePWA({
         // Mise à jour : nouvelle version mise en attente, appliquée par src/pwa.ts quand aucune saisie n'est en cours.
@@ -50,7 +53,7 @@ export default defineConfig(({ mode }) => {
           id: process.env.BASE_PATH || '/HandBase/',
           name: demo ? `${appName} — Démo` : trial ? `${appName} — ESSAI` : appName,
           short_name: demo ? `${appName} démo` : trial ? `${appName} essai` : appName,
-          description: `${appName} : données physiques et évaluations des jeunes joueurs de handball`,
+          description: `${appName} : données physiques et évaluations des jeunes joueurs de ${sportWord}`,
           lang: 'fr',
           // Bleu nuit du logo (début de son dégradé) : barre de titre et écran de démarrage Android.
           theme_color: '#0A182D',

@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { isHandball } from '../sportConfig'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 import { db, newId, remove, save, type Player, type Video, type VideoMoment } from '../db'
 import type { MatchSheet, StoredAction } from '../matchSheet'
@@ -252,7 +253,7 @@ export function VideoSection({
         Vidéos{videos.length > 0 && <span className="text-muted">({videos.length})</span>}
         <InfoButton title="Vidéos">
           <p>
-            Un lien vers une vidéo où l’on voit {what} : Rematch, YouTube, Handball TV, Facebook… Pour le regarder quelques minutes avant de décider
+            Un lien vers une vidéo où l’on voit {what} : Rematch, YouTube, {isHandball() ? 'Handball TV, ' : ''}Facebook… Pour le regarder quelques minutes avant de décider
             d’aller le voir.
           </p>
           <p>
@@ -261,7 +262,7 @@ export function VideoSection({
           </p>
           <p>
             YouTube, Vimeo et fichiers vidéo (.mp4…) se lisent dans l’appli : chaque moment joue son passage, « Voir les actions » les enchaîne. Les
-            autres sites (Rematch, Handball TV, Facebook, Dartfish…) s’ouvrent dans un nouvel onglet. Rien n’est téléchargé avant le clic.
+            autres sites (Rematch, {isHandball() ? 'Handball TV, ' : ''}Facebook, Dartfish…) s’ouvrent dans un nouvel onglet. Rien n’est téléchargé avant le clic.
           </p>
           <p>Tout le monde peut ajouter un lien ; chacun modifie les siens. Les encadrants et les administrateurs peuvent retirer un lien.</p>
         </InfoButton>

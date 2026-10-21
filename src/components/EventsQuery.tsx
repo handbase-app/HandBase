@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
+import { sportHas } from '../sportConfig'
 import { alive, db, today, type HBEvent, type Player } from '../db'
 import { departmentLabel, regionOfDept, useRegionName } from '../lists'
 import { currentUserId, isParticipant } from '../roles'
@@ -245,7 +246,10 @@ function EventsPanel({
         {more && (
           <div className="flex flex-col gap-2 border-t border-line p-2">
             <div className="flex flex-wrap gap-1.5" data-filter="sheet video rewatch">
-              <ToggleChip on={!!f.sheet} label="Avec feuille de match" n={nYes('sheet')} onChange={(on) => setF({ sheet: on || undefined })} />
+              {/* Feuille de match FFHB : handball seulement (filtre gardé s'il est déjà posé). */}
+              {(sportHas('feuilleMatchFFHB') || f.sheet) && (
+                <ToggleChip on={!!f.sheet} label="Avec feuille de match" n={nYes('sheet')} onChange={(on) => setF({ sheet: on || undefined })} />
+              )}
               <ToggleChip on={!!f.video} label="Avec vidéo" n={nYes('video')} onChange={(on) => setF({ video: on || undefined })} />
               <ToggleChip on={!!f.rewatch} label="Avec joueurs à revoir" n={nYes('rewatch')} onChange={(on) => setF({ rewatch: on || undefined })} />
               <button type="button" className="btn-ghost min-h-11 px-3 text-xs" onClick={() => setF({ players: f.players ?? { op: 'gte', n: 10 } })}>

@@ -13,6 +13,7 @@ import { SEX_LABEL_ONE, w } from '../gender'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 import { usePoleLeader } from '../components/PoleGroup'
+import { sportContent } from '../sportContent'
 
 type Values = Record<string, number | string | undefined>
 
@@ -106,7 +107,9 @@ export default function PlayerForm() {
 
   // Profil rapide seulement (gabarit + critères physiologiques) : de quoi repérer un joueur vite.
   // Les tests détaillés se saisissent ensuite, fiche enregistrée, avec « Nouvelle séance de tests ».
-  const shown = criteria.filter((c) => criterionApplies(c, p.position) && (c.category === 'Gabarit' || c.category === 'Critères physiologiques'))
+  // Catégories du profil physique : celles du sport de l'installation (src/sportContent.ts).
+  const content = sportContent()
+  const shown = criteria.filter((c) => criterionApplies(c, p.position) && content.profileCategories.includes(c.category))
   const testsFilled = shown.filter((c) => values[c.id] !== undefined && values[c.id] !== '' && values[c.id] !== initial[c.id]).length
 
   return (
@@ -349,7 +352,7 @@ export default function PlayerForm() {
 
       <Collapsible
         title="Profil physique"
-        summary="Taille, poids, explosivité, puissance, vitesse, détente, tir"
+        summary={content.profileSummary ?? (shown.map((c) => c.label).join(', ') || 'Taille, poids, tests')}
         count={testsFilled ? `${testsFilled} saisi${testsFilled > 1 ? 's' : ''}` : undefined}
       >
         <div className="flex items-center justify-between gap-3">

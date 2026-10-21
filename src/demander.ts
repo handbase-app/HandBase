@@ -1,6 +1,7 @@
 import { detectAction, type Detected } from './askAction'
 import { isNameQuery } from './playerQuery'
 import { nameKey, queryWords, searchByName } from './nameMatch'
+import { isHandball, POSITIONS } from './sportConfig'
 
 /*
  * « Demander » : une seule porte pour tout demander (src/components/Demander.tsx), comme la barre d'adresse d'un
@@ -107,9 +108,12 @@ export function suggestionsFor(page: AskPage, ctx: { today: string }): string[] 
   const m = Number(ctx.today.slice(5, 7))
   const early = m >= 9 && m <= 12
   const y = start - 15
+  // Poste mis en avant : les gardiens au handball ; ailleurs, le premier poste de l'installation (volley : les passeurs).
+  const first = POSITIONS[0]?.label.toLowerCase()
+  const pos = isHandball() || !first ? 'gardiens' : /[sx]$/.test(first) ? first : `${first}s`
   switch (page) {
     case 'joueurs':
-      return [early ? 'Les gardiens pas encore vus cette saison' : 'Les gardiens pas vus depuis 6 mois', `Les ${y} de plus d’1 m 80`, 'Les gauchers vus cette saison, classés par taille']
+      return [early ? `Les ${pos} pas encore vus cette saison` : `Les ${pos} pas vus depuis 6 mois`, `Les ${y} de plus d’1 m 80`, 'Les gauchers vus cette saison, classés par taille']
     case 'evenements':
       return ['Les tournois de cette saison', 'Combien d’événements par mois ?', early ? 'Les événements à venir' : 'Les stages de cette saison']
     case 'groupes':

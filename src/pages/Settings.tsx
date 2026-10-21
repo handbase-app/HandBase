@@ -22,7 +22,8 @@ import { ListEditor } from '../components/ListEditor'
 import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
-import { useConfigRows } from '../installation'
+import { useConfigRows, useSportHas } from '../installation'
+import { isHandball } from '../sportConfig'
 import { DEFAULT_PLAYER_MIN_AGE, PLAYER_CONTACT_MAX, PLAYER_SPACE_KEY, playerContactOf, playerMinAgeOf } from '../playerSpace'
 import { AdminTools } from '../components/ViewAs'
 import { departmentLabel } from '../lists'
@@ -50,6 +51,7 @@ export default function Settings() {
   const [draft, setDraft] = useState(me)
   const [msg, setMsg] = useState('')
   const role = useRole()
+  const gestHand = useSportHas('licencesGestHand')
 
   const admin = can.manageRoles(role)
   // Compte joueur (espace joueur) : apparence, déconnexion, confidentialité ; rien du staff.
@@ -147,8 +149,9 @@ export default function Settings() {
             <ListEditor kind="department" />
             <ListEditor kind="region" />
           </Fold>
-          <Fold id="imports" icon="download" title="Imports et sauvegarde" summary="Gest’Hand, sauvegarde, démo">
-            <LicenceImport />
+          <Fold id="imports" icon="download" title="Imports et sauvegarde" summary={gestHand ? 'Gest’Hand, sauvegarde, démo' : 'Sauvegarde, démo'}>
+            {/* Import des licences Gest'Hand : handball seulement (src/sportConfig.ts, sportHas). */}
+            {gestHand && <LicenceImport />}
               {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
               {can.exportAll(role) && (
               <section className="card flex flex-col gap-2 p-4">
@@ -553,7 +556,7 @@ function DictationSetting() {
         {search && access?.modes?.includes('question') && (
           <p className="text-[11px] text-muted">
             Poser une question : dans le bilan de détection, touchez « Poser une question » et dites par exemple « les joueuses 2011
-            vues une seule fois cette saison, par département » ou « combien de gardiens 2009 mesurent plus de 1 m 85 » (ou tapez-la).
+            vues une seule fois cette saison, par département » ou « combien de {isHandball() ? 'gardiens' : 'joueurs'} 2009 mesurent plus de 1 m 85 » (ou tapez-la).
             La réponse est calculée sur l’appareil : seuls la phrase et la description des questions possibles (postes, critères,
             date du jour) sont envoyées, jamais les données des joueurs. La question s’affiche en pastilles modifiables ;
             « Enregistrer cette question » la garde dans « Mes questions » (sur cet appareil), à relancer sans envoi.

@@ -25,6 +25,7 @@ import { Dialog } from './PlayerJournal'
 import { can, isPlayerRole, useRole, type Role } from '../roles'
 import { supabase } from '../sync'
 import { ask, inform } from './Confirm'
+import { sportProfile } from '../sportConfig'
 import { Icon } from './ui'
 
 /*
@@ -309,7 +310,7 @@ export function PlayerAccessCard({ player: p, access }: { player: Player; access
       <div className="section-title">Espace joueur</div>
       <p className="mb-2 text-[11px] text-muted">
         {g.LeJoueur} (ou sa famille) peut avoir un compte qui ne voit que sa fiche, et y écrire « Ma lettre », ses repères, « Mon parcours » et son
-        journal du hand (privé : {g.il} partage les notes qu’{g.il} veut).
+        journal du {sportProfile().word} (privé : {g.il} partage les notes qu’{g.il} veut).
       </p>
       {state.kind === 'loading' && <p className="text-xs text-muted">Chargement…</p>}
       {state.kind === 'unavailable' && state.why === 'script' && <p className="text-xs text-muted">Pas encore ouvert sur ce serveur (script 051 à passer).</p>}

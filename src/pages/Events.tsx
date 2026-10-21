@@ -14,7 +14,7 @@ import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, ty
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
 import { can, currentUserId, isParticipant, useRole } from '../roles'
-import { usePerimeter, useUnits } from '../installation'
+import { usePerimeter, useSportHas, useUnits } from '../installation'
 import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughMyPlayers, type TerritoryFilter, type TerritoryPlayer } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
@@ -127,6 +127,7 @@ export default function Events() {
     setCreating({ groupId: fromGroup })
   }, [fromGroup]) // eslint-disable-line react-hooks/exhaustive-deps
   const [fromSheet, setFromSheet] = useState(false)
+  const sheets = useSportHas('feuilleMatchFFHB')
   const nav = useNavigate()
   // Ordinateur, événement ouvert à droite : son bouton « Évaluer » est le seul bouton principal de l'écran ;
   // « + Événement » passe en secondaire.
@@ -154,9 +155,12 @@ export default function Events() {
         <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
           <div className="flex gap-2">
-            <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
-              + Feuille de match
-            </button>
+            {/* Feuille de match FFHB (PDF) : handball seulement (src/sportConfig.ts, sportHas). */}
+            {sheets && (
+              <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
+                + Feuille de match
+              </button>
+            )}
             <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating({})}>
               + Événement
             </button>
@@ -484,6 +488,8 @@ export function EventDetail() {
   // « Retirer des joueurs » : les croix n'apparaissent qu'en mode retrait (sinon, l'étoile pour suivre).
   const [removing, setRemoving] = useState(false)
   const [importing, setImporting] = useState(false)
+  // Feuille de match FFHB : handball seulement ; une feuille déjà importée reste affichée.
+  const sheets = useSportHas('feuilleMatchFFHB')
   // Liste des joueurs : toujours par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour cet
   // événement, repris par la notation). Filtres rapides : masquer ceux que j'ai notés, un poste.
   const [sort, setSort] = useRosterSort(id)
@@ -696,7 +702,7 @@ export function EventDetail() {
     </button>
   )
   // Feuille de match : importée depuis le formulaire « Modifier », ou depuis l'onglet Vidéo tant qu'il n'y en a pas.
-  const importSheet = !ev.matchSheet && manage && (
+  const importSheet = !ev.matchSheet && manage && sheets && (
     <button
       type="button"
       className="btn-ghost w-full py-1.5 text-xs"
@@ -918,7 +924,8 @@ export function EventDetail() {
               <PlayerMarksCard ev={ev} />
             </Suspense>
           ) : (
-            manage && (
+            manage &&
+            sheets && (
               <div className="card flex flex-col gap-2 p-4">
                 <div className="section-title flex items-center gap-2">
                   <Icon name="list" className="h-3.5 w-3.5" />

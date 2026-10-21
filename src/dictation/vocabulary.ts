@@ -148,3 +148,18 @@ export const motsVoxtral: string[] = [
   "prise d'information", 'prise de décision', 'latéralité', 'Pôle Espoirs', 'PPF', 'Interligues', 'Intercomités',
   'U13', 'U15', 'U17', 'U18',
 ]
+
+// ---------- Par sport ----------
+
+export type SportVocabulary = { mots: readonly string[]; corrections: readonly Correction[] }
+
+/**
+ * Vocabulaire de dictée de chaque sport (src/sportConfig.ts, currentSport().sport) : mots de contexte envoyés à Voxtral et
+ * corrections. Volley : vide pour l'instant (à remplir : termes du volley) ; un sport absent : rien d'injecté.
+ */
+export const VOCABULAIRE_PAR_SPORT: Record<string, SportVocabulary> = {
+  handball: { mots: motsVoxtral, corrections },
+  volley: { mots: [], corrections: [] },
+}
+
+export const dictationVocabulary = (sport: string): SportVocabulary => VOCABULAIRE_PAR_SPORT[sport] ?? { mots: [], corrections: [] }

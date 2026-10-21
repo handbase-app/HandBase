@@ -1,4 +1,5 @@
 import type { Criterion, Evaluation } from './db'
+import { sportContent } from './sportContent'
 
 /*
  * Calculs de la comparaison de deux ou trois joueurs (écran /comparer) et de la note du classement d'un événement.
@@ -79,8 +80,10 @@ const HIGHER = new Set([
  * inconnu (sprint : plus petit ; gainage : plus grand).
  */
 export function measureDirection(c: Criterion): 1 | -1 | 0 {
-  if (LOWER.has(c.id)) return -1
-  if (HIGHER.has(c.id)) return 1
+  // Tests communs, puis ceux propres au sport de l'installation (src/sportContent.ts ; volley : phase 2).
+  const own = sportContent()
+  if (LOWER.has(c.id) || own.lowerIsBetter.includes(c.id)) return -1
+  if (HIGHER.has(c.id) || own.higherIsBetter.includes(c.id)) return 1
   if (c.scale === 'score5' || c.scale === 'score3' || c.scale === 'score2') return 1
   if (c.unit === 'km/h' || c.unit === 'W/kg') return 1
   return 0

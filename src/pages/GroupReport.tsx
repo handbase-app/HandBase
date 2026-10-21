@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { currentSport } from '../sportConfig'
 import { useLocation, useParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Segmented, useMe } from '../components/ui'
@@ -226,7 +227,7 @@ export function GroupReport() {
             <input className="field" value={opts.dest} placeholder="À l’attention de… (facultatif)" onChange={(e) => set({ dest: e.target.value })} />
           </Field>
           <Field label="Organisation">
-            <input className="field" value={opts.org} placeholder="Ex. Ligue de handball… (facultatif)" onChange={(e) => set({ org: e.target.value })} />
+            <input className="field" value={opts.org} placeholder={`Ex. Ligue de ${currentSport().sportName.toLowerCase()}… (facultatif)`} onChange={(e) => set({ org: e.target.value })} />
           </Field>
           <p className="-mt-1 text-[11px] text-muted">Champ laissé vide : sa ligne n’apparaît pas sur le document.</p>
 

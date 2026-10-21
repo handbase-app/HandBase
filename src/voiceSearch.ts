@@ -177,6 +177,12 @@ export const POSITION_ALIASES: Record<string, string[]> = {
   AG: ['ailier gauche', 'ailière gauche', 'aile gauche', 'AG'],
   AD: ['ailier droit', 'ailière droite', 'aile droite', 'AD'],
   PIV: ['pivot', 'PIV'],
+  // Volley (seuls les postes de l'installation sont cherchés : pas de mélange avec le handball).
+  P: ['passeur', 'passeuse', 'passe'],
+  R4: ['réceptionneur attaquant', 'réceptionneuse attaquante', 'réceptionneur', 'récep attaque', 'R4'],
+  C: ['central', 'centrale', 'centraux'],
+  PT: ['pointu', 'pointue', 'opposé', 'opposée', 'PT'],
+  L: ['libéro', 'libero'],
 }
 
 // ---------- Lecture des valeurs ----------

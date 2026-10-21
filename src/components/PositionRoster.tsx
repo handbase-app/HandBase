@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import type { Player, Position } from '../db'
 import { BarChip } from './Pictos'
-import { courtTag } from './CourtPicker'
+import { courtTag } from '../courtSpots'
 import { ROSTER_SORTS, type RosterSection, type RosterSort, rosterPositions } from '../positionOrder'
 
 /*

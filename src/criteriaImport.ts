@@ -1,4 +1,5 @@
 import { db, saveMany, today, type Criterion } from './db'
+import { SPORT_CONTENT, sportContent } from './sportContent'
 import { COLUMNS, parseCsv, parseRows, rowsFromJson, toCsv, toJson, toSheets, type CriterionFields, type ParsedFile, type RowError } from './criteriaFormat'
 import { readXlsx, writeXlsx } from './xlsx'
 import { appSlug } from './appBrand'
@@ -177,14 +178,20 @@ export async function exportCriteria(format: 'xlsx' | 'csv' | 'json') {
 // ---------- Démonstration ----------
 
 /**
- * Critères de la démonstration (loadDemo) : lus dans public/demo/criteres-demo.json (fichier de données, pas le code),
- * ajoutés seulement s'ils manquent, sur l'appareil seulement (comme le reste de la démo : pas d'envoi au serveur ;
- * updatedAt = 0, comme les anciens critères livrés : un vrai import les remplace, voir retireUnpublishedCriteria).
+ * Critères de la démonstration (loadDemo) : lus dans le fichier du sport de l'installation (src/sportContent.ts ; handball :
+ * public/demo/criteres-demo.json, fichier de données, pas le code), ajoutés seulement s'ils manquent, sur l'appareil
+ * seulement (comme le reste de la démo : pas d'envoi au serveur ; updatedAt = 0, comme les anciens critères livrés : un vrai
+ * import les remplace, voir retireUnpublishedCriteria). Fichier du sport encore vide (volley, phase 2) : ceux du handball,
+ * pour que la démonstration (joueurs fictifs du handball) reste complète.
  */
 export async function loadDemoCriteria() {
-  const res = await fetch(`${import.meta.env.BASE_URL}demo/criteres-demo.json`)
-  if (!res.ok) throw new Error('Critères de démonstration introuvables.')
-  const { rows } = parseRows(rowsFromJson(await res.text()))
+  const read = async (file: string) => {
+    const res = await fetch(`${import.meta.env.BASE_URL}${file}`)
+    if (!res.ok) throw new Error('Critères de démonstration introuvables.')
+    return parseRows(rowsFromJson(await res.text())).rows
+  }
+  let rows = await read(sportContent().demoCriteria)
+  if (!rows.length) rows = await read(SPORT_CONTENT.handball.demoCriteria)
   let n = 0
   await db.transaction('rw', db.criteria, async () => {
     const have = new Set((await db.criteria.toArray()).filter((c) => !c.deleted).map((c) => c.id))
