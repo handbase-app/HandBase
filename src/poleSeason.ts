@@ -193,16 +193,25 @@ export function periodMatches(x: PolePeriod, ref: Pick<PoleRef, 'regionId' | 'si
   return true
 }
 
+/** Joueur vu par les calculs de pôle : ses périodes et, s'il est connu, son sexe. */
+type PolePlayer = Pick<Player, 'poles'> & { sex?: Player['sex'] }
+/** Pôle reconnu par son site et sa ligue ; son sexe (poleSex), s'il est fixé, départage les pôles filles et garçons d'un même site. */
+type PoleMatchRef = Pick<PoleRef, 'regionId' | 'site'> & { sex?: PoleRef['sex'] }
+
+/** Un pôle filles ne compte pas un garçon, ni l'inverse (sexe du pôle ou du joueur inconnu : pas de tri). */
+const sexMatches = (p: PolePlayer, ref: PoleMatchRef) => !ref.sex || !p.sex || p.sex === ref.sex
+
 /** Indice de la période de ce pôle en cours à cette date (−1 : aucune). */
-export function periodIndexAt(p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, day: string): number {
+export function periodIndexAt(p: PolePlayer, ref: PoleMatchRef, day: string): number {
+  if (!sexMatches(p, ref)) return -1
   return (p.poles ?? []).findIndex((x) => periodMatches(x, ref) && isCurrentAt(x, day))
 }
 
 /** Membre du pôle à cette date ? */
-export const isMemberAt = (p: Pick<Player, 'poles'>, ref: Pick<PoleRef, 'regionId' | 'site'>, day: string) => periodIndexAt(p, ref, day) >= 0
+export const isMemberAt = (p: PolePlayer, ref: PoleMatchRef, day: string) => periodIndexAt(p, ref, day) >= 0
 
 /** Membres calculés d'une unité à une date (ordre d'entrée conservé). */
-export function membersAt<P extends Pick<Player, 'poles'>>(players: readonly P[], ref: Pick<PoleRef, 'regionId' | 'site'>, day: string): P[] {
+export function membersAt<P extends PolePlayer>(players: readonly P[], ref: PoleMatchRef, day: string): P[] {
   return players.filter((p) => isMemberAt(p, ref, day))
 }
 

@@ -24,6 +24,7 @@ import {
   membersAt,
   myPoleUnits,
   otherPoleAt,
+  periodIndexAt,
   periodMatches,
   poleRefOf,
   poleRefsOf,
@@ -170,6 +171,19 @@ t('vue en cours et vue prochaine : les dates futures font le travail', () => {
   assert.equal(isMemberAt(players[4], SR, today), false)
   assert.deepEqual(otherPoleAt(players[4], SR, today), players[4].poles![0])
   assert.equal(otherPoleAt(players[0], SR, today), undefined)
+})
+
+t('pôles filles et garçons d’un même site : chacun ses membres (sexe du pôle), sexe inconnu : pas de tri', () => {
+  const girl = P('fille', '2011-03-01', [sr()], { sex: 'F' })
+  const boy = P('garcon', '2011-03-01', [sr()])
+  const unknown = P('inconnu', '2011-03-01', [sr()], { sex: undefined })
+  const all = [girl, boy, unknown]
+  const site = { regionId: 'region-sud', site: 'Saint-Raphaël' }
+  assert.deepEqual(membersAt(all, { ...site, sex: 'F' }, today).map((p) => p.id), ['fille', 'inconnu'])
+  assert.deepEqual(membersAt(all, { ...site, sex: 'M' }, today).map((p) => p.id), ['garcon', 'inconnu'])
+  assert.deepEqual(membersAt(all, site, today).map((p) => p.id), ['fille', 'garcon', 'inconnu'])
+  assert.equal(periodIndexAt(girl, { ...site, sex: 'M' }, today), -1)
+  assert.equal(isMemberAt(girl, { ...site, sex: 'F' }, today), true)
 })
 
 // ---------- Groupes Pôle matérialisés (filtres, recettes, questions : src/poleMembers.ts) ----------
