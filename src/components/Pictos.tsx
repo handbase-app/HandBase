@@ -410,7 +410,7 @@ export function PlayerList({
               {/* Plus de bouton « Sélectionner » : la sélection s'ouvre par le menu d'une ligne (clic droit, appui long, ⋮). */}
               {bar && (
                 // Conteneur (plb) : la barre se resserre selon la place de la liste (colonne de contexte comprise).
-                <div className="@container/plb flex items-stretch gap-1">
+                <div className="@container/plb mx-auto flex w-full max-w-3xl items-stretch gap-1">
                   <PictoBar className="min-w-0 flex-1" label={countLabel} lead={barLead} />
                 </div>
               )}

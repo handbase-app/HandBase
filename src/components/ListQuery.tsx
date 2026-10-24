@@ -338,8 +338,9 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       </Link>
     </p>
   )
+  // Barre « Demander », pastilles et filtres : largeur maximale, centrés (façon Google) sur grand écran.
   const ui = (
-    <div className="flex flex-col gap-2">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
       <div className="flex gap-2">{field}</div>
       {status}
       {chips}
