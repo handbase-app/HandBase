@@ -45,10 +45,10 @@ assert.deepEqual(resolveAppBrand([{ ...rows[1], deleted: true }]), {})
 assert.deepEqual(resolveAppBrand([{ id: 'appli', value: { name: 'Par id' } }]), { name: 'Par id' })
 assert.deepEqual(resolveAppBrand([{ id: 'appli', value: 'texte' }]), {})
 
-// Images : défauts Nextar ; pictogramme = le sien, sinon le logo réglé ; logo complet portant « Nextar » seulement si l'appli
-// s'appelle encore Nextar.
-assert.deepEqual(appImagesOf({}, '/B/'), { logo: '/B/brand/nextar.svg', mark: '/B/brand/nextar-pictogramme.svg' })
-assert.deepEqual(appImagesOf({ name: 'NEXTAR' }, '/'), { logo: '/brand/nextar.svg', mark: '/brand/nextar-pictogramme.svg' })
+// Images : défauts Nextar ; pictogramme = le sien, sinon le logo réglé ; logo complet portant « Nextar » (l'icône de l'appli,
+// celle du sport de la construction) seulement si l'appli s'appelle encore Nextar.
+assert.deepEqual(appImagesOf({}, '/B/'), { logo: '/B/icon.svg', mark: '/B/brand/nextar-pictogramme.svg' })
+assert.deepEqual(appImagesOf({ name: 'NEXTAR' }, '/'), { logo: '/icon.svg', mark: '/brand/nextar-pictogramme.svg' })
 assert.deepEqual(appImagesOf({ name: 'Autre' }, '/'), { logo: '/brand/nextar-pictogramme.svg', mark: '/brand/nextar-pictogramme.svg' })
 assert.deepEqual(appImagesOf({ logo: png }, '/'), { logo: png, mark: png })
 assert.deepEqual(appImagesOf({ mark: svgOk }, '/'), { logo: svgOk, mark: svgOk })

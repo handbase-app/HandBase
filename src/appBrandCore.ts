@@ -48,14 +48,18 @@ export const isDefaultAppBrand = (b: AppBrand) => !b.name && !b.logo && !b.mark
 /** Nom affiché de l'appli. */
 export const appNameOf = (b: AppBrand) => b.name || DEFAULT_APP_NAME
 
-/** Images à afficher : logo complet et pictogramme ; défauts = fichiers Nextar (base = import.meta.env.BASE_URL). */
+/**
+ * Images à afficher : logo complet et pictogramme ; défauts = fichiers Nextar (base = import.meta.env.BASE_URL). Logo complet
+ * par défaut : l'icône de l'appli (icon.svg : le mot « Nextar » et le nom du sport dessous), celle du sport de la
+ * construction (public/ pour le handball, public-sport/<sport>/ sinon : vite.config.ts, tools/icones-sport.py).
+ */
 export function appImagesOf(b: AppBrand, base = '/') {
   const picto = `${base}brand/nextar-pictogramme.svg`
   // Pictogramme : le sien ; sinon le logo réglé (un logo seul suffit) ; sinon le pictogramme Nextar.
   const mark = b.mark ?? b.logo ?? picto
-  // Logo complet : le sien ; sinon le pictogramme réglé ; sinon celui de Nextar, qui porte le mot « Nextar » : seulement si
-  // l'appli s'appelle encore Nextar (autre nom sans logo : le pictogramme seul).
-  const logo = b.logo ?? b.mark ?? (appNameOf(b).toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? `${base}brand/nextar.svg` : picto)
+  // Logo complet : le sien ; sinon le pictogramme réglé ; sinon l'icône Nextar du sport, qui porte le mot « Nextar » :
+  // seulement si l'appli s'appelle encore Nextar (autre nom sans logo : le pictogramme seul).
+  const logo = b.logo ?? b.mark ?? (appNameOf(b).toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? `${base}icon.svg` : picto)
   return { logo, mark }
 }
 

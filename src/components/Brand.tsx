@@ -9,6 +9,11 @@ import { useAppBrand } from '../appBrand'
  * Logos par défaut (25/10/2026 : « Next Star », le X du nom est une étoile filante) : public/brand/nextar.svg (le mot
  * Nextar dans son carré bleu nuit) et public/brand/nextar-pictogramme.svg (le X et l'étoile seuls, carré arrondi bleu nuit) pour les petites tailles, à côté du nom écrit en texte. Le carré a son propre
  * fond : lisible dans tous les styles, en clair comme en sombre.
+ *
+ * Un logo par sport (25/10/2026, « proposition A ») : le même logo, le nom du sport écrit dessous en menthe. Icônes de
+ * l'appli et logo de l'écran de connexion : icon.svg et ses PNG, du sport de la construction (tools/icones-sport.py,
+ * vite.config.ts) ; écran d'ouverture : index.html ; capsule « Demander » : le mot dessiné puis le sport en texte
+ * (src/components/Demander.tsx). Les favicons et le pictogramme restent sans texte, les mêmes pour tous les sports.
  */
 
 /**
