@@ -43,7 +43,9 @@ import { useThrottledQuery } from '../live'
 import { coverageKept as kept, useCoverageData, useStaffMeasured } from '../coverageCache'
 import { loadAllMeasures } from '../playersCache'
 import { MQ, useMedia } from '../layout'
-import { can, useRole } from '../roles'
+import { can, currentUserId, useRole } from '../roles'
+import { spyTarget } from '../spy'
+import { readSnapshot, snapshotKey, writeSnapshot, type MapSnapshot } from '../bilanSnapshot'
 import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
 import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
 import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
@@ -1181,6 +1183,59 @@ function clubMapOf(dept: string, units: Unit[], clubs: ClubCoverage<Player>[], l
 
 // ---------- Page ----------
 
+const neutral = () => NO_PLAYER
+const nothingToDo = () => {}
+const noTip = () => null
+/**
+ * Bilan en cours de lecture (premier passage dans l'appli, question en calcul) : le titre et la carte du lieu, en couleur
+ * neutre, à leur place dans la grille de la page ; chiffres, tuiles et listes arrivent avec les données.
+ */
+function BilanLoading({ region, snapKey }: { region: string; snapKey: string | null }) {
+  // Carte de la dernière visite de cette vue (src/bilanSnapshot.ts), marquée « mise à jour… » : remplacée par la page dès
+  // que les données sont lues. Sans elle : couleur neutre.
+  const snap = useMemo(() => (snapKey ? readSnapshot(snapKey) : null), [snapKey])
+  const paint = useMemo(() => {
+    if (!snap) return null
+    const fills = new Map(snap.fills)
+    const labels = new Map(snap.labels)
+    return { fill: (c: string) => fills.get(c) ?? NO_PLAYER, label: (c: string, isRegion: boolean) => labels.get(`${isRegion ? 'r' : 'd'}:${c}`) }
+  }, [snap])
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-lg font-extrabold">Bilan de détection</h1>
+        {snap ? (
+          <p className="flex items-center gap-2 text-[11px] text-muted" role="status" data-bilan-stale="">
+            <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
+            Chiffres de ta dernière visite · mise à jour…
+          </p>
+        ) : (
+          <p className="text-[11px] text-muted" role="status">
+            Chargement…
+          </p>
+        )}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 side:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <section className="card flex flex-col gap-2 p-3">
+          <FranceMap
+            region={region}
+            fill={paint?.fill ?? neutral}
+            onRegion={nothingToDo}
+            onDept={nothingToDo}
+            tip={noTip}
+            still
+            others={!!snap?.others}
+            zoneLabel={paint?.label}
+            className="side:max-h-[calc(100dvh-var(--hdr)-19rem)]"
+            ariaLabel={snap ? 'Carte du bilan de ta dernière visite, en cours de mise à jour' : 'Carte du bilan, en cours de chargement'}
+          />
+          {snap && <MapLegend sc={snap.legend.sc} note={snap.legend.note} title={snap.legend.title} g={snap.legend.g} />}
+        </section>
+      </div>
+    </div>
+  )
+}
+
 export default function Coverage() {
   const role = useRole()
   const loc = useLocation()
@@ -1304,8 +1359,19 @@ export default function Coverage() {
     [places, voiceClubs, view],
   )
 
+  // Carte gardée sur l'appareil pour cette vue (src/bilanSnapshot.ts) : base, compte, rôle et état complet du bilan. Pas pour
+  // une question, la barre de filtres, « Voir comme… », ni la vue Générations (pas de carte).
+  const snapKey = view === 'map' && !st.q && !st.f && !st.t.trim() && !spyTarget() ? snapshotKey([db.name, currentUserId() ?? '', role, bilanQuery({ ...st, seenOpen: false })]) : null
+  // Ce que la carte dessine à ce rendu (couleurs et chiffres demandés par FranceMap, légende) : gardé après l'affichage.
+  const snapRec = useRef<{ fills: Map<string, string>; labels: Map<string, string>; snap?: Omit<MapSnapshot, 'fills' | 'labels'> }>({ fills: new Map(), labels: new Map() })
+  snapRec.current = { fills: new Map(), labels: new Map() }
+  useEffect(() => {
+    const r = snapRec.current
+    if (snapKey && r.snap && !busy && r.fills.size) writeSnapshot(snapKey, { ...r.snap, fills: [...r.fills], labels: [...r.labels] })
+  })
+
   if (!can.viewCoverage(role)) return <Empty>Le bilan de détection est réservé aux administrateurs et aux encadrants.</Empty>
-  if (!data || (st.q && !Q)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  if (!data || (st.q && !Q)) return <BilanLoading region={region} snapKey={data ? null : snapKey} />
 
   const tab = tabOf(o, g)
   // Bandeau sous les tuiles : le club choisi, sinon tous les clubs du lieu (comme les tuiles, useBilanModel kpis).
@@ -1438,7 +1504,21 @@ export default function Coverage() {
 
   // Carte : couleur d'un département (vue France « par région » : celle de sa région).
   // Échelle des couleurs : zones affichées (régions de France, départements de la région ou de France).
-  const { sc, colorOf, outsideDept, outsideRegion, fill, zoneLabel } = zonePaint({ byPlace, region, mapBy, lens, per })
+  const { sc, colorOf, outsideDept, outsideRegion, fill: zoneFill, zoneLabel: zoneText } = zonePaint({ byPlace, region, mapBy, lens, per })
+  // Carte gardée sur l'appareil (src/bilanSnapshot.ts) : couleurs et chiffres tels que la carte les demande. Seulement la carte
+  // des zones (pas de points de clubs, pas de liste des clubs à la place de la carte).
+  const rec = snapKey && !clubMap && !topMap && !clubsAsList ? snapRec.current : null
+  if (rec) rec.snap = { legend: { sc, note: lens.note, title: lens.title, g }, others: showOtherOM(byPlace.byDept) }
+  const fill = (code: string) => {
+    const v = zoneFill(code)
+    rec?.fills.set(code, v)
+    return v
+  }
+  const zoneLabel = (code: string, isRegion: boolean) => {
+    const v = zoneText(code, isRegion)
+    if (rec && v !== undefined) rec.labels.set(`${isRegion ? 'r' : 'd'}:${code}`, v)
+    return v
+  }
   // À côté de la carte : le classement des régions (France), des départements (région), des clubs (département).
   const deptRows = lens.rank([...byPlace.byDept].filter(([d]) => (region ? regionOfDept(d) === region : !regionOfDept(d))))
   const regionRows = lens.rank(byPlace.byRegion)

@@ -1,4 +1,5 @@
-// Test des parties pures du bilan gardé en mémoire (src/keptMemo.ts, src/coverageCache.ts, src/coverage.ts clubKey) :
+// Test des parties pures du bilan gardé en mémoire (src/keptMemo.ts, src/coverageCache.ts, src/coverage.ts clubKey) et de
+// la dernière carte gardée sur l'appareil (src/bilanSnapshot.ts : une vue ne reprend jamais la carte d'une autre) :
 // un calcul gardé est rendu tel quel pour les mêmes entrées et refait pour d'autres ; les fiches supprimées, que l'ancienne
 // lecture (`db.players.toArray()`) gardait et que la lecture partagée (src/playersCache.ts, `alive`) écarte, ne changent
 // aucun chiffre du bilan ; la clé d'un club, retenue par écriture, est celle d'avant. (Chiffres affichés comparés aussi dans
@@ -8,6 +9,7 @@
 import assert from 'node:assert/strict'
 import { alive } from '../src/db'
 import { keptMemo } from '../src/keptMemo'
+import { findSnapshot, parseSnapshots, putSnapshot, snapshotKey, type MapSnapshot } from '../src/bilanSnapshot'
 import { clubKey, coverageByClub, coverageByPlace, coverageByYear, fedReport, filterPlayers, lastSights, livePlayers, sortClubs, staffMeasured, tallest, toSights, type PlaceOf } from '../src/coverage'
 
 // ---------- Calculs gardés ----------
@@ -95,6 +97,25 @@ import { clubKey, coverageByClub, coverageByPlace, coverageByYear, fedReport, fi
     return out
   }
   assert.deepEqual(view(kept), view(players), 'mêmes chiffres avec ou sans les fiches supprimées')
+}
+
+// ---------- Dernière carte gardée sur l'appareil ----------
+{
+  const snap = (n: number): MapSnapshot => ({ fills: [['83', `couleur ${n}`]], labels: [['r:93', `${n} %`]], legend: { sc: { lo: 0, hi: 1 } }, others: false })
+  const k = (...p: string[]) => snapshotKey(p)
+  assert.notEqual(k('a', 'b|c'), k('a|b', 'c'), 'parties de la clé jamais confondues')
+  assert.notEqual(k('base', 'compte-1', 'admin', 's=all'), k('base', 'compte-2', 'admin', 's=all'), 'autre compte : autre clé')
+  assert.notEqual(k('base', 'compte-1', 'admin', 's=all'), k('base', 'compte-1', 'observateur', 's=all'), 'autre rôle : autre clé')
+  let list = putSnapshot([], 'v1', snap(1), 3)
+  list = putSnapshot(list, 'v2', snap(2), 3)
+  list = putSnapshot(list, 'v1', snap(3), 3)
+  assert.deepEqual(list.map((e) => e.key), ['v1', 'v2'], 'vue remplacée, mise en tête, sans doublon')
+  assert.equal(findSnapshot(list, 'v1')?.labels[0][1], '3 %')
+  assert.equal(findSnapshot(list, 'v9'), null, 'vue inconnue : rien')
+  list = putSnapshot(putSnapshot(list, 'v3', snap(4), 3), 'v4', snap(5), 3)
+  assert.deepEqual(list.map((e) => e.key), ['v4', 'v3', 'v1'], 'au-delà du maximum : la plus ancienne oubliée')
+  assert.deepEqual(parseSnapshots(JSON.stringify(list)), list, 'relu tel quel')
+  for (const bad of [null, '', '{', '{"a":1}', '[1,null,{"key":3}]', '[{"key":"x","snap":{"fills":[],"labels":[]}}]']) assert.deepEqual(parseSnapshots(bad), [], `stockage abîmé : ${bad}`)
 }
 
 console.log('test-bilan-cache : ok')
