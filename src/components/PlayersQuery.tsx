@@ -1,10 +1,8 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { alive, db, POSITIONS, today, type Player, type Position } from '../db'
+import { POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
-import { can, groupTag } from '../roles'
-import { loadTeams } from '../teams'
+import { groupTag } from '../roles'
 import { categoryStyles, styleOf } from '../radarZones'
 import {
   answersNothing,
@@ -57,7 +55,7 @@ import {
   type JoueursQuery,
 } from '../playerQuery'
 import { useQuestionModel, useRecipeNames, type QuestionModel } from '../questionModel'
-import { withPoleMembers } from '../poleMembers'
+import { useListLight } from '../playersCache'
 import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
@@ -138,6 +136,9 @@ type SqlState = { spec: SqlSpec; phrase: string; auto?: boolean; partial?: Joueu
 type Pending = { phrase: string; raw: unknown; nonGere: string[]; action?: string; retirer?: unknown[]; before: JoueursQuery }
 
 const sameQuery = (a: JoueursQuery, b: JoueursQuery) => JSON.stringify(cleanQuery(a)) === JSON.stringify(cleanQuery(b))
+
+/** Dernier index de la recette construit (une seule entrée, comparée par identité des données). */
+let lastIndex: { key: unknown[]; ix: ReturnType<typeof buildPlayersIndex<Player>> } | null = null
 
 // ---------- Contexte de la fiche (téléphone : ‹ ›) ----------
 
@@ -233,24 +234,19 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const wantFull = needsFullData(qy) || asked || !!sql || !!pending || more
   const ownFull = useQuestionModel(wantFull && !hosted?.full)
   const full = hosted?.full ?? ownFull
-  const light = useLiveQuery(async () => {
-    const [measures, criteria, groups, events] = await Promise.all([
-      db.measurements.where('criterionId').anyOf('taille', 'poids').toArray(),
-      db.criteria.toArray(),
-      loadTeams().then(() => db.groups.orderBy('name').toArray()),
-      db.events.toArray(),
-    ])
-    // Groupes Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts), pour le compteur et le filtre « Groupe ».
-    const visible = await withPoleMembers(alive(groups).filter((g) => can.seeGroup(g)))
-    return { measures, criteria: alive(criteria), groups: visible, events: alive(events), staff: new Map<string, string>() }
-  }, [])
+  // Taille et poids, critères, groupes visibles (groupes Pôle : membres en cours calculés depuis les fiches,
+  // src/poleMembers.ts, pour le compteur et le filtre « Groupe »), événements : gardés en mémoire (src/playersCache.ts).
+  const light = useListLight()
   const quick = full.quick
   const index = useMemo(() => {
     if (!players || !light) return null
     const src = full.data
+    // Mêmes données qu'au dernier passage (retour sur la liste : fiches, mesures et ensembles gardés en mémoire) : même index.
+    const key = [players, light, src, quick, today()]
+    if (lastIndex && lastIndex.key.every((k, i) => k === key[i])) return lastIndex.ix
     const criteria = src?.criteria ?? light.criteria
     const styles = categoryStyles(criteria)
-    return buildPlayersIndex<Player>({
+    const ix = buildPlayersIndex<Player>({
       players,
       sights: src?.sights ?? [],
       evals: src?.evals ?? [],
@@ -266,6 +262,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       videos: quick.videos,
       profileMembers: quick.profileMembers,
     })
+    lastIndex = { key, ix }
+    return ix
   }, [players, light, full.data, quick])
   const names = useRecipeNames(full.data ?? light, index?.clubNames, quick.profiles)
   const criteria = useMemo(() => full.data?.criteria ?? light?.criteria ?? [], [full.data, light])
@@ -1002,7 +1000,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
     chipLabels: recipeChips(qy.recipe, names).filter(keepChip).filter((c) => c.key !== 'period').map((c) => c.label),
     wantFull,
   }
-  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, calculating: calculating && !fromSql, fromSql, parts, gender }
+  // Liste sans filtre (le filtre « Masculin / Féminin » seul permis), ni phrase en cours : ses premières fiches peuvent être
+  // montrées avant que tout soit lu (src/pages/Players.tsx, src/playersCache.ts usePlainPreview).
+  const plain = !sql && !pending && activeKeys(qy).every((k) => k === 'sex') && !(nameMode && text.trim())
+  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, calculating: calculating && !fromSql, fromSql, parts, gender, plain, sex: qy.recipe.pop.sex }
 }
 
 // ---------- Petits composants ----------

@@ -23,8 +23,11 @@ function onTables(tables: string[], fn: () => void) {
 /**
  * Valeur partagée par tous les écrans qui l'utilisent (un seul calcul), relancée au plus toutes les
  * `delay` ms après un changement des tables citées, et tout de suite par refresh().
+ * `keep` : la valeur reste en mémoire quand plus personne n'écoute (retour sur l'écran : affichée tout de suite). Les
+ * tables restent alors suivies, sans rien relire : un changement pendant l'absence marque la valeur périmée, relue dès le
+ * retour (la valeur gardée est montrée en attendant, quelques centaines de ms).
  */
-export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay = DELAY) {
+export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay = DELAY, keep = false) {
   let value: T | undefined
   let stale = true
   let running = false
@@ -32,6 +35,8 @@ export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay 
   let timer: number | undefined
   let stop: (() => void) | null = null
   const listeners = new Set<() => void>()
+  /** Attentes de load() : servies à la fin de la lecture en cours (ou suivante). */
+  let waiters: { ok: (v: T) => void; ko: (e: unknown) => void }[] = []
 
   async function run() {
     timer = undefined
@@ -41,11 +46,23 @@ export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay 
     }
     running = true
     try {
-      value = await query()
-      stale = false
+      const v = await query()
+      value = v
+      // Changement arrivé pendant la lecture : la valeur est déjà périmée (relue juste après).
+      stale = again
       listeners.forEach((l) => l())
+      if (!again) {
+        const ws = waiters
+        waiters = []
+        ws.forEach((w) => w.ok(v))
+      }
     } catch (e) {
       console.error(e)
+      if (!again) {
+        const ws = waiters
+        waiters = []
+        ws.forEach((w) => w.ko(e))
+      }
     } finally {
       running = false
       if (again) {
@@ -63,14 +80,23 @@ export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay 
     timer = window.setTimeout(() => void run(), ms)
   }
 
+  const watch = () => {
+    if (stop) return
+    stop = onTables(tables, () => {
+      // Valeur gardée, personne à l'écran : marquée périmée, relue au prochain abonné (ou au prochain load()).
+      if (keep && !listeners.size && !waiters.length) stale = true
+      else soon()
+    })
+  }
+
   return {
     subscribe(l: () => void) {
       listeners.add(l)
-      if (!stop) stop = onTables(tables, () => soon())
+      watch()
       if (stale) soon(0)
       return () => {
         listeners.delete(l)
-        if (!listeners.size && stop) {
+        if (!listeners.size && stop && !keep) {
           // Plus personne n'écoute : on ne suit plus la base ; la valeur sera recalculée au prochain abonné.
           stop()
           stop = null
@@ -79,6 +105,15 @@ export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay 
       }
     },
     get: () => value,
+    /** La valeur à jour (lue si besoin), pour un calcul hors React. */
+    load(): Promise<T> {
+      if (value !== undefined && !stale && !running && timer === undefined) return Promise.resolve(value)
+      watch()
+      return new Promise<T>((ok, ko) => {
+        waiters.push({ ok, ko })
+        if (!running && timer === undefined) soon(0)
+      })
+    },
     /** À relancer tout de suite (changement hors de la base : rôle, « déjà vus »…). */
     refresh: () => soon(0),
   }

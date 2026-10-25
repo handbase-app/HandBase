@@ -1,10 +1,9 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo } from 'react'
 import { alive, counts, db, POSITIONS, today, type Player } from './db'
 import { useAlerts } from './alerts'
 import { useFollows } from './follows'
 import { regionOfDept, useDepartments, useRegionLabel } from './lists'
-import { useThrottledQuery } from './live'
+import { sharedQuery, useShared, useThrottledQuery } from './live'
 import { POLE_MEMBER_TABLES, withPoleMembers } from './poleMembers'
 import { can } from './roles'
 import { scoutId } from './scouting'
@@ -28,21 +27,38 @@ import type { MirrorSource } from './components/SqlAnswer'
 export function useQuickSets() {
   const followed = useFollows()?.followed
   const alerts = useAlerts()?.alerts
-  const videos = useLiveQuery(
-    async () => new Set((await db.videos.toArray()).filter((v) => !v.deleted && v.targetKind === 'player').map((v) => v.targetId)),
-    [],
-    new Set<string>(),
-  )
-  return useMemo(
-    () => ({
+  const videos = useShared(videosStore) ?? NO_VIDEOS
+  // Mêmes ensembles d'un écran à l'autre (mêmes suivis, alertes, vidéos, même relus) : même objet, l'index de la liste
+  // Joueurs, construit avec eux, n'est pas refait au retour sur la liste (src/components/PlayersQuery.tsx).
+  return useMemo(() => {
+    const value: QuickSets = {
       followed: followed ?? new Set<string>(),
       videos,
       profileMembers: new Map((alerts ?? []).map((a) => [a.alert.id, new Set(a.players.map((p) => p.id))])),
       profiles: (alerts ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
-    }),
-    [followed, alerts, videos],
-  )
+    }
+    if (lastQuick && sameQuick(lastQuick, value)) return lastQuick
+    lastQuick = value
+    return value
+  }, [followed, alerts, videos])
 }
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a === b || (a.size === b.size && [...a].every((x) => b.has(x)))
+const sameQuick = (a: QuickSets, b: QuickSets) =>
+  sameSet(a.followed, b.followed) &&
+  sameSet(a.videos, b.videos) &&
+  a.profiles.length === b.profiles.length &&
+  a.profiles.every((p, i) => p.id === b.profiles[i].id && p.name === b.profiles[i].name) &&
+  [...a.profileMembers].every(([id, m]) => !!b.profileMembers.get(id) && sameSet(m, b.profileMembers.get(id)!))
+/** Joueurs avec une vidéo : gardés en mémoire (src/live.ts sharedQuery, `keep`). */
+const videosStore = sharedQuery(
+  ['videos'],
+  async () => new Set((await db.videos.toArray()).filter((v) => !v.deleted && v.targetKind === 'player').map((v) => v.targetId)),
+  300,
+  true,
+)
+const NO_VIDEOS = new Set<string>()
+let lastQuick: QuickSets | null = null
+type QuickSets = { followed: Set<string>; videos: Set<string>; profileMembers: Map<string, Set<string>>; profiles: { id: string; name: string }[] }
 
 /** Joueurs, passages (événement et personne), avis validés, mesures, critères, groupes visibles, événements. */
 export function useQuestionData(enabled = true) {

@@ -20,6 +20,7 @@ import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type 
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
+import { usePlayersByName } from '../playersCache'
 import { scoreLegend } from '../sportContent'
 import { FormActions } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
@@ -47,6 +48,9 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'entrainement', label: 'Entraînement' },
   { value: 'observation', label: 'Observation' },
 ]
+
+/** Liste vide stable (fiches pas encore lues). */
+const NO_PLAYERS: Player[] = []
 
 /**
  * Saisie d'un avis subjectif. Les avis des autres observateurs ne sont pas
@@ -82,7 +86,8 @@ export default function Evaluate() {
   // Joueur qui arrive après un glissement (ou une flèche), et de quel côté : seule sa fiche s'anime.
   const [enter, setEnter] = useState<{ id: string; dir: 'left' | 'right' } | null>(null)
 
-  const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive), [], [])
+  // Fiches par nom, gardées en mémoire (src/playersCache.ts).
+  const players = usePlayersByName() ?? NO_PLAYERS
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive), [], [])
   const criteria = useLiveQuery(
     () => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'subjective')),

@@ -19,6 +19,7 @@ import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughM
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
 import { usePlayersQuery } from '../components/PlayersQuery'
+import { usePlayersByName } from '../playersCache'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { StampLine } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
@@ -1211,7 +1212,8 @@ export function AddPlayers({
   onCancel: () => void
   scope?: string
 }) {
-  const all = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive))
+  // Fiches par nom, gardées en mémoire (src/playersCache.ts : lues sans le suivi fiche par fiche de useLiveQuery).
+  const all = usePlayersByName()
   const { filtered, ui, top } = usePlayersQuery(all, { scope })
   // Dans le panneau de droite (ordinateur), la barre se colle en haut du panneau, qui défile seul.
   const inPanel = !!usePanel()
