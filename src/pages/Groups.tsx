@@ -183,10 +183,6 @@ export default function Groups() {
         <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
       ) : (
         <>
-      <p className="text-[11px] text-muted">
-        Des listes de joueurs réutilisables ({sportContent().examples.groups}) : un clic pour les filtrer, les exporter ou remplir un
-        événement.
-      </p>
       <AllGroupsToggle role={role} />
       {groups.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
       {filterTop}

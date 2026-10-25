@@ -37,8 +37,8 @@ export interface SportContent {
    * libellés envoyés à l'avis vocal (src/dictation/avis.ts). L'échelle elle-même (1 à 5, des chiffres) est la même partout.
    */
   scoreLabels: Readonly<Record<string, string>>
-  /** Exemples de textes à l'écran : groupes de joueurs (aide, nom), groupe de travail (nom), catégorie d'une fiche. */
-  examples: { groups: string; groupName: string; workGroupName: string; category: string }
+  /** Exemples de textes à l'écran : groupes de joueurs (nom), groupe de travail (nom), catégorie d'une fiche. */
+  examples: { groupName: string; workGroupName: string; category: string }
 }
 
 export const SPORT_CONTENT: Record<string, SportContent> = {
@@ -50,7 +50,6 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
     profileSummary: 'Taille, poids, explosivité, puissance, vitesse, détente, tir',
     scoreLabels: { '1': 'très insuffisant', '3': 'niveau attendu', '5': 'remarquable' },
     examples: {
-      groups: 'Intercomités 83, Pôle, Sport-études…',
       groupName: 'Ex. Intercomités 83 – 2010, Pôle Espoirs masculin…',
       workGroupName: 'Ex. ETD Var, Pôles Région Sud, Intercomités 83…',
       category: '-18 nat',
@@ -68,7 +67,6 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
     // Échelle 1 à 5 des grilles du volley, uniquement positive.
     scoreLabels: { '1': 'En découverte', '2': 'En construction', '3': 'Acquis', '4': 'Point fort', '5': 'Remarquable' },
     examples: {
-      groups: 'sélection départementale 69, Volleyades M15, Pôle, Sport-études…',
       groupName: 'Ex. Sélection départementale 69 – 2014, Pôle Espoirs féminin…',
       workGroupName: 'Ex. ETD Var, Pôles Région Sud, staff du CRE…',
       category: 'M15',
