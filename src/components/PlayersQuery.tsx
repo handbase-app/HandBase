@@ -77,6 +77,8 @@ import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { MultiPicker } from './MultiPicker'
 import { ChoicePills, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
+import { PictoDisplaySection } from './PictoDisplay'
+import { usePictosInFilters } from './Pictos'
 import { SegRow } from './ListQuery'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
@@ -169,7 +171,11 @@ export type HostedBar = {
  * « ajout-evenement », « ajout-groupe ») : son propre état de session, sans toucher à la liste Joueurs ni à son ‹ ›.
  * `hosted` : barre posée sur un autre écran (le bilan), voir HostedBar.
  */
-export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar }) {
+/**
+ * `display` : la liste règle ses pictogrammes dans la fenêtre « Filtres » sur téléphone (section « Affichage »,
+ * src/components/PictoDisplay.tsx ; PlayerList `pictosInFilters`).
+ */
+export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar; display?: boolean }) {
   const hosted = opts.hosted
   const keys = opts.scope
     ? { query: `handbase.${opts.scope}.recette`, text: `handbase.${opts.scope}.texte`, result: `handbase.${opts.scope}.resultat`, sql: `handbase.${opts.scope}.sql` }
@@ -205,6 +211,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   }, [rawSql])
   // Fenêtre « Filtres » (src/components/FilterWindow.tsx) : posée au-dessus de la liste, ouverte de n'importe où.
   const fw = useFilterWindow()
+  const pictosInFilters = usePictosInFilters()
   const open = fw.open
   const [more, setMore] = useSessionState(`${pre}.conditions`, false)
   const [chipOpen, setChipOpen] = useState<string | null>(null)
@@ -901,6 +908,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       onClear={(hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? reset : undefined}
     >
       {panel}
+      {/* Téléphone : ce qu'on voit au bout des lignes (pictogrammes), à part des filtres. */}
+      {opts.display && pictosInFilters && <PictoDisplaySection />}
       {privacy}
     </FilterWindow>
   )

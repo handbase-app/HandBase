@@ -29,6 +29,7 @@ import { accord, w } from '../gender'
 import { FollowStar } from './Follow'
 import { RewatchToggle } from './Scouting'
 import { Icon, type IconName } from './ui'
+import { useMedia } from '../layout'
 import { SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
 
 /*
@@ -83,6 +84,14 @@ function subscribe(f: () => void) {
 export const usePictos = () => useSyncExternalStore(subscribe, () => current)
 
 // ---------- Barre « Afficher » ----------
+
+/**
+ * Téléphone (moins de 640 px de large, ou couché) : sur les listes qui ont une fenêtre « Filtres » (PlayerList
+ * `pictosInFilters`), la barre passe dans cette fenêtre, section « Affichage » (src/components/PictoDisplay.tsx).
+ */
+export const PICTOS_IN_FILTERS = '(max-width: 639px), (orientation: landscape) and (max-height: 520px)'
+/** Vrai quand la barre des pictogrammes passe dans la fenêtre « Filtres » (suit les rotations). */
+export const usePictosInFilters = () => useMedia(PICTOS_IN_FILTERS)
 
 export const PICTO_ICONS: Record<PictoKind, IconName> = {
   suivi: 'star',
@@ -332,6 +341,7 @@ export function PlayerList({
   children,
   className = 'flex flex-col gap-2',
   bar = true,
+  pictosInFilters = false,
   select = true,
   sticky = true,
 }: {
@@ -345,11 +355,18 @@ export function PlayerList({
   children: ReactNode
   className?: string
   bar?: boolean
+  /**
+   * La page règle les pictogrammes dans sa fenêtre « Filtres » sur téléphone (section « Affichage ») : la barre n'y est
+   * pas affichée (sauf pastilles `barLead`), le nombre `countLabel` est à afficher par la page (à côté du titre).
+   */
+  pictosInFilters?: boolean
   select?: boolean
   /** Barre collée en haut au défilement (faux : colonne de contexte, déjà collée). */
   sticky?: boolean
 }) {
   const on = usePictos()
+  const inFilters = usePictosInFilters()
+  if (pictosInFilters && inFilters && !barLead) bar = false
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
   const sel = useListSelection(all, ids, select)
   const data = usePictoData(ids, on)
