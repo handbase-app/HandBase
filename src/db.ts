@@ -15,6 +15,7 @@ import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
 // Espace joueur (supabase/051_espace_joueur.sql, src/playerSpace.ts) : ce que le jeune écrit lui-même sur sa fiche.
 export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, SelfMarks, SelfPath } from './playerSpace'
 import type { PlayerSelf } from './playerSpace'
+import type { RewatchOrigin } from './rewatchCore'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -447,6 +448,11 @@ export interface Rewatch extends Syncable {
   playerId: string
   /** Événement où il a été repéré. */
   originEventId?: string
+  /**
+   * D'où il a été posé (supabase/055, src/rewatchCore.ts) : événement, groupe, liste Joueurs (nom du filtre enregistré ou
+   * filtres posés), fiche, bilan… Fixé à la création ; absent sur les « à revoir » d'avant (originEventId suffit alors).
+   */
+  origin?: RewatchOrigin
   /** Événements à venir visés. */
   events?: string[]
   /** Groupes visés (le joueur y est ajouté). */

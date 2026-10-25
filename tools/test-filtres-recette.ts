@@ -313,6 +313,10 @@ for (const s of ['nés en 2010', '2010', 'les gauchers', 'quelle est la taille m
       assert.deepEqual(q.recipe.pop, { hand: 'gaucher' }), assert.equal(q.recipe.seen?.n, 2), assert.deepEqual(q.recipe.out.sort, { by: 'height', dir: 'desc' }), assert.deepEqual(u, [])
     ),
     'peu importe le poste, mais au Pôle': (q) => assert.deepEqual(q.recipe.pop, { pole: 'current' }),
+    'mes à revoir du mois dernier': (q, u) => (assert.deepEqual(q.recipe.pop, { rewatch: { by: 'me', when: { kind: 'lastMonth' } } }), assert.deepEqual(u, [])),
+    "ceux que j'ai mis à revoir au stage de rentrée, pas encore revus": (q, u) => (
+      assert.deepEqual(q.recipe.pop, { sex: 'M', rewatch: { by: 'me', from: ['ev0'], state: 'open' } }), assert.deepEqual(u, [])
+    ),
   }
   for (const [, actuels, said, json] of lines) {
     const ans = JSON.parse(json) as { action: string; recette: unknown; retirer: string[]; nonGere: string[] }

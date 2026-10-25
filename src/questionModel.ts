@@ -6,7 +6,8 @@ import { regionOfDept, useDepartments, useRegionLabel } from './lists'
 import { sharedQuery, useShared, useThrottledQuery } from './live'
 import { POLE_MEMBER_TABLES, withPoleMembers } from './poleMembers'
 import { can } from './roles'
-import { scoutId } from './scouting'
+import { loadRewatchFacts, scoutId } from './scouting'
+import type { RewatchFact } from './rewatchCore'
 import { loadTeams } from './teams'
 import { categoryStyles, styleOf } from './radarZones'
 import { buildIndex, type Names, type QSight, type QuestionContext } from './recipe'
@@ -23,11 +24,12 @@ import type { MirrorSource } from './components/SqlAnswer'
  * « vu », avis, mesures, phrase posée).
  */
 
-/** Mes suivis, joueurs avec une vidéo, joueurs de chaque profil recherché (filtres rapides de la liste Joueurs). */
+/** Mes suivis, joueurs avec une vidéo, joueurs de chaque profil recherché, « à revoir » (filtres rapides de la liste Joueurs). */
 export function useQuickSets() {
   const followed = useFollows()?.followed
   const alerts = useAlerts()?.alerts
   const videos = useShared(videosStore) ?? NO_VIDEOS
+  const rw = useShared(rewatchStore) ?? NO_REWATCH
   // Mêmes ensembles d'un écran à l'autre (mêmes suivis, alertes, vidéos, même relus) : même objet, l'index de la liste
   // Joueurs, construit avec eux, n'est pas refait au retour sur la liste (src/components/PlayersQuery.tsx).
   return useMemo(() => {
@@ -36,16 +38,19 @@ export function useQuickSets() {
       videos,
       profileMembers: new Map((alerts ?? []).map((a) => [a.alert.id, new Set(a.players.map((p) => p.id))])),
       profiles: (alerts ?? []).map((a) => ({ id: a.alert.id, name: a.alert.name })),
+      rewatch: rw.by,
+      rewatchSig: rw.sig,
     }
     if (lastQuick && sameQuick(lastQuick, value)) return lastQuick
     lastQuick = value
     return value
-  }, [followed, alerts, videos])
+  }, [followed, alerts, videos, rw])
 }
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a === b || (a.size === b.size && [...a].every((x) => b.has(x)))
 const sameQuick = (a: QuickSets, b: QuickSets) =>
   sameSet(a.followed, b.followed) &&
   sameSet(a.videos, b.videos) &&
+  a.rewatchSig === b.rewatchSig &&
   a.profiles.length === b.profiles.length &&
   a.profiles.every((p, i) => p.id === b.profiles[i].id && p.name === b.profiles[i].name) &&
   [...a.profileMembers].every(([id, m]) => !!b.profileMembers.get(id) && sameSet(m, b.profileMembers.get(id)!))
@@ -57,8 +62,18 @@ const videosStore = sharedQuery(
   true,
 )
 const NO_VIDEOS = new Set<string>()
+/** « À revoir » de chaque joueur (src/scouting.ts loadRewatchFacts) : relus quand les « à revoir », « vu », avis ou staffs changent. */
+const rewatchStore = sharedQuery(['rewatch', 'seen', 'evaluations', 'teams'], loadRewatchFacts, 300, true)
+const NO_REWATCH = { by: new Map<string, RewatchFact[]>(), sig: '' }
 let lastQuick: QuickSets | null = null
-type QuickSets = { followed: Set<string>; videos: Set<string>; profileMembers: Map<string, Set<string>>; profiles: { id: string; name: string }[] }
+type QuickSets = {
+  followed: Set<string>
+  videos: Set<string>
+  profileMembers: Map<string, Set<string>>
+  profiles: { id: string; name: string }[]
+  rewatch: Map<string, RewatchFact[]>
+  rewatchSig: string
+}
 
 /** Joueurs, passages (événement et personne), avis validés, mesures, critères, groupes visibles, événements. */
 export function useQuestionData(enabled = true) {
@@ -172,6 +187,7 @@ export function useQuestionModel(enabled = true) {
       followed: quick.followed,
       videos: quick.videos,
       profileMembers: quick.profileMembers,
+      rewatch: quick.rewatch,
     })
   }, [data, lists, quick]) // eslint-disable-line react-hooks/exhaustive-deps
   const ctx = useMemo<QuestionContext | null>(() => {

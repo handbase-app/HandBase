@@ -24,7 +24,8 @@ import { RosterChip, RosterSectionList } from '../components/PositionRoster'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon, type IconName } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
-import { Count, PlayerList } from '../components/Pictos'
+import { PlayerList } from '../components/Pictos'
+import { CHEVRON_CELL, FoldCard, LINE_LINK, PICTO_CELL, PictoMark as Mark } from '../components/FoldCard'
 import { TEAM_FOLLOW } from '../staffLabels'
 import { focusLabel, focusLink, focusOfNews } from '../playerFocus'
 import { daySummary, pictoLabel, ROW_KINDS, rowPictos, summaryLabel, summaryParts, type NewsKind } from '../followRows'
@@ -43,22 +44,14 @@ const nameOf = (p?: Player) => (p ? `${p.lastName.toUpperCase()} ${p.firstName}`
 /** Pictogrammes des nouveautés : mêmes icônes et couleurs que ceux des listes de joueurs (src/components/Pictos.tsx). */
 const KIND_ICON: Record<NewsKind, IconName> = { evaluation: 'chat', measurement: 'ruler', video: 'video' }
 const KIND_COLOR: Record<NewsKind, string> = { evaluation: 'text-emerald-300', measurement: 'text-amber-300', video: 'text-violet-300' }
-const LINE_LINK = 'rounded-md outline-none hover:bg-panel-2 focus-visible:ring-2 focus-visible:ring-accent'
-/** Case d'un pictogramme (une colonne) et chevron : mêmes tailles sur la ligne d'un joueur et sur la synthèse d'une carte. */
-const PICTO_CELL = 'inline-flex h-8 w-8 shrink-0 items-center justify-center'
-const CHEVRON_CELL = 'inline-flex h-8 w-7 shrink-0 items-center justify-center text-muted'
+// Lien de ligne, case d'un pictogramme et chevron : src/components/FoldCard.tsx (communs avec « À revoir »).
 
 /**
  * Pictogramme d'une ligne de « Mes suivis » : l'icône, et son nombre en pastille au-delà d'un (comme dans les listes de
  * joueurs, src/components/Pictos.tsx). Le même pour la ligne d'un joueur et pour la synthèse d'une journée.
  */
 function PictoMark({ kind, n }: { kind: NewsKind | 'players'; n: number }) {
-  return (
-    <span className={`relative ${kind === 'players' ? 'text-muted' : KIND_COLOR[kind]}`}>
-      <Icon name={kind === 'players' ? 'user' : KIND_ICON[kind]} className="h-4 w-4" />
-      <Count n={n > 1 ? n : 0} />
-    </span>
-  )
+  return <Mark icon={kind === 'players' ? 'user' : KIND_ICON[kind]} n={n} cls={kind === 'players' ? 'text-muted' : KIND_COLOR[kind]} />
 }
 const isFresh = (n: FollowNews, seen: number) => n.time > seen && !n.mine
 const FreshDot = () => <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="Nouveau depuis ta dernière visite" />
@@ -328,31 +321,24 @@ function NewsCard({ title, items, seen, open, onToggle, children, g }: { title: 
   const fresh = items.filter((n) => n.time > seen && !n.mine).length
   const sum = daySummary(items)
   return (
-    <div className="card px-4 py-1">
-      <button type="button" className="flex w-full items-center gap-0.5 py-1 text-left" aria-expanded={open} onClick={onToggle}>
-        {/* Titre en entier (il passe à la ligne s'il le faut) ; la nouveauté depuis la dernière visite juste après. */}
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 pr-1">
-          <span className="section-title mb-0">{title}</span>
-          {fresh > 0 && (
-            <span className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold text-white" title="Depuis ta dernière visite">
-              +{fresh > 99 ? '99' : fresh}
-            </span>
-          )}
-        </span>
-        {/* Une seule lecture : « 1 joueuse, 2 avis, 3 mesures, 1 vidéo » ; le détail de chacun au survol. */}
-        <span role="img" aria-label={summaryLabel(sum, g)} className="flex shrink-0 items-center gap-0.5">
-          {summaryParts(sum, g).map((p) => (
-            <span key={p.key} title={p.text} className={PICTO_CELL}>
-              <PictoMark kind={p.key} n={p.n} />
-            </span>
-          ))}
-        </span>
-        <span aria-hidden="true" className={CHEVRON_CELL}>
-          <span className={`transition ${open ? 'rotate-90' : ''}`}>›</span>
-        </span>
-      </button>
-      {open && <div className="pb-1">{children}</div>}
-    </div>
+    <FoldCard
+      title={title}
+      // La nouveauté depuis la dernière visite, juste après le titre.
+      badge={
+        fresh > 0 && (
+          <span className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold text-white" title="Depuis ta dernière visite">
+            +{fresh > 99 ? '99' : fresh}
+          </span>
+        )
+      }
+      // Une seule lecture : « 1 joueuse, 2 avis, 3 mesures, 1 vidéo » ; le détail de chacun au survol.
+      summary={summaryParts(sum, g).map((p) => ({ key: p.key, icon: p.key === 'players' ? 'user' : KIND_ICON[p.key], n: p.n, text: p.text, cls: p.key === 'players' ? 'text-muted' : KIND_COLOR[p.key] }))}
+      summaryLabel={summaryLabel(sum, g)}
+      open={open}
+      onToggle={onToggle}
+    >
+      {children}
+    </FoldCard>
   )
 }
 

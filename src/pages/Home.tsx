@@ -11,9 +11,9 @@ const ACTIONS = [
   { to: '/evenements', title: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
   { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
   { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
-  // Joueurs que mon staff veut revoir, pas encore revus (supabase/041).
+  // Section « À revoir » (src/pages/Rewatch.tsx) : qui, quand, d'où ; le nombre de joueurs pas encore revus en pastille.
   // Horloge bleu ciel, comme partout ailleurs pour « à revoir » (l'œil veut dire « vu »).
-  { to: '/a-revoir', title: 'Mes à revoir', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', tone: 'bg-sky-500/10 text-sky-300' },
+  { to: '/a-revoir', title: 'À revoir', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', tone: 'bg-sky-500/10 text-sky-300' },
 ]
 
 /** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */

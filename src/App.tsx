@@ -60,6 +60,8 @@ const Follows = lazy(() => import('./pages/Follows'))
 const Teams = lazy(() => import('./pages/Teams'))
 const Compare = lazy(() => import('./pages/Compare'))
 const RewatchPage = lazy(() => import('./pages/Rewatch'))
+const RewatchPlayers = lazy(() => import('./pages/Rewatch').then((m) => ({ default: m.RewatchPlayers })))
+const RewatchPlayer = lazy(() => import('./pages/Rewatch').then((m) => ({ default: m.RewatchPlayer })))
 const Coverage = lazy(() => import('./pages/Coverage'))
 const CoveragePlayers = lazy(() => import('./pages/CoveragePlayers'))
 const CoveragePlayer = lazy(() => import('./pages/CoveragePlayers').then((m) => ({ default: m.CoveragePlayer })))
@@ -171,7 +173,7 @@ const PAGE_W: [RegExp, string][] = [
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
-  [/^\/(joueurs|(evenements|groupes)\/[^/]+\/joueurs|bilan(\/question)?\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
+  [/^\/(joueurs|(evenements|groupes)\/[^/]+\/joueurs|bilan(\/question)?\/joueurs|a-revoir\/joueurs)\/[^/]+$/, 'wide:max-w-4xl'],
   [/^\/(actualite|avis-spontanes|rates)$/, 'wide:max-w-4xl'],
   // Comparaison de deux joueurs : radar à gauche, tableau à droite sur ordinateur.
   [/^\/comparer$/, 'wide:max-w-6xl'],
@@ -183,7 +185,7 @@ const PAGE_W: [RegExp, string][] = [
 ]
 
 /** Listes en maître-détail (liste + panneau sur ordinateur) : même largeur, liste seule ou fiche ouverte. */
-const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|((evenements|groupes)\/[^/]+|bilan(\/question)?)\/joueurs\/[^/]+)$/
+const MASTER = /^\/((joueurs|groupes|evenements)(\/[^/]+)?|((evenements|groupes)\/[^/]+|bilan(\/question)?|a-revoir)\/joueurs\/[^/]+)$/
 
 function PageWidth({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -377,6 +379,10 @@ export default function App() {
           <Route path="/national" element={<Navigate to="/bilan?onglet=licencies" replace />} />
           <Route path="/comparer" element={<Compare />} />
           <Route path="/a-revoir" element={<RewatchPage />} />
+          {/* Fiche ouverte depuis « À revoir » : ses joueurs à gauche (ordinateur), ‹ › sur téléphone (Rewatch.tsx). */}
+          <Route path="/a-revoir/joueurs" element={<RewatchPlayers />}>
+            <Route path=":pid" element={<RewatchPlayer />} />
+          </Route>
           <Route path="/bilan" element={<Coverage />} />
           <Route path="/bilan/rapport" element={<CoverageReport />} />
           {/* Fiche ouverte depuis le bilan : les joueurs du club choisi à gauche (ordinateur), ‹ › sur téléphone (CoveragePlayers.tsx). */}

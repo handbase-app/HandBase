@@ -7,6 +7,7 @@ import { canFollow, setFollowMany, useFollows } from '../follows'
 import { genderOf, pluralG, w, type Gender } from '../gender'
 import { can, useRole } from '../roles'
 import { addRewatchMany, markSeenMany, scoutId } from '../scouting'
+import { useRewatchOrigin } from '../rewatchPlace'
 import {
   canCompare,
   confirmText,
@@ -263,6 +264,8 @@ export function SelectionBar({ store, context }: { store: SelStore; context?: Se
   const [dialog, setDialog] = useState<Dialog>(null)
   const [msg, setMsg] = useState<Msg | null>(null)
   const [busy, setBusy] = useState(false)
+  // « Mettre à revoir » : l'écran d'où la sélection est faite (liste Joueurs et ses filtres, événement, groupe…).
+  const here = useRewatchOrigin()
   const actions = selActions({
     manageGroups: can.manageGroups(role),
     manageEvents: can.manageEvents(role),
@@ -297,7 +300,7 @@ export function SelectionBar({ store, context }: { store: SelStore; context?: Se
         const done = await markSeenMany(context!.eventId!, list)
         setMsg({ text: doneMessage('seen', done, n, g) })
       } else {
-        const done = await addRewatchMany(list, { originEventId: context?.eventId, groupId: context?.groupId })
+        const done = await addRewatchMany(list, { originEventId: context?.eventId, groupId: context?.groupId, origin: here() })
         setMsg({ text: doneMessage('rewatch', done, n, g), ...(done ? { to: '/a-revoir', link: 'Voir « À revoir »' } : {}) })
       }
     } catch (e) {

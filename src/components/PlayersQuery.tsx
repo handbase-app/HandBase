@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import { Link } from 'react-router-dom'
 import { POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
-import { groupTag } from '../roles'
+import { groupTag, useRole } from '../roles'
 import { categoryStyles, styleOf } from '../radarZones'
 import {
   answersNothing,
@@ -85,6 +85,8 @@ import { SegRow } from './ListQuery'
 import { putYears, yearsOf } from '../birthYears'
 import { appName } from '../appBrand'
 import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gender'
+import { listOrigin, type RewatchOrigin } from '../rewatchCore'
+import { RewatchOptions } from './RewatchFilter'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -115,7 +117,7 @@ const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.
  * Pastilles dont le réglage est dans la fenêtre « Filtres » (toucher : la fenêtre s'ouvre dessus) ; les autres (vus, avis,
  * mesures, taille maximum…) gardent leur petit réglage sous la barre.
  */
-const WINDOW_KEYS = new Set(['sex', 'years', 'quarter', 'positions', 'secondary', 'noPosition', 'hand', 'regions', 'depts', 'clubs', 'height', 'pole', 'video', 'followed', 'profiles', 'groups', 'events', 'sort'])
+const WINDOW_KEYS = new Set(['sex', 'years', 'quarter', 'positions', 'secondary', 'noPosition', 'hand', 'regions', 'depts', 'clubs', 'height', 'pole', 'video', 'followed', 'profiles', 'rewatch', 'groups', 'events', 'sort'])
 /** Filtres de la partie simple de la fenêtre (toujours visibles) ; les autres sont sous « Plus de filtres ». */
 const SIMPLE_KEYS = new Set<FilterKey>(['sex', 'years', 'groups', 'regions', 'depts'])
 const POLE_LABEL: Record<string, string> = { current: 'Au Pôle Espoirs (en cours)', past: 'Sortis du Pôle Espoirs', any: 'Passés par le Pôle Espoirs (en cours ou sortis)' }
@@ -186,7 +188,14 @@ export type HostedBar = {
  * `count` : le nombre de joueurs de la liste filtrée collé devant « Filtres », dans la barre (« 7 sur 40 001 · Filtres ▾ »).
  * Actions de la page (« ⋯ ») : BarActions (src/components/PageHeader.tsx) autour de `ui`, posées à droite de la pilule.
  */
-export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean }) {
+/**
+ * `initial` : requête de départ d'une liste à part (`scope`), avant tout choix de la session (page « À revoir » : pas encore
+ * revus). `rewatchTop` : les réglages « À revoir » en tête de la fenêtre (page « À revoir »), plus sous « Seulement ».
+ */
+export function usePlayersQuery(
+  players: Player[] | undefined,
+  opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean; initial?: JoueursQuery; rewatchTop?: boolean },
+) {
   const hosted = opts.hosted
   const keys = opts.scope
     ? { query: `handbase.${opts.scope}.recette`, text: `handbase.${opts.scope}.texte`, result: `handbase.${opts.scope}.resultat`, sql: `handbase.${opts.scope}.sql` }
@@ -197,6 +206,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
 
   // ---------- État (session) ----------
   const [sessionQuery, setSessionQuery] = useSessionState<unknown>(keys.query, (() => {
+    if (opts.initial) return opts.initial
     const sex = readSex()
     return { ...EMPTY_QUERY, recipe: { ...EMPTY_QUERY.recipe, pop: sex !== 'all' ? { sex } : {} } }
   })())
@@ -280,6 +290,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       followed: quick.followed,
       videos: quick.videos,
       profileMembers: quick.profileMembers,
+      rewatch: quick.rewatch,
     })
     lastIndex = { key, ix }
     return ix
@@ -471,6 +482,29 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const p = qy.recipe.pop
   const groups = useMemo(() => (full.data?.groups ?? light?.groups ?? []).filter((g) => !g.archived || p.groups?.includes(g.id)), [full.data, light, p.groups])
   const currentGroup = p.groups?.length === 1 ? groups.find((g) => g.id === p.groups![0]) : undefined
+  // « À revoir » : joueurs qui en ont (pastille « Seulement »), événements où ils ont été repérés (réglage « Repérés à »).
+  const role = useRole()
+  const allEvents = full.data?.events ?? light?.events
+  const rewatchEvents = useMemo(() => {
+    const ids = new Set<string>()
+    for (const fs of quick.rewatch.values()) for (const f of fs) if (f.origin) ids.add(f.origin)
+    for (const id of p.rewatch?.from ?? []) ids.add(id)
+    return (allEvents ?? [])
+      .filter((e) => ids.has(e.id))
+      .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+      .map((e) => ({ id: e.id, name: e.name, date: e.date }))
+  }, [quick.rewatch, allEvents, p.rewatch?.from])
+  const rewatchOptions = (
+    <RewatchOptions value={p.rewatch ?? {}} onChange={(rw) => setPop({ rewatch: rw })} events={rewatchEvents} admin={role === 'admin'} fem={gender === 'F'} />
+  )
+  // Événement (vus ou inscrits) : tous les événements, le plus récent d'abord.
+  const eventOptions = useMemo(
+    () =>
+      [...(allEvents ?? [])]
+        .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+        .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` })),
+    [allEvents],
+  )
   // Années cochées (src/birthYears.ts : bornes, et années exactes si elles ne se suivent pas).
   const years = (yearsOf(p) ?? []).map(String).reverse()
   const setYears = (ys: string[]) => {
@@ -575,6 +609,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   // (replié ; ouvert de lui-même si un de ses filtres est posé ou si l'on touche sa pastille) : le reste.
   const panel = (
     <>
+      {opts.rewatchTop && rewatchOptions}
       {!hosted?.hideSex && (
         <SegRow<'M' | 'F'>
           k="sex"
@@ -715,7 +750,20 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
                 </FilterField>
               )}
             </div>
-            <FilterField label="Seulement" k="video followed">
+            {eventOptions.length > 0 && (
+              <FilterField label="Événement (vus ou inscrits)" k="events">
+                <MultiPicker
+                  className={ctl}
+                  label="Événement"
+                  allLabel="Tous les événements"
+                  noun={['événement', 'événements']}
+                  value={p.events ?? []}
+                  options={eventOptions}
+                  onChange={(xs) => setPop({ events: listOrNone(xs) })}
+                />
+              </FilterField>
+            )}
+            <FilterField label="Seulement" k={opts.rewatchTop ? 'video followed' : 'video followed rewatch'}>
               <div className="flex flex-wrap gap-1">
                 <button type="button" aria-pressed={!!p.video} onClick={() => setPop({ video: !p.video })} className={pillClass(!!p.video, true)}>
                   Avec une vidéo
@@ -727,7 +775,19 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
                     <span className="text-[10px] font-normal tabular-nums opacity-75">{fr(quick.followed.size)}</span>
                   </button>
                 )}
+                {!opts.rewatchTop && (quick.rewatch.size > 0 || p.rewatch) && (
+                  <button
+                    type="button"
+                    aria-pressed={!!p.rewatch}
+                    onClick={() => setPop({ rewatch: p.rewatch ? undefined : {} })}
+                    className={`inline-flex items-center gap-1 ${pillClass(!!p.rewatch, true)}`}
+                  >
+                    <Icon name="clock" className={`h-3 w-3 ${p.rewatch ? '' : 'text-sky-300'}`} />À revoir
+                    <span className="text-[10px] font-normal tabular-nums opacity-75">{fr(quick.rewatch.size)}</span>
+                  </button>
+                )}
               </div>
+              {!opts.rewatchTop && p.rewatch && rewatchOptions}
             </FilterField>
             <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
               <FilterField label="Taille min. (cm)" k="height">
@@ -780,21 +840,6 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
                         Taille maximum
                       </button>
                     </div>
-                    {(full.data?.events.length ?? 0) > 0 && (
-                      <FilterField label="Vus ou inscrits à un événement" k="events">
-                        <MultiPicker
-                          className={ctl}
-                          label="Événement"
-                          allLabel="Tous les événements"
-                          noun={['événement', 'événements']}
-                          value={p.events ?? []}
-                          options={[...(full.data?.events ?? [])]
-                            .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
-                            .map((ev) => ({ value: ev.id, label: `${ev.name}${ev.date ? ` (${ev.date.slice(8, 10)}/${ev.date.slice(5, 7)}/${ev.date.slice(0, 4)})` : ''}` }))}
-                          onChange={(xs) => setPop({ events: listOrNone(xs) })}
-                        />
-                      </FilterField>
-                    )}
                     <p className="text-[10px] text-muted">La condition s’ajoute en pastille : touchez-la pour la régler.</p>
                   </>
                 )}
@@ -904,9 +949,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       quickRemove
       inWindow={(c) => WINDOW_KEYS.has(c.key) && !(c.key === 'height' && p.hMax) && !(c.key === 'sort' && hosted)}
       onOpenWindow={(c) => {
-        // Filtre rangé sous « Plus de filtres » (et « Événement » sous « + Ajouter une condition ») : déplié.
-        if (!SIMPLE_KEYS.has(c.key as FilterKey)) setAdvOpen(true)
-        if (c.key === 'events') setMore(true)
+        // Filtre rangé sous « Plus de filtres » : déplié (« À revoir » de la page « À revoir » : en tête de la fenêtre).
+        if (!SIMPLE_KEYS.has(c.key as FilterKey) && !(opts.rewatchTop && c.key === 'rewatch')) setAdvOpen(true)
         fw.openAt(c.key)
       }}
       before={
@@ -1057,7 +1101,36 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   // Liste sans filtre (le filtre « Masculin / Féminin » seul permis), ni phrase en cours : ses premières fiches peuvent être
   // montrées avant que tout soit lu (src/pages/Players.tsx, src/playersCache.ts usePlainPreview).
   const plain = !sql && !pending && activeKeys(qy).every((k) => k === 'sex') && !(nameMode && text.trim())
-  return { filtered, ui, top, signature, group: currentGroup, valueOf, loading: !sel && !fromSql, calculating: calculating && !fromSql, fromSql, parts, gender, plain, sex: qy.recipe.pop.sex }
+  // D'où un « à revoir » est posé depuis cette liste (src/rewatchPlace.tsx) : le filtre enregistré appliqué tel quel, sinon
+  // les filtres posés (sans nom cherché : un nom de joueur ne part jamais). Lu au clic : toujours la liste à l'écran.
+  const originRef = useRef<() => RewatchOrigin>(() => ({ kind: 'list' }))
+  useEffect(() => {
+    originRef.current = () => {
+      const same = saved.find((x) => !x.sql && sameQuery(queryFromSaved(x.recipe), { ...qy, q: '' }))
+      const labels = recipeChips(qy.recipe, names)
+        .filter((c) => keepChip(c) && !['period', 'sort', 'names', 'outPeriod', 'value'].includes(c.key))
+        .map((c) => c.label)
+      return listOrigin(labels, same?.name)
+    }
+  })
+  const rewatchOrigin = useCallback(() => originRef.current(), [])
+  return {
+    filtered,
+    ui,
+    top,
+    signature,
+    group: currentGroup,
+    valueOf,
+    loading: !sel && !fromSql,
+    calculating: calculating && !fromSql,
+    fromSql,
+    parts,
+    gender,
+    plain,
+    sex: qy.recipe.pop.sex,
+    rewatchOrigin,
+    query: qy,
+  }
 }
 
 // ---------- Petits composants ----------

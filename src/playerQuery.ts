@@ -117,6 +117,7 @@ export type FilterKey =
   | 'followed'
   | 'video'
   | 'profiles'
+  | 'rewatch'
   | 'seen'
   | 'avis'
   | 'nbAvis'
@@ -142,6 +143,7 @@ export const MODEL_KEYS: Record<FilterKey, string> = {
   followed: 'suivis',
   video: 'avecVideo',
   profiles: 'profils',
+  rewatch: 'aRevoir',
   seen: 'vus',
   avis: 'avis',
   nbAvis: 'nbAvis',
@@ -168,6 +170,7 @@ export const KEY_LABEL: Record<FilterKey, string> = {
   followed: 'suivis',
   video: 'vidéo',
   profiles: 'profil',
+  rewatch: 'à revoir',
   seen: 'vus',
   avis: 'notes d’avis',
   nbAvis: 'nombre d’avis',
@@ -195,6 +198,7 @@ const KEY_WORDS: Record<string, FilterKey[]> = {
   suivis: ['followed'],
   avecvideo: ['video'], video: ['video'], videos: ['video'],
   profils: ['profiles'], profil: ['profiles'],
+  arevoir: ['rewatch'], revoir: ['rewatch'], revus: ['rewatch'], revu: ['rewatch'],
   vus: ['seen'], vu: ['seen'], passages: ['seen'],
   avis: ['avis'], notes: ['avis'], note: ['avis'], moyenne: ['avis'],
   nbavis: ['nbAvis'],
@@ -233,6 +237,7 @@ export function activeKeys(qy: JoueursQuery): FilterKey[] {
   if (p.followed) k.push('followed')
   if (p.video) k.push('video')
   if (p.profiles) k.push('profiles')
+  if (p.rewatch) k.push('rewatch')
   if (r.seen) k.push('seen')
   if (r.avis.length) k.push('avis')
   if (r.nbAvis) k.push('nbAvis')
@@ -312,7 +317,7 @@ const NOT_NAME = new Set(
     'meilleur meilleurs meilleure meilleures note notes avis mesure mesures pole video videos suivis groupe groupes club clubs region regions ' +
     'departement departements et en dans montre affiche cherche trouve liste seulement uniquement recommence reinitialise mesurent mesure ' +
     'mesurant ont a sont est nombre annee annees trimestre poste postes lateralite generation generations sexe priorite prioritaires progression ' +
-    'evenement evenements tournoi stage saison depuis cm metre metres dis donne'
+    'evenement evenements tournoi stage saison depuis cm metre metres dis donne revoir revu revus revue revues repere reperes reperee reperees mois'
   ).split(' '),
 )
 // Postes d'un autre sport que le handball (selon le sport de l'installation) : des mots de critère aussi, pas des noms.
@@ -438,7 +443,7 @@ export function mergeQuery(
   const set = <K extends keyof Population>(k: K) => {
     if (n[k] !== undefined) p[k] = structuredClone(n[k])
   }
-  for (const k of ['sex', 'names', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'followed', 'video', 'profiles'] as const) set(k)
+  for (const k of ['sex', 'names', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'followed', 'video', 'profiles', 'rewatch'] as const) set(k)
   // Années dites : remplacent les années d'avant (bornes et années exactes ensemble, src/birthYears.ts).
   if (n.years) putYears(p, yearsOf(n))
   if (n.positions || n.noPosition) {

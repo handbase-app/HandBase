@@ -26,6 +26,7 @@ import { nameKey, nameTokens } from './nameMatch'
 import { cleanSqlSpec, type SqlSpec } from './sqlGuard'
 import { familySkips, isHandball, positionCodes, proposedOnly } from './sportConfig'
 import { cleanYearFields, inYears, parseSaidYears, putYears, yearsOf, yearsPhrase } from './birthYears'
+import { anyMatches, cleanWanted, readWanted, wantedText, type RewatchFact, type RewatchWanted } from './rewatchCore'
 
 // ---------- Recette ----------
 
@@ -94,6 +95,11 @@ export type Population = {
   video?: boolean
   /** Profils recherchés (identifiants d'alertes, QData.profileMembers). */
   profiles?: string[]
+  /**
+   * « À revoir » (QData.rewatch, src/rewatchCore.ts) : au moins un « à revoir » par moi ou mon staff (by), repéré à ces
+   * événements (from), mis à revoir à ce moment (when), pas encore revu ou revu (state) ; {} : tous ses « à revoir ».
+   */
+  rewatch?: RewatchWanted
 }
 
 // ---------- Choix multiples ----------
@@ -254,7 +260,7 @@ export function buildQuestionSchema(ctx: QuestionContext): Record<string, string
   return {
     aujourdhui: `${ctx.today} (saison ${s.label} : du 1er septembre au 31 août)`,
     population:
-      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees (liste d’entiers : les années citées) ou annees {de, a} (plage), trimestre (1 à 4 : trimestre de naissance ; liste si plusieurs), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre ; liste si plusieurs sont dites : ["gaucher", "ambidextre"]), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits]',
+      'objet, clés facultatives : noms [prénoms ou noms tels que dits], sexe (M ou F), annee (entier) ou annees (liste d’entiers : les années citées) ou annees {de, a} (plage), trimestre (1 à 4 : trimestre de naissance ; liste si plusieurs), postes [codes], postesSecondaires (true : compter aussi le poste secondaire), sansPoste (true), clubs [noms tels que dits], regions [noms tels que dits], departements [numéros ou noms tels que dits], tailleMin et tailleMax (cm), lateralite (droitier, gaucher, ambidextre ; liste si plusieurs sont dites : ["gaucher", "ambidextre"]), groupes [noms tels que dits], evenements [noms tels que dits], pole (en_cours, sortis, tous), suivis (true : mes joueurs suivis), avecVideo (true : avec une vidéo), profils [profils recherchés tels que dits], aRevoir (true : mis à revoir ; ou objet {par (moi | staff | tous), evenements [noms tels que dits : où ils ont été repérés], periode (ce_mois | mois_dernier | saison | {du, au} dates AAAA-MM-JJ : quand ils ont été mis à revoir), etat (a_revoir : pas encore revus | revu | tous)})',
     postes: ctx.positions.map((p) => `${p.id} (${p.label.toLowerCase()})`).join(', '),
     vus: 'objet facultatif : compter (evenements par défaut, ou personnes du staff), op (= | >= | <= | aucun), n (entier), periode (omise si non dite : saison en cours | 12mois | toujours | depuis), depuis (date AAAA-MM-JJ ou mois dit)',
     avis: 'liste facultative de conditions : {sur (global | categorie | critere | zone), nom, op (>= | <=), valeur (note sur 5), calcul (moyenne par défaut | max : la meilleure note, une par une | min : la plus basse)} ; score combiné : sur "combine", nom [liste de noms]',
@@ -375,6 +381,7 @@ const KNOWN_TOP = ['population', 'vus', 'avis', 'nbAvis', 'mesures', 'sortie', '
 const KNOWN_POP = [
   'noms', 'nom', 'prenom', 'prenoms', 'sexe', 'annee', 'annees', 'postes', 'poste', 'clubs', 'club', 'regions', 'region', 'departements', 'departement', 'tailleMin', 'tailleMax',
   'lateralite', 'groupes', 'groupe', 'evenements', 'evenement', 'pole', 'trimestre', 'postesSecondaires', 'sansPoste', 'suivis', 'avecVideo', 'profils', 'profil', 'pays',
+  'aRevoir',
 ]
 /** « en France », « toute la France », « au niveau national » : tous les lieux (aucune limite, rien d'écarté). */
 const WHOLE_COUNTRY =
@@ -635,6 +642,17 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
     else skip(`profil ${quote(v)}`, 'ambiguous' in m ? 'plusieurs profils possibles' : 'introuvable')
   }
   if (profiles.length) r.pop.profiles = [...new Set(profiles)]
+  // « À revoir » : par qui, repérés où (événements retrouvés comme ci-dessus), quand, état.
+  if (present(p.aRevoir)) {
+    const findEvent = (said: string) => {
+      const m = bestMatch(said, ctx.events, (e) => [e.name])
+      if ('found' in m) return m.found.id
+      if ('ambiguous' in m) return [...m.ambiguous].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))[0].id
+      return undefined
+    }
+    const wanted = readWanted(p.aRevoir, findEvent, skip)
+    if (wanted) r.pop.rewatch = wanted
+  }
 
   // Condition « vu ».
   if (isObj(top.vus) && Object.values(top.vus).some(present)) {
@@ -984,6 +1002,8 @@ export function cleanRecipe(v: unknown): Recipe {
   if (p.noPosition === true && !pop.positions) pop.noPosition = true
   if (p.followed === true) pop.followed = true
   if (p.video === true) pop.video = true
+  const rw = cleanWanted(p.rewatch)
+  if (rw) pop.rewatch = rw
   const r: Recipe = { pop, avis: [], measures: [], out: { type: oneOf(isObj(o.out) ? o.out.type : undefined, ['count', 'list', 'table', 'map'] as const) ?? 'list' } }
   if (isObj(o.seen)) {
     const by = oneOf(o.seen.by, ['event', 'person'] as const) ?? 'event'
@@ -1073,6 +1093,8 @@ export type QData<P extends QPlayer> = {
   followed?: ReadonlySet<string>
   videos?: ReadonlySet<string>
   profileMembers?: ReadonlyMap<string, ReadonlySet<string>>
+  /** « À revoir » de chaque joueur (src/rewatchCore.ts : qui, quand, d'où, revu ou non), lus sur l'appareil. */
+  rewatch?: ReadonlyMap<string, readonly RewatchFact[]>
   /** Garder les fiches hors cadre (liste Joueurs, onglet « Hors cadre ») ; sinon écartées. */
   includeRefused?: boolean
 }
@@ -1378,6 +1400,7 @@ function inPopulation<P extends QPlayer>(ix: QIndex<P>, pop: Population, p: P): 
   if (pop.followed && !ix.data.followed?.has(p.id)) return false
   if (pop.video && !ix.data.videos?.has(p.id)) return false
   if (pop.profiles && !pop.profiles.some((a) => ix.data.profileMembers?.get(a)?.has(p.id))) return false
+  if (pop.rewatch && !anyMatches(ix.data.rewatch?.get(p.id), pop.rewatch, ix.data.today)) return false
   if (pop.depts && !(i.dept && pop.depts.includes(i.dept))) return false
   if (pop.regions && !(i.region && pop.regions.includes(i.region))) return false
   if (pop.clubs && !pop.clubs.includes(i.club)) return false
@@ -1833,6 +1856,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
   if (p.followed) c.push({ key: 'followed', label: 'mes suivis', removable: true })
   if (p.video) c.push({ key: 'video', label: 'avec une vidéo', removable: true })
   if (p.profiles) c.push({ key: 'profiles', label: `profil : ${orText(p.profiles.map((id) => names.profile?.(id) ?? 'profil recherché'))}`, removable: true })
+  if (p.rewatch) c.push({ key: 'rewatch', label: wantedText(p.rewatch, names.event, f), removable: true })
   if (r.seen) {
     const s = r.seen
     const unit = s.by === 'event' ? (s.n > 1 ? 'événements' : 'événement') : s.n > 1 ? 'personnes du staff' : 'personne du staff'
@@ -1922,7 +1946,7 @@ export function recipeChips(r: Recipe, names: Names): Chip[] {
 /** La recette en une phrase (« Joueuses · nées en 2011 · vues à 1 événement · cette saison · par département »). */
 export const recipeText = (r: Recipe, names: Names) => recipeChips(r, names).map((c) => c.label).join(' · ')
 
-const POP_KEYS: (keyof Population)[] = ['sex', 'names', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole', 'quarter', 'secondary', 'noPosition', 'followed', 'video', 'profiles']
+const POP_KEYS: (keyof Population)[] = ['sex', 'names', 'years', 'positions', 'regions', 'depts', 'clubs', 'hand', 'groups', 'events', 'pole', 'quarter', 'secondary', 'noPosition', 'followed', 'video', 'profiles', 'rewatch']
 
 /** Retire une pastille (clé de recipeChips). */
 export function removeChip(r: Recipe, key: string): Recipe {

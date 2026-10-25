@@ -646,6 +646,7 @@ Réponds par : {"action":"…","recette":{…},"retirer":[…],"nonGere":[…]}
 - Calcul sur la sélection (« combien sont-ils ? », « quelle est leur taille moyenne ? », « l'âge moyen », « par club ») : action "ajouter", sortie nombre (avec valeur) ou tableau, sans répéter les filtres actuels.
 - Tri (« classe-les par taille », « les mieux notés d'abord ») : sortie liste avec tri.
 - Un nom de personne dit (« Lucas », « les Martin ») → population noms.
+- « à revoir », « mis à revoir » → population aRevoir : par "moi" si c'est dit (« mes à revoir », « que j'ai mis à revoir »), sinon par le staff ; evenements = où ils ont été repérés (« repérés au tournoi de… », « mis à revoir au tournoi de… ») ; periode = quand ils ont été mis à revoir ; etat a_revoir (« pas encore revus ») ou revu.
 EXEMPLES (contexte joueurs)
 Actuels ["sexe"] ; « nés en 2010 de plus d'1 m 85 » → {"action":"ajouter","recette":{"population":{"annee":2010,"tailleMin":185}},"retirer":[],"nonGere":[]}
 Actuels ["sexe","annee"] ; « quelle est la taille moyenne ? » → {"action":"ajouter","recette":{"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"retirer":[],"nonGere":[]}
@@ -654,7 +655,9 @@ Actuels ["sexe","annee"] ; « seulement les filles » → {"action":"ajouter","r
 Actuels ["annee","departements"] ; « efface tout et dis-moi la taille moyenne des joueurs » → {"action":"effacer","recette":{"sortie":{"type":"nombre","valeur":"moyenne_mesure","mesure":"Taille"}},"retirer":[],"nonGere":[]}
 Actuels ["annee"] ; « combien sont-ils par club ? » → {"action":"ajouter","recette":{"sortie":{"type":"tableau","par":"club"}},"retirer":[],"nonGere":[]}
 Actuels [] ; « les gauchers vus au moins deux fois, classés par taille » → {"action":"ajouter","recette":{"population":{"lateralite":"gaucher"},"vus":{"op":">=","n":2},"sortie":{"type":"liste","tri":"taille","ordre":"decroissant"}},"retirer":[],"nonGere":[]}
-Actuels ["postes"] ; « peu importe le poste, mais au Pôle » → {"action":"ajouter","recette":{"population":{"pole":"en_cours"}},"retirer":["postes"],"nonGere":[]}`
+Actuels ["postes"] ; « peu importe le poste, mais au Pôle » → {"action":"ajouter","recette":{"population":{"pole":"en_cours"}},"retirer":["postes"],"nonGere":[]}
+Actuels [] ; « mes à revoir du mois dernier » → {"action":"ajouter","recette":{"population":{"aRevoir":{"par":"moi","periode":"mois_dernier"}}},"retirer":[],"nonGere":[]}
+Actuels ["sexe"] ; « ceux que j'ai mis à revoir au stage de rentrée, pas encore revus » → {"action":"ajouter","recette":{"population":{"aRevoir":{"par":"moi","evenements":["stage de rentrée"],"etat":"a_revoir"}}},"retirer":[],"nonGere":[]}`
 
 // Contextes « evenements » et « groupes » : la phrase est dite sur la liste Événements ou Groupes, dont les filtres SONT une
 // recette propre à la page (description envoyée par l'appli : src/eventQuery.ts, src/groupQuery.ts). Même règle que la liste

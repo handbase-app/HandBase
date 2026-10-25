@@ -36,6 +36,8 @@ import { inform } from './Confirm'
 import { getMe, GroupMark, Icon } from './ui'
 import { DictationTextarea } from './MicButton'
 import { accord, pluralG, w, type Gender } from '../gender'
+import { pickOrigin } from '../rewatchCore'
+import { useRewatchOrigin } from '../rewatchPlace'
 
 /*
  * Repérage en tournoi (supabase/041_reperage_tournoi.sql) : bouton « vu », couverture de l'équipe d'observateurs,
@@ -231,6 +233,7 @@ export function RewatchToggle({
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const here = useRewatchOrigin()
   if (!scoutId()) return null
   const mine = rows.some((r) => isMyRewatch(r) && !r.done)
   const others = [...new Set(rows.filter((r) => !isMyRewatch(r)).map((r) => r.createdByName ?? '?'))]
@@ -241,7 +244,7 @@ export function RewatchToggle({
     setBusy(true)
     try {
       if (await myOpenRewatch(playerId)) return setOpen(true)
-      await saveRewatch({ playerId, originEventId, ...(groupId ? { groups: [groupId] } : {}) })
+      await saveRewatch({ playerId, originEventId, origin: pickOrigin({ originEventId, groupId }, here()), ...(groupId ? { groups: [groupId] } : {}) })
     } finally {
       setBusy(false)
     }
@@ -276,6 +279,8 @@ export function RewatchToggle({
  */
 export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: string; originEventId?: string; onClose: () => void }) {
   const role = useRole()
+  // D'où il est posé (liste, fiche, événement…) : lu à l'envoi ; un « à revoir » complété garde le sien.
+  const here = useRewatchOrigin()
   const data = useLiveQuery(async () => {
     await loadTeams()
     const todayIso = new Date().toLocaleDateString('sv')
@@ -341,6 +346,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
         id: existing?.id,
         playerId,
         originEventId: existing ? existing.originEventId : originEventId,
+        origin: existing ? existing.origin : pickOrigin({ originEventId }, here()),
         events: pickedEvents.length ? pickedEvents : undefined,
         groups: gids.length ? gids : undefined,
         note: text.trim() || undefined,

@@ -20,6 +20,7 @@ import { spyTarget } from '../spy'
 import { keepPlayerTab } from '../tabQuery'
 import { accord, pluralG, w } from '../gender'
 import { useListMeasures, usePlainPreview, usePlayersByName } from '../playersCache'
+import { RewatchPlace } from '../rewatchPlace'
 
 // Dernière valeur de chaque critère factuel, par joueur (src/playersOrder.ts ; importée d'ici par d'autres écrans).
 export { latestByPlayer } from '../playersOrder'
@@ -58,7 +59,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender, plain, sex } = usePlayersQuery(players, { display: true, count: true }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre), le nombre de joueurs collé devant
+  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender, plain, sex, rewatchOrigin } = usePlayersQuery(players, { display: true, count: true }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre), le nombre de joueurs collé devant
   // Premier passage (rien en mémoire) : les premières fiches tout de suite, lues par l'index, le temps que toute la base se lise
   // (liste sans filtre seulement ; un filtre posé ou tapé s'applique dès que tout est lu). Ni « Afficher plus » ni sélection
   // pendant ce temps (« Tout » coche toute la liste filtrée).
@@ -226,8 +227,9 @@ export default function Players() {
         // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
         // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
         // Nombre de joueurs dans la barre « Afficher », collée en haut : visible pendant tout le défilement.
+        // « À revoir » posé d'ici (horloge, menu, sélection) : il garde le filtre de la liste (src/rewatchPlace.tsx).
         <div aria-busy={calculating || undefined} className={calculating ? 'wait-busy' : undefined}>
-          {list}
+          <RewatchPlace get={rewatchOrigin}>{list}</RewatchPlace>
         </div>
       )}
       </div>
