@@ -136,9 +136,13 @@ export function useIncomingAsk(page: AskPage | null, handler: (a: AskApply) => v
       incoming = null
       h.current(a)
     }
-    take()
+    // Prise au tour suivant, pas pendant le montage : une page montée deux fois de suite (mode strict en développement, ou
+    // remontée pendant son chargement) ne prend la demande qu'une fois montée pour de bon. Avant, la première prise lançait
+    // la question, le démontage l'annulait (bilan : la carte s'ouvrait sans réponse) et la demande était déjà consommée.
+    const t = window.setTimeout(take, 0)
     askListeners.add(take)
     return () => {
+      window.clearTimeout(t)
       askListeners.delete(take)
     }
   }, [page])

@@ -8,7 +8,7 @@ import { buildQuestionSchema, questionHint } from '../recipe'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { useWait, WaitLine } from './Attente'
 import { Icon } from './ui'
-import { Demander, recordAsk, useIncomingAsk } from './Demander'
+import { Demander, postAsk, recordAsk, useIncomingAsk } from './Demander'
 import { appName } from '../appBrand'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
@@ -50,9 +50,18 @@ export function AskQuestion({
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const abort = useRef<AbortController | null>(null)
+  // Question venue de l'en-tête, en cours : rendue à la page si celle-ci se démonte avant la réponse (bilan remonté pendant
+  // son chargement), pour que la prochaine barre montée la pose au lieu de la perdre.
+  const fromHeader = useRef('')
   // Description de la recette : postes, catégories, critères d'avis et mesures (réglages), date du jour.
   const criteria = useLiveQuery(() => db.criteria.toArray(), [], [])
-  useEffect(() => () => abort.current?.abort(), [])
+  useEffect(
+    () => () => {
+      if (abort.current && fromHeader.current) postAsk({ page: 'bilan', phrase: fromHeader.current })
+      abort.current?.abort()
+    },
+    [],
+  )
 
   async function ask(phrase: string) {
     // Dictée relue comme une question (« vœu » → « Var ») : src/questionRescue.ts.
@@ -80,7 +89,7 @@ export function AskQuestion({
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
     } finally {
-      if (abort.current === ctrl) abort.current = null
+      if (abort.current === ctrl) (abort.current = null), (fromHeader.current = '')
       setBusy('')
     }
   }
@@ -90,7 +99,10 @@ export function AskQuestion({
   // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête. Toutes les variantes
   // la reçoivent (la première prête la prend, une seule fois) : sur téléphone, le bilan n'a souvent que le micro (« mic »),
   // le champ « text » n'existant que panneau ouvert — avant, la question arrivait sur la carte sans être posée.
-  useIncomingAsk(questionReady ? 'bilan' : null, (a) => void ask(a.phrase))
+  useIncomingAsk(questionReady ? 'bilan' : null, (a) => {
+    fromHeader.current = a.phrase
+    void ask(a.phrase)
+  })
   if (!questionReady) return null
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy
