@@ -172,9 +172,13 @@ export const isPhone = () => {
 // Les événements du menu (rendu dans le document, hors de la ligne) ne remontent pas jusqu'aux gestionnaires de la liste.
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
-/** Le menu : en-tête (nom de l'élément, précision), puis les actions. */
-export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: MenuAnchor; title: ReactNode; subtitle?: ReactNode; items: MenuItem[]; onClose: () => void }) {
-  const [sheet] = useState(isPhone)
+/**
+ * Le menu : en-tête (nom de l'élément, précision), puis les actions. `pop` : petite fenêtre accrochée au bouton même sur
+ * téléphone (pas de feuille du bas), avec des lignes à la taille du doigt — menu du profil (src/components/ProfileMenu.tsx).
+ */
+export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false }: { anchor: MenuAnchor; title: ReactNode; subtitle?: ReactNode; items: MenuItem[]; onClose: () => void; pop?: boolean }) {
+  const [phone] = useState(isPhone)
+  const sheet = phone && !pop
   const box = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const openedAt = useRef(0)
@@ -237,7 +241,7 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: 
     it.onSelect()
   }
 
-  const itemCls = sheet ? 'min-h-11 gap-3 px-4 text-sm' : 'min-h-9 gap-2.5 px-3 text-[13px]'
+  const itemCls = phone ? 'min-h-11 gap-3 px-4 text-sm' : 'min-h-9 gap-2.5 px-3 text-[13px]'
   return createPortal(
     <div
       className="fixed inset-0 z-50"
@@ -248,7 +252,7 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: 
       onKeyDown={stop}
       onContextMenu={(e) => (e.preventDefault(), stop(e))}
     >
-      <div className={`absolute inset-0 ${sheet ? 'bg-black/55' : ''}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
+      <div className={`absolute inset-0 ${sheet ? 'bg-black/55' : phone ? 'bg-black/25' : ''}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
       <div
         ref={box}
         role="menu"
@@ -259,7 +263,7 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose }: { anchor: 
         className={
           sheet
             ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
-            : 'fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel py-1 shadow-2xl'
+            : 'ask-pop fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel py-1 shadow-2xl'
         }
       >
         {sheet && <div className="mx-auto mt-2 mb-1 h-1 w-10 shrink-0 rounded-full bg-line" aria-hidden />}

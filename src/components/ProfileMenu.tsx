@@ -54,12 +54,13 @@ export function ProfileButton() {
   const sync = useSyncInfo()
   const nav = useNavigate()
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
-  // Téléphone : feuille du bas, que le geste Retour referme sans quitter la page (src/backNav.tsx, useBackCloses).
-  const [sheet, setSheet] = useState(false)
-  useBackCloses(() => setAnchor(null), !!anchor && sheet)
+  // Téléphone aussi : petite fenêtre sous les initiales (pas de feuille du bas, jugée trop lente : Geoffroy, 25/10), que le
+  // geste Retour referme sans quitter la page (src/backNav.tsx, useBackCloses).
+  const [phone, setPhone] = useState(false)
+  useBackCloses(() => setAnchor(null), !!anchor && phone)
 
   const open = (a: MenuAnchor) => {
-    setSheet(isPhone())
+    setPhone(isPhone())
     setAnchor(a)
   }
   /**
@@ -115,7 +116,7 @@ export function ProfileButton() {
         {name ? <span aria-hidden>{initials(name)}</span> : <Icon name="user" className="h-4 w-4 text-muted" />}
         <span className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${sync.dot}`} aria-hidden />
       </button>
-      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} />}
+      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} pop />}
     </>
   )
 }
