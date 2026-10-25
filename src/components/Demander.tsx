@@ -53,8 +53,9 @@ import { Icon, playerName } from './ui'
  *  - PLACEMENTS : sur les listes Joueurs, Événements, Groupes et au bilan (PlayersQuery.tsx, ListQuery.tsx,
  *    AskQuestion.tsx), le champ de la page EST ce composant (même comportement qu'avant pour la phrase : recherche locale
  *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : un bouton en capsule « Nextar » (le mot du
- *    logo, le X en étoile filante ; aux couleurs du thème ; nom accessible « Demander : … », bulle d'aide « Demander · / »),
- *    au milieu de l'en-tête sur toutes les pages (AskButton, src/App.tsx). Raccourci « / » hors d'un champ.
+ *    logo, le X en étoile filante ; aux couleurs du thème ; nom accessible « Demander : … », bulle d'aide
+ *    « Demander à Nextar (touche /) » ; liseré menthe ; pastille micro au bout si la dictée est disponible), au milieu de l'en-tête sur toutes les pages
+ *    (AskButton, src/App.tsx). Raccourci « / » hors d'un champ.
  *  - LE BOUTON : il ouvre TOUJOURS la PALETTE (sur téléphone aussi depuis le 25/10, fond flouté) : ordinateur = fenêtre accrochée
  *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
  *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé et flouté. Le retour du
@@ -807,6 +808,8 @@ export function useKeyboardInset(on: boolean) {
  *  - Page qui a sa barre « Demander » (listes, bilan) : le curseur va dans cette barre, son menu s'ouvre.
  *  - Ailleurs : la palette, une fenêtre flottante sous la bulle (téléphone : une marge de chaque côté, fond voilé, geste Retour).
  *  - Téléphone, appui long (dictée disponible) : on parle tout de suite, relâcher envoie la phrase.
+ *  - Pastille micro au bout de la capsule (dictée disponible seulement) : un toucher (ou un clic) lance la même dictée,
+ *    un second toucher l'envoie ; pendant l'enregistrement, la capsule pulse en rouge et la pastille montre un carré.
  *  - `rail` (téléphone couché, plus d'en-tête : src/App.tsx) : en haut du menu de gauche, le pictogramme de l'appli (le X et
  *    l'étoile filante, l'étoile tourne pendant une demande) ; même toucher, même appui long ; la fenêtre s'ouvre à droite
  *    du menu, sur le fond voilé et flouté du téléphone.
@@ -814,8 +817,8 @@ export function useKeyboardInset(on: boolean) {
 export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   const brand = useAppBrand()
   const nextar = brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase()
-  // Nom du sport de l'installation (« Handball », « Volley »), écrit en menthe après le mot « Nextar » de la capsule,
-  // comme sous le logo de l'icône (tools/icones-sport.py).
+  // Nom du sport de l'installation (« Handball », « Volley ») : dit aux lecteurs d'écran après « Nextar » (plus écrit dans
+  // la capsule ; il reste sous le logo de l'icône, tools/icones-sport.py).
   const { sportName } = useSportConfig()
   const nav = useNavigate()
   const loc = useLocation()
@@ -826,12 +829,14 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   const [phone, setPhone] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const btn = useRef<HTMLButtonElement>(null)
+  /** La capsule entière (bouton + pastille micro) : la palette se centre dessous, un clic dedans ne la ferme pas. */
+  const cap = useRef<HTMLDivElement>(null)
   const dialog = useRef<HTMLDivElement>(null)
   const kb = useKeyboardInset(open && phone)
   // Ordinateur : la palette s'accroche sous la bulle (bord gauche aligné, 8 px dessous), sans sortir de l'écran.
   const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null)
   const measure = () => {
-    const b = btn.current?.getBoundingClientRect()
+    const b = (cap.current ?? btn.current)?.getBoundingClientRect()
     if (!b) return null
     // Téléphone couché : à droite du menu de gauche, en haut de l'écran (le bouton est en haut du menu).
     if (rail) {
@@ -879,7 +884,7 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
     if (!open || phone) return
     const down = (e: PointerEvent) => {
       const t = e.target as Node
-      if (dialog.current?.contains(t) || btn.current?.contains(t)) return
+      if (dialog.current?.contains(t) || btn.current?.contains(t) || cap.current?.contains(t)) return
       closeRef.current()
     }
     const resize = () => setPlace(measure())
@@ -1048,8 +1053,9 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
           aria-busy={sending || !!flight || undefined}
           aria-haspopup="dialog"
           aria-expanded={open}
+          aria-keyshortcuts="/"
           ref={btn}
-          title={`Demander (${brand.name}) · /`}
+          title={`Demander à ${brand.name} (touche /)`}
           className={`flex h-11 w-11 shrink-0 touch-none items-center justify-center rounded-xl transition select-none [-webkit-touch-callout:none] ${
             rec ? 'animate-pulse bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : open ? 'ring-2 ring-ai' : 'hover:brightness-110 active:scale-95'
           }`}
@@ -1065,45 +1071,77 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
       </>
     )
 
+  // Pastille micro au bout de la capsule : seulement si la dictée est disponible (mêmes conditions que l'appui long et le
+  // micro de la palette : rôle, serveur, enregistreur, accès, réglage de l'appareil).
+  const dictable = questionReady
   return (
     <>
-      <button
-        type="button"
+      {/* Capsule « Nextar » (le mot dessiné) aux couleurs du thème, liseré menthe (.ask-capsule, src/index.css) ; deux boutons côte à
+          côte (pas de bouton dans un bouton) : la capsule ouvre « Demander », la pastille micro dicte. */}
+      <div
+        ref={cap}
         data-noswipe
-        aria-label={label}
-        aria-busy={sending || !!flight || undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        ref={btn}
-        title="Demander · /"
-        // Capsule « Nextar Handball » (le mot dessiné, puis le sport en menthe) aux couleurs du thème (.ask-capsule,
-        // src/index.css) ; ordinateur : « · Demander » et la touche « / ».
-        className={`flex h-[38px] max-w-[60vw] shrink-0 touch-none items-center gap-1.5 rounded-full px-4 text-[15px] leading-none font-bold transition select-none [-webkit-touch-callout:none] ${
-          rec ? 'animate-pulse bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110 active:brightness-95'
+        className={`flex h-[38px] max-w-[60vw] shrink-0 items-center rounded-full text-[15px] leading-none font-bold transition ${
+          rec ? 'animate-pulse border-[1.5px] border-transparent bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110'
         }`}
         style={{ fontFamily: BRAND_FONT }}
-        {...press}
       >
-        {/* Le logo Nextar (le X en étoile filante) suivi du sport ; une autre appli (nom réglé par l'administrateur) : étoile +
-            son nom. */}
-        {nextar ? (
-          <>
+        <button
+          type="button"
+          aria-label={`${nextar ? `${brand.name} ${sportName}` : brand.name}. ${label}`}
+          aria-busy={sending || !!flight || undefined}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-keyshortcuts="/"
+          ref={btn}
+          title={`Demander à ${brand.name} (touche /)`}
+          className={`flex h-full min-w-0 flex-1 touch-none items-center gap-1.5 rounded-full pl-4 select-none [-webkit-touch-callout:none] active:brightness-95 ${dictable ? 'pr-1' : 'pr-4'}`}
+          {...press}
+        >
+          {/* Le logo Nextar (le X en étoile filante), seul : le sport n'est plus écrit (choix de Geoffroy, 25/10 ; il reste sur
+              l'icône, l'écran d'ouverture et la connexion, et dans le nom accessible « Nextar Handball. Demander : … »). Une
+              autre appli (nom réglé par l'administrateur) : étoile + son nom. */}
+          {nextar ? (
             <NextarWordmark className="h-[23px]" spin={sending || !!flight} />
-            <span className="ask-sport truncate">{sportName}</span>
-          </>
-        ) : (
-          <>
-            <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
-              <NextarStar className="h-[15px] w-[15px]" />
-            </span>
-            <span className="truncate">{brand.name}</span>
-          </>
+          ) : (
+            <>
+              <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+                <NextarStar className="h-[15px] w-[15px]" />
+              </span>
+              <span className="truncate">{brand.name}</span>
+            </>
+          )}
+        </button>
+        {dictable && (
+          // Un toucher : la dictée commence tout de suite (le même micro que l'appui long), un autre toucher (ici ou sur la
+          // capsule) l'envoie ; maintenir : on parle tant qu'on appuie. La phrase dite est relue comme une demande tapée.
+          <button
+            type="button"
+            aria-label={rec ? 'Finir la dictée et envoyer' : sending ? 'Transcription en cours' : 'Dicter une question'}
+            aria-pressed={rec}
+            title={mic.error || (rec ? 'Finir la dictée : la phrase est envoyée' : sending ? 'J’écris ce que vous avez dit…' : 'Dicter une question (touchez pour commencer, touchez pour finir)')}
+            disabled={sending}
+            className={`ask-mic mr-2 ml-0 flex h-6 w-6 shrink-0 touch-none items-center justify-center rounded-full transition select-none [-webkit-touch-callout:none] hover:brightness-110 active:scale-95 ${rec ? 'ask-mic-rec' : ''}`}
+            {...mic.buttonProps}
+            onPointerDown={(e) => {
+              // Palette ouverte : elle se ferme, la dictée de la capsule prend la main.
+              if (open && e.button === 0) closePalette()
+              mic.buttonProps.onPointerDown(e)
+            }}
+          >
+            {sending ? (
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+            ) : rec ? (
+              <span className="h-2.5 w-2.5 rounded-[2px] bg-current" aria-hidden />
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+              </svg>
+            )}
+          </button>
         )}
-        {nextar && <span className="sr-only">{brand.name}</span>}
-        <span className="ask-hint hidden items-center gap-1.5 font-normal side:inline-flex" aria-hidden>
-          · Demander <kbd className="rounded border px-1 text-[11px] leading-[16px] font-normal">/</kbd>
-        </span>
-      </button>
+      </div>
       {palette}
     </>
   )

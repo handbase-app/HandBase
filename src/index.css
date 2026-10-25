@@ -193,17 +193,29 @@ body {
 /* Salle (identifiant « sombre ») : tuile active comme un tableau de score, sans voile jaune (qui virait à l'olive). */
 :root[data-style="sombre"] .emph-band .card[aria-selected="true"] { background-color: var(--emph-bg2); }
 
-/* Bouton « Nextar Handball » de l'en-tête (src/components/Demander.tsx, AskButton) : couleurs tirées du thème.
-   Sombre : un cran plus clair que le fond, liseré ; clair : couleur du texte du thème, écriture claire ; en-tête coloré :
-   blanc translucide. L'étoile garde la menthe du logo. */
-.ask-capsule { background: var(--color-panel-2); color: var(--color-fg); border: 1px solid var(--color-line); }
-:root[data-light] .ask-capsule { background: var(--color-fg); color: var(--color-panel); border-color: transparent; }
-:root[data-header] .app-header .ask-capsule { background: rgb(255 255 255 / 0.16); color: var(--header-fg); border-color: rgb(255 255 255 / 0.28); }
+/* Bouton « Nextar » de l'en-tête (src/components/Demander.tsx, AskButton) : couleurs tirées du thème, liseré
+   menthe du logo (1,5 px, #89F7B3 → #61D0D1) et léger halo. Le fond (--ask-bg) dépend du thème : sombre, un cran plus
+   clair que le fond ; clair, la couleur du texte du thème (écriture claire) ; en-tête coloré, blanc translucide posé sur
+   le fond de l'en-tête (--ask-under, opaque : le dégradé du liseré ne transparaît pas). L'étoile garde la menthe du logo.
+   Pendant la dictée, la capsule passe au rouge (classes de Demander.tsx, sans .ask-capsule ni liseré). */
+.ask-capsule {
+  --ask-bg: var(--color-panel-2);
+  --ask-under: var(--ask-bg);
+  color: var(--color-fg);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--ask-bg), var(--ask-bg)) padding-box,
+    linear-gradient(var(--ask-under), var(--ask-under)) padding-box,
+    linear-gradient(120deg, #89f7b3, #61d0d1) border-box;
+  box-shadow: 0 0 0 4px rgb(137 247 179 / 0.13), 0 0 20px rgb(97 208 209 / 0.38);
+}
+:root[data-light] .ask-capsule { --ask-bg: var(--color-fg); color: var(--color-panel); }
+:root[data-header] .app-header .ask-capsule { --ask-bg: rgb(255 255 255 / 0.16); --ask-under: var(--header-bg); color: var(--header-fg); }
 .ask-capsule .ask-star { color: #88f5b7; }
-/* Sport après le mot « Nextar » (« Handball », « Volley ») : la menthe du logo, comme sous l'icône. */
-.ask-capsule .ask-sport { color: #89f7b3; }
-.ask-capsule .ask-hint { opacity: 0.72; }
-.ask-capsule kbd { border-color: currentColor; }
+/* Pastille micro au bout de la capsule (dictée disponible) : ronde, dégradé menthe, micro marine ; pendant la dictée,
+   blanche avec un carré rouge (arrêter). */
+.ask-mic { background: linear-gradient(120deg, #89f7b3, #61d0d1); color: #0a182d; }
+.ask-mic.ask-mic-rec { background: #fff; color: #dc2626; }
 
 /* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
    d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */
