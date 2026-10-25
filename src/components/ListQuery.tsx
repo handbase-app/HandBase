@@ -35,7 +35,8 @@ import type { AskPage } from '../demander'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
-import { CountText, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
+import { chipCount, CountText, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
+import { BarActionsSlot } from './PageHeader'
 
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
@@ -252,8 +253,11 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   }
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
-  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google), avec le nombre de filtres posés.
-  const filtersButton = <FiltersButton w={fw} n={listFilterCount(spec, qy)} />
+  // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google), avec le nombre de filtres posés ;
+  // devant, collé, le nombre d'éléments de la liste filtrée (« 7 sur 52 · Filtres ▾ »).
+  const filtersButton = (
+    <FiltersButton w={fw} n={listFilterCount(spec, qy)} count={chipCount(filtered.length, items?.length ?? 0, (n) => o.noun[n > 1 ? 1 : 0], { loading: !items || !ctx })} />
+  )
   const field = (
     <Demander
       page={askPage}
@@ -341,7 +345,10 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   // Barre « Demander », pastilles et filtres : largeur maximale, centrés (façon Google) sur grand écran.
   const ui = (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-      <div className="flex gap-2">{field}</div>
+      <div className="flex items-center gap-2">
+        {field}
+        <BarActionsSlot />
+      </div>
       {status}
       {chips}
       <FilterWindow

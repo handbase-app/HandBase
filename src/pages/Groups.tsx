@@ -44,7 +44,7 @@ import { CompareBar, CompareToggle, PickBox, useComparePick } from '../component
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
-import { PageHeader } from '../components/PageHeader'
+import { BarActions, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { choose } from '../components/Confirm'
@@ -153,11 +153,19 @@ export default function Groups() {
           {STAFF.add}
         </button>
       )
-    : can.manageGroups(role) && (
+    : // Groupes de joueurs : « Nouveau groupe » dans le « ⋯ » de la barre « Demander » ; liste vide (pas de barre) : le bouton.
+      can.manageGroups(role) &&
+      !groups.length && (
         <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
           + Groupe
         </button>
       )
+  const actions = can.manageGroups(role) && (
+    <MoreActions
+      title="Groupes"
+      items={[{ label: 'Nouveau groupe', icon: 'users', onSelect: () => setNewGroup({ playerIds: [], fromUrl: false }) }]}
+    />
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -183,7 +191,11 @@ export default function Groups() {
         <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
       ) : (
         <>
-      {groups.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
+      {groups.length > 0 && (
+        <StickyQuery>
+          <BarActions actions={actions}>{filterUi}</BarActions>
+        </StickyQuery>
+      )}
       {filterTop}
       {!active.length && filtering && (
         // « Archivés » est replié au départ : on dit où sont les groupes qui répondent.

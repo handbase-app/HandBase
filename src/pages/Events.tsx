@@ -28,7 +28,7 @@ import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { RosterChip, RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
-import { MoreActions, PageHeader } from '../components/PageHeader'
+import { BarActions, MoreActions, PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
@@ -130,9 +130,6 @@ export default function Events() {
   const [fromSheet, setFromSheet] = useState(false)
   const sheets = useSportHas('feuilleMatchFFHB')
   const nav = useNavigate()
-  // Ordinateur, événement ouvert à droite : son bouton « Évaluer » est le seul bouton principal de l'écran ;
-  // « + Événement » passe en secondaire.
-  const detailOpen = !!useSelected('/evenements')
   // Tout afficher (passés) : retrouvé au retour (pendant la session), comme les filtres.
   const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
@@ -140,6 +137,18 @@ export default function Events() {
   const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
 
   if (!events || !allEvents) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  const canCreate = !creating && can.manageEvents(role)
+  // Toutes les actions de la liste dans « ⋯ » (la création d'abord) ; la feuille de match FFHB (PDF, handball seulement :
+  // src/sportConfig.ts, sportHas) ensuite.
+  const actions = canCreate && (
+    <MoreActions
+      title="Événements"
+      items={[
+        { label: 'Nouvel événement', icon: 'plus', hint: 'Match, tournoi, journée de sélection…', onSelect: () => setCreating({}) },
+        sheets && { label: 'Feuille de match (PDF)', icon: 'list', hint: 'Nouveau match depuis la feuille FFHB', onSelect: () => setFromSheet(true) },
+      ]}
+    />
+  )
   const orgOf = (ev: HBEvent) => organizerLabel(ev, units)
   const hiddenByTerritory = allEvents.length - events.length
 
@@ -151,22 +160,14 @@ export default function Events() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Téléphone étroit : les boutons passent sous le titre plutôt que d'être coupés à droite. */}
+      {/* Le titre seul ; les actions (« ⋯ » : Nouvel événement, Depuis une feuille de match) sont au bout de la barre
+          « Demander ». Liste vide (pas de barre) : le bouton de création reste à côté du titre. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-extrabold">Événements</h1>
-        {!creating && can.manageEvents(role) && (
-          <div className="flex gap-2">
-            {/* Une seule action en couleur ; la feuille de match FFHB (PDF, handball seulement : src/sportConfig.ts, sportHas)
-                dans « ⋯ ». */}
-            <MoreActions
-              title="Événements"
-              label="Autres façons de créer un événement"
-              items={[sheets && { label: 'Depuis une feuille de match', icon: 'list', hint: 'Nouveau match depuis le PDF FFHB', onSelect: () => setFromSheet(true) }]}
-            />
-            <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating({})}>
-              + Événement
-            </button>
-          </div>
+        {events.length === 0 && canCreate && (
+          <button className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap" onClick={() => setCreating({})}>
+            + Événement
+          </button>
         )}
       </div>
       {fromSheet && (
@@ -218,7 +219,11 @@ export default function Events() {
           )}
         </div>
       )}
-      {events.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
+      {events.length > 0 && (
+        <StickyQuery>
+          <BarActions actions={actions}>{filterUi}</BarActions>
+        </StickyQuery>
+      )}
       {filterTop}
       {searching ? (
         <>
