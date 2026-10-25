@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BRAND_FONT, NextarStar, NextarWordmark } from './Brand'
+import { AppMark, BRAND_FONT, NextarPictogram, NextarStar, NextarWordmark } from './Brand'
 import { DEFAULT_APP_NAME } from '../appBrandCore'
 import { useAppBrand } from '../appBrand'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
@@ -751,8 +751,11 @@ export function useKeyboardInset(on: boolean) {
  *  - Page qui a sa barre « Demander » (listes, bilan) : le curseur va dans cette barre, son menu s'ouvre.
  *  - Ailleurs : la palette, une fenêtre flottante sous la bulle (téléphone : une marge de chaque côté, fond voilé, geste Retour).
  *  - Téléphone, appui long (dictée disponible) : on parle tout de suite, relâcher envoie la phrase.
+ *  - `rail` (téléphone couché, plus d'en-tête : src/App.tsx) : en haut du menu de gauche, le pictogramme de l'appli (le X et
+ *    l'étoile filante, l'étoile tourne pendant une demande) ; même toucher, même appui long ; la fenêtre s'ouvre à droite
+ *    du menu, sur le fond voilé et flouté du téléphone.
  */
-export function AskButton() {
+export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   const brand = useAppBrand()
   const nav = useNavigate()
   const loc = useLocation()
@@ -770,6 +773,11 @@ export function AskButton() {
   const measure = () => {
     const b = btn.current?.getBoundingClientRect()
     if (!b) return null
+    // Téléphone couché : à droite du menu de gauche, en haut de l'écran (le bouton est en haut du menu).
+    if (rail) {
+      const left = Math.round(b.right + 8)
+      return { left, top: Math.max(8, Math.round(b.top)), width: Math.min(520, window.innerWidth - left - 12) }
+    }
     const width = Math.min(520, window.innerWidth - 16)
     // Centrée sous la bulle (au milieu de l'en-tête), sans sortir de l'écran.
     return { left: Math.round(Math.max(8, Math.min(b.left + b.width / 2 - width / 2, window.innerWidth - width - 8))), top: Math.round(b.bottom + 8), width }
@@ -777,7 +785,7 @@ export function AskButton() {
 
   const openPalette = () => {
     if (open) return input.current?.focus()
-    const ph = isPhone()
+    const ph = isPhone() || rail
     // Rendu tout de suite, pour donner le focus dans le même geste (le clavier du téléphone s'ouvre).
     flushSync(() => {
       setPhone(ph)
@@ -943,8 +951,9 @@ export function AskButton() {
               role="dialog"
               aria-modal="true"
               aria-label="Demander"
-              className="ask-pop absolute inset-x-3 flex flex-col overflow-y-auto overscroll-contain rounded-win border border-ai/40 bg-panel p-3 shadow-2xl"
+              className={`ask-pop absolute flex flex-col overflow-y-auto overscroll-contain rounded-win border border-ai/40 bg-panel p-3 shadow-2xl ${rail && place ? '' : 'inset-x-3'}`}
               style={{
+                ...(rail && place ? { left: place.left, width: place.width } : {}),
                 top: place?.top ?? 64,
                 maxHeight: Math.max(160, (kb.height || window.innerHeight) - (place?.top ?? 64) - 12),
               }}
@@ -967,12 +976,41 @@ export function AskButton() {
         document.body,
       )
 
+  const label = rec ? 'Demander à la voix : relâchez pour envoyer' : sending || flight ? 'Demander : je cherche…' : 'Demander : un nom, une question, une action'
+  if (rail)
+    return (
+      <>
+        {/* Téléphone couché : le pictogramme de l'appli en haut du menu de gauche (même toucher, même appui long). */}
+        <button
+          type="button"
+          data-noswipe
+          aria-label={label}
+          aria-busy={sending || !!flight || undefined}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          ref={btn}
+          title={`Demander (${brand.name}) · /`}
+          className={`flex h-11 w-11 shrink-0 touch-none items-center justify-center rounded-xl transition select-none [-webkit-touch-callout:none] ${
+            rec ? 'animate-pulse bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : open ? 'ring-2 ring-ai' : 'hover:brightness-110 active:scale-95'
+          }`}
+          {...press}
+        >
+          {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? (
+            <NextarPictogram className="h-9 w-9" spin={sending || !!flight} />
+          ) : (
+            <AppMark className={`h-9 w-9 rounded-lg ${sending || flight ? 'animate-pulse' : ''}`} />
+          )}
+        </button>
+        {palette}
+      </>
+    )
+
   return (
     <>
       <button
         type="button"
         data-noswipe
-        aria-label={rec ? 'Demander à la voix : relâchez pour envoyer' : sending || flight ? 'Demander : je cherche…' : 'Demander : un nom, une question, une action'}
+        aria-label={label}
         aria-busy={sending || !!flight || undefined}
         aria-haspopup="dialog"
         aria-expanded={open}

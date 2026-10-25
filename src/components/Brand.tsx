@@ -81,3 +81,43 @@ export function NextarWordmark({ className = 'h-5', spin = false }: { className?
     </svg>
   )
 }
+
+/**
+ * Pictogramme Nextar en ligne (public/brand/nextar-pictogramme.svg : X et étoile filante sur le carré bleu nuit) : bouton
+ * « Demander » du menu de gauche sur téléphone couché (AskButton, src/components/Demander.tsx). `spin` : l'étoile tourne
+ * (demande en cours), le carré reste immobile.
+ */
+export function NextarPictogram({ className = 'h-9 w-9', spin = false }: { className?: string; spin?: boolean }) {
+  const id = useId().replace(/:/g, '')
+  return (
+    <svg viewBox="0 0 512 512" className={`shrink-0 ${className}`} aria-hidden>
+      <defs>
+        <linearGradient id={`b${id}`} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stopColor="#0A182D" />
+          <stop offset="1" stopColor="#1A3C46" />
+        </linearGradient>
+        <linearGradient id={`c${id}`} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stopColor="#61D0D1" stopOpacity="0" />
+          <stop offset="0.6" stopColor="#61D0D1" stopOpacity="0.85" />
+          <stop offset="1" stopColor="#89F7B3" />
+        </linearGradient>
+        <linearGradient id={`s${id}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#89F7B3" />
+          <stop offset="1" stopColor="#61D0D1" />
+        </linearGradient>
+      </defs>
+      <rect width="512" height="512" rx="72" fill={`url(#b${id})`} />
+      <path d="M129.0,161.0 h69.0 L359.0,391.0 h-69.0 Z" fill="#F9F9FA" />
+      <path d="M134.75,388.12 L358.07,193.10 A30.19,30.19 0 0 0 313.93,151.90 L134.75,388.12Z" fill={`url(#c${id})`} />
+      <path
+        className={spin ? 'wait-spin' : undefined}
+        style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+        d="M407.71,131.10 L351.49,137.70 L318.78,91.51 L307.70,147.01 L253.65,163.85 L303.01,191.54 L302.32,248.14 L343.92,209.76 L397.53,227.90 L373.88,176.48Z"
+        fill={`url(#s${id})`}
+        stroke={`url(#s${id})`}
+        strokeWidth="6.9"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

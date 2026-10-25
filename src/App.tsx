@@ -116,6 +116,20 @@ const NAV_PLAYER = [
   { to: '/parametres', label: 'Réglages', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V4h-4v3l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v3h4v-3l2-1 2 1 2-4z' },
 ]
 
+/** Téléphone couché trop bas pour l'étoile et la cible dans le menu de gauche : elles passent dans le menu de la bulle de profil. */
+const RAIL_SHORT = '(orientation: landscape) and (max-height: 379px)'
+
+/**
+ * Version d'essai ou démonstration, téléphone couché (plus de bande orange : plus d'en-tête) : un petit repère orange en
+ * haut du menu de gauche, qui garde le texte en bulle d'aide et pour les lecteurs d'écran.
+ */
+function TrialMark() {
+  if (!TRIAL) return null
+  return (
+    <span role="note" aria-label={TRIAL_LABEL} title={TRIAL_LABEL} className="mx-auto mb-1.5 block h-1.5 w-7 shrink-0 rounded-full bg-amber-500" />
+  )
+}
+
 /** Lien du menu qui vérifie d'abord qu'aucune saisie en cours ne sera perdue. */
 function GuardedLink(props: NavLinkProps & { to: string }) {
   const navigate = useNavigate()
@@ -235,6 +249,21 @@ export default function App() {
   useThemeVersion()
   const header = useHeaderHeight()
   const role = useRole()
+  // Téléphone couché : plus d'en-tête ; « Demander » en haut du menu de gauche, suivis, cible et profil en bas.
+  const rail = useMedia(MQ.rail)
+  const railShort = useMedia(RAIL_SHORT)
+  const navigate = useNavigate()
+  const goGuarded = (to: string) => async () => {
+    if (await canLeave()) navigate(to)
+  }
+  // Trop peu de hauteur : l'étoile et la cible deviennent des entrées du menu de profil (nouveautés en pastille sur la bulle).
+  const railExtra =
+    rail && railShort && !player
+      ? [
+          { label: followNews ? `Mes suivis · ${followNews} nouveauté${followNews > 1 ? 's' : ''}` : 'Mes suivis', icon: 'star' as const, onSelect: goGuarded('/suivis') },
+          { label: alerts ? `Profils recherchés · ${alerts}` : 'Profils recherchés', icon: 'target' as const, onSelect: goGuarded('/alertes') },
+        ]
+      : []
   // Compte joueur : sa navigation à lui ; staff : le Bilan seulement pour qui a le droit de le voir.
   const nav = player ? NAV_PLAYER : NAV.filter((n) => n.to !== '/bilan' || can.viewCoverage(role))
   return (
@@ -243,12 +272,13 @@ export default function App() {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
       <header
         ref={header}
-        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:py-1.5 rail:pr-[max(1rem,env(safe-area-inset-right))] side:gap-3 side:px-6"
+        // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
+        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
         {TRIAL && (
-          <div className="col-span-3 -mx-4 -mt-3 mb-0.5 bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black rail:-mt-1.5 rail:text-[9px] rail:leading-[14px] side:-mx-6">
+          <div className="col-span-3 -mx-4 -mt-3 mb-0.5 bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black side:-mx-6">
             {TRIAL_LABEL}
           </div>
         )}
@@ -258,17 +288,26 @@ export default function App() {
         {/* Plus de logo ici : le nom de l'appli est dans le bouton « ★ Nextar » du milieu (sur ordinateur, le logo reste en haut du menu). */}
         <div className="flex min-w-0 items-center" />
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
-        {player ? <span aria-hidden /> : <AskButton />}
+        {player || rail ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">
-          {!player && <FollowStar n={followNews} />}
-          {!player && <AlertBell n={alerts} />}
+          {!player && !rail && <FollowStar n={followNews} />}
+          {!player && !rail && <AlertBell n={alerts} />}
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
-          <ProfileButton />
+          {!rail && <ProfileButton />}
         </div>
-        <SyncProgressBar />
+        {!rail && <SyncProgressBar />}
         {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
-        <SpyBanner />
+        {!rail && <SpyBanner />}
       </header>
+      {/* Téléphone couché (pas d'en-tête) : barre de téléchargement et bandeau « Voir comme… » tout en haut de la page. */}
+      {rail && (
+        <div className="no-print fixed top-0 right-0 left-[var(--nav-l)] z-20">
+          <div className="relative">
+            <SyncProgressBar />
+            <SpyBanner />
+          </div>
+        </div>
+      )}
 
       <BackTracker />
       <main
@@ -352,10 +391,17 @@ export default function App() {
       {/* Onglets : barre en bas (tenu droit), fine colonne d'icônes (téléphone couché), menu à gauche (ordinateur). */}
       <nav
         aria-label="Menu principal"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur wide:top-0 wide:right-auto wide:w-[var(--nav-l)] wide:border-t-0 wide:border-r wide:pb-[env(safe-area-inset-bottom)] rail:pl-[env(safe-area-inset-left)]"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur wide:top-0 wide:right-auto wide:w-[var(--nav-l)] wide:border-t-0 wide:border-r wide:pb-[env(safe-area-inset-bottom)] rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]"
       >
         <Logo stacked className="hidden side:block side:px-5 side:pt-4 side:pb-5" />
-        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:h-full rail:justify-center rail:gap-1 side:gap-0.5 side:px-2">
+        {/* Téléphone couché : en haut, le repère « version d'essai » et le bouton « Demander » (pictogramme de l'appli). */}
+        {rail && (
+          <div className="flex shrink-0 flex-col items-center pt-2">
+            <TrialMark />
+            {!player && <AskButton rail />}
+          </div>
+        )}
+        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:min-h-0 rail:w-full rail:flex-1 rail:justify-center rail:gap-0.5 side:gap-0.5 side:px-2">
           {nav.map((n) => (
             <GuardedLink
               key={n.to}
@@ -363,7 +409,7 @@ export default function App() {
               end={n.to === '/'}
               title={n.label}
               className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold wide:flex-none rail:py-2.5 side:flex-row side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
+                `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold wide:flex-none side:flex-row side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
               }
             >
               <span className="relative">
@@ -380,6 +426,14 @@ export default function App() {
             </GuardedLink>
           ))}
         </div>
+        {/* Téléphone couché : en bas, l'étoile des suivis et la cible (si la hauteur le permet), puis la bulle de profil. */}
+        {rail && (
+          <div className="flex shrink-0 flex-col items-center gap-3.5 pt-1 pb-2.5">
+            {!player && !railShort && <FollowStar n={followNews} />}
+            {!player && !railShort && <AlertBell n={alerts} />}
+            <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts : 0} />
+          </div>
+        )}
       </nav>
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}

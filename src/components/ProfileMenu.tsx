@@ -48,7 +48,13 @@ export function initials(name: string) {
     .toUpperCase()
 }
 
-export function ProfileButton() {
+/**
+ * `rail` (téléphone couché, plus d'en-tête : src/App.tsx) : la bulle est en bas du menu de gauche, le menu s'ouvre à sa
+ * droite, son bas aligné sur celui de la bulle. `extra` : entrées ajoutées en tête du menu (« Mes suivis », « Profils
+ * recherchés » quand l'étoile et la cible n'ont pas la place dans le menu de gauche) ; `badge` : leurs nouveautés, en
+ * pastille sur la bulle.
+ */
+export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: boolean; extra?: MenuItem[]; badge?: number } = {}) {
   const [me] = useMe()
   const role = useRole()
   const sync = useSyncInfo()
@@ -60,7 +66,7 @@ export function ProfileButton() {
   useBackCloses(() => setAnchor(null), !!anchor && phone)
 
   const open = (a: MenuAnchor) => {
-    setPhone(isPhone())
+    setPhone(isPhone() || rail)
     setAnchor(a)
   }
   /**
@@ -74,9 +80,11 @@ export function ProfileButton() {
   const go = (to: string) => close(async () => (await canLeave()) && nav(to))
 
   const name = me.trim()
-  const label = `Mon compte : ${sync.text}`
+  const label = `Mon compte : ${sync.text}${badge > 0 ? ` · ${badge} nouveauté${badge > 1 ? 's' : ''}` : ''}`
   const items: MenuItem[] = [
+    ...extra.map((it) => ({ ...it, onSelect: () => close(it.onSelect), stay: true })),
     {
+      separated: extra.length > 0,
       label: sync.text,
       icon: 'sync',
       hint: sync.detail || (sync.state === 'local' ? undefined : 'Toucher pour synchroniser maintenant'),
@@ -108,13 +116,19 @@ export function ProfileButton() {
         onClick={(e) => {
           if (anchor) return close()
           const r = e.currentTarget.getBoundingClientRect()
-          open({ x: r.right, y: r.bottom, top: r.top, alignRight: true })
+          // Menu de gauche (téléphone couché) : à droite de la bulle, au-dessus de son bas (pas de place dessous).
+          open(rail ? { x: r.right + 10, y: r.top, top: r.bottom } : { x: r.right, y: r.bottom, top: r.top, alignRight: true })
         }}
         // .sync-badge : clignote une fois si l'on entre avant la fin de la synchro (src/splashScreen.ts, index.css).
         className="sync-badge relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-panel-2 text-[11px] font-extrabold tracking-wide text-fg hover:border-accent"
       >
         {name ? <span aria-hidden>{initials(name)}</span> : <Icon name="user" className="h-4 w-4 text-muted" />}
         <span className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${sync.dot}`} aria-hidden />
+        {badge > 0 && (
+          <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white" aria-hidden>
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
       </button>
       {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} pop />}
     </>
