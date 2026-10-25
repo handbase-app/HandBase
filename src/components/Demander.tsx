@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AppMark, BRAND_FONT, NextarPictogram, NextarStar, NextarWordmark } from './Brand'
 import { DEFAULT_APP_NAME } from '../appBrandCore'
 import { useAppBrand } from '../appBrand'
+import { useSportConfig } from '../installation'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -812,6 +813,10 @@ export function useKeyboardInset(on: boolean) {
  */
 export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   const brand = useAppBrand()
+  const nextar = brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase()
+  // Nom du sport de l'installation (« Handball », « Volley »), écrit en menthe après le mot « Nextar » de la capsule,
+  // comme sous le logo de l'icône (tools/icones-sport.py).
+  const { sportName } = useSportConfig()
   const nav = useNavigate()
   const loc = useLocation()
   const { questionReady } = useDictation()
@@ -1050,7 +1055,7 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
           }`}
           {...press}
         >
-          {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? (
+          {nextar ? (
             <NextarPictogram className="h-9 w-9" spin={sending || !!flight} />
           ) : (
             <AppMark className={`h-9 w-9 rounded-lg ${sending || flight ? 'animate-pulse' : ''}`} />
@@ -1071,16 +1076,21 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
         aria-expanded={open}
         ref={btn}
         title="Demander · /"
-        // Capsule « ★ Nextar » aux couleurs du thème (.ask-capsule, src/index.css) ; ordinateur : « · Demander » et la touche « / ».
+        // Capsule « Nextar Handball » (le mot dessiné, puis le sport en menthe) aux couleurs du thème (.ask-capsule,
+        // src/index.css) ; ordinateur : « · Demander » et la touche « / ».
         className={`flex h-[38px] max-w-[60vw] shrink-0 touch-none items-center gap-1.5 rounded-full px-4 text-[15px] leading-none font-bold transition select-none [-webkit-touch-callout:none] ${
           rec ? 'animate-pulse bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110 active:brightness-95'
         }`}
         style={{ fontFamily: BRAND_FONT }}
         {...press}
       >
-        {/* Le logo Nextar (le X en étoile filante) ; une autre appli (nom réglé par l'administrateur) : étoile + son nom. */}
-        {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? (
-          <NextarWordmark className="h-[23px]" spin={sending || !!flight} />
+        {/* Le logo Nextar (le X en étoile filante) suivi du sport ; une autre appli (nom réglé par l'administrateur) : étoile +
+            son nom. */}
+        {nextar ? (
+          <>
+            <NextarWordmark className="h-[23px]" spin={sending || !!flight} />
+            <span className="ask-sport truncate">{sportName}</span>
+          </>
         ) : (
           <>
             <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
@@ -1089,7 +1099,7 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
             <span className="truncate">{brand.name}</span>
           </>
         )}
-        {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() && <span className="sr-only">{brand.name}</span>}
+        {nextar && <span className="sr-only">{brand.name}</span>}
         <span className="ask-hint hidden items-center gap-1.5 font-normal side:inline-flex" aria-hidden>
           · Demander <kbd className="rounded border px-1 text-[11px] leading-[16px] font-normal">/</kbd>
         </span>

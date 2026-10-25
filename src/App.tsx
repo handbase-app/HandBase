@@ -277,7 +277,7 @@ export default function App() {
       <header
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
-        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
+        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
@@ -287,7 +287,9 @@ export default function App() {
           </div>
         )}
         {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
-            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Compte joueur : ni bulle ✦,
+            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Téléphone étroit : la
+            colonne de droite garde la place de ses boutons (max-content), la bulle « Nextar Handball » glisse un peu à gauche
+            plutôt que de passer sous l'étoile des suivis. Compte joueur : ni bulle ✦,
             ni suivis, ni cible (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
         {/* Plus de logo ici : le nom de l'appli est dans le bouton « ★ Nextar » du milieu (sur ordinateur, le logo reste en haut du menu). */}
         <div className="flex min-w-0 items-center" />
