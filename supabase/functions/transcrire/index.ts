@@ -79,8 +79,11 @@ const MAX_ACTUELS = 2_000
 const ACTIONS = ['remplacer', 'ajouter', 'retirer', 'effacer']
 const TOUS = '00000000-0000-0000-0000-000000000000'
 const ORIGINES = ['https://handbase-demo.github.io', 'https://handbase-app.github.io', 'https://volleybase-demo.github.io']
-// Essais locaux : localhost, ou le serveur de test ouvert depuis un téléphone du même Wi-Fi (http ou https, adresse 192.168.x.x).
-const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$/
+// Essais locaux : localhost, ou le serveur de test ouvert depuis un téléphone du même Wi-Fi (http ou https, adresse 192.168.x.x),
+// ou par Tailscale (adresse 100.64.x.x à 100.127.x.x, ou nom MagicDNS en .ts.net) : ces adresses ne sont joignables que depuis
+// les appareils du réseau privé.
+const LOCAL =
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d{1,3}\.\d{1,3}|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|[a-z0-9-]+\.[a-z0-9-]+\.ts\.net)(:\d+)?$/
 
 function cors(req: Request): Record<string, string> {
   const origin = req.headers.get('origin') ?? ''
