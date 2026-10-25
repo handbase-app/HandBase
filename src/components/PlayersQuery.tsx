@@ -76,7 +76,8 @@ import { detectAction } from '../askAction'
 import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { MultiPicker } from './MultiPicker'
-import { ChoicePills, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
+import { ChoicePills, chipCount, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
+import { BarActionsSlot } from './PageHeader'
 import { PictoDisplaySection } from './PictoDisplay'
 import { usePictosInFilters } from './Pictos'
 import { SegRow } from './ListQuery'
@@ -174,8 +175,10 @@ export type HostedBar = {
 /**
  * `display` : la liste règle ses pictogrammes dans la fenêtre « Filtres » sur téléphone (section « Affichage »,
  * src/components/PictoDisplay.tsx ; PlayerList `pictosInFilters`).
+ * `count` : le nombre de joueurs de la liste filtrée collé devant « Filtres », dans la barre (« 7 sur 40 001 · Filtres ▾ »).
+ * Actions de la page (« ⋯ ») : BarActions (src/components/PageHeader.tsx) autour de `ui`, posées à droite de la pilule.
  */
-export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar; display?: boolean }) {
+export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean }) {
   const hosted = opts.hosted
   const keys = opts.scope
     ? { query: `handbase.${opts.scope}.recette`, text: `handbase.${opts.scope}.texte`, result: `handbase.${opts.scope}.resultat`, sql: `handbase.${opts.scope}.sql` }
@@ -798,7 +801,13 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   // Le micro charge les données de la recette pendant qu'on parle.
   const micForField = questionReady && !hosted ? { ...mic, buttonProps: { ...mic.buttonProps, onPointerDown: (e: Parameters<typeof mic.buttonProps.onPointerDown>[0]) => (!asked && setAsked(true), mic.buttonProps.onPointerDown(e)) } } : undefined
   // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google) ; la barre posée du bilan garde son bouton.
-  const filtersChip = <FiltersButton w={fw} n={nChips} />
+  const filtersChip = (
+    <FiltersButton
+      w={fw}
+      n={nChips}
+      count={opts.count ? chipCount(filtered.length, players?.length ?? 0, (n) => (n > 1 ? gw.joueurs : gw.joueur), { loading: !sel && !fromSql, busy: calculating && !fromSql }) : undefined}
+    />
+  )
   const field = (
     <Demander
       page={askPage}
@@ -917,7 +926,10 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   // Barre « Demander », pastilles et filtres : largeur maximale, centrés (façon Google) sur grand écran.
   const ui = (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-      <div className="flex gap-2">{field}</div>
+      <div className="flex items-center gap-2">
+        {field}
+        <BarActionsSlot />
+      </div>
       {status}
       {chips}
       {saveForm}

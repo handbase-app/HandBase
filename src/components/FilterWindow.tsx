@@ -45,33 +45,74 @@ export type FilterWindowState = ReturnType<typeof useFilterWindow>
  * Bouton « Filtres » (nombre de filtres posés : « Filtres 3 »). `chip` : étiquette arrondie logée DANS la barre
  * « Demander » ; `pill` : bouton à côté d'un champ (bilan sans la barre du haut).
  */
-export function FiltersButton({ w, n, variant = 'chip', compact = false }: { w: FilterWindowState; n: number; variant?: 'chip' | 'pill'; compact?: boolean }) {
+export function FiltersButton({
+  w,
+  n,
+  variant = 'chip',
+  compact = false,
+  count,
+}: {
+  w: FilterWindowState
+  n: number
+  variant?: 'chip' | 'pill'
+  compact?: boolean
+  /** Nombre d'éléments de la liste, collé devant « Filtres » (« 40 001 · Filtres ▾ ») : voir chipCount. */
+  count?: ChipCount
+}) {
   const cls =
     variant === 'chip'
-      ? `flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition ${w.open || n ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`
+      ? `flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold whitespace-nowrap transition ${w.open || n ? 'bg-accent/15 text-fg' : 'bg-panel-2 text-muted hover:text-fg'}`
       : `${compact ? 'min-h-8' : 'min-h-11'} shrink-0 rounded-full border px-3 text-xs font-bold ${w.open || n ? 'border-accent text-fg' : 'border-line text-muted'} ${w.open ? 'bg-accent/15' : 'bg-panel-2'}`
+  const name = n ? `Filtres : ${n} posé${n > 1 ? 's' : ''}` : 'Filtres'
   return (
-    <button
-      ref={w.anchor as Ref<HTMLButtonElement>}
-      type="button"
-      onClick={() => w.setOpen(!w.open)}
-      aria-haspopup="dialog"
-      aria-expanded={w.open}
-      aria-controls={w.open ? w.id : undefined}
-      aria-label={n ? `Filtres : ${n} posé${n > 1 ? 's' : ''}` : 'Filtres'}
-      className={cls}
-    >
-      Filtres
-      {n > 0 && (
-        <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white" aria-hidden>
-          {n}
+    <>
+      <button
+        ref={w.anchor as Ref<HTMLButtonElement>}
+        type="button"
+        onClick={() => w.setOpen(!w.open)}
+        aria-haspopup="dialog"
+        aria-expanded={w.open}
+        aria-controls={w.open ? w.id : undefined}
+        aria-label={count ? `${count.spoken} · ${name}` : name}
+        className={`${cls} ${count?.busy ? 'wait-busy' : ''}`}
+      >
+        {count && (
+          <>
+            <span className="wait-count text-fg tabular-nums">{count.shown}</span>
+            <span className="mx-1 opacity-60" aria-hidden>
+              ·
+            </span>
+          </>
+        )}
+        Filtres
+        {n > 0 && (
+          <span className="ml-1 rounded-full bg-accent px-1.5 text-[10px] text-white" aria-hidden>
+            {n}
+          </span>
+        )}
+        <span className="ml-1" aria-hidden>
+          {w.open ? '▴' : '▾'}
+        </span>
+      </button>
+      {/* Le nombre annoncé quand il change (le bouton le dit aussi dans son nom). */}
+      {count && (
+        <span role="status" className="sr-only">
+          {count.spoken}
         </span>
       )}
-      <span className="ml-1" aria-hidden>
-        {w.open ? '▴' : '▾'}
-      </span>
-    </button>
+    </>
   )
+}
+
+/** Nombre collé devant « Filtres » : `shown` à l'écran (« 7 sur 40 001 »), `spoken` lu (« 7 joueurs sur 40 001 »), `busy` : estompé pendant un calcul. */
+export type ChipCount = { shown: string; spoken: string; busy?: boolean }
+
+/** Le nombre de la liste filtrée pour l'étiquette « Filtres » ; `loading` : « Chargement… » tant que la liste n'est pas lue. */
+export function chipCount(n: number, total: number, noun: (n: number) => string, opts: { loading?: boolean; busy?: boolean } = {}): ChipCount {
+  if (opts.loading) return { shown: 'Chargement…', spoken: 'Chargement…' }
+  const fr = (x: number) => x.toLocaleString('fr-FR')
+  const of = n !== total ? ` sur ${fr(total)}` : ''
+  return { shown: `${fr(n)}${of}`, spoken: `${fr(n)} ${noun(n)}${of}`, busy: opts.busy }
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'

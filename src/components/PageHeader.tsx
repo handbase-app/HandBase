@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { ItemMenu, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 
 /*
@@ -51,11 +51,11 @@ export function PageHeader({
 }
 
 /**
- * « ⋯ » à côté du bouton principal d'une page de liste (Joueurs, Événements) : une seule action en couleur par page, les
- * actions secondaires (« → Groupe », « Exporter », « + Feuille de match »…) dans ce menu (petite fenêtre accrochée au
- * bouton, sur téléphone aussi). Même hauteur que les boutons de la rangée du titre (px-3 py-1.5 text-xs).
+ * « ⋯ » d'une page de liste (Joueurs, Événements, Groupes) : toutes les actions de la liste (« Nouveau joueur » en premier,
+ * « Ajouter à un groupe », « Exporter »…) dans ce menu (petite fenêtre accrochée au bouton, sur téléphone aussi). Posé au
+ * bout de la barre « Demander » de la liste, juste à droite de la pilule (BarActions) : rond, même hauteur que la pilule.
  */
-export function MoreActions({ title, subtitle, items, label = 'Autres actions' }: { title: ReactNode; subtitle?: ReactNode; items: (MenuItem | false | undefined | null)[]; label?: string }) {
+export function MoreActions({ title, subtitle, items, label = 'Plus d’actions' }: { title: ReactNode; subtitle?: ReactNode; items: (MenuItem | false | undefined | null)[]; label?: string }) {
   const menu = useRowMenu()
   const list = items.filter((x): x is MenuItem => !!x)
   if (!list.length) return null
@@ -72,9 +72,9 @@ export function MoreActions({ title, subtitle, items, label = 'Autres actions' }
           const r = e.currentTarget.getBoundingClientRect()
           menu.open({ x: r.right, y: r.bottom, top: r.top, alignRight: true })
         }}
-        className={`btn-ghost min-w-9 px-2.5 py-1.5 text-xs ${menu.anchor ? 'border-accent' : ''}`}
+        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border bg-panel text-fg shadow-sm transition hover:border-accent ${menu.anchor ? 'border-accent' : 'border-line'}`}
       >
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
           <circle cx="5" cy="12" r="1.7" />
           <circle cx="12" cy="12" r="1.7" />
           <circle cx="19" cy="12" r="1.7" />
@@ -83,4 +83,16 @@ export function MoreActions({ title, subtitle, items, label = 'Autres actions' }
       {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={list} onClose={menu.close} pop />}
     </>
   )
+}
+
+/**
+ * Actions d'une page de liste (son « ⋯ ») posées dans sa barre « Demander », juste à droite de la pilule : la page entoure
+ * la barre de ses filtres (`ui` de usePlayersQuery / useListQuery) avec BarActions, la barre les place (BarActionsSlot).
+ */
+const BarActionsCtx = createContext<ReactNode>(null)
+export function BarActions({ actions, children }: { actions: ReactNode; children: ReactNode }) {
+  return <BarActionsCtx.Provider value={actions}>{children}</BarActionsCtx.Provider>
+}
+export function BarActionsSlot() {
+  return useContext(BarActionsCtx)
 }
