@@ -205,6 +205,10 @@ body {
 .ask-capsule .ask-hint { opacity: 0.72; }
 .ask-capsule kbd { border-color: currentColor; }
 
+/* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
+   d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */
+main[tabindex='-1']:focus { outline: none; }
+
 /* En-tête coloré (style Officiel). */
 :root[data-header] .app-header {
   --color-fg: var(--header-fg);
