@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Icon } from './ui'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
@@ -13,13 +12,14 @@ import { useWait, WaitLine } from './Attente'
 /*
  * « Avis vocal » (essai) sur l'écran de notation : le coach parle librement du joueur, l'appli PROPOSE des notes et des
  * commentaires (fonction « transcrire » : dictée, puis ?mode=avis ; relecture dans src/dictation/avis.ts).
- *  - les notes proposées sont mises en évidence sur la fiche (contour vif, ✨) avec le passage dicté en dessous ;
- *  - toucher la note proposée l'accepte, une autre note la remplace, ✕ l'écarte ; « Tout accepter » / « Tout ignorer » ;
+ *  - les notes proposées sont mises en évidence sur la fiche (capsule du critère au liseré menthe, note proposée pleine menthe,
+ *    étiquette « proposé » : CriterionInput, src/components/ui.tsx) avec le passage dicté en dessous ;
+ *  - toucher la note proposée la valide, une autre note la remplace, ✕ l'écarte ; « Tout valider » / « Tout ignorer » ;
  *  - Points forts / Axes proposés : à ajouter d'un toucher au commentaire (qui reste modifiable) ;
  *  - rien n'est enregistré : le coach relit et enregistre comme d'habitude, l'avis reste le sien.
  * Disponible comme la dictée (administrateurs, fonction présente, réglage activé) et seulement si la fonction connaît « avis ».
  * Phase de test : JOURNAL des évaluations vocales (src/questionLog.ts, logAvisVocal ; supabase/050_avis_vocal.sql). Quand le
- * coach a répondu à toutes les notes proposées (une à une, « Tout accepter », « Tout ignorer », ✕), une ligne est écrite :
+ * coach a répondu à toutes les notes proposées (une à une, « Tout valider », « Tout ignorer », ✕), une ligne est écrite :
  * la dictée anonymisée, les notes proposées et ce qu'il en a fait (acceptée, modifiée, ignorée). Analyse abandonnée (autre
  * joueur, fermeture) : écrite aussi, les notes encore en attente comptées comme ignorées. Sous les propositions, une barre
  * « Cette proposition : Cohérente · En partie · Pas cohérente » + commentaire facultatif, une fois par analyse : jointe à
@@ -134,7 +134,7 @@ export function AvisVocal({
   }
   const ignoreAll = () => state && setState(decideAll(state, 'ignore'))
   // Commandes flottantes : on parle en faisant défiler les critères, le haut de la fiche (bouton, propositions) sort de
-  // l'écran. « Terminer » pendant l'enregistrement, « Tout accepter / Tout ignorer » ensuite, en bas à droite.
+  // l'écran. « Terminer » pendant l'enregistrement, « Tout valider / Tout ignorer » ensuite, en bas à droite.
   const root = useRef<HTMLDivElement>(null)
   const [topVisible, setTopVisible] = useState(true)
   useEffect(() => {
@@ -156,27 +156,42 @@ export function AvisVocal({
   return (
     <div ref={root} className="flex flex-col gap-2" data-noswipe>
       <div className="flex items-center gap-3">
+        {/* Même famille que la capsule « Nextar » de l'en-tête (.ask-capsule, src/index.css) : liseré menthe et halo, « ✦ Avis
+            vocal », pastille micro menthe au bout. Enregistrement : capsule rouge qui pulse, pastille blanche à carré rouge ;
+            transcription et analyse : roue dans la pastille. Tout le bouton reste la cible (toucher, ou maintenir pour parler). */}
         <button
           type="button"
           aria-pressed={rec}
-          aria-label={rec ? 'Finir l’avis vocal' : 'Avis vocal : parler du joueur pour obtenir des notes proposées'}
+          aria-busy={working || undefined}
+          aria-label={rec ? 'Finir l’avis vocal' : working ? 'Avis vocal : analyse en cours' : 'Avis vocal : parler du joueur pour obtenir des notes proposées'}
           title="Parlez librement du joueur : je propose des notes, vous validez (toucher pour commencer et pour finir, ou maintenir)"
           disabled={working}
-          className={`flex min-h-12 shrink-0 touch-none items-center gap-2 rounded-full border-2 px-4 text-sm font-extrabold transition select-none [-webkit-touch-callout:none] disabled:opacity-70 ${
-            rec ? 'border-red-300 bg-red-600 text-white shadow-[0_0_0_6px_rgba(220,38,38,0.35)]' : 'border-suggest bg-suggest-soft text-fg hover:brightness-110'
+          className={`flex h-11 shrink-0 touch-none items-center gap-2 rounded-full pr-1.5 pl-4 text-sm font-bold transition select-none [-webkit-touch-callout:none] disabled:cursor-wait ${
+            rec ? 'animate-pulse border-[1.5px] border-transparent bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110 active:brightness-95'
           }`}
           {...mic.buttonProps}
         >
-          {working ? (
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          ) : rec ? (
-            <span className="h-4 w-4 rounded-sm bg-white" />
-          ) : (
-            <Icon name="mic" className="h-5 w-5" />
-          )}
-          {rec ? 'Terminer' : '✨ Avis vocal'}
+          {/* Taille identique dans tous les états (repos, enregistrement, transcription, erreur) : place fixe de l'étoile, les
+              deux libellés superposés dans la même case (la plus large donne la largeur), pastille de 32 px. */}
+          <span className="flex w-3.5 shrink-0 justify-center text-[13px] leading-none" aria-hidden>
+            {rec ? <span className="h-2 w-2 rounded-full bg-white" /> : <span className="ask-star">✦</span>}
+          </span>
+          <span className="grid whitespace-nowrap" aria-hidden>
+            <span className={`col-start-1 row-start-1 text-center ${rec ? 'invisible' : ''}`}>Avis vocal</span>
+            <span className={`col-start-1 row-start-1 text-center ${rec ? '' : 'invisible'}`}>Terminer</span>
+          </span>
+          <span className={`ask-mic flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${rec ? 'ask-mic-rec' : ''}`} aria-hidden>
+            {working ? (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            ) : rec ? (
+              <span className="h-3 w-3 rounded-[2px] bg-current" />
+            ) : (
+              <MicGlyph />
+            )}
+          </span>
         </button>
-        {!rec && !working && <span className="min-w-0 text-[11px] text-muted">Parlez du joueur : je propose des notes, vous validez.</span>}
+        {/* Toujours affiché (pendant l'enregistrement aussi) : rien ne bouge autour du bouton d'un état à l'autre. */}
+        <span className="min-w-0 text-[11px] text-muted">Parlez du joueur : je propose des notes, vous validez.</span>
       </div>
       {!topVisible &&
         (rec || working || left > 0) &&
@@ -193,16 +208,16 @@ export function AvisVocal({
                 Terminer · {Math.floor(mic.seconds)} s
               </button>
             ) : working ? (
-              <span className="flex min-h-12 items-center gap-2 rounded-full border-2 border-suggest bg-bg px-4 text-sm font-bold shadow-lg" role="status">
+              <span className="neon-ring flex min-h-12 items-center gap-2 rounded-full px-4 text-sm font-bold [--neon-fill:var(--color-bg)]" role="status">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                 Analyse…
               </span>
             ) : (
               <>
-                <button type="button" className="min-h-12 rounded-full border-2 border-suggest bg-bg px-4 text-sm font-extrabold shadow-lg" onClick={acceptAll}>
-                  ✨ Tout accepter
+                <button type="button" className="neon-fill min-h-12 rounded-full px-4 text-sm font-extrabold shadow-[var(--neon-glow)] hover:brightness-105" onClick={acceptAll}>
+                  ✦ Tout valider
                 </button>
-                <button type="button" className="min-h-12 rounded-full border border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
+                <button type="button" className="min-h-12 rounded-full border-[1.5px] border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
                   Tout ignorer
                 </button>
               </>
@@ -221,12 +236,15 @@ export function AvisVocal({
       ) : null}
 
       {mine && !working && !rec && (
-        <div className="flex flex-col gap-1.5 rounded-lg border-2 border-suggest bg-suggest-soft p-2.5 text-xs" role="status">
+        <div className="flex flex-col gap-1.5 rounded-xl border-[1.5px] border-suggest/50 bg-suggest-soft p-2.5 text-xs" role="status">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               {n > 0 ? (
                 <b>
-                  ✨ {n} note{n > 1 ? 's' : ''} proposée{n > 1 ? 's' : ''}
+                  <span className="text-suggest" aria-hidden>
+                    ✦{' '}
+                  </span>
+                  {n} note{n > 1 ? 's' : ''} proposée{n > 1 ? 's' : ''}
                   {mine.pending.length < n && ` · ${mine.pending.length} en attente`}
                 </b>
               ) : (
@@ -234,7 +252,7 @@ export function AvisVocal({
               )}
               {left > 0 && (
                 <div className="mt-0.5 text-[11px] text-muted">
-                  {mine.pending.length > 0 && 'Touchez la note en surbrillance pour l’accepter, ou choisissez-en une autre. '}
+                  {mine.pending.length > 0 && 'Touchez la note en menthe pour la valider, ou choisissez-en une autre. '}
                   {(mine.strengths || mine.improvements) && 'Commentaires proposés plus bas. '}
                   Rien n’est enregistré avant « Enregistrer ».
                 </div>
@@ -252,10 +270,10 @@ export function AvisVocal({
           </div>
           {left > 0 && (
             <div className="flex gap-2">
-              <button type="button" className="btn-ghost min-h-11 flex-1 px-2 text-xs" onClick={acceptAll}>
-                Tout accepter
+              <button type="button" className="neon-fill min-h-11 flex-1 rounded-full px-3 text-xs font-extrabold hover:brightness-105" onClick={acceptAll}>
+                Tout valider
               </button>
-              <button type="button" className="btn-ghost min-h-11 flex-1 px-2 text-xs" onClick={ignoreAll}>
+              <button type="button" className="min-h-11 flex-1 rounded-full border-[1.5px] border-line px-3 text-xs font-bold text-fg hover:border-muted" onClick={ignoreAll}>
                 Tout ignorer
               </button>
             </div>
@@ -280,9 +298,9 @@ export function AvisVocal({
 /** Sous un critère : la note proposée, le passage dicté qui la justifie, et ✕ pour l'écarter. */
 export function SuggestionNote({ s, onDismiss }: { s: AvisSuggestion; onDismiss: () => void }) {
   return (
-    <div className="flex w-full items-start gap-1" data-noswipe>
+    <div className="flex w-full max-w-xl items-start gap-1" data-noswipe>
       <div className="min-w-0 flex-1 pt-1 text-[11px]">
-        <span className="font-bold text-suggest">✨ Proposé : {s.value}</span>
+        <span className="font-bold text-suggest">✦ Proposé : {s.value}</span>
         <span className="italic text-muted"> · « {s.quote} »</span>
       </div>
       <button
@@ -301,12 +319,12 @@ export function SuggestionNote({ s, onDismiss }: { s: AvisSuggestion; onDismiss:
 /** Au-dessus d'un commentaire : le texte proposé, à ajouter d'un toucher (il reste modifiable dans le champ) ou à écarter. */
 export function CommentProposal({ text, onAdd, onDismiss }: { text: string; onAdd: () => void; onDismiss: () => void }) {
   return (
-    <div className="mb-1.5 flex items-start gap-1 rounded-md border-2 border-suggest bg-suggest-soft p-1.5 pl-2" data-noswipe>
+    <div className="mb-1.5 flex items-start gap-1 rounded-xl border-[1.5px] border-suggest/50 bg-suggest-soft p-1.5 pl-2.5" data-noswipe>
       <div className="min-w-0 flex-1 py-1 text-xs">
-        <span className="font-bold text-suggest">✨ Proposé : </span>
+        <span className="font-bold text-suggest">✦ Proposé : </span>
         <span className="italic">{text}</span>
       </div>
-      <button type="button" className="btn-ghost min-h-11 shrink-0 px-3 text-xs" onClick={onAdd}>
+      <button type="button" className="neon-fill min-h-11 shrink-0 rounded-full px-3.5 text-xs font-extrabold hover:brightness-105" onClick={onAdd}>
         Ajouter
       </button>
       <button
@@ -322,6 +340,16 @@ export function CommentProposal({ text, onAdd, onDismiss }: { text: string; onAd
 }
 
 const SHORT: Record<VocalVerdict, string> = VOCAL_VERDICT_LABEL
+
+/** Micro de la pastille (le même dessin que celle de la capsule « Nextar », src/components/Demander.tsx). */
+function MicGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  )
+}
 
 /**
  * Appréciation de l'analyse (phase de test, comme les avis sur les réponses : AnswerFeedback.tsx) : « Cette proposition :

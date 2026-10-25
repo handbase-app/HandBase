@@ -52,7 +52,8 @@ export function NextarStar({ className = 'h-4 w-4' }: { className?: string }) {
 
 /**
  * Le mot « Nextar » du logo (le X est une étoile filante), en ligne : bouton « Demander » de l'en-tête. Lettres en
- * currentColor (suivent le thème), traînée et étoile aux couleurs du logo. `spin` : l'étoile tourne (demande en cours).
+ * currentColor (suivent le thème), traînée et étoile au néon du thème (src/neon.ts : la menthe du logo en thème Nuit). Seule la
+ * capsule de l'en-tête l'utilise ; l'icône, l'écran d'ouverture et la connexion gardent la menthe. `spin` : l'étoile tourne.
  */
 export function NextarWordmark({ className = 'h-5', spin = false }: { className?: string; spin?: boolean }) {
   const id = useId().replace(/:/g, '')
@@ -60,13 +61,13 @@ export function NextarWordmark({ className = 'h-5', spin = false }: { className?
     <svg viewBox="50 60 870 215" className={`w-auto shrink-0 ${className}`} aria-hidden>
       <defs>
         <linearGradient id={`c${id}`} x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="#61D0D1" stopOpacity="0" />
-          <stop offset="0.6" stopColor="#61D0D1" stopOpacity="0.85" />
-          <stop offset="1" stopColor="#89F7B3" />
+          <stop offset="0" style={{ stopColor: 'var(--neon-b, #61D0D1)' }} stopOpacity="0" />
+          <stop offset="0.6" style={{ stopColor: 'var(--neon-b, #61D0D1)' }} stopOpacity="0.85" />
+          <stop offset="1" style={{ stopColor: 'var(--neon-a, #89F7B3)' }} />
         </linearGradient>
         <linearGradient id={`s${id}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#89F7B3" />
-          <stop offset="1" stopColor="#61D0D1" />
+          <stop offset="0" style={{ stopColor: 'var(--neon-a, #89F7B3)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--neon-b, #61D0D1)' }} />
         </linearGradient>
       </defs>
       <path

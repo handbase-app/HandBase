@@ -153,6 +153,15 @@ function afterCall(uid: string, r: { restantMois?: number; restantJour?: number 
 
 /** Envoie le son à la fonction ; met à jour l'accès connu (quotas, accès retiré). Le Blob n'est pas gardé. */
 export async function sendDictation(blob: Blob, seconds: number, signal?: AbortSignal): Promise<Transcript> {
+  const m = askMock()
+  if (m?.dictee) {
+    const d = m.dictee
+    return timeAi('dictee', async () => {
+      await mockDelay(signal)
+      const text = d()
+      return { text, raw: text, corrections: [] }
+    })
+  }
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
@@ -213,15 +222,17 @@ export function useDictation() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [allowed])
-  // Faux modèle (développement seulement, src/dictation/askMock.ts) : tout est annoncé, rien ne part.
-  if (askMock())
+  // Faux modèle (développement seulement, src/dictation/askMock.ts) : tout est annoncé, rien ne part ; l'avis vocal seulement
+  // si le faux modèle sait y répondre.
+  const mock = askMock()
+  if (mock)
     return {
       allowed: true,
       available: true,
       ready: true,
       searchReady: true,
       searchModes: ['question', 'question_joueurs', 'question_evenements', 'question_groupes', 'action'],
-      avisReady: false,
+      avisReady: !!mock.avis,
       questionReady: true,
       sqlReady: false,
       actionReady: true,
@@ -287,6 +298,11 @@ export async function sendSqlRequest(phrase: string, schema: Record<string, stri
 
 /** « Avis vocal » : le texte dicté et les critères applicables seulement (src/dictation/avis.ts), jamais de données de joueur. */
 export async function sendAvisRequest(texte: string, criteres: AvisCritere[], signal?: AbortSignal): Promise<AvisAnswer> {
+  const m = askMock()
+  if (m?.avis) {
+    const a = m.avis
+    return timeAi('avis', async () => (await mockDelay(signal), { raw: a(texte, criteres) }))
+  }
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {

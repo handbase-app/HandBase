@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, ProposedTag, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -639,6 +639,8 @@ export default function Evaluate() {
               {/* Avec le « ⋮ » : bascule un peu plus étroite, pour tenir en 360 px de large. */}
               <div className={listMode ? 'w-36 shrink-0' : existing ? 'w-40' : 'w-44'}>
                 <Segmented
+                  look="capsule"
+                  label="Fiche rapide ou complète"
                   value={mode}
                   onChange={setMode}
                   options={[
@@ -700,7 +702,10 @@ export default function Evaluate() {
                     // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
                     <div key={c.id} className="flex flex-col items-stretch gap-1.5">
                       <div className="min-w-0">
-                        <div className="text-xs font-bold">{c.label}</div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold">
+                          {c.label}
+                          {sug && <ProposedTag />}
+                        </div>
                         {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
                       </div>
                       <CriterionInput c={c} value={draft.scores?.[c.id]} suggested={sug?.value} wide onChange={(v) => setScore(c.id, v)} />
@@ -764,7 +769,7 @@ export default function Evaluate() {
           <div className="flex items-center gap-2">
             {existing && !dirty && nextTodo ? (
               // Avis enregistré et rien de modifié : le bouton principal passe au joueur suivant à noter.
-              <button className="btn-primary min-h-11 min-w-0 flex-1" onClick={() => void go('joueur', nextTodo.id)}>
+              <button className="btn-save min-w-0 flex-1" onClick={() => void go('joueur', nextTodo.id)}>
                 <span className="truncate">
                   Suivant : {nextTodo.firstName} {(nextTodo.lastName ?? '').charAt(0).toUpperCase()}
                   {nextTodo.lastName ? '.' : ''} →
@@ -772,15 +777,16 @@ export default function Evaluate() {
               </button>
             ) : (
               <button
-                className="btn-primary min-h-11 flex-1"
+                className="btn-save flex-1"
                 disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
                 onClick={() => void submit()}
               >
-                {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
+                <span aria-hidden>✓</span>
+                {existing ? (dirty ? 'Mettre à jour' : 'Enregistré') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
               </button>
             )}
             {dirty && (
-              <button className="btn shrink-0 text-xs text-muted" onClick={revert} title="Oublier les modifications">
+              <button className="btn-save-ghost shrink-0" onClick={revert} title="Oublier les modifications">
                 Annuler
               </button>
             )}
@@ -1025,6 +1031,8 @@ function SpontaneousContext({
         )}
       </p>
       <Segmented<ContextType>
+        look="capsule"
+        label="Contexte de l’avis spontané"
         value={draft.contextType}
         onChange={(v) => setDraft((d) => ({ ...d, contextType: v }))}
         options={CONTEXT_TYPES}

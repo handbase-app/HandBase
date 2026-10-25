@@ -4,6 +4,7 @@
 //
 //   npx jiti tools/test-styles.ts          (ajouter --table pour afficher tous les rapports de contraste)
 import assert from 'node:assert/strict'
+import { neonVars } from '../src/neon'
 import { readFileSync } from 'node:fs'
 import { computeLook, THEMES } from '../src/theme'
 import {
@@ -42,6 +43,8 @@ for (const t of THEMES) {
     '--color-fg': t.colors.fg,
     '--color-accent': t.colors.accent,
     '--color-accent-soft': t.colors.accent + '22',
+    // Néon du thème (src/neon.ts : capsule Nextar, Avis vocal, propositions), ajouté le 26/10/2026.
+    ...neonVars(t.neon),
   })
   assert.equal(look.light, t.light)
   assert.equal(look.themeColor, t.colors.bg)

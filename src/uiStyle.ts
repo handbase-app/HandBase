@@ -11,6 +11,8 @@
  * Fichier pur (ni Dexie ni React ni document) : testé par tools/test-styles.ts (résolution, contrastes WCAG).
  */
 
+import { neonVars, type Neon } from './neon'
+
 export type StyleId = 'actuel' | 'sport' | 'officiel' | 'sombre'
 
 /** Couleurs d'une version (claire ou sombre) d'un style. */
@@ -51,6 +53,8 @@ export interface Palette {
   map?: { bg: string; panel: string; panel2: string; fg: string; muted: string; line: string }
   /** Teinte de l'échelle de la carte (du plus faible au plus fort). */
   scale: string
+  /** Néon du style (capsule Nextar, Avis vocal, propositions de l'avis vocal : src/neon.ts) ; il remplace celui du thème. */
+  neon: Neon
 }
 
 export interface UiStyle {
@@ -102,6 +106,7 @@ export const STYLES: UiStyle[] = [
       emph: { bg: '#0b1f3a', bg2: '#11294a', fg: '#ffffff', muted: '#b4c2d8', accent: '#ff5a1f', onAccent: '#0b1f3a', line: '#2a4670' },
       map: { bg: '#0b1f3a', panel: '#0b1f3a', panel2: '#183559', fg: '#ffffff', muted: '#a9b8cf', line: '#2a4670' },
       scale: '#ff5a1f',
+      neon: { a: '#fdba74', b: '#f97316', ink: '#0b1f3a', text: '#c2410c' },
     },
     dark: {
       bg: '#06142a',
@@ -119,6 +124,7 @@ export const STYLES: UiStyle[] = [
       emph: { bg: '#123462', bg2: '#173c70', fg: '#ffffff', muted: '#c3d0e3', accent: '#ff9466', onAccent: '#0b1f3a', line: '#2f5690' },
       map: { bg: '#0b1f3a', panel: '#0b1f3a', panel2: '#183559', fg: '#ffffff', muted: '#a9b8cf', line: '#2a4670' },
       scale: '#ff5a1f',
+      neon: { a: '#ffc078', b: '#ff6a2b', ink: '#0b1f3a', text: '#ffb36b' },
     },
   },
   {
@@ -150,6 +156,7 @@ export const STYLES: UiStyle[] = [
       header: { bg: '#12285c', fg: '#ffffff', muted: '#c3cde2', line: '#2e4a8a', panel: '#1b3672' },
       // Carte en marine (pas en rouge : sur une carte de couverture, le rouge se lirait comme une alerte).
       scale: '#12285c',
+      neon: { a: '#38bdf8', b: '#818cf8', ink: '#0a1226', text: '#1d4ed8' },
     },
     dark: {
       bg: '#0a1226',
@@ -167,6 +174,7 @@ export const STYLES: UiStyle[] = [
       emph: { bg: '#1b3672', bg2: '#244590', fg: '#ffffff', muted: '#c9d3e8', accent: '#ffa5b0', onAccent: '#12285c', line: '#3a5aa6' },
       header: { bg: '#12285c', fg: '#ffffff', muted: '#c3cde2', line: '#2e4a8a', panel: '#1b3672' },
       scale: '#7aa2ff',
+      neon: { a: '#7dd3fc', b: '#818cf8', ink: '#0a1226', text: '#7dd3fc' },
     },
   },
   {
@@ -198,6 +206,7 @@ export const STYLES: UiStyle[] = [
       emph: { bg: '#17212b', bg2: '#213040', fg: '#ffffff', muted: '#b3c1d0', accent: '#f5c518', onAccent: '#17212b', line: '#34465a' },
       // Jaune foncé : le jaune des lignes ne se voit pas assez sur une carte blanche.
       scale: '#c28800',
+      neon: { a: '#fcd34d', b: '#eab308', ink: '#17212b', text: '#7a5a00' },
     },
     dark: {
       bg: '#17212b',
@@ -214,6 +223,7 @@ export const STYLES: UiStyle[] = [
       onBrand: '#17212b',
       emph: { bg: '#101a24', bg2: '#182634', fg: '#ffffff', muted: '#aebdcc', accent: '#f5c518', onAccent: '#17212b', line: '#2b3d51' },
       scale: '#f5c518',
+      neon: { a: '#fff3a3', b: '#f5c518', ink: '#17212b', text: '#fde68a' },
     },
   },
 ]
@@ -345,6 +355,7 @@ export function styleLook(s: UiStyle, light: boolean): StyleLook {
     '--emph-accent': p.emph.accent,
     '--emph-on-accent': p.emph.onAccent,
     '--emph-line': p.emph.line,
+    ...neonVars(p.neon),
   }
   if (p.header) Object.assign(vars, { '--header-bg': p.header.bg, '--header-fg': p.header.fg, '--header-muted': p.header.muted, '--header-line': p.header.line, '--header-panel': p.header.panel })
   if (p.map)

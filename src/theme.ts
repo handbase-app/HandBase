@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_SCALE, scaleFloor } from './mapScale'
+import { BRAND_NEON, neonVars, type Neon } from './neon'
 import { DEFAULT_APPEARANCE, cleanAppearance, paletteOf, STYLE_ATTRS, styleById, styleLook, type Appearance, type StyleId } from './uiStyle'
 
 /*
@@ -22,15 +23,17 @@ export interface Theme {
   /** Précision sous le nom (« d’origine », « noir pur »…). */
   note?: string
   colors: { bg: string; panel: string; panel2: string; line: string; muted: string; fg: string; accent: string }
+  /** Néon accordé au thème (capsule Nextar, Avis vocal, propositions : src/neon.ts). Thèmes clairs : plus soutenu. */
+  neon: Neon
 }
 
 export const THEMES: Theme[] = [
-  { id: 'nuit', label: 'Nuit', note: 'd’origine', light: false, colors: { bg: '#1e1e2e', panel: '#26263a', panel2: '#2e2e46', line: '#3a3a56', muted: '#9a9ab8', fg: '#ececf4', accent: '#f43f5e' } },
-  { id: 'ocean', label: 'Océan', light: false, colors: { bg: '#0b1622', panel: '#112233', panel2: '#172c42', line: '#23405c', muted: '#8aa8c4', fg: '#e3eef8', accent: '#0891b2' } },
-  { id: 'charbon', label: 'Charbon', note: 'noir pur', light: false, colors: { bg: '#000000', panel: '#111111', panel2: '#1a1a1a', line: '#2a2a2a', muted: '#9a9a9a', fg: '#f2f2f2', accent: '#ef4444' } },
-  { id: 'clair', label: 'Clair', light: true, colors: { bg: '#f4f5f9', panel: '#ffffff', panel2: '#eceef5', line: '#d9dce8', muted: '#636a80', fg: '#1e1e2e', accent: '#e11d48' } },
-  { id: 'sable', label: 'Sable', light: true, colors: { bg: '#f6f1e7', panel: '#fffdf8', panel2: '#efe7d6', line: '#ded2bb', muted: '#76695a', fg: '#2b2419', accent: '#c2410c' } },
-  { id: 'ciel', label: 'Ciel', light: true, colors: { bg: '#edf4fb', panel: '#ffffff', panel2: '#e1ecf8', line: '#c7daef', muted: '#56708e', fg: '#10233a', accent: '#2563eb' } },
+  { id: 'nuit', label: 'Nuit', note: 'd’origine', light: false, colors: { bg: '#1e1e2e', panel: '#26263a', panel2: '#2e2e46', line: '#3a3a56', muted: '#9a9ab8', fg: '#ececf4', accent: '#f43f5e' }, neon: BRAND_NEON },
+  { id: 'ocean', label: 'Océan', light: false, colors: { bg: '#0b1622', panel: '#112233', panel2: '#172c42', line: '#23405c', muted: '#8aa8c4', fg: '#e3eef8', accent: '#0891b2' }, neon: { a: '#67e8f9', b: '#2dd4bf', ink: '#04202e', text: '#67e8f9' } },
+  { id: 'charbon', label: 'Charbon', note: 'noir pur', light: false, colors: { bg: '#000000', panel: '#111111', panel2: '#1a1a1a', line: '#2a2a2a', muted: '#9a9a9a', fg: '#f2f2f2', accent: '#ef4444' }, neon: { a: '#e6fffa', b: '#67e8f9', ink: '#031014', text: '#a5f3fc' } },
+  { id: 'clair', label: 'Clair', light: true, colors: { bg: '#f4f5f9', panel: '#ffffff', panel2: '#eceef5', line: '#d9dce8', muted: '#636a80', fg: '#1e1e2e', accent: '#e11d48' }, neon: { a: '#34d399', b: '#06b6d4', ink: '#0a182d', text: '#0f766e' } },
+  { id: 'sable', label: 'Sable', light: true, colors: { bg: '#f6f1e7', panel: '#fffdf8', panel2: '#efe7d6', line: '#ded2bb', muted: '#76695a', fg: '#2b2419', accent: '#c2410c' }, neon: { a: '#6ee7b7', b: '#10b981', ink: '#0a182d', text: '#047857' } },
+  { id: 'ciel', label: 'Ciel', light: true, colors: { bg: '#edf4fb', panel: '#ffffff', panel2: '#e1ecf8', line: '#c7daef', muted: '#56708e', fg: '#10233a', accent: '#2563eb' }, neon: { a: '#38bdf8', b: '#818cf8', ink: '#0a182d', text: '#1d4ed8' } },
 ]
 
 export const AUTO = 'auto'
@@ -140,6 +143,7 @@ export function computeLook(style: StyleId, choice: string, systemLight = !!medi
           '--color-fg': c.fg,
           '--color-accent': c.accent,
           '--color-accent-soft': c.accent + '22',
+          ...neonVars(t.neon),
         }
       : look.vars
   // Départ de l'échelle de la carte du bilan (--scale-floor, src/mapScale.ts) : sur le fond de la carte du style.

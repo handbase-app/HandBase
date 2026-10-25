@@ -7,10 +7,16 @@
  *     question: (phrase, contexte) => ({ recette: { population: { lateralite: 'gaucher' } } }),
  *     action: (phrase) => ({ action: 'creer_groupe', nom: 'Gauchers', joueurs: { population: { lateralite: 'gaucher' } } }),
  *   })
+ *   // Avis vocal (écran d'avis) : le texte « dicté » (le son enregistré n'est pas envoyé) et la réponse du modèle.
+ *   window.__hbAskMock.set({
+ *     dictee: () => 'Bonne vision du jeu, prend les bonnes décisions…',
+ *     avis: (texte, criteres) => ({ notes: [{ id: 'c1', valeur: 4, extrait: 'bonne vision du jeu', confiance: 'forte' }] }),
+ *   })
  *   window.__hbAskMock.clear()
  *   window.__hbAskMock.delay(4000)   // réponse lente (4 s) : pour voir le signe d'attente ; delay(0) l'enlève
  *
- * Avec un faux modèle posé, l'appli se comporte comme si la fonction « transcrire » annonçait tous ses modes.
+ * Avec un faux modèle posé, l'appli se comporte comme si la fonction « transcrire » annonçait tous ses modes (l'avis vocal :
+ * seulement si `avis` est posé ; la dictée garde la vraie transcription si `dictee` ne l'est pas).
  */
 
 import { DictationError } from './transcribe'
@@ -20,6 +26,10 @@ export type AskMock = {
   question?: (phrase: string, contexte?: string) => unknown
   /** Réponse du mode « action » : le plan. */
   action?: (phrase: string) => unknown
+  /** Dictée : le texte rendu à la place de la transcription (le son enregistré n'est envoyé nulle part). */
+  dictee?: () => string
+  /** Réponse du mode « avis » (avis vocal) : { notes, pointsForts?, axes?, ambigus? }, relue par interpretAvis. */
+  avis?: (texte: string, criteres: unknown[]) => unknown
 }
 
 let mock: AskMock | null = null

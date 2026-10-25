@@ -20,9 +20,11 @@
   --color-muted: #9a9ab8;
   --color-accent: #f43f5e;
   --color-accent-soft: #f43f5e22;
-  /* Propositions de l'« avis vocal » (écran de notation) : vert vif, distinct de l'accent et lisible au soleil. */
-  --color-suggest: #a3e635;
-  --color-suggest-soft: #a3e6351f;
+  /* Propositions de l'« avis vocal » (écran de notation) : le néon du thème (--neon-*, src/neon.ts ; menthe de la capsule
+     Nextar en thème Nuit), réservé à ce qui vient de l'avis vocal et à la capsule. En texte : sa version lisible sur les
+     cartes (--neon-text) ; fond léger tiré de la fin du dégradé. */
+  --color-suggest: var(--neon-text);
+  --color-suggest-soft: color-mix(in srgb, var(--neon-b) 12%, transparent);
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
   /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
@@ -132,13 +134,15 @@ body {
 @utility btn-primary { @apply btn bg-accent text-white hover:brightness-110; }
 @utility btn-ghost { @apply btn border border-line bg-panel-2 text-fg hover:border-accent; }
 @utility section-title { @apply mb-2 text-[11px] font-extrabold uppercase tracking-wider text-accent; }
+/* Barres « Enregistrer / Annuler » collées en bas d'un formulaire (écran d'avis, fiche joueur, séance de tests) : capsule
+   pleine dans la couleur du texte du thème (blanche en sombre, foncée en clair ; texte inversé), « Annuler » en capsule fine. */
+@utility btn-save { @apply btn min-h-11 rounded-full bg-fg text-panel hover:brightness-110; }
+@utility btn-save-ghost { @apply btn min-h-11 rounded-full border-[1.5px] border-line bg-transparent px-4 text-fg hover:border-muted; }
 
 /* Thèmes clairs : les couleurs d'état pensées pour un fond sombre (texte orange, vert, rouge clair…)
    passent en version foncée pour rester lisibles (src/theme.ts pose data-light sur <html>). */
 :root[data-light] {
   color-scheme: light;
-  --color-suggest: #4d7c0f;
-  --color-suggest-soft: #4d7c0f1a;
   --color-ai: #1f6feb;
   --color-ai-soft: #e8f0fe;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
@@ -193,11 +197,30 @@ body {
 /* Salle (identifiant « sombre ») : tuile active comme un tableau de score, sans voile jaune (qui virait à l'olive). */
 :root[data-style="sombre"] .emph-band .card[aria-selected="true"] { background-color: var(--emph-bg2); }
 
-/* Bouton « Nextar » de l'en-tête (src/components/Demander.tsx, AskButton) : couleurs tirées du thème, liseré
-   menthe du logo (1,5 px, #89F7B3 → #61D0D1) et léger halo. Le fond (--ask-bg) dépend du thème : sombre, un cran plus
+/* Néon, commun à la capsule de l'en-tête, au bouton « Avis vocal » et aux propositions de l'avis vocal (écran d'avis) :
+   paire de couleurs accordée au thème ou au style de l'installation (src/neon.ts, posée par src/theme.ts : --neon-a,
+   --neon-b, --neon-ink, --neon-text ; ci-dessous, la menthe du logo par défaut). Dégradé à 120°, halo tiré des deux
+   couleurs (en thème Nuit : exactement celui de la capsule d'origine), encre pour un texte posé sur le néon (≥ 4,5:1).
+   Thèmes clairs : halo plus discret autour des capsules, un peu plus marqué autour d'une note proposée (sinon il disparaît). */
+:root {
+  --neon-a: #89f7b3;
+  --neon-b: #61d0d1;
+  --neon-ink: #0a182d;
+  --neon-text: #89f7b3;
+  --neon-grad: linear-gradient(120deg, var(--neon-a), var(--neon-b));
+  --neon-glow: 0 0 0 4px color-mix(in srgb, var(--neon-a) 13%, transparent), 0 0 20px color-mix(in srgb, var(--neon-b) 38%, transparent);
+  --neon-ring-glow: var(--neon-glow);
+}
+:root[data-light] {
+  --neon-glow: 0 0 0 3px color-mix(in srgb, var(--neon-a) 16%, transparent), 0 0 12px color-mix(in srgb, var(--neon-b) 32%, transparent);
+  --neon-ring-glow: 0 0 0 3px color-mix(in srgb, var(--neon-b) 24%, transparent), 0 0 14px color-mix(in srgb, var(--neon-b) 50%, transparent);
+}
+
+/* Bouton « Nextar » de l'en-tête (src/components/Demander.tsx, AskButton) et bouton « Avis vocal » (src/components/AvisVocal.tsx) :
+   couleurs tirées du thème, liseré menthe (1,5 px) et léger halo. Le fond (--ask-bg) dépend du thème : sombre, un cran plus
    clair que le fond ; clair, la couleur du texte du thème (écriture claire) ; en-tête coloré, blanc translucide posé sur
    le fond de l'en-tête (--ask-under, opaque : le dégradé du liseré ne transparaît pas). L'étoile garde la menthe du logo.
-   Pendant la dictée, la capsule passe au rouge (classes de Demander.tsx, sans .ask-capsule ni liseré). */
+   Pendant la dictée, la capsule passe au rouge (classes de Demander.tsx / AvisVocal.tsx, sans .ask-capsule ni liseré). */
 .ask-capsule {
   --ask-bg: var(--color-panel-2);
   --ask-under: var(--ask-bg);
@@ -206,16 +229,26 @@ body {
   background:
     linear-gradient(var(--ask-bg), var(--ask-bg)) padding-box,
     linear-gradient(var(--ask-under), var(--ask-under)) padding-box,
-    linear-gradient(120deg, #89f7b3, #61d0d1) border-box;
-  box-shadow: 0 0 0 4px rgb(137 247 179 / 0.13), 0 0 20px rgb(97 208 209 / 0.38);
+    var(--neon-grad) border-box;
+  box-shadow: var(--neon-glow);
 }
 :root[data-light] .ask-capsule { --ask-bg: var(--color-fg); color: var(--color-panel); }
 :root[data-header] .app-header .ask-capsule { --ask-bg: rgb(255 255 255 / 0.16); --ask-under: var(--header-bg); color: var(--header-fg); }
-.ask-capsule .ask-star { color: #88f5b7; }
-/* Pastille micro au bout de la capsule (dictée disponible) : ronde, dégradé menthe, micro marine ; pendant la dictée,
+.ask-capsule .ask-star { color: var(--neon-a); }
+/* Pastille micro au bout de la capsule (dictée disponible) : ronde, dégradé néon, micro à l'encre du néon ; pendant la dictée,
    blanche avec un carré rouge (arrêter). */
-.ask-mic { background: linear-gradient(120deg, #89f7b3, #61d0d1); color: #0a182d; }
+.ask-mic { background: var(--neon-grad); color: var(--neon-ink); }
 .ask-mic.ask-mic-rec { background: #fff; color: #dc2626; }
+
+/* Propositions de l'avis vocal (écran d'avis) : capsule de notes au liseré menthe + halo (le fond reste celui de la carte),
+   aplat menthe à encre marine (note proposée, étiquette « proposé », « Tout valider »). */
+.neon-ring {
+  --neon-fill: var(--color-panel);
+  border: 1.5px solid transparent;
+  background: linear-gradient(var(--neon-fill), var(--neon-fill)) padding-box, var(--neon-grad) border-box;
+  box-shadow: var(--neon-ring-glow);
+}
+.neon-fill { background: var(--neon-grad); color: var(--neon-ink); }
 
 /* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
    d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */

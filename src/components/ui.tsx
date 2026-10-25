@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { poleStatus, POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
 import { spyTarget } from '../spy'
+import { hasPendingProposal, scaleSteps, scoreAfterTap, segmentLabel, segmentState } from '../scoreCapsule'
 
 // ---------- Identité de l'utilisateur sur cet appareil ----------
 
@@ -112,6 +113,8 @@ export function Segmented<T extends string>({
   onChange,
   columns,
   className,
+  look = 'boutons',
+  label,
 }: {
   value: T | undefined
   options: { value: T; label: string; icon?: IconName }[]
@@ -120,20 +123,40 @@ export function Segmented<T extends string>({
   columns?: number
   /** Grille posée par l'appelant (ex. 2 colonnes, 4 quand la place le permet : `grid grid-cols-2 @lg:grid-cols-4 gap-2`). */
   className?: string
+  /** « capsule » : segments arrondis dans une capsule (écran d'avis, comme les notes : CriterionInput) ; choix retenu en
+   *  plein blanc (couleur du texte du thème), sans néon. Par défaut, des boutons séparés. */
+  look?: 'boutons' | 'capsule'
+  /** Nom du groupe pour les lecteurs d'écran (capsule). */
+  label?: string
 }) {
+  const capsule = look === 'capsule'
+  const grid = columns && !className
   return (
     <div
-      className={className ?? (columns ? 'grid gap-2' : 'flex gap-2')}
-      style={columns && !className ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+      role={capsule ? 'group' : undefined}
+      aria-label={capsule ? label : undefined}
+      className={
+        capsule
+          ? `${grid ? 'grid gap-[3px]' : 'flex gap-[3px]'} border-[1.5px] border-line bg-panel-2/40 p-[3px] ${grid && columns! > 1 && options.length > columns! ? 'rounded-[20px]' : 'rounded-full'} ${className ?? ''}`
+          : (className ?? (columns ? 'grid gap-2' : 'flex gap-2'))
+      }
+      style={grid ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
     >
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
+          aria-pressed={capsule ? value === o.value : undefined}
           onClick={() => onChange(o.value)}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
-            value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
-          }`}
+          className={
+            capsule
+              ? `flex min-h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold transition ${
+                  value === o.value ? 'bg-fg text-panel' : 'text-muted hover:bg-fg/5 hover:text-fg'
+                }`
+              : `flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
+                  value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+                }`
+          }
         >
           {o.icon && <Icon name={o.icon} className="h-3.5 w-3.5 shrink-0" />}
           {o.label}
@@ -169,7 +192,12 @@ export function QuarterBadge({ birthDate }: { birthDate?: string }) {
   )
 }
 
-/** Saisie d'une valeur selon l'échelle du critère. */
+/**
+ * Saisie d'une valeur selon l'échelle du critère. Notes (score5, score3, score2) : une capsule segmentée (src/scoreCapsule.ts),
+ * la note retenue en plein blanc (couleur du texte du thème) ; une note proposée par l'« avis vocal » et pas encore validée :
+ * capsule au liseré menthe + halo, segment proposé plein menthe (src/index.css, .neon-ring / .neon-fill). « choice » : même
+ * langage (pastilles arrondies dans une capsule). Mesures et texte : un champ.
+ */
 export function CriterionInput({
   c,
   value,
@@ -180,55 +208,60 @@ export function CriterionInput({
   c: Criterion
   value: number | string | undefined
   onChange: (v: number | string | undefined) => void
-  /** Note proposée par l'« avis vocal » (src/components/AvisVocal.tsx) : contour vif et ✨ ; la toucher l'accepte. */
+  /** Note proposée par l'« avis vocal » (src/components/AvisVocal.tsx) : capsule en menthe néon ; la toucher la valide. */
   suggested?: number
-  /** Écran de notation : notes en zones tactiles de 44 px de haut, réparties sur toute la largeur (plafonnée sur ordinateur). */
+  /** Écran de notation : capsule sur toute la largeur (plafonnée sur ordinateur) ; sinon, à la taille des notes. */
   wide?: boolean
 }) {
   const max = scaleMax(c.scale)
   if (max !== null) {
-    const min = scaleMin(c.scale)
-    const opts = Array.from({ length: max - min + 1 }, (_, i) => min + i)
-    const hint = suggested !== undefined && suggested !== value
+    const steps = scaleSteps(scaleMin(c.scale), max)
+    const proposed = hasPendingProposal(value, suggested)
     return (
-      <div className={`flex ${hint ? 'gap-1.5' : wide ? 'gap-1.5' : 'gap-1'} ${wide ? 'w-full max-w-xl' : ''}`}>
-        {opts.map((n) => (
-          <button
-            key={n}
-            type="button"
-            aria-label={hint && n === suggested ? `${n} (note proposée : toucher pour l’accepter)` : undefined}
-            onClick={() => onChange(value === n && !(hint && n === suggested) ? undefined : n)}
-            className={`relative rounded-md border font-bold transition ${wide ? 'h-11 min-w-0 flex-1 text-sm' : 'text-xs'} ${wide ? '' : hint ? 'h-11 w-11' : 'h-8 w-8'} ${
-              value === n
-                ? 'border-accent bg-accent text-white'
-                : hint && n === suggested
-                  ? 'border-2 border-suggest bg-suggest-soft text-fg shadow-[0_0_0_3px_var(--color-suggest-soft),0_0_14px_var(--color-suggest)]'
-                  : 'border-line bg-panel-2 text-muted hover:text-fg'
-            }`}
-          >
-            {n}
-            {hint && n === suggested && <span className="pointer-events-none absolute -top-2 -right-2 text-[13px] leading-none" aria-hidden>✨</span>}
-          </button>
-        ))}
+      <div
+        role="group"
+        aria-label={proposed ? `${c.label} : note proposée par l’avis vocal` : c.label}
+        data-proposed={proposed || undefined}
+        className={`flex gap-[3px] rounded-full p-[3px] transition-shadow ${proposed ? 'neon-ring' : 'border-[1.5px] border-line bg-panel-2/40'} ${
+          wide ? 'w-full max-w-xl' : 'w-fit max-w-full shrink-0'
+        }`}
+      >
+        {steps.map((n) => {
+          const st = segmentState(n, value, suggested)
+          return (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={st === 'retenu'}
+              aria-label={segmentLabel(n, max, st)}
+              data-state={st}
+              onClick={() => onChange(scoreAfterTap(n, value, suggested))}
+              className={`flex h-10 items-center justify-center rounded-full font-bold tabular-nums transition ${wide ? 'min-w-0 flex-1 text-sm' : 'w-8 text-xs'} ${
+                st === 'retenu' ? 'bg-fg text-panel' : st === 'propose' ? 'neon-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
+              }`}
+            >
+              {n}
+            </button>
+          )
+        })}
       </div>
     )
   }
   if (c.scale === 'choice') {
+    if (!c.options?.length) return <span className="text-[11px] text-muted">Aucune option définie (Réglages → critères).</span>
     return (
-      <div className="flex flex-wrap gap-1">
-        {(c.options ?? []).map((o) => (
+      <div role="group" aria-label={c.label} className="flex w-fit max-w-full flex-wrap gap-[3px] rounded-[22px] border-[1.5px] border-line bg-panel-2/40 p-[3px]">
+        {c.options.map((o) => (
           <button
             key={o}
             type="button"
+            aria-pressed={value === o}
             onClick={() => onChange(value === o ? undefined : o)}
-            className={`rounded-md border px-2.5 py-1.5 text-xs font-bold transition ${
-              value === o ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
-            }`}
+            className={`flex min-h-10 items-center rounded-full px-3.5 text-xs font-bold transition ${value === o ? 'bg-fg text-panel' : 'text-muted hover:bg-fg/5 hover:text-fg'}`}
           >
             {o}
           </button>
         ))}
-        {!c.options?.length && <span className="text-[11px] text-muted">Aucune option définie (Réglages → critères).</span>}
       </div>
     )
   }
@@ -236,6 +269,16 @@ export function CriterionInput({
     return <input className="field" value={(value as string) ?? ''} onChange={(e) => onChange(e.target.value || undefined)} />
   }
   return <NumberField value={value as number | undefined} unit={c.unit} onChange={onChange} />
+}
+
+/** Étiquette « proposé » (menthe, encre marine) à côté du nom d'un critère dont la note vient de l'avis vocal. */
+export function ProposedTag() {
+  return (
+    <span className="neon-fill inline-flex items-center rounded-full px-2 py-px text-[10px] leading-4 font-extrabold">
+      <span aria-hidden>proposé</span>
+      <span className="sr-only">proposé par l’avis vocal</span>
+    </span>
+  )
 }
 
 /** Champ numérique qui accepte la virgule (clavier français). */
