@@ -93,7 +93,9 @@ export function sharedQuery<T>(tables: string[], query: () => Promise<T>, delay 
     subscribe(l: () => void) {
       listeners.add(l)
       watch()
-      if (stale) soon(0)
+      // Lecture déjà en cours (premier abonné, ou load()) : ce nouvel abonné aura son résultat. La relancer ici la marquait
+      // « à refaire » (again) : au démarrage, la lecture de toutes les fiches était faite deux fois.
+      if (stale && !running) soon(0)
       return () => {
         listeners.delete(l)
         if (!listeners.size && stop && !keep) {
