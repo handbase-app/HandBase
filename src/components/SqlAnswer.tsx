@@ -15,6 +15,7 @@ import { PlayerList } from './Pictos'
 import { Empty, Icon, SectionTitle } from './ui'
 import { sexLabel } from '../gender'
 import { Spark, useWait, WaitBar } from './Attente'
+import { SavedNotice, savedKeptText } from './RecipeChips'
 
 /*
  * « Poser une question », MODE AVANCÉ (secours de la recette, src/recipe.ts) : la phrase et la DESCRIPTION des tables de la
@@ -231,6 +232,7 @@ export function SqlExplain({
   onSimplified?: () => void
 }) {
   const [saving, setSaving] = useState(false)
+  const [savedName, setSavedName] = useState<string | null>(null)
   const [name, setName] = useState('')
   return (
     <div className="flex flex-col gap-2">
@@ -253,12 +255,14 @@ export function SqlExplain({
         <summary className="min-h-9 cursor-pointer py-1 font-bold text-muted">Voir la requête</summary>
         <pre className="mt-1 rounded-md border border-line bg-fg/5 p-2 font-mono text-[11px] break-words whitespace-pre-wrap">{spec.sql}</pre>
       </details>
-      {saving ? (
+      {savedName ? (
+        <SavedNotice name={savedName} filter={false} onDone={() => setSavedName(null)} />
+      ) : saving ? (
         <form
           className="card flex flex-col gap-2 border-accent/50 p-3"
           onSubmit={(e) => {
             e.preventDefault()
-            saveSqlQuestion(name, spec, heard)
+            void saveSqlQuestion(name, spec, heard).then((q) => setSavedName(q.name), () => {})
             setSaving(false)
           }}
         >
@@ -266,7 +270,7 @@ export function SqlExplain({
             Nom de la question
             <input className="field min-h-11 text-sm font-normal" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} required />
           </label>
-          <p className="text-[10px] text-muted">Gardée sur cet appareil. Elle se relance sans rien envoyer (même requête, données du moment).</p>
+          <p className="text-[10px] text-muted">{savedKeptText(false)} Même requête, données du moment.</p>
           <div className="flex gap-2">
             <button type="submit" className="btn-primary min-h-11 px-4 text-xs">
               Enregistrer

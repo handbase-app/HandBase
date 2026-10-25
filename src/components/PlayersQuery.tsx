@@ -56,7 +56,8 @@ import {
 } from '../playerQuery'
 import { useQuestionModel, useRecipeNames, type QuestionModel } from '../questionModel'
 import { useListLight } from '../playersCache'
-import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
+import { deleteQuestion, savedPlace, useSavedQuestions } from '../savedQuestions'
+import type { SavedQuestion } from '../recipe'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { logQuestion } from '../questionLog'
@@ -68,7 +69,7 @@ import { AdvancedBusy, SqlAnswerView, sqlPlayers, useAdvancedAsk, useSqlResult }
 import { ask as confirmAsk } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
-import { FilterChip, GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
+import { FilterChip, GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, RenameSaved, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { startAskAction } from './AskAction'
@@ -550,6 +551,17 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   }
 
   const saved = useSavedQuestions()
+  // « Mes filtres » de la fenêtre Filtres : ouvert depuis le menu de la barre Demander (« Tous mes filtres »).
+  const [savedOpen, setSavedOpen] = useState(false)
+  /** Applique une question enregistrée (menu de la barre Demander ou « Mes filtres » de la fenêtre) : ses filtres et son tri. */
+  const applySaved = (q: SavedQuestion) => {
+    if (q.sql) setSql({ spec: q.sql, phrase: q.name })
+    else {
+      setQy(queryFromSaved(q.recipe))
+      setSql(null)
+    }
+    setResult(null)
+  }
   // « Plus de filtres » : ouvert ou fermé gardé pendant la session ; il s'ouvre de lui-même à l'ouverture de la fenêtre si un
   // de ses filtres est posé (et quand on touche sa pastille).
   const [advOpen, setAdvOpen] = useSessionState(`${pre}.avance`, false)
@@ -629,6 +641,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
           </FilterField>
         </div>
       )}
+      {!hosted && <SavedOnList saved={saved} open={savedOpen} setOpen={setSavedOpen} onApply={applySaved} />}
       <div className="rounded-md border border-line">
         <button type="button" className="flex min-h-11 w-full items-center gap-2 px-2 text-left text-xs font-bold" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
           <span className="flex-1">
@@ -787,19 +800,6 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
                 )}
               </div>
               {!hosted && <SortPicker recipe={qy.recipe} model={rmodel} onChange={setRecipe} ctl={ctl} />}
-              {!hosted && (
-                <SavedOnList
-                  saved={saved}
-                  onApply={(q) => {
-                    if (q.sql) setSql({ spec: q.sql, phrase: q.name })
-                    else {
-                      setQy(queryFromSaved(q.recipe))
-                      setSql(null)
-                    }
-                    setResult(null)
-                  }}
-                />
-              )}
             </div>
           </div>
         )}
@@ -838,6 +838,21 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       compact={hosted?.compact}
       label={questionReady ? 'Demander : filtrer ou poser une question' : 'Rechercher un joueur'}
       trailing={!hosted ? filtersChip : undefined}
+      saved={
+        !hosted
+          ? {
+              title: 'Mes filtres',
+              items: saved,
+              onPick: applySaved,
+              onShowAll: () => {
+                setSavedOpen(true)
+                fw.openAt('saved')
+              },
+              all: (n) => `Tous mes filtres (${n})`,
+              manage: 'Gérer mes filtres',
+            }
+          : undefined
+      }
     />
   )
   const filtersButton = <FiltersButton w={fw} n={nChips} variant="pill" compact={hosted?.compact} />
@@ -915,7 +930,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
       }
     />
   )
-  const saveForm = saving && <SaveForm recipe={recipeToSave(qy)} names={names} phrase={result?.phrase} onDone={() => setSaving(false)} />
+  const saveForm = saving && <SaveForm filter recipe={recipeToSave(qy)} names={names} phrase={result?.phrase} onDone={() => setSaving(false)} />
   const privacy = questionReady && (
     <p className="text-[10px] text-muted">
       Une phrase envoie seulement ses mots (et les noms des filtres posés), jamais les données des joueurs ; elle peut être notée, sans nom de joueur, pour
@@ -1171,34 +1186,58 @@ function SortPicker({ recipe, model, onChange, ctl }: { recipe: Recipe; model: R
   )
 }
 
-/** « Mes questions » relancées sur la liste (filtres et tri ; calcul au-dessus de la liste ; mode avancé : sa requête). */
-function SavedOnList({ saved, onApply }: { saved: ReturnType<typeof useSavedQuestions>; onApply: (q: ReturnType<typeof useSavedQuestions>[number]) => void }) {
-  const [open, setOpen] = useState(false)
+/**
+ * « Mes filtres » (questions enregistrées, celles du bilan comprises) relancés sur la liste : filtres et tri (calcul au-dessus
+ * de la liste ; mode avancé : sa requête). Dans la fenêtre Filtres, sous l'essentiel ; « Tous mes filtres » du menu de la barre
+ * Demander l'ouvre ici (data-filter « saved »). Renommer, supprimer (du compte ou de l'appareil, src/savedQuestions.ts).
+ */
+function SavedOnList({ saved, open, setOpen, onApply }: { saved: SavedQuestion[]; open: boolean; setOpen: (v: boolean) => void; onApply: (q: SavedQuestion) => void }) {
+  const [renaming, setRenaming] = useState<string | null>(null)
   if (!saved.length) return null
   return (
-    <div className="flex flex-col gap-1">
-      <button type="button" className="flex min-h-9 w-full items-center gap-2 text-left text-xs font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <div className="flex flex-col gap-1 rounded-md border border-line px-2" data-filter="saved">
+      <button type="button" className="flex min-h-11 w-full items-center gap-2 text-left text-xs font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon name="star" className="h-3.5 w-3.5 text-accent" />
-        <span className="flex-1">Mes questions ({saved.length})</span>
+        <span className="flex-1">Mes filtres ({saved.length})</span>
         <span className={`text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
       </button>
-      {open &&
-        saved.map((q) => (
-          <div key={q.id} className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-xs">{q.name}</span>
-            <button type="button" className="btn-primary min-h-9 shrink-0 px-3 text-xs" onClick={() => onApply(q)}>
-              Appliquer
-            </button>
-            <button
-              type="button"
-              className="flex min-h-9 min-w-9 shrink-0 items-center justify-center text-muted hover:text-fg"
-              aria-label={`Supprimer « ${q.name} »`}
-              onClick={async () => (await confirmAskLocal(`Supprimer la question « ${q.name} » de cet appareil ?`)) && deleteQuestion(q.id)}
-            >
-              <Icon name="trash" className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
+      {open && (
+        <div className="flex flex-col gap-1 border-t border-line py-2">
+          {saved.map((q) =>
+            renaming === q.id ? (
+              <RenameSaved key={q.id} id={q.id} name={q.name} onDone={() => setRenaming(null)} />
+            ) : (
+              <div key={q.id} className="flex items-center gap-1">
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {q.name}
+                  {q.sql && <span className="text-muted"> · mode avancé</span>}
+                </span>
+                <button type="button" className="btn-primary min-h-9 shrink-0 px-3 text-xs" onClick={() => onApply(q)}>
+                  Appliquer
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-9 min-w-9 shrink-0 items-center justify-center text-muted hover:text-fg"
+                  aria-label={`Renommer « ${q.name} »`}
+                  title="Renommer"
+                  onClick={() => setRenaming(q.id)}
+                >
+                  <Icon name="pencil" className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-9 min-w-9 shrink-0 items-center justify-center text-muted hover:text-fg"
+                  aria-label={`Supprimer « ${q.name} »`}
+                  title="Supprimer"
+                  onClick={async () => (await confirmAskLocal(`Supprimer « ${q.name} » ${savedPlace()} ?`)) && void deleteQuestion(q.id)}
+                >
+                  <Icon name="trash" className="h-4 w-4" />
+                </button>
+              </div>
+            ),
+          )}
+        </div>
+      )}
     </div>
   )
 }

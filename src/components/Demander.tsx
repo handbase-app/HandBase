@@ -28,6 +28,7 @@ import { useDictation } from '../dictation/useDictation'
 import { MAX_PHRASE } from '../dictation/transcribe'
 import { can } from '../roles'
 import { useSavedQuestions } from '../savedQuestions'
+import type { SavedQuestion } from '../recipe'
 import { loadTeams } from '../teams'
 import { startAskAction } from './AskAction'
 import { canLeave } from './Confirm'
@@ -42,7 +43,9 @@ import { Icon, playerName } from './ui'
  *    disponible (useDictation, comme avant) ; au clavier tout marche sans micro.
  *  - Le MENU à l'ouverture (focus, toucher) : « Récemment » (historique local, horloge, un toucher relance la demande sur
  *    sa page, ✕ pour retirer une entrée), « Essaie » (trois suggestions de la page), « Mes questions enregistrées » (celles
- *    du bilan), « Afficher tout l'historique » (le menu s'allonge, « Effacer l'historique » en bas). Depuis la PALETTE, en
+ *    du bilan), « Afficher tout l'historique » (le menu s'allonge, « Effacer l'historique » en bas). Liste Joueurs et bilan
+ *    (`saved`) : en tête, champ vide, « Mes filtres » / « Mes questions » (les 5 plus récents, un toucher les applique, puis
+ *    « Tous mes filtres (N) » ou « Gérer mes filtres », qui ouvre la liste complète : renommer, supprimer). Depuis la PALETTE, en
  *    tapant : « Je comprends », les propositions de routeAsk (Entrée : la première, ↑ ↓ pour choisir, Échap ferme).
  *    Clavier complet, rôles ARIA (combobox / listbox), focus gardé au champ. Téléphone : le menu devient une feuille sous
  *    le champ, fermée par le geste Retour sans quitter la page (src/backNav.tsx, useBackCloses).
@@ -161,6 +164,18 @@ const SHORT = 5
 
 type Option = { id: string; run: () => void; node: ReactNode; cls?: string }
 
+/** Questions enregistrées montrées en tête du menu (champ vide) : liste Joueurs (« Mes filtres »), bilan (« Mes questions »). */
+export type SavedMenu = {
+  title: string
+  items: SavedQuestion[]
+  /** Un toucher : la question est appliquée (comme « Appliquer » de la liste complète). */
+  onPick: (q: SavedQuestion) => void
+  /** Ouvre la liste complète (renommer, supprimer) ; `all` : « Tous mes filtres (N) », `manage` : « Gérer mes filtres ». */
+  onShowAll: () => void
+  all: (n: number) => string
+  manage: string
+}
+
 export type DemanderProps = {
   /** Page du champ : historique et suggestions. */
   page: AskPage
@@ -199,6 +214,8 @@ export type DemanderProps = {
   wait?: { cancel?: () => void; phrase?: string } | null | false
   /** La liste se recalcule sur l'appareil : fine barre en va-et-vient sous la pilule (si le calcul dure). */
   calculating?: boolean
+  /** Questions enregistrées en tête du menu (champ vide) ; absent : le lien « Mes questions enregistrées (N) » vers le bilan. */
+  saved?: SavedMenu
 }
 
 export function Demander(p: DemanderProps) {
@@ -358,6 +375,40 @@ export function Demander(p: DemanderProps) {
     )
   }
   const shownHistory = showAll ? history : history.slice(0, SHORT)
+  const mine = p.saved
+  if (mine && !header && !text && mine.items.length) {
+    add(mine.title, [
+      ...mine.items.slice(0, SHORT).map((q) => ({
+        id: `q${k++}`,
+        run: () => {
+          close()
+          mine.onPick(q)
+        },
+        node: (
+          <>
+            <Icon name="star" className="h-4 w-4 shrink-0 text-accent" />
+            <span className="flex min-w-0 flex-1 flex-col py-1">
+              <span className="truncate">{q.name}</span>
+              {q.sql && <span className="truncate text-[11px] text-muted">Mode avancé</span>}
+            </span>
+          </>
+        ),
+      })),
+      {
+        id: `q${k++}`,
+        run: () => {
+          close({ blur: true })
+          mine.onShowAll()
+        },
+        node: (
+          <>
+            <Icon name="rows" className="h-4 w-4 shrink-0 text-muted" />
+            <span className="py-1 font-bold">{mine.items.length > SHORT ? mine.all(mine.items.length) : mine.manage}</span>
+          </>
+        ),
+      },
+    ])
+  }
   if (!(header && text)) {
     add(
       'Récemment',
@@ -406,7 +457,7 @@ export function Demander(p: DemanderProps) {
       })),
     )
     const links: Option[] = []
-    if (saved.length)
+    if (saved.length && !mine)
       links.push({
         id: `l${k++}`,
         run: () => {

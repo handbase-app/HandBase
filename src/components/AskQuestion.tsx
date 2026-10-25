@@ -12,6 +12,7 @@ import { Demander, postAsk, recordAsk, useIncomingAsk } from './Demander'
 import { appName } from '../appBrand'
 import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
+import { openSavedQuestion, useSavedQuestions } from '../savedQuestions'
 
 /*
  * « Poser une question » au bilan de détection : le coach touche « micro ✨ Poser une question » et parle (« les joueuses
@@ -50,6 +51,12 @@ export function AskQuestion({
 }) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
+  const saved = useSavedQuestions()
+  // « Mes questions » en tête du menu de la barre : relancées par la liste « Mes questions » à l'écran (valeurs à choisir
+  // comprises) ; aucune liste à l'écran : le bilan, où elle est.
+  const openSaved = (id: string | null) => {
+    if (!openSavedQuestion(id)) nav('/bilan')
+  }
   const [text, setText] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -156,6 +163,14 @@ export function AskQuestion({
       label="Poser une question"
       className="flex-[1_1_18rem]"
       trailing={trailing}
+      saved={{
+        title: 'Mes questions',
+        items: saved,
+        onPick: (q) => openSaved(q.id),
+        onShowAll: () => openSaved(null),
+        all: (n) => `Toutes mes questions (${n})`,
+        manage: 'Gérer mes questions',
+      }}
     />
   )
   // Barre « Demander » : l'attente est dans la pilule et juste dessous. Micro seul (barre du bas du téléphone) : une ligne

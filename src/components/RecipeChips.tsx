@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { today, type Position } from '../db'
 import { SEX_LABELS } from '../gender'
 import { seasonOf } from '../coverage'
@@ -31,7 +31,7 @@ import {
   type Stat,
   type VarKey,
 } from '../recipe'
-import { saveQuestion } from '../savedQuestions'
+import { renameQuestion, saveQuestion, savedOnAccount } from '../savedQuestions'
 import { Icon, Segmented } from './ui'
 import { YearPicker } from './YearPicker'
 import { putYears, recentYears, yearsOf } from '../birthYears'
@@ -568,21 +568,69 @@ export function groupLabel(by: GroupBy, key: string, model: RecipeModel): string
   return key === 'M' || key === 'F' ? SEX_LABELS[key] : 'Sexe non renseigné'
 }
 
-export function SaveForm({ recipe, names, phrase, onDone }: { recipe: Recipe; names: Names; phrase?: string; onDone: () => void }) {
+/**
+ * Où retrouver une question enregistrée, et où elle est gardée (compte ou appareil) : message de confirmation.
+ * `filter` : « Enregistrer ce filtre » (liste Joueurs) ; sinon une question du bilan.
+ */
+export function savedWhereText(filter: boolean) {
+  const e = filter ? '' : 'e'
+  const kept = savedOnAccount() ? `Gardé${e} sur votre compte : sur tous vos appareils.` : `Gardé${e} sur cet appareil.`
+  return filter
+    ? `Retrouvez-le en touchant la barre Demander (« Mes filtres »), ou dans Filtres. ${kept}`
+    : `Retrouvez-la en touchant la barre de question (« Mes questions »), ou dans « Mes questions ». ${kept}`
+}
+
+/** Sous le nom, avant « Enregistrer » : où elle sera gardée, qui la voit. */
+export function savedKeptText(filter: boolean) {
+  const [e, pro, le] = filter ? ['', 'Il', 'le'] : ['e', 'Elle', 'la']
+  return savedOnAccount()
+    ? `Gardé${e} sur votre compte, sur tous vos appareils ; personne d’autre ne ${le} voit. ${pro} se relance sans rien envoyer.`
+    : `Gardé${e} sur cet appareil. ${pro} se relance sans rien envoyer.`
+}
+
+/** Confirmation après « Enregistrer » : le nom, où le retrouver ; « OK » ou au bout de 10 s, elle se ferme. */
+export function SavedNotice({ name, filter, onDone }: { name: string; filter: boolean; onDone: () => void }) {
+  useEffect(() => {
+    const t = window.setTimeout(onDone, 10_000)
+    return () => window.clearTimeout(t)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="card flex items-start gap-2 border-accent/50 p-3 text-xs" role="status">
+      <Icon name="star" filled className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+      <p className="min-w-0 flex-1">
+        <b>
+          {filter ? 'Filtre enregistré' : 'Question enregistrée'} : « {name} »
+        </b>
+        <br />
+        <span className="text-muted">{savedWhereText(filter)}</span>
+      </p>
+      <button type="button" className="btn-ghost min-h-9 shrink-0 px-3 text-xs" onClick={onDone}>
+        OK
+      </button>
+    </div>
+  )
+}
+
+export function SaveForm({ recipe, names, phrase, onDone, filter = false }: { recipe: Recipe; names: Names; phrase?: string; onDone: () => void; filter?: boolean }) {
   const [name, setName] = useState(() => (phrase ?? recipeText(recipe, names)).slice(0, 80))
   const can = possibleVars(recipe)
   const [vars, setVars] = useState<VarKey[]>([])
+  const [done, setDone] = useState<string | null>(null)
+  if (done) return <SavedNotice name={done} filter={filter} onDone={onDone} />
+  const what = filter ? 'du filtre' : 'de la question'
   return (
     <form
       className="card flex flex-col gap-2 border-accent/50 p-3"
       onSubmit={(e) => {
         e.preventDefault()
-        saveQuestion(name, recipe, vars, phrase)
-        onDone()
+        void saveQuestion(name, recipe, vars, phrase).then(
+          (q) => setDone(q.name),
+          () => onDone(), // « Voir comme… » : lecture seule (message affiché par l'appli)
+        )
       }}
     >
       <label className="flex flex-col gap-1 text-xs font-bold">
-        Nom de la question
+        Nom {what}
         <input className="field min-h-11 text-sm font-normal" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} required />
       </label>
       {can.length > 0 && (
@@ -596,7 +644,7 @@ export function SaveForm({ recipe, names, phrase, onDone }: { recipe: Recipe; na
           ))}
         </fieldset>
       )}
-      <p className="text-[10px] text-muted">Gardée sur cet appareil. Une question enregistrée se relance sans rien envoyer.</p>
+      <p className="text-[10px] text-muted">{savedKeptText(filter)}</p>
       <div className="flex gap-2">
         <button type="submit" className="btn-primary min-h-11 px-4 text-xs">
           Enregistrer
@@ -605,6 +653,37 @@ export function SaveForm({ recipe, names, phrase, onDone }: { recipe: Recipe; na
           Annuler
         </button>
       </div>
+    </form>
+  )
+}
+
+/** Renommer une question enregistrée, sur place (Entrée ou « OK » ; Échap ou « Annuler »). */
+export function RenameSaved({ id, name, onDone }: { id: string; name: string; onDone: () => void }) {
+  const [v, setV] = useState(name)
+  return (
+    <form
+      className="flex min-w-0 flex-1 items-center gap-1"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void renameQuestion(id, v).finally(onDone)
+      }}
+    >
+      <input
+        className="field min-h-9 min-w-0 flex-1 text-xs"
+        aria-label="Nouveau nom"
+        value={v}
+        maxLength={80}
+        autoFocus
+        required
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), onDone())}
+      />
+      <button type="submit" className="btn-primary min-h-9 shrink-0 px-3 text-xs">
+        OK
+      </button>
+      <button type="button" className="min-h-9 shrink-0 px-1 text-[11px] text-muted underline" onClick={onDone}>
+        Annuler
+      </button>
     </form>
   )
 }

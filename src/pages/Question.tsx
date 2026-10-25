@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { alive, db, POSITIONS, today, type Player, type Position } from '../db'
@@ -37,7 +37,7 @@ import {
   type TableRow,
   type VarValues,
 } from '../recipe'
-import { deleteQuestion, useSavedQuestions } from '../savedQuestions'
+import { deleteQuestion, onOpenSavedQuestion, savedPlace, useSavedQuestions } from '../savedQuestions'
 import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
 import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult } from '../components/SqlAnswer'
@@ -55,7 +55,7 @@ import { showOtherOM } from '../outreMer'
 import MasterDetail from '../components/MasterDetail'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
-import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
+import { GROUP_OPTIONS, groupLabel, NumberInput, PeriodPicker, RecipeChips, RenameSaved, SaveForm, Select, statText, valueText, type RecipeModel } from '../components/RecipeChips'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
 import { Bar, bilanQuestionSearch, Crumbs, fillOf, MapLegend, scaleOf } from './Coverage'
 import { goesToBilan, isTopClubs, splitPlace, topClubsPlace } from '../bilanQuestion'
@@ -903,8 +903,20 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
   const nav = useNavigate()
   const [open, setOpen] = useState(startOpen)
   const [asking, setAsking] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const box = useRef<HTMLElement>(null)
+  // Barre de question (menu « Mes questions ») : relance la question touchée, ou montre ses valeurs à choisir, ici.
+  const fromBar = useRef<(id: string | null) => void>(() => {})
+  fromBar.current = (id) => {
+    const q = id ? saved.find((x) => x.id === id) : undefined
+    if (q && !q.vars.length) return launch(q)
+    setOpen(true)
+    setAsking(q ? q.id : null)
+    requestAnimationFrame(() => box.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+  }
+  useEffect(() => onOpenSavedQuestion((id) => fromBar.current(id)), [])
   if (!saved.length) return null
-  const launch = (q: SavedQuestion, v: VarValues = {}) => {
+  function launch(q: SavedQuestion, v: VarValues = {}) {
     setAsking(null)
     const r = applyVars(q.recipe, v)
     // Réponse géographique : sur le bilan, ouvert sur le lieu de la question (le retour revient ici).
@@ -915,7 +927,7 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
     nav(`/bilan/question?${q.sql ? encSql(q.sql) : enc(r)}`, { state: { saved: q.name } satisfies HistState })
   }
   return (
-    <section className="card flex flex-col gap-2 p-3">
+    <section ref={box} className="card flex scroll-mt-20 flex-col gap-2 p-3">
       <button type="button" className="flex min-h-9 items-center gap-2 text-left text-sm font-bold" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon name="star" className="h-4 w-4 text-accent" />
         <span className="flex-1">Mes questions ({saved.length})</span>
@@ -925,6 +937,9 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
         saved.map((q) => (
           <div key={q.id} className="flex flex-col gap-1 rounded-md border border-line p-2">
             <div className="flex flex-wrap items-start gap-2">
+              {renaming === q.id ? (
+                <RenameSaved id={q.id} name={q.name} onDone={() => setRenaming(null)} />
+              ) : (
               <span className="min-w-[11rem] flex-1">
                 <span className="block text-xs font-bold">{q.name}</span>
                 <span className="block text-[10px] text-muted">
@@ -932,6 +947,7 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
                   {q.vars.length > 0 && ` · à choisir : ${q.vars.map((v) => VAR_TEXT[v]).join(', ')}`}
                 </span>
               </span>
+              )}
               <button
                 type="button"
                 className="btn-primary min-h-11 shrink-0 px-3 text-xs"
@@ -943,9 +959,18 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
               <button
                 type="button"
                 className="flex min-h-11 min-w-11 shrink-0 items-center justify-center text-muted hover:text-fg"
+                aria-label={`Renommer « ${q.name} »`}
+                title="Renommer cette question"
+                onClick={() => setRenaming(q.id)}
+              >
+                <Icon name="pencil" className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center text-muted hover:text-fg"
                 aria-label={`Supprimer « ${q.name} »`}
                 title="Supprimer cette question"
-                onClick={async () => (await ask(`Supprimer la question « ${q.name} » de cet appareil ?`, { ok: 'Supprimer', danger: true })) && deleteQuestion(q.id)}
+                onClick={async () => (await ask(`Supprimer la question « ${q.name} » ${savedPlace()} ?`, { ok: 'Supprimer', danger: true })) && void deleteQuestion(q.id)}
               >
                 <Icon name="trash" className="h-4 w-4" />
               </button>
