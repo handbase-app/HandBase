@@ -64,6 +64,7 @@ import { VoiceSearch } from '../components/VoiceSearch'
 import { bilanVoicePage, type BilanVoice } from '../voicePages'
 import { useVoicePlaces } from '../voicePlaces'
 import { AskQuestion } from '../components/AskQuestion'
+import { MoreActions } from '../components/PageHeader'
 import { AnswerFeedback } from '../components/AnswerFeedback'
 import { useDictation } from '../dictation/useDictation'
 import { installationAppearance, useThemeVersion } from '../theme'
@@ -1260,11 +1261,11 @@ export default function Coverage() {
   const club: ClubCoverage<Player> | undefined = Q ? Q.club : bilan.club
   const lens = useMemo(() => Q?.texts.lens ?? ongletLens(o, g), [Q?.texts, o, g]) // eslint-disable-line react-hooks/exhaustive-deps
   const side = useMedia(MQ.side)
-  // Téléphone (< 640 px) : filtres repliés sous une ligne de pastilles, tuiles en bandeau qui défile, carte juste dessous,
-  // « Rapport » et « Poser une question » dans une barre d'actions en bas. Ordinateur et tablette : inchangés.
+  // Téléphone (< 640 px) : tuiles en bandeau qui défile, carte juste dessous. La barre « Demander » (« Filtres » dedans, « ⋯ »
+  // avec « Rapport » à droite) est la même que sur ordinateur et que sur les autres listes (décidé le 26/10/2026 : plus de
+  // barre d'actions en bas). Sans la dictée : filtres repliés sous une ligne de pastilles.
   const phone = useMedia(PHONE)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [askOpen, setAskOpen] = useState(false)
   // « Rapport » : fenêtre de choix (chiffres, noms, carte), puis le rapport de la vue (/bilan/rapport).
   const [reportOpen, setReportOpen] = useState(false)
   const nav = useNavigate()
@@ -1459,8 +1460,7 @@ export default function Coverage() {
     }
     requestAnimationFrame(tick)
   }
-  // Ligne d'un club touchée (téléphone) : ses joueurs s'ouvrent sous la ligne, souvent sous la barre du bas (Rapport,
-  // question) ; on remonte la ligne en haut de l'écran, sous l'en-tête, pour que la liste se voie.
+  // Ligne d'un club touchée (téléphone) : ses joueurs s'ouvrent sous la ligne, souvent en bas de l'écran ; on remonte la ligne en haut de l'écran, sous l'en-tête, pour que la liste se voie.
   const pickClubRow = (k: string) => {
     const opening = club?.key !== k
     pickClub(k)
@@ -1655,7 +1655,7 @@ export default function Coverage() {
   // Ordinateur avec la barre « Demander » en haut : pas de deuxième barre ni de deuxième micro sur la ligne des filtres
   // (une phrase se pose en haut) ; il reste « Filtres ». Sans la barre du haut (dictée indisponible), la barre de la ligne garde
   // la recherche par nom.
-  const oneBar = !phone && questionReady
+  const oneBar = questionReady
   const barRow = (
     <div className={`flex min-w-0 gap-2 ${oneBar ? 'empty:hidden' : 'sm:min-w-56 sm:flex-1'}`}>
       {!oneBar && bar.field}
@@ -1682,6 +1682,13 @@ export default function Coverage() {
       page={voicePage}
       label="Filtrer"
       input={filtersInput}
+    />
+  )
+  // « ⋯ » de la page (comme les autres listes) : « Rapport » (fenêtre de choix, puis le rapport de la vue).
+  const moreActions = (
+    <MoreActions
+      title="Bilan de détection"
+      items={[{ label: 'Rapport', icon: 'list', hint: 'Chiffres, noms et carte de cette vue, à imprimer', onSelect: () => setReportOpen(true) }]}
     />
   )
   const savedQuestions = <SavedQuestions clubDept={(k) => voiceClubs.find((c) => c.key === k)?.dept} />
@@ -1715,36 +1722,41 @@ export default function Coverage() {
           <div className="min-w-0">
             <h1 className="text-lg font-extrabold">Bilan de détection</h1>
           </div>
-          {!phone && (
-          <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
-            <Icon name="list" className="h-3.5 w-3.5" />
-            Rapport
-          </button>
-          )}
         </div>
-        {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
-            dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
-        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} calculating={busy} notice={false} />}
-        {!(phone && questionReady) && savedQuestions}
-        {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
-        {/* Téléphone : pas de barre en haut ; le bilan qui se recalcule, en fine barre juste au-dessus des pastilles des filtres. */}
-        {phone && <WaitBar calc={busy} className="-my-1" />}
-        {phone && (
-          <FilterSummary
-            sex={sex}
-            period={period}
-            showPeriod={o === 'vus'}
-            yearText={yearText}
-            yearPicked={picked.length > 0}
-            open={filtersOpen}
-            onToggle={() => setFiltersOpen(!filtersOpen)}
-            bar={barSummary}
-            question={!!Q}
-          />
+        {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question), « Filtres » dans la pilule, et « ⋯ »
+            (« Rapport ») juste à droite : comme Joueurs, Événements, Groupes, sur téléphone aussi. Sans la dictée sur téléphone :
+            pas de barre de question (le « ⋯ » reste, au bout de la ligne des filtres). */}
+        {(!phone || oneBar) && (
+          <div className="mx-auto flex w-full max-w-3xl items-start gap-2">
+            <AskQuestion className="min-w-0 flex-1" trailing={oneBar ? bar.filtersChip : undefined} calculating={busy} notice={false} />
+            {moreActions}
+          </div>
+        )}
+        {savedQuestions}
+        {/* Téléphone sans la dictée : les filtres résumés en pastilles ; un toucher ouvre le panneau des filtres. Le bilan qui se
+            recalcule : fine barre juste au-dessus. */}
+        {phone && !oneBar && <WaitBar calc={busy} className="-my-1" />}
+        {phone && !oneBar && (
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <FilterSummary
+                sex={sex}
+                period={period}
+                showPeriod={o === 'vus'}
+                yearText={yearText}
+                yearPicked={picked.length > 0}
+                open={filtersOpen}
+                onToggle={() => setFiltersOpen(!filtersOpen)}
+                bar={barSummary}
+                question={!!Q}
+              />
+            </div>
+            {moreActions}
+          </div>
         )}
         {/* Question posée : la barre montre et change SA population (sexe et année compris) ; les commandes du bilan sont cachées. */}
-        {(!phone || filtersOpen) &&
-          (phone ? (
+        {(!phone || oneBar || filtersOpen) &&
+          (phone && !oneBar ? (
             <div id="bilan-filtres" className="card flex flex-col gap-2 p-2">
               {Q ? barRow : filtersBlock}
               {barBelow}
@@ -2022,39 +2034,6 @@ export default function Coverage() {
             )}
           </div>
         </>
-      )}
-      {/* Téléphone : barre d'actions en bas d'écran, juste au-dessus de la barre de navigation. « Poser une question » est le
-          micro lui-même (un toucher pour parler, un autre pour envoyer) ; le petit bouton à côté ouvre « Taper » et
-          « Mes questions ». */}
-      {phone && (
-        <div className="sticky bottom-[var(--nav-b)] z-20 -mx-4 flex flex-col gap-2 border-t border-line bg-bg px-4 py-2">
-          {askOpen && questionReady && (
-            <div id="bilan-question" className="flex max-h-[55dvh] flex-col gap-2 overflow-y-auto">
-              <AskQuestion variant="text" notice={false} />
-              {savedQuestions}
-            </div>
-          )}
-          <div className="flex items-end gap-2">
-            <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-11 flex-1 px-3 py-1.5 text-xs">
-              <Icon name="list" className="h-3.5 w-3.5" />
-              Rapport
-            </button>
-            {questionReady && <AskQuestion variant="mic" className="flex-[1.6]" />}
-            {questionReady && (
-              <button
-                type="button"
-                aria-expanded={askOpen}
-                aria-controls="bilan-question"
-                aria-label={askOpen ? 'Fermer : taper une question, mes questions' : 'Taper une question ou ouvrir mes questions'}
-                title="Taper une question · Mes questions"
-                onClick={() => setAskOpen(!askOpen)}
-                className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-md border-2 text-sm font-bold transition ${askOpen ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-fg'}`}
-              >
-                {askOpen ? '✕' : '⌨'}
-              </button>
-            )}
-          </div>
-        </div>
       )}
       {reportDialog}
     </div>
