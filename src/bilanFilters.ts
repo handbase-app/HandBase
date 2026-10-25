@@ -11,8 +11,8 @@ import { cleanRecipe, EMPTY_RECIPE, hasConditions, hasPopulation, type Output, t
  *
  * UNE commande par notion :
  *  - sexe et années de naissance : les commandes du bilan (Tous / Garçons / Filles, « Toutes les années » : une ou
- *    plusieurs années cochées) ; une phrase de la barre qui les dit les change (adresse s=, a=2010,2011,2012) ; leurs
- *    pastilles ne sont pas montrées dans la barre. Années posées dans la barre par une adresse d'avant (f= avec des
+ *    plusieurs années cochées, réglés en tête de la fenêtre « Filtres » de la barre) ; une phrase de la barre qui les dit
+ *    les change (adresse s=, a=2010,2011,2012) ; pas de pastille de la barre pour eux (le bilan montre les siennes). Années posées dans la barre par une adresse d'avant (f= avec des
  *    années) : une pastille de la barre ; choisir des années dans le menu du bilan les remplace.
  *  - lieu (une région, un département, un club) : l'étage du bilan (carte, fil, adresse r= d= c=) ; un lieu choisi dans
  *    la barre (menus Région, Département, Club, ou une phrase) fait descendre le bilan à cet étage. Plusieurs départements

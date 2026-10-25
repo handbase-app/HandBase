@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { POSITIONS, today, type Player, type Position } from '../db'
 import { departmentLabel, regionOfDept, useRegionLabel } from '../lists'
@@ -68,7 +68,7 @@ import { AdvancedBusy, SqlAnswerView, sqlPlayers, useAdvancedAsk, useSqlResult }
 import { ask as confirmAsk } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
-import { GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
+import { FilterChip, GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
 import { Icon } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { startAskAction } from './AskAction'
@@ -165,6 +165,13 @@ export type HostedBar = {
   full?: QuestionModel
   /** L'écran se recalcule (bilan : filtre, lieu) : même signe que la liste qui se recalcule, sous la pilule. */
   busy?: boolean
+  /**
+   * Filtres propres à l'écran (bilan : sexe, période, années), réglés EN TÊTE de la fenêtre « Filtres » (`panel`) ; posés
+   * (valeur autre que celle par défaut) : une pastille chacun avant celles de la barre (`chips` : toucher ouvre la fenêtre
+   * sur son réglage, data-filter=`key` ; × le remet par défaut), comptés dans « Filtres n ». « Tout effacer » les remet
+   * aussi par défaut : `onReset` reçoit la requête de la barre sans ses pastilles (un seul changement de l'écran).
+   */
+  own?: { panel: ReactNode; chips: { key: string; label: string; onRemove: () => void }[]; onReset: (q: JoueursQuery) => void }
 }
 
 /**
@@ -194,7 +201,8 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   })())
   // Barre posée sur un autre écran : la requête est celle de l'écran (son adresse).
   const rawQuery = hosted ? hosted.value : sessionQuery
-  const setRawQuery = (v: unknown) => (hosted ? hosted.onChange(cleanQuery(v)) : setSessionQuery(v))
+  const setRawQuery = (v: unknown, reset = false) =>
+    hosted ? (reset && hosted.own ? hosted.own.onReset(cleanQuery(v)) : hosted.onChange(cleanQuery(v))) : setSessionQuery(v)
   const qy = useMemo(() => cleanQuery(rawQuery), [rawQuery])
   const [sessionText, setSessionText] = useSessionState(keys.text, qy.q)
   const [hostedText, setHostedText] = useState(qy.q)
@@ -226,11 +234,11 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
 
-  const setQy = (next: JoueursQuery) => {
+  const setQy = (next: JoueursQuery, reset = false) => {
     const clean = cleanQuery(next)
     if (!hosted && (clean.recipe.pop.sex ?? 'all') !== (qy.recipe.pop.sex ?? 'all')) writeSex(clean.recipe.pop.sex ?? 'all')
     sentQ.current = clean.q
-    setRawQuery(clean)
+    setRawQuery(clean, reset)
     if (clean.q !== qy.q && isNameQuery(text) && clean.q !== text) setText(clean.q)
   }
   const setRecipe = (r: Recipe) => setQy({ ...qy, recipe: listRecipe(r) })
@@ -501,9 +509,14 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
 
   // Filtres visibles (barre posée : sans ceux que l'écran commande lui-même).
   const shownKeys = activeKeys(qy).filter((k) => !hosted?.hidden.has(k))
+  // Filtres propres de l'écran posés (bilan : sexe, période, années) : pastilles et nombre de « Filtres ».
+  const own = hosted?.own
+  const ownChips = own?.chips ?? []
+  const clearable = (hosted ? shownKeys.length > 0 || ownChips.length > 0 : hasQuery(qy)) || !!qy.calc
   const reset = () => {
-    // Barre posée : « Tout effacer » retire ses pastilles, pas les commandes de l'écran (sexe, année, lieu).
-    setQy(hosted ? removeKeys({ ...qy, calc: undefined }, shownKeys) : EMPTY_QUERY)
+    // Barre posée : « Tout effacer » retire ses pastilles, pas les commandes de l'écran (lieu ; sexe et années, sauf filtres
+    // propres de l'écran dans la fenêtre : remis par défaut avec, `own.onReset`).
+    setQy(hosted ? removeKeys({ ...qy, calc: undefined }, shownKeys) : EMPTY_QUERY, true)
     setText('')
     setResult(null)
     setSql(null)
@@ -795,7 +808,7 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
   )
 
   // ---------- Champ, micro, pastilles, ligne de résultat ----------
-  const nChips = filterCount(qy, hosted?.hidden)
+  const nChips = filterCount(qy, hosted?.hidden) + ownChips.length
   const keepChip = (c: Chip) =>
     c.key !== 'out' && c.key !== 'limit' && !(c.key === 'sort' && !c.removable && !qy.recipe.avis.length) && !hosted?.hidden.has(c.key as FilterKey)
   // Le micro charge les données de la recette pendant qu'on parle.
@@ -881,8 +894,12 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
         if (c.key === 'events') setMore(true)
         fw.openAt(c.key)
       }}
+      before={
+        ownChips.length > 0 &&
+        ownChips.map((c) => <FilterChip key={c.key} label={c.label} open={false} edit opensWindow onToggle={() => fw.openAt(c.key)} onRemove={c.onRemove} />)
+      }
       after={
-        (hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? (
+        clearable ? (
           <>
             <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
               Tout effacer
@@ -914,8 +931,9 @@ export function usePlayersQuery(players: Player[] | undefined, opts: { scope?: s
     <FilterWindow
       w={fw}
       count={<CountText n={filtered.length} total={players?.length ?? 0} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
-      onClear={(hosted ? shownKeys.length > 0 : hasQuery(qy)) || qy.calc ? reset : undefined}
+      onClear={clearable ? reset : undefined}
     >
+      {own?.panel}
       {panel}
       {/* Téléphone : ce qu'on voit au bout des lignes (pictogrammes), à part des filtres. */}
       {opts.display && pictosInFilters && <PictoDisplaySection />}

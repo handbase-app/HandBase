@@ -56,6 +56,7 @@ import { usePlayersQuery } from '../components/PlayersQuery'
 import { selectPlayers } from '../playerQuery'
 import { barHidden, barQuery, closeQuestion, encodeBar, fromBar, hasBarFilter, parseBar, withoutYears, type BarState } from '../bilanFilters'
 import { Empty, Icon, Segmented, SectionTitle } from '../components/ui'
+import { FilterField } from '../components/FilterWindow'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { AddToEventDialog } from '../components/AddToEvent'
@@ -101,7 +102,8 @@ import { WaitBar } from '../components/Attente'
  * pastilles, filtres rapides, conditions), sur la ligne des filtres du bilan (téléphone : dans le panneau des filtres
  * résumés). Ses joueurs retenus deviennent la population du bilan (carte, tuiles, clubs, générations, rapport),
  * calculée sur l'appareil ; dans l'adresse (f=, t=). Une commande par notion (sexe, année, lieu : celles du bilan) :
- * src/bilanFilters.ts.
+ * src/bilanFilters.ts. Sexe, période et années du bilan : en tête de la fenêtre « Filtres » de cette barre (BilanFilters),
+ * en pastilles retirables quand ils sont posés, comptés dans « Filtres n ».
  * Uniquement des marques positives ou neutres : un joueur pas encore vu est « à voir », pas encore mesuré « à mesurer ».
  */
 
@@ -239,51 +241,49 @@ function LeftBadge({ t, o = 'vus', g }: { t: Tally; o?: Onglet; g?: Gender }) {
   )
 }
 
-function Filters({
+/**
+ * Filtres propres du bilan (sexe, période pour l'onglet « Vus », années de naissance), en tête de la fenêtre « Filtres »
+ * de la barre (src/components/PlayersQuery.tsx HostedBar `own`), sur ordinateur comme sur téléphone ; mêmes réglages
+ * qu'avant sur la ligne des filtres. `data-filter` : la pastille d'un filtre posé ouvre la fenêtre sur son réglage.
+ */
+function BilanFilters({
   sex,
   setSex,
   period,
   setPeriod,
-  showSex = true,
-  showPeriod = true,
+  showPeriod,
   years,
-  picked = [],
+  picked,
   setYears,
-  extra,
 }: {
-  /** Au bout de la ligne : la barre de filtres (champ, « Filtres »). */
-  extra?: ReactNode
   sex: CoverageSex
   setSex: (v: CoverageSex) => void
   period: CoveragePeriod
   setPeriod: (v: CoveragePeriod) => void
-  showSex?: boolean
   /** Période : seulement pour les joueurs vus. */
-  showPeriod?: boolean
-  /** Années proposées (sinon pas de choix d'année) ; '' : année inconnue. */
-  years?: string[]
+  showPeriod: boolean
+  /** Années proposées ; '' : année inconnue. */
+  years: string[]
   /** Années cochées (vide : toutes). */
-  picked?: string[]
-  setYears?: (v: string[]) => void
+  picked: string[]
+  setYears: (v: string[]) => void
 }) {
   const season = seasonOf(today())
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap [&_button]:min-h-8">
-      {showSex && (
-        <div className="sm:w-72">
-          <Segmented<CoverageSex>
-            value={sex}
-            onChange={setSex}
-            options={[
-              { value: 'all', label: 'Tous' },
-              { value: 'M', label: SEX_LABELS.M },
-              { value: 'F', label: SEX_LABELS.F },
-            ]}
-          />
-        </div>
-      )}
+    <div className="flex flex-col gap-3 [&_button]:min-h-9">
+      <FilterField label="Sexe" k="bilan-sex">
+        <Segmented<CoverageSex>
+          value={sex}
+          onChange={setSex}
+          options={[
+            { value: 'all', label: 'Tous' },
+            { value: 'M', label: SEX_LABELS.M },
+            { value: 'F', label: SEX_LABELS.F },
+          ]}
+        />
+      </FilterField>
       {showPeriod && (
-        <div className="sm:w-80">
+        <FilterField label="Période" k="bilan-period">
           <Segmented<CoveragePeriod>
             value={period}
             onChange={setPeriod}
@@ -292,13 +292,12 @@ function Filters({
               { value: 'all', label: 'Depuis toujours' },
             ]}
           />
-        </div>
+        </FilterField>
       )}
-      {years && setYears && (
-        // Une ou plusieurs années ('' : année inconnue), cases à cocher (src/components/YearPicker.tsx).
-        <YearPicker className="min-h-8 py-1 text-xs sm:w-48" value={picked} options={years.map((y) => ({ value: y }))} onChange={setYears} />
-      )}
-      {extra}
+      {/* Une ou plusieurs années ('' : année inconnue), cases à cocher (src/components/YearPicker.tsx). */}
+      <FilterField label="Année de naissance" k="bilan-years">
+        <YearPicker className="min-h-10 px-2 py-1.5 text-xs" value={picked} options={years.map((y) => ({ value: y }))} onChange={setYears} />
+      </FilterField>
     </div>
   )
 }
@@ -1323,6 +1322,35 @@ export default function Coverage() {
       compact: !phone,
       full: bilan.qm,
       busy,
+      // Sexe, période et années du bilan : dans la fenêtre « Filtres », pastilles quand ils sont posés (pas pendant une
+      // question : la barre montre alors SA population, sexe et années compris).
+      own: st.q
+        ? undefined
+        : {
+            panel: (
+              <BilanFilters
+                sex={sex}
+                setSex={(v) => set({ sex: v })}
+                period={period}
+                setPeriod={(v) => set({ period: v })}
+                showPeriod={o === 'vus'}
+                years={allYears}
+                picked={picked}
+                setYears={(ys) => set({ years: ys, club: null, seenOpen: false })}
+              />
+            ),
+            chips: [
+              ...(sex !== 'all' ? [{ key: 'bilan-sex', label: SEX_LABELS[sex], onRemove: () => set({ sex: 'all' }) }] : []),
+              ...(o === 'vus' && period === 'all' ? [{ key: 'bilan-period', label: 'Depuis toujours', onRemove: () => set({ period: 'season' }) }] : []),
+              ...(picked.length ? [{ key: 'bilan-years', label: yearText, onRemove: () => set({ years: [], club: null, seenOpen: false }) }] : []),
+            ],
+            // « Tout effacer » : pastilles de la barre retirées et filtres du bilan remis par défaut, en un seul changement.
+            onReset: (next) => {
+              const { patch, calc } = fromBar(next, barState, (d) => regionOfDept(d), (k) => voiceClubs.find((c) => c.key === k)?.dept)
+              setBarCalc(calc ?? null)
+              set({ ...patch, sex: 'all', period: 'season', years: [], seenOpen: samePlace(st, patch) ? st.seenOpen : false })
+            },
+          },
     },
   }).parts
   useEffect(() => setBarFull(bar.wantFull), [bar.wantFull])
@@ -1379,8 +1407,6 @@ export default function Coverage() {
   const deptText = (d: string) => (d === NO_DEPT ? 'Département non renseigné' : `${deptName(d)} (${d})`)
 
   const setOnglet = (v: Onglet) => set({ onglet: v, seenOpen: false })
-  const setSex = (v: CoverageSex) => set({ sex: v })
-  const setPeriod = (v: CoveragePeriod) => set({ period: v })
   const setView = (v: View) => set({ view: v })
   const setMapBy = (v: 'region' | 'dept') => set({ mapBy: v })
   const closeClub = () => set({ club: null, seenOpen: false })
@@ -1644,12 +1670,9 @@ export default function Coverage() {
     </div>
   )
   const barSummary = [...bar.chipLabels, ...(st.t.trim() ? [`« ${st.t.trim()} »`] : [])]
-  // Filtres du bilan (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au téléphone.
-  const filtersInput = (
-    <div className="min-w-0 flex-1">
-      <Filters sex={sex} setSex={setSex} period={period} setPeriod={setPeriod} showPeriod={o === 'vus'} years={allYears} picked={picked} setYears={pickYears} extra={barRow} />
-    </div>
-  )
+  // Ligne des filtres (et leur recherche vocale « Filtrer ») : sous l'en-tête sur ordinateur, dans le panneau des pastilles au
+  // téléphone. Sexe, période et années : dans la fenêtre « Filtres » (BilanFilters), en pastilles quand ils sont posés.
+  const filtersInput = <div className="min-w-0 flex-1">{barRow}</div>
   const filtersBlock = oneBar ? (
     filtersInput
   ) : (

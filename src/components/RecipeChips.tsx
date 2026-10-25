@@ -97,6 +97,7 @@ export function RecipeChips({
   open: openProp,
   setOpen: setOpenProp,
   quickRemove = false,
+  before,
   after,
   inWindow,
   onOpenWindow,
@@ -112,6 +113,8 @@ export function RecipeChips({
   setOpen?: (key: string | null) => void
   /** Un × sur chaque pastille retirable (la retire sans l'ouvrir). */
   quickRemove?: boolean
+  /** Avant les pastilles (bilan : ses propres filtres posés, sexe, période, années). */
+  before?: ReactNode
   /** Après les pastilles (« Tout effacer »…). */
   after?: ReactNode
   /**
@@ -126,10 +129,11 @@ export function RecipeChips({
   const setOpen = setOpenProp ?? setOpenState
   const chips = recipeChips(recipe, names).filter((c) => !keep || keep(c))
   const chip = chips.find((c) => c.key === open)
-  if (!chips.length && !after) return null
+  if (!chips.length && !after && !before) return null
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5" aria-label="La question en clair, toucher une pastille pour la changer ou la retirer">
+        {before}
         {chips.map((c) => {
           const win = !!onOpenWindow && !!inWindow?.(c)
           return (
