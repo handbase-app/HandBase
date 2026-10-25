@@ -28,7 +28,7 @@ import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { RosterChip, RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
-import { PageHeader } from '../components/PageHeader'
+import { MoreActions, PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
@@ -156,12 +156,13 @@ export default function Events() {
         <h1 className="text-lg font-extrabold">Événements</h1>
         {!creating && can.manageEvents(role) && (
           <div className="flex gap-2">
-            {/* Feuille de match FFHB (PDF) : handball seulement (src/sportConfig.ts, sportHas). */}
-            {sheets && (
-              <button className="btn-ghost whitespace-nowrap px-3 py-1.5 text-xs" title="Nouveau match depuis une feuille de match (PDF FFHB)" onClick={() => setFromSheet(true)}>
-                + Feuille de match
-              </button>
-            )}
+            {/* Une seule action en couleur ; la feuille de match FFHB (PDF, handball seulement : src/sportConfig.ts, sportHas)
+                dans « ⋯ ». */}
+            <MoreActions
+              title="Événements"
+              label="Autres façons de créer un événement"
+              items={[sheets && { label: 'Depuis une feuille de match', icon: 'list', hint: 'Nouveau match depuis le PDF FFHB', onSelect: () => setFromSheet(true) }]}
+            />
             <button className={`${detailOpen ? 'btn-ghost' : 'btn-primary'} whitespace-nowrap px-3 py-1.5 text-xs`} onClick={() => setCreating({})}>
               + Événement
             </button>

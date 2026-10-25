@@ -4,7 +4,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { age, lateralityLabel, type Measurement, type Player } from '../db'
 import { Empty, fmtValue } from '../components/ui'
 import { PlayerRow, playerSub } from '../components/PlayerRow'
-import { PlayerList } from '../components/Pictos'
+import { PlayerList, usePictosInFilters } from '../components/Pictos'
+import { MoreActions } from '../components/PageHeader'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, useSessionState } from '../components/PlayerFilter'
 import { usePlayersQuery } from '../components/PlayersQuery'
@@ -57,7 +58,7 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender, plain, sex } = usePlayersQuery(players, {}) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
+  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender, plain, sex } = usePlayersQuery(players, { display: true }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre)
   // Premier passage (rien en mémoire) : les premières fiches tout de suite, lues par l'index, le temps que toute la base se lise
   // (liste sans filtre seulement ; un filtre posé ou tapé s'applique dès que tout est lu). Ni « Afficher plus » ni sélection
   // pendant ce temps (« Tout » coche toute la liste filtrée).
@@ -98,6 +99,10 @@ export default function Players() {
   const allIds = useMemo(() => (loading ? shown : filtered).map((p) => p.id), [loading, shown, filtered])
   const shownIds = useMemo(() => shown.map((p) => p.id), [shown])
   const total = all?.length ?? 0
+  // Téléphone : pictogrammes réglés dans la fenêtre « Filtres » (section « Affichage »), plus de barre au-dessus de la
+  // liste ; le nombre de joueurs passe à côté du titre (« Joueurs · 24 »).
+  const pictosInFilters = usePictosInFilters()
+  const countText = loading ? 'Chargement…' : filtered.length < total ? `${pluralG(filtered.length, gender)} sur ${total.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)
   // La liste (ses lignes et sa barre) : refaite quand elle change, pas à chaque lettre tapée dans la barre « Demander »
   // (60 lignes et leur mise en page : la moitié du temps d'une frappe sur 40 000 fiches). Pendant un calcul (filtre, nom
   // tapé) : nombre estompé et aria-busy, posés autour (sans redessiner la liste) ; la fine barre est sous la pilule.
@@ -107,11 +112,8 @@ export default function Players() {
         ids={shownIds}
         all={allIds}
         select={!loading}
-        countLabel={
-          <span className="wait-count">
-            {loading ? 'Chargement…' : filtered.length < total ? `${pluralG(filtered.length, gender)} sur ${total.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)}
-          </span>
-        }
+        pictosInFilters
+        countLabel={<span className="wait-count">{countText}</span>}
       >
       {loading && !preview?.rows.length ? null : shown.length === 0 ? (
         <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
@@ -131,7 +133,7 @@ export default function Players() {
       )}
       </PlayerList>
     ),
-    [shownIds, allIds, loading, preview, filtered.length, total, gender, shown, latest, valueOf, selected, tabQuery, setLimit],
+    [shownIds, allIds, loading, preview, countText, filtered.length, gender, shown, latest, valueOf, selected, tabQuery, setLimit],
   )
 
   if (!all && !previewSeen.current) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -140,21 +142,32 @@ export default function Players() {
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
       <TabBackButton className="mb-2 block" />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-extrabold">Joueurs</h1>
-        <div className="flex gap-2 whitespace-nowrap">
-          {can.manageGroups(role) && (
-            <button
-              className="btn-ghost px-3 py-1.5 text-xs"
-              title={`Ajouter les ${w(gender).joueurs} ${accord('affiché', gender, 2)} à un groupe (existant ou nouveau)`}
-              disabled={!filtered.length}
-              onClick={() => (setGrouping(true), setGroupMsg({ text: '' }))}
-            >
-              → Groupe{all && filtered.length < all.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
-            </button>
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <h1 className="text-lg font-extrabold">Joueurs</h1>
+          {/* Téléphone : le nombre de joueurs (dans la barre des pictogrammes sur ordinateur). */}
+          {pictosInFilters && players && players.length > 0 && (
+            <span role="status" className={`truncate text-xs font-bold text-muted ${calculating ? 'wait-busy' : ''}`}>
+              · <span className="wait-count">{countText}</span>
+            </span>
           )}
-          <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void exportCsv(filtered)} disabled={!filtered.length}>
-            Exporter{all && filtered.length < all.length ? ` (${filtered.length.toLocaleString('fr-FR')})` : ''}
-          </button>
+        </div>
+        {/* Une seule action en couleur ; les autres (→ Groupe, Exporter) dans « ⋯ ». */}
+        <div className="flex gap-2 whitespace-nowrap">
+          <MoreActions
+            title="Joueurs"
+            subtitle={loading ? undefined : countText}
+            label="Autres actions sur la liste"
+            items={[
+              can.manageGroups(role) &&
+                filtered.length > 0 && {
+                  label: 'Ajouter à un groupe',
+                  icon: 'users',
+                  hint: `Les ${w(gender).joueurs} ${accord('affiché', gender, 2)}, groupe existant ou nouveau`,
+                  onSelect: () => (setGrouping(true), setGroupMsg({ text: '' })),
+                },
+              filtered.length > 0 && { label: 'Exporter (tableur)', icon: 'download', hint: `Les ${w(gender).joueurs} ${accord('affiché', gender, 2)}, fichier CSV`, onSelect: () => void exportCsv(filtered) },
+            ]}
+          />
           <Link to="/joueurs/nouveau" className="btn-primary px-3 py-1.5 text-xs">
             {can.editPlayers(role) ? '+ Joueur' : '+ Proposer'}
           </Link>
