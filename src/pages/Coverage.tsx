@@ -1624,15 +1624,6 @@ export default function Coverage() {
         </Link>
       </>
     )
-  const subtitle =
-    o === 'vus'
-      ? `${gw.UnJoueur} est ${gw.vu} dès qu’un membre du staff l’a ${g === 'F' ? 'marquée' : 'marqué'} « ${gw.vu} » ou a donné un avis sur ${g === 'F' ? 'elle' : 'lui'}.`
-      : o === 'licencies'
-        ? `${gw.Joueurs} de la base, par département de leur club.`
-        : o === 'mesures'
-          ? `${gw.Joueurs} avec au moins une mesure prise par le staff.`
-          : `${gw.Joueurs} correspondant à mes profils recherchés.`
-
   // Barre de filtres : champ et « Filtres » au bout de la ligne des filtres du bilan ; dessous (seulement s'il y a quelque
   // chose) : ligne de résultat d'une phrase, pastilles, panneau des filtres, calcul ou mode avancé.
   // Ordinateur avec la barre « Demander » en haut : pas de deuxième barre ni de deuxième micro sur la ligne des filtres
@@ -1700,7 +1691,6 @@ export default function Coverage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-lg font-extrabold">Bilan de détection</h1>
-            <p className="text-[11px] text-muted">{subtitle}</p>
           </div>
           {!phone && (
           <button type="button" aria-haspopup="dialog" onClick={() => setReportOpen(true)} className="btn-ghost min-h-8 shrink-0 px-3 py-1.5 text-xs">
