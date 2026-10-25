@@ -1,4 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { BRAND_FONT, NextarStar } from './Brand'
+import { useAppBrand } from '../appBrand'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -798,6 +800,7 @@ export function useKeyboardInset(on: boolean) {
  *  - Téléphone, appui long (dictée disponible) : on parle tout de suite, relâcher envoie la phrase.
  */
 export function AskButton() {
+  const brand = useAppBrand()
   const nav = useNavigate()
   const loc = useLocation()
   const { questionReady } = useDictation()
@@ -1024,13 +1027,19 @@ export function AskButton() {
         aria-expanded={open}
         ref={btn}
         title="Demander · /"
-        className={`flex h-[38px] w-[38px] shrink-0 touch-none items-center justify-center rounded-full text-white transition select-none [-webkit-touch-callout:none] ${
-          rec ? 'animate-pulse bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'bg-[linear-gradient(135deg,#3b82f6,#7c3aed)] shadow-[0_2px_10px_rgba(59,130,246,0.45)] hover:brightness-110 active:brightness-95'
+        // Capsule « ★ Nextar » aux couleurs du thème (.ask-capsule, src/index.css) ; ordinateur : « · Demander » et la touche « / ».
+        className={`flex h-[38px] max-w-[60vw] shrink-0 touch-none items-center gap-1.5 rounded-full px-4 text-[15px] leading-none font-bold transition select-none [-webkit-touch-callout:none] ${
+          rec ? 'animate-pulse bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110 active:brightness-95'
         }`}
+        style={{ fontFamily: BRAND_FONT }}
         {...press}
       >
-        <span className={`text-[17px] leading-none ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
-          ✦
+        <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+          <NextarStar className="h-[15px] w-[15px]" />
+        </span>
+        <span className="truncate">{brand.name}</span>
+        <span className="ask-hint hidden items-center gap-1.5 font-normal side:inline-flex" aria-hidden>
+          · Demander <kbd className="rounded border px-1 text-[11px] leading-[16px] font-normal">/</kbd>
         </span>
       </button>
       {palette}

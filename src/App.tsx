@@ -255,9 +255,8 @@ export default function App() {
         {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
             de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Compte joueur : ni bulle ✦,
             ni suivis, ni cible (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
-        <div className="flex min-w-0 items-center">
-          <Logo className="side:hidden" />
-        </div>
+        {/* Plus de logo ici : le nom de l'appli est dans le bouton « ★ Nextar » du milieu (sur ordinateur, le logo reste en haut du menu). */}
+        <div className="flex min-w-0 items-center" />
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
         {player ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">

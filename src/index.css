@@ -193,6 +193,16 @@ body {
 /* Salle (identifiant « sombre ») : tuile active comme un tableau de score, sans voile jaune (qui virait à l'olive). */
 :root[data-style="sombre"] .emph-band .card[aria-selected="true"] { background-color: var(--emph-bg2); }
 
+/* Bouton « ★ Nextar » de l'en-tête (src/components/Demander.tsx, AskButton) : couleurs tirées du thème.
+   Sombre : un cran plus clair que le fond, liseré ; clair : couleur du texte du thème, écriture claire ; en-tête coloré :
+   blanc translucide. L'étoile garde la menthe du logo. */
+.ask-capsule { background: var(--color-panel-2); color: var(--color-fg); border: 1px solid var(--color-line); }
+:root[data-light] .ask-capsule { background: var(--color-fg); color: var(--color-panel); border-color: transparent; }
+:root[data-header] .app-header .ask-capsule { background: rgb(255 255 255 / 0.16); color: var(--header-fg); border-color: rgb(255 255 255 / 0.28); }
+.ask-capsule .ask-star { color: #88f5b7; }
+.ask-capsule .ask-hint { opacity: 0.72; }
+.ask-capsule kbd { border-color: currentColor; }
+
 /* En-tête coloré (style Officiel). */
 :root[data-header] .app-header {
   --color-fg: var(--header-fg);
