@@ -5,6 +5,7 @@ import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
 import { withPoleMembers } from './poleMembers'
 import { momentsShort, sourceLabel } from './videos'
+import { focusLink } from './playerFocus'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -138,7 +139,8 @@ export async function buildFeed({
       authorId: rs[0].createdBy,
       text: `${plural(rs.length, 'mesure')} sur ${pids.length === 1 ? nameOf(byId.get(pids[0])) : pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))}`,
       detail: `${tests.length <= 3 ? tests.join(', ') : plural(tests.length, 'test')} · tests ${dateRange(rs.map((m) => m.date))}`,
-      to: pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
+      // Un seul joueur : sa fiche sur la courbe du test (un seul test) ou sur l'onglet Tests (src/playerFocus.ts).
+      to: pids.length !== 1 ? undefined : tests.length === 1 ? focusLink(pids[0], { kind: 'mesure', id: rs[0].criterionId, row: rs.length === 1 ? rs[0].id : undefined }) : `/joueurs/${pids[0]}?onglet=tests`,
     })
   }
 
@@ -157,7 +159,7 @@ export async function buildFeed({
       authorId: who.length === 1 ? who[0][0] : undefined,
       text: `${plural(rs.length, 'avis', 'avis')} · ${ev ? ev.name : rs.length === 1 ? contextLabel(rs[0]) : 'avis spontanés'}`,
       detail: [`${pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
-      to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
+      to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? focusLink(pids[0], { kind: 'avis', id: rs.length === 1 ? rs[0].id : 'tous' }) : undefined,
     })
   }
 
@@ -179,7 +181,7 @@ export async function buildFeed({
       authorId: v.createdBy,
       text: `${rs.length === 1 ? 'nouvelle vidéo' : `${rs.length} nouvelles vidéos`} : ${subject}`,
       detail: rs.map((x) => [x.title || sourceLabel(x.url), momentsShort(x)].filter(Boolean).join(' ')).join(' · '),
-      to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}?onglet=video`,
+      to: v.targetKind === 'player' ? focusLink(v.targetId, { kind: 'video', id: rs.length === 1 ? v.id : 'toutes' }) : `/evenements/${v.targetId}?onglet=video`,
     })
   }
 

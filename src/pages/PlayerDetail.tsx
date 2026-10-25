@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -33,6 +33,7 @@ import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
 import { StaffJournal } from '../components/PlayerJournal'
+import { FOCUS_KEY, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
 const TABS: readonly { id: PlayerTab; label: string }[] = [
@@ -64,7 +65,7 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
   return (
     // Dans le panneau de droite (marge haute pt-3), les onglets collent au bord même du cadre : sinon une bande
     // de 0,75 rem laisse voir le contenu qui défile au-dessus d'eux.
-    <div className={`sticky z-10 -mx-4 border-b border-line px-4 ${inPanel ? 'bg-bg' : 'bg-bg/95 backdrop-blur'}`} style={{ top: inPanel ? '-0.75rem' : top }}>
+    <div data-fiche-onglets className={`sticky z-10 -mx-4 border-b border-line px-4 ${inPanel ? 'bg-bg' : 'bg-bg/95 backdrop-blur'}`} style={{ top: inPanel ? '-0.75rem' : top }}>
       <div className="flex">
         {TABS.map((t) => (
           <button
@@ -108,6 +109,19 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     q.delete('fusion')
     setParams(q, { replace: true, state })
   }
+  // ?voir=… (ligne de « Mes suivis », src/playerFocus.ts) : retenu ici (numéroté : le même lien rouvert vise de nouveau),
+  // retiré de l'adresse aussitôt (remplacée, même état : « Retour » ramène toujours à l'écran d'origine).
+  // Gardé pour ce joueur seulement (fiche réutilisée en passant à un autre joueur de la liste).
+  const voir = params.get(FOCUS_KEY)
+  const [aimed, setAimed] = useState<(PlayerFocus & { n: number; pid?: string }) | null>(null)
+  useEffect(() => {
+    if (voir === null) return
+    const f = parseFocus(voir)
+    if (f) setAimed((old) => ({ ...f, pid: id, n: (old?.n ?? 0) + 1 }))
+    setParams(new URLSearchParams(withoutFocus(search)), { replace: true, state })
+  }, [voir]) // eslint-disable-line react-hooks/exhaustive-deps
+  const focus = aimed && aimed.pid === id ? aimed : null
+  useFocusScroll(focus)
   /** Lien vers une autre fiche (doublon, fiche fusionnée) : même onglet. */
   const sameTab = withTab('', tab, PLAYER_TABS, PLAYER_TAB_DEFAULT)
   const [merging, setMerging] = useState(false)
@@ -324,7 +338,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
         <PoleCard player={p} />
 
-        <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} />
+        <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />
 
         {(p.position || (p.secondaryPositions ?? []).length > 0) && (
           <div className="card p-4">
@@ -393,7 +407,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             <div className="section-title">{cat}</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               {cs.map((c) => (
-                <div key={c.id}>
+                // Mesure sans courbe (texte, choix) : visée ici par ?voir=mesure:… ; avec courbe, c'est « Suivi des mesures ».
+                <div key={c.id} data-voir={hasCurve(c) ? undefined : `mesure:${c.id}`} className="rounded-md">
                   <div className="text-[10px] text-muted">{c.label}</div>
                   <div className="text-sm font-extrabold">{fmtValue(c, latest.get(c.id)!.value)}</div>
                 </div>
@@ -402,7 +417,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             </div>
           </div>
         ))}
-        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} />
+        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} focus={focus?.kind === 'mesure' ? focus : undefined} />
         </>
       )}
 
@@ -413,11 +428,11 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         </Link>
       )}
       {tab === 'avis' && (
-        <div className="card p-4">
+        <div className="card p-4" data-voir="avis:tous">
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
             <span className="text-accent">★</span> Avis du staff
           </div>
-          <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} />
+          <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} focus={focus?.kind === 'avis' ? focus : undefined} />
         </div>
       )}
 
@@ -443,18 +458,64 @@ function PlayerSpaceCard({ player }: { player: Player }) {
   return <PlayerAccessCard player={player} access={access} />
 }
 
-/** « Suivi des mesures » : courbe d'évolution d'un critère factuel et historique (saisie : page Séance de tests). */
+/** Critère tracé dans « Suivi des mesures » (pas les textes ni les choix). */
+const hasCurve = (c: Criterion) => c.scale !== 'text' && c.scale !== 'choice'
+
+/**
+ * Élément de la fiche visé par ?voir=… (`data-voir`) : dès qu'il est là (données lues, onglet ouvert, carte dépliée),
+ * il vient à l'écran sous les onglets collés, puis est un instant mis en évidence.
+ */
+function useFocusScroll(focus: (PlayerFocus & { n: number }) | null) {
+  useEffect(() => {
+    if (!focus) return
+    const sel = `[data-voir="${CSS.escape(focusAttr(focus))}"]`
+    let tries = 0
+    let hl: ReturnType<typeof setTimeout> | undefined
+    const timer = setInterval(() => {
+      const el = document.querySelector<HTMLElement>(sel)
+      if (!el) {
+        if (++tries > 60) clearInterval(timer)
+        return
+      }
+      clearInterval(timer)
+      // Sous les onglets collés : ceux de la fiche (sous l'en-tête de l'appli, ou en haut du panneau de droite).
+      const tabs = document.querySelector<HTMLElement>('[data-fiche-onglets]')
+      const box = el.closest<HTMLElement>('.md-panel')
+      const margin = (tabs ? Math.max(0, parseFloat(tabs.style.top) || 0) + tabs.offsetHeight : 60) + 12
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto'
+      if (box) box.scrollTo({ top: box.scrollTop + el.getBoundingClientRect().top - box.getBoundingClientRect().top - margin, behavior })
+      else window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - margin, behavior })
+      el.classList.add('voir-hl')
+      hl = setTimeout(() => el.classList.remove('voir-hl'), 2400)
+    }, 50)
+    return () => {
+      clearInterval(timer)
+      clearTimeout(hl)
+    }
+  }, [focus])
+}
+
+/**
+ * « Suivi des mesures » : courbe d'évolution d'un critère factuel et historique (saisie : page Séance de tests).
+ * `focus` (?voir=mesure:<critère>) : ce critère est choisi dans la liste.
+ */
 function Tracking({
   criteria,
   measurements,
   editable,
+  focus,
 }: {
   criteria: Criterion[]
   measurements: Measurement[]
   editable: boolean
+  focus?: { id: string; row?: string; n: number }
 }) {
-  const withData = criteria.filter((c) => c.scale !== 'text' && c.scale !== 'choice' && measurements.some((m) => m.criterionId === c.id))
+  const withData = criteria.filter((c) => hasCurve(c) && measurements.some((m) => m.criterionId === c.id))
   const [cid, setCid] = useState<string>('')
+  useEffect(() => {
+    if (focus) setCid(focus.id)
+  }, [focus])
   const current = withData.find((c) => c.id === cid) ?? withData[0]
   const series = useMemo(
     () =>
@@ -465,7 +526,7 @@ function Tracking({
   )
 
   return (
-    <div className="card p-4">
+    <div className="card p-4" data-voir={current ? `mesure:${current.id}` : undefined}>
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
           <span className="text-accent">↗</span> Suivi des mesures
@@ -505,7 +566,8 @@ function Tracking({
           )}
           <div className="mt-2 divide-y divide-line">
             {[...series].reverse().map((m) => (
-              <div key={m.id} className="flex items-center justify-between py-1.5 text-xs">
+              // Mesure visée (?voir=mesure:<critère>:<mesure>, nouveauté de « Mes suivis ») : sa ligne reste marquée.
+              <div key={m.id} className={`flex items-center justify-between py-1.5 text-xs ${focus?.row === m.id && current.id === focus.id ? '-mx-2 rounded-md bg-accent/10 px-2' : ''}`}>
                 <span className="min-w-0">
                   <span className="font-bold">{fmtDate(m.date)}</span>
                   {m.note && <span className="ml-2 text-[11px] text-amber-200">« {m.note} »</span>}

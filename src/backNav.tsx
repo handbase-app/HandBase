@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useNavigationType, type Location, type NavigationType } from 'react-router-dom'
-import { backTarget, createBackLayers, newKey, noteEntry, type BackLayers, type Entry, type Layer } from './backCore'
+import { backTarget, createBackLayers, depthOf, newKey, noteEntry, type BackLayers, type Entry, type Layer } from './backCore'
 import { canLeave } from './components/Confirm'
 import { db } from './db'
 import { playerName } from './components/ui'
@@ -199,7 +199,7 @@ export function useBack(
   fallback: string,
   fallbackLabel: string,
   opts: { replace?: boolean } = {},
-): { label: string; go: () => void; exit: () => void; known: boolean } {
+): { label: string; go: () => void; exit: () => void; known: boolean; leaveScreen: () => void } {
   const loc = useLocation()
   const nav = useNavigate()
   const { target, steps } = backTarget(map, loc.key, loc.pathname)
@@ -210,9 +210,27 @@ export function useBack(
       known: false,
       go: async () => (await canLeave()) && nav(fallback, { replace: !!opts.replace }),
       exit: () => nav(fallback, { replace: true }),
+      leaveScreen: async () => (await canLeave()) && nav(fallback, { replace: !!opts.replace }),
     }
   const same = target === fallback.replace(/[?#].*$/, '')
-  return { label: same ? fallbackLabel : (label ?? 'RETOUR'), known: true, go: async () => (await canLeave()) && nav(-steps), exit: () => nav(-steps) }
+  return {
+    label: same ? fallbackLabel : (label ?? 'RETOUR'),
+    known: true,
+    go: async () => (await canLeave()) && nav(-steps),
+    exit: () => nav(-steps),
+    // Bouton « ← » de l'écran : fenêtre restée ouverte sans couvrir l'écran (lecteur vidéo), ses entrées sautées d'un coup —
+    // on revient à l'écran annoncé (elle se ferme avec celui qu'on quitte), pas seulement à l'écran sans la vidéo.
+    leaveScreen: async () => {
+      if (!(await canLeave())) return
+      let open = 0
+      try {
+        open = depthOf(window.history.state)
+      } catch {
+        open = 0
+      }
+      nav(-(steps + open))
+    },
+  }
 }
 
 /**
@@ -304,7 +322,7 @@ export function useTargetLabel(path?: string): string | undefined {
 export function BackButton({ fallback, label, className = '' }: { fallback: string; label: string; className?: string }) {
   const back = useBack(fallback, label)
   return (
-    <button onClick={back.go} className={`min-w-0 truncate text-left text-xs font-bold text-muted ${className}`}>
+    <button onClick={back.leaveScreen} className={`min-w-0 truncate text-left text-xs font-bold text-muted ${className}`}>
       ← {back.label}
     </button>
   )

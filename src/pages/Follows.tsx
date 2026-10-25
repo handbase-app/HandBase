@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useEntryState } from '../backNav'
@@ -22,10 +22,12 @@ import {
 import { positionRosterView } from '../positionOrder'
 import { RosterChip, RosterSectionList } from '../components/PositionRoster'
 import { useThrottledQuery } from '../live'
-import { Empty, Icon } from '../components/ui'
+import { Empty, Icon, type IconName } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
-import { PlayerList } from '../components/Pictos'
+import { Count, PlayerList } from '../components/Pictos'
 import { TEAM_FOLLOW } from '../staffLabels'
+import { focusLabel, focusLink, focusOfNews } from '../playerFocus'
+import { pictoLabel, ROW_KINDS, rowPictos, type NewsKind } from '../followRows'
 
 function dayLabel(day: string) {
   const now = Date.now()
@@ -38,41 +40,165 @@ function dayLabel(day: string) {
 
 const nameOf = (p?: Player) => (p ? `${p.lastName.toUpperCase()} ${p.firstName}` : 'Joueur')
 
-/** Une nouveauté (mesure, avis ou vidéo) d'un joueur suivi, sur une ligne. */
-function NewsLine({ n, seen }: { n: FollowNews; seen: number }) {
+/** Pictogrammes des nouveautés : mêmes icônes et couleurs que ceux des listes de joueurs (src/components/Pictos.tsx). */
+const KIND_ICON: Record<NewsKind, IconName> = { evaluation: 'chat', measurement: 'ruler', video: 'video' }
+const KIND_COLOR: Record<NewsKind, string> = { evaluation: 'text-emerald-300', measurement: 'text-amber-300', video: 'text-violet-300' }
+const LINE_LINK = 'rounded-md outline-none hover:bg-panel-2 focus-visible:ring-2 focus-visible:ring-accent'
+const isFresh = (n: FollowNews, seen: number) => n.time > seen && !n.mine
+const FreshDot = () => <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="Nouveau depuis ta dernière visite" />
+
+/**
+ * Un avis ou une vidéo d'un joueur suivi, sur une ligne : un lien qui ouvre sa fiche dessus (cet avis déplié, cette
+ * vidéo ; src/playerFocus.ts). « Retour » ramène ici, même journée et même joueur dépliés, même position.
+ */
+function NewsLine({ n, seen, who }: { n: FollowNews; seen: number; who: string }) {
   return (
-    <div className="flex items-center gap-2 py-1 text-xs">
-      <Icon name={n.kind === 'measurement' ? 'ruler' : n.kind === 'video' ? 'video' : 'star'} className="h-3.5 w-3.5 shrink-0 text-muted" />
+    <Link to={focusLink(n.playerId, focusOfNews(n))} aria-label={focusLabel(n, who)} className={`group -mx-1.5 flex items-center gap-2 px-1.5 py-1 text-xs ${LINE_LINK}`}>
+      <Icon name={KIND_ICON[n.kind]} className="h-3.5 w-3.5 shrink-0 text-muted" />
       <span className="min-w-0 flex-1 truncate">
-        <b>{n.kind === 'evaluation' ? `Avis · ${n.text}` : n.kind === 'video' ? `Vidéo · ${n.text}` : n.text}</b>
+        <b>{n.kind === 'evaluation' ? `Avis · ${n.text}` : `Vidéo · ${n.text}`}</b>
         {n.pending && <span className="text-amber-300"> · à valider</span>}
-        <span className="text-muted">{[n.kind === 'measurement' ? n.testDate && fmtDate(n.testDate) : n.detail, n.author].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+        <span className="text-muted">{[n.detail, n.author].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
       </span>
-      {n.time > seen && !n.mine && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="Nouveau depuis ta dernière visite" />}
+      {isFresh(n, seen) && <FreshDot />}
+      {/* Ordinateur : petit chevron, plus marqué au survol. */}
+      <span aria-hidden="true" className="hidden shrink-0 text-muted/60 group-hover:text-accent side:inline">
+        ›
+      </span>
+    </Link>
+  )
+}
+
+/** Cartes, joueurs et mesures dépliés : retenus pendant la session (retour d'une fiche). */
+type OpenState = { has: (k: string) => boolean; toggle: (k: string) => void }
+
+/**
+ * Mesures d'un joueur sur une journée, sur une seule ligne : « Taille 180 cm (+2 cm) · Poids 65 kg », chacune un lien
+ * vers sa courbe (sa ligne marquée) ; l'écart avec la mesure précédente du même test, sans jugement. Au-delà de
+ * quelques-unes, « + N autres ».
+ */
+function MeasuresLine({ ms, seen, who, more }: { ms: FollowNews[]; seen: number; who: string; more: OpenState }) {
+  const SHOWN = 6
+  const moreKey = `m:${ms[0].day}|${ms[0].playerId}`
+  const all = more.has(moreKey)
+  const shown = all ? ms : ms.slice(0, SHOWN)
+  const tail = [...new Set(ms.map((n) => n.testDate && fmtDate(n.testDate)).filter(Boolean)), ...new Set(ms.map((n) => n.author).filter(Boolean))]
+  return (
+    <div className="flex items-start gap-2 py-1 text-xs">
+      <Icon name="ruler" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+      <span className="min-w-0 flex-1 leading-relaxed">
+        {shown.map((n, i) => (
+          <Fragment key={n.key}>
+            {i > 0 && <span className="text-muted"> · </span>}
+            <Link to={focusLink(n.playerId, focusOfNews(n))} aria-label={focusLabel(n, who)} className={`-mx-0.5 px-0.5 font-bold whitespace-nowrap hover:text-accent ${LINE_LINK}`}>
+              {n.label} {n.value}
+              {n.delta && <span className="font-normal text-muted"> ({n.delta})</span>}
+            </Link>
+          </Fragment>
+        ))}
+        {ms.length > SHOWN && (
+          <button type="button" className="ml-1.5 text-[11px] font-bold text-accent" onClick={() => more.toggle(moreKey)}>
+            {all ? 'Moins' : `+ ${ms.length - SHOWN} autres`}
+          </button>
+        )}
+        <span className="text-muted">{tail.map((x) => ` · ${x}`).join('')}</span>
+      </span>
+      {ms.some((n) => isFresh(n, seen)) && <FreshDot />}
     </div>
   )
 }
 
-/** Nouveautés d'un joueur sur une journée : une ligne chacune, les mesures repliées au-delà de quelques-unes. */
-function PlayerNews({ items, seen }: { items: FollowNews[]; seen: number }) {
-  const [all, setAll] = useState(false)
-  const SHOWN = 5
+/**
+ * Un joueur sur une journée, en une ligne compacte : son nom (toucher : déplier le détail), un pictogramme par sorte de
+ * nouveauté (avis, mesures, vidéos) avec leur nombre au-delà d'une, chacun ouvrant la fiche au bon endroit
+ * (src/followRows.ts), et le chevron. Dépliée : avis et vidéos une ligne chacun, les mesures sur une ligne, l'origine du
+ * suivi et le lien vers la fiche. Repliée par défaut.
+ */
+function PlayerDay({
+  pid,
+  items,
+  player,
+  origin,
+  except,
+  seen,
+  open,
+  onToggle,
+  more,
+  columns,
+}: {
+  pid: string
+  items: FollowNews[]
+  player?: Player
+  origin?: FollowOrigin
+  except?: string
+  seen: number
+  open: boolean
+  onToggle: () => void
+  more: OpenState
+  /** Sortes de nouveautés de la journée (colonnes des pictogrammes). */
+  columns: readonly NewsKind[]
+}) {
+  const who = nameOf(player)
+  const detailId = useId()
+  const pictos = rowPictos(items)
   const ms = items.filter((n) => n.kind === 'measurement')
-  const shown = [...items.filter((n) => n.kind !== 'measurement'), ...(all ? ms : ms.slice(0, SHOWN))]
   return (
-    <>
-      {shown.map((n) => (
-        <NewsLine key={n.key} n={n} seen={seen} />
-      ))}
-      {ms.length > SHOWN && (
-        <button className="self-start py-0.5 pl-5.5 text-[11px] font-bold text-accent" onClick={() => setAll(!all)}>
-          {all ? 'Moins' : `+ ${ms.length - SHOWN} autres mesures`}
+    <div className="py-0.5">
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={detailId}
+          title={open ? 'Replier le détail' : 'Voir le détail'}
+          onClick={onToggle}
+          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <span className="min-w-0 truncate text-sm font-bold">{who}</span>
+          {items.some((n) => isFresh(n, seen)) && <FreshDot />}
         </button>
+        {/* Une colonne par sorte présente dans la journée : les pictogrammes restent alignés d'une ligne à l'autre. */}
+        {columns.map((kind) => {
+          const pc = pictos.find((x) => x.kind === kind)
+          if (!pc) return <span key={kind} className="w-8 shrink-0" />
+          const label = pictoLabel(pc.kind, pc.n, who)
+          return (
+            <Link key={pc.kind} to={focusLink(pid, pc.focus)} aria-label={label} title={label} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center ${LINE_LINK}`}>
+              <span className={`relative ${KIND_COLOR[pc.kind]}`}>
+                <Icon name={KIND_ICON[pc.kind]} className="h-4 w-4" />
+                <Count n={pc.n > 1 ? pc.n : 0} />
+              </span>
+            </Link>
+          )
+        })}
+        {/* Même effet que le nom (déjà annoncé aux lecteurs d'écran) : seulement une cible de plus au doigt. */}
+        <button type="button" tabIndex={-1} aria-hidden="true" onClick={onToggle} className="inline-flex h-8 w-7 shrink-0 items-center justify-center text-muted hover:text-fg">
+          <span className={`transition ${open ? 'rotate-90' : ''}`}>›</span>
+        </button>
+      </div>
+      {open && (
+        <div id={detailId} className="flex flex-col pb-1.5">
+          {items
+            .filter((n) => n.kind === 'evaluation')
+            .map((n) => (
+              <NewsLine key={n.key} n={n} seen={seen} who={who} />
+            ))}
+          {ms.length > 0 && <MeasuresLine ms={ms} seen={seen} who={who} more={more} />}
+          {items
+            .filter((n) => n.kind === 'video')
+            .map((n) => (
+              <NewsLine key={n.key} n={n} seen={seen} who={who} />
+            ))}
+          <div className="flex flex-wrap items-baseline gap-x-3 pt-0.5">
+            <Link to={`/joueurs/${pid}`} className="text-[11px] font-bold text-accent hover:underline">
+              Voir la fiche ›
+            </Link>
+            <OriginTag origin={origin} except={except} sex={player?.sex} />
+          </div>
+        </div>
       )}
-    </>
+    </div>
   )
 }
-
 
 /**
  * D'où vient le suivi (« via U17 France », « via 2 groupes », « suivi direct ») : le détail (tous les groupes) au
@@ -137,34 +263,44 @@ function byDayThenPlayer(items: FollowNews[]) {
   return byDay
 }
 
-/** Joueurs d'une journée : nom (vers la fiche), origine du suivi, nouveautés. */
+/** Joueurs d'une journée : une ligne compacte chacun (PlayerDay), repliée par défaut ; dépliée, retenue pendant la session. */
 function DayPlayers({
   perPlayer,
   players,
   origins,
   seen,
   except,
+  more,
 }: {
   perPlayer: Map<string, FollowNews[]>
   players: Map<string, Player>
   origins: Map<string, FollowOrigin>
   seen: number
   except?: string
+  more: OpenState
 }) {
+  const all = [...perPlayer.values()].flat()
+  const columns = ROW_KINDS.filter((k) => all.some((n) => n.kind === k))
   return (
     <div className="divide-y divide-line">
-      {[...perPlayer].map(([pid, items]) => (
-        <div key={pid} className="flex flex-col py-1.5">
-          {/* Origine à droite du nom ; sur téléphone, elle passe dessous quand la place manque. */}
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <Link to={`/joueurs/${pid}`} className="max-w-full min-w-0 truncate text-sm font-bold hover:text-accent">
-              {nameOf(players.get(pid))}
-            </Link>
-            <OriginTag origin={origins.get(pid)} except={except} sex={players.get(pid)?.sex} />
-          </div>
-          <PlayerNews items={items} seen={seen} />
-        </div>
-      ))}
+      {[...perPlayer].map(([pid, items]) => {
+        const k = `p:${items[0].day}|${pid}`
+        return (
+          <PlayerDay
+            key={pid}
+            pid={pid}
+            items={items}
+            player={players.get(pid)}
+            origin={origins.get(pid)}
+            except={except}
+            seen={seen}
+            open={more.has(k)}
+            onToggle={() => more.toggle(k)}
+            more={more}
+            columns={columns}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -245,6 +381,7 @@ export default function Follows() {
   // Cartes de nouveautés dépliées (repliées par défaut), retrouvées au retour d'une fiche pendant la session.
   const [opened, setOpened] = useSessionState<string[]>('handbase.suivis.ouverts', [])
   const toggle = (k: string) => setOpened((o) => (o.includes(k) ? o.filter((x) => x !== k) : [...o, k]))
+  const more: OpenState = { has: (k) => opened.includes(k), toggle }
   const loc = useLocation()
   const view = parseFollowView(params.get('vue'))
   const filterKey = params.get('filtre')
@@ -405,14 +542,14 @@ export default function Follows() {
                         {[...byDayThenPlayer(items)].map(([day, perPlayer]) => (
                           <div key={day}>
                             <div className="mt-1 text-[10px] font-bold tracking-wide text-muted uppercase">{dayLabel(day)}</div>
-                            <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} except={exceptOf(s)} />
+                            <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} except={exceptOf(s)} more={more} />
                           </div>
                         ))}
                       </NewsCard>
                     ))
                 : [...byDayThenPlayer(shown)].map(([day, perPlayer]) => (
                     <NewsCard key={day} title={dayLabel(day)} items={[...perPlayer.values()].flat()} g={newsGender([...perPlayer.values()].flat())} seen={seen} open={opened.includes(`j:${day}`)} onToggle={() => toggle(`j:${day}`)}>
-                      <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} />
+                      <DayPlayers perPlayer={perPlayer} players={players} origins={origins} seen={seen} more={more} />
                     </NewsCard>
                   ))}
               {!shown.length && <p className="py-4 text-center text-xs text-muted">Rien de nouveau sur les {days} derniers jours.</p>}

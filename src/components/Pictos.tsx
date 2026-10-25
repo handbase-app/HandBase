@@ -452,7 +452,7 @@ const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
 }
 
 /** Nombre posé sur le pictogramme (vidéos, avis). */
-function Count({ n }: { n: number }) {
+export function Count({ n }: { n: number }) {
   if (!n) return null
   return (
     <span aria-hidden className="absolute -top-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-current px-0.5">

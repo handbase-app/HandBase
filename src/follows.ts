@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react'
-import { alive, contextLabel, db, localDay, remove, save, type Criterion, type Follow, type HBEvent, type PlayerGroup } from './db'
+import { alive, contextLabel, db, localDay, remove, save, scaleMax, type Criterion, type Follow, type HBEvent, type PlayerGroup } from './db'
 import { POLE_MEMBER_TABLES, withPoleMembers } from './poleMembers'
 import { fmtValue } from './components/ui'
 import { sharedQuery, useShared } from './live'
@@ -7,6 +7,7 @@ import { can, currentUserId, isParticipant, useRole } from './roles'
 import { loadTeams } from './teams'
 import { supabase } from './sync'
 import { momentsShort, sourceLabel } from './videos'
+import { deltaText, previousValue } from './followRows'
 
 /*
  * « Mes suivis » (supabase/032_suivis.sql) : joueurs et groupes suivis, à la façon d'un réseau social.
@@ -160,6 +161,15 @@ export interface FollowNews {
   pending?: boolean
   /** Mesure : date du test (AAAA-MM-JJ). */
   testDate?: string
+  /** Ligne d'origine (mesure, avis, vidéo) : la ligne de « Mes suivis » ouvre la fiche dessus (src/playerFocus.ts). */
+  refId: string
+  /** Mesure : son critère, son nom (« Taille ») et si elle a une courbe (valeur chiffrée). */
+  criterionId?: string
+  label?: string
+  curve?: boolean
+  /** Mesure : valeur écrite (« 180 cm ») et écart avec la précédente du même test (« +2 cm », « = »), s'il y en a une. */
+  value?: string
+  delta?: string
 }
 
 /** Moment de création, comme dans le fil « Quoi de neuf » (feed.ts). */
@@ -196,11 +206,19 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
     (await db.events.bulkGet([...new Set(recentEs.map((e) => e.eventId).filter((x): x is string => !!x))])).filter((e): e is HBEvent => !!e).map((e) => [e.id, e]),
   )
   const out: FollowNews[] = []
+  // Mesures de chaque joueur, test par test : l'écart de la nouvelle avec la précédente (src/followRows.ts).
+  const series = new Map<string, { id: string; date: string; value: unknown; at: number }[]>()
+  for (const m of ms) {
+    if (m.deleted) continue
+    const k = `${m.playerId}|${m.criterionId}`
+    series.set(k, [...(series.get(k) ?? []), { id: m.id, date: m.date, value: m.value, at: m.updatedAt }])
+  }
   for (const m of ms) {
     if (m.deleted) continue
     const time = created(m)
     if (time < since) continue
     const c = crit.get(m.criterionId)
+    const prev = typeof m.value === 'number' ? previousValue(series.get(`${m.playerId}|${m.criterionId}`) ?? [], { id: m.id, date: m.date, value: m.value, at: m.updatedAt }) : undefined
     out.push({
       key: `m|${m.id}`,
       kind: 'measurement',
@@ -212,6 +230,12 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       text: `${c?.label ?? m.criterionId} : ${fmtValue(c, m.value)}`,
       detail: [`test du ${new Date(m.date + 'T00:00:00').toLocaleDateString('fr-FR')}`, m.note].filter(Boolean).join(' · '),
       testDate: m.date,
+      refId: m.id,
+      criterionId: m.criterionId,
+      label: c?.label ?? m.criterionId,
+      curve: typeof m.value === 'number' && c?.scale !== 'text' && c?.scale !== 'choice',
+      value: fmtValue(c, m.value),
+      delta: prev !== undefined && typeof m.value === 'number' ? deltaText(m.value, prev, c?.unit, !!c && scaleMax(c.scale) !== null) : undefined,
     })
   }
   for (const e of recentEs) {
@@ -229,6 +253,7 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       text: ev ? ev.name : contextLabel(e),
       detail: noted ? `${noted} critère${noted > 1 ? 's' : ''} noté${noted > 1 ? 's' : ''}` : undefined,
       pending: e.review === 'pending',
+      refId: e.id,
     })
   }
   // Liens vidéo sur un joueur suivi (supabase/036_videos.sql).
@@ -246,6 +271,8 @@ export async function buildFollowNews(days: number, f?: FollowsResult): Promise<
       mine: !!me && v.createdBy === me,
       text: v.title || sourceLabel(v.url),
       detail: [v.title && sourceLabel(v.url), momentsShort(v)].filter(Boolean).join(' ') || undefined,
+      refId: v.id,
+      label: v.title || sourceLabel(v.url),
     })
   }
   return out.sort((a, b) => b.time - a.time)

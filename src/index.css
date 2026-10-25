@@ -314,6 +314,10 @@ body {
 @keyframes filter-hl { from { box-shadow: 0 0 0 3px var(--color-accent, #3b82f6); } to { box-shadow: 0 0 0 3px transparent; } }
 .filter-hl { border-radius: 0.5rem; animation: filter-hl 1.6s ease-out; }
 @media (prefers-reduced-motion: reduce) { .filter-hl { animation: none; outline: 2px solid var(--color-accent, #3b82f6); outline-offset: 2px; } }
+/* Fiche ouverte depuis une ligne de « Mes suivis » (?voir=…, src/playerFocus.ts) : l'élément visé (courbe, avis, vidéo)
+   mis un instant en évidence. */
+.voir-hl { animation: filter-hl 2.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .voir-hl { animation: none; outline: 2px solid var(--color-accent, #3b82f6); outline-offset: 2px; } }
 /* Signe d'attente (components/Attente.tsx) : ✦ qui tourne doucement pendant une demande à l'assistant ; fine barre sous la
    pilule « Demander » (avancée d'après la durée habituelle, ou va-et-vient pendant un calcul de la liste). Animations faites
    par le navigateur (transform) : elles continuent pendant un calcul qui occupe la page. Réduire les animations : ni rotation

@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useMemo, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { contextLabel, counts, criterionApplies, fmtDate, remove, reviewOf, scaleMax, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
 import { can, currentUserId, useRole, type Role } from '../roles'
@@ -40,6 +40,8 @@ function useAvisFold(ids: string[]) {
   return {
     isOpen,
     everyOpen,
+    /** Ouvre cette carte (avis visé par ?voir=avis:…), sans toucher aux autres. */
+    show: (id: string) => setFlipped((s) => (allOpen !== s.has(id) ? s : new Set(s).add(id))),
     toggle: (id: string) =>
       setFlipped((s) => {
         const n = new Set(s)
@@ -87,6 +89,8 @@ interface Row {
  * `lockedEventId` : vue d'un seul événement (page de l'événement), sans sélecteur, radar d'abord, en compact ;
  * `scoreCriteria` : détaille alors les notes de chaque avis.
  * `wide` : colonne large (avis à côté de la liste, ordinateur) : radar plus grand, avis détaillés sur deux colonnes.
+ * `focus` (?voir=avis:<id>, src/playerFocus.ts) : cet avis est listé (toute période) et sa carte dépliée ; la fiche le
+ * fait venir à l'écran (data-voir).
  */
 export function Opinions({
   player,
@@ -96,6 +100,7 @@ export function Opinions({
   lockedEventId,
   scoreCriteria,
   wide = false,
+  focus,
 }: {
   player: Player
   criteria: Criterion[]
@@ -104,6 +109,7 @@ export function Opinions({
   lockedEventId?: string
   scoreCriteria?: Criterion[]
   wide?: boolean
+  focus?: { id: string; n: number }
 }) {
   const locked = lockedEventId !== undefined
   const [chosenEventId, setEventId] = useState<string>('all')
@@ -122,6 +128,11 @@ export function Opinions({
   const listed = evaluations.filter((e) => inPeriod(e) && reviewOf(e) !== 'refused')
   // Détail des avis : cartes repliées par défaut (ou toutes dépliées, au choix retenu sur l'appareil).
   const fold = useAvisFold(listed.map((e) => e.id))
+  useEffect(() => {
+    if (!focus) return
+    setEventId('all')
+    fold.show(focus.id)
+  }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
   const eventLabel = (e: Evaluation) => {
     if (!e.eventId) return contextLabel(e)
@@ -432,6 +443,7 @@ export function AvisCard({
   const shut = !!fold && !fold.open
   return (
     <div
+      data-voir={`avis:${e.id}`}
       className={`rounded-lg border border-line bg-panel-2 p-2.5 text-xs ${fold ? 'cursor-pointer' : ''}`}
       onClick={
         fold

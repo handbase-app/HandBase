@@ -131,6 +131,7 @@ export function VideoSection({
   sheet,
   children,
   sex,
+  focus,
 }: {
   kind: Video['targetKind']
   targetId: string
@@ -149,6 +150,11 @@ export function VideoSection({
   sheet?: { ms: MatchSheet; canEdit: boolean }
   /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
   children?: ReactNode
+  /**
+   * Vidéo visée par ?voir=video:<id> (fiche d'un joueur, src/playerFocus.ts) : lancée dans le lecteur si elle s'y lit ;
+   * la fiche fait venir sa ligne à l'écran (data-voir). `id` vide (?voir=video:toutes) : la section seule.
+   */
+  focus?: { id: string; n: number }
 }) {
   const role = useRole()
   const online = useOnline()
@@ -238,6 +244,14 @@ export function VideoSection({
         }
       : undefined,
   )
+  // Vidéo visée (?voir=video:<id>) : une fois la liste lue, lancée dans le lecteur (une seule fois par lien suivi).
+  const [played, setPlayed] = useState(0)
+  useEffect(() => {
+    if (!focus || !videos || played === focus.n) return
+    setPlayed(focus.n)
+    const v = videos.find((x) => x.id === focus.id)
+    if (v && embedOf(v.url)) openVideo(owner, v)
+  }, [focus, videos, played, owner])
   // Ouverte par le pictogramme « Vidéos » d'une ligne de joueur (…#videos) : la section vient à l'écran.
   const loaded = !!videos
   useEffect(() => {
@@ -247,7 +261,7 @@ export function VideoSection({
 
   const what = kind === 'player' ? (sex === 'F' ? 'cette joueuse' : 'ce joueur') : 'cet événement'
   return (
-    <div id={kind === 'player' ? 'videos' : undefined} className="card scroll-mt-28 p-4">
+    <div id={kind === 'player' ? 'videos' : undefined} data-voir={kind === 'player' ? 'video:toutes' : undefined} className="card scroll-mt-28 p-4">
       <div className="section-title flex items-center gap-2">
         <Icon name="video" className="h-3.5 w-3.5" />
         Vidéos{videos.length > 0 && <span className="text-muted">({videos.length})</span>}
@@ -398,7 +412,7 @@ function VideoRow({
       <span className={cls}>{children}</span>
     )
   return (
-    <div className={`rounded-md border border-line bg-panel-2 p-2 ${MENU_ROW}`} {...(menuItems.length ? menu.bind : {})}>
+    <div data-voir={`video:${v.id}`} className={`rounded-md border border-line bg-panel-2 p-2 ${MENU_ROW}`} {...(menuItems.length ? menu.bind : {})}>
       <div className="flex items-center gap-3">
         {link(
           'relative flex h-[54px] w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-panel text-muted',
