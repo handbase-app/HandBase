@@ -87,8 +87,10 @@ export function AskQuestion({
 
   const mic = useMicRecorder((t) => void ask(t))
   const wait = useWait(!!busy && variant === 'mic')
-  // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête.
-  useIncomingAsk(questionReady && variant !== 'mic' ? 'bilan' : null, (a) => void ask(a.phrase))
+  // Question venue de l'en-tête (« combien de gauchers vus ? ») : posée ici dès que la page est prête. Toutes les variantes
+  // la reçoivent (la première prête la prend, une seule fois) : sur téléphone, le bilan n'a souvent que le micro (« mic »),
+  // le champ « text » n'existant que panneau ouvert — avant, la question arrivait sur la carte sans être posée.
+  useIncomingAsk(questionReady ? 'bilan' : null, (a) => void ask(a.phrase))
   if (!questionReady) return null
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const sending = mic.phase === 'sending' || !!busy
