@@ -42,7 +42,7 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia } from '../layout'
 import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
-import { AllGroupsToggle, OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
+import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
@@ -183,7 +183,6 @@ export default function Groups() {
         <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
       ) : (
         <>
-      <AllGroupsToggle role={role} />
       {groups.length > 0 && <StickyQuery>{filterUi}</StickyQuery>}
       {filterTop}
       {!active.length && filtering && (

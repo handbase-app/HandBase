@@ -108,7 +108,7 @@ const errText = (e: { code?: string; message: string }) => (e.code === 'PGRST202
 
 // ---------- Liste ----------
 
-/** Interrupteur en haut de la page Groupes (administrateurs). */
+/** Interrupteur « Voir tous les groupes » (Réglages → Outils administrateur ; administrateurs). */
 export function AllGroupsToggle({ role }: { role: Role }) {
   const { on: active } = useAllGroups(role)
   if (!canSeeAllGroups(role)) return null

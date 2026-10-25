@@ -89,7 +89,7 @@ export const GROUP_VIS = {
 export const ADMIN_GROUPS = {
   toggle: 'Voir tous les groupes',
   toggleHelp:
-    'Affiche aussi les groupes privés et partagés avec des groupes de travail des autres comptes, en lecture seule, pour les réattribuer ou les supprimer (départ d’un membre…). Chaque affichage et chaque consultation sont notés dans le journal d’activité. Rien n’est copié sur cet appareil.',
+    'Affiche aussi, sur la page Groupes, les groupes privés et partagés avec des groupes de travail des autres comptes, en lecture seule, pour les réattribuer ou les supprimer (départ d’un membre…). Chaque affichage et chaque consultation sont notés dans le journal d’activité. Rien n’est copié sur cet appareil.',
   section: 'Groupes des autres (privés et groupes de travail)',
   noServer: 'Voir tous les groupes se lit sur le serveur : indisponible dans cette version sans serveur.',
   offline: 'Hors ligne : les groupes des autres se lisent sur le serveur. Réessaie une fois connecté.',

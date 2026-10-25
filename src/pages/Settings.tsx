@@ -26,6 +26,7 @@ import { useConfigRows, useSportHas } from '../installation'
 import { isHandball } from '../sportConfig'
 import { DEFAULT_PLAYER_MIN_AGE, PLAYER_CONTACT_MAX, PLAYER_SPACE_KEY, playerContactOf, playerMinAgeOf } from '../playerSpace'
 import { AdminTools } from '../components/ViewAs'
+import { AllGroupsToggle } from '../components/AdminGroups'
 import { departmentLabel } from '../lists'
 import { usePerimeter } from '../installation'
 import { perimeterText } from '../perimeter'
@@ -225,8 +226,10 @@ export default function Settings() {
           )}
           {/* Outils administrateur (« Voir comme… ») : selon le vrai rôle, absents pendant la simulation (bandeau « Quitter »). */}
           {realRole() === 'admin' && (
-            <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff">
+            <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff, voir tous les groupes">
               <AdminTools />
+              {/* « Voir tous les groupes » (supabase/039) : réglé ici ; la section « Groupes des autres » s'affiche sur la page Groupes. */}
+              <AllGroupsToggle role={role} />
             </Fold>
           )}
         </div>
