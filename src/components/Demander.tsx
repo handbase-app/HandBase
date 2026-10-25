@@ -48,14 +48,12 @@ import { Icon, playerName } from './ui'
  *    le champ, fermée par le geste Retour sans quitter la page (src/backNav.tsx, useBackCloses).
  *  - PLACEMENTS : sur les listes Joueurs, Événements, Groupes et au bilan (PlayersQuery.tsx, ListQuery.tsx,
  *    AskQuestion.tsx), le champ de la page EST ce composant (même comportement qu'avant pour la phrase : recherche locale
- *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : une BULLE ronde ✦ (sans texte, dégradé
- *    bleu → violet ; nom accessible « Demander : … », bulle d'aide « Demander · / »), sur toutes les pages (AskButton,
- *    src/App.tsx) : ordinateur, à gauche de l'en-tête ; téléphone, au milieu de l'en-tête. Raccourci « / » hors d'un champ.
- *  - LE BOUTON : sur ordinateur, il ouvre TOUJOURS la PALETTE. Sur téléphone, sur une page qui a déjà sa barre (chaque
- *    barre posée sur une page s'inscrit dans `pageBars` ; la page affichée doit être exactement la sienne, /joueurs mais
- *    pas /joueurs/:id, et la barre visible), il met le curseur dans cette barre et ouvre son menu. Ailleurs, la PALETTE : ordinateur = fenêtre accrochée
+ *    ou appel, ajout aux filtres, pastilles). Plus de barre dans l'en-tête : un bouton en capsule « Nextar » (le mot du
+ *    logo, le X en étoile filante ; aux couleurs du thème ; nom accessible « Demander : … », bulle d'aide « Demander · / »),
+ *    au milieu de l'en-tête sur toutes les pages (AskButton, src/App.tsx). Raccourci « / » hors d'un champ.
+ *  - LE BOUTON : il ouvre TOUJOURS la PALETTE (sur téléphone aussi depuis le 25/10, fond flouté) : ordinateur = fenêtre accrochée
  *    sous la bulle (centrée sous elle, 8 px dessous, ~520 px, sans fond assombri ; Échap, clic dehors ou la bulle
- *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé. Le retour du
+ *    ferment), téléphone = la même fenêtre flottante sous la bulle, marges de chaque côté, fond voilé et flouté. Le retour du
  *    téléphone ou du navigateur la ferme (useBackCloses, comme la feuille du menu). Dedans, ce composant en mode « en-tête »
  *    (`routes` = routeAsk, menu toujours ouvert) : « Je comprends », la demande part sur sa page (postAsk →
  *    useIncomingAsk) ou ouvre la fiche, et la palette se ferme. Téléphone, appui long (≥ 450 ms, dictée disponible) : on
@@ -144,40 +142,6 @@ export function useIncomingAsk(page: AskPage | null, handler: (a: AskApply) => v
       askListeners.delete(take)
     }
   }, [page])
-}
-
-// ---------- Barre « Demander » de la page (le bouton de l'en-tête s'en sert au lieu d'ouvrir sa palette) ----------
-
-type PageBar = { page: AskPage; input: () => HTMLInputElement | null; open: () => void }
-const pageBars = new Set<RefObject<PageBar>>()
-
-/**
- * La barre de la page affichée, s'il y en a une : posée par une liste (Joueurs, Événements, Groupes) ou par le bilan, sur
- * SA page exactement (/joueurs, mais pas /joueurs/:id où la fiche est ouverte à côté), et visible (pas dans un panneau
- * replié). Plusieurs : la première dans l'ordre de la page.
- */
-function pageBarFor(pathname: string): { bar: PageBar; el: HTMLInputElement } | null {
-  const found: { bar: PageBar; el: HTMLInputElement }[] = []
-  for (const r of pageBars) {
-    const el = r.current.input()
-    if (ASK_PATH[r.current.page] !== pathname || !el || !el.isConnected || !el.getClientRects().length) continue
-    found.push({ bar: r.current, el })
-  }
-  found.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
-  return found[0] ?? null
-}
-
-/** Le curseur dans la barre de la page, son menu ouvert (comme un clic dedans) ; false : la page n'en a pas. */
-function focusPageBar(pathname: string): boolean {
-  const f = pageBarFor(pathname)
-  if (!f) return false
-  const { el, bar } = f
-  const r = el.getBoundingClientRect()
-  const hdr = document.querySelector('.app-header')?.getBoundingClientRect().bottom ?? 0
-  if (r.top < hdr || r.bottom > window.innerHeight) el.scrollIntoView({ block: 'center' })
-  if (document.activeElement === el) bar.open()
-  else el.focus({ preventScroll: true }) // onFocus ouvre le menu
-  return true
 }
 
 // ---------- Le champ et son menu ----------
@@ -304,18 +268,6 @@ export function Demander(p: DemanderProps) {
     }
   }, [open, sheet])
 
-  // Barre posée sur une page (pas l'en-tête, pas la palette) : connue du bouton « Demander » de l'en-tête.
-  const self = useRef<PageBar>({ page: p.page, input: () => inputRef.current, open: () => {} })
-  useEffect(() => {
-    self.current = { page: p.page, input: () => inputRef.current, open: openMenu }
-  })
-  useEffect(() => {
-    if (header || embedded) return
-    pageBars.add(self)
-    return () => {
-      pageBars.delete(self)
-    }
-  }, [header, embedded])
 
   // ---------- Actions ----------
   /** Relance une demande : sur cette page (onSubmit), ou sur la page d'une entrée d'historique (postAsk + navigation). */
@@ -881,12 +833,10 @@ export function AskButton() {
   }, [open])
 
   /**
-   * Clic ou « / » sur ordinateur : TOUJOURS la palette sous la bulle (choix de Geoffroy, 20/10 : ne pas sauter dans la barre
-   * de la liste). Téléphone : la barre de la page si elle en a une (une feuille par-dessus la liste serait de trop), sinon
-   * la palette.
+   * Clic ou « / » : TOUJOURS la fenêtre sous le bouton (ordinateur : choix de Geoffroy, 20/10 ; téléphone aussi depuis le
+   * 25/10 : une fenêtre par-dessus la page, fond flouté, plutôt que le curseur dans la barre de la liste).
    */
   const trigger = () => {
-    if (isPhone() && focusPageBar(loc.pathname)) return
     openPalette()
   }
   const triggerRef = useRef(trigger)
@@ -987,7 +937,7 @@ export function AskButton() {
           // légèrement voilé (un toucher dessus ferme, le geste Retour aussi). En haut de l'écran, le clavier ne la cache pas :
           // sa hauteur s'arrête au-dessus de lui.
           <div className="fixed inset-0 z-40">
-            <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" aria-hidden onClick={closePalette} />
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-md" aria-hidden onClick={closePalette} />
             <div
               ref={dialog}
               role="dialog"
