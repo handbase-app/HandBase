@@ -3,8 +3,9 @@ import { alive, db, type Player, type Rewatch } from './db'
 import { staffMeasured, toSights, type Sight } from './coverage'
 import { keptMemo } from './keptMemo'
 import { sharedQuery, useShared } from './live'
-import { loadAllMeasures, usePlayerRows } from './playersCache'
+import { loadAllMeasures, loadPlayerRows, usePlayerRows } from './playersCache'
 import { scoutId } from './scouting'
+import { preloadMapShapes } from './components/FranceMap'
 
 /*
  * Données du bilan de détection (src/pages/Coverage.tsx, /bilan) gardées en mémoire pour toute l'appli (src/live.ts
@@ -97,3 +98,29 @@ export function useStaffMeasured(enabled: boolean) {
 
 /** Calculs du bilan (carte, générations, clubs, chiffres clés), gardés pour toute l'appli : src/keptMemo.ts. */
 export const coverageKept = keptMemo(6)
+
+/**
+ * Préparation du bilan pendant que l'appli ne fait rien (requestIdleCallback), quelques secondes après son ouverture :
+ * fiches, passages, « à revoir » et, pour qui voit les onglets des administrateurs (`national`), joueurs mesurés par le
+ * staff, lus et gardés, et les contours de la carte ; le premier passage sur le bilan n'a plus qu'à calculer. Rien n'est lu si l'appli est quittée
+ * avant (la fonction rendue annule).
+ */
+export function warmCoverage(national: boolean, after = WARM_AFTER): () => void {
+  const idle = (f: () => void) =>
+    typeof window.requestIdleCallback === 'function' ? window.requestIdleCallback(f, { timeout: 5000 }) : window.setTimeout(f, 0)
+  let job: number | undefined
+  const timer = window.setTimeout(() => {
+    job = idle(() => {
+      void loadPlayerRows().catch(() => {})
+      void sightsStore.load().catch(() => {})
+      void rewatchStore.load().catch(() => {})
+      if (national) void staffStore.load().catch(() => {})
+      void preloadMapShapes().catch(() => {})
+    })
+  }, after)
+  return () => {
+    window.clearTimeout(timer)
+    if (job !== undefined) (typeof window.cancelIdleCallback === 'function' ? window.cancelIdleCallback : window.clearTimeout)(job)
+  }
+}
+const WARM_AFTER = 3000

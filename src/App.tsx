@@ -18,6 +18,7 @@ import Privacy from './pages/Privacy'
 import MeasureSession from './pages/MeasureSession'
 import Feed from './pages/Feed'
 import { useAlertCount } from './alerts'
+import { warmCoverage } from './coverageCache'
 import { useFollowNewsCount } from './follows'
 import { Icon, ICONS } from './components/ui'
 import { ProfileButton } from './components/ProfileMenu'
@@ -249,6 +250,9 @@ export default function App() {
   useThemeVersion()
   const header = useHeaderHeight()
   const role = useRole()
+  // Bilan de détection préparé quand l'appli ne fait rien, quelques secondes après l'ouverture (src/coverageCache.ts) :
+  // son premier passage s'affiche sans relire la base.
+  useEffect(() => (player || !can.viewCoverage(role) ? undefined : warmCoverage(can.nationalView(role))), [player, role])
   // Téléphone couché : plus d'en-tête ; « Demander » en haut du menu de gauche, suivis, cible et profil en bas.
   const rail = useMedia(MQ.rail)
   const railShort = useMedia(RAIL_SHORT)

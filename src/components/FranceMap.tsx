@@ -44,6 +44,9 @@ let omLoad: Promise<OutreMerGeo> | null = null
 let omValue: OutreMerGeo | null = null
 const loadOutreMer = () => (omLoad ??= import('../assets/outre-mer.json?raw').then((m) => (omValue = JSON.parse(m.default) as OutreMerGeo)))
 
+/** Contours de la France et de l'outre-mer lus à l'avance (préparation du bilan, src/coverageCache.ts warmCoverage). */
+export const preloadMapShapes = () => Promise.all([loadGeo(), loadOutreMer()])
+
 /** Encarts ultramarins : tracés pour la petite taille (rangée sous la carte) et la grande (ligue ultramarine choisie). */
 const INSET = { small: [60, 40], big: [150, 110] } as const
 /** Contours de l'outre-mer (encarts, et territoire choisi recalé à plein cadre avec ses clubs). */
