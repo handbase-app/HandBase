@@ -1,8 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useThrottledQuery } from '../live'
-import { can, useRole } from '../roles'
 import { HomeFeed } from './Feed'
-import { Icon } from '../components/ui'
 import { countOpenRewatch } from '../scouting'
 import { usePerimeter, useUnits } from '../installation'
 import { installationAppearance, useThemeVersion } from '../theme'
@@ -20,18 +18,18 @@ const ACTIONS = [
 
 /** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */
 export default function Home({ toReview, followNews }: { toReview: number; followNews: number }) {
-  const role = useRole()
   const rewatch = useThrottledQuery(countOpenRewatch, [], ['rewatch', 'seen', 'evaluations', 'teams'], undefined, 0)
   const actions: { to: string; title: string; icon: string; main?: boolean; tone?: string }[] = ACTIONS
   return (
     // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
-    // la largeur (tuiles et bilan de détection sur une rangée), fil en dessous.
+    // la largeur (tuiles sur une rangée), fil en dessous. Pas de tuile « Bilan de détection » : il est déjà dans la
+    // barre de navigation (même condition, can.viewCoverage).
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 rail:grid rail:max-w-5xl rail:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] rail:items-start rail:gap-6 rail:pt-0 side:max-w-6xl side:gap-5">
       <div className="flex flex-col gap-4 side:grid side:grid-cols-5 side:gap-x-4 side:gap-y-5">
       <OrgHeader />
 
       <div
-        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} ${can.viewCoverage(role) ? 'side:col-span-3' : 'side:col-span-full'}`}
+        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} side:col-span-full`}
       >
         {actions.map((t) => (
           <Link
@@ -58,22 +56,6 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
         ))}
       </div>
 
-      {/* Bilan de détection (administrateurs et encadrants) : la carte de France ; onglets licenciés, mesures et profils
-          repérés en plus pour les administrateurs. */}
-      {can.viewCoverage(role) && (
-        <Link to="/bilan" className="card emph group flex items-center gap-3 side:col-span-2 border-accent/60 bg-gradient-to-r from-accent/15 to-transparent px-4 py-3 transition hover:border-accent">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white">
-            <Icon name="map" className="h-6 w-6" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-extrabold">Bilan de détection</span>
-            <span className="block text-[11px] text-muted">
-              {can.nationalView(role) ? 'Carte de France : joueurs vus, licenciés, mesures, profils repérés' : 'Qui a été vu, par génération et par club'}
-            </span>
-          </span>
-          <span className="text-lg text-muted transition group-hover:translate-x-0.5 group-hover:text-accent">›</span>
-        </Link>
-      )}
       </div>
 
       <HomeFeed />
