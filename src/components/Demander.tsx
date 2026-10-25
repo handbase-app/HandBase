@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { BRAND_FONT, NextarStar } from './Brand'
+import { BRAND_FONT, NextarStar, NextarWordmark } from './Brand'
+import { DEFAULT_APP_NAME } from '../appBrandCore'
 import { useAppBrand } from '../appBrand'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
@@ -1034,10 +1035,18 @@ export function AskButton() {
         style={{ fontFamily: BRAND_FONT }}
         {...press}
       >
-        <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
-          <NextarStar className="h-[15px] w-[15px]" />
-        </span>
-        <span className="truncate">{brand.name}</span>
+        {/* Le logo Nextar (le X en étoile filante) ; une autre appli (nom réglé par l'administrateur) : étoile + son nom. */}
+        {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() ? (
+          <NextarWordmark className="h-[23px]" spin={sending || !!flight} />
+        ) : (
+          <>
+            <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+              <NextarStar className="h-[15px] w-[15px]" />
+            </span>
+            <span className="truncate">{brand.name}</span>
+          </>
+        )}
+        {brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase() && <span className="sr-only">{brand.name}</span>}
         <span className="ask-hint hidden items-center gap-1.5 font-normal side:inline-flex" aria-hidden>
           · Demander <kbd className="rounded border px-1 text-[11px] leading-[16px] font-normal">/</kbd>
         </span>
