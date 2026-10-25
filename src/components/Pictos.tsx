@@ -29,7 +29,6 @@ import { accord, w } from '../gender'
 import { FollowStar } from './Follow'
 import { RewatchToggle } from './Scouting'
 import { Icon, type IconName } from './ui'
-import { useMedia } from '../layout'
 import { SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
 
 /*
@@ -86,12 +85,11 @@ export const usePictos = () => useSyncExternalStore(subscribe, () => current)
 // ---------- Barre « Afficher » ----------
 
 /**
- * Téléphone (moins de 640 px de large, ou couché) : sur les listes qui ont une fenêtre « Filtres » (PlayerList
- * `pictosInFilters`), la barre passe dans cette fenêtre, section « Affichage » (src/components/PictoDisplay.tsx).
+ * Sur les listes qui ont une fenêtre « Filtres » (PlayerList `pictosInFilters`), la barre des pictogrammes est dans cette
+ * fenêtre, section « Affichage » (src/components/PictoDisplay.tsx) : sur téléphone comme sur ordinateur (choix de
+ * Geoffroy, 25/10/2026 : plus de barre au-dessus de la liste).
  */
-export const PICTOS_IN_FILTERS = '(max-width: 639px), (orientation: landscape) and (max-height: 520px)'
-/** Vrai quand la barre des pictogrammes passe dans la fenêtre « Filtres » (suit les rotations). */
-export const usePictosInFilters = () => useMedia(PICTOS_IN_FILTERS)
+export const usePictosInFilters = () => true
 
 export const PICTO_ICONS: Record<PictoKind, IconName> = {
   suivi: 'star',
