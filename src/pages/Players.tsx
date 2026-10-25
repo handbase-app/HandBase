@@ -99,10 +99,9 @@ export default function Players() {
   const shown = useMemo(() => (loading ? (preview?.rows ?? []) : filtered.slice(0, limit)), [loading, preview, filtered, limit])
   const allIds = useMemo(() => (loading ? shown : filtered).map((p) => p.id), [loading, shown, filtered])
   const shownIds = useMemo(() => shown.map((p) => p.id), [shown])
-  const total = players?.length ?? 0
   // Pictogrammes réglés dans la fenêtre « Filtres » (section « Affichage ») ; le nombre de joueurs est dans la barre
-  // « Demander », collé devant « Filtres » (« 7 sur 40 001 · Filtres ▾ », usePlayersQuery `count`).
-  const countText = loading ? 'Chargement…' : filtered.length < total ? `${pluralG(filtered.length, gender)} sur ${total.toLocaleString('fr-FR')}` : pluralG(filtered.length, gender)
+  // « Demander », collé devant « Filtres » (« 7 · Filtres ▾ », usePlayersQuery `count`).
+  const countText = loading ? 'Chargement…' : pluralG(filtered.length, gender)
   const nav = useNavigate()
   // La liste (ses lignes et sa barre) : refaite quand elle change, pas à chaque lettre tapée dans la barre « Demander »
   // (60 lignes et leur mise en page : la moitié du temps d'une frappe sur 40 000 fiches). Pendant un calcul (filtre, nom

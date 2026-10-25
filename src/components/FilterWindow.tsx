@@ -104,15 +104,15 @@ export function FiltersButton({
   )
 }
 
-/** Nombre collé devant « Filtres » : `shown` à l'écran (« 7 sur 40 001 »), `spoken` lu (« 7 joueurs sur 40 001 »), `busy` : estompé pendant un calcul. */
+/** Nombre collé devant « Filtres » : `shown` à l'écran (« 7 »), `spoken` lu (« 7 joueurs »), `busy` : estompé pendant un calcul.
+    Pas de « sur <total> » : le total de la base n'apporte rien (décidé le 25/10/2026). */
 export type ChipCount = { shown: string; spoken: string; busy?: boolean }
 
 /** Le nombre de la liste filtrée pour l'étiquette « Filtres » ; `loading` : « Chargement… » tant que la liste n'est pas lue. */
-export function chipCount(n: number, total: number, noun: (n: number) => string, opts: { loading?: boolean; busy?: boolean } = {}): ChipCount {
+export function chipCount(n: number, noun: (n: number) => string, opts: { loading?: boolean; busy?: boolean } = {}): ChipCount {
   if (opts.loading) return { shown: 'Chargement…', spoken: 'Chargement…' }
-  const fr = (x: number) => x.toLocaleString('fr-FR')
-  const of = n !== total ? ` sur ${fr(total)}` : ''
-  return { shown: `${fr(n)}${of}`, spoken: `${fr(n)} ${noun(n)}${of}`, busy: opts.busy }
+  const shown = n.toLocaleString('fr-FR')
+  return { shown, spoken: `${shown} ${noun(n)}`, busy: opts.busy }
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -360,12 +360,10 @@ function Win({ w, count, onClear, children, title, modal, footer, closeLabel = '
 }
 
 /** « 1 234 joueurs sur 40 001 » (nombre en gras), ou « 1 234 joueurs » quand rien n'est filtré. */
-export function CountText({ n, total, noun }: { n: number; total: number; noun: (n: number) => string }) {
-  const fr = (x: number) => x.toLocaleString('fr-FR')
+export function CountText({ n, noun }: { n: number; noun: (n: number) => string }) {
   return (
     <>
-      <b className="tabular-nums">{fr(n)}</b> {noun(n)}
-      {total !== n && <span className="text-muted"> sur {fr(total)}</span>}
+      <b className="tabular-nums">{n.toLocaleString('fr-FR')}</b> {noun(n)}
     </>
   )
 }

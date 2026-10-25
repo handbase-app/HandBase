@@ -256,7 +256,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
   // « Filtres » logé dans la barre (étiquette arrondie, comme « Mode IA » chez Google), avec le nombre de filtres posés ;
   // devant, collé, le nombre d'éléments de la liste filtrée (« 7 sur 52 · Filtres ▾ »).
   const filtersButton = (
-    <FiltersButton w={fw} n={listFilterCount(spec, qy)} count={chipCount(filtered.length, items?.length ?? 0, (n) => o.noun[n > 1 ? 1 : 0], { loading: !items || !ctx })} />
+    <FiltersButton w={fw} n={listFilterCount(spec, qy)} count={chipCount(filtered.length, (n) => o.noun[n > 1 ? 1 : 0], { loading: !items || !ctx })} />
   )
   const field = (
     <Demander
@@ -353,7 +353,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
       {chips}
       <FilterWindow
         w={fw}
-        count={<CountText n={filtered.length} total={items?.length ?? 0} noun={(n) => o.noun[n > 1 ? 1 : 0]} />}
+        count={<CountText n={filtered.length} noun={(n) => o.noun[n > 1 ? 1 : 0]} />}
         onClear={hasListQuery(spec, qy) || qy.calc ? reset : undefined}
       >
         {o.panel(qy, setQy, fw.focus)}

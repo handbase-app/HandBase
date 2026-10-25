@@ -863,7 +863,7 @@ export function usePlayersQuery(
     <FiltersButton
       w={fw}
       n={nChips}
-      count={opts.count ? chipCount(filtered.length, players?.length ?? 0, (n) => (n > 1 ? gw.joueurs : gw.joueur), { loading: !sel && !fromSql, busy: calculating && !fromSql }) : undefined}
+      count={opts.count ? chipCount(filtered.length, (n: number) => (n > 1 ? gw.joueurs : gw.joueur), { loading: !sel && !fromSql, busy: calculating && !fromSql }) : undefined}
     />
   )
   const field = (
@@ -989,7 +989,7 @@ export function usePlayersQuery(
   const filterWindow = (
     <FilterWindow
       w={fw}
-      count={<CountText n={filtered.length} total={players?.length ?? 0} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
+      count={<CountText n={filtered.length} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
       onClear={clearable ? reset : undefined}
     >
       {own?.panel}
