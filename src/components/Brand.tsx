@@ -5,8 +5,8 @@ import { useAppBrand } from '../appBrand'
  * nom et logo » ; src/appBrandCore.ts). Distincte de celle de l'organisation qui l'utilise (fédération, ligue… : nom et
  * logo de Réglages → Style de l'installation, affichés sur l'accueil).
  *
- * Logos par défaut : public/brand/nextar.svg (pictogramme + mot) et public/brand/nextar-pictogramme.svg (pictogramme seul,
- * recentré dans son carré arrondi bleu nuit) pour les petites tailles, à côté du nom écrit en texte. Le carré a son propre
+ * Logos par défaut (25/10/2026 : « Next Star », le X du nom est une étoile filante) : public/brand/nextar.svg (le mot
+ * Nextar dans son carré bleu nuit) et public/brand/nextar-pictogramme.svg (le X et l'étoile seuls, carré arrondi bleu nuit) pour les petites tailles, à côté du nom écrit en texte. Le carré a son propre
  * fond : lisible dans tous les styles, en clair comme en sombre.
  */
 
@@ -35,11 +35,11 @@ export function AppLockup({ mark = 'h-7 w-7', className = '' }: { mark?: string;
   )
 }
 
-/** Étoile du logo Nextar (public/brand/nextar-pictogramme.svg), seule : bouton « Demander » de l'en-tête. Couleur : currentColor. */
+/** Étoile filante du logo Nextar (public/brand/nextar-pictogramme.svg, X + étoile), seule : bouton « Demander » de l'en-tête. Couleur : currentColor. */
 export function NextarStar({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <svg viewBox="375 76 90 84" className={`shrink-0 ${className}`} aria-hidden fill="currentColor">
-      <path d="m 421.01323,80.131085 c 2.50032,2.357978 8.51964,24.419875 9.76319,28.742825 10.09394,0.0406 20.17464,0 30.25534,-0.10846 -7.59359,5.59679 -17.37004,12.6978 -24.34186,18.85019 3.04274,9.79776 6.03255,19.59553 8.95622,29.40686 -7.83172,-5.51549 -16.33814,-12.26416 -24.03757,-18.11843 -2.51357,0.90796 -20.61121,15.21839 -24.52708,18.14553 3.33378,-9.13375 6.70724,-20.62545 9.74997,-30.03023 -8.14923,-5.66453 -16.11325,-11.64076 -23.82591,-17.91513 9.47216,0.13551 19.619,-0.14907 29.1573,-0.23037 3.06921,-9.201497 5.97964,-19.405823 8.8504,-28.742826 z" />
+    <svg viewBox="250 86 164 166" className={`shrink-0 ${className}`} aria-hidden fill="currentColor">
+      <path d="M407.71,131.10 L351.49,137.70 L318.78,91.51 L307.70,147.01 L253.65,163.85 L303.01,191.54 L302.32,248.14 L343.92,209.76 L397.53,227.90 L373.88,176.48Z" stroke="currentColor" strokeWidth="6.9" strokeLinejoin="round" />
     </svg>
   )
 }

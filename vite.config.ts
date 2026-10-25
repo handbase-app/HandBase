@@ -61,7 +61,7 @@ export default defineConfig(({ mode }) => {
           display: 'standalone',
           start_url: './',
           scope: './',
-          // Chrome Android exige des icônes PNG 192 et 512 pour installer l'app. Icônes tirées de public/brand/nextar.svg ;
+          // Chrome Android exige des icônes PNG 192 et 512 pour installer l'app. Icônes tirées de public/brand/nextar-pictogramme.svg (X + étoile filante) ;
           // « maskable » : plein cadre bleu nuit, logo dans la zone sûre (cercle de 80 %).
           icons: [
             { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
