@@ -1701,7 +1701,7 @@ export default function Coverage() {
         </div>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question) et « Mes questions ». Téléphone :
             dans la barre d'actions du bas (« Mes questions » aussi, quand on peut poser une question). */}
-        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} calculating={busy} />}
+        {!phone && <AskQuestion trailing={oneBar ? bar.filtersChip : undefined} calculating={busy} notice={false} />}
         {!(phone && questionReady) && savedQuestions}
         {/* Téléphone : les filtres résumés en pastilles (ceux de la barre compris) ; un toucher ouvre le panneau des filtres. */}
         {/* Téléphone : pas de barre en haut ; le bilan qui se recalcule, en fine barre juste au-dessus des pastilles des filtres. */}
@@ -2007,7 +2007,7 @@ export default function Coverage() {
         <div className="sticky bottom-[var(--nav-b)] z-20 -mx-4 flex flex-col gap-2 border-t border-line bg-bg px-4 py-2">
           {askOpen && questionReady && (
             <div id="bilan-question" className="flex max-h-[55dvh] flex-col gap-2 overflow-y-auto">
-              <AskQuestion variant="text" />
+              <AskQuestion variant="text" notice={false} />
               {savedQuestions}
             </div>
           )}

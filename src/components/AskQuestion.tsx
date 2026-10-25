@@ -23,7 +23,8 @@ import { correctQuestionPhrase, incompletePhrase } from '../questionRescue'
  * Disponibilité : useDictation().questionReady (administrateurs, fonction présente, réglage de dictée activé, mode
  * « question » annoncé par la fonction déployée) ; sinon rien ne s'affiche.
  * Transparence (phase de développement) : les questions peuvent être notées au journal des questions (src/questionLog.ts),
- * sans nom de joueur ; le message le dit, avec un lien vers la page Confidentialité (paragraphe « Questions posées au bilan »).
+ * sans nom de joueur ; le message le dit, avec un lien vers la page Confidentialité (paragraphe « Questions posées au bilan ») —
+ * sauf au bilan (`notice` faux, à la demande : la page Confidentialité le dit toujours).
  */
 
 export type AskState = { raw: unknown; nonGere: string[]; heard: string }
@@ -37,12 +38,15 @@ export function AskQuestion({
   variant = 'full',
   trailing,
   calculating,
+  notice: showNotice = true,
 }: {
   className?: string
   variant?: 'full' | 'mic' | 'text'
   trailing?: ReactNode
   /** La page se recalcule (bilan : filtre, lieu) : fine barre en va-et-vient sous la pilule. */
   calculating?: boolean
+  /** Message « Réponse calculée sur cet appareil… Confidentialité » sous la barre (faux : le bilan, qui ne le montre pas). */
+  notice?: boolean
 }) {
   const { questionReady } = useDictation()
   const nav = useNavigate()
@@ -188,7 +192,7 @@ export function AskQuestion({
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <div className="flex flex-wrap gap-2">{form}</div>
       {status}
-      {!status && notice}
+      {!status && showNotice && notice}
     </div>
   )
 }
