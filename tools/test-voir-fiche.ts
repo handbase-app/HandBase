@@ -5,7 +5,7 @@
 //   npx jiti tools/test-voir-fiche.ts
 import assert from 'node:assert/strict'
 import { focusLabel, focusLink, focusOfNews, parseFocus, withoutFocus } from '../src/playerFocus'
-import { deltaText, pictoLabel, previousValue, rowPictos } from '../src/followRows'
+import { daySummary, deltaText, pictoLabel, previousValue, rowPictos, summaryLabel, summaryParts } from '../src/followRows'
 
 // Lecture
 assert.deepEqual(parseFocus('mesure:taille'), { kind: 'mesure', id: 'taille' })
@@ -63,6 +63,30 @@ assert.deepEqual(rowPictos(day), [
 assert.deepEqual(rowPictos([day[3]]), [{ kind: 'evaluation', n: 1, focus: { kind: 'avis', id: 'e1' } }])
 assert.deepEqual(rowPictos([day[0], { kind: 'video', refId: 'v2', time: 9 }]), [{ kind: 'video', n: 2, focus: { kind: 'video', id: 'toutes' } }])
 assert.deepEqual(rowPictos([]), [])
+
+// Synthèse d'une journée repliée : joueurs concernés (accordés), avis, mesures, vidéos ; seulement ce qui est présent
+const many = [
+  { kind: 'evaluation', playerId: 'a' },
+  { kind: 'evaluation', playerId: 'a' },
+  { kind: 'measurement', playerId: 'a' },
+  { kind: 'measurement', playerId: 'a' },
+  { kind: 'measurement', playerId: 'a' },
+  { kind: 'video', playerId: 'a' },
+] as const
+assert.deepEqual(daySummary(many), { players: 1, evaluation: 2, measurement: 3, video: 1 })
+assert.equal(summaryLabel(daySummary(many), 'F'), '1 joueuse, 2 avis, 3 mesures, 1 vidéo')
+assert.equal(summaryLabel(daySummary(many), undefined), '1 joueur, 2 avis, 3 mesures, 1 vidéo')
+const two = [{ kind: 'measurement', playerId: 'a' }, { kind: 'measurement', playerId: 'b' }, { kind: 'video', playerId: 'b' }, { kind: 'video', playerId: 'b' }] as const
+assert.equal(summaryLabel(daySummary(two), 'F'), '2 joueuses, 2 mesures, 2 vidéos')
+assert.equal(summaryLabel(daySummary(two), 'mixte'), '2 joueurs, 2 mesures, 2 vidéos')
+assert.equal(summaryLabel(daySummary([{ kind: 'evaluation', playerId: 'a' }]), undefined), '1 joueur, 1 avis')
+// Ordre des pictogrammes : joueurs puis celui des lignes (avis, mesures, vidéos) ; le nombre pour la pastille
+assert.deepEqual(
+  summaryParts(daySummary(two), 'F').map((p) => [p.key, p.n]),
+  [['players', 2], ['measurement', 2], ['video', 2]],
+)
+assert.deepEqual(summaryParts(daySummary([])), [])
+assert.equal(summaryLabel({ players: 1200, evaluation: 0, measurement: 1500, video: 0 }), '1\u202f200 joueurs, 1\u202f500 mesures')
 
 // Écart avec la mesure précédente : signe, unité, arrondi, échelle sans unité, même valeur
 assert.equal(deltaText(180, 178, 'cm'), '+2 cm')

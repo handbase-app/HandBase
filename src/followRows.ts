@@ -1,9 +1,11 @@
 /*
  * « Mes suivis », journée dépliée : une ligne compacte par joueur (nom, un pictogramme par sorte de nouveauté avec leur
  * nombre), le détail écrit en dessous une fois la ligne dépliée (src/pages/Follows.tsx). Ici la partie pure : ce que
- * chaque pictogramme compte et ouvre sur la fiche (src/playerFocus.ts), l'écart d'une mesure avec la précédente.
+ * chaque pictogramme compte et ouvre sur la fiche (src/playerFocus.ts), l'écart d'une mesure avec la précédente, et la
+ * synthèse d'une journée repliée (joueurs, avis, mesures, vidéos ; mêmes pictogrammes).
  * Test : tools/test-voir-fiche.ts.
  */
+import { pluralG, type Gender } from './gender'
 import type { PlayerFocus } from './playerFocus'
 
 /** Le strict nécessaire d'une nouveauté (src/follows.ts : FollowNews). */
@@ -47,6 +49,38 @@ export function rowPictos(items: readonly NewsLike[]): RowPicto[] {
   }
   return out
 }
+
+/** Synthèse d'une journée (ou d'une section) repliée : nombre de joueurs concernés, puis d'avis, de mesures, de vidéos. */
+export interface DaySummary {
+  players: number
+  evaluation: number
+  measurement: number
+  video: number
+}
+
+export function daySummary(items: readonly { kind: NewsKind; playerId: string }[]): DaySummary {
+  const out: DaySummary = { players: new Set(items.map((n) => n.playerId)).size, evaluation: 0, measurement: 0, video: 0 }
+  for (const n of items) out[n.kind]++
+  return out
+}
+
+/** Textes de la synthèse, seulement ce qui est présent : « 1 joueuse », « 2 avis », « 3 mesures », « 1 vidéo » (accord : src/gender.ts). */
+export function summaryParts(s: DaySummary, g?: Gender): { key: 'players' | NewsKind; n: number; text: string }[] {
+  const words: Record<NewsKind, string> = { evaluation: 'avis', measurement: 'mesure', video: 'vidéo' }
+  const parts: { key: 'players' | NewsKind; n: number; text: string }[] = []
+  if (s.players > 0) parts.push({ key: 'players', n: s.players, text: pluralG(s.players, g) })
+  for (const kind of ROW_KINDS) {
+    const n = s[kind]
+    if (n > 0) parts.push({ key: kind, n, text: `${n.toLocaleString('fr-FR')} ${words[kind]}${n > 1 && kind !== 'evaluation' ? 's' : ''}` })
+  }
+  return parts
+}
+
+/** Nom accessible de la synthèse : « 1 joueuse, 2 avis, 3 mesures, 1 vidéo ». */
+export const summaryLabel = (s: DaySummary, g?: Gender) =>
+  summaryParts(s, g)
+    .map((p) => p.text)
+    .join(', ')
 
 /** Nom accessible d'un pictogramme : « 3 nouvelles mesures de DUPONT Léo », « 1 nouvel avis sur … ». */
 export function pictoLabel(kind: NewsKind, n: number, who: string): string {

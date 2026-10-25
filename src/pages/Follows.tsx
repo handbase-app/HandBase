@@ -27,7 +27,7 @@ import { PlayerRow } from '../components/PlayerRow'
 import { Count, PlayerList } from '../components/Pictos'
 import { TEAM_FOLLOW } from '../staffLabels'
 import { focusLabel, focusLink, focusOfNews } from '../playerFocus'
-import { pictoLabel, ROW_KINDS, rowPictos, type NewsKind } from '../followRows'
+import { daySummary, pictoLabel, ROW_KINDS, rowPictos, summaryLabel, summaryParts, type NewsKind } from '../followRows'
 
 function dayLabel(day: string) {
   const now = Date.now()
@@ -44,6 +44,22 @@ const nameOf = (p?: Player) => (p ? `${p.lastName.toUpperCase()} ${p.firstName}`
 const KIND_ICON: Record<NewsKind, IconName> = { evaluation: 'chat', measurement: 'ruler', video: 'video' }
 const KIND_COLOR: Record<NewsKind, string> = { evaluation: 'text-emerald-300', measurement: 'text-amber-300', video: 'text-violet-300' }
 const LINE_LINK = 'rounded-md outline-none hover:bg-panel-2 focus-visible:ring-2 focus-visible:ring-accent'
+/** Case d'un pictogramme (une colonne) et chevron : mêmes tailles sur la ligne d'un joueur et sur la synthèse d'une carte. */
+const PICTO_CELL = 'inline-flex h-8 w-8 shrink-0 items-center justify-center'
+const CHEVRON_CELL = 'inline-flex h-8 w-7 shrink-0 items-center justify-center text-muted'
+
+/**
+ * Pictogramme d'une ligne de « Mes suivis » : l'icône, et son nombre en pastille au-delà d'un (comme dans les listes de
+ * joueurs, src/components/Pictos.tsx). Le même pour la ligne d'un joueur et pour la synthèse d'une journée.
+ */
+function PictoMark({ kind, n }: { kind: NewsKind | 'players'; n: number }) {
+  return (
+    <span className={`relative ${kind === 'players' ? 'text-muted' : KIND_COLOR[kind]}`}>
+      <Icon name={kind === 'players' ? 'user' : KIND_ICON[kind]} className="h-4 w-4" />
+      <Count n={n > 1 ? n : 0} />
+    </span>
+  )
+}
 const isFresh = (n: FollowNews, seen: number) => n.time > seen && !n.mine
 const FreshDot = () => <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" title="Nouveau depuis ta dernière visite" />
 
@@ -162,16 +178,13 @@ function PlayerDay({
           if (!pc) return <span key={kind} className="w-8 shrink-0" />
           const label = pictoLabel(pc.kind, pc.n, who)
           return (
-            <Link key={pc.kind} to={focusLink(pid, pc.focus)} aria-label={label} title={label} className={`inline-flex h-8 w-8 shrink-0 items-center justify-center ${LINE_LINK}`}>
-              <span className={`relative ${KIND_COLOR[pc.kind]}`}>
-                <Icon name={KIND_ICON[pc.kind]} className="h-4 w-4" />
-                <Count n={pc.n > 1 ? pc.n : 0} />
-              </span>
+            <Link key={pc.kind} to={focusLink(pid, pc.focus)} aria-label={label} title={label} className={`${PICTO_CELL} ${LINE_LINK}`}>
+              <PictoMark kind={pc.kind} n={pc.n} />
             </Link>
           )
         })}
         {/* Même effet que le nom (déjà annoncé aux lecteurs d'écran) : seulement une cible de plus au doigt. */}
-        <button type="button" tabIndex={-1} aria-hidden="true" onClick={onToggle} className="inline-flex h-8 w-7 shrink-0 items-center justify-center text-muted hover:text-fg">
+        <button type="button" tabIndex={-1} aria-hidden="true" onClick={onToggle} className={`${CHEVRON_CELL} hover:text-fg`}>
           <span className={`transition ${open ? 'rotate-90' : ''}`}>›</span>
         </button>
       </div>
@@ -306,28 +319,37 @@ function DayPlayers({
 }
 
 /**
- * Carte de nouveautés repliable (une section ou une journée) : repliée par défaut, son titre donne le nombre de nouveautés
- * (dont celles depuis la dernière visite) et de joueurs ; dépliée, le détail. État retenu pendant la session.
+ * Carte de nouveautés repliable (une section ou une journée) : repliée par défaut. Son en-tête est une ligne de synthèse
+ * du même système que les lignes des joueurs (PictoMark, mêmes colonnes et chevron) : joueurs concernés, avis, mesures,
+ * vidéos, chacun avec son nombre en pastille au-delà d'un (src/followRows.ts : daySummary) ; le nombre de nouveautés
+ * depuis la dernière visite à côté du titre. Dépliée, le détail. État retenu pendant la session.
  */
 function NewsCard({ title, items, seen, open, onToggle, children, g }: { title: ReactNode; items: FollowNews[]; seen: number; open: boolean; onToggle: () => void; children: ReactNode; g?: Gender }) {
   const fresh = items.filter((n) => n.time > seen && !n.mine).length
-  const who = new Set(items.map((n) => n.playerId)).size
+  const sum = daySummary(items)
   return (
     <div className="card px-4 py-1">
-      <button type="button" className="flex w-full items-center gap-2 py-1.5 text-left" aria-expanded={open} onClick={onToggle}>
-        {/* Titre en entier ; les nombres dessous (sur téléphone, à côté ils le coupaient). */}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="section-title my-0">{title}</span>
-          <span className="text-[11px] text-muted">
-            {plural(items.length, 'nouveauté')} · {pluralG(who, g)}
-          </span>
+      <button type="button" className="flex w-full items-center gap-0.5 py-1 text-left" aria-expanded={open} onClick={onToggle}>
+        {/* Titre en entier (il passe à la ligne s'il le faut) ; la nouveauté depuis la dernière visite juste après. */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 pr-1">
+          <span className="section-title mb-0">{title}</span>
+          {fresh > 0 && (
+            <span className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold text-white" title="Depuis ta dernière visite">
+              +{fresh > 99 ? '99' : fresh}
+            </span>
+          )}
         </span>
-        {fresh > 0 && (
-          <span className="shrink-0 rounded-full bg-accent px-1.5 py-px text-[10px] font-bold text-white" title="Depuis ta dernière visite">
-            +{fresh > 99 ? '99' : fresh}
-          </span>
-        )}
-        <span className={`shrink-0 text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
+        {/* Une seule lecture : « 1 joueuse, 2 avis, 3 mesures, 1 vidéo » ; le détail de chacun au survol. */}
+        <span role="img" aria-label={summaryLabel(sum, g)} className="flex shrink-0 items-center gap-0.5">
+          {summaryParts(sum, g).map((p) => (
+            <span key={p.key} title={p.text} className={PICTO_CELL}>
+              <PictoMark kind={p.key} n={p.n} />
+            </span>
+          ))}
+        </span>
+        <span aria-hidden="true" className={CHEVRON_CELL}>
+          <span className={`transition ${open ? 'rotate-90' : ''}`}>›</span>
+        </span>
       </button>
       {open && <div className="pb-1">{children}</div>}
     </div>
