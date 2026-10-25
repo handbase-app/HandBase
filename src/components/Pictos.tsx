@@ -110,7 +110,11 @@ export const PICTO_ICONS: Record<PictoKind, IconName> = {
  * pictogrammes. Liste étroite (téléphone, < 30rem) : les pastilles sur leur propre ligne, qui défile de côté (fondu au
  * bord tant qu'il en reste à voir), les pictogrammes en dessous. Sur deux lignes, la capsule prend les coins des fenêtres.
  */
-export function PictoBar({ className = '', label, lead }: { className?: string; label?: ReactNode; lead?: ReactNode }) {
+/**
+ * `pictos` faux : seulement le nombre et les pastilles `lead` (postes d'un événement ou d'un groupe) ; les pictogrammes se
+ * règlent dans la fenêtre « Filtres » de la liste Joueurs (section « Affichage », réglage commun à toutes les listes).
+ */
+export function PictoBar({ className = '', label, lead, pictos = true }: { className?: string; label?: ReactNode; lead?: ReactNode; pictos?: boolean }) {
   const on = usePictos()
   const box = useRef<HTMLDivElement>(null)
   const row = useRef<HTMLDivElement>(null)
@@ -170,7 +174,7 @@ export function PictoBar({ className = '', label, lead }: { className?: string; 
         </div>
       )}
       {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs ou les filtres à gauche). */}
-      <span ref={pics} className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
+      {pictos && <span ref={pics} className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
       {PICTO_KINDS.map((k) => {
         const pressed = on.includes(k)
         return (
@@ -189,7 +193,7 @@ export function PictoBar({ className = '', label, lead }: { className?: string; 
           </button>
         )
       })}
-      </span>
+      </span>}
     </div>
   )
 }
@@ -339,7 +343,6 @@ export function PlayerList({
   children,
   className = 'flex flex-col gap-2',
   bar = true,
-  pictosInFilters = false,
   select = true,
   sticky = true,
 }: {
@@ -353,18 +356,16 @@ export function PlayerList({
   children: ReactNode
   className?: string
   bar?: boolean
-  /**
-   * La page règle les pictogrammes dans sa fenêtre « Filtres » sur téléphone (section « Affichage ») : la barre n'y est
-   * pas affichée (sauf pastilles `barLead`), le nombre `countLabel` est à afficher par la page (à côté du titre).
-   */
+  /** La page affiche le nombre `countLabel` à côté de son titre (liste Joueurs) ; la barre ne sert plus qu'aux pastilles. */
   pictosInFilters?: boolean
   select?: boolean
   /** Barre collée en haut au défilement (faux : colonne de contexte, déjà collée). */
   sticky?: boolean
 }) {
   const on = usePictos()
-  const inFilters = usePictosInFilters()
-  if (pictosInFilters && inFilters && !barLead) bar = false
+  // Plus de barre des pictogrammes au-dessus des listes (Geoffroy, 25/10/2026) : ils se règlent dans « Filtres » → « Affichage »
+  // (liste Joueurs ; réglage commun à toutes les listes). La capsule ne reste que pour les pastilles des postes (`barLead`).
+  if (!barLead) bar = false
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
   const sel = useListSelection(all, ids, select)
   const data = usePictoData(ids, on)
@@ -426,7 +427,7 @@ export function PlayerList({
               {bar && (
                 // Conteneur (plb) : la barre se resserre selon la place de la liste (colonne de contexte comprise).
                 <div className="@container/plb mx-auto flex w-full max-w-3xl items-stretch gap-1">
-                  <PictoBar className="min-w-0 flex-1" label={countLabel} lead={barLead} />
+                  <PictoBar className="min-w-0 flex-1" label={countLabel} lead={barLead} pictos={false} />
                 </div>
               )}
               {sel.on && <SelectionHeader store={sel.store} />}
