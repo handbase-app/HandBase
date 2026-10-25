@@ -525,6 +525,21 @@ export interface Level extends Syncable, LevelFields {}
 export interface Unit extends Syncable, UnitFields {}
 export interface Assignment extends Syncable, AssignmentFields {}
 
+/**
+ * « Mes questions » / « Mes filtres » enregistrés, gardés sur le compte (supabase/054_questions_enregistrees.sql,
+ * src/savedQuestions.ts) : personnels, lus et écrits par leur seul créateur (administrateurs compris : ils ne les voient pas).
+ * Identifiant « <compte>:<identifiant> ». Supprimée : il ne reste que l'identifiant.
+ */
+export interface SavedQuestionRow extends Syncable {
+  name?: string
+  recipe?: unknown
+  vars?: string[]
+  phrase?: string
+  /** Moment de l'enregistrement (horloge de l'appareil). */
+  at?: number
+  sql?: unknown
+}
+
 export interface OutboxItem {
   seq?: number
   table: SyncTable
@@ -534,8 +549,9 @@ export interface OutboxItem {
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
 // Vidéos, « vu » et « à revoir » en dernier : le serveur vérifie que le joueur, l'événement ou le groupe visé existe
 // (envoyé juste avant). Structure (044) : niveaux avant unités avant affectations (le serveur vérifie que le niveau, le
-// parent, l'unité visés existent). Journal des questions avancées (043) : indépendant du reste, à la fin.
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log'] as const
+// parent, l'unité visés existent). Journal des questions avancées (043) et questions enregistrées (054) : indépendants du
+// reste, à la fin.
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log', 'saved_questions'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -565,6 +581,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   levels: EntityTable<Level, 'id'>
   units: EntityTable<Unit, 'id'>
   assignments: EntityTable<Assignment, 'id'>
+  saved_questions: EntityTable<SavedQuestionRow, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -638,6 +655,9 @@ db.version(16).stores({
   units: 'id, parentId, levelId, updatedAt',
   assignments: 'id, unitId, userId, updatedAt',
 })
+
+// v17 : questions et filtres enregistrés, sur le compte (supabase/054_questions_enregistrees.sql).
+db.version(17).stores({ saved_questions: 'id, updatedAt' })
 
 // « Voir comme… » : l'écran ne lit que le périmètre du membre simulé (src/viewAsFilter.ts). Hors simulation : rien.
 if (spyTarget()) db.use(viewAsMiddleware)

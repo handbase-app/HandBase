@@ -562,7 +562,8 @@ function DictationSetting() {
             vues une seule fois cette saison, par département » ou « combien de {isHandball() ? 'gardiens' : 'joueurs'} 2009 mesurent plus de 1 m 85 » (ou tapez-la).
             La réponse est calculée sur l’appareil : seuls la phrase et la description des questions possibles (postes, critères,
             date du jour) sont envoyées, jamais les données des joueurs. La question s’affiche en pastilles modifiables ;
-            « Enregistrer cette question » la garde dans « Mes questions » (sur cet appareil), à relancer sans envoi.
+            « Enregistrer cette question » la garde dans « Mes questions », à relancer sans envoi : sur votre compte (tous vos
+            appareils, vous seul la voyez), ou sur cet appareil tant que le serveur ne les garde pas encore.
           </p>
         )}
       </section>

@@ -104,6 +104,8 @@ export const currentUserId = () => effUid()
 export const myDepartments = () => effDepts()
 /** Rôle réel du compte connecté (même pendant « Voir comme… ») : outils administrateur, sortie de la simulation. */
 export const realRole = () => role
+/** Compte réellement connecté (même pendant « Voir comme… ») : données personnelles (questions enregistrées). */
+export const realUserId = () => userId
 
 /** Recharge le rôle depuis le serveur (si connecté et en ligne). */
 export async function refreshRole() {

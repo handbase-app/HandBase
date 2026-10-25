@@ -230,6 +230,15 @@ export function QuestionsText() {
       <p>Les administrateurs seulement. Celui qui pose une question ne relit pas ce journal, pas même ses propres questions.</p>
       <H>Combien de temps ?</H>
       <p>12 mois au plus : chaque question et chaque avis sont effacés automatiquement au bout de 12 mois ; un administrateur peut aussi vider le journal à tout moment.</p>
+      <H>Mes questions et mes filtres enregistrés</H>
+      <p>
+        Ce n’est pas ce journal. « Enregistrer cette question » (bilan) et « Enregistrer ce filtre » (liste des joueurs) gardent
+        un nom, les filtres ou la requête et la phrase d’origine, pour les relancer sans rien envoyer à l’assistant. Ils sont
+        gardés sur votre compte, pour les retrouver sur tous vos appareils, et ne sont visibles que de vous : aucun autre
+        compte, administrateurs compris. Avant leur mise en place sur le serveur (et dans la démonstration), ils restent
+        seulement sur l’appareil. Supprimer une question l’efface de tous vos appareils (le serveur n’en garde que
+        l’identifiant) ; supprimer le compte les efface toutes.
+      </p>
     </div>
   )
 }

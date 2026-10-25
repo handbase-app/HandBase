@@ -207,7 +207,21 @@ const PUSH_CHUNK = 400
  * restent dans la file d'envoi et partent dès que le script est passé (ex. journal des questions avancées, 043 ; configuration
  * et structure, 044 : sans la table, l'appli garde les valeurs par défaut handball).
  */
-const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log']
+const OPTIONAL_TABLES: SyncTable[] = ['follows', 'teams', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log', 'saved_questions']
+
+/*
+ * Tables facultatives que le serveur connaît : lues sans erreur à une synchronisation de ce lancement (true), ou absentes
+ * (false : script SQL pas encore passé). Inconnu tant qu'elles n'ont pas été lues. Sert aux questions enregistrées (054,
+ * src/savedQuestions.ts) : gardées sur l'appareil tant que la table n'existe pas, versées au compte dès qu'elle existe.
+ */
+const serverTables = new Map<SyncTable, boolean>()
+/** Le serveur connaît-il cette table ? (undefined : pas encore lue depuis le lancement.) */
+export const serverHasTable = (table: SyncTable) => serverTables.get(table)
+const knowTable = (table: SyncTable, has: boolean) => {
+  if (serverTables.get(table) === has) return
+  serverTables.set(table, has)
+  listeners.forEach((l) => l())
+}
 
 let rejectedCount = 0
 
@@ -593,7 +607,10 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
       : base.gte('server_updated_at', start)
     const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
     // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
-    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) return received
+    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) {
+      knowTable(table, false)
+      return received
+    }
     if (error) throw error
     if (!data?.length) break
     received += data.length
@@ -625,6 +642,7 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
   if (per[table]) per[table]!.total = per[table]!.done
   // Table vide sur le serveur : curseur posé quand même, pour ne plus la recompter à chaque synchro.
   if (!localStorage.getItem(PULL_KEY(table))) localStorage.setItem(PULL_KEY(table), since)
+  knowTable(table, true)
   return received
 }
 

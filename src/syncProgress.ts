@@ -50,6 +50,7 @@ export const TABLE_LABELS: Record<SyncTable, string> = {
   units: 'unités',
   assignments: 'affectations',
   question_log: 'journal des questions',
+  saved_questions: 'questions enregistrées',
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR')
