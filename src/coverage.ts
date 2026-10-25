@@ -72,13 +72,17 @@ export const livePlayers = <P extends CovPlayer>(ps: P[]) => ps.filter((p) => !p
 export const birthYear = (p: Pick<Player, 'birthDate'>) => (/^\d{4}/.test(p.birthDate ?? '') ? p.birthDate!.slice(0, 4) : '')
 
 /** Clé d'un club : sans accents, majuscules ni espaces en trop (même club écrit de deux façons) ; '' si non renseigné. */
-export const clubKey = (club?: string) =>
-  (club ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
+export const clubKey = (club?: string) => {
+  const raw = club ?? ''
+  // Retenue par écriture (quelques milliers de clubs pour 40 000 joueurs : le calcul, lent sur un téléphone, n'est fait qu'une fois).
+  let k = clubKeys.get(raw)
+  if (k === undefined) {
+    if (clubKeys.size >= 50000) clubKeys.clear()
+    clubKeys.set(raw, (k = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()))
+  }
+  return k
+}
+const clubKeys = new Map<string, string>()
 
 /** Pourcentage vu, arrondi vers le bas (100 % seulement quand tout le monde est vu). */
 export const percent = (seen: number, total: number) => (total ? Math.floor((seen * 100) / total) : 0)

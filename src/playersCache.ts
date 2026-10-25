@@ -1,3 +1,4 @@
+import type { Table } from 'dexie'
 import { useEffect, useMemo, useState } from 'react'
 import { alive, db, type Criterion, type HBEvent, type Measurement, type Player, type PlayerGroup } from './db'
 import { sharedQuery, useShared } from './live'
@@ -28,15 +29,17 @@ const PREVIEW_WAIT = 600
 const afterPreview = () => previewGate ?? Promise.resolve()
 
 /**
- * Toutes les fiches, par paquets de CHUNK dans l'ordre de la clé primaire (même résultat que `db.players.toArray()`) : chaque
- * paquet est décodé dans sa propre tâche, le fil principal respire entre deux (défilement, frappe pendant la lecture).
+ * Toutes les lignes d'une table à clé `id` (fiches, mesures), par paquets de CHUNK dans l'ordre de la clé primaire (même
+ * résultat que `toArray()`) : chaque paquet est décodé dans sa propre tâche, le fil principal respire entre deux
+ * (défilement, frappe pendant la lecture).
  */
 const CHUNK = 5000
-async function readByChunks() {
-  const out: Player[] = []
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function readByChunks<T extends { id: string }>(table: Table<T, string, any>): Promise<T[]> {
+  const out: T[] = []
   for (;;) {
     const last = out.length ? out[out.length - 1].id : undefined
-    const part = await (last === undefined ? db.players.limit(CHUNK) : db.players.where(':id').above(last).limit(CHUNK)).toArray()
+    const part = await (last === undefined ? table.limit(CHUNK) : table.where(':id').above(last).limit(CHUNK)).toArray()
     for (const p of part) out.push(p)
     if (part.length < CHUNK) return out
   }
@@ -47,7 +50,7 @@ const playersStore = sharedQuery(
   ['players'],
   async () => {
     await afterPreview()
-    const rows = alive(await readByChunks())
+    const rows = alive(await readByChunks(db.players))
     return { rows, byName: byLastName(rows) }
   },
   DELAY,
@@ -68,6 +71,16 @@ const measuresStore = sharedQuery(
   true,
 )
 
+/**
+ * Toutes les mesures (supprimées comprises, ordre de la clé primaire, comme `db.measurements.toArray()`), lues par paquets :
+ * une seule lecture pour les profils recherchés (src/alerts.ts, calculés au démarrage) et les joueurs mesurés par le staff
+ * du bilan (src/coverageCache.ts).
+ */
+const allMeasuresStore = sharedQuery(['measurements'], () => readByChunks(db.measurements), DELAY, true)
+
+/** Toutes les mesures, à jour (lues si besoin), hors React. */
+export const loadAllMeasures = () => allMeasuresStore.load()
+
 /** Critères, groupes par nom (membres des groupes Pôle calculés, src/poleMembers.ts ; tous, la visibilité est vue à l'écran), événements. */
 const listStore = sharedQuery(
   ['criteria', 'groups', 'teams', 'events', 'units', 'levels', 'lists', 'players'],
@@ -82,6 +95,17 @@ const listStore = sharedQuery(
   DELAY,
   true,
 )
+
+/**
+ * Fiches non supprimées, dans l'ordre de la clé primaire (comme `db.players.toArray().then(alive)`), gardées en mémoire :
+ * pour les écrans qui lisent toute la base (bilan de détection, src/coverageCache.ts) ; undefined pendant la 1re lecture.
+ */
+export function usePlayerRows(): Player[] | undefined {
+  return useShared(playersStore)?.rows
+}
+
+/** Les mêmes, hors React (lues si besoin). */
+export const loadPlayerRows = () => playersStore.load().then((v) => v.rows)
 
 /** Fiches non supprimées, par nom (comme `db.players.orderBy('lastName').toArray().then(alive)`) ; undefined pendant la 1re lecture. */
 export function usePlayersByName(): Player[] | undefined {

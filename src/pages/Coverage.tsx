@@ -6,7 +6,7 @@ import { useAlerts } from '../alerts'
 import { bilanPart, cellText, countBy, defaultChoices, filterLine, leftOf, metaLine, namesAllowed, parseReportChoices, reportSearch, reportTitle, STAGE_COLUMN, stageOf, topTests, whereToGo, type ReportChoices } from '../bilanReport'
 import { BackButton, TabBackButton } from '../backNav'
 import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
-import { alive, db, fmtDate, plural, today, type Player, type Rewatch, type Unit } from '../db'
+import { db, fmtDate, plural, today, type Player, type Unit } from '../db'
 import { listGender, pluralG, SEX_LABELS, SEX_SHORT, w, type Gender } from '../gender'
 import {
   birthYear,
@@ -27,9 +27,7 @@ import {
   rankBy,
   seasonOf,
   sortClubs,
-  staffMeasured,
   tallest,
-  toSights,
   totalOf,
   type ClubCoverage,
   type CoveragePeriod,
@@ -42,9 +40,10 @@ import {
 } from '../coverage'
 import { regionOfDept, useDepartments, useRegionLabel } from '../lists'
 import { useThrottledQuery } from '../live'
+import { coverageKept as kept, useCoverageData, useStaffMeasured } from '../coverageCache'
+import { loadAllMeasures } from '../playersCache'
 import { MQ, useMedia } from '../layout'
 import { can, useRole } from '../roles'
-import { scoutId } from '../scouting'
 import { FranceMap, useDeptName, type MapDot } from '../components/FranceMap'
 import { OTHER_OM, OUTRE_MER, showOtherOM } from '../outreMer'
 import { clubDots, dotRadius, hasPlacedClubs, placedClubs, type ClubDot } from '../clubMap'
@@ -121,35 +120,10 @@ function readKey<T extends string>(key: string, allowed: readonly T[], fallback:
 
 // ---------- Données ----------
 
-/** Joueurs de la base, passages (« vu » et avis) et « à revoir » ; recalculé quand l'une de ces tables change. */
-function useCoverageData() {
-  return useThrottledQuery(
-    async () => {
-      const [players, seen, evals, deadEvents, rewatch] = await Promise.all([
-        db.players.toArray(),
-        db.seen.toArray(),
-        db.evaluations.toArray(),
-        db.events.filter((e) => !!e.deleted).primaryKeys(),
-        db.rewatch.toArray(),
-      ])
-      const me = scoutId()
-      const sights = toSights(seen, evals, {
-        deadEvents: new Set(deadEvents as string[]),
-        nameOfSeen: (s) => {
-          const row = s as (typeof seen)[number]
-          const mine = !!me && (row.createdBy ? row.createdBy === me : row.id.startsWith(`${me}:`))
-          return mine ? 'toi' : row.createdByName
-        },
-      })
-      const rw = new Map<string, Rewatch[]>()
-      for (const r of alive(rewatch)) rw.set(r.playerId, [...(rw.get(r.playerId) ?? []), r])
-      return { players, sights, rewatch: rw }
-    },
-    [],
-    ['players', 'seen', 'evaluations', 'events', 'rewatch'],
-    300,
-  )
-}
+/*
+ * Fiches, passages (« vu » et avis), « à revoir » et joueurs mesurés par le staff : gardés en mémoire pour toute l'appli
+ * (src/coverageCache.ts), comme les calculs du bilan (coverageKept) ; revenir sur le bilan ne relit ni ne recalcule rien.
+ */
 
 /**
  * Onglets des administrateurs : joueurs mesurés par le staff (mesures lues seulement pour eux) et profils repérés —
@@ -157,18 +131,20 @@ function useCoverageData() {
  * utilisable, les plus grands de leur génération (`tallest`, calculé sur toute la base : il ne bouge pas avec les filtres).
  */
 function useNationalData(enabled: boolean, players: Player[] | undefined) {
-  const meas = useThrottledQuery(async () => (enabled ? staffMeasured(await db.measurements.toArray()) : null), [enabled], ['measurements'], 300)
+  const meas = useStaffMeasured(enabled)
   const alerts = useAlerts()
   return useMemo(() => {
     if (!enabled || !meas || !players || !alerts) return undefined
-    const ids = new Set<string>()
-    let n = 0
-    for (const a of alerts.alerts) {
-      if (!a.players.length || a.players.length >= alerts.ctx.players.length) continue
-      n++
-      for (const p of a.players) ids.add(p.id)
-    }
-    return { staff: meas.staff, spotted: n ? ids : tallest(livePlayers(players), meas.height), profiles: n }
+    return kept('national', [meas, players, alerts], () => {
+      const ids = new Set<string>()
+      let n = 0
+      for (const a of alerts.alerts) {
+        if (!a.players.length || a.players.length >= alerts.ctx.players.length) continue
+        n++
+        for (const p of a.players) ids.add(p.id)
+      }
+      return { staff: meas.staff, spotted: n ? ids : tallest(livePlayers(players), meas.height), profiles: n }
+    })
   }, [enabled, meas, players, alerts])
 }
 
@@ -842,6 +818,10 @@ export function whoOrder(club: ClubCoverage<Player>, o: Onglet = 'vus') {
   return isShare(o) ? { main: other, rest: hit } : { main: hit, rest: other }
 }
 
+/** Valeurs vides partagées (pas de nouvel objet à chaque rendu pendant la lecture). */
+const NO_SIGHTS = new Map<string, Sight>()
+const NO_PLAYERS: Player[] = []
+
 /** Tout le monde (onglet « Licenciés »). */
 const EVERYONE = { has: () => true }
 
@@ -892,29 +872,34 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
   const pop = !popOn ? null : (sel ?? lastPop.current)
   if (pop !== undefined) lastPop.current = pop
   const popLoading = popOn && !sel
-  const players = useMemo(() => (data && pop ? data.players.filter((p) => pop.has(p.id)) : data?.players), [data, pop])
+  const players = useMemo(() => (data && pop ? kept('pop', [data.players, pop], () => data.players.filter((p) => pop.has(p.id))) : data?.players), [data, pop])
   const { onglet, sex, period, years: picked, region, dept } = st
   // Lieu d'un joueur : département du n° de club (ou de licence, ou saisi), région selon la liste des départements.
-  const place = useMemo<PlaceOf<Player>>(() => ({ deptOf: department, regionOf: (d) => regionOfDept(d) }), [lists]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Même objet tant que les listes ne changent pas (d'un passage à l'autre aussi : les calculs gardés le reconnaissent).
+  const place = useMemo<PlaceOf<Player>>(() => kept('place', [lists], () => ({ deptOf: department, regionOf: (d) => regionOfDept(d) })), [lists])
   // Jamais à un survol ; la base n'est pas relue.
-  const last = useMemo(() => (data ? lastSights(data.sights, periodInfo(period).range) : new Map<string, Sight>()), [data, period])
+  // (Calculs gardés pour toute l'appli, src/coverageCache.ts coverageKept : retour sur le bilan sans rien refaire.)
+  const sights = data?.sights
+  const range = periodInfo(period).range
+  const last = useMemo(() => (sights ? kept('last', [sights, range?.from, range?.to], () => lastSights(sights, range)) : NO_SIGHTS), [sights, range?.from, range?.to]) // eslint-disable-line react-hooks/exhaustive-deps
   // Joueurs comptés par l'onglet (undefined : pas encore calculé).
   const hit = countedOf(onglet, last, nat)
   const counted = hit ?? EVERYONE
   // Carte : sexe et année (elle montre tous les lieux).
-  const forMap = useMemo(() => (players ? mapPop(players, st, place) : []), [players, sex, picked, place]) // eslint-disable-line react-hooks/exhaustive-deps
-  const byPlace = useMemo(() => coverageByPlace(forMap, counted, place), [forMap, counted, place])
+  const pickedKey = picked.join(',')
+  const forMap = useMemo(() => (players ? kept('forMap', [players, sex, pickedKey, place], () => mapPop(players, st, place)) : NO_PLAYERS), [players, sex, pickedKey, place]) // eslint-disable-line react-hooks/exhaustive-deps
+  const byPlace = useMemo(() => kept('byPlace', [forMap, counted, place], () => coverageByPlace(forMap, counted, place)), [forMap, counted, place])
   // Générations : sexe et lieu (chaque carte est une année).
-  const inPlace = useMemo(() => (players ? placePop(players, st, place) : []), [players, sex, region, dept, place]) // eslint-disable-line react-hooks/exhaustive-deps
-  const years = useMemo(() => coverageByYear(inPlace, counted), [inPlace, counted])
+  const inPlace = useMemo(() => (players ? kept('inPlace', [players, sex, region, dept, place], () => placePop(players, st, place)) : NO_PLAYERS), [players, sex, region, dept, place]) // eslint-disable-line react-hooks/exhaustive-deps
+  const years = useMemo(() => kept('years', [inPlace, counted], () => coverageByYear(inPlace, counted)), [inPlace, counted])
   // Clubs : tous les filtres.
-  const inScope = useMemo(() => scopePop(inPlace, picked), [inPlace, picked])
-  const clubs = useMemo(() => sortClubs(onglet, coverageByClub(inScope, counted)), [onglet, inScope, counted])
+  const inScope = useMemo(() => kept('inScope', [inPlace, pickedKey], () => scopePop(inPlace, picked)), [inPlace, pickedKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const clubs = useMemo(() => kept('clubs', [onglet, inScope, counted], () => sortClubs(onglet, coverageByClub(inScope, counted))), [onglet, inScope, counted])
   // Club choisi (et encore présent avec ces filtres) : les chiffres clés sont les siens, pas ceux du département.
   const clubOn = st.club !== null && clubs.some((c) => c.key === st.club)
-  const kScope = useMemo(() => (clubOn ? inScope.filter((p) => clubKey(p.club) === st.club) : inScope), [clubOn, inScope, st.club])
+  const kScope = useMemo(() => (clubOn ? kept('kScope', [inScope, st.club], () => inScope.filter((p) => clubKey(p.club) === st.club)) : inScope), [clubOn, inScope, st.club])
   // Chiffres clés des joueurs retenus (tous les filtres, club choisi compris) : clubs, départements et la valeur de chaque onglet.
-  const kpis = useMemo(() => {
+  const kpis = useMemo(() => kept('kpis', [kScope, last, nat], () => {
     const k = { total: kScope.length, vus: 0, mesures: 0, reperes: 0, clubs: new Set<string>(), depts: new Set<string>() }
     for (const p of kScope) {
       if (last.has(p.id)) k.vus++
@@ -931,13 +916,18 @@ export function useBilanModel(st: BilanState, opts: { needFull?: boolean } = {})
       clubs: k.clubs.size,
       depts: k.depts.size,
     }
-  }, [kScope, last, nat])
+  }), [kScope, last, nat])
   // Années proposées : toutes celles de la base (quel que soit le lieu), la plus récente d'abord.
-  const allYears = useMemo(() => {
-    const ys = new Set(data ? livePlayers(data.players).map(birthYear) : [])
-    for (const y of picked) ys.add(y)
-    return sortYearStrings(ys)
-  }, [data, picked])
+  const allPlayers = data?.players
+  const allYears = useMemo(
+    () =>
+      kept('allYears', [allPlayers, pickedKey], () => {
+        const ys = new Set(allPlayers ? livePlayers(allPlayers).map(birthYear) : [])
+        for (const y of picked) ys.add(y)
+        return sortYearStrings(ys)
+      }),
+    [allPlayers, pickedKey], // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const club = st.club === null ? undefined : clubs.find((c) => c.key === st.club)
   return {
     data: hit && pop !== undefined ? data : undefined,
@@ -1239,9 +1229,10 @@ export default function Coverage() {
   const who = useMemo(() => ({ o, search, seenOpen: st.seenOpen, setSeenOpen: (v: boolean) => set({ seenOpen: v }), lens, qWho, g }), [o, search, lens, Q?.agg, g]) // eslint-disable-line react-hooks/exhaustive-deps
   // Recherche vocale (« micro ✨ Filtrer ») : filtres du bilan (sexe, période, génération, lieu de la carte, club, vue). Clubs et
   // lieux sont retrouvés ici ; seuls la phrase, le schéma et les filtres actifs partent (src/voicePages.ts).
-  const voiceClubs = useMemo(() => {
+  const allPlayers = data?.players
+  const voiceClubs = useMemo(() => kept('voiceClubs', [allPlayers], () => {
     const m = new Map<string, { names: Map<string, number>; depts: Map<string, number> }>()
-    for (const p of data ? livePlayers(data.players) : []) {
+    for (const p of allPlayers ? livePlayers(allPlayers) : []) {
       const k = clubKey(p.club)
       if (!k) continue
       let c = m.get(k)
@@ -1252,7 +1243,7 @@ export default function Coverage() {
     }
     const top = (x: Map<string, number>) => [...x].sort((a, b) => b[1] - a[1])[0]?.[0]
     return [...m].map(([key, c]) => ({ key, name: top(c.names)!, dept: top(c.depts) }))
-  }, [data])
+  }), [allPlayers])
   // Barre de filtres : la même que la liste Joueurs (src/components/PlayersQuery.tsx) ; sa requête est l'état du bilan
   // (adresse), passée par src/bilanFilters.ts (sexe, années et lieu : les commandes du bilan).
   const barState: BarState = { sex, years: picked, region, dept, club: st.club, f: st.q ? null : st.f, t: st.t, q: st.q }
@@ -1260,7 +1251,8 @@ export default function Coverage() {
   const [barCalc, setBarCalc] = useSessionState<Output | null>('handbase.bilan-barre.calcul', null)
   const barValue = useMemo(() => barQuery(barState, barCalc ?? undefined), [barKey, barCalc]) // eslint-disable-line react-hooks/exhaustive-deps
   const barHide = useMemo(() => barHidden(barState), [barKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  const barPlayers = useMemo(() => (data ? livePlayers(data.players) : undefined), [data])
+  // Même liste d'un passage à l'autre : l'index de la barre (src/components/PlayersQuery.tsx) n'est pas refait au retour.
+  const barPlayers = useMemo(() => (allPlayers ? kept('barPlayers', [allPlayers], () => livePlayers(allPlayers)) : undefined), [allPlayers])
   const bar = usePlayersQuery(barPlayers, {
     scope: 'bilan-barre',
     hosted: {
@@ -2551,7 +2543,8 @@ export function CoverageReport() {
   // Mesurés : tests les plus faits (mesures et noms des tests lus seulement alors).
   const wantTests = !st.q && choices.tabs.includes('mesures')
   const tests = useThrottledQuery(
-    async () => (wantTests ? { meas: await db.measurements.toArray(), crit: new Map((await db.criteria.toArray()).map((c) => [c.id, c.label])) } : null),
+    // Mesures : celles gardées pour l'appli (src/playersCache.ts : mêmes lignes, même ordre que `db.measurements.toArray()`).
+    async () => (wantTests ? { meas: await loadAllMeasures(), crit: new Map((await db.criteria.toArray()).map((c) => [c.id, c.label])) } : null),
     [wantTests],
     ['measurements', 'criteria'],
     300,

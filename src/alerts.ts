@@ -7,6 +7,7 @@ import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type
 import { zoneSummary } from './lists'
 import { sharedQuery, useShared } from './live'
 import { latestByPlayer } from './pages/Players'
+import { loadAllMeasures, loadPlayerRows } from './playersCache'
 import { can, currentUserId, useRole } from './roles'
 
 /*
@@ -32,10 +33,15 @@ const created = (r: { createdAtServer?: string; updatedAt: number }) => {
   return isNaN(t) ? r.updatedAt : t
 }
 
-export async function loadAlertContext(): Promise<AlertContext> {
+/**
+ * `shared` : fiches et mesures prises dans la mémoire de l'appli (src/playersCache.ts : mêmes lignes, même ordre, lues une
+ * fois pour la liste Joueurs, le bilan et les profils) ; pour le calcul partagé (alertsStore), hors useLiveQuery. Sans
+ * (page Profils recherchés, dans un useLiveQuery) : lues ici, pour que Dexie suive ces tables.
+ */
+export async function loadAlertContext(shared = false): Promise<AlertContext> {
   const [players, measurements, evaluations, criteria] = await Promise.all([
-    db.players.toArray().then((ps) => alive(ps).filter((p) => !p.mergedInto && p.review !== 'refused')),
-    db.measurements.toArray().then(alive),
+    (shared ? loadPlayerRows() : db.players.toArray().then(alive)).then((ps) => ps.filter((p) => !p.mergedInto && p.review !== 'refused')),
+    (shared ? loadAllMeasures() : db.measurements.toArray()).then(alive),
     db.evaluations.toArray().then((es) => alive(es)),
     db.criteria.toArray().then(alive),
   ])
@@ -220,11 +226,11 @@ export function markSeen(alertId: string, ids: string[]) {
 
 const EMPTY_CONTEXT: AlertContext = { players: [], measurements: [], latest: new Map(), byPlayer: new Map(), avis: new Map(), criteria: [], lastActivity: new Map() }
 
-/** Alertes visibles avec leurs joueurs et les nouveaux (entrés depuis la dernière visite). */
-export async function computeAlerts() {
+/** Alertes visibles avec leurs joueurs et les nouveaux (entrés depuis la dernière visite) ; `shared` : voir loadAlertContext. */
+export async function computeAlerts(shared = false) {
   const alerts = await db.alerts.toArray().then((as) => alive(as).filter(can.seeGroup))
   // Aucune alerte : inutile de lire toute la base.
-  const ctx = alerts.length ? await loadAlertContext() : EMPTY_CONTEXT
+  const ctx = alerts.length ? await loadAlertContext(shared) : EMPTY_CONTEXT
   return {
     ctx,
     alerts: alerts
@@ -244,7 +250,7 @@ export async function computeAlerts() {
 let computedFor: string | null | undefined
 const alertsStore = sharedQuery(['players', 'measurements', 'evaluations', 'criteria', 'alerts'], () => {
   computedFor = currentUserId()
-  return computeAlerts()
+  return computeAlerts(true)
 })
 
 export type AlertsResult = Awaited<ReturnType<typeof computeAlerts>>

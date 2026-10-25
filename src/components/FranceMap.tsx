@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { focusProjection, spreadDots } from '../clubMap'
 import { regionOfDept, useDepartments } from '../lists'
 import { fitFont, inkOn, inside, LABEL_INK, parseCssColor, poleOfInaccessibility, type Poly, type Pt } from '../mapLabels'
+import { keptMemo } from '../keptMemo'
 import { insetPaths, OTHER_OM, OUTRE_MER, type OutreMerGeo } from '../outreMer'
 
 /*
@@ -34,17 +35,20 @@ interface Shape {
 }
 
 // Fichier à part (pas dans le démarrage de l'appli), lu une seule fois ; mis en cache par le service worker.
+// Une fois lu, gardé (`geoValue`) : une carte ouverte ensuite est dessinée dès son premier affichage.
 let geoLoad: Promise<Geo> | null = null
-const loadGeo = () => (geoLoad ??= import('../assets/departements.json?raw').then((m) => JSON.parse(m.default) as Geo))
+let geoValue: Geo | null = null
+const loadGeo = () => (geoLoad ??= import('../assets/departements.json?raw').then((m) => (geoValue = JSON.parse(m.default) as Geo)))
 
 let omLoad: Promise<OutreMerGeo> | null = null
-const loadOutreMer = () => (omLoad ??= import('../assets/outre-mer.json?raw').then((m) => JSON.parse(m.default) as OutreMerGeo))
+let omValue: OutreMerGeo | null = null
+const loadOutreMer = () => (omLoad ??= import('../assets/outre-mer.json?raw').then((m) => (omValue = JSON.parse(m.default) as OutreMerGeo)))
 
 /** Encarts ultramarins : tracés pour la petite taille (rangée sous la carte) et la grande (ligue ultramarine choisie). */
 const INSET = { small: [60, 40], big: [150, 110] } as const
 /** Contours de l'outre-mer (encarts, et territoire choisi recalé à plein cadre avec ses clubs). */
 function useOutreMer() {
-  const [geo, setGeo] = useState<OutreMerGeo | null>(null)
+  const [geo, setGeo] = useState<OutreMerGeo | null>(omValue)
   useEffect(() => {
     let alive = true
     void loadOutreMer().then((g) => {
@@ -57,11 +61,11 @@ function useOutreMer() {
   return geo
 }
 function useInsets(om: OutreMerGeo | null) {
-  return useMemo(() => (om ? { small: insetPaths(om, ...INSET.small), big: insetPaths(om, ...INSET.big) } : null), [om])
+  return useMemo(() => (om ? mapKept('insets', [om], () => ({ small: insetPaths(om, ...INSET.small), big: insetPaths(om, ...INSET.big) })) : null), [om])
 }
 
 export function useGeo() {
-  const [geo, setGeo] = useState<Geo | null>(null)
+  const [geo, setGeo] = useState<Geo | null>(geoValue)
   useEffect(() => {
     let alive = true
     void loadGeo().then((g) => {
@@ -96,6 +100,14 @@ export function useDeptName() {
   // recalculés à chaque rendu (chaque lettre tapée dans la barre « Demander »).
   return useCallback((code: string) => lists.find((d) => d.code === code)?.name ?? geoNames.get(code) ?? `Département ${code}`, [lists, geoNames])
 }
+
+/**
+ * Calculs de la carte gardés pour toute l'appli (src/keptMemo.ts) : contours des régions, tracés de la vue (France, région,
+ * département), points des chiffres, tailles des chiffres ; mêmes entrées (fichier des contours, listes, vue), même résultat.
+ */
+const mapKept = keptMemo(8)
+/** Largeur des chiffres, par police de la carte. */
+const textWidths = new Map<string, (t: string) => number>()
 
 /** Anneaux (contours) d'un département, polygone simple ou multiple. */
 function rings(f: Feature): number[][][] {
@@ -266,18 +278,21 @@ export function FranceMap({
 
   // Départements de chaque région et contour des régions : une fois par fichier (et par liste des départements,
   // qui peut changer la région d'un département).
+  // (Tracés, contours et points des chiffres gardés pour toute l'appli, mapKept : revenir sur la carte ne refait rien.)
   const regionGeo = useMemo(() => {
     if (!geo) return null
-    const by = new Map<string, Feature[]>()
-    for (const f of geo.features) {
-      const r = regionOfDept(codeOf(f.properties.code))
-      if (!r) continue
-      const g = by.get(r)
-      if (g) g.push(f)
-      else by.set(r, [f])
-    }
-    return { by, lines: new Map([...by].map(([r, fs]) => [r, outline(fs)])) }
-  }, [geo, lists]) // eslint-disable-line react-hooks/exhaustive-deps
+    return mapKept('regionGeo', [geo, lists], () => {
+      const by = new Map<string, Feature[]>()
+      for (const f of geo.features) {
+        const r = regionOfDept(codeOf(f.properties.code))
+        if (!r) continue
+        const g = by.get(r)
+        if (g) g.push(f)
+        else by.set(r, [f])
+      }
+      return { by, lines: new Map([...by].map(([r, fs]) => [r, outline(fs)])) }
+    })
+  }, [geo, lists])
 
   // Tracés : France entière, ou la région choisie à plein cadre (ses voisins estompés autour), ou le département
   // choisi à plein cadre quand il a des points (métropole : voisins estompés ; outre-mer : le territoire seul).
@@ -285,55 +300,57 @@ export function FranceMap({
   const focusCode = dots && selected ? selected : ''
   const shapes = useMemo(() => {
     if (!geo || !regionGeo) return null
-    const conic = () => geoConicConformal().parallels([44, 49]).rotate([-3, 0])
-    const france = conic().fitWidth(W - 16, geo)
-    france.translate([france.translate()[0] + 8, france.translate()[1] + 8])
-    const h = Math.ceil(geoPath(france).bounds(geo)[1][1]) + 8
-    if (focusCode) {
-      const mine = geo.features.filter((f) => codeOf(f.properties.code) === focusCode)
-      const omOnes = (om?.features ?? []).filter((f) => f.properties.code === focusCode)
-      const overseas = !mine.length
-      if (mine.length || omOnes.length) {
-        const proj = focusProjection({ type: 'FeatureCollection', features: overseas ? omOnes : mine }, W, h, 24, overseas)
-        const path = geoPath(proj)
-        return {
-          h,
-          zoomed: true,
-          proj,
-          dotProj: proj,
-          main: (overseas ? omOnes : geo.features).map((f): Shape & { inside: boolean } => {
-            const code = codeOf(f.properties.code)
-            return { code, d: path(f) ?? '', inside: code === focusCode }
-          }),
-          outlines: [] as { region: string; d: string }[],
+    return mapKept('shapes', [geo, regionGeo, region, focusCode, om], () => {
+      const conic = () => geoConicConformal().parallels([44, 49]).rotate([-3, 0])
+      const france = conic().fitWidth(W - 16, geo)
+      france.translate([france.translate()[0] + 8, france.translate()[1] + 8])
+      const h = Math.ceil(geoPath(france).bounds(geo)[1][1]) + 8
+      if (focusCode) {
+        const mine = geo.features.filter((f) => codeOf(f.properties.code) === focusCode)
+        const omOnes = (om?.features ?? []).filter((f) => f.properties.code === focusCode)
+        const overseas = !mine.length
+        if (mine.length || omOnes.length) {
+          const proj = focusProjection({ type: 'FeatureCollection', features: overseas ? omOnes : mine }, W, h, 24, overseas)
+          const path = geoPath(proj)
+          return {
+            h,
+            zoomed: true,
+            proj,
+            dotProj: proj,
+            main: (overseas ? omOnes : geo.features).map((f): Shape & { inside: boolean } => {
+              const code = codeOf(f.properties.code)
+              return { code, d: path(f) ?? '', inside: code === focusCode }
+            }),
+            outlines: [] as { region: string; d: string }[],
+          }
         }
       }
-    }
-    const inRegion = region ? (regionGeo.by.get(region) ?? []) : []
-    const zoomed = inRegion.length > 0
-    const flat = zoomed
-      ? conic().fitExtent(
-          [
-            [12, 12],
-            [W - 12, h - 12],
-          ],
-          { ...geo, features: inRegion },
-        )
-      : france
-    const path = geoPath(flat)
-    return {
-      h,
-      zoomed,
-      proj: null,
-      // Points sur la France ou sur une région (clubs d'une réponse, partout) : même projection que le tracé.
-      dotProj: flat,
-      main: geo.features.map((f): Shape & { inside: boolean } => {
-        const code = codeOf(f.properties.code)
-        return { code, d: path(f) ?? '', inside: !zoomed || regionOfDept(code) === region }
-      }),
-      // France : contour de chaque région (plus marqué que celui des départements). Région : son seul contour.
-      outlines: [...regionGeo.lines].filter(([r]) => !zoomed || r === region).map(([r, g]) => ({ region: r, d: path(g) ?? '' })),
-    }
+      const inRegion = region ? (regionGeo.by.get(region) ?? []) : []
+      const zoomed = inRegion.length > 0
+      const flat = zoomed
+        ? conic().fitExtent(
+            [
+              [12, 12],
+              [W - 12, h - 12],
+            ],
+            { ...geo, features: inRegion },
+          )
+        : france
+      const path = geoPath(flat)
+      return {
+        h,
+        zoomed,
+        proj: null,
+        // Points sur la France ou sur une région (clubs d'une réponse, partout) : même projection que le tracé.
+        dotProj: flat,
+        main: geo.features.map((f): Shape & { inside: boolean } => {
+          const code = codeOf(f.properties.code)
+          return { code, d: path(f) ?? '', inside: !zoomed || regionOfDept(code) === region }
+        }),
+        // France : contour de chaque région (plus marqué que celui des départements). Région : son seul contour.
+        outlines: [...regionGeo.lines].filter(([r]) => !zoomed || r === region).map(([r, g]) => ({ region: r, d: path(g) ?? '' })),
+      }
+    })
   }, [geo, regionGeo, region, focusCode, om])
   const focused = !!shapes?.proj
   // Points dessinés : département recalé, ou points posés sur la France (ou une région) sans département choisi.
@@ -445,28 +462,30 @@ export function FranceMap({
   // par tracé. Vue France : les régions (même quand la couleur est celle des départements) ; région agrandie : ses départements.
   const anchors = useMemo(() => {
     if (!wantLabels || !geo || !regionGeo || !shapes?.dotProj) return []
-    const proj = shapes.dotProj
-    const P = (c: number[]): Pt => {
-      const p = proj(c as [number, number])
-      return p ? [p[0], p[1]] : [NaN, NaN]
-    }
-    const zones: [string, Feature[], boolean][] = []
-    if (shapes.zoomed) {
-      const by = new Map<string, Feature[]>()
-      for (const f of regionGeo.by.get(region) ?? []) {
-        const c = codeOf(f.properties.code)
-        by.set(c, [...(by.get(c) ?? []), f])
+    return mapKept('anchors', [geo, regionGeo, shapes, region], () => {
+      const proj = shapes.dotProj!
+      const P = (c: number[]): Pt => {
+        const p = proj(c as [number, number])
+        return p ? [p[0], p[1]] : [NaN, NaN]
       }
-      for (const [c, fs] of by) zones.push([c, fs, false])
-    } else for (const [r, fs] of regionGeo.by) zones.push([r, fs, true])
-    return zones.flatMap(([code, fs, isRegion]) => {
-      const polys = projPolys(fs, P)
-      const edges = (outline(fs) as MultiLineString).coordinates.map((l) => l.map(P))
-      const pole = poleOfInaccessibility(polys, edges, 0.5)
-      if (!pole) return []
-      // Département sous le chiffre : sa couleur décide de celle du texte (vue France par département).
-      const under = fs.find((f) => inside(pole.x, pole.y, projPolys([f], P)))
-      return [{ code, isRegion, polys, x: pole.x, y: pole.y, under: codeOf((under ?? fs[0]).properties.code) }]
+      const zones: [string, Feature[], boolean][] = []
+      if (shapes.zoomed) {
+        const by = new Map<string, Feature[]>()
+        for (const f of regionGeo.by.get(region) ?? []) {
+          const c = codeOf(f.properties.code)
+          by.set(c, [...(by.get(c) ?? []), f])
+        }
+        for (const [c, fs] of by) zones.push([c, fs, false])
+      } else for (const [r, fs] of regionGeo.by) zones.push([r, fs, true])
+      return zones.flatMap(([code, fs, isRegion]) => {
+        const polys = projPolys(fs, P)
+        const edges = (outline(fs) as MultiLineString).coordinates.map((l) => l.map(P))
+        const pole = poleOfInaccessibility(polys, edges, 0.5)
+        if (!pole) return []
+        // Département sous le chiffre : sa couleur décide de celle du texte (vue France par département).
+        const under = fs.find((f) => inside(pole.x, pole.y, projPolys([f], P)))
+        return [{ code, isRegion, polys, x: pole.x, y: pole.y, under: codeOf((under ?? fs[0]).properties.code) }]
+    })
     })
   }, [wantLabels, geo, regionGeo, shapes, region])
   // Couleur du texte : claire ou foncée selon la luminance du fond, lue telle que le navigateur la calcule (variables du
@@ -480,13 +499,21 @@ export function FranceMap({
     const ctx = el && document.createElement('canvas').getContext('2d')
     if (!el || !ctx) return
     const cs = getComputedStyle(el)
-    ctx.font = `800 100px ${cs.fontFamily}`
-    const cache = new Map<string, number>()
-    setWidthOf(() => (t: string) => {
-      let w = cache.get(t)
-      if (w === undefined) cache.set(t, (w = ctx.measureText(t).width / 100))
-      return w
-    })
+    const font = `800 100px ${cs.fontFamily}`
+    // Même mesure pour la même police (d'une carte à l'autre, d'un passage à l'autre) : les tailles des chiffres sont retrouvées.
+    let measure = textWidths.get(font)
+    if (!measure) {
+      ctx.font = font
+      const cache = new Map<string, number>()
+      measure = (t: string) => {
+        let w = cache.get(t)
+        if (w === undefined) cache.set(t, (w = ctx.measureText(t).width / 100))
+        return w
+      }
+      textWidths.set(font, measure)
+    }
+    const m = measure
+    setWidthOf(() => m)
   }, [wantLabels, styleVer])
   useEffect(() => {
     if (!wantLabels) return
@@ -507,12 +534,14 @@ export function FranceMap({
   const textKey = texts.join('|')
   const labels = useMemo(
     () =>
-      anchors.flatMap((a, i) => {
-        const text = texts[i]
-        if (!text) return []
-        const f = fitFont(text, a.x, a.y, a.polys, labelPx(a.isRegion, fit.s) / fit.s, LABEL_MIN / fit.s, widthOf ?? undefined)
-        return f ? [{ ...a, text, f }] : []
-      }),
+      mapKept('labels', [anchors, textKey, fit.s, widthOf], () =>
+        anchors.flatMap((a, i) => {
+          const text = texts[i]
+          if (!text) return []
+          const f = fitFont(text, a.x, a.y, a.polys, labelPx(a.isRegion, fit.s) / fit.s, LABEL_MIN / fit.s, widthOf ?? undefined)
+          return f ? [{ ...a, text, f }] : []
+        }),
+      ),
     [anchors, textKey, fit.s, widthOf], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const fills = labels.map((l) => fill(l.under))
