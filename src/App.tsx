@@ -75,8 +75,8 @@ const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 
 /**
- * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis », « Profils
- * recherchés ») dès que la place le permet (sm), pictogramme seul sur téléphone ; le nombre de nouveautés en pastille, collée
+ * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis ») dès que la place
+ * le permet (sm), pictogramme seul sur téléphone ; le nombre de nouveautés en pastille, collée
  * au nom ou posée sur le pictogramme.
  */
 function HeaderShortcut({ to, icon, label, n, aria }: { to: string; icon: 'star' | 'target'; label: string; n: number; aria: string }) {
@@ -99,7 +99,7 @@ function HeaderShortcut({ to, icon, label, n, aria }: { to: string; icon: 'star'
   )
 }
 
-/** Profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
+/** Profils recherchés (téléphone couché seulement : menu de gauche), avec le nombre de joueurs qui viennent d'y entrer. */
 const AlertBell = ({ n }: { n: number }) => <HeaderShortcut to="/alertes" icon="target" label="Profils recherchés" n={n} aria={n ? `Profils recherchés : ${n} nouveau${n > 1 ? 'x' : ''}` : 'Profils recherchés'} />
 
 /** « Mes suivis », avec le nombre de nouveautés pas encore vues. */
@@ -295,15 +295,14 @@ export default function App() {
             {TRIAL_LABEL}
           </div>
         )}
-        {/* Trois colonnes partout : suivis et profils recherchés à gauche · capsule « Nextar » au milieu · bulle de profil (point de
+        {/* Trois colonnes partout : « Mes suivis » à gauche · capsule « Nextar » au milieu · bulle de profil (point de
             synchro) à droite. Les deux colonnes du bord gardent la place de leur contenu (max-content) : sur téléphone étroit, la
-            capsule glisse un peu plutôt que de passer sous un bouton. Compte joueur : ni capsule, ni suivis, ni profils
-            recherchés (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
+            capsule glisse un peu plutôt que de passer sous un bouton. Compte joueur : ni capsule, ni suivis (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
         {/* Plus de logo ici : le nom de l'appli est dans le bouton « ★ Nextar » du milieu (sur ordinateur, le logo reste en haut du menu). */}
-        {/* À gauche, en face de la bulle de profil : « Mes suivis » et « Profils recherchés » (nom dès que la place le permet). */}
+        {/* À gauche, en face de la bulle de profil : « Mes suivis » (nom dès que la place le permet). « Profils recherchés » est
+            une tuile de l'Accueil (choix du 26/10). */}
         <div className="flex min-w-0 items-center gap-3 sm:gap-2">
           {!player && !rail && <FollowStar n={followNews} />}
-          {!player && !rail && <AlertBell n={alerts} />}
         </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
         {player || rail ? <span aria-hidden /> : <AskButton />}
@@ -341,7 +340,7 @@ export default function App() {
           </Routes>
         ) : (
         <Routes>
-          <Route path="/" element={<Home toReview={toReview} followNews={followNews} />} />
+          <Route path="/" element={<Home toReview={toReview} followNews={followNews} alerts={alerts} />} />
           {/* Aperçu de l'espace joueur (?joueur=<id>) : administrateurs, mode essai. */}
           <Route path="/moi" element={<Me />} />
           <Route path="/suivis" element={<Follows />} />

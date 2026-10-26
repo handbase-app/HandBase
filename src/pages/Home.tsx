@@ -6,18 +6,23 @@ import { usePerimeter, useUnits } from '../installation'
 import { installationAppearance, useThemeVersion } from '../theme'
 import { appName } from '../appBrand'
 
-// Actions rapides (le reste est dans la barre du bas ; « + Joueur » est sur la page Joueurs). « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
+// Actions rapides, dans cet ordre (choix du 26/10) : Mes suivis, À revoir, Propositions, Profils recherchés. Pas de tuile
+// « Événements » : il est déjà dans la barre de navigation. « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
 const ACTIONS = [
-  { to: '/evenements', title: 'Événements', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
-  { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
   { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
   // Section « À revoir » (src/pages/Rewatch.tsx) : qui, quand, d'où ; le nombre de joueurs pas encore revus en pastille.
   // Horloge bleu ciel, comme partout ailleurs pour « à revoir » (l'œil veut dire « vu »).
   { to: '/a-revoir', title: 'À revoir', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', tone: 'bg-sky-500/10 text-sky-300' },
+  { to: '/avis-spontanes', title: 'Propositions', icon: 'M4 4h16v12H8l-4 4zM9 10l2 2 4-4' },
+  // Profils recherchés (src/pages/Alerts.tsx) : cible ; les joueurs qui viennent d'y entrer en pastille.
+  { to: '/alertes', title: 'Profils recherchés', icon: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z' },
 ]
 
-/** `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis (comptées une seule fois, dans App). */
-export default function Home({ toReview, followNews }: { toReview: number; followNews: number }) {
+/**
+ * `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis ; `alerts` : joueurs qui viennent d'entrer
+ * dans mes profils recherchés (comptés une seule fois, dans App).
+ */
+export default function Home({ toReview, followNews, alerts }: { toReview: number; followNews: number; alerts: number }) {
   const rewatch = useThrottledQuery(countOpenRewatch, [], ['rewatch', 'seen', 'evaluations', 'teams'], undefined, 0)
   const actions: { to: string; title: string; icon: string; main?: boolean; tone?: string }[] = ACTIONS
   return (
@@ -48,6 +53,9 @@ export default function Home({ toReview, followNews }: { toReview: number; follo
             )}
             {t.to === '/a-revoir' && rewatch > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-sky-500 px-1.5 text-[10px] font-bold text-white">{rewatch > 99 ? '99+' : rewatch}</span>
+            )}
+            {t.to === '/alertes' && alerts > 0 && (
+              <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{alerts > 99 ? '99+' : alerts}</span>
             )}
             {t.to === '/suivis' && followNews > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{followNews > 99 ? '99+' : followNews}</span>
