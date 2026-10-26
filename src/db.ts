@@ -17,6 +17,7 @@ export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, Self
 import type { PlayerSelf } from './playerSpace'
 import type { RewatchOrigin } from './rewatchCore'
 import type { UsualTeam } from './rencontres'
+import type { RencontreSnapshot } from './rencontreEvent'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -278,6 +279,15 @@ export interface HBEvent extends Syncable {
    * (setGender). Champ libre de data (jsonb), gardé tel quel par le serveur (hb_upsert) : pas de SQL.
    */
   sex?: 'M' | 'F' | 'mixte'
+  /**
+   * Rencontre officielle d'où vient l'événement (« Ajouter à mes événements » depuis « Autour de moi »,
+   * src/rencontreEvent.ts) : un seul événement par rencontre, partagé par le staff (participants = qui y va). Avec un petit
+   * instantané de la rencontre (compétition, niveau, salle, ville, coordonnées, équipes) : la page de l'événement, le
+   * fichier d'agenda et « Itinéraire » marchent sans le serveur. Champs libres de data (jsonb), gardés tels quels par le
+   * serveur (hb_upsert) : pas de SQL. Jamais repris par « Dupliquer l'événement ».
+   */
+  rencontreId?: string
+  rencontre?: RencontreSnapshot
 }
 
 /** Équipe engagée dans un tournoi (identifiant court, propre à l'événement). */
