@@ -6,7 +6,7 @@ import { BackButton } from '../backNav'
 import { listGender, pluralG, w, type Gender } from '../gender'
 import { alive, db, fmtDate, today, type HBEvent, type Player, type PlayerGroup, type Rewatch } from '../db'
 import { useThrottledQuery } from '../live'
-import { can, useRole } from '../roles'
+import { useRole } from '../roles'
 import { createdAtOf, factMatches, GROUPINGS, groupRewatch, isGrouping, originEvent, rewatchLine, type OriginNames, type RankedRow, type RewatchCard, type RewatchGrouping } from '../rewatchCore'
 import { isMyRewatch, revisitedAt, revisitedKeys, rewatchFact, setRevisited, staffMates } from '../scouting'
 import { EMPTY_QUERY, type JoueursQuery } from '../playerQuery'
@@ -141,18 +141,7 @@ export default function RewatchPage() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
       <BackButton fallback="/" label="ACCUEIL" />
-      <div>
-        <h1 className="text-lg font-extrabold">À revoir</h1>
-        <p className="text-[11px] text-muted">
-          {gw.Joueurs} que ton staff veut revoir : qui l’a demandé, quand, et d’où. {gw.revu.replace(/^./, (c) => c.toUpperCase())} dès qu’{gw.il} est {gw.vu} ou {gw.note} dans un
-          événement visé ; sinon avec « Marquer revu ».
-        </p>
-        {can.viewCoverage(role) && (
-          <Link to="/bilan" className="mt-1 inline-block text-[11px] font-bold text-accent">
-            Bilan de détection : qui reste à voir, par génération et par club →
-          </Link>
-        )}
-      </div>
+      <h1 className="text-lg font-extrabold">À revoir</h1>
       <StickyQuery>{q.ui}</StickyQuery>
       <div className="flex flex-col gap-2 empty:hidden">{q.top}</div>
       {/* Rangement d'un toucher, gardé sur l'appareil. */}
