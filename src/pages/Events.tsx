@@ -14,7 +14,7 @@ import { HiddenPlayers } from '../components/HiddenPlayers'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
-import { can, currentUserId, isParticipant, useRole } from '../roles'
+import { can, currentUserId, isParticipant, teamMembersOf, useRole } from '../roles'
 import { usePerimeter, useSportHas, useUnits } from '../installation'
 import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughMyPlayers, type TerritoryFilter, type TerritoryPlayer } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
@@ -43,6 +43,9 @@ import { FoldSection } from '../components/FoldSection'
 import { afterWindow, FormWindow } from '../components/FormWindow'
 import { DuplicateEvent } from '../components/DuplicateEvent'
 import { foldKey, startsOpen } from '../fold'
+import { eventToAgenda } from '../agendaFile'
+import { fixtureHeading, itineraryUrl } from '../rencontres'
+import { goingStaff, staffGoingLabel, staffName } from '../rencontreEvent'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
 const loadSheet = () => import('../components/MatchSheet')
@@ -196,8 +199,12 @@ export default function Events() {
   const hiddenByTerritory = allEvents.length - events.length
 
   // À venir (aujourd'hui compris) du plus proche au plus lointain ; passés du plus récent au plus ancien.
+  // Matchs à aller voir (événements ajoutés depuis une rencontre d'« Autour de moi ») : à part, au-dessus d'« À venir » ;
+  // une fois passés, dans « Passés » comme les autres.
   const todayIso = new Date().toLocaleDateString('sv')
-  const upcoming = events.filter((e) => !e.archived && e.date >= todayIso).reverse()
+  const comingAll = events.filter((e) => !e.archived && e.date >= todayIso).reverse()
+  const toSee = comingAll.filter((e) => !!e.rencontreId)
+  const upcoming = comingAll.filter((e) => !e.rencontreId)
   const past = events.filter((e) => !e.archived && e.date < todayIso)
   const archived = events.filter((e) => e.archived)
 
@@ -290,9 +297,18 @@ export default function Events() {
         <Empty>{can.manageEvents(role) ? 'Crée un match, un tournoi ou une journée de sélection pour que plusieurs personnes puissent y donner leur avis sur les joueurs.' : 'Aucun événement pour l’instant.'}</Empty>
       ) : (
         <>
-          {/* Sections repliables (src/components/FoldSection.tsx) : « À venir » dépliée, « Passés » et « Archivés » repliées au
-              départ ; le choix est gardé pendant la session. */}
-          <FoldSection storeKey={foldKey('evenements', 'avenir')} defaultOpen={startsOpen('current')} title="À venir" count={upcoming.length}>
+          {/* Sections repliables (src/components/FoldSection.tsx) : « Matchs à aller voir » et « À venir » dépliées, « Passés »
+              et « Archivés » repliées au départ ; le choix est gardé pendant la session. */}
+          {toSee.length > 0 && (
+            <FoldSection storeKey={foldKey('evenements', 'matchs')} defaultOpen={startsOpen('current')} title="Matchs à aller voir" count={toSee.length}>
+              <div className="cols flex flex-col gap-3">
+                {toSee.map((ev) => (
+                  <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} upcoming />
+                ))}
+              </div>
+            </FoldSection>
+          )}
+          <FoldSection storeKey={foldKey('evenements', 'avenir')} defaultOpen={startsOpen('current')} title="À venir" count={upcoming.length} className={toSee.length ? 'mt-2' : undefined}>
             {upcoming.length ? (
               <div className="cols flex flex-col gap-3">
                 {upcoming.map((ev) => (
@@ -300,7 +316,7 @@ export default function Events() {
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-muted">Aucun événement prévu.</p>
+              <p className="text-[11px] text-muted">{toSee.length ? 'Aucun autre événement prévu.' : 'Aucun événement prévu.'}</p>
             )}
           </FoldSection>
           {past.length > 0 && (
@@ -434,6 +450,8 @@ function EventMenu({ ev, menu, onDuplicate }: { ev: HBEvent; menu: ReturnType<ty
 function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: HBEvent; stats?: EventStats; upcoming?: boolean; organizer?: string; g?: Gender }) {
   const d = new Date(ev.date + 'T00:00:00')
   const today = upcoming && inDays(ev.date) === 'aujourd’hui'
+  // Match ajouté depuis une rencontre : qui du staff y va (« Toi et Stef y allez »).
+  const going = ev.rencontreId ? staffGoingLabel(goingStaff(ev, teamMembersOf), currentUserId(), (u) => staffName(ev, u)) : ''
   // Ordinateur : événement ouvert dans le panneau de droite.
   const on = useSelected('/evenements') === ev.id
   const menu = useRowMenu()
@@ -467,7 +485,18 @@ function EventRow({ ev, stats, upcoming = false, organizer, g = ev.sex }: { ev: 
           {ev.place ? ` · ${ev.place}` : ''}
         </div>
         {organizer && <div className="truncate text-[10px] text-muted">Organisé par : {organizer}</div>}
-        {upcoming &&<div className="text-[11px] font-bold text-accent">{inDays(ev.date)}</div>}
+        {going && (
+          <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted">
+            <Icon name="users" className="h-3 w-3 shrink-0" />
+            <span className="truncate">{going}</span>
+          </div>
+        )}
+        {upcoming && (
+          <div className="text-[11px] font-bold text-accent">
+            {inDays(ev.date)}
+            {ev.rencontreId && ev.time ? ` · ${ev.time}` : ''}
+          </div>
+        )}
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         {/* Avant l'événement : les convoqués ; dès qu'il y a des avis : joueurs notés et nombre d'avis. */}
@@ -840,6 +869,8 @@ export function EventDetail() {
             // Archiver : retiré des listes (Évaluer, événements), avis conservés.
             manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
             { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
+            // Fichier .ics fait sur l'appareil (src/agenda.ts) : jour, heure, lieu, nombre de jeunes ; jamais leurs noms.
+            /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && { label: 'Ajouter à mon agenda', icon: 'calendar', hint: 'fichier pour ton agenda', onSelect: () => void eventToAgenda(ev) },
             manage && {
               label: 'Supprimer',
               icon: 'trash',
@@ -865,6 +896,20 @@ export function EventDetail() {
             {ev.time ? ` · ${ev.time}` : ''}
             {ev.place ? ` · ${ev.place}` : ''}
           </div>
+          {/* Match ajouté depuis une rencontre : compétition et niveau, « Itinéraire » (coordonnées de la salle seulement). */}
+          {ev.rencontre && (
+            <div className="text-[11px] text-muted" data-testid="rencontre-evenement">
+              {fixtureHeading(ev.rencontre)}
+              {Number.isFinite(ev.rencontre.lat) && Number.isFinite(ev.rencontre.lng) && (
+                <>
+                  {' · '}
+                  <a href={itineraryUrl(ev.rencontre.lat, ev.rencontre.lng)} target="_blank" rel="noopener noreferrer" className="font-bold text-accent underline">
+                    Itinéraire
+                  </a>
+                </>
+              )}
+            </div>
+          )}
           <ProposalBar table="events" row={ev} />
           {/* Infos secondaires repliées en une ligne : l'entrée de l'événement va droit aux onglets. */}
           <button

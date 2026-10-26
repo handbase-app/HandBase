@@ -35,7 +35,7 @@ import {
 } from '../rencontres'
 import { AROUND_ERRORS, cachedAround, fetchAround, FRESH_MS, type AroundResult } from '../rencontresApi'
 import { sportContent } from '../sportContent'
-import type { Player } from '../db'
+import type { HBEvent, Player } from '../db'
 import { FilterWindow, pillClass, useFilterWindow } from './FilterWindow'
 import { useDeptName, useGeo } from './FranceMap'
 import { FormActions, FormWindow } from './FormWindow'
@@ -45,6 +45,7 @@ import { PlayerRow, playerSub } from './PlayerRow'
 import { usePlayersQuery } from './PlayersQuery'
 import { PlayerList } from './Pictos'
 import { RencontreMap } from './RencontreMap'
+import { askWho, rencontreToAgenda, RencontreEventButton, StaffGoing, useRencontreEvents, useRencontreState } from './RencontreEvent'
 import { StickyQuery } from './StickyQuery'
 import { Empty, Icon, playerName } from './ui'
 
@@ -62,6 +63,10 @@ import { Empty, Icon, playerName } from './ui'
  *  - Toucher une rencontre ouvre sa fiche (fenêtre) : les jeunes (lignes de joueurs communes, vers leur fiche), tout sur
  *    la rencontre, « Itinéraire » (OpenStreetMap, coordonnées de la salle seulement). Retour d'une fiche de joueur : la
  *    fiche de la rencontre est rouverte, la liste au même endroit (état de l'entrée d'historique, réponse gardée en mémoire).
+ *  - « Ajouter à mes événements » (fiche ; version courte sur chaque carte) : un événement par rencontre, partagé par le
+ *    staff, avec les jeunes de Qui qui devraient y jouer ; puis « ✓ Dans mes événements » (l'ouvre) ou « J'y vais aussi ».
+ *    Qui du staff y va (« Toi et Stef y allez »). « Ajouter à mon agenda » (fiche) : fichier .ics fait sur l'appareil, sans
+ *    aucun nom de jeune (src/components/RencontreEvent.tsx, src/rencontreEvent.ts, src/agenda.ts).
  * Seuls partent vers le serveur de l'appli le lieu (arrondi), la période, le sexe et les n° de club : jamais un nom.
  */
 
@@ -168,6 +173,9 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
   const [openId, setOpenId] = useEntryState<string | null>('autour.rencontre', null)
   const listed = venue && venues.some((v) => v.key === venue) ? visible.filter((f) => venueKeyOf(f) === venue) : visible
   const open = openId ? fixtures.find((f) => f.id === openId) : undefined
+  // Événements déjà reliés aux rencontres (un par rencontre), bouton proposé et « qui y va ».
+  const linked = useRencontreEvents()
+  const rs = useRencontreState()
   const hidden = fixtures.length - fixtures.filter((f) => matches.has(f.id)).length
 
   const where = useFilterWindow()
@@ -266,14 +274,14 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
             ) : (
               <div className={`cols flex flex-col gap-2 ${loading ? 'opacity-60 transition-opacity' : ''}`}>
                 {listed.map((f) => (
-                  <FixtureCard key={f.id} f={f} m={matches.get(f.id)} onOpen={() => setOpenId(f.id)} />
+                  <FixtureCard key={f.id} f={f} m={matches.get(f.id)} ev={linked?.get(f.id)} rs={linked && rs} onOpen={() => setOpenId(f.id)} />
                 ))}
               </div>
             )}
           </>
         )}
       </div>
-      {open && <FixtureWindow f={open} m={matches.get(open.id) ?? []} onClose={() => setOpenId(null)} />}
+      {open && <FixtureWindow f={open} m={matches.get(open.id) ?? []} ev={linked?.get(open.id)} rs={linked && rs} onClose={() => setOpenId(null)} />}
     </>
   )
 }
@@ -281,9 +289,15 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
 /** Noms des jeunes d'une rencontre : ceux reliés par leur équipe d'abord, puis par nom. */
 const ordered = (m: readonly FixtureMatch<Player>[]) => [...m].sort((a, b) => Number(b.byTeam) - Number(a.byTeam) || playerName(a.player).localeCompare(playerName(b.player), 'fr'))
 
-function FixtureCard({ f, m = [], onOpen }: { f: Rencontre; m?: FixtureMatch<Player>[]; onOpen: () => void }) {
-  const names = ordered(m).map((x) => playerName(x.player))
+/** Bouton proposé et « qui y va » (src/components/RencontreEvent.tsx) ; absent tant que les événements ne sont pas lus. */
+type RencontreState = ReturnType<typeof useRencontreState>
+
+function FixtureCard({ f, m = [], ev, rs, onOpen }: { f: Rencontre; m?: FixtureMatch<Player>[]; ev?: HBEvent; rs?: RencontreState; onOpen: () => void }) {
+  const rows = ordered(m)
+  const names = rows.map((x) => playerName(x.player))
   const place = [f.venue, f.city].filter(Boolean).join(', ')
+  const action = rs ? rs.actionOf(ev) : null
+  const going = rs ? rs.goingOf(ev) : ''
   return (
     <div className="card relative flex min-w-0 flex-col gap-0.5 p-3 hover:border-accent focus-within:border-accent">
       <div className="flex items-baseline justify-between gap-2">
@@ -310,14 +324,23 @@ function FixtureCard({ f, m = [], onOpen }: { f: Rencontre; m?: FixtureMatch<Pla
           </a>
         )}
       </div>
+      {(going || (action && action !== 'ask')) && (
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+          {going ? <StaffGoing text={going} /> : <span />}
+          <RencontreEventButton f={f} ev={ev} action={action} playerIds={rows.map((x) => x.player.id)} compact />
+        </div>
+      )}
     </div>
   )
 }
 
 /** Fiche d'une rencontre : tout sur elle, ses jeunes (vers leur fiche), « Itinéraire ». */
-function FixtureWindow({ f, m, onClose }: { f: Rencontre; m: FixtureMatch<Player>[]; onClose: () => void }) {
+function FixtureWindow({ f, m, ev, rs, onClose }: { f: Rencontre; m: FixtureMatch<Player>[]; ev?: HBEvent; rs?: RencontreState; onClose: () => void }) {
   const rows = ordered(m)
   const ids = rows.map((x) => x.player.id)
+  const action = rs ? rs.actionOf(ev) : null
+  const going = rs ? rs.goingOf(ev) : ''
+  const pill = 'flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-panel-2 px-3 text-xs font-bold hover:border-accent'
   return (
     <FormWindow title="Rencontre" onClose={onClose} guard={false}>
       <div className="flex flex-col gap-1">
@@ -328,6 +351,27 @@ function FixtureWindow({ f, m, onClose }: { f: Rencontre; m: FixtureMatch<Player
           {[f.venue, f.city].filter(Boolean).join(', ') || 'Salle non précisée'}
           {f.distanceKm !== undefined && ` · ${distanceText(f.distanceKm)}`}
         </div>
+        {going && <StaffGoing text={going} className="mt-0.5 text-xs" />}
+        {action === 'ask' && ev && (
+          <p className="text-[11px] text-muted">Pour y aller aussi, demande à {askWho(ev)} de t’ajouter aux participants.</p>
+        )}
+      </div>
+      {/* Itinéraire, agenda, diffusion : des liens ; le bouton principal (événement) est en bas. */}
+      <div className="flex flex-wrap gap-1.5">
+        <a href={itineraryUrl(f.lat, f.lng)} target="_blank" rel="noopener noreferrer" className={pill}>
+          <Icon name="map" className="h-3.5 w-3.5" />
+          Itinéraire
+        </a>
+        <button type="button" className={pill} onClick={() => rencontreToAgenda(f, ev, ids)}>
+          <Icon name="calendar" className="h-3.5 w-3.5" />
+          Ajouter à mon agenda
+        </button>
+        {f.liveUrl && (
+          <a href={f.liveUrl} target="_blank" rel="noopener noreferrer" className={pill}>
+            <Icon name="play" className="h-3.5 w-3.5" />
+            Regarder
+          </a>
+        )}
       </div>
       <div className="section-title mb-0">
         {m.length ? `${youthsText(m.length)} de la liste ${m.length > 1 ? 'devraient' : 'devrait'} jouer` : 'Jeunes de la liste'}
@@ -352,16 +396,7 @@ function FixtureWindow({ f, m, onClose }: { f: Rencontre; m: FixtureMatch<Player
         <p className="text-xs text-muted">Aucun jeune de la liste dans cette rencontre.</p>
       )}
       <FormActions>
-        <a href={itineraryUrl(f.lat, f.lng)} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center justify-center gap-1.5 px-4 text-xs">
-          <Icon name="external" className="h-3.5 w-3.5" />
-          Itinéraire
-        </a>
-        {f.liveUrl && (
-          <a href={f.liveUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost flex items-center justify-center gap-1.5 px-4 text-xs">
-            <Icon name="play" className="h-3.5 w-3.5" />
-            Regarder
-          </a>
-        )}
+        <RencontreEventButton f={f} ev={ev} action={action} playerIds={ids} />
         <button type="button" className="btn-ghost px-4 text-xs" onClick={onClose}>
           Fermer
         </button>
