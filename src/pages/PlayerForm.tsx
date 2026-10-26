@@ -14,6 +14,7 @@ import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 import { usePoleLeader } from '../components/PoleGroup'
 import { sportContent } from '../sportContent'
+import { cleanUsualTeam, LEVELS, seasonCategory, TEAM_NUMBERS, teamSummary, upperCategories, type UsualTeam } from '../rencontres'
 
 type Values = Record<string, number | string | undefined>
 
@@ -64,6 +65,14 @@ export default function PlayerForm() {
   }, [id, nav])
 
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
+  // « Mon équipe » (src/rencontres.ts, supabase/056) : daté seulement quand on y touche ; sinon la valeur lue repart telle
+  // quelle et le serveur garde la plus récente (le jeune a pu la changer depuis sa page entre-temps).
+  const teamCodes = sportContent().youthCategories.map((c) => c.code)
+  const setTeam = (patch: Partial<Pick<UsualTeam, 'n' | 'level' | 'playsIn'>>) =>
+    setP((x) => {
+      const cur = { n: x.usualTeam?.n, level: x.usualTeam?.level, playsIn: x.usualTeam?.playsIn, ...patch }
+      return { ...x, usualTeam: { ...cleanUsualTeam(cur, teamCodes), at: new Date().toISOString(), src: 'staff' } }
+    })
 
   async function submit() {
     if (!p.firstName?.trim() || !p.lastName?.trim()) {
@@ -106,6 +115,8 @@ export default function PlayerForm() {
   // Les tests détaillés se saisissent ensuite, fiche enregistrée, avec « Nouvelle séance de tests ».
   // Catégories du profil physique : celles du sport de l'installation (src/sportContent.ts).
   const content = sportContent()
+  const ownCat = seasonCategory(p.birthDate, today(), content.youthCategories)
+  const upper = upperCategories(ownCat, content.youthCategories, p.usualTeam?.playsIn)
   const shown = criteria.filter((c) => criterionApplies(c, p.position) && content.profileCategories.includes(c.category))
   const testsFilled = shown.filter((c) => values[c.id] !== undefined && values[c.id] !== '' && values[c.id] !== initial[c.id]).length
 
@@ -247,6 +258,43 @@ export default function PlayerForm() {
             ]}
           />
         </div>
+      </Collapsible>
+
+      <Collapsible title="Équipe en championnat" summary={teamSummary(p, today(), content.youthCategories) || 'Équipe 1, 2 ou 3, niveau, surclassement'}>
+        <p className="text-[11px] text-muted">
+          Pour savoir où {w(p.sex).leJoueur} joue le week-end (Événements → « Autour de moi »). {w(p.sex).LeJoueur} peut aussi le dire depuis sa page. Toucher
+          à nouveau un choix l’efface.
+        </p>
+        <div>
+          <span className="label">Équipe</span>
+          <Segmented
+            value={p.usualTeam?.n ? String(p.usualTeam.n) : undefined}
+            onChange={(v) => setTeam({ n: Number(v) === p.usualTeam?.n ? undefined : (Number(v) as UsualTeam['n']) })}
+            options={TEAM_NUMBERS.map((n) => ({ value: String(n), label: `Équipe ${n}` }))}
+          />
+        </div>
+        <div>
+          <span className="label">Niveau</span>
+          <Segmented
+            value={p.usualTeam?.level}
+            onChange={(v) => setTeam({ level: v === p.usualTeam?.level ? undefined : v })}
+            options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+          />
+        </div>
+        {/* Surclassement : seulement les catégories au-dessus de la sienne (ou le choix déjà fait). */}
+        {upper.length > 0 && (
+          <div>
+            <span className="label">Joue en</span>
+            <select className="field" value={p.usualTeam?.playsIn ?? ''} onChange={(e) => setTeam({ playsIn: e.target.value || undefined })}>
+              <option value="">{ownCat ? `Sa catégorie (${ownCat})` : 'Sa catégorie'}</option>
+              {upper.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} (surclassement)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </Collapsible>
 
       <Collapsible title="Pôle Espoirs" summary={poleSummary(p, regionLabel) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>

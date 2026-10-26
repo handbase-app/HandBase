@@ -16,6 +16,7 @@ import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
 export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, SelfMarks, SelfPath } from './playerSpace'
 import type { PlayerSelf } from './playerSpace'
 import type { RewatchOrigin } from './rewatchCore'
+import type { UsualTeam } from './rencontres'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -163,6 +164,13 @@ export interface Player extends Syncable {
    * hb_player_journal, privée, lue à la demande (src/playerJournal.ts).
    */
   self?: PlayerSelf
+  /**
+   * « Mon équipe » (supabase/056_rencontres.sql, src/rencontres.ts) : son équipe dans la catégorie (1, 2 ou 3), le niveau,
+   * la catégorie où il joue en cas de surclassement ; `at` (quand) et `src` (joueur ou staff). Posée par le staff (formulaire
+   * de la fiche) ou par le jeune depuis sa page (hb_player_set_team) ; sur le serveur, la plus récente gagne pour cette clé.
+   * Sert à relier le joueur aux rencontres « Autour de moi ».
+   */
+  usualTeam?: UsualTeam
 }
 
 /** Trace d'une fiche fondue dans une autre : qui l'avait proposée, si elle avait été mise hors cadre… */

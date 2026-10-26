@@ -39,6 +39,19 @@ export interface SportContent {
   scoreLabels: Readonly<Record<string, string>>
   /** Exemples de textes à l'écran : groupes de joueurs (nom), groupe de travail (nom), catégorie d'une fiche. */
   examples: { groupName: string; workGroupName: string; category: string }
+  /**
+   * Catégories des championnats de jeunes (rencontres « Autour de moi », « Mon équipe » : src/rencontres.ts), de la plus
+   * jeune à la plus âgée. `ages` : âges de saison, c'est-à-dire l'âge atteint dans l'année civile où finit la saison
+   * (saison 2026-2027 : 2027 − année de naissance). Handball (FFHB) : U13 = 12-13 ans, U15 = 14-15, U18 = 16-18 ; volley
+   * (FFvolley) : M13, M15, M18, mêmes âges (comme src/demoVolley.ts, CAT_YEARS).
+   */
+  youthCategories: readonly YouthCategory[]
+}
+
+/** Une catégorie de jeunes : code affiché et stocké (« U15 »), âges de saison couverts. */
+export interface YouthCategory {
+  code: string
+  ages: readonly number[]
 }
 
 export const SPORT_CONTENT: Record<string, SportContent> = {
@@ -54,6 +67,11 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
       workGroupName: 'Ex. ETD Var, Pôles Région Sud, Intercomités 83…',
       category: '-18 nat',
     },
+    youthCategories: [
+      { code: 'U13', ages: [12, 13] },
+      { code: 'U15', ages: [14, 15] },
+      { code: 'U18', ages: [16, 17, 18] },
+    ],
   },
   volley: {
     demoCriteria: 'demo/criteres-volley.json',
@@ -71,6 +89,11 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
       workGroupName: 'Ex. ETD Var, Pôles Région Sud, staff du CRE…',
       category: 'M15',
     },
+    youthCategories: [
+      { code: 'M13', ages: [12, 13] },
+      { code: 'M15', ages: [14, 15] },
+      { code: 'M18', ages: [16, 17, 18] },
+    ],
   },
 }
 
