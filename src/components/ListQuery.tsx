@@ -36,7 +36,7 @@ import { logQuestion } from '../questionLog'
 import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
 import { chipCount, CountText, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
-import { BarActionsSlot } from './PageHeader'
+import { BarActionsSlot, BarBelowSlot } from './PageHeader'
 
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
@@ -349,6 +349,7 @@ export function useListQuery<F extends object, T, C>(o: ListQueryOptions<F, T, C
         {field}
         <BarActionsSlot />
       </div>
+      <BarBelowSlot />
       {status}
       {chips}
       <FilterWindow

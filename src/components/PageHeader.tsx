@@ -88,11 +88,20 @@ export function MoreActions({ title, subtitle, items, label = 'Plus d’actions'
 /**
  * Actions d'une page de liste (son « ⋯ ») posées dans sa barre « Demander », juste à droite de la pilule : la page entoure
  * la barre de ses filtres (`ui` de usePlayersQuery / useListQuery) avec BarActions, la barre les place (BarActionsSlot).
+ * `below` : posé juste sous la pilule, avant les pastilles (onglets de la page Groupes), à la largeur de la barre.
  */
 const BarActionsCtx = createContext<ReactNode>(null)
-export function BarActions({ actions, children }: { actions: ReactNode; children: ReactNode }) {
-  return <BarActionsCtx.Provider value={actions}>{children}</BarActionsCtx.Provider>
+const BarBelowCtx = createContext<ReactNode>(null)
+export function BarActions({ actions, below, children }: { actions: ReactNode; below?: ReactNode; children: ReactNode }) {
+  return (
+    <BarActionsCtx.Provider value={actions}>
+      <BarBelowCtx.Provider value={below ?? null}>{children}</BarBelowCtx.Provider>
+    </BarActionsCtx.Provider>
+  )
 }
 export function BarActionsSlot() {
   return useContext(BarActionsCtx)
+}
+export function BarBelowSlot() {
+  return useContext(BarBelowCtx)
 }

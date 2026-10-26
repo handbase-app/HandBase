@@ -6,12 +6,12 @@ import { BackButton, useBack, useOrigin } from '../backNav'
 import { StampLine } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
-import { arrowNav, showGroupInPlayers } from '../components/PlayerFilter'
+import { arrowNav, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
 import { FoldSection } from '../components/FoldSection'
 import { foldKey, startsOpen } from '../fold'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
-import { alive, db, GROUP_SCOPES, newId, remove, save, type GroupScope, type Player, type PlayerGroup } from '../db'
+import { alive, db, GROUP_SCOPES, newId, remove, save, saveMany, type GroupScope, type Player, type PlayerGroup } from '../db'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -47,6 +47,11 @@ import { useGroupsQuery } from '../components/GroupsQuery'
 import { BarActions, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
+import { CapsuleTabs } from '../components/CapsuleTabs'
+import { Demander, postAsk } from '../components/Demander'
+import { BulkBar } from '../components/Selection'
+import { toggleId } from '../selection'
+import { archiveMode, bulkConfirm, groupPickBlock, pickedLabel, pickedOf, workGroupMatches, workGroupPickBlock, type BulkAction } from '../groupPick'
 import { choose } from '../components/Confirm'
 import {
   createPoleGroup,
@@ -77,7 +82,11 @@ import { poleViewOf, withPoleView } from '../tabQuery'
 type GroupsTab = 'joueurs' | typeof STAFF.tab
 const groupsTabPath = (t: GroupsTab) => (t === STAFF.tab ? STAFF.tabRoute : '/groupes')
 
-/** Page Groupes : onglets « Groupes de joueurs » (Intercomités, Pôle, Sport-études…) et « Groupes de travail » (ex-staffs). */
+/**
+ * Page Groupes : onglets « Groupes de joueurs » (Intercomités, Pôle, Sport-études…) et « Groupes de travail » (ex-staffs).
+ * Même tête dans les deux onglets, rien ne bouge en passant de l'un à l'autre : le titre, la barre « Demander » (avec son
+ * « ⋯ ») collée en haut au défilement, les onglets en capsule juste dessous (à la largeur de la barre), puis la liste.
+ */
 export default function Groups() {
   const role = useRole()
   const nav = useNavigate()
@@ -87,9 +96,9 @@ export default function Groups() {
   const tab: GroupsTab = params.get('onglet') === STAFF.tab ? STAFF.tab : 'joueurs'
   const bar = useMedia(MQ.side)
   const [creatingTeam, setCreatingTeam] = useState(false)
-  // « + Groupe » : fenêtre « Nouveau groupe » par-dessus la liste. Ouverte aussi par l'adresse /groupes/nouveau (avec les
-  // joueurs choisis ailleurs, ex. la sélection de la liste Joueurs) : devenue ?nouveau=1, retirée de l'adresse avant
-  // l'ouverture (un retour ne la rouvre pas) ; Annuler y ramène alors à l'écran d'origine.
+  // « Ajouter un groupe de joueurs » : fenêtre « Nouveau groupe » par-dessus la liste. Ouverte aussi par l'adresse
+  // /groupes/nouveau (avec les joueurs choisis ailleurs, ex. la sélection de la liste Joueurs) : devenue ?nouveau=1, retirée
+  // de l'adresse avant l'ouverture (un retour ne la rouvre pas) ; Annuler y ramène alors à l'écran d'origine.
   const [newGroup, setNewGroup] = useState<{ playerIds: string[]; fromUrl: boolean } | null>(null)
   const leave = useBack('/groupes', 'GROUPES')
   const wantNew = params.has('nouveau')
@@ -107,6 +116,27 @@ export default function Groups() {
   // Filtres = recette « groupes » (même expérience que les listes Joueurs et Événements) : champ « Filtrer ou poser une
   // question… », micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session.
   const { filtered: shown, active: filtering, ui: filterUi, top: filterTop } = useGroupsQuery(groups)
+  // Onglet « Groupes de travail » : la même barre « Demander », en simple recherche sur l'appareil (nom, description,
+  // créateur, membres : src/groupPick.ts), sans appel ni filtre. Chaque onglet garde son propre texte pendant la session
+  // (celui des groupes de joueurs est celui de leur recette) : on retrouve chaque liste comme on l'a laissée.
+  const [workText, setWorkText] = useSessionState('handbase.groupes.travail.texte', '')
+  // Sélection de plusieurs groupes (« ⋯ » → « Sélectionner… ») : propre à l'onglet où elle a commencé.
+  const [picking, setPicking] = useState<{ tab: GroupsTab; ids: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pickOn = !!picking && picking.tab === tab
+  // Échap quitte la sélection ; pas dans un champ ni dans une fenêtre (ils gèrent leur Échap), et avant le panneau de droite.
+  useEffect(() => {
+    if (!pickOn) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (document.querySelector('[aria-modal="true"], .fixed.inset-0')) return
+      if ((e.target as HTMLElement).closest?.('input:not([type=checkbox]), textarea, select, [contenteditable="true"]')) return
+      e.preventDefault()
+      setPicking(null)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [pickOn])
   // Groupes Pôle (src/poleSeason.ts) : épinglés en tête ; unités Pôle que je dirige sans groupe : une tuile pour le créer.
   const leader = usePoleLeader()
   const refs = usePoleRefs()
@@ -117,66 +147,101 @@ export default function Groups() {
   const archived = shown.filter((g) => g.archived)
   const toCreate = filtering ? [] : leader.units.filter((u) => !poleGroups.some((g) => g.poleUnitId === u.id))
   const work = tab === STAFF.tab
+  const shownTeams = workText.trim() ? teams.filter((t) => workGroupMatches(t, workText)) : teams
 
-  // Changer d'onglet remplace l'adresse (comme les onglets d'un événement) ; un groupe ouvert à droite se ferme.
+  // Sélection : mêmes droits que le menu d'un groupe (src/groupPick.ts) ; l'action porte sur les groupes cochés encore
+  // affichés et cochables.
+  const groupWhy = (g: PlayerGroup) => groupPickBlock(g, can.editGroup(role, g))
+  const teamWhy = (t: Team) => workGroupPickBlock(can.editTeam(t))
+  const ids = pickOn ? picking.ids : []
+  const idSet = new Set(ids)
+  const pickedGroups = work ? [] : pickedOf(ids, shown, groupWhy)
+  const pickedTeams = work ? pickedOf(ids, shownTeams, teamWhy) : []
+  const nPicked = work ? pickedTeams.length : pickedGroups.length
+  const canPick = work ? teams.some((t) => !teamWhy(t)) : groups.some((g) => !groupWhy(g))
+  const toggle = (id: string) => setPicking((p) => (p ? { ...p, ids: toggleId(p.ids, id) } : p))
+  const rowPick = (g: PlayerGroup) => (pickOn ? { checked: idSet.has(g.id), why: groupWhy(g), toggle: () => toggle(g.id) } : undefined)
+
+  /** Archiver, désarchiver ou supprimer les groupes cochés, après confirmation ; la sélection se ferme ensuite. */
+  async function runBulk(action: BulkAction) {
+    const list = work ? pickedTeams : pickedGroups
+    if (!list.length || busy) return
+    const c = bulkConfirm(work ? 'travail' : 'joueurs', action, list)
+    if (!(await ask(c.message, { ok: c.ok, danger: action === 'delete', focusCancel: action === 'delete' }))) return
+    setBusy(true)
+    try {
+      if (work) for (const t of pickedTeams) await remove('teams', t.id)
+      else if (action === 'delete') for (const g of pickedGroups) await remove('groups', g.id)
+      else await saveMany<PlayerGroup>('groups', pickedGroups.map((g) => ({ ...g, archived: action === 'archive' })))
+      // Le groupe ouvert à droite vient d'être supprimé : la liste seule (comme la suppression d'un groupe).
+      const open = /^\/groupes\/([^/]+)$/.exec(loc.pathname)?.[1]
+      if (action === 'delete' && open && list.some((x) => x.id === open)) nav(groupsTabPath(tab), { replace: true })
+      setPicking(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Changer d'onglet remplace l'adresse (comme les onglets d'un événement) ; un groupe ouvert à droite se ferme, la
+  // sélection aussi.
   const setTab = (t: GroupsTab) => {
     if (t === tab) return
     setCreatingTeam(false)
+    setPicking(null)
     nav(groupsTabPath(t), { replace: true, state: loc.pathname === '/groupes' ? loc.state : undefined })
   }
-  // Mêmes onglets, même style que ceux d'un événement (Joueurs · Classement · Vidéo, Events.tsx).
-  const tabs = (cls = '') => (
-    <div role="tablist" aria-label="Type de groupes" className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
-      {(
-        [
-          ['joueurs', `${STAFF.tabPlayers} (${groups.filter((g) => !g.archived).length})`],
-          [STAFF.tab, `${STAFF.tabWork} (${teams.length})`],
-        ] as const
-      ).map(([v, label]) => (
-        <button
-          key={v}
-          role="tab"
-          aria-selected={tab === v}
-          data-tab={v}
-          onClick={() => setTab(v)}
-          className={`min-w-0 flex-1 truncate px-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-  const addButton = work
-    ? can.manageTeams(role) &&
-      !creatingTeam && (
-        <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setCreatingTeam(true)}>
-          {STAFF.add}
-        </button>
-      )
-    : // Groupes de joueurs : « Nouveau groupe » dans le « ⋯ » de la barre « Demander » ; liste vide (pas de barre) : le bouton.
-      can.manageGroups(role) &&
-      !groups.length && (
-        <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
-          + Groupe
-        </button>
-      )
-  const actions = can.manageGroups(role) && (
-    <MoreActions
-      title="Groupes"
-      items={[{ label: 'Nouveau groupe', icon: 'users', onSelect: () => setNewGroup({ playerIds: [], fromUrl: false }) }]}
+  // Onglets en capsule (même composant que les onglets d'un événement), juste sous la barre et à sa largeur.
+  const tabs = (
+    <CapsuleTabs
+      label="Type de groupes"
+      value={tab}
+      onChange={setTab}
+      compact={bar}
+      className="w-full"
+      items={[
+        { value: 'joueurs', label: `${STAFF.tabPlayers} (${groups.filter((g) => !g.archived).length})` },
+        { value: STAFF.tab, label: `${STAFF.tabWork} (${teams.length})` },
+      ]}
     />
   )
+  // Groupes de joueurs, liste vide : le bouton de création à côté du titre, en plus du « ⋯ ».
+  const addButton = !work && can.manageGroups(role) && !groups.length && (
+    <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
+      + Groupe
+    </button>
+  )
+  // « ⋯ » au bout de la barre : créer (selon l'onglet), puis « Sélectionner… » s'il y a des groupes que je peux archiver
+  // ou supprimer.
+  const pickItem: MenuItem | false = canPick && {
+    label: pickOn ? 'Quitter la sélection' : 'Sélectionner…',
+    icon: 'select',
+    hint: pickOn ? undefined : work ? 'Supprimer plusieurs groupes de travail' : 'Archiver ou supprimer plusieurs groupes',
+    onSelect: () => setPicking(pickOn ? null : { tab, ids: [] }),
+  }
+  const actions = work ? (
+    <MoreActions
+      title={STAFF.tabWork}
+      items={[can.manageTeams(role) && !creatingTeam && { label: STAFF.add, icon: 'users', onSelect: () => setCreatingTeam(true) }, pickItem]}
+    />
+  ) : (
+    <MoreActions
+      title={STAFF.tabPlayers}
+      items={[can.manageGroups(role) && { label: 'Ajouter un groupe de joueurs', icon: 'users', onSelect: () => setNewGroup({ playerIds: [], fromUrl: false }) }, pickItem]}
+    />
+  )
+  const archiveAction = archiveMode(pickedGroups)
+  const bulkActions: Parameters<typeof BulkBar>[0]['actions'] = [
+    ...(work
+      ? []
+      : [{ key: 'archive', label: archiveAction === 'archive' ? 'Archiver' : 'Désarchiver', icon: 'archive' as const, disabled: busy || !nPicked, onRun: () => void runBulk(archiveAction) }]),
+    { key: 'delete', label: 'Supprimer', icon: 'trash', disabled: busy || !nPicked, onRun: () => void runBulk('delete') },
+  ]
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Titre, bouton, puis les onglets : à droite quand la liste a la place (comme la barre d'un événement), sinon
-          sur toute la largeur en dessous (téléphone, liste étroite à côté d'un groupe ouvert). */}
-      <div className="@container">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="mr-auto text-lg font-extrabold">Groupes</h1>
-          {addButton}
-          {tabs('w-full @2xl:w-auto @2xl:min-w-96 @2xl:max-w-md @2xl:flex-1')}
-        </div>
+      <div className="flex min-h-8 flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-lg font-extrabold">Groupes</h1>
+        {addButton}
       </div>
       {newGroup && (
         <NewGroupWindow
@@ -188,14 +253,49 @@ export default function Groups() {
         />
       )}
       {work ? (
-        <WorkGroupsTab teams={teams} creating={creatingTeam} onCreated={() => setCreatingTeam(false)} />
+        <>
+          {/* Même barre, même place que l'onglet des groupes de joueurs (colonne de useListQuery, src/components/ListQuery.tsx). */}
+          <StickyQuery>
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Demander
+                  page="groupes"
+                  value={workText}
+                  onChange={setWorkText}
+                  onSubmit={(t) => {
+                    // Entrée : la liste est déjà filtrée. Une demande de l'historique « Groupes » (une phrase sur les groupes de
+                    // joueurs) repart sur leur onglet, comme depuis une autre page.
+                    if (t === workText) return
+                    setWorkText(workText)
+                    setTab('joueurs')
+                    postAsk({ page: 'groupes', phrase: t })
+                  }}
+                  canAsk={false}
+                  nameMode
+                  placeholder="Un groupe, un encadrant…"
+                  hint="Le nom d’un groupe de travail ou d’un encadrant"
+                  label="Rechercher un groupe de travail"
+                />
+                {actions}
+              </div>
+              {tabs}
+            </div>
+          </StickyQuery>
+          <WorkGroupsTab
+            teams={shownTeams}
+            total={teams.length}
+            creating={creatingTeam}
+            onCreated={() => setCreatingTeam(false)}
+            pick={pickOn ? { has: (id) => idSet.has(id), why: teamWhy, toggle } : undefined}
+          />
+        </>
       ) : (
         <>
-      {groups.length > 0 && (
-        <StickyQuery>
-          <BarActions actions={actions}>{filterUi}</BarActions>
-        </StickyQuery>
-      )}
+      <StickyQuery>
+        <BarActions actions={actions} below={tabs}>
+          {filterUi}
+        </BarActions>
+      </StickyQuery>
       {filterTop}
       {!active.length && filtering && (
         // « Archivés » est replié au départ : on dit où sont les groupes qui répondent.
@@ -216,7 +316,7 @@ export default function Groups() {
         >
           <div className="cols flex flex-col gap-3">
             {pinned.map((g) => (
-              <GroupRow key={g.id} g={g} teams={teams} />
+              <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
             ))}
             <PoleCreateTiles units={toCreate} onCreate={async (u) => nav(`/groupes/${(await createPoleGroup(u, refs.get(u.id) ?? null)).id}`)} />
           </div>
@@ -236,7 +336,7 @@ export default function Groups() {
             >
               <div className="cols flex flex-col gap-3">
                 {list.map((g) => (
-                  <GroupRow key={g.id} g={g} teams={teams} />
+                  <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
                 ))}
               </div>
             </FoldSection>
@@ -257,13 +357,14 @@ export default function Groups() {
         >
           <div className="cols flex flex-col gap-3">
             {archived.map((g) => (
-              <GroupRow key={g.id} g={g} teams={teams} />
+              <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
             ))}
           </div>
         </FoldSection>
       )}
         </>
       )}
+      {pickOn && <BulkBar label={pickedLabel(work ? 'travail' : 'joueurs', nPicked)} actions={bulkActions} onCancel={() => setPicking(null)} />}
     </div>
   )
 }
@@ -415,8 +516,11 @@ function GroupMenu({ g, menu, count }: { g: PlayerGroup; menu: ReturnType<typeof
   )
 }
 
-/** Liste des groupes (Intercomités, Pôle, Sport-études…). */
-function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
+/**
+ * Liste des groupes (Intercomités, Pôle, Sport-études…). `pick` : mode sélection de la page (« ⋯ » → « Sélectionner… ») :
+ * une case à cocher, la carte coche au lieu d'ouvrir le groupe ; un groupe qui ne se coche pas dit pourquoi (bulle, ligne).
+ */
+function GroupRow({ g, teams, pick }: { g: PlayerGroup; teams: Team[]; pick?: { checked: boolean; why: string | null; toggle: () => void } }) {
   const menu = useRowMenu()
   const regionName = useRegionName()
   const info = groupInfo(g, regionName(g.regionId))
@@ -427,15 +531,7 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
   const on = useSelected('/groupes') === g.id
   // Groupe Pôle : effectif calculé (vue en cours), badge « Pôle ».
   const count = usePoleCount(g)
-  return (
-    <>
-    <Link
-      to={`/groupes/${g.id}`}
-      data-md={g.id}
-      aria-current={on || undefined}
-      className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${MENU_ROW} ${g.archived ? 'opacity-60' : ''} ${selectedCls(on)}`}
-      {...menu.bind}
-    >
+  const body = (
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
           <span className="truncate">{g.name}</span>
@@ -452,6 +548,40 @@ function GroupRow({ g, teams }: { g: PlayerGroup; teams: Team[] }) {
           </div>
         )}
       </div>
+  )
+  if (pick) {
+    const checked = !pick.why && pick.checked
+    return (
+      <label
+        title={pick.why ?? undefined}
+        className={`card flex items-center gap-3 p-3 ${g.archived || pick.why ? 'opacity-60' : ''} ${pick.why ? 'cursor-not-allowed' : 'cursor-pointer hover:border-accent'} ${checked ? 'border-accent bg-accent/10' : ''}`}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={!!pick.why}
+          onChange={pick.toggle}
+          aria-label={`Sélectionner « ${g.name} »`}
+          className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent)] disabled:cursor-not-allowed"
+        />
+        <div className="min-w-0 flex-1">
+          {body}
+          {pick.why && <div className="truncate text-[10px] text-muted italic">{pick.why}</div>}
+        </div>
+        <span className="shrink-0 text-xs font-bold text-muted">{pluralG(count, g.sex)}</span>
+      </label>
+    )
+  }
+  return (
+    <>
+    <Link
+      to={`/groupes/${g.id}`}
+      data-md={g.id}
+      aria-current={on || undefined}
+      className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${MENU_ROW} ${g.archived ? 'opacity-60' : ''} ${selectedCls(on)}`}
+      {...menu.bind}
+    >
+      {body}
       <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-muted">
         <FollowStar kind="group" id={g.id} />
         {pluralG(count, g.sex)}

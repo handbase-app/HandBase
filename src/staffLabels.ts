@@ -23,8 +23,8 @@ export const STAFF = {
   many: 'groupes de travail',
   /** Titre des liens qui mènent à l'onglet. */
   title: 'Groupes de travail',
-  /** Bouton de création, titre du formulaire. */
-  add: '+ Groupe de travail',
+  /** Création (« ⋯ » de la barre de l'onglet), titre du formulaire. */
+  add: 'Ajouter un groupe de travail',
   create: 'Nouveau groupe de travail',
   /** Champ « Nom » du formulaire, et son exemple. */
   nameLabel: 'Nom du groupe de travail',
@@ -39,7 +39,9 @@ export const STAFF = {
   privacy: 'Un groupe de travail n’est visible que par toi et ses membres (pas par les administrateurs). Toi seul le modifies.',
   membersHelp: 'Encadrants du groupe de travail. Tu n’en fais partie que si tu te coches.',
   empty: 'Aucun groupe de travail pour l’instant.',
-  emptyCreate: 'Aucun groupe de travail pour l’instant. Crée le premier avec « + Groupe de travail ».',
+  emptyCreate: 'Aucun groupe de travail pour l’instant. Crée le premier avec « Ajouter un groupe de travail », dans le « ⋯ » à droite de la barre.',
+  /** Recherche de la barre de l'onglet sans résultat. */
+  noMatch: 'Aucun groupe de travail ne correspond.',
   notFound: 'Groupe de travail introuvable.',
   noRole: 'Ton rôle ne permet pas de créer de groupe de travail.',
   offline: 'Les encadrants se choisissent en ligne.',

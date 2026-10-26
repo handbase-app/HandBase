@@ -196,6 +196,8 @@ export type DemanderProps = {
   compact?: boolean
   placeholder?: string
   label?: string
+  /** Champ de simple recherche (canAsk faux) : ce qu'on peut y taper (bulle d'aide, menu sans historique). */
+  hint?: string
   /** En-tête : propositions de routeAsk (« Je comprends ») ; `go` les exécute. */
   routes?: AskRoute[]
   go?: (r: AskRoute) => void
@@ -541,7 +543,7 @@ export function Demander(p: DemanderProps) {
       )}
       {empty && (
         <p className="px-3 py-2 text-[11px] text-muted">
-          {header ? 'Tapez un nom, une question ou une action, puis Entrée.' : p.canAsk ? 'Un nom, ou une phrase (Entrée) : vos demandes apparaîtront ici.' : 'Un nom, un club, une licence.'}
+          {header ? 'Tapez un nom, une question ou une action, puis Entrée.' : p.canAsk ? 'Un nom, ou une phrase (Entrée) : vos demandes apparaîtront ici.' : (p.hint ?? 'Un nom, un club, une licence.')}
         </p>
       )}
       {sections.map((s, si) => (
@@ -631,7 +633,7 @@ export function Demander(p: DemanderProps) {
             enterKeyHint={p.nameMode && !header ? 'search' : 'send'}
             placeholder={wait.on ? '' : (p.placeholder ?? (header || p.canAsk ? 'Un nom, une question, une action…' : 'Un nom, un club, une licence…'))}
             aria-label={p.label ?? 'Demander : un nom, une question, une action'}
-            title={p.canAsk ? `Un nom, un club, une licence ; ou une phrase${p.micHint ? ` (« ${p.micHint} »)` : ''}, puis Entrée` : 'Nom, club ou licence'}
+            title={p.canAsk ? `Un nom, un club, une licence ; ou une phrase${p.micHint ? ` (« ${p.micHint} »)` : ''}, puis Entrée` : (p.hint ?? 'Nom, club ou licence')}
             value={p.value || (wait.on && p.wait ? (p.wait.phrase ?? '') : '')}
             maxLength={MAX_PHRASE}
             disabled={p.disabled || sending || rec}
