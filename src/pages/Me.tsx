@@ -30,10 +30,13 @@ import { canPreviewPlayerPage } from '../components/PlayerSpace'
 import { inform, useUnsaved } from '../components/Confirm'
 import { JournalSection, TalkLink } from '../components/PlayerJournal'
 import { PlayerMatches } from '../components/PlayerMatches'
+import { MyTeamCard } from '../components/MyTeam'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
  *  - En haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
+ *  - « Mon équipe » (056) : son équipe en championnat (1, 2 ou 3), le niveau, le surclassement ; enregistrée à part
+ *    (src/components/MyTeam.tsx, hb_player_set_team), sans toucher au reste de la page.
  *  - « Mon journal du hand » (052) : notes datées, privées, partagées une par une (src/components/PlayerJournal.tsx).
  *  - « Ma lettre » : trois questions guidées, positives et ouvertes, plus un champ libre ; versions précédentes (lecture).
  *  - « Mes repères » (052) : joueur ou joueuse préféré·e, équipe préférée, poste rêvé, un match marquant (champs courts).
@@ -272,6 +275,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         )}
         <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>
       </div>
+
+      {/* Mon équipe (056) : équipe 1, 2 ou 3, niveau, surclassement ; enregistrée à part (hb_player_set_team). */}
+      <MyTeamCard p={p} canWrite={canWrite} />
 
       {/* Mon journal du hand (052) : privé, partagé note par note. */}
       <JournalSection player={p} canWrite={canWrite} preview={preview} />

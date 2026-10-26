@@ -112,6 +112,19 @@ export function usePlayersByName(): Player[] | undefined {
   return useShared(playersStore)?.byName
 }
 
+/**
+ * La base de la liste Joueurs (fiches proposées comprises, sans les fiches hors cadre), dans l'ordre des noms : MÊME tableau
+ * tant que les fiches ne changent pas. Liste Joueurs et onglet « Autour de moi » (src/components/AroundMe.tsx) partagent
+ * ainsi l'index des filtres (src/components/PlayersQuery.tsx) : il n'est pas refait en passant de l'un à l'autre.
+ */
+let baseView: { all: Player[]; list: Player[] } | null = null
+export function basePlayers(all: Player[]): Player[] {
+  if (baseView?.all === all) return baseView.list
+  const list = all.filter((p) => p.review !== 'refused')
+  baseView = { all, list }
+  return list
+}
+
 /** Taille et poids de toute la base, et leur dernière valeur par joueur ; undefined pendant la 1re lecture. */
 export function useListMeasures() {
   return useShared(measuresStore)

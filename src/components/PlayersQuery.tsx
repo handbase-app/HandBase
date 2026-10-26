@@ -78,7 +78,7 @@ import { armSelectAll } from './Selection'
 import { YearPicker } from './YearPicker'
 import { MultiPicker } from './MultiPicker'
 import { ChoicePills, chipCount, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
-import { BarActionsSlot } from './PageHeader'
+import { BarActionsSlot, BarBelowRow } from './PageHeader'
 import { PictoDisplaySection } from './PictoDisplay'
 import { usePictosInFilters } from './Pictos'
 import { SegRow } from './ListQuery'
@@ -1007,6 +1007,8 @@ export function usePlayersQuery(
         {field}
         <BarActionsSlot />
       </div>
+      {/* Onglets de la page sous la barre, à sa largeur (BarActions `below` : Événements → « Autour de moi »). */}
+      <BarBelowRow />
       {status}
       {chips}
       {saveForm}

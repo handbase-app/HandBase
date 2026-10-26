@@ -19,7 +19,7 @@ import { hasPerimeter } from '../perimeter'
 import { spyTarget } from '../spy'
 import { keepPlayerTab } from '../tabQuery'
 import { accord, pluralG, w } from '../gender'
-import { useListMeasures, usePlainPreview, usePlayersByName } from '../playersCache'
+import { basePlayers, useListMeasures, usePlainPreview, usePlayersByName } from '../playersCache'
 import { RewatchPlace } from '../rewatchPlace'
 
 // Dernière valeur de chaque critère factuel, par joueur (src/playersOrder.ts ; importée d'ici par d'autres écrans).
@@ -48,7 +48,7 @@ export default function Players() {
     if (!all) return undefined
     // Même tableau qu'au dernier passage (mêmes fiches, même vue) : l'index des filtres n'est pas refait au retour.
     if (lastView?.all === all && lastView.view === view) return lastView.players
-    const players = all.filter((p) => (view === 'base' ? p.review !== 'refused' : p.review === view))
+    const players = view === 'base' ? basePlayers(all) : all.filter((p) => p.review === view)
     lastView = { all, view, players }
     return players
   }, [all, view])

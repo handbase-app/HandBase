@@ -51,10 +51,19 @@ const MatchSheetCard = lazy(() => loadSheet().then((m) => ({ default: m.MatchShe
 const MatchSyncTools = lazy(() => loadSheet().then((m) => ({ default: m.MatchSyncTools })))
 // Frise du match sous la vidéo (repères des actions, « C'est ici ! ») : chargée avec le lecteur.
 const MatchTimeline = lazy(() => import('../components/MatchTimeline'))
+// Onglet « Autour de moi » (rencontres autour d'un lieu, carte) : chargé quand on l'ouvre.
+const AroundMe = lazy(() => import('../components/AroundMe'))
 
 const typeLabel = (t: string) => EVENT_TYPES.find((x) => x.value === t)?.label ?? t
 
 const NO_STATS = new Map<string, EventStats>()
+
+/**
+ * Onglets de la page Événements (?vue=autour ; « Mes événements » par défaut, sans paramètre). Pas ?onglet= : l'événement
+ * ouvert à droite (ordinateur) a déjà le sien dans la même adresse.
+ */
+type EventsView = 'mes' | 'autour'
+const EVENTS_VIEW_KEY = 'vue'
 
 /** Onglets de la page d'un événement (?onglet=… ; « joueurs » par défaut, sans paramètre). */
 const EVENT_TABS = ['joueurs', 'classement', 'video'] as const
@@ -131,12 +140,45 @@ export default function Events() {
   const [fromSheet, setFromSheet] = useState(false)
   const sheets = useSportHas('feuilleMatchFFHB')
   const nav = useNavigate()
+  // Onglets « Mes événements » | « Autour de moi », sous la barre et à sa largeur (comme la page Groupes) ; l'onglet est
+  // dans l'adresse (retour, lien partagé) ; changer d'onglet remplace l'adresse.
+  const view: EventsView = params.get(EVENTS_VIEW_KEY) === 'autour' ? 'autour' : 'mes'
+  const bar = useMedia(MQ.side)
+  const setView = (v: EventsView) => {
+    if (v === view) return
+    const next = new URLSearchParams(params)
+    if (v === 'autour') next.set(EVENTS_VIEW_KEY, 'autour')
+    else next.delete(EVENTS_VIEW_KEY)
+    setParams(next, { replace: true })
+  }
+  const tabs = (
+    <CapsuleTabs
+      label="Événements"
+      value={view}
+      onChange={setView}
+      compact={bar}
+      className="w-full"
+      items={[
+        { value: 'mes', label: 'Mes événements' },
+        { value: 'autour', label: 'Autour de moi' },
+      ]}
+    />
+  )
   // Tout afficher (passés) : retrouvé au retour (pendant la session), comme les filtres.
   const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
   const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
 
+  if (view === 'autour')
+    return (
+      <div className="flex flex-col gap-3">
+        <h1 className="text-lg font-extrabold">Événements</h1>
+        <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
+          <AroundMe tabs={tabs} />
+        </Suspense>
+      </div>
+    )
   if (!events || !allEvents) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const canCreate = !creating && can.manageEvents(role)
   // Toutes les actions de la liste dans « ⋯ » (la création d'abord) ; la feuille de match FFHB (PDF, handball seulement :
@@ -220,10 +262,14 @@ export default function Events() {
           )}
         </div>
       )}
-      {events.length > 0 && (
+      {events.length > 0 ? (
         <StickyQuery>
-          <BarActions actions={actions}>{filterUi}</BarActions>
+          <BarActions actions={actions} below={tabs}>
+            {filterUi}
+          </BarActions>
         </StickyQuery>
+      ) : (
+        <div className="mx-auto w-full max-w-3xl">{tabs}</div>
       )}
       {filterTop}
       {searching ? (

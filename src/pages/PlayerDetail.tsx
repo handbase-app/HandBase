@@ -15,7 +15,9 @@ import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
 import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, type Criterion, type Measurement, type Player, dayOf } from '../db'
+import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, today, type Criterion, type Measurement, type Player, dayOf } from '../db'
+import { teamSummary } from '../rencontres'
+import { sportContent } from '../sportContent'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
 import { themeColor } from '../theme'
@@ -171,6 +173,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, p.position))
   const a = age(p.birthDate)
   const g = w(p.sex)
+  const teamText = teamSummary(p, today(), sportContent().youthCategories)
 
   // Taille, poids : dernière mesure, avec l'unité du critère (ou l'unité habituelle si le critère n'est pas dans la base).
   const gauge = (id: string, unit: string) => {
@@ -249,10 +252,14 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             <h1 className="min-w-0 text-lg font-extrabold">{playerName(p)}</h1>
             <FollowButton kind="player" id={p.id} sex={p.sex} />
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
             <PosBadges p={p} />
             {a !== null && <span>{a} ans</span>}
             <QuarterBadge birthDate={p.birthDate} />
+            {/* « Mon équipe » (src/rencontres.ts) : « U15 · Équipe 1 · Régional ». */}
+            {teamText && (
+              <span title={p.usualTeam?.src === 'joueur' ? `Dit par ${g.leJoueur} depuis sa page` : 'Équipe en championnat'}>{teamText}</span>
+            )}
           </div>
           <StampLine row={p} />
           <FollowedVia playerId={p.id} sex={p.sex} />
