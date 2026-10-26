@@ -434,7 +434,7 @@ export const sideLabel = (s: FixtureSide) => (s.team ? `${s.name} (${s.team})` :
 export const teamsLabel = (f: Pick<Rencontre, 'home' | 'away'>) => `${sideLabel(f.home)} – ${sideLabel(f.away)}`
 
 /** « U15 · Régional · Championnat régional U15 masculin » (la compétition seulement si elle dit autre chose). */
-export const fixtureHeading = (f: Pick<Rencontre, 'category' | 'level' | 'competition'>) => [f.category, levelLabel(f.level), f.competition].filter(Boolean).join(' · ')
+export const fixtureHeading = (f: { category?: string; level?: string | null; competition?: string }) => [f.category, levelLabel(f.level), f.competition].filter(Boolean).join(' · ')
 
 /** « sam. 31 oct. · 14:00 » (heure locale de l'appareil). */
 export function fixtureWhen(iso: string): string {

@@ -43,6 +43,7 @@ import { FoldSection } from '../components/FoldSection'
 import { afterWindow, FormWindow } from '../components/FormWindow'
 import { DuplicateEvent } from '../components/DuplicateEvent'
 import { foldKey, startsOpen } from '../fold'
+import { eventToAgenda } from '../agendaFile'
 
 // Feuille de match (import, calage, moments) : module chargé à la demande ; pdf.js seulement à la lecture d'un PDF.
 const loadSheet = () => import('../components/MatchSheet')
@@ -840,6 +841,8 @@ export function EventDetail() {
             // Archiver : retiré des listes (Évaluer, événements), avis conservés.
             manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
             { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
+            // Fichier .ics fait sur l'appareil (src/agenda.ts) : jour, heure, lieu, nombre de jeunes ; jamais leurs noms.
+            /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && { label: 'Ajouter à mon agenda', icon: 'calendar', hint: 'fichier pour ton agenda', onSelect: () => void eventToAgenda(ev) },
             manage && {
               label: 'Supprimer',
               icon: 'trash',

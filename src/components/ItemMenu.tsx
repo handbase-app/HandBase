@@ -129,9 +129,12 @@ export function flash(msg: string) {
   setTimeout(() => el.remove(), 2000)
 }
 
+/** Adresse complète d'une page de l'appli (origine + chemin de base + route) : « Copier le lien », fichier d'agenda. */
+export const appUrl = (path: string) => new URL(import.meta.env.BASE_URL.replace(/\/$/, '') + path, window.location.origin).href
+
 /** « Copier le lien » d'une page de l'appli (adresse complète, partageable). */
 export function copyLink(path: string) {
-  const url = new URL(import.meta.env.BASE_URL.replace(/\/$/, '') + path, window.location.origin).href
+  const url = appUrl(path)
   const done = () => flash('Lien copié')
   // Sans accès au presse-papiers (navigateur intégré, permission refusée) : l'ancienne méthode, sinon l'adresse affichée.
   const fallback = () => {
