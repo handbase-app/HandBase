@@ -253,6 +253,43 @@ function toolbarKeys(e: KeyboardEvent<HTMLDivElement>) {
   btns[j].focus()
 }
 
+/** Bouton d'action d'une barre de sélection (joueurs, groupes). */
+const BAR_BTN =
+  'flex min-h-9 items-center gap-1 rounded-md border border-line bg-panel-2 px-2 text-[11px] font-bold text-fg hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60'
+
+/**
+ * Barre du bas d'une sélection de groupes (page Groupes : « ⋯ » → « Sélectionner… ») : même allure et même place que la
+ * barre des joueurs ci-dessous (collée au-dessus de la barre de navigation) ; le compteur, les actions, « Annuler ».
+ */
+export function BulkBar({
+  label,
+  actions,
+  onCancel,
+}: {
+  label: string
+  actions: { key: string; label: string; icon: IconName; title?: string; disabled?: boolean; onRun: () => void }[]
+  onCancel: () => void
+}) {
+  return (
+    <div role="group" aria-label="Sélection" className="sticky bottom-[calc(var(--nav-b)+0.5rem)] z-20 flex flex-wrap items-center gap-1.5 rounded-lg border border-accent bg-panel/95 p-2 shadow-lg backdrop-blur">
+      <b className="mr-auto min-w-0 px-1 text-[11px] text-fg" aria-live="polite">
+        {label}
+      </b>
+      <div role="toolbar" aria-label="Actions sur la sélection" className="flex flex-wrap items-center gap-1" onKeyDown={toolbarKeys}>
+        {actions.map((a) => (
+          <button key={a.key} type="button" disabled={a.disabled} title={a.title} onClick={a.onRun} className={BAR_BTN}>
+            <Icon name={a.icon} className="h-4 w-4 shrink-0" />
+            {a.label}
+          </button>
+        ))}
+        <button type="button" className="min-h-9 px-1.5 text-[11px] font-bold text-muted underline hover:text-fg" onClick={onCancel}>
+          Annuler
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function SelectionBar({ store, context }: { store: SelStore; context?: SelContext }) {
   useSyncExternalStore(store.subscribe, store.version)
   const role = useRole()
@@ -351,7 +388,7 @@ export function SelectionBar({ store, context }: { store: SelStore; context?: Se
               title={title(a)}
               aria-label={title(a)}
               onClick={() => run(a)}
-              className="flex min-h-9 items-center gap-1 rounded-md border border-line bg-panel-2 px-2 text-[11px] font-bold text-fg hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
+              className={BAR_BTN}
             >
               {/* Place étroite (téléphone, colonne de contexte) : « + Groupe », « → Événement »… sans icône (deux rangées au plus). */}
               <Icon name={ACTION_ICON[a]} filled={a === 'follow' && mode === 'unfollow'} className={`h-4 w-4 shrink-0 ${PLAIN.includes(a) ? '@max-[40rem]/selbar:hidden' : ''}`} />

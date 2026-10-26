@@ -1,4 +1,5 @@
 import { StickyQuery } from '../components/StickyQuery'
+import { CapsuleTabs } from '../components/CapsuleTabs'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -725,29 +726,28 @@ export function EventDetail() {
   // Onglets : Joueurs, Classement, Vidéo (vidéos et feuille de match). Tout le monde peut ajouter une vidéo : l'onglet
   // Vidéo est toujours là ; son nombre de vidéos, ou un point discret s'il n'y a qu'une feuille de match.
   const tabs = (cls = '') => (
-    <div role="tablist" aria-label="Contenu de l’événement" className={`flex overflow-hidden rounded-md border border-line text-xs font-bold ${cls}`}>
-      {(
-        [
-          ['joueurs', `${ew.Joueurs} (${roster.length})`],
-          ['classement', 'Classement'],
-          ['video', nVideos ? `Vidéo (${nVideos})` : 'Vidéo'],
-        ] as const
-      ).map(([v, label]) => (
-        <button
-          key={v}
-          role="tab"
-          aria-selected={tab === v}
-          data-tab={v}
-          onClick={() => setTab(v)}
-          className={`min-w-0 flex-1 truncate px-1 ${bar ? 'py-1.5' : 'py-2'} ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-        >
-          {label}
-          {v === 'video' && !nVideos && ev.matchSheet && (
-            <span className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${tab === v ? 'bg-white' : 'bg-accent'}`} title="Feuille de match importée" />
-          )}
-        </button>
-      ))}
-    </div>
+    <CapsuleTabs
+      label="Contenu de l’événement"
+      value={tab}
+      onChange={setTab}
+      compact={bar}
+      className={cls}
+      items={[
+        { value: 'joueurs', label: `${ew.Joueurs} (${roster.length})` },
+        { value: 'classement', label: 'Classement' },
+        {
+          value: 'video',
+          label: (
+            <>
+              {nVideos ? `Vidéo (${nVideos})` : 'Vidéo'}
+              {!nVideos && ev.matchSheet && (
+                <span className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${tab === 'video' ? 'bg-white' : 'bg-accent'}`} title="Feuille de match importée" />
+              )}
+            </>
+          ),
+        },
+      ]}
+    />
   )
   const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings, eg) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).

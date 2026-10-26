@@ -58,12 +58,20 @@ function usesText(u?: { groups: PlayerGroup[]; events: HBEvent[] }) {
   return [g && plural(g, 'groupe'), e && plural(e, 'événement')].filter(Boolean).join(', ')
 }
 
-/** Onglet « Groupes de travail » de la page Groupes : la liste, et la fenêtre de création quand elle est demandée. */
-export function WorkGroupsTab({ teams, creating, onCreated }: { teams: Team[]; creating: boolean; onCreated: () => void }) {
+/** Mode sélection de la page Groupes (« ⋯ » → « Sélectionner… ») : case cochée, raison si le groupe ne se coche pas, cocher. */
+export type WorkPick = { has: (id: string) => boolean; why: (t: Team) => string | null; toggle: (id: string) => void }
+
+/**
+ * Onglet « Groupes de travail » de la page Groupes : la liste (déjà filtrée par la barre « Demander » de la page, `total` :
+ * avant le filtre), et la fenêtre de création quand elle est demandée. `pick` : mode sélection, une case sur chaque carte.
+ */
+export function WorkGroupsTab({ teams, total, creating, onCreated, pick }: { teams: Team[]; total: number; creating: boolean; onCreated: () => void; pick?: WorkPick }) {
   const role = useRole()
   const nav = useNavigate()
   const shared = useShared()
   const sel = useSelected('/groupes')
+  const meta = (t: Team) =>
+    [can.editTeam(t) ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member, usesText(shared?.get(t.id))].filter(Boolean).join(' · ')
   return (
     <>
       <p className="text-[11px] text-muted">{STAFF.intro}</p>
@@ -80,29 +88,58 @@ export function WorkGroupsTab({ teams, creating, onCreated }: { teams: Team[]; c
         </FormWindow>
       )}
 
-      {!teams.length && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
+      {!total && <Empty>{can.manageTeams(role) ? STAFF.emptyCreate : STAFF.empty}</Empty>}
+      {total > 0 && !teams.length && <Empty>{STAFF.noMatch}</Empty>}
 
       <div className="cols flex flex-col gap-3">
-        {teams.map((t) => (
-          <Link
-            key={t.id}
-            to={workGroupPath(t.id)}
-            data-md={t.id}
-            aria-current={sel === t.id || undefined}
-            className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${selectedCls(sel === t.id)}`}
-          >
-            <span className="min-w-0">
+        {teams.map((t) => {
+          const body = (
+            <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-bold">{t.name}</span>
               {t.description && <span className="block truncate text-[11px] text-muted">{t.description}</span>}
-              <span className="block truncate text-[10px] text-muted">
-                {[can.editTeam(t) ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member, usesText(shared?.get(t.id))]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
+              <span className="block truncate text-[10px] text-muted">{meta(t)}</span>
             </span>
-            <span className="shrink-0 text-xs font-bold text-muted">{STAFF.count(t.members.length)}</span>
-          </Link>
-        ))}
+          )
+          const count = <span className="shrink-0 text-xs font-bold text-muted">{STAFF.count(t.members.length)}</span>
+          if (pick) {
+            // Mode sélection : la carte coche / décoche (plus de lien) ; un groupe qui ne se coche pas dit pourquoi.
+            const why = pick.why(t)
+            const on = !why && pick.has(t.id)
+            return (
+              <label
+                key={t.id}
+                title={why ?? undefined}
+                className={`card flex items-center gap-3 p-3 ${why ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-accent'} ${on ? 'border-accent bg-accent/10' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={!!why}
+                  onChange={() => pick.toggle(t.id)}
+                  aria-label={`Sélectionner « ${t.name} »`}
+                  className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-accent)] disabled:cursor-not-allowed"
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  {body}
+                  {why && <span className="block truncate text-[10px] text-muted italic">{why}</span>}
+                </span>
+                {count}
+              </label>
+            )
+          }
+          return (
+            <Link
+              key={t.id}
+              to={workGroupPath(t.id)}
+              data-md={t.id}
+              aria-current={sel === t.id || undefined}
+              className={`card flex items-center justify-between gap-3 p-3 outline-none hover:border-accent focus-visible:border-accent ${selectedCls(sel === t.id)}`}
+            >
+              {body}
+              {count}
+            </Link>
+          )
+        })}
       </div>
     </>
   )
