@@ -44,7 +44,7 @@ import { CompareBar, CompareToggle, PickBox, useComparePick } from '../component
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
-import { BarActions, MoreActions, PageHeader } from '../components/PageHeader'
+import { BarActions, BelowBar, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
@@ -278,7 +278,7 @@ export default function Groups() {
                 />
                 {actions}
               </div>
-              {tabs}
+              <BelowBar actions={actions}>{tabs}</BelowBar>
             </div>
           </StickyQuery>
           <WorkGroupsTab

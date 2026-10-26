@@ -105,3 +105,22 @@ export function BarActionsSlot() {
 export function BarBelowSlot() {
   return useContext(BarBelowCtx)
 }
+
+/**
+ * Sous la barre (onglets…) : à la largeur du champ seul, sans passer sous le « ⋯ » (même retrait que lui : bouton de 48 px
+ * et l'écart de la rangée) ; sans « ⋯ », toute la largeur.
+ */
+export function BelowBar({ actions, children }: { actions?: ReactNode; children: ReactNode }) {
+  if (!children) return null
+  return (
+    <div className="flex gap-2">
+      <div className="min-w-0 flex-1">{children}</div>
+      {actions ? <span aria-hidden className="w-12 shrink-0" /> : null}
+    </div>
+  )
+}
+
+/** BelowBar avec ce que BarActions a donné (barre de useListQuery). */
+export function BarBelowRow() {
+  return <BelowBar actions={useContext(BarActionsCtx)}>{useContext(BarBelowCtx)}</BelowBar>
+}
