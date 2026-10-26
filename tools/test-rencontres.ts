@@ -117,6 +117,11 @@ const near = (a: number, b: number, eps: number, msg?: string) => assert.ok(Math
   // Volley : M13, M15, M18 (mêmes âges, comme src/demoVolley.ts : M18 = 2009-2011 en 2026-2027).
   assert.equal(seasonCategory('2010-05-05', '2026-11-07', VB), 'M18')
   assert.equal(seasonCategory('2013-05-05', '2026-11-07', VB), 'M15')
+  // M21 (19-21 ans) : 2006-2008 en 2026-2027 ; pas de M21 au handball.
+  assert.equal(seasonCategory('2008-05-05', '2026-11-07', VB), 'M21')
+  assert.equal(seasonCategory('2006-01-01', '2026-11-07', VB), 'M21')
+  assert.equal(seasonCategory('2005-12-31', '2026-11-07', VB), undefined)
+  assert.equal(seasonCategory('2008-05-05', '2026-11-07', HB), undefined)
   // Surclassement : la catégorie déclarée, si c'est une catégorie du sport.
   assert.equal(playerCategory({ birthDate: '2012-01-01', usualTeam: { playsIn: 'U18' } }, '2026-10-31', HB), 'U18')
   assert.equal(playerCategory({ birthDate: '2012-01-01', usualTeam: { playsIn: 'M18' } }, '2026-10-31', HB), 'U15', 'catégorie d’un autre sport : ignorée')

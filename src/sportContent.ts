@@ -43,7 +43,7 @@ export interface SportContent {
    * Catégories des championnats de jeunes (rencontres « Autour de moi », « Mon équipe » : src/rencontres.ts), de la plus
    * jeune à la plus âgée. `ages` : âges de saison, c'est-à-dire l'âge atteint dans l'année civile où finit la saison
    * (saison 2026-2027 : 2027 − année de naissance). Handball (FFHB) : U13 = 12-13 ans, U15 = 14-15, U18 = 16-18 ; volley
-   * (FFvolley) : M13, M15, M18, mêmes âges (comme src/demoVolley.ts, CAT_YEARS).
+   * (FFvolley) : M13, M15, M18, mêmes âges (comme src/demoVolley.ts, CAT_YEARS), puis M21 = 19-21 ans.
    */
   youthCategories: readonly YouthCategory[]
 }
@@ -93,6 +93,7 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
       { code: 'M13', ages: [12, 13] },
       { code: 'M15', ages: [14, 15] },
       { code: 'M18', ages: [16, 17, 18] },
+      { code: 'M21', ages: [19, 20, 21] },
     ],
   },
 }

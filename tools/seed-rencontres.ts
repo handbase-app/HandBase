@@ -5,7 +5,7 @@
  *
  * Ce que fait le fichier, en une transaction :
  *  - sport de la base (ligne « sport » de hb_config ; sans elle : handball ; --sport pour l'imposer) et ses catégories de
- *    jeunes (src/sportContent.ts : U13, U15, U18 au handball ; M13, M15, M18 au volley) ;
+ *    jeunes (src/sportContent.ts : U13, U15, U18 au handball ; M13, M15, M18, M21 au volley) ;
  *  - un week-end par semaine, de celui de la semaine en cours à +N semaines (--semaines, 10 par défaut : 11 week-ends),
  *    dates prises au moment où le fichier est passé (current_date) ; catégorie de chaque joueur selon la saison du week-end ;
  *  - équipes : chaque club qui a des joueurs dans une catégorie et un sexe y a une équipe ; les clubs les plus fournis en
@@ -84,6 +84,8 @@ const BY_RANK = [
   { nat: false, regCut: 0.8, sat: ['13:30', '14:00', '14:30', '15:00', '16:00'], sun: ['10:00', '10:30', '11:00', '14:00'], sunShare: 0.25 },
   { nat: false, regCut: 0.55, sat: ['14:00', '15:00', '15:30', '16:00', '17:00'], sun: ['10:30', '11:00', '14:00', '15:00'], sunShare: 0.3 },
   { nat: true, regCut: 0.5, sat: ['16:00', '17:00', '18:00', '18:30', '19:00'], sun: ['11:00', '14:00', '15:00', '16:00'], sunShare: 0.35 },
+  // 4e catégorie (volley M21) : plus tard le samedi soir.
+  { nat: true, regCut: 0.5, sat: ['17:00', '18:00', '19:00', '20:00', '20:30'], sun: ['11:00', '14:00', '15:00', '16:00'], sunShare: 0.35 },
 ]
 
 /** Noms de salles FICTIFS et génériques. */
