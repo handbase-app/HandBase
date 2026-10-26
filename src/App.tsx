@@ -77,10 +77,17 @@ const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 /**
  * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis ») dès que la place
  * le permet (sm), pictogramme seul sur téléphone ; le nombre de nouveautés en pastille, collée
- * au nom ou posée sur le pictogramme.
+ * au nom ou posée sur le pictogramme. `compact` (menu de gauche, téléphone couché) : pictogramme seul, toujours.
  */
-function HeaderShortcut({ to, icon, label, n, aria }: { to: string; icon: 'star' | 'target'; label: string; n: number; aria: string }) {
+function HeaderShortcut({ to, icon, label, n, aria, compact }: { to: string; icon: 'star' | 'target'; label: string; n: number; aria: string; compact?: boolean }) {
   const count = n > 99 ? '99+' : String(n)
+  if (compact)
+    return (
+      <GuardedLink to={to} aria-label={aria} title={label} className="relative inline-flex shrink-0 items-center rounded-full text-muted hover:text-fg">
+        <Icon name={icon} className="h-6 w-6" />
+        {n > 0 && <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{count}</span>}
+      </GuardedLink>
+    )
   return (
     <GuardedLink
       to={to}
@@ -100,10 +107,10 @@ function HeaderShortcut({ to, icon, label, n, aria }: { to: string; icon: 'star'
 }
 
 /** Profils recherchés (téléphone couché seulement : menu de gauche), avec le nombre de joueurs qui viennent d'y entrer. */
-const AlertBell = ({ n }: { n: number }) => <HeaderShortcut to="/alertes" icon="target" label="Profils recherchés" n={n} aria={n ? `Profils recherchés : ${n} nouveau${n > 1 ? 'x' : ''}` : 'Profils recherchés'} />
+const AlertBell = ({ n }: { n: number }) => <HeaderShortcut to="/alertes" icon="target" label="Profils recherchés" n={n} aria={n ? `Profils recherchés : ${n} nouveau${n > 1 ? 'x' : ''}` : 'Profils recherchés'} compact />
 
 /** « Mes suivis », avec le nombre de nouveautés pas encore vues. */
-const FollowStar = ({ n }: { n: number }) => <HeaderShortcut to="/suivis" icon="star" label="Mes suivis" n={n} aria={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'} />
+const FollowStar = ({ n, compact }: { n: number; compact?: boolean }) => <HeaderShortcut to="/suivis" icon="star" label="Mes suivis" n={n} aria={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'} compact={compact} />
 
 /**
  * Onglets (barre du bas sur téléphone, menu de gauche sur ordinateur). Réglages et Confidentialité sont dans le menu de la
@@ -447,7 +454,7 @@ export default function App() {
         {/* Téléphone couché : en bas, l'étoile des suivis et la cible (si la hauteur le permet), puis la bulle de profil. */}
         {rail && (
           <div className="flex shrink-0 flex-col items-center gap-3.5 pt-1 pb-2.5">
-            {!player && !railShort && <FollowStar n={followNews} />}
+            {!player && !railShort && <FollowStar n={followNews} compact />}
             {!player && !railShort && <AlertBell n={alerts} />}
             <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts : 0} />
           </div>
