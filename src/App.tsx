@@ -74,29 +74,36 @@ const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ defa
 const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 
-/** Cible de l'en-tête : les profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
-function AlertBell({ n }: { n: number }) {
+/**
+ * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis », « Profils
+ * recherchés ») dès que la place le permet (sm), pictogramme seul sur téléphone ; le nombre de nouveautés en pastille, collée
+ * au nom ou posée sur le pictogramme.
+ */
+function HeaderShortcut({ to, icon, label, n, aria }: { to: string; icon: 'star' | 'target'; label: string; n: number; aria: string }) {
+  const count = n > 99 ? '99+' : String(n)
   return (
-    <GuardedLink to="/alertes" className="relative shrink-0 text-muted hover:text-fg" aria-label="Profils recherchés">
-      <Icon name="target" className="h-5 w-5" />
+    <GuardedLink
+      to={to}
+      aria-label={aria}
+      className="relative inline-flex shrink-0 items-center gap-1.5 rounded-full text-muted hover:text-fg sm:border sm:border-line sm:px-3 sm:py-1.5 sm:hover:border-accent"
+    >
+      <Icon name={icon} className="h-5 w-5 sm:h-4 sm:w-4" />
+      <span className="hidden text-xs font-bold whitespace-nowrap sm:inline">{label}</span>
       {n > 0 && (
-        <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
+        <>
+          <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white sm:hidden">{count}</span>
+          <span className="hidden min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-bold text-white sm:inline">{count}</span>
+        </>
       )}
     </GuardedLink>
   )
 }
 
-/** Étoile de l'en-tête : « Mes suivis », avec le nombre de nouveautés pas encore vues. */
-function FollowStar({ n }: { n: number }) {
-  return (
-    <GuardedLink to="/suivis" className="relative shrink-0 text-muted hover:text-fg" aria-label={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'}>
-      <Icon name="star" className="h-5 w-5" />
-      {n > 0 && (
-        <span className="absolute -top-1.5 -right-2 min-w-4 rounded-full bg-accent px-1 text-center text-[9px] leading-4 font-bold text-white">{n > 99 ? '99+' : n}</span>
-      )}
-    </GuardedLink>
-  )
-}
+/** Profils recherchés, avec le nombre de joueurs qui viennent d'y entrer. */
+const AlertBell = ({ n }: { n: number }) => <HeaderShortcut to="/alertes" icon="target" label="Profils recherchés" n={n} aria={n ? `Profils recherchés : ${n} nouveau${n > 1 ? 'x' : ''}` : 'Profils recherchés'} />
+
+/** « Mes suivis », avec le nombre de nouveautés pas encore vues. */
+const FollowStar = ({ n }: { n: number }) => <HeaderShortcut to="/suivis" icon="star" label="Mes suivis" n={n} aria={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'} />
 
 /**
  * Onglets (barre du bas sur téléphone, menu de gauche sur ordinateur). Réglages et Confidentialité sont dans le menu de la
@@ -279,7 +286,7 @@ export default function App() {
       <header
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
-        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
+        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
@@ -288,18 +295,19 @@ export default function App() {
             {TRIAL_LABEL}
           </div>
         )}
-        {/* Trois colonnes partout (logo · bulle ✦ au milieu · suivis, cible, bulle de profil avec le point de synchro). Ordinateur : le logo est dans le menu
-            de gauche, la première colonne reste vide pour garder la bulle au milieu de l'en-tête. Téléphone étroit : la
-            colonne de droite garde la place de ses boutons (max-content), la bulle « Nextar Handball » glisse un peu à gauche
-            plutôt que de passer sous l'étoile des suivis. Compte joueur : ni bulle ✦,
-            ni suivis, ni cible (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
+        {/* Trois colonnes partout : suivis et profils recherchés à gauche · capsule « Nextar » au milieu · bulle de profil (point de
+            synchro) à droite. Les deux colonnes du bord gardent la place de leur contenu (max-content) : sur téléphone étroit, la
+            capsule glisse un peu plutôt que de passer sous un bouton. Compte joueur : ni capsule, ni suivis, ni profils
+            recherchés (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
         {/* Plus de logo ici : le nom de l'appli est dans le bouton « ★ Nextar » du milieu (sur ordinateur, le logo reste en haut du menu). */}
-        <div className="flex min-w-0 items-center" />
+        {/* À gauche, en face de la bulle de profil : « Mes suivis » et « Profils recherchés » (nom dès que la place le permet). */}
+        <div className="flex min-w-0 items-center gap-3 sm:gap-2">
+          {!player && !rail && <FollowStar n={followNews} />}
+          {!player && !rail && <AlertBell n={alerts} />}
+        </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
         {player || rail ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">
-          {!player && !rail && <FollowStar n={followNews} />}
-          {!player && !rail && <AlertBell n={alerts} />}
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
           {!rail && <ProfileButton />}
         </div>
