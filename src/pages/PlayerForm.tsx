@@ -96,10 +96,7 @@ export default function PlayerForm() {
       return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier cette fiche.</div>
     return (
       <div className="flex flex-col gap-4">
-        <button onClick={leave.go} className="self-start min-w-0 truncate text-xs font-bold text-muted">
-          ← {leave.label}
-        </button>
-        <h1 className="-mt-2 text-lg font-extrabold">{editing ? 'Modifier ma proposition' : `Proposer ${w(p.sex).unJoueur}`}</h1>
+        <h1 className="text-lg font-extrabold">{editing ? 'Modifier ma proposition' : `Proposer ${w(p.sex).unJoueur}`}</h1>
         <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl && !editing ? nav(`/joueurs/${pl.id}`, { replace: true }) : leave.exit())} />
       </div>
     )
@@ -114,12 +111,7 @@ export default function PlayerForm() {
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      <div className="flex items-center justify-between">
-        <button onClick={leave.go} className="min-w-0 truncate text-xs font-bold text-muted">
-          ← {leave.label}
-        </button>
-      </div>
-      <h1 className="-mt-1 text-lg font-extrabold">{editing ? 'Modifier la fiche' : w(p.sex).NouveauJoueur}</h1>
+      <h1 className="text-lg font-extrabold">{editing ? 'Modifier la fiche' : w(p.sex).NouveauJoueur}</h1>
 
       {error && <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
 

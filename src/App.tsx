@@ -108,8 +108,7 @@ const FollowStar = ({ n }: { n: number }) => <HeaderShortcut to="/suivis" icon="
 /**
  * Onglets (barre du bas sur téléphone, menu de gauche sur ordinateur). Réglages et Confidentialité sont dans le menu de la
  * bulle de profil de l'en-tête (src/components/ProfileMenu.tsx). Bilan : comptes qui voient le bilan de détection
- * (can.viewCoverage, comme la tuile de l'accueil), actif sur /bilan et ses sous-pages ; même carte que la tuile.
- * Garder TABS (src/backNav.tsx) à jour.
+ * (can.viewCoverage), actif sur /bilan et ses sous-pages.
  */
 const NAV = [
   { to: '/', label: 'Accueil', icon: 'M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z' },

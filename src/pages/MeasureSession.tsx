@@ -7,7 +7,6 @@ import { CriterionInput, fmtValue, getMe, groupBy, NoCriteria, QuarterBadge } fr
 import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
-import { PageHeader } from '../components/PageHeader'
 
 const OPEN_KEY = 'handbase.mesures.open'
 const readOpen = (): string[] => {
@@ -103,14 +102,6 @@ export default function MeasureSession() {
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      {/* Même en-tête que les autres pages : « ← DESTINATION » en capitales (l'écran d'où l'on vient, en général la fiche). */}
-      <PageHeader
-        back={
-          <button onClick={() => void cancel()} className="min-w-0 truncate text-left text-xs font-bold text-muted hover:text-fg" title="Retour">
-            ← {leave.label}
-          </button>
-        }
-      />
       <div>
         <h1 className="text-lg font-extrabold">Séance de tests</h1>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">

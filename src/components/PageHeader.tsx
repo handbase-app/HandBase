@@ -1,9 +1,11 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, isValidElement, useContext, type ReactNode } from 'react'
+import { BackButton, TabBackButton } from '../backNav'
 import { ItemMenu, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
 
 /*
  * En-tête d'une page de détail (événement, groupe, fiche joueur, séance de mesures, profil recherché…), même grammaire
- * partout : [← RETOUR (destination)] … [action principale éventuelle] [⋮].
+ * partout : [fermer le panneau, s'il y en a un] … [action principale éventuelle] [⋮]. Plus de « ← RETOUR » depuis le 26/10 :
+ * le retour passe par le téléphone, le navigateur ou le menu.
  * Les autres actions (Modifier, Archiver, Dupliquer, Copier le lien…) sont dans le ⋮ ; « Supprimer » y est toujours,
  * en rouge et en dernier, avec la confirmation de la page. Jamais de lien « Supprimer » à côté de « Modifier ».
  */
@@ -24,7 +26,8 @@ export function HeaderMenu({ title, subtitle, items, label = 'Plus d’actions' 
 }
 
 /**
- * La rangée d'en-tête : `back` (BackButton, PanelClose…), `action` (bouton principal éventuel), `menu` (actions du ⋮).
+ * La rangée d'en-tête : `back` (PanelClose… ; un BackButton n'affiche plus rien), `action` (bouton principal éventuel), `menu`
+ * (actions du ⋮).
  */
 export function PageHeader({
   back,
@@ -37,9 +40,12 @@ export function PageHeader({
   menu?: { title: ReactNode; subtitle?: ReactNode; items: (MenuItem | false | undefined | null)[] }
   className?: string
 }) {
+  // Plus de « ← … » (26/10) : un ancien bouton retour passé ici compte comme rien ; sans rien à gauche ni à droite, pas de rangée.
+  const left = isValidElement(back) && (back.type === BackButton || back.type === TabBackButton) ? null : back
+  if (!left && !action && !menu) return null
   return (
-    <div className={`flex min-h-8 items-center justify-between gap-3 ${className}`} data-page-header>
-      <div className="flex min-w-0 items-center">{back}</div>
+    <div className={`flex min-h-8 items-center ${left ? 'justify-between' : 'justify-end'} gap-3 ${className}`} data-page-header>
+      {left && <div className="flex min-w-0 items-center">{left}</div>}
       {(action || menu) && (
         <div className="flex shrink-0 items-center gap-2">
           {action}

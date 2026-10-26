@@ -170,20 +170,13 @@ export function BackTracker() {
   return null
 }
 
-/** Écran d'où l'on vient (même règle que useBack), ou undefined. */
-function previousPath(key: string, pathname: string): string | undefined {
-  return backTarget(map, key, pathname).target
-}
 
-// Onglets de la barre du bas (NAV, src/App.tsx) : on y revient par la barre, pas besoin de bouton retour vers eux.
-const TABS = new Set(['/', '/joueurs', '/evenements', '/groupes', '/bilan'])
-
-/** Bouton retour pour un onglet (ex. Joueurs) : seulement si l'on vient d'un autre écran que les onglets (bilan de détection, groupe…). */
-export function TabBackButton({ className = '' }: { className?: string }) {
-  const loc = useLocation()
-  const prev = previousPath(loc.key, loc.pathname)
-  if (!prev || TABS.has(prev)) return null
-  return <BackButton fallback="/" label="ACCUEIL" className={className} />
+/**
+ * Ancien bouton retour d'un onglet : plus affiché depuis le 26/10 (trop de place pour le gain). On revient en arrière par le
+ * geste ou le bouton Retour du téléphone, le navigateur ou le menu ; l'historique garde l'écran d'avant tel qu'on l'a laissé.
+ */
+export function TabBackButton(_props: { className?: string }) {
+  return null
 }
 
 /**
@@ -318,14 +311,12 @@ export function useTargetLabel(path?: string): string | undefined {
   return id ? (name ?? '…') : STATIC[path]
 }
 
-/** Bouton « ← … » en haut d'un écran. */
-export function BackButton({ fallback, label, className = '' }: { fallback: string; label: string; className?: string }) {
-  const back = useBack(fallback, label)
-  return (
-    <button onClick={back.leaveScreen} className={`min-w-0 truncate text-left text-xs font-bold text-muted ${className}`}>
-      ← {back.label}
-    </button>
-  )
+/**
+ * Ancien bouton « ← … » en haut d'un écran : plus affiché depuis le 26/10 (voir TabBackButton). Le retour par l'historique
+ * (useBack : Enregistrer, Annuler, Supprimer ramènent à l'écran d'origine dans le même état) ne change pas.
+ */
+export function BackButton(_props: { fallback: string; label: string; className?: string }) {
+  return null
 }
 
 // ---------- Fenêtres par-dessus l'écran : le geste Retour les ferme ----------

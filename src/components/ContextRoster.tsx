@@ -88,7 +88,6 @@ export function useRestoreScroll(key: string, ready: boolean) {
  */
 export function ContextRoster({
   base,
-  back,
   count,
   sections,
   number,
@@ -118,10 +117,8 @@ export function ContextRoster({
   }, [selected])
   return (
     <div ref={box} className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <button onClick={back.go} className="min-h-8 min-w-0 truncate text-left text-xs font-bold text-muted hover:text-fg" title="Revenir à la liste">
-          ← {back.label}
-        </button>
+      {/* Plus de « ← liste » (26/10) : le retour passe par le téléphone, le navigateur ou le menu ; le nombre reste. */}
+      <div className="flex items-baseline justify-end gap-2">
         <span className="shrink-0 text-[11px] text-muted">{count}</span>
       </div>
       <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={selContext(base)} sticky={false} className="flex flex-col gap-1.5">

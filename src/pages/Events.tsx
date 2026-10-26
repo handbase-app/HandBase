@@ -777,12 +777,8 @@ export function EventDetail() {
       {/* En-tête : retour, puis les actions de l'événement dans le ⋮ (Supprimer en dernier, avec confirmation). */}
       <PageHeader
         back={
-          avisPlayer && panel ? (
-            // Avis ouverts en pleine largeur : on revient à la liste des événements en fermant les avis.
-            <button onClick={() => showAvis(null)} title="Fermer les avis et afficher la liste des événements (Échap)" className="text-left text-xs font-bold text-muted hover:text-fg">
-              ← LISTE DES ÉVÉNEMENTS
-            </button>
-          ) : panel ? (
+          // Avis ouverts en pleine largeur : Échap (ou « avis » sur la ligne du joueur) les referme ; plus de « ← » (26/10).
+          avisPlayer && panel ? null : panel ? (
             <PanelClose />
           ) : (
             <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />

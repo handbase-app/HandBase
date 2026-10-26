@@ -238,8 +238,8 @@ export function NewAlert() {
 }
 
 /** Formulaire d'alerte, avec le nombre de joueurs qui correspondent en direct. */
-/** `backLabel` : l'écran où ramène « ← » (et Annuler). */
-function AlertForm({ alert, onDone, backLabel }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void; backLabel: string }) {
+/** `backLabel` : l'écran où ramène Annuler (plus de « ← » en haut depuis le 26/10). */
+function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void; backLabel: string }) {
   const role = useRole()
   useDepartments()
   const [name, setName] = useState(alert?.name ?? '')
@@ -289,9 +289,6 @@ function AlertForm({ alert, onDone, backLabel }: { alert?: PlayerAlert; onDone: 
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      <button onClick={() => onDone(alert)} className="self-start text-xs font-bold text-muted">
-        ← {backLabel}
-      </button>
       <h1 className="text-lg font-extrabold">{alert ? 'Modifier le profil recherché' : 'Nouveau profil recherché'}</h1>
 
       <div className="card flex flex-col gap-3 p-4">

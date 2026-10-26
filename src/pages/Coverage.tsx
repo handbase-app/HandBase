@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useAlerts } from '../alerts'
 import { bilanPart, cellText, countBy, defaultChoices, filterLine, leftOf, metaLine, namesAllowed, parseReportChoices, reportSearch, reportTitle, STAGE_COLUMN, stageOf, topTests, whereToGo, type ReportChoices } from '../bilanReport'
-import { BackButton, TabBackButton } from '../backNav'
+import { BackButton } from '../backNav'
 import { placeDepth, placeKey, placeParent, placeParents, placePlan, samePlace, type Place } from '../bilanNav'
 import { db, fmtDate, plural, today, type Player, type Unit } from '../db'
 import { listGender, pluralG, SEX_LABELS, SEX_SHORT, w, type Gender } from '../gender'
@@ -1242,7 +1242,7 @@ export default function Coverage() {
   const regionLabel = useRegionLabel()
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
-  const { st, set, busy, search, national, up, upPlace } = useBilanState()
+  const { st, set, busy, search, national } = useBilanState()
   const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, years: picked, region, dept } = st
   // Accord (src/gender.ts) : filtre « Féminin » du bilan (ou de la question posée) ; sinon masculin générique.
@@ -1709,15 +1709,7 @@ export default function Coverage() {
       {/* Fenêtre « Filtres » de la barre (posée au-dessus de la page) : rendue même quand les filtres sont repliés (téléphone). */}
       {bar.window}
       <div className="flex flex-col gap-2">
-        {/* Sur un lieu, le retour remonte d'un étage (club → département → région → France). Depuis la France : le bilan est un
-            onglet, retour seulement si l'on vient d'un autre écran que les onglets (TabBackButton). */}
-        {up && upPlace ? (
-          <button onClick={up} className="min-w-0 self-start truncate text-left text-xs font-bold text-muted">
-            ← {(upPlace.dept ? deptText(upPlace.dept) : upPlace.region ? regionLabel(upPlace.region) : 'France').toUpperCase()}
-          </button>
-        ) : (
-          <TabBackButton className="self-start" />
-        )}
+        {/* Plus de « ← lieu du dessus » (26/10) : le fil « France › Région › Département » remonte d'un étage. */}
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-lg font-extrabold">Bilan de détection</h1>
