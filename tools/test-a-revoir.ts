@@ -14,6 +14,8 @@ import {
   dateBucket,
   factMatches,
   groupRewatch,
+  GROUPINGS,
+  readGrouping,
   listOrigin,
   ORIGIN_KINDS,
   originFromPath,
@@ -258,6 +260,11 @@ const names = { event: (id: string) => ({ esp: 'Tournoi de l’Espenon', stage: 
   assert.deepEqual(byOrigin[byOrigin.length - 1].players.map((x) => x.playerId), ['p3'])
   assert.ok(byOrigin.some((c) => c.title === 'Stage de Toussaint'), 'ligne d’avant : l’événement d’origine')
   assert.ok(byOrigin.some((c) => c.title === 'Groupe « Repérés en tournoi »'))
+  // Rangement gardé sur l'appareil : l'ancien « par origine » devient « par événement ».
+  assert.deepEqual(GROUPINGS.map((g) => g.value), ['date', 'event', 'person'])
+  assert.equal(readGrouping('origin'), 'event')
+  assert.equal(readGrouping('person'), 'person')
+  assert.equal(readGrouping(null), 'date')
   // Un joueur avec deux « à revoir » dans la même carte : une seule ligne, les deux dedans (le plus récent d'abord).
   const two = groupRewatch([rows[1], rows[4]], 'date', ctx)
   assert.deepEqual(two.map((c) => [c.title, c.players.map((x) => [x.playerId, x.rows.map((y) => y.r.id)])]), [

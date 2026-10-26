@@ -397,13 +397,15 @@ export function readWanted(
 
 /** Rangement de la page « À revoir » : par date (jour, semaine, mois), par événement d'origine, par personne, par origine. */
 export type RewatchGrouping = 'date' | 'event' | 'person' | 'origin'
+/** Rangements proposés : par date, par événement, par personne (« Par origine » retiré du choix le 26/10, trop proche). */
 export const GROUPINGS: { value: RewatchGrouping; label: string }[] = [
   { value: 'date', label: 'Par date' },
   { value: 'event', label: 'Par événement' },
   { value: 'person', label: 'Par personne' },
-  { value: 'origin', label: 'Par origine' },
 ]
 export const isGrouping = (v: unknown): v is RewatchGrouping => GROUPINGS.some((g) => g.value === v)
+/** Rangement gardé sur l'appareil : l'ancien « par origine » devient « par événement » ; inconnu : par date. */
+export const readGrouping = (v: unknown): RewatchGrouping => (v === 'origin' ? 'event' : isGrouping(v) ? v : 'date')
 
 /**
  * Période d'une date de création, du plus récent au plus ancien : aujourd'hui, hier, cette semaine (depuis lundi), la

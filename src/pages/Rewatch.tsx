@@ -7,7 +7,7 @@ import { listGender, pluralG, w, type Gender } from '../gender'
 import { alive, db, fmtDate, today, type HBEvent, type Player, type PlayerGroup, type Rewatch } from '../db'
 import { useThrottledQuery } from '../live'
 import { useRole } from '../roles'
-import { createdAtOf, factMatches, GROUPINGS, groupRewatch, isGrouping, originEvent, rewatchLine, type OriginNames, type RankedRow, type RewatchCard, type RewatchGrouping } from '../rewatchCore'
+import { createdAtOf, factMatches, GROUPINGS, groupRewatch, readGrouping, originEvent, rewatchLine, type OriginNames, type RankedRow, type RewatchCard, type RewatchGrouping } from '../rewatchCore'
 import { isMyRewatch, revisitedAt, revisitedKeys, rewatchFact, setRevisited, staffMates } from '../scouting'
 import { EMPTY_QUERY, type JoueursQuery } from '../playerQuery'
 import { usePlayersQuery } from '../components/PlayersQuery'
@@ -30,10 +30,9 @@ import PlayerDetail from './PlayerDetail'
  *    « arevoir ») : nom, année, poste… et le filtre « À revoir » réglé en tête de la fenêtre « Filtres » (par moi ou tout
  *    mon staff, quand, repérés à, état ; au départ : pas encore revus). Une phrase marche comme sur la liste Joueurs
  *    (« mes à revoir du mois dernier », « ceux repérés au tournoi de l'Espenon »).
- *  - Dessous, un rangement d'un toucher (Par date, Par événement, Par personne, Par origine ; gardé sur l'appareil), puis
- *    une carte repliable par date, événement, personne ou origine (repliée par défaut, comme « Mes suivis » :
- *    src/components/FoldCard.tsx) ; sans origine connue (anciens « à revoir ») : « Sans origine » ou « Hors événement », à
- *    la fin.
+ *  - Dessous, un rangement d'un toucher (Par date, Par événement, Par personne ; gardé sur l'appareil), puis une carte
+ *    repliable par date, événement ou personne (repliée par défaut, comme « Mes suivis » : src/components/FoldCard.tsx) ;
+ *    « à revoir » posés hors d'un événement : « Hors événement », à la fin.
  *  - Dans une carte, une ligne compacte par joueur : un toucher sur le nom ouvre sa fiche dans le contexte de cette liste
  *    (/a-revoir/joueurs/:id, ‹ › sur téléphone, la liste à gauche sur ordinateur), « Retour » revient ici dans le même état
  *    (filtres, rangement, cartes ouvertes, position) ; le chevron déplie le détail : chaque « à revoir » en clair, son
@@ -52,8 +51,7 @@ const INITIAL: JoueursQuery = { ...EMPTY_QUERY, recipe: { ...EMPTY_QUERY.recipe,
 function useGrouping(): [RewatchGrouping, (g: RewatchGrouping) => void] {
   const [g, setG] = useState<RewatchGrouping>(() => {
     try {
-      const v = localStorage.getItem(GROUP_KEY)
-      return isGrouping(v) ? v : 'date'
+      return readGrouping(localStorage.getItem(GROUP_KEY))
     } catch {
       return 'date'
     }
