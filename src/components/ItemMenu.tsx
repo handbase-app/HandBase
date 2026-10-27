@@ -82,12 +82,15 @@ export function MenuButton({
   label,
   open = false,
   inLink = false,
+  small = false,
   className = '',
 }: {
   onOpen: (a: MenuAnchor) => void
   label: string
   open?: boolean
   inLink?: boolean
+  /** Plus petit et plus discret (lignes de joueurs, components/PlayerRow.tsx). */
+  small?: boolean
   className?: string
 }) {
   const go = (e: SyntheticEvent<HTMLElement>) => {
@@ -101,10 +104,10 @@ export function MenuButton({
     'aria-expanded': open,
     'aria-label': label,
     title: label,
-    className: `-my-2 shrink-0 cursor-pointer rounded-md p-2 text-muted/70 hover:text-fg ${className}`,
+    className: `-my-2 shrink-0 cursor-pointer rounded-md hover:text-fg ${small ? 'p-1.5 text-muted/55' : 'p-2 text-muted/70'} ${className}`,
     onClick: go,
   }
-  const icon = <Icon name="more" filled className="h-4 w-4" />
+  const icon = <Icon name="more" filled className={small ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
   if (inLink)
     return (
       <span role="button" tabIndex={0} {...props} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && go(e)}>

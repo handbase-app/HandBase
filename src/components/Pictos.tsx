@@ -395,6 +395,7 @@ export function PlayerList({
       const full = n.scrollWidth
       return two ? { full, on: Math.min(full, box - pics), off: box } : { full, on: Math.min(full, box), off: box + pics }
     })
+    edges(el)
     if (narrow) delete el.dataset.pm
     const lines = String(pictoLines(fits))
     if (el.dataset.pl !== lines) el.dataset.pl = lines
@@ -439,6 +440,29 @@ export function PlayerList({
       </SelectionProvider>
     </PictoCtx.Provider>
   )
+}
+
+/**
+ * Cadre des lignes en deux colonnes (.cols, src/index.css [data-pitem]) : la CSS arrondit le haut de la 1re ligne et le bas
+ * de la dernière ; ici, la 1re ligne de la 2e colonne (haut) et la dernière de l'autre colonne (bas), marquées data-pedge.
+ * Lu sur la mise en page déjà faite (position gauche des deux premières lignes de chaque suite), sans la changer ; écrit
+ * seulement ce qui change.
+ */
+function edges(el: HTMLElement) {
+  const want = new Map<HTMLElement, string>()
+  const seen = new Set<Element>()
+  for (const it of el.querySelectorAll<HTMLElement>('[data-pitem]')) {
+    const box = it.parentElement
+    if (!box || seen.has(box) || it.closest('[data-plist]') !== el) continue
+    seen.add(box)
+    const items = [...box.children].filter((c): c is HTMLElement => c instanceof HTMLElement && c.hasAttribute('data-pitem'))
+    if (items.length < 2 || items[1].offsetLeft === items[0].offsetLeft) continue
+    want.set(items[1], 't')
+    const last = items[items.length - 2]
+    want.set(last, want.has(last) ? 't b' : 'b')
+  }
+  for (const it of el.querySelectorAll<HTMLElement>('[data-pedge]')) if (!want.has(it)) delete it.dataset.pedge
+  for (const [it, v] of want) if (it.dataset.pedge !== v) it.dataset.pedge = v
 }
 
 // ---------- Pictogrammes d'une ligne ----------

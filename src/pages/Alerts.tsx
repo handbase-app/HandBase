@@ -207,7 +207,7 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
   return (
     <PlayerRow
       p={p}
-      className={fresh ? 'border-accent/70' : ''}
+      marked={fresh}
       link={{ to: `/joueurs/${p.id}` }}
       badges={fresh && <span className="rounded bg-accent px-1.5 py-px text-[9px] text-white">NOUVEAU</span>}
       lines={

@@ -238,7 +238,8 @@ export default function PoleSeason() {
         p={a.p}
         link={{ to: `/joueurs/${a.id}` }}
         pictos={false}
-        className="h-full border-accent/60"
+        className="h-full"
+        marked
         lines={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
             <Tag kind="nouveau" g={gg} />

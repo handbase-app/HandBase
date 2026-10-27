@@ -41,7 +41,7 @@ import { useDeptName, useGeo } from './FranceMap'
 import { FormActions, FormWindow } from './FormWindow'
 import { BarActions, MoreActions } from './PageHeader'
 import { useSessionState } from './PlayerFilter'
-import { PlayerRow, playerSub } from './PlayerRow'
+import { PlayerRow } from './PlayerRow'
 import { usePlayersQuery } from './PlayersQuery'
 import { PlayerList } from './Pictos'
 import { RencontreMap } from './RencontreMap'
@@ -387,7 +387,7 @@ function FixtureWindow({ f, m, ev, rs, onClose }: { f: Rencontre; m: FixtureMatc
                 link={{ to: `/joueurs/${x.player.id}` }}
                 // Confirmé (étape 2) : marqué ; « devrait jouer » est dit une fois, au-dessus.
                 badges={x.status === 'joue' && <span className="rounded bg-emerald-500/15 px-1 text-[10px] font-bold text-emerald-300">{STATUS_LABEL.joue}</span>}
-                sub={playerSub(x.player, f[x.side].team ? `Équipe ${f[x.side].team}` : '')}
+                pre={[!!f[x.side].team && `Équipe ${f[x.side].team}`]}
               />
             ))}
           </PlayerList>

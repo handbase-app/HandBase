@@ -1,9 +1,9 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { age, lateralityLabel, type Measurement, type Player } from '../db'
+import { age, type Measurement, type Player } from '../db'
 import { Empty, fmtValue } from '../components/ui'
-import { PlayerRow, playerSub } from '../components/PlayerRow'
+import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { BarActions, MoreActions } from '../components/PageHeader'
 import { ReviewBadge } from '../components/Review'
@@ -121,7 +121,7 @@ export default function Players() {
           {shown.map((p) => {
             const l = latest.get(p.id)
             // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
-            return <Row key={p.id} p={p} height={l?.get('taille')?.value} weight={l?.get('poids')?.value} v={valueOf(p)} selected={selected === p.id} tabQuery={tabQuery} />
+            return <Row key={p.id} p={p} height={l?.get('taille')?.value} v={valueOf(p)} selected={selected === p.id} tabQuery={tabQuery} />
           })}
           {!loading && filtered.length > shown.length && (
             <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
@@ -238,12 +238,10 @@ export default function Players() {
 }
 
 /**
- * Ligne de la liste : redessinée seulement si sa fiche, sa taille, son poids, sa valeur ou son état changent (pas quand la
+ * Ligne de la liste : redessinée seulement si sa fiche, sa taille, sa valeur ou son état changent (pas quand la
  * liste se recalcule avec les mêmes fiches : fin de la lecture de la base, suivis ou vidéos lus).
  */
-const Row = memo(function Row({ p, height, weight, v, selected, tabQuery }: { p: Player; height?: number | string; weight?: number | string; v: string; selected: boolean; tabQuery: string }) {
-  const a = age(p.birthDate)
-  const has = height !== undefined || weight !== undefined
+const Row = memo(function Row({ p, height, v, selected, tabQuery }: { p: Player; height?: number | string; v: string; selected: boolean; tabQuery: string }) {
   return (
     <PlayerRow
       p={p}
@@ -252,21 +250,10 @@ const Row = memo(function Row({ p, height, weight, v, selected, tabQuery }: { p:
       linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected || undefined }}
       deletable
       badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
-      sub={playerSub(p, a !== null && `${a} ans`)}
-      lines={
-        (has || p.laterality || v) && (
-          <>
-            {(has || p.laterality) && (
-              <span className="truncate text-[10px] text-muted">
-                {[height !== undefined && `${fmtValue(undefined, height)} cm`, weight !== undefined && `${fmtValue(undefined, weight)} kg`, lateralityLabel(p.laterality, p.sex)]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            )}
-            {v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
-          </>
-        )
-      }
+      // Année · trimestre · club · taille (l'âge en plus sur une ligne large) ; poids et latéralité restent sur la fiche.
+      age={age(p.birthDate)}
+      height={height !== undefined ? fmtValue(undefined, height) : undefined}
+      lines={v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}
     />
   )
 })

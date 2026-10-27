@@ -356,7 +356,7 @@ export function SqlAnswerView({
         {meta}
         <PlayerList ids={players.map((p) => p.id)}>
           {players.map((p) => (
-            <PlayerRow key={p.id} p={p} link={{ to: playerLink(p.id) }} sub={[p.birthDate?.slice(0, 4), p.club, extra.get(p.id)].filter(Boolean).join(' · ')} />
+            <PlayerRow key={p.id} p={p} link={{ to: playerLink(p.id) }} post={[extra.get(p.id)]} />
           ))}
         </PlayerList>
       </div>

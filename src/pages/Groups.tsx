@@ -1284,7 +1284,7 @@ function PlayerGroupDetail() {
           <PlayerRow
             key={p.id}
             p={p}
-            className={pick.picked.includes(p.id) ? 'border-accent' : ''}
+            marked={pick.picked.includes(p.id)}
             lead={
               <>
                 <PickBox pick={pick} p={p} />

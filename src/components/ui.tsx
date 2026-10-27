@@ -79,7 +79,7 @@ export function PosBadge({ pos }: { pos?: Position }) {
 }
 
 /** Poste principal (pastille) et postes secondaires, plus discrets : « Ailier G. + DC ». */
-/** Joueur au Pôle Espoirs en ce moment : pastille « PÔLE » (couleur réservée) ; voir aussi `poleEdge`. */
+/** Joueur au Pôle Espoirs en ce moment : pastille « PÔLE » (couleur réservée) ; dans les listes, « Pôle » (components/PlayerRow.tsx). */
 export function PoleBadge({ p }: { p: Pick<Player, 'poles'> }) {
   if (poleStatus(p) !== 'current') return null
   return (
@@ -88,9 +88,6 @@ export function PoleBadge({ p }: { p: Pick<Player, 'poles'> }) {
     </span>
   )
 }
-
-/** Liseré gauche d'une carte de joueur au Pôle Espoirs (même couleur que la pastille). */
-export const poleEdge = (p: Pick<Player, 'poles'>) => (poleStatus(p) === 'current' ? 'border-l-4 border-l-teal-500/70' : '')
 
 export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> & Partial<Pick<Player, 'poles'>> }) {
   const sec = (p.secondaryPositions ?? []).filter((x) => x !== p.position)
@@ -180,13 +177,15 @@ const QUARTER_STYLE = [
   'bg-red-500/20 text-red-300 border-red-500/40',
 ]
 const QUARTER_MONTHS = ['janvier–mars', 'avril–juin', 'juillet–septembre', 'octobre–décembre']
+/** « Né(e) au 2e trimestre (avril–juin) » : bulle du trimestre (pastille, ligne de joueur). */
+export const quarterTitle = (q: 1 | 2 | 3 | 4) => `Né(e) au ${q === 1 ? '1er' : `${q}e`} trimestre (${QUARTER_MONTHS[q - 1]})`
 
 /** Pastille Q1…Q4 : trimestre de naissance (effet de l'âge relatif). */
 export function QuarterBadge({ birthDate }: { birthDate?: string }) {
   const q = birthQuarter(birthDate)
   if (!q) return null
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${QUARTER_STYLE[q - 1]}`} title={`Né(e) au ${q === 1 ? '1er' : `${q}e`} trimestre (${QUARTER_MONTHS[q - 1]})`}>
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${QUARTER_STYLE[q - 1]}`} title={quarterTitle(q)}>
       Q{q}
     </span>
   )
