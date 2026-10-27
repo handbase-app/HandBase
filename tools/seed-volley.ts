@@ -107,11 +107,11 @@ export function phi(z: number): number {
   return z >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y)
 }
 export const sigmoid = (x: number) => 1 / (1 + Math.exp(-x))
-const clamp = (x: number, a: number, b: number) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), x))
-const lerp = ([a, b]: readonly [number, number], t: number) => a + (b - a) * clamp(t, 0, 1)
-const roundTo = (x: number, step: number) => Math.round(x / step) * step
-const r1 = (x: number) => Math.round(x * 10) / 10
-const r2 = (x: number) => Math.round(x * 100) / 100
+export const clamp = (x: number, a: number, b: number) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), x))
+export const lerp = ([a, b]: readonly [number, number], t: number) => a + (b - a) * clamp(t, 0, 1)
+export const roundTo = (x: number, step: number) => Math.round(x / step) * step
+export const r1 = (x: number) => Math.round(x * 10) / 10
+export const r2 = (x: number) => Math.round(x * 100) / 100
 
 /** Identifiant stable au format UUID (v5 : empreinte SHA-1 d'une clé). */
 export function seedUuid(key: string): string {
@@ -120,7 +120,7 @@ export function seedUuid(key: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`
 }
 
-const fold = (s: string) =>
+export const fold = (s: string) =>
   s
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -415,12 +415,12 @@ export const TOWN_LIST: Town[] = Object.entries(TOWNS).flatMap(([dept, s]) =>
 
 // ---------- Noms (prénoms et noms courants, mélangés au hasard : aucune personne réelle) ----------
 
-const FIRST_F = `Emma Léa Chloé Manon Inès Camille Sarah Jade Lola Louise Zoé Lilou Clara Lucie Juliette Anaïs Maëlys Ambre Lina Eva Romane Léna
+export const FIRST_F = `Emma Léa Chloé Manon Inès Camille Sarah Jade Lola Louise Zoé Lilou Clara Lucie Juliette Anaïs Maëlys Ambre Lina Eva Romane Léna
 Alice Mathilde Margaux Louna Mila Rose Agathe Charlotte Pauline Marie Julie Océane Laura Nina Elsa Salomé Justine Noémie Clémence Maëva Lisa
 Célia Héloïse Capucine Apolline Elena Lou Léonie Victoire Alicia Mélissa Lana Emy Maya Yasmine Aya Maïa Coline Valentine Constance Lise Margot
 Gabrielle Albane Énora Nolwenn Axelle Oriane Marine Morgane Solène Elisa Anna Jeanne Adèle Iris Lily Alix Garance Candice Faustine Cassandre
 Naomi Kenza Chiara Thaïs Méline Lyna Shana Nora Eléa Louane Mélina Sofia Amandine Estelle Tiphaine`.split(/\s+/)
-const FIRST_M = `Lucas Hugo Nathan Enzo Théo Mathis Louis Gabriel Jules Ethan Noah Tom Maël Clément Raphaël Arthur Paul Thomas Baptiste Maxime
+export const FIRST_M = `Lucas Hugo Nathan Enzo Théo Mathis Louis Gabriel Jules Ethan Noah Tom Maël Clément Raphaël Arthur Paul Thomas Baptiste Maxime
 Alexandre Antoine Valentin Mathéo Timéo Evan Nolan Sacha Adam Rayan Yanis Axel Léo Victor Romain Quentin Matteo Ewen Lenny Noa Aaron Mohamed
 Ilyes Liam Malo Gabin Esteban Léon Martin Simon Samuel Benjamin Robin Corentin Florian Adrien Kylian Mathias Loïc Bastien Dylan Alexis Titouan
 Elouan Erwan Lorenzo Marius Gaspard Côme Augustin Félix Isaac Nathanaël Tristan Jordan Hamza Ismaël Ryan Bilal Amir Elias Noam Thibault Pierre
@@ -438,7 +438,7 @@ Collin Chauvin Bouchet Gay Lemaître Bénard Maréchal Humbert Reynaud Antoine P
 Pasquier Carlier Laporte Diallo Traoré Benali Haddad Mendy Nguyen Ferreira Pereira Santos Costa Rossi Bianchi Kaya Yilmaz Diop Camara Sylla
 Cissé Fofana Mbaye Le Gall Le Roux Le Goff Da Silva Kerboul Tanguy Riou Quéré Abgrall Le Bihan Le Corre Jaouen`.split(/\n/).flatMap((l) => l.split(' '))
 // Noms composés réassemblés (« Le Gall », « Da Silva »…).
-const LASTNAMES = (() => {
+export const LASTNAMES = (() => {
   const out: string[] = []
   for (let i = 0; i < LAST.length; i++) {
     if ((LAST[i] === 'Le' || LAST[i] === 'Da') && LAST[i + 1]) out.push(`${LAST[i]} ${LAST[++i]}`)
@@ -447,7 +447,7 @@ const LASTNAMES = (() => {
   return out
 })()
 /** Noms courants des territoires ultramarins (mélangés aux autres). */
-const LAST_OM: Record<string, string[]> = {
+export const LAST_OM: Record<string, string[]> = {
   '971': 'Jean-Baptiste Joseph Laurent Pierre-Louis Sainte-Rose Mondésir Félicité Edmond Gustave Dorville Charlery Bellance Clotilde Rosine'.split(' '),
   '972': 'Jean-Baptiste Joseph Laurent Pierre-Louis Sainte-Rose Mondésir Félicité Edmond Gustave Dorville Charlery Bellance Clotilde Rosine'.split(' '),
   '973': 'Jean-Baptiste Joseph Laurent Pierre-Louis Edmond Gustave Félicité Lubin Rosine Dorville'.split(' '),
@@ -589,7 +589,7 @@ export const YEARS = [2008, 2009, 2010, 2011, 2012, 2013] as const
 const YEAR_W: Record<number, number> = { 2008: 0.172, 2009: 0.188, 2010: 0.188, 2011: 0.17, 2012: 0.17, 2013: 0.112 }
 const GIRLS: Record<number, number> = { 2008: 0.57, 2009: 0.57, 2010: 0.57, 2011: 0.61, 2012: 0.61, 2013: 0.55 }
 /** Naissances un peu plus nombreuses en début d'année parmi les licenciés (effet de l'âge relatif, accentué ensuite par la sélection). */
-const MONTH_W = [1.1, 1.08, 1.07, 1.05, 1.03, 1.0, 0.99, 0.97, 0.96, 0.94, 0.92, 0.9]
+export const MONTH_W = [1.1, 1.08, 1.07, 1.05, 1.03, 1.0, 0.99, 0.97, 0.96, 0.94, 0.92, 0.9]
 /** Départements « en retard » : peu vus, peu mesurés (« Où aller ? » a du relief). L'outre-mer est aussi moins couvert. */
 export const BEHIND = new Set(['02', '23', '36', '52', '58', '93'])
 const deptFactor = (d: Dept) => (BEHIND.has(d.code) ? 0.12 : d.code.length === 3 ? 0.5 : d.code === '2A' || d.code === '2B' ? 0.6 : 1)
@@ -644,7 +644,7 @@ export interface SeedPlayer {
 
 // ---------- Structure : fédération, ligues, comités, clubs, pôles ----------
 
-const de = (t: string) => (/^Le /.test(t) ? `du ${t.slice(3)}` : /^Les /.test(t) ? `des ${t.slice(4)}` : /^[aeiou]/.test(fold(t)) ? `d'${t}` : `de ${t}`)
+export const de = (t: string) => (/^Le /.test(t) ? `du ${t.slice(3)}` : /^Les /.test(t) ? `des ${t.slice(4)}` : /^[aeiou]/.test(fold(t)) ? `d'${t}` : `de ${t}`)
 
 /** Villes de clubs professionnels ou très connus : on y évite les noms les plus proches des vrais clubs. */
 const KNOWN_CITIES = new Set(
@@ -677,7 +677,7 @@ const PATTERNS: Pattern[] = [
 const RISKY = new Set([2, 3, 12])
 
 /** Arrondissement d'un code postal de Paris, Lyon, Marseille (« 3e », « 1er »). */
-const arrondissement = (cp: string) => {
+export const arrondissement = (cp: string) => {
   const n = Number(cp.slice(3))
   return n === 1 ? '1er' : `${n}e`
 }
@@ -797,9 +797,9 @@ export function buildStructure(): Structure {
 // ---------- Joueuses et joueurs ----------
 
 const pickYear = (d: Draw) => YEARS[d.weighted(YEARS.map((y) => YEAR_W[y]))]
-const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate()
-const fmtDay = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-const dayOfYear = (y: number, m: number, d: number) => (Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 1)) / 864e5
+export const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate()
+export const fmtDay = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+export const dayOfYear = (y: number, m: number, d: number) => (Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 1)) / 864e5
 
 /** Âge décimal à une date. */
 export const decimalAge = (birth: string, date: string) => (Date.parse(date) - Date.parse(birth)) / (365.25 * 864e5)
@@ -810,10 +810,10 @@ export const categoryOf = (year: number, date: string): Cat => {
   return a <= 13 ? 'M13' : a <= 15 ? 'M15' : 'M18'
 }
 /** Effet de la maturité selon l'âge (fort à 12-14 ans, faible à 17-18 ans). */
-const maturityWeight = (age: number) => clamp((17.5 - age) / 4.5, 0.2, 1)
+export const maturityWeight = (age: number) => clamp((17.5 - age) / 4.5, 0.2, 1)
 
 const POS_BASE: Record<string, [number, number]> = { R4: [0.43, 0], C: [0.215, 0.85], PT: [0.215, 0.35], P: [0.135, -0.8] }
-const NATIONALITIES = ['Portugaise', 'Marocaine', 'Algérienne', 'Italienne', 'Espagnole', 'Belge', 'Tunisienne', 'Sénégalaise', 'Polonaise', 'Roumaine', 'Brésilienne', 'Camerounaise']
+export const NATIONALITIES = ['Portugaise', 'Marocaine', 'Algérienne', 'Italienne', 'Espagnole', 'Belge', 'Tunisienne', 'Sénégalaise', 'Polonaise', 'Roumaine', 'Brésilienne', 'Camerounaise']
 
 export function buildPlayers(st: Structure): SeedPlayer[] {
   const clubW = st.clubs.map((c) => c.weight * (c.dept.code.length === 3 ? 1.15 : 1))
@@ -1260,7 +1260,7 @@ export function parisIso(day: string, hh: number, mm: number): string {
   const summer = (m > 3 && m < 10) || (m === 3 && d >= lastSunday(y, 3)) || (m === 10 && d < lastSunday(y, 10))
   return new Date(Date.UTC(y, m - 1, d, hh - (summer ? 2 : 1), mm)).toISOString()
 }
-const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10)
+export const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10)
 
 // ---------- « Vu » et avis ----------
 
@@ -1536,7 +1536,7 @@ export function buildGroups(st: Structure, players: SeedPlayer[], poles: PoleOut
 }
 
 /** Lien générique déjà utilisé par la démo locale (src/demoVolley.ts) : aucun mineur à l'image. */
-const GENERIC_VIDEO = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
+export const GENERIC_VIDEO = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
 
 export function buildVideos(players: SeedPlayer[], events: SeedEvent[]): Row[] {
   const note = (skill: VolleySkill, outcome: VolleyOutcome, more?: string) => `${volleyNote(skill, outcome)}${more ? ` · ${more}` : ''}`
@@ -1703,7 +1703,7 @@ set local statement_timeout = 0;
 create temp table seed_stamp on commit drop as select (extract(epoch from now()) * 1000)::bigint as ms, now() as started;
 `
 
-const LEVELS_SQL = `-- Niveaux de structure (déjà posés par supabase/044_structure.sql : rien ne change s'ils sont là).
+export const LEVELS_SQL = `-- Niveaux de structure (déjà posés par supabase/044_structure.sql : rien ne change s'ils sont là).
 insert into public.hb_levels (id, data, updated_at_client)
 select l.id, jsonb_build_object('id', l.id, 'name', l.name, 'order', l.ord, 'updatedAt', 1), 1
   from (values ('niveau-federation', 'Fédération', 1), ('niveau-ligue', 'Ligue', 2), ('niveau-comite', 'Comité', 3),
