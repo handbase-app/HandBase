@@ -2128,7 +2128,6 @@ function QuestionBanner({
 function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>; players: Player[]; text: (p: Player) => string; what: QuestionTexts }) {
   const { search } = useContext(WhoCtx)
   const t = what.total(club as QClub<Player>)
-  const year = (p: Player) => p.birthDate?.slice(0, 4) ?? ''
   return (
     <div className="card flex flex-col gap-2 p-3">
       <div className="min-w-0">
@@ -2138,7 +2137,7 @@ function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>
       {players.length ? (
         <PlayerList ids={players.map((p) => p.id)}>
           {players.map((p) => (
-            <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} sub={[year(p), text(p)].filter(Boolean).join(' · ')} />
+            <PlayerRow key={p.id} p={p} link={{ to: `/bilan/joueurs/${p.id}${search}` }} club={false} post={[text(p)]} />
           ))}
         </PlayerList>
       ) : (
@@ -2259,7 +2258,6 @@ function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string;
   // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou ‹ › (téléphone), retour à l'identique.
   const linkTo = (p: Player) => ({ to: `/bilan/joueurs/${p.id}${search}` })
   const addEvents = can.manageEvents(role)
-  const year = (p: Player) => p.birthDate?.slice(0, 4) ?? ''
   return (
     <div className="card flex flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -2285,7 +2283,7 @@ function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string;
               key={p.id}
               p={p}
               link={linkTo(p)}
-              sub={year(p)}
+              club={false}
               actions={
                 addEvents && (
                   <button type="button" className="-my-2 shrink-0 p-2 text-muted hover:text-accent" title="Ajouter à un événement" aria-label="Ajouter à un événement" onClick={() => setAdding([p.id])}>
@@ -2318,7 +2316,8 @@ function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string;
                   key={p.id}
                   p={p}
                   link={linkTo(p)}
-                  sub={[year(p), o === 'vus' && sightText(last.get(p.id), p.sex)].filter(Boolean).join(' · ')}
+                  club={false}
+                  post={[o === 'vus' && sightText(last.get(p.id), p.sex)]}
                 />
               ))}
             </div>

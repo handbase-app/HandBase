@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
 import { Empty, Icon, QuarterBadge } from '../components/ui'
-import { PlayerRow, playerSub } from '../components/PlayerRow'
+import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
@@ -1199,13 +1199,15 @@ export function EventDetail() {
                   const n = evals.filter((e) => e.playerId === p.id).length
                   return (
                     // Avis ouverts : le joueur prend toute la ligne.
-                    <div key={p.id} data-avis-row={p.id} className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full' : ''}`}>
+                    // Élément de la liste (cadre des lignes, src/index.css [data-pitem]) : la ligne et, ouverts, ses avis dessous.
+                    <div key={p.id} data-avis-row={p.id} data-pitem="" className={`flex flex-col gap-2 ${openAvis === p.id && !duo ? 'col-span-full pb-2' : ''}`}>
                     {/* La photo ouvre la fiche dans l'événement (ses joueurs seulement autour, EventPlayers.tsx ; le retour revient
                         ici, à la même position) ; le reste de la ligne mène à l'évaluation. */}
                     <PlayerRow
                       p={p}
+                      item={false}
                       selected={duo && openAvis === p.id}
-                      className={pick.picked.includes(p.id) ? 'border-accent' : ''}
+                      marked={pick.picked.includes(p.id)}
                       lead={
                         <>
                           <PickBox pick={pick} p={p} />
@@ -1216,7 +1218,7 @@ export function EventDetail() {
                       }
                       avatarLink={{ to: `/evenements/${ev.id}/joueurs/${p.id}`, state: { md: true }, onClick: () => rememberScroll(`evenement.${ev.id}`) }}
                       link={{ to: `/evaluer?evenement=${ev.id}&joueur=${p.id}` }}
-                      sub={playerSub(p, !byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id))}
+                      pre={[!byTeam && numOf(ev, p.id) && `n° ${numOf(ev, p.id)}`, !byTeam && teamName(p.id)]}
                       lines={
                         <>
                           {!!ev.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
@@ -1251,7 +1253,7 @@ export function EventDetail() {
                         )
                       }
                     />
-                    {openAvis === p.id && !duo && <EventAvis player={p} evals={evals} criteria={criteria} event={ev} />}
+                    {openAvis === p.id && !duo && <div className="px-2"><EventAvis player={p} evals={evals} criteria={criteria} event={ev} /></div>}
                     </div>
                   )
                   }}

@@ -113,6 +113,45 @@ html { touch-action: pan-x pan-y; }
 /* Sélection multiple (components/Selection.tsx) : la case à cocher prend la place du « ⋮ » (le menu de la ligne reste
    au clic droit et à l'appui long ; les actions de la sélection sont dans la barre du bas). Règle de place recalculée. */
 [data-sel] [data-pmenu] { display: none; }
+/* Listes de joueurs, style « liste épurée » (components/PlayerRow.tsx, choisi le 27/10/2026) : les lignes d'une liste
+   (data-pitem : une ligne, ou une ligne et ce qui s'ouvre dessous) forment UN cadre de la couleur des cartes, aux coins
+   des fenêtres, séparées par un filet fin ; plus de carte par joueur. Une suite de lignes = un cadre : une section (poste,
+   équipe) ou une colonne a le sien. Pas d'écart entre les lignes ; un écart avant et après le cadre (barre de la liste,
+   « Afficher plus »…). Le menu d'une ligne (div.contents) ne compte pas. Deux colonnes (.cols) : chaque colonne a son
+   cadre ; la 1re et la dernière ligne de la 2e colonne sont marquées par la liste (data-pedge, components/Pictos.tsx). */
+:has(> [data-pitem]) { row-gap: 0; }
+[data-pitem] + :not([data-pitem], .contents),
+:not([data-pitem], .contents) + [data-pitem] { margin-top: 0.5rem; }
+@layer components {
+  [data-pitem] {
+    background-color: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-top-color: color-mix(in srgb, var(--color-line) 60%, transparent);
+    border-bottom-width: 0;
+    border-radius: 0;
+  }
+  [data-pitem]:nth-child(1 of [data-pitem]),
+  :not([data-pitem], .contents) + [data-pitem],
+  [data-pitem][data-pedge~="t"] {
+    border-top-color: var(--color-line);
+    border-top-left-radius: var(--radius-win);
+    border-top-right-radius: var(--radius-win);
+  }
+  [data-pitem]:nth-last-child(1 of [data-pitem]),
+  [data-pitem]:has(+ :not([data-pitem], .contents)),
+  [data-pitem][data-pedge~="b"] {
+    border-bottom-width: 1px;
+    border-bottom-left-radius: var(--radius-win);
+    border-bottom-right-radius: var(--radius-win);
+  }
+  /* Ligne dans un élément plus grand (page d'un événement) : sa teinte suit les coins de l'élément. */
+  [data-pitem] > [data-prow] { border-radius: inherit; }
+  /* Survol, appui, focus clavier : fond légèrement teinté, posé sur la couleur des cartes. Ligne ouverte, cochée ou mise
+     en avant : teinte de l'accent. */
+  .prow-hit:hover, .prow-hit:has(:focus-visible) { background-image: linear-gradient(color-mix(in srgb, var(--color-fg) 4%, transparent) 0 0); }
+  .prow-hit:active { background-image: linear-gradient(color-mix(in srgb, var(--color-fg) 7%, transparent) 0 0); }
+  .prow-on, .prow-on:is(:hover, :active, :has(:focus-visible)) { background-image: linear-gradient(color-mix(in srgb, var(--color-accent) 11%, transparent) 0 0); }
+}
 body {
   margin: 0;
   background: var(--color-bg);

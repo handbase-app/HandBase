@@ -83,7 +83,7 @@ export default function ReviewPage() {
         p={p}
         link={{ to: `/joueurs/${p.id}` }}
         badges={<ReviewBadge e={p} kind="players" />}
-        sub={[p.birthDate && p.birthDate.slice(0, 4), sexLabel(p.sex).toLowerCase(), p.club, d && departmentLabel(d)].filter(Boolean).join(' · ')}
+        post={[sexLabel(p.sex).toLowerCase(), d && departmentLabel(d)]}
         lines={
           <>
             {!d && <span className="text-[10px] text-amber-200">Département inconnu : à valider par un administrateur.</span>}

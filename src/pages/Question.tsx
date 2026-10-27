@@ -479,7 +479,7 @@ function AnswerView({
                 key={p.id}
                 p={p}
                 link={{ to: `/bilan/question/joueurs/${p.id}${search}` }}
-                sub={[p.birthDate?.slice(0, 4), p.club, valueText(recipe, model.names, value, tag)].filter(Boolean).join(' · ')}
+                post={[valueText(recipe, model.names, value, tag)]}
               />
             ))}
           </PlayerList>
