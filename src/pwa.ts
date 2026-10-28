@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 import { hasUnsaved } from './components/Confirm'
+import { versionHooks } from './sync'
 import { versionCheckDelay } from './syncLive'
 
 /*
@@ -17,8 +18,8 @@ const EVERY = 5 * 60 * 1000
 const SLOW_EVERY = 30 * 60 * 1000
 let liveNews = false
 let lastCheck = 0
-/** Les nouvelles versions sont annoncées en direct : vérifications de fond espacées. */
-export const setLiveVersionNews = (on: boolean) => {
+/** Les nouvelles versions sont annoncées en direct (src/sync.ts) : vérifications de fond espacées. */
+const setLiveVersionNews = (on: boolean) => {
   liveNews = on
 }
 
@@ -94,6 +95,9 @@ const FORM_PAGE = /\/(nouveau|nouvelle|modifier|mesures)$|\/(evaluer|parametres)
 const safe = () => !hasUnsaved() && !FORM_PAGE.test(location.pathname)
 
 export function startPwaUpdates() {
+  // Annonces du serveur (canal commun, src/sync.ts) : vérification étalée ; vérifications de fond espacées tant que ça marche.
+  versionHooks.announced = versionAnnounced
+  versionHooks.live = setLiveVersionNews
   if (!('serviceWorker' in navigator)) return
   // Nouvelle version prête (en attente), et nouvelle version déjà active dans un autre onglet.
   let waiting = false

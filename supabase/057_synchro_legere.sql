@@ -125,7 +125,7 @@ begin
     when 'hb_players' then
       v_out := v_perimetre;
       if exists (select 1 from public.hb_profiles where role = 'joueur' and player_id = p_row ->> 'id') then
-        v_out := v_out || ('hb:joueur:' || (p_row ->> 'id'));
+        v_out := array_append(v_out, 'hb:joueur:' || (p_row ->> 'id'));
       end if;
     when 'hb_measurements', 'hb_evaluations', 'hb_seen', 'hb_rewatch' then
       v_out := v_perimetre;
@@ -196,12 +196,12 @@ begin
   select role, player_id into v_role, v_pid from public.hb_profiles where user_id = v_uid;
   v_out := array['hb:commun', 'hb:compte:' || v_uid::text];
   if v_role = 'joueur' then
-    if coalesce(v_pid, '') <> '' then v_out := v_out || ('hb:joueur:' || v_pid); end if;
+    if coalesce(v_pid, '') <> '' then v_out := array_append(v_out, 'hb:joueur:' || v_pid); end if;
   elsif v_role in ('admin', 'preparateur', 'observateur') then
-    v_out := v_out || 'hb:staff';
+    v_out := array_append(v_out, 'hb:staff');
     select * into s from public.hb_scope_of(v_uid);
     if s.all_ then
-      v_out := v_out || 'hb:tout';
+      v_out := array_append(v_out, 'hb:tout');
     else
       v_out := v_out || array(select 'hb:dept:' || x from unnest(s.depts) x where coalesce(x, '') <> '')
                      || array(select 'hb:club:' || x from unnest(s.clubs) x where coalesce(x, '') <> '');

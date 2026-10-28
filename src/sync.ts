@@ -8,7 +8,6 @@ import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
 import { playerReadsTable } from './playerSpace'
-import { versionAnnounced, setLiveVersionNews } from './pwa'
 import { CONTENT_TABLES, dueForSync, Grouper, keepRows, LIVE_EVENTS, parseSignal, planPull, pullDelay, type ServerRow, type WhatsNew } from './syncLive'
 
 /*
@@ -58,6 +57,11 @@ let lastError = ''
 let live = false
 /** En direct par les canaux privés de 057 (signaux ciblés) : le filet de sécurité peut espacer les synchronisations complètes. */
 let liveSignals = false
+/**
+ * Branchements de src/pwa.ts (posés par startPwaUpdates ; pwa.ts importe ce fichier, pas l'inverse : les tests chargent sync.ts
+ * sans le service worker) : nouvelle version annoncée en direct ; annonces disponibles (vérifications de fond espacées).
+ */
+export const versionHooks: { announced: (v: unknown) => void; live: (on: boolean) => void } = { announced: () => {}, live: () => {} }
 /** Avancement d'un gros téléchargement en cours (null sinon). */
 let progress: SyncProgress | null = null
 const listeners = new Set<() => void>()
@@ -757,7 +761,7 @@ const setLive = (signalsOn: boolean, on: boolean) => {
   const was = live
   live = on
   liveSignals = on && signalsOn
-  setLiveVersionNews(liveSignals)
+  versionHooks.live(liveSignals)
   // En (re)connexion, on rattrape ce qui a pu changer pendant la coupure.
   if (live && !was) syncSoon(0)
   listeners.forEach((l) => l())
@@ -808,7 +812,7 @@ function openChannels(topics: string[]) {
 /** Un message reçu sur un canal privé. */
 function onLiveMessage(topic: string, event: string, payload: unknown) {
   if (event === 'version') {
-    versionAnnounced((payload as { v?: unknown } | undefined)?.v)
+    versionHooks.announced((payload as { v?: unknown } | undefined)?.v)
     return
   }
   const s = parseSignal(payload, SYNC_TABLES)
