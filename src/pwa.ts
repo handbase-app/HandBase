@@ -2,15 +2,25 @@
 import { useSyncExternalStore } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 import { hasUnsaved } from './components/Confirm'
+import { versionCheckDelay } from './syncLive'
 
 /*
  * Mises à jour de l'appli installée : on regarde s'il y a une nouvelle version au retour sur l'appli et
  * toutes les 5 minutes tant qu'elle est ouverte. Elle s'installe en attente : un bandeau propose
  * « Mettre à jour » (un appui, sans fermer l'appli). En arrière-plan, elle se recharge seule si rien
  * n'est en cours de saisie.
+ * Nouvelle version annoncée en direct par le serveur (supabase/057, hb_annoncer_version, reçue par src/sync.ts) : on vérifie
+ * dans les 30 secondes (étalées entre les appareils) ; les vérifications de fond passent alors à 30 minutes (filet de sécurité).
  */
 
 const EVERY = 5 * 60 * 1000
+const SLOW_EVERY = 30 * 60 * 1000
+let liveNews = false
+let lastCheck = 0
+/** Les nouvelles versions sont annoncées en direct : vérifications de fond espacées. */
+export const setLiveVersionNews = (on: boolean) => {
+  liveNews = on
+}
 
 declare const __BUILD_TIME__: string
 /** Date de construction de la version affichée (vite.config.ts). */
@@ -42,6 +52,7 @@ export async function checkForUpdate(): Promise<'ready' | 'latest' | 'offline' |
   if (!navigator.onLine) return 'offline'
   const reg = registration
   if (!reg) return 'unavailable'
+  lastCheck = Date.now()
   try {
     await reg.update()
   } catch {
@@ -65,6 +76,18 @@ export async function checkForUpdate(): Promise<'ready' | 'latest' | 'offline' |
 
 /** Appui sur « Mettre à jour » : l'appli se recharge sur la nouvelle version. */
 export const applyUpdate = () => applyNow()
+
+/**
+ * Nouvelle version annoncée par le serveur (v : son heure de construction, ou un libellé) : vérification dans les 30 s,
+ * étalée entre les appareils ; rien si c'est déjà la mienne. Le bandeau « Mettre à jour » suit (onNeedRefresh).
+ */
+let announced: number | undefined
+export function versionAnnounced(v: unknown) {
+  const delay = versionCheckDelay(v, BUILD_TIME)
+  if (delay === null) return
+  window.clearTimeout(announced)
+  announced = window.setTimeout(() => void checkForUpdate(), delay)
+}
 // Formulaires : une saisie peut y attendre sans être signalée (fiche, alerte, groupe, réglages…).
 const FORM_PAGE = /\/(nouveau|nouvelle|modifier|mesures)$|\/(evaluer|parametres)$/
 
@@ -108,9 +131,12 @@ export function startPwaUpdates() {
       if (!reg) return
       registration = reg
       const check = () => {
-        if (navigator.onLine && !reg.installing) void reg.update().catch(() => undefined)
+        if (!navigator.onLine || reg.installing) return
+        lastCheck = Date.now()
+        void reg.update().catch(() => undefined)
       }
-      setInterval(() => document.visibilityState === 'visible' && check(), EVERY)
+      // De fond : toutes les 5 minutes ; 30 quand les versions sont annoncées en direct.
+      setInterval(() => document.visibilityState === 'visible' && (!liveNews || Date.now() - lastCheck >= SLOW_EVERY) && check(), EVERY)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') check()
         apply()

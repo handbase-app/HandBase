@@ -8,6 +8,8 @@ import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
 import { playerReadsTable } from './playerSpace'
+import { versionAnnounced, setLiveVersionNews } from './pwa'
+import { CONTENT_TABLES, dueForSync, Grouper, keepRows, LIVE_EVENTS, parseSignal, planPull, pullDelay, type ServerRow, type WhatsNew } from './syncLive'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -18,6 +20,19 @@ import { playerReadsTable } from './playerSpace'
  *  - en direct : le serveur prévient (Supabase Realtime) dès qu'une donnée change, et l'appli
  *    va chercher les nouveautés aussitôt (sinon, au plus tard toutes les minutes).
  * Sans configuration Supabase, l'application fonctionne en local uniquement.
+ *
+ * Synchronisation ALLÉGÉE (supabase/057_synchro_legere.sql, règles pures dans src/syncLive.ts) :
+ *  - une synchronisation complète demande d'abord « quoi de neuf ? » (hb_quoi_de_neuf : une requête, les curseurs de
+ *    toutes les tables) et ne relit que les tables signalées ; rien de changé : une seule requête ;
+ *  - en direct, le serveur envoie un SIGNAL ({t, id, v} : ni nom ni contenu) sur des canaux privés par périmètre
+ *    (hb:dept:…, hb:club:…, hb:tout, hb:compte:…, hb:joueur:…, hb:staff, hb:commun ; liste donnée par hb_mes_canaux) ;
+ *    l'appli ne relit que la table signalée, après 1,5 s de regroupement (canaux larges : + 0 à 10 s au hasard) ;
+ *    configuration, critères et niveaux arrivent avec leur contenu (appliqué comme une ligne relue, curseur inchangé) ;
+ *  - une écriture de l'appareil n'envoie que la file (sa ligne revient par le signal) ;
+ *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes
+ *    sinon ; toujours au retour sur l'appli et au retour du réseau ;
+ *  - une nouvelle version annoncée (hb_annoncer_version, canal commun) : vérification de la mise à jour dans les 30 s.
+ *  Serveur sans 057 (fonctions absentes) : relecture complète des 19 tables et postgres_changes, comme avant.
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -39,8 +54,10 @@ export type SyncState = 'local' | 'login' | 'offline' | 'syncing' | 'synced' | '
 
 let state: SyncState = syncEnabled ? (navigator.onLine ? 'synced' : 'offline') : 'local'
 let lastError = ''
-/** Connexion « en direct » active (notifications du serveur reçues). */
+/** Connexion « en direct » active (notifications du serveur reçues : canaux privés, ou postgres_changes à défaut). */
 let live = false
+/** En direct par les canaux privés de 057 (signaux ciblés) : le filet de sécurité peut espacer les synchronisations complètes. */
+let liveSignals = false
 /** Avancement d'un gros téléchargement en cours (null sinon). */
 let progress: SyncProgress | null = null
 const listeners = new Set<() => void>()
@@ -138,10 +155,19 @@ export async function wipeDevice({ signOut = false } = {}) {
 }
 
 let running: Promise<void> | null = null
+/** Une synchronisation complète est demandée dès que celle en cours se termine. */
 let again = false
+/** Tables demandées (signaux reçus pendant une synchronisation) : relues ensuite, si aucune complète n'est demandée. */
+let asked: Set<SyncTable> | null = null
+/** Début de la dernière synchronisation complète (filet de sécurité, src/syncLive.ts dueForSync). */
+let lastFull = 0
 
-/** Lance une synchronisation (ou attend celle en cours). retry : renvoie aussi les modifications mises de côté. */
-export async function syncNow({ retry = false } = {}): Promise<void> {
+/**
+ * Lance une synchronisation (ou attend celle en cours). retry : renvoie aussi les modifications mises de côté.
+ * tables : synchronisation CIBLÉE (envoi de la file, puis relecture de ces seules tables ; vide : envoi seul) ; sans tables :
+ * complète (envoi, « quoi de neuf ? », relecture des tables signalées, vérifications).
+ */
+export async function syncNow({ retry = false, tables }: { retry?: boolean; tables?: Iterable<SyncTable> } = {}): Promise<void> {
   if (!supabase || wiping) return
   if (retry) {
     setAside.clear()
@@ -149,37 +175,47 @@ export async function syncNow({ retry = false } = {}): Promise<void> {
   }
   if (!navigator.onLine) return setState('offline')
   if (running) {
-    again = true
+    // Ciblée pendant une autre : ses tables attendent (vide : seulement l'envoi de la file, qui a peut-être déjà eu lieu).
+    if (tables) {
+      asked ??= new Set()
+      for (const t of tables) asked.add(t)
+    } else again = true
     return running
   }
-  running = run()
+  running = run(tables ? new Set(tables) : null)
   try {
     await running
   } finally {
     running = null
     if (again) {
       again = false
+      asked = null
       void syncNow()
+    } else if (asked) {
+      const t = asked
+      asked = null
+      void syncNow({ tables: t })
     }
   }
 }
 
-async function run() {
+async function run(scope: Set<SyncTable> | null) {
   try {
-    await runOnce()
+    await runOnce(scope)
   } finally {
     runs++
     listeners.forEach((l) => l())
   }
 }
 
-async function runOnce() {
+async function runOnce(scope: Set<SyncTable> | null) {
   try {
     const { data, error } = await supabase!.auth.getSession()
     // Session expirée, pas renouvelable faute de réseau : on reste hors ligne (voir AuthGate).
     if (!data.session) return setState(isAuthRetryableFetchError(error) ? 'offline' : 'login')
     if (!claimDevice(data.session.user.id)) return
     setState('syncing')
+    if (!scope) lastFull = Date.now()
     rejectedCount = 0
     // Un envoi en échec n'empêche pas de recevoir les nouveautés des autres.
     let pushError: unknown = null
@@ -188,7 +224,7 @@ async function runOnce() {
     } catch (e) {
       pushError = e
     }
-    await pull(data.session.user.id)
+    await pull(data.session.user.id, scope)
     if (pushError) throw pushError
     const notes = [
       rejectedCount && `${rejectedCount} modification(s) annulée(s) : refusée(s) par le serveur (droits) ou plus ancienne(s) que sa version.`,
@@ -405,16 +441,50 @@ async function myTeams(uid: string) {
   return new Map(teams.filter((t) => !t.deleted && (t.createdBy === uid || t.members?.includes(uid))).map((t) => [t.id, t.updatedAt]))
 }
 
-async function pull(uid: string) {
+/**
+ * « Quoi de neuf ? » (hb_quoi_de_neuf, 057) : une requête avec les curseurs des tables ; pour chacune, true (à relire), false
+ * (rien de nouveau pour ce compte), null (table inconnue du serveur). Fonction absente (script pas passé) : null → relecture
+ * de toutes les tables, comme avant ; on réessaie une heure plus tard. Autre erreur (réseau) : null aussi (la relecture
+ * complète reste juste).
+ */
+const ASK_AGAIN_MS = 60 * 60_000
+let whatsNewMissingAt = 0
+
+async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
+  if (!tables.length || Date.now() - whatsNewMissingAt < ASK_AGAIN_MS) return null
+  const curseurs: Record<string, string> = {}
+  for (const t of tables) curseurs[t] = localStorage.getItem(PULL_KEY(t))!
+  const { data, error } = await supabase!.rpc('hb_quoi_de_neuf', { curseurs })
+  if (error) {
+    if (missingFunction(error)) whatsNewMissingAt = Date.now()
+    return null
+  }
+  return data && typeof data === 'object' && !Array.isArray(data) ? (data as WhatsNew) : null
+}
+
+/**
+ * Reçoit les nouveautés. scope : tables signalées en direct (synchronisation ciblée : ces seules tables, rien d'autre) ;
+ * null : synchronisation complète (« quoi de neuf ? », puis les tables signalées ; tables jamais reçues toujours relues ;
+ * puis les vérifications périodiques).
+ */
+async function pull(uid: string, scope: Set<SyncTable> | null) {
   /*
    * Avancement : tables jamais téléchargées comptées d'avance (en parallèle) ; les autres seulement si
    * leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
    */
   const per: Partial<Record<SyncTable, TableProgress>> = {}
-  const fresh = SYNC_TABLES.filter((t) => readsTable(t) && !localStorage.getItem(PULL_KEY(t)))
-  const first = fresh.length === SYNC_TABLES.filter(readsTable).length
-  await Promise.all(fresh.map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
-  if (fresh.length) setProgress(aggregate(per, null, first))
+  const readable = SYNC_TABLES.filter(readsTable)
+  const wanted = scope ? readable.filter((t) => scope.has(t)) : readable
+  const fresh = new Set(wanted.filter((t) => !localStorage.getItem(PULL_KEY(t))))
+  const first = fresh.size === readable.length
+  await Promise.all([...fresh].map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
+  if (fresh.size) setProgress(aggregate(per, null, first))
+  // Complète, appareil déjà servi au moins une fois : une requête dit quelles tables ont changé (premier chargement : tout).
+  const flags = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)))
+  const plan = planPull(wanted, fresh, flags)
+  for (const t of plan.quiet) knowTable(t, true)
+  for (const t of plan.absent) knowTable(t, false)
+  const toPull = new Set(plan.pull)
   try {
     const teamsBefore = await myTeams(uid)
     let structureRows = 0
@@ -435,9 +505,10 @@ async function pull(uid: string) {
       // Écriture seule (journal des questions, hors administrateurs) : rien à recevoir ; lignes envoyées retirées.
       // Compte joueur : tables du staff jamais demandées (et retirées de l'appareil si une ancienne session en avait laissé).
       if (!readsTable(table)) {
-        await forgetWriteOnly(table)
+        if (!scope) await forgetWriteOnly(table)
         continue
       }
+      if (!toPull.has(table)) continue
       const n = await pullTable(table, per, first)
       if (table === 'levels' || table === 'units' || table === 'assignments') structureRows += n
     }
@@ -446,7 +517,9 @@ async function pull(uid: string) {
     if (progress) setProgress(null)
   }
   // Critères jamais publiés de l'appareil : retirés dès que la base partagée tient la liste (criteriaImport.ts).
-  await retireUnpublishedCriteria()
+  if (toPull.has('criteria')) await retireUnpublishedCriteria()
+  // Ciblée : rien d'autre (les vérifications périodiques attendent la prochaine complète).
+  if (scope) return
   // Compte joueur : ni groupes, ni staffs, ni périmètre : rien à vérifier (sa fiche arrive par le curseur ; retirée du compte
   // (accès retiré) : le serveur ne la montre plus, l'appli repasse à « Entre ton code » et l'appareil est effacé à la déconnexion).
   if (playerAccount()) return
@@ -574,7 +647,10 @@ async function checkPerimeter(uid: string) {
     lastForget = 0
     again = true // nouvelle synchronisation juste après celle-ci : relit les tables depuis le début
   }
-  store.set(SCOPE_KEY, scopeSignature(scope))
+  const sig = scopeSignature(scope)
+  // Périmètre changé (ou première lecture) : les canaux en direct suivent (hb_mes_canaux relu).
+  if (store.get(SCOPE_KEY) !== sig && (channels.length || channel)) restartRealtime()
+  store.set(SCOPE_KEY, sig)
 }
 
 /** Lignes rattachées à un joueur qui n'est plus sur l'appareil (sauf les siennes et celles à envoyer). */
@@ -592,6 +668,22 @@ async function forgetOrphans(uid: string) {
 
 /** Table inconnue du serveur (Postgres 42P01, ou cache de PostgREST : PGRST205). */
 const missingTable = (e: { code?: string }) => e.code === '42P01' || e.code === 'PGRST205'
+/** Fonction inconnue du serveur (script SQL pas encore passé : Postgres 42883, ou cache de PostgREST : PGRST202). */
+const missingFunction = (e: { code?: string }) => e.code === '42883' || e.code === 'PGRST202'
+
+/**
+ * Écrit sur l'appareil des lignes reçues du serveur (une page relue, ou une ligne arrivée en direct avec son contenu) : une
+ * seule transaction par paquet (premier chargement : des dizaines de milliers de lignes) ; seules les lignes à garder (src/syncLive.ts,
+ * keepRows : jamais par-dessus une version plus récente, ligne identique pas réécrite, effacement toujours appliqué).
+ */
+async function applyServerRows(table: SyncTable, rows: ServerRow[]) {
+  if (!rows.length) return
+  await db.transaction('rw', db.table(table), async () => {
+    const locals = (await db.table(table).bulkGet(rows.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+    const newer = keepRows(rows, locals)
+    if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
+  })
+}
 
 /** Reçoit les lignes changées depuis le curseur de la table ; renvoie le nombre de lignes reçues. */
 async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean): Promise<number> {
@@ -614,18 +706,7 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
     if (error) throw error
     if (!data?.length) break
     received += data.length
-    // Un paquet = une lecture et une écriture groupées (premier chargement : des dizaines de milliers de lignes).
-    await db.transaction('rw', db.table(table), async () => {
-      const locals = (await db.table(table).bulkGet(data.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
-      // Ligne effacée par le serveur (expiration, purge) : appliquée quelle que soit l'heure locale.
-      // Ligne identique à celle de l'appareil (relue par le recouvrement du curseur) : pas réécrite, sinon chaque synchro
-      // relancerait tous les calculs qui lisent la table (40 000 joueurs relus sur un téléphone).
-      const same = (r: { data: { updatedAt?: number } }, l: { updatedAt?: number }) => (r.data.updatedAt ?? 0) === (l.updatedAt ?? 0) && JSON.stringify(r.data) === JSON.stringify(l)
-      const newer = data.filter(
-        (r, i) => !locals[i] || r.data?.purged === true || ((r.data.updatedAt ?? 0) >= (locals[i]!.updatedAt ?? 0) && !same(r, locals[i]!)),
-      )
-      if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
-    })
+    await applyServerRows(table, data as ServerRow[])
     const last: { id: string; server_updated_at: string } = data[data.length - 1]
     after = { at: last.server_updated_at, id: last.id }
     if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
@@ -646,17 +727,103 @@ async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableP
   return received
 }
 
-// Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation.
+// Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation complète.
 let soon: number | undefined
 function syncSoon(delay = 400) {
   window.clearTimeout(soon)
   soon = window.setTimeout(() => void syncNow(), delay)
 }
 
-let channel: RealtimeChannel | null = null
+// Écritures de l'appareil rapprochées : un seul envoi de la file (ses lignes reviennent par le signal du serveur, ou par la
+// prochaine synchronisation complète : rien à relire tout de suite).
+let pushSoon: number | undefined
+function pushLater(delay = 500) {
+  window.clearTimeout(pushSoon)
+  pushSoon = window.setTimeout(() => void syncNow({ tables: [] }), delay)
+}
 
-/** Écoute les changements du serveur sur toutes les tables (seulement une fois connecté). */
-function startRealtime() {
+/** Signaux reçus en direct, regroupés (src/syncLive.ts) : une synchronisation ciblée sur les tables signalées. */
+const signals = new Grouper<SyncTable>((tables) => void syncNow({ tables }))
+
+/** Canaux privés abonnés (057) ; à défaut, l'ancien canal postgres_changes. */
+let channels: RealtimeChannel[] = []
+let channel: RealtimeChannel | null = null
+/** La liste des canaux est en cours de lecture (hb_mes_canaux) : pas de second abonnement en parallèle. */
+let opening = false
+/** Numéro de l'écoute en cours : une liste de canaux reçue après un arrêt (déconnexion) n'est pas abonnée. */
+let listening = 0
+
+const setLive = (signalsOn: boolean, on: boolean) => {
+  const was = live
+  live = on
+  liveSignals = on && signalsOn
+  setLiveVersionNews(liveSignals)
+  // En (re)connexion, on rattrape ce qui a pu changer pendant la coupure.
+  if (live && !was) syncSoon(0)
+  listeners.forEach((l) => l())
+}
+
+/**
+ * Écoute le serveur (seulement une fois connecté) : les canaux privés de hb_mes_canaux (signaux par table, contenu des
+ * tables sans donnée personnelle, annonces de version) ; serveur sans 057 : postgres_changes sur toutes les tables.
+ */
+async function startRealtime() {
+  if (!supabase || channel || channels.length || opening) return
+  opening = true
+  const gen = listening
+  try {
+    const { data, error } = await supabase.rpc('hb_mes_canaux')
+    if (wiping || gen !== listening || channel || channels.length) return
+    const topics = Array.isArray(data) ? (data as unknown[]).filter((t): t is string => typeof t === 'string' && t.startsWith('hb:')) : []
+    if (error || !topics.length) {
+      // Fonction absente (057 pas passé), compte sans canal (rôle pas encore connu) ou réseau : l'ancien canal ; la liste
+      // sera relue au prochain changement de périmètre ou de session.
+      if (error && !missingFunction(error)) console.warn('Canaux en direct :', error.message)
+      startPostgresChanges()
+      return
+    }
+    openChannels(topics)
+  } finally {
+    opening = false
+  }
+}
+
+/** Canaux privés : Realtime vérifie le droit d'écoute à l'abonnement (jeton de session, règle hb_recevoir), puis diffuse. */
+function openChannels(topics: string[]) {
+  const subscribed = new Set<string>()
+  for (const topic of topics) {
+    const ch = supabase!.channel(topic, { config: { private: true } })
+    for (const event of LIVE_EVENTS) ch.on('broadcast', { event }, (msg) => onLiveMessage(topic, event, (msg as { payload?: unknown }).payload))
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED') subscribed.add(topic)
+      else subscribed.delete(topic)
+      if (status === 'CHANNEL_ERROR') console.warn(`Canal en direct refusé : ${topic}`)
+      // En direct dès que tous les canaux répondent (realtime-js réessaie seul ceux qui échouent).
+      setLive(true, subscribed.size === topics.length)
+    })
+    channels.push(ch)
+  }
+}
+
+/** Un message reçu sur un canal privé. */
+function onLiveMessage(topic: string, event: string, payload: unknown) {
+  if (event === 'version') {
+    versionAnnounced((payload as { v?: unknown } | undefined)?.v)
+    return
+  }
+  const s = parseSignal(payload, SYNC_TABLES)
+  if (!s || !readsTable(s.table)) return
+  // Ligne entière (configuration, critères, niveaux) : appliquée tout de suite, sans toucher au curseur (la relecture reste
+  // la référence : la prochaine complète la fera, étalée). Rien d'autre à relire pour ce signal.
+  if (event === 'ligne' && s.row && CONTENT_TABLES.includes(s.table)) {
+    void applyServerRows(s.table, [s.row]).catch(() => signals.add(s.table, pullDelay(topic)))
+    return
+  }
+  signals.add(s.table, pullDelay(topic))
+}
+
+/** Ancien mode (serveur sans 057) : postgres_changes sur toutes les tables, chaque changement relance une synchronisation complète. */
+function startPostgresChanges() {
   if (!supabase || channel) return
   channel = supabase.channel('handbase-sync')
   // Suivis, staffs et vidéos : pas de diffusion en direct (rarement changés ; relus à chaque synchronisation,
@@ -665,21 +832,24 @@ function startRealtime() {
   for (const t of SYNC_TABLES.filter((t) => !OPTIONAL_TABLES.includes(t) && (!playerAccount() || t === 'players'))) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table: `hb_${t}` }, () => syncSoon())
   }
-  channel.subscribe((status) => {
-    const was = live
-    live = status === 'SUBSCRIBED'
-    // En (re)connexion, on rattrape ce qui a pu changer pendant la coupure.
-    if (live && !was) syncSoon(0)
-    listeners.forEach((l) => l())
-  })
+  channel.subscribe((status) => setLive(false, status === 'SUBSCRIBED'))
 }
 
 function stopRealtime() {
-  if (!supabase || !channel) return
-  void supabase.removeChannel(channel)
+  if (!supabase) return
+  listening++
+  signals.cancel()
+  for (const ch of channels) void supabase.removeChannel(ch)
+  channels = []
+  if (channel) void supabase.removeChannel(channel)
   channel = null
-  live = false
-  listeners.forEach((l) => l())
+  setLive(false, false)
+}
+
+/** Périmètre ou session changés : les canaux à écouter aussi (relus au serveur). */
+function restartRealtime() {
+  stopRealtime()
+  void startRealtime()
 }
 
 /** À appeler une fois au démarrage. */
@@ -689,17 +859,19 @@ export function startSync() {
   window.addEventListener('offline', () => setState('offline'))
   // Retour sur l'appli (téléphone déverrouillé, onglet réaffiché) : on se met à jour.
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && syncSoon(0))
-  db.outbox.hook('creating', () => syncSoon(500))
+  db.outbox.hook('creating', () => pushLater())
   // Ne pas appeler Supabase directement dans ce callback (risque de blocage) : on diffère.
   supabase.auth.onAuthStateChange((_e, session) =>
     setTimeout(() => {
-      if (session) startRealtime()
+      if (session) void startRealtime()
       else stopRealtime()
       void syncNow()
     }, 0),
   )
-  // Filet de sécurité si une notification est perdue.
-  setInterval(() => void syncNow(), 60_000)
+  // Filet de sécurité si une notification est perdue : complète toutes les 5 minutes en direct, toutes les minutes sinon.
+  setInterval(() => {
+    if (dueForSync(Date.now(), lastFull, liveSignals)) void syncNow()
+  }, 30_000)
   void syncNow()
 }
 
