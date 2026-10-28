@@ -7,10 +7,12 @@
  *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes sinon ;
  *  - quelles tables relire d'après la réponse de hb_quoi_de_neuf ;
  *  - lignes reçues (relecture ou en direct) à garder face à celles de l'appareil ;
- *  - regroupement des signaux (Grouper) ; annonce d'une nouvelle version (vérification dans les 30 s).
+ *  - regroupement des signaux (Grouper) ; annonce d'une nouvelle version (vérification dans les 30 s) ;
+ *  - ENVOI des signaux par l'appareil qui écrit (plan B : la base ne diffuse plus) : canaux d'une ligne, même règle que
+ *    hb_canaux_ligne (rowChannels), et messages d'un envoi réussi, groupés, limités aux canaux ouverts (outgoingSignals).
  */
 import type { SyncTable } from './db'
-import type { ServerScope } from './perimeter'
+import { playerClub, playerDepartment, type ServerScope } from './perimeter'
 
 // ---------- Canaux ----------
 
@@ -24,7 +26,7 @@ export const ALL_TOPIC = 'hb:tout'
 export const BROAD_TOPICS: readonly string[] = [COMMON_TOPIC, STAFF_TOPIC, ALL_TOPIC]
 export const isBroadTopic = (topic: string) => BROAD_TOPICS.includes(topic)
 
-/** Tables dont la ligne entière est diffusée (rien de personnel, lues par tout le staff) : même liste que hb_diffuser (v_contenu). */
+/** Tables dont la ligne entière est diffusée (rien de personnel, lues par tout le staff) : événement « ligne ». */
 export const CONTENT_TABLES: readonly SyncTable[] = ['config', 'criteria', 'levels']
 
 /** Événements diffusés sur les canaux (realtime.send) : signal (table changée), ligne (signal + contenu), version (nouvelle appli). */
@@ -209,4 +211,177 @@ export class Grouper<T> {
     this.cancel()
     if (tables.size) this.run(tables)
   }
+}
+
+// ---------- Envoi des signaux (l'appareil qui écrit prévient) ----------
+
+/** Ligne envoyée au serveur (contenu de l'appareil, tel que la file l'a poussé). */
+export interface SentRow {
+  id: string
+  updatedAt?: number
+  deleted?: boolean
+  [k: string]: unknown
+}
+
+/**
+ * Ce que l'appareil sait des lignes citées par une ligne envoyée (lu dans sa base locale par src/sync.ts) :
+ *  - player : la fiche d'un joueur (département et club, comme scope_dept / scope_club de 046) ;
+ *  - territory : territoire d'une unité organisatrice (048) ; undefined : unité inconnue de l'appareil ;
+ *  - teamMembers : membres des staffs choisis (hb_team_members, 034 : staffs non supprimés).
+ */
+export interface ChannelLookup {
+  player(id: string): { clubCode?: string; license?: string; department?: string } | undefined
+  territory(unitId: string): { depts: string[]; clubs: string[] } | undefined
+  teamMembers(teamIds: readonly string[]): string[]
+}
+
+const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string' && v !== '') : [])
+const str = (x: unknown): string | undefined => (typeof x === 'string' && x.trim() ? x : undefined)
+
+/**
+ * Canaux de ceux qui lisent une ligne : MÊME RÈGLE que hb_canaux_ligne (supabase/057_synchro_legere.sql), calculée sur la
+ * ligne de l'appareil. Différences, toutes sans effet sur l'envoi (on ne garde ensuite que les canaux que l'appareil écoute,
+ * et un compte du staff n'écoute jamais hb:joueur:…) :
+ *  - fiche d'un jeune qui a un compte (hb:joueur:…) : l'appareil ne le sait pas, rien ;
+ *  - événement dont l'unité organisatrice est inconnue de l'appareil : staff ET tout (le serveur dirait l'un ou l'autre).
+ * Trop prévenir est sans danger (l'appareil prévenu relit par sa règle de lecture et ne reçoit rien) ; trop peu n'arrive
+ * qu'avec une base locale incomplète, et le filet de sécurité le rattrape.
+ */
+export function rowChannels(table: SyncTable, row: SentRow, look: ChannelLookup): string[] {
+  const author = str(row.createdBy) && `hb:compte:${row.createdBy}`
+  const perimeter = (p: { clubCode?: string; license?: string; department?: string } | undefined) => {
+    const d = p && playerDepartment(p)
+    const c = p && playerClub(p)
+    return [ALL_TOPIC, d && `hb:dept:${d}`, c && `hb:club:${c}`, author]
+  }
+  const participants = () => [...strings(row.editors), ...look.teamMembers(strings(row.teams))].map((u) => `hb:compte:${u}`)
+  let out: (string | false | undefined)[]
+  switch (table) {
+    case 'players':
+      out = perimeter(row as { clubCode?: string; license?: string; department?: string })
+      break
+    case 'measurements':
+    case 'evaluations':
+    case 'seen':
+    case 'rewatch':
+      out = perimeter(str(row.playerId) ? look.player(row.playerId as string) : undefined)
+      break
+    case 'videos':
+      out = row.targetKind === 'player' ? perimeter(str(row.targetId) ? look.player(row.targetId as string) : undefined) : [STAFF_TOPIC]
+      break
+    case 'follows':
+    case 'saved_questions':
+      out = [author]
+      break
+    case 'teams':
+      out = [author, ...strings(row.members).map((u) => `hb:compte:${u}`)]
+      break
+    case 'groups':
+      out = row.private === true ? [author] : row.team === true ? [author, ...participants()] : [STAFF_TOPIC, author]
+      break
+    case 'alerts':
+      out = row.private === true ? [author] : [STAFF_TOPIC]
+      break
+    case 'events': {
+      const unit = str(row.organizerUnitId)?.trim()
+      if (!unit) {
+        out = [STAFF_TOPIC]
+        break
+      }
+      const t = look.territory(unit)
+      const players = strings(row.playerIds).map((id) => look.player(id)).filter((p): p is NonNullable<typeof p> => !!p)
+      const depts = [...(t?.depts ?? []), ...players.map((p) => playerDepartment(p))]
+      const clubs = [...(t?.clubs ?? []), ...players.map((p) => playerClub(p))]
+      out = [
+        ...(t ? [] : [STAFF_TOPIC]),
+        ALL_TOPIC,
+        author,
+        ...depts.map((d) => d && `hb:dept:${d}`),
+        ...clubs.map((c) => c && `hb:club:${c}`),
+        ...participants(),
+      ]
+      break
+    }
+    case 'criteria':
+    case 'levels':
+    case 'units':
+    case 'assignments':
+      out = [STAFF_TOPIC]
+      break
+    case 'config':
+    case 'lists':
+      out = [COMMON_TOPIC]
+      break
+    case 'question_log':
+      out = [ALL_TOPIC]
+      break
+    default:
+      out = []
+  }
+  return [...new Set(out.filter((x): x is string => typeof x === 'string' && x !== ''))].sort()
+}
+
+/** Champs d'une ligne qui décident de ses canaux (rowChannels) : seuls gardés après un envoi, hors tables de contenu. */
+const CHANNEL_FIELDS = ['id', 'updatedAt', 'deleted', 'createdBy', 'clubCode', 'license', 'department', 'playerId', 'targetKind', 'targetId', 'members', 'private', 'team', 'editors', 'teams', 'organizerUnitId', 'playerIds'] as const
+
+/**
+ * Ce qu'il faut garder d'une ligne envoyée pour la signaler : la ligne entière pour configuration, critères et niveaux
+ * (contenu diffusé) ; sinon les seuls champs qui décident des canaux (un import de 40 000 fiches ne garde pas les fiches
+ * en mémoire, ni rien de personnel).
+ */
+export function forSignal(table: SyncTable, row: SentRow): SentRow {
+  if (CONTENT_TABLES.includes(table)) return row
+  const out: SentRow = { id: row.id }
+  for (const k of CHANNEL_FIELDS) if (row[k] !== undefined) (out as Record<string, unknown>)[k] = row[k]
+  return out
+}
+
+/** Message à envoyer sur un canal (broadcast) : même forme que ceux que la base envoyait ({t, id, v[, ligne]}). */
+export interface OutgoingSignal {
+  topic: string
+  event: 'signal' | 'ligne'
+  payload: { t: SyncTable; id: string; v: string; ligne?: { id: string; data: Record<string, unknown>; deleted: boolean } }
+}
+
+/** Au-delà, un envoi de configuration, critères ou niveaux part en un seul signal (un import de 300 critères = 1 message). */
+export const CONTENT_MAX = 20
+
+/** Contenu diffusé d'une ligne : sans les noms des comptes (« créé par », « modifié par ») ; la relecture les apporte. */
+const withoutNames = (row: SentRow): Record<string, unknown> => Object.fromEntries(Object.entries(row).filter(([k]) => !/ByName$/.test(k)))
+
+/**
+ * Messages à envoyer après un envoi réussi (sent : par table, les lignes acceptées par le serveur) :
+ *  - seulement sur les canaux ouverts par l'appareil (open : abonnés, donc permis par la règle hb_emettre) ;
+ *  - un seul signal par table et par canal ({t, id de la première ligne, v}) ; jamais de nom ni de contenu ;
+ *  - configuration, critères, niveaux : la ligne entière, une par ligne (événement « ligne »), jusqu'à CONTENT_MAX lignes
+ *    par table ; au-delà, un seul signal.
+ * v : heure de l'envoi (l'appareil ne connaît pas l'heure serveur) ; repère seulement, le destinataire relit la table.
+ */
+export function outgoingSignals(
+  sent: readonly { table: SyncTable; rows: readonly SentRow[] }[],
+  open: ReadonlySet<string>,
+  look: ChannelLookup,
+  now: string,
+): OutgoingSignal[] {
+  const out: OutgoingSignal[] = []
+  const done = new Set<string>()
+  const byTable = new Map<SyncTable, SentRow[]>()
+  for (const s of sent) byTable.set(s.table, [...(byTable.get(s.table) ?? []), ...s.rows])
+  for (const [table, rows] of byTable) {
+    const content = CONTENT_TABLES.includes(table) && rows.length <= CONTENT_MAX
+    for (const row of rows) {
+      for (const topic of rowChannels(table, row, look)) {
+        if (!open.has(topic)) continue
+        if (content) {
+          out.push({ topic, event: 'ligne', payload: { t: table, id: row.id, v: now, ligne: { id: row.id, data: withoutNames(row), deleted: !!row.deleted } } })
+          continue
+        }
+        const k = `${table}>${topic}`
+        if (done.has(k)) continue
+        done.add(k)
+        out.push({ topic, event: 'signal', payload: { t: table, id: row.id, v: now } })
+      }
+    }
+  }
+  return out
 }

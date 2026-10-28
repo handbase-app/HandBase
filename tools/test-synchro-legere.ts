@@ -1,8 +1,10 @@
 // Test de la synchronisation allégée (src/syncLive.ts, pendant de supabase/057_synchro_legere.sql) : canaux du compte (même
 // règle que hb_mes_canaux : administrateur, fédération, comité, club, joueur, sans rôle), délais de relecture (regroupement,
 // canaux larges étalés, annonce de version), cadence du filet de sécurité, lecture d'un signal, plan de relecture d'après
-// « quoi de neuf ? », lignes reçues à garder, regroupement des signaux ; et le script SQL écrit comme l'appli l'attend
-// (mêmes noms de canaux, mêmes tables, mêmes événements). Données fictives seulement.
+// « quoi de neuf ? », lignes reçues à garder, regroupement des signaux ; envoi des signaux par l'appareil qui écrit (canaux
+// d'une ligne, miroir de hb_canaux_ligne ; messages groupés, seulement sur les canaux ouverts, sans nom) ; et le script SQL
+// écrit comme l'appli l'attend (mêmes noms de canaux, mêmes tables, plus de diffusion par la base, règles d'écoute et
+// d'envoi). Données fictives seulement.
 //
 //   npx jiti tools/test-synchro-legere.ts
 import assert from 'node:assert/strict'
@@ -12,23 +14,28 @@ import {
   BROAD_JITTER_MS,
   channelsOf,
   COMMON_TOPIC,
+  CONTENT_MAX,
   CONTENT_TABLES,
   dueForSync,
+  forSignal,
   GROUP_MS,
   Grouper,
   isBroadTopic,
   jitter,
   keepRows,
-  LIVE_EVENTS,
   LIVE_SYNC_MS,
+  outgoingSignals,
   parseSignal,
   planPull,
   pullDelay,
+  rowChannels,
   STAFF_TOPIC,
   SYNC_MS,
   syncEvery,
   VERSION_JITTER_MS,
   versionCheckDelay,
+  type ChannelLookup,
+  type SentRow,
   type Timers,
 } from '../src/syncLive'
 
@@ -272,28 +279,151 @@ t('regroupement : annulation (déconnexion) ; délai négatif ramené à 0', () 
   assert.deepEqual(runs, [['players']])
 })
 
+// ---------- Envoi des signaux par l'appareil qui écrit ----------
+
+// Base locale fictive : deux joueurs (club du Var, joueur sans licence du 13), une unité organisatrice, un staff.
+const LOOK: ChannelLookup = {
+  player: (id) =>
+    ({ p1: { clubCode: '6383015' }, p2: { department: '13' }, p3: { license: '6401002123456' } } as Record<string, { clubCode?: string; license?: string; department?: string }>)[id],
+  territory: (id) => (id === 'unite-83' ? { depts: ['83'], clubs: [] } : undefined),
+  teamMembers: (ids) => (ids.includes('staff-1') ? ['u7', 'u8'] : []),
+}
+const row = (id: string, extra: Record<string, unknown> = {}): SentRow => ({ id, updatedAt: 1, createdBy: 'u1', ...extra })
+
+t('canaux d’une ligne : joueurs et lignes rattachées (département, club, auteur, tout)', () => {
+  assert.deepEqual(rowChannels('players', row('p1', { clubCode: '6383015' }), LOOK), ['hb:club:6383015', 'hb:compte:u1', 'hb:dept:83', 'hb:tout'])
+  // Licence d'outre-mer : le territoire (6401… → 971), comme hb_player_dept.
+  assert.deepEqual(rowChannels('players', row('p3', { license: '6401002123456' }), LOOK), ['hb:club:6401002', 'hb:compte:u1', 'hb:dept:971', 'hb:tout'])
+  // Fiche proposée sans licence : département saisi, pas de club.
+  assert.deepEqual(rowChannels('players', row('p2', { department: '13' }), LOOK), ['hb:compte:u1', 'hb:dept:13', 'hb:tout'])
+  for (const table of ['measurements', 'evaluations', 'seen', 'rewatch'] as const) {
+    assert.deepEqual(rowChannels(table, row('x', { playerId: 'p1' }), LOOK), ['hb:club:6383015', 'hb:compte:u1', 'hb:dept:83', 'hb:tout'], table)
+  }
+  // Joueur absent de l'appareil : tout et l'auteur (le filet de sécurité rattrape le reste).
+  assert.deepEqual(rowChannels('evaluations', row('x', { playerId: 'inconnu' }), LOOK), ['hb:compte:u1', 'hb:tout'])
+  assert.deepEqual(rowChannels('videos', row('v', { targetKind: 'player', targetId: 'p2' }), LOOK), ['hb:compte:u1', 'hb:dept:13', 'hb:tout'])
+  assert.deepEqual(rowChannels('videos', row('v', { targetKind: 'event', targetId: 'e1' }), LOOK), [STAFF_TOPIC])
+})
+
+t('canaux d’une ligne : comptes, groupes, alertes, événements, tables communes', () => {
+  assert.deepEqual(rowChannels('follows', row('f'), LOOK), ['hb:compte:u1'])
+  assert.deepEqual(rowChannels('saved_questions', row('q'), LOOK), ['hb:compte:u1'])
+  assert.deepEqual(rowChannels('teams', row('s', { members: ['u2', 'u3'] }), LOOK), ['hb:compte:u1', 'hb:compte:u2', 'hb:compte:u3'])
+  assert.deepEqual(rowChannels('groups', row('g', { private: true }), LOOK), ['hb:compte:u1'])
+  assert.deepEqual(rowChannels('groups', row('g', { team: true, editors: ['u2'], teams: ['staff-1'] }), LOOK), ['hb:compte:u1', 'hb:compte:u2', 'hb:compte:u7', 'hb:compte:u8'])
+  assert.deepEqual(rowChannels('groups', row('g'), LOOK), ['hb:compte:u1', STAFF_TOPIC])
+  assert.deepEqual(rowChannels('alerts', row('a', { private: true }), LOOK), ['hb:compte:u1'])
+  assert.deepEqual(rowChannels('alerts', row('a'), LOOK), [STAFF_TOPIC])
+  // Événement sans organisateur : tout le staff ; avec : tout, territoire, joueurs inscrits, auteur, participants.
+  assert.deepEqual(rowChannels('events', row('e', { playerIds: ['p1'] }), LOOK), [STAFF_TOPIC])
+  assert.deepEqual(rowChannels('events', row('e', { organizerUnitId: 'unite-83', playerIds: ['p1', 'p2'], editors: ['u2'] }), LOOK), [
+    'hb:club:6383015',
+    'hb:compte:u1',
+    'hb:compte:u2',
+    'hb:dept:13',
+    'hb:dept:83',
+    'hb:tout',
+  ])
+  // Unité inconnue de l'appareil : le staff ET tout (le serveur dirait l'un ou l'autre).
+  assert.deepEqual(rowChannels('events', row('e', { organizerUnitId: 'unite-x' }), LOOK), ['hb:compte:u1', STAFF_TOPIC, ALL_TOPIC].sort())
+  for (const table of ['criteria', 'levels', 'units', 'assignments'] as const) assert.deepEqual(rowChannels(table, row('c'), LOOK), [STAFF_TOPIC], table)
+  for (const table of ['config', 'lists'] as const) assert.deepEqual(rowChannels(table, row('c'), LOOK), [COMMON_TOPIC], table)
+  assert.deepEqual(rowChannels('question_log', row('l'), LOOK), [ALL_TOPIC])
+  // Sans auteur : aucun canal de compte vide.
+  assert.deepEqual(rowChannels('follows', { id: 'f' }, LOOK), [])
+})
+
+t('signaux d’un envoi : un par table et par canal, seulement sur les canaux ouverts, sans nom', () => {
+  // Compte de club (6383015) : il écoute le commun, le sien, le staff et son club ; pas le 83, pas « tout ».
+  const open = new Set(channelsOf({ uid: 'u1', role: 'observateur', scope: { all: false, depts: [], clubs: ['6383015'] } }))
+  const evals = [1, 2, 3].map((i) => row(`ev${i}`, { playerId: 'p1', comment: 'Texte libre', createdByName: 'Coach Un' }))
+  const out = outgoingSignals([{ table: 'evaluations', rows: evals }, { table: 'players', rows: [row('p1', { clubCode: '6383015', lastName: 'Fictif' })] }], open, LOOK, '2026-10-28T12:00:00.000Z')
+  assert.deepEqual(
+    out.map((m) => `${m.event} ${m.payload.t} ${m.topic}`).sort(),
+    ['signal evaluations hb:club:6383015', 'signal evaluations hb:compte:u1', 'signal players hb:club:6383015', 'signal players hb:compte:u1'],
+  )
+  // Jamais un canal non écouté (le serveur le refuserait : règle hb_emettre).
+  for (const m of out) assert.ok(open.has(m.topic), m.topic)
+  // Charge utile : {t, id, v} et rien d'autre (ni nom, ni texte, ni contenu).
+  for (const m of out) assert.deepEqual(Object.keys(m.payload).sort(), ['id', 't', 'v'])
+  assert.ok(!JSON.stringify(out).includes('Fictif') && !JSON.stringify(out).includes('Coach') && !JSON.stringify(out).includes('Texte'))
+  // Même table en deux paquets : toujours un seul signal par canal.
+  const twice = outgoingSignals([{ table: 'evaluations', rows: evals.slice(0, 1) }, { table: 'evaluations', rows: evals.slice(1) }], open, LOOK, 'v')
+  assert.equal(twice.length, 2)
+  // Aucun canal ouvert (direct pas encore abonné) : rien.
+  assert.deepEqual(outgoingSignals([{ table: 'evaluations', rows: evals }], new Set(), LOOK, 'v'), [])
+  // Le signal se lit comme ceux que la base envoyait.
+  assert.deepEqual(parseSignal(out[0].payload, SYNC_TABLES), { table: out[0].payload.t, id: out[0].payload.id, v: '2026-10-28T12:00:00.000Z' })
+})
+
+t('signaux d’un envoi : contenu pour configuration, critères et niveaux, sans les noms ; au-delà de CONTENT_MAX, un signal', () => {
+  const open = new Set(channelsOf({ uid: 'u1', role: 'admin', scope: { all: true, depts: [], clubs: [] } }))
+  const crit = row('c1', { label: 'Vision du jeu', createdByName: 'Coach Un', updatedByName: 'Coach Deux', deleted: false })
+  const out = outgoingSignals([{ table: 'criteria', rows: [crit] }, { table: 'config', rows: [row('cfg', { value: 1, deleted: true })] }], open, LOOK, 'v')
+  assert.deepEqual(out.map((m) => `${m.event} ${m.payload.t} ${m.topic}`).sort(), ['ligne config hb:commun', 'ligne criteria hb:staff'])
+  const c = out.find((m) => m.payload.t === 'criteria')!
+  assert.deepEqual(c.payload.ligne, { id: 'c1', data: { id: 'c1', updatedAt: 1, createdBy: 'u1', label: 'Vision du jeu', deleted: false }, deleted: false })
+  assert.equal(out.find((m) => m.payload.t === 'config')!.payload.ligne!.deleted, true)
+  // Reçu par un autre appareil : une ligne à appliquer (parseSignal), comme avant.
+  const s = parseSignal(c.payload, SYNC_TABLES)!
+  assert.equal(s.row!.id, 'c1')
+  assert.equal(s.row!.data.label, 'Vision du jeu')
+  // Import de critères : un seul signal, sans contenu.
+  const many = Array.from({ length: CONTENT_MAX + 1 }, (_, i) => row(`c${i}`))
+  const big = outgoingSignals([{ table: 'criteria', rows: many }], open, LOOK, 'v')
+  assert.deepEqual(big.map((m) => `${m.event} ${m.topic}`), ['signal hb:staff'])
+  assert.equal(big[0].payload.ligne, undefined)
+  // Mesures (pas une table de contenu) : jamais de contenu.
+  assert.ok(outgoingSignals([{ table: 'measurements', rows: [row('m', { playerId: 'p1', value: 180 })] }], open, LOOK, 'v').every((m) => m.event === 'signal' && !m.payload.ligne))
+})
+
+t('ligne gardée pour la signaler : les champs des canaux seulement (même résultat), la ligne entière pour le contenu', () => {
+  const rows: [Parameters<typeof rowChannels>[0], SentRow][] = [
+    ['players', row('p1', { clubCode: '6383015', firstName: 'Prénom', lastName: 'Fictif', photo: 'data:…', notes: 'Texte libre' })],
+    ['evaluations', row('ev', { playerId: 'p1', comment: 'Texte libre', scores: { tir: 4 } })],
+    ['events', row('e', { name: 'Stage', organizerUnitId: 'unite-83', playerIds: ['p1', 'p2'], editors: ['u2'], teams: ['staff-1'] })],
+    ['groups', row('g', { name: 'Équipe', team: true, editors: ['u2'], teams: ['staff-1'], playerIds: ['p1'] })],
+    ['videos', row('v', { targetKind: 'player', targetId: 'p2', url: 'https://exemple.test/v' })],
+    ['teams', row('s', { name: 'Staff', members: ['u2'] })],
+    ['alerts', row('a', { private: true, text: 'Texte' })],
+  ]
+  for (const [table, r] of rows) {
+    const kept = forSignal(table, r)
+    assert.deepEqual(rowChannels(table, kept, LOOK), rowChannels(table, r, LOOK), table)
+    for (const k of ['firstName', 'lastName', 'photo', 'notes', 'comment', 'scores', 'name', 'url', 'text']) assert.ok(!(k in kept), `${table} : ${k}`)
+  }
+  const crit = row('c1', { label: 'Vision du jeu' })
+  assert.equal(forSignal('criteria', crit), crit)
+})
+
 // ---------- Le script SQL, écrit comme l'appli l'attend ----------
 
-t('057 : mêmes canaux, mêmes tables, mêmes événements que l’appli', () => {
+t('057 : mêmes canaux, mêmes tables que l’appli ; plus de diffusion par la base ; écoute et envoi sur ses canaux', () => {
   const sql = readFileSync(new URL('../supabase/057_synchro_legere.sql', import.meta.url), 'utf8')
-  for (const c of [COMMON_TOPIC, STAFF_TOPIC, ALL_TOPIC, "'hb:dept:' ||", "'hb:club:' ||", "'hb:compte:' ||", "'hb:joueur:' ||"]) assert.ok(sql.includes(c), c)
-  for (const e of LIVE_EVENTS) assert.ok(sql.includes(`'${e}'`), e)
-  // Liste blanche de hb_quoi_de_neuf et déclencheurs : toutes les tables synchronisées, et seulement elles.
-  const lists = [...sql.matchAll(/array\[('[a-z_]+'(?:,\s*'[a-z_]+')*)\]/g)].map((m) => [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]))
+  const code = sql.replace(/^\s*--.*$/gm, '') // sans les commentaires
+  for (const c of [COMMON_TOPIC, STAFF_TOPIC, ALL_TOPIC, "'hb:dept:' ||", "'hb:club:' ||", "'hb:compte:' ||", "'hb:joueur:' ||"]) assert.ok(code.includes(c), c)
+  // Annonce de version : toujours envoyée par la base, sur le canal commun.
+  assert.ok(code.includes("'version', 'hb:commun'"))
+  // Liste blanche de hb_quoi_de_neuf et retrait des déclencheurs : toutes les tables synchronisées, et seulement elles.
+  const lists = [...code.matchAll(/array\[('[a-z_]+'(?:,\s*'[a-z_]+')*)\]/g)].map((m) => [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]))
   const whitelists = lists.filter((l) => l.includes('players') && l.includes('saved_questions'))
-  assert.ok(whitelists.length >= 2, 'liste blanche et déclencheurs')
+  assert.ok(whitelists.length >= 2, 'liste blanche et retrait des déclencheurs')
   for (const l of whitelists) assert.deepEqual([...l].sort(), [...SYNC_TABLES].sort())
-  // Tables diffusées avec leur contenu : les mêmes que l'appli applique.
-  const content = sql.match(/v_contenu boolean := tg_table_name in \(([^)]+)\)/)![1]
-  assert.deepEqual([...content.matchAll(/'hb_([a-z_]+)'/g)].map((m) => m[1]).sort(), [...CONTENT_TABLES].sort())
+  // Plus de diffusion par la base : déclencheurs retirés (relançable), fonction retirée, aucun déclencheur posé.
+  assert.ok(code.includes("drop trigger if exists hb_diffuser on public.hb_%1$s"))
+  assert.ok(code.includes('drop function if exists public.hb_diffuser();'))
+  assert.ok(!/create (or replace )?(function public\.hb_diffuser|trigger)/.test(code))
+  assert.ok(!code.includes('realtime.send(v_charge'))
   // Recouvrement : la même prudence que l'appli (60 s quand le curseur a moins de 5 minutes).
-  assert.ok(sql.includes("interval '60 seconds'") && sql.includes("interval '5 minutes'"))
-  // Canaux privés : diffusion privée, règle de lecture sur realtime.messages, aucune règle d'insertion.
-  assert.ok(sql.includes('realtime.send(v_charge') && /realtime\.send\([^;]*,\s*true\)/.test(sql))
-  assert.ok(sql.includes('create policy "hb_recevoir" on realtime.messages for select'))
-  assert.ok(!/create policy [^;]* on realtime\.messages for (insert|all)/.test(sql))
-  // Une diffusion qui échoue n'annule jamais l'écriture.
-  assert.ok(/exception when others then\s+raise warning 'Diffusion en direct impossible/.test(sql))
+  assert.ok(code.includes("interval '60 seconds'") && code.includes("interval '5 minutes'"))
+  // Canaux privés : écoute (select) et envoi (insert) sur ses seuls canaux, broadcast seulement ; rien d'autre.
+  const rule = "realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[])"
+  assert.ok(code.includes(`create policy "hb_recevoir" on realtime.messages for select to authenticated\n      using (${rule})`))
+  assert.ok(code.includes(`create policy "hb_emettre" on realtime.messages for insert to authenticated\n      with check (${rule})`))
+  assert.equal([...code.matchAll(/create policy [^;]* on realtime\.messages/g)].length, 2)
+  assert.ok(!/on realtime\.messages for (all|update|delete)/.test(code))
+  // Relançable : les deux règles sont retirées avant d'être reposées.
+  assert.ok(code.includes(`drop policy if exists "hb_recevoir" on realtime.messages`) && code.includes(`drop policy if exists "hb_emettre" on realtime.messages`))
 })
 
 console.log(`\n${n} tests réussis.`)

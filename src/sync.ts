@@ -8,7 +8,23 @@ import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
 import { playerReadsTable } from './playerSpace'
-import { CONTENT_TABLES, dueForSync, Grouper, keepRows, LIVE_EVENTS, parseSignal, planPull, pullDelay, type ServerRow, type WhatsNew } from './syncLive'
+import { unitTerritory } from './eventOrganizer'
+import {
+  CONTENT_TABLES,
+  dueForSync,
+  forSignal,
+  Grouper,
+  keepRows,
+  LIVE_EVENTS,
+  outgoingSignals,
+  parseSignal,
+  planPull,
+  pullDelay,
+  type ChannelLookup,
+  type SentRow,
+  type ServerRow,
+  type WhatsNew,
+} from './syncLive'
 
 /*
  * Synchronisation « hors ligne d'abord » :
@@ -23,11 +39,15 @@ import { CONTENT_TABLES, dueForSync, Grouper, keepRows, LIVE_EVENTS, parseSignal
  * Synchronisation ALLÉGÉE (supabase/057_synchro_legere.sql, règles pures dans src/syncLive.ts) :
  *  - une synchronisation complète demande d'abord « quoi de neuf ? » (hb_quoi_de_neuf : une requête, les curseurs de
  *    toutes les tables) et ne relit que les tables signalées ; rien de changé : une seule requête ;
- *  - en direct, le serveur envoie un SIGNAL ({t, id, v} : ni nom ni contenu) sur des canaux privés par périmètre
- *    (hb:dept:…, hb:club:…, hb:tout, hb:compte:…, hb:joueur:…, hb:staff, hb:commun ; liste donnée par hb_mes_canaux) ;
- *    l'appli ne relit que la table signalée, après 1,5 s de regroupement (canaux larges : + 0 à 10 s au hasard) ;
- *    configuration, critères et niveaux arrivent avec leur contenu (appliqué comme une ligne relue, curseur inchangé) ;
- *  - une écriture de l'appareil n'envoie que la file (sa ligne revient par le signal) ;
+ *  - en direct, l'APPAREIL QUI ÉCRIT envoie, après chaque envoi réussi, un SIGNAL ({t, id, v} : ni nom ni contenu) sur
+ *    ceux de ses canaux privés qui lisent les lignes envoyées (hb:dept:…, hb:club:…, hb:tout, hb:compte:…, hb:staff,
+ *    hb:commun ; liste donnée par hb_mes_canaux ; canaux d'une ligne : src/syncLive.ts, rowChannels) ; jamais sur un canal
+ *    qu'il n'écoute pas (le serveur le refuserait : règle hb_emettre). Ce qui ne vient pas d'un appareil (SQL, imports,
+ *    tâches de nuit) n'est pas signalé : le filet de sécurité le rattrape ;
+ *    à la réception, l'appli ne relit que la table signalée, après 1,5 s de regroupement (canaux larges : + 0 à 10 s au
+ *    hasard) ; configuration, critères et niveaux arrivent avec leur contenu (appliqué comme une ligne relue, curseur
+ *    inchangé) ;
+ *  - une écriture de l'appareil n'envoie que la file (ses autres appareils sont prévenus par hb:compte:…) ;
  *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes
  *    sinon ; toujours au retour sur l'appli et au retour du réseau ;
  *  - une nouvelle version annoncée (hb_annoncer_version, canal commun) : vérification de la mise à jour dans les 30 s.
@@ -223,11 +243,14 @@ async function runOnce(scope: Set<SyncTable> | null) {
     rejectedCount = 0
     // Un envoi en échec n'empêche pas de recevoir les nouveautés des autres.
     let pushError: unknown = null
+    const sent: Sent[] = []
     try {
-      await push()
+      await push(sent)
     } catch (e) {
       pushError = e
     }
+    // Ce qui est parti (même si un paquet suivant a échoué) : les autres appareils sont prévenus.
+    if (sent.length) void signalWrites(sent)
     await pull(data.session.user.id, scope)
     if (pushError) throw pushError
     const notes = [
@@ -324,12 +347,14 @@ const rowKey = (table: SyncTable, id: string) => `${table}:${id}`
 const transient = (e: { code?: string }) => !e.code || e.code.startsWith('PGRST') || e.code === '57014'
 
 type Payload = { id: string; data: unknown; updated_at_client: number; deleted: boolean }
+/** Lignes acceptées par le serveur pendant un envoi, par table (pour les signaux en direct). */
+type Sent = { table: SyncTable; rows: SentRow[] }
 
 // Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
 // la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
 const upsert = (table: SyncTable, rows: Payload[]) => supabase!.rpc('hb_upsert', { p_table: table, p_rows: rows })
 
-async function push() {
+async function push(accepted: Sent[]) {
   // « Voir comme… » : rien de neuf à envoyer (lecture seule), et les lectures ne voient que le périmètre du membre simulé
   // (src/viewAsFilter.ts) : une ligne en attente hors de ce périmètre serait prise pour effacée. Envoi à la sortie.
   // Compte joueur : rien à envoyer (sa lettre part par hb_player_self_update, pas par la file).
@@ -358,6 +383,8 @@ async function push() {
         // La file n'est vidée qu'une fois les refus traités (sinon on renverra).
         await applyRejected(table, data)
         await db.outbox.bulkDelete(part.map((it) => it.seq!))
+        const refused = new Set(Array.isArray(data) ? (data as string[]) : [])
+        accepted.push({ table, rows: rows.filter((r) => !refused.has(r.id)).map((r) => forSignal(table, r)) })
         continue
       }
       if (transient(error)) throw error
@@ -376,6 +403,7 @@ async function push() {
         failures.delete(k)
         await applyRejected(table, one.data)
         await db.outbox.bulkDelete(part.filter((it) => it.rowId === p.id).map((it) => it.seq!))
+        if (!(Array.isArray(one.data) && one.data.includes(p.id))) accepted.push({ table, rows: [forSignal(table, p.data as SentRow)] })
       }
       // Entrées de la file dont la ligne n'existe plus sur l'appareil : rien à envoyer.
       const sent = new Set(payload.map((p) => p.id))
@@ -751,6 +779,8 @@ const signals = new Grouper<SyncTable>((tables) => void syncNow({ tables }))
 
 /** Canaux privés abonnés (057) ; à défaut, l'ancien canal postgres_changes. */
 let channels: RealtimeChannel[] = []
+/** Canaux privés prêts (abonnement confirmé) : les seuls où l'appareil envoie ses signaux. */
+const ready = new Map<string, RealtimeChannel>()
 let channel: RealtimeChannel | null = null
 /** La liste des canaux est en cours de lecture (hb_mes_canaux) : pas de second abonnement en parallèle. */
 let opening = false
@@ -801,6 +831,9 @@ function openChannels(topics: string[]) {
     ch.subscribe((status) => {
       if (status === 'SUBSCRIBED') subscribed.add(topic)
       else subscribed.delete(topic)
+      // (Un canal déjà remplacé, périmètre changé, n'est jamais repris.)
+      if (status === 'SUBSCRIBED' && channels.includes(ch)) ready.set(topic, ch)
+      else if (ready.get(topic) === ch) ready.delete(topic)
       if (status === 'CHANNEL_ERROR') console.warn(`Canal en direct refusé : ${topic}`)
       // En direct dès que tous les canaux répondent (realtime-js réessaie seul ceux qui échouent).
       setLive(true, subscribed.size === topics.length)
@@ -826,6 +859,53 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
   signals.add(s.table, pullDelay(topic))
 }
 
+/**
+ * Prévient les autres appareils d'un envoi réussi (plan B de 057 : la base ne diffuse plus) : messages calculés par
+ * src/syncLive.ts (outgoingSignals : un signal par table et par canal, contenu pour configuration, critères et niveaux),
+ * envoyés seulement sur les canaux privés prêts. Ce qu'il faut savoir des lignes citées (joueur d'un avis, unité
+ * organisatrice, membres d'un staff) est lu dans la base de l'appareil. Rien ne bloque ni n'échoue : un signal perdu est
+ * rattrapé par le filet de sécurité des autres appareils.
+ */
+async function signalWrites(sent: Sent[]) {
+  if (!ready.size) return
+  try {
+    const ids = (field: string, tables: SyncTable[]) =>
+      sent.filter((s) => tables.includes(s.table)).flatMap((s) => s.rows.map((r) => r[field]).filter((x): x is string => typeof x === 'string'))
+    const playerIds = [
+      ...new Set([
+        ...ids('playerId', ['measurements', 'evaluations', 'seen', 'rewatch']),
+        ...ids('targetId', ['videos']),
+        ...sent.filter((s) => s.table === 'events').flatMap((s) => s.rows.flatMap((r) => (Array.isArray(r.playerIds) ? (r.playerIds as string[]) : []))),
+      ]),
+    ]
+    const teamIds = [...new Set(sent.filter((s) => s.table === 'groups' || s.table === 'events').flatMap((s) => s.rows.flatMap((r) => (Array.isArray(r.teams) ? (r.teams as string[]) : []))))]
+    const needUnits = sent.some((s) => s.table === 'events' && s.rows.some((r) => typeof r.organizerUnitId === 'string' && r.organizerUnitId.trim()))
+    const [players, teams, units] = await Promise.all([
+      playerIds.length ? db.players.bulkGet(playerIds) : [],
+      teamIds.length ? db.teams.bulkGet(teamIds) : [],
+      needUnits ? db.units.toArray() : [],
+    ])
+    const playerMap = new Map(players.filter((p) => !!p).map((p) => [p!.id, p!]))
+    const territories = new Map<string, { depts: string[]; clubs: string[] } | undefined>()
+    const look: ChannelLookup = {
+      player: (id) => playerMap.get(id),
+      territory: (id) => {
+        if (!territories.has(id)) territories.set(id, units.some((u) => u.id === id && !u.deleted) ? unitTerritory(units, id) : undefined)
+        return territories.get(id)
+      },
+      teamMembers: (ids) => teams.filter((t) => !!t && !t.deleted && ids.includes(t.id)).flatMap((t) => t!.members ?? []),
+    }
+    for (const m of outgoingSignals(sent, new Set(ready.keys()), look, new Date().toISOString())) {
+      void ready
+        .get(m.topic)
+        ?.send({ type: 'broadcast', event: m.event, payload: m.payload })
+        .catch(() => {})
+    }
+  } catch (e) {
+    console.warn('Signaux en direct :', e instanceof Error ? e.message : e)
+  }
+}
+
 /** Ancien mode (serveur sans 057) : postgres_changes sur toutes les tables, chaque changement relance une synchronisation complète. */
 function startPostgresChanges() {
   if (!supabase || channel) return
@@ -845,6 +925,7 @@ function stopRealtime() {
   signals.cancel()
   for (const ch of channels) void supabase.removeChannel(ch)
   channels = []
+  ready.clear()
   if (channel) void supabase.removeChannel(channel)
   channel = null
   setLive(false, false)

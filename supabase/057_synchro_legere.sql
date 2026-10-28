@@ -17,9 +17,10 @@
 --    sans effet ; c'est le prix de la sûreté) ; curseur plus ancien : strictement après le curseur. Table inconnue du
 --    serveur (script pas encore passé) : null ; clé sans curseur : true ; clé inconnue : ignorée.
 --    Rien de changé : une synchronisation = cette seule requête. L'appli relit ensuite les seules tables à true.
--- 2) DIFFUSION EN DIRECT par canaux privés (realtime.send, Realtime ≥ 2.33) au lieu de postgres_changes : un déclencheur
---    APRÈS écriture envoie un SIGNAL ({t: table, id, v: heure serveur} : ni nom ni contenu) sur les canaux de ceux qui
---    peuvent lire la ligne, calculés depuis la ligne elle-même (mêmes règles que les règles de lecture, hb_canaux_ligne) :
+-- 2) DIFFUSION EN DIRECT par canaux privés (Realtime, broadcast) au lieu de postgres_changes : après chaque envoi réussi,
+--    L'APPAREIL QUI ÉCRIT envoie un SIGNAL ({t: table, id, v} : ni nom ni contenu) sur ceux de SES canaux qui lisent les
+--    lignes envoyées (src/sync.ts, signalWrites ; canaux d'une ligne : src/syncLive.ts, rowChannels, miroir de
+--    hb_canaux_ligne ci-dessous) :
 --      hb:dept:<département>, hb:club:<n° de club>  joueurs et lignes rattachées (colonnes scope_dept / scope_club de 046),
 --                                                   événements (territoire et joueurs inscrits, 048)
 --      hb:tout                                      comptes qui voient tout (administrateurs, niveau Fédération) ; journal des
@@ -32,20 +33,28 @@
 --                                                   et alertes partagés, événements sans organisateur, vidéos d'un événement
 --      hb:commun                                    tous les comptes, joueurs compris : configuration, listes, annonces de version
 --    Les noms des canaux ne portent aucune donnée personnelle (codes, n° de club, identifiants techniques). Realtime vérifie
---    le droit d'écoute UNE fois, à l'abonnement (règle hb_recevoir sur realtime.messages : seulement les canaux rendus par
---    hb_mes_canaux()), puis diffuse sans relire les règles. Aucun compte ne peut envoyer sur ces canaux (pas de règle
---    d'insertion). Un seul signal par table et par canal dans une transaction (un envoi de 400 lignes = quelques messages).
+--    les droits UNE fois, à l'abonnement (règles sur realtime.messages, section 5) : écoute (hb_recevoir) et envoi
+--    (hb_emettre) seulement sur les canaux rendus par hb_mes_canaux() ; puis il diffuse sans relire les règles. Un compte
+--    ne prévient donc que les canaux qu'il écoute lui-même : une fiche modifiée par un club prévient ce club, pas le comité
+--    ni les comptes qui voient tout (ceux-là la reçoivent par le filet de sécurité, dans les 5 minutes).
+--    Un seul signal par table et par canal pour un envoi (un envoi de 400 lignes = quelques messages).
 --    Configuration, critères, niveaux (rien de personnel, lus par tout le staff) : la ligne entière part (événement
 --    « ligne »), pour que des milliers d'appareils n'aient pas à la relire en même temps ; l'appli l'applique comme une
 --    ligne reçue (jamais par-dessus une version plus récente) sans avancer son curseur : la relecture reste la référence.
---    Un envoi qui échoue n'empêche JAMAIS l'écriture (bloc protégé) ; sans realtime.send (Postgres nu, pile ancienne) :
---    rien n'est diffusé, l'appli relit par le filet de sécurité (5 minutes quand le direct est abonné, 1 minute sinon).
+--    Ce qui ne vient pas d'un téléphone (SQL, imports côté serveur, tâches de nuit) ne prévient personne : le filet de
+--    sécurité le rattrape (« quoi de neuf ? » toutes les 5 minutes quand le direct est abonné, toutes les minutes sinon).
+--    POURQUOI pas la base (première version de ce script : déclencheur hb_diffuser → realtime.send) : à l'essai de charge
+--    (Realtime auto-hébergé 2.143.3), les messages envoyés par la base n'arrivaient jamais aux abonnés, alors qu'un message
+--    envoyé par un client sur le même canal l'était ; et ces envois, dans chaque transaction d'écriture, chargeaient la
+--    base (saturée vers 10 000 utilisateurs). Ce script RETIRE donc ces déclencheurs s'ils ont été posés (section 4).
 -- 3) hb_mes_canaux() : les canaux du compte connecté (même règle que hb_scope_of : tout, ou ses départements et ses clubs ;
 --    compte joueur : sa fiche). L'appli les lit à la connexion et quand son périmètre change, puis s'abonne (canaux
 --    privés, jeton de session). Sans la fonction (ce script pas passé), elle garde postgres_changes.
 -- 4) hb_annoncer_version(v) : annonce une nouvelle version de l'appli sur hb:commun (événement « version ») ; chaque appareil
 --    vérifie la mise à jour dans les 30 secondes qui suivent (le bandeau « Nouvelle version » apparaît), au lieu de toutes
 --    les 5 minutes. Administrateur connecté, ou SQL direct (SQL Editor, connecteur).
+--    (Envoi par la base, realtime.send : voir la remarque du point 2 ; sans réception, les appareils trouvent la nouvelle
+--    version d'eux-mêmes, toutes les 5 minutes.)
 --    PUBLICATION : après la mise en ligne de l'appli, passer dans le SQL Editor (ou par le connecteur, execute_sql) :
 --      select public.hb_annoncer_version('2026-10-28T12:00:00.000Z');   -- l'heure de construction affichée dans Réglages
 --    (n'importe quel texte non vide convient ; un appareil qui a déjà cette version n'en tient pas compte).
@@ -54,8 +63,9 @@
 --    retirées (voir RETOUR ARRIÈRE, dernière ligne).
 -- Dépend de : 046/047 (colonnes scope_*, hb_scope_of), 048 (territoire des événements), 051 (comptes joueur), 034
 -- (hb_participants, hb_arr). Realtime ≥ 2.33 : realtime.send et canaux privés (realtime.messages, realtime.topic()).
--- La règle sur realtime.messages demande d'être propriétaire de la table : si le script affiche l'avertissement « Règle
--- hb_recevoir non posée », repasser le seul bloc « 5. Droit d'écoute » en super-utilisateur (supabase_admin).
+-- Les règles sur realtime.messages demandent d'être propriétaire de la table : si le script affiche l'avertissement « Règles
+-- hb_recevoir / hb_emettre non posées », repasser le seul bloc « 5. Droits d'écoute et d'envoi » en super-utilisateur
+-- (supabase_admin).
 -- Appli : src/sync.ts, src/syncLive.ts (règles pures, testées par tools/test-synchro-legere.ts), src/pwa.ts.
 -- Annulation : section « RETOUR ARRIÈRE » à la fin (commentée).
 
@@ -108,6 +118,8 @@ grant execute on function public.hb_quoi_de_neuf(jsonb) to authenticated;
 
 -- ---------- 2. Canaux d'une ligne (mêmes règles que les règles de lecture) ----------
 
+-- Référence des canaux d'une ligne : l'appli en a le miroir (src/syncLive.ts, rowChannels) pour choisir où envoyer ses
+-- signaux ; gardée ici pour les essais et les contrôles (aucun déclencheur ne l'appelle plus).
 -- p_table : nom complet (hb_players…) ; p_row : la ligne entière en jsonb (to_jsonb(new) : id, data, deleted, scope_dept,
 -- scope_club, players_dept, players_club quand la table les a). Un canal null (pas de département, pas d'auteur…) est retiré.
 -- Trop prévenir est sans danger (l'appareil relit par sa règle de lecture et ne reçoit rien) ; trop peu ne doit pas arriver.
@@ -212,49 +224,10 @@ end $$;
 revoke all on function public.hb_mes_canaux() from public, anon;
 grant execute on function public.hb_mes_canaux() to authenticated;
 
--- ---------- 4. Diffusion après écriture ----------
+-- ---------- 4. Plus de diffusion par la base ----------
 
--- Déclencheur APRÈS insertion ou modification, ligne par ligne. Un seul signal par table et par canal dans la transaction
--- (clés déjà envoyées gardées dans le réglage local hb.diffuse) : id et v sont ceux de la première ligne ; l'appli ne s'en
--- sert que pour relire la table. Configuration, critères, niveaux : la ligne entière, à chaque fois (événement « ligne »).
--- Tout est dans un bloc protégé : une diffusion impossible n'annule jamais l'écriture (avertissement dans le journal du
--- serveur). Sans realtime.send : rien.
-create or replace function public.hb_diffuser() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  v_table text := substr(tg_table_name, 4); -- hb_players -> players
-  v_contenu boolean := tg_table_name in ('hb_config', 'hb_criteria', 'hb_levels');
-  v_canaux text[];
-  v_canal text;
-  v_charge jsonb;
-  v_faits text;
-  v_cle text;
-begin
-  if to_regprocedure('realtime.send(jsonb, text, text, boolean)') is null then return null; end if;
-  begin
-    v_canaux := public.hb_canaux_ligne(tg_table_name, to_jsonb(new));
-    v_charge := jsonb_build_object('t', v_table, 'id', new.id, 'v', new.server_updated_at);
-    if v_contenu then
-      v_charge := v_charge || jsonb_build_object('ligne', jsonb_build_object(
-        'id', new.id, 'data', new.data, 'deleted', new.deleted, 'server_updated_at', new.server_updated_at));
-    end if;
-    v_faits := coalesce(current_setting('hb.diffuse', true), '');
-    foreach v_canal in array v_canaux loop
-      if not v_contenu then
-        v_cle := '[' || tg_table_name || '>' || v_canal || ']';
-        if position(v_cle in v_faits) > 0 then continue; end if;
-        v_faits := v_faits || v_cle;
-      end if;
-      perform realtime.send(v_charge, case when v_contenu then 'ligne' else 'signal' end, v_canal, true);
-    end loop;
-    perform set_config('hb.diffuse', v_faits, true);
-  exception when others then
-    raise warning 'Diffusion en direct impossible (%, %) : %', tg_table_name, new.id, sqlerrm;
-  end;
-  return null;
-end $$;
-revoke all on function public.hb_diffuser() from public, anon, authenticated;
-
+-- Première version de ce script : un déclencheur hb_diffuser après chaque écriture, sur les 19 tables. Retiré (voir le
+-- point 2 de l'en-tête) : c'est l'appareil qui écrit qui prévient. Sans effet si ce script n'avait jamais été passé.
 do $$
 declare t text;
 begin
@@ -262,15 +235,17 @@ begin
                            'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log',
                            'saved_questions'] loop
     if to_regclass('public.hb_' || t) is null then continue; end if;
-    execute format('drop trigger if exists hb_diffuser on public.hb_%1$s;
-      create trigger hb_diffuser after insert or update on public.hb_%1$s for each row execute function public.hb_diffuser();', t);
+    execute format('drop trigger if exists hb_diffuser on public.hb_%1$s', t);
   end loop;
 end $$;
+drop function if exists public.hb_diffuser();
 
--- ---------- 5. Droit d'écoute : canaux privés ----------
+-- ---------- 5. Droits d'écoute et d'envoi : canaux privés ----------
 
 -- Realtime vérifie à l'abonnement, avec le jeton du compte, qu'une ligne de realtime.messages portant le canal demandé
--- serait lisible : seulement les canaux de hb_mes_canaux(). Aucune règle d'insertion : personne n'envoie depuis l'appli.
+-- serait lisible (écoute : hb_recevoir) et pourrait être insérée (envoi : hb_emettre) : dans les deux cas, seulement les
+-- canaux de hb_mes_canaux(), et seulement les messages « broadcast ». Un compte ne peut donc rien envoyer sur un canal
+-- qu'il n'a pas le droit d'écouter (le département d'un autre comité, hb:tout pour un club…).
 do $$
 begin
   if to_regclass('realtime.messages') is null or to_regprocedure('realtime.topic()') is null then
@@ -279,11 +254,14 @@ begin
   end if;
   begin
     execute 'drop policy if exists "hb_recevoir" on realtime.messages';
+    execute 'drop policy if exists "hb_emettre" on realtime.messages';
     -- (select …)::text[] : la liste est calculée une fois par requête, comme les règles de 046.
     execute $p$create policy "hb_recevoir" on realtime.messages for select to authenticated
       using (realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[]))$p$;
+    execute $p$create policy "hb_emettre" on realtime.messages for insert to authenticated
+      with check (realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[]))$p$;
   exception when others then
-    raise warning 'Règle hb_recevoir non posée sur realtime.messages (%) : repasser ce bloc en super-utilisateur.', sqlerrm;
+    raise warning 'Règles hb_recevoir / hb_emettre non posées sur realtime.messages (%) : repasser ce bloc en super-utilisateur.', sqlerrm;
   end;
 end $$;
 
@@ -310,27 +288,24 @@ revoke all on function public.hb_annoncer_version(text) from public, anon;
 grant execute on function public.hb_annoncer_version(text) to authenticated;
 
 -- ---------- Vérification (lecture seule) ----------
--- Attendu : 5 fonctions ; un déclencheur hb_diffuser par table présente (19 sur une base à jour) ; realtime_send et
--- regle_ecoute vrais sur Supabase (faux sur un Postgres nu) ; essai_canaux = {hb:club:6383015,hb:compte:u1,hb:dept:83,hb:tout}.
+-- Attendu : 4 fonctions ; aucun déclencheur hb_diffuser (0) ; realtime_send, regle_ecoute et regle_envoi vrais sur
+-- Supabase (faux sur un Postgres nu) ; essai_canaux = {hb:club:6383015,hb:compte:u1,hb:dept:83,hb:tout}.
 select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-         where n.nspname = 'public' and p.proname in ('hb_quoi_de_neuf', 'hb_mes_canaux', 'hb_canaux_ligne', 'hb_diffuser', 'hb_annoncer_version')) as fonctions_5,
-       (select count(*) from pg_trigger where tgname = 'hb_diffuser' and not tgisinternal) as declencheurs,
+         where n.nspname = 'public' and p.proname in ('hb_quoi_de_neuf', 'hb_mes_canaux', 'hb_canaux_ligne', 'hb_annoncer_version')) as fonctions_4,
+       (select count(*) from pg_trigger where tgname = 'hb_diffuser' and not tgisinternal) as declencheurs_0,
        to_regprocedure('realtime.send(jsonb, text, text, boolean)') is not null as realtime_send,
        exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_recevoir') as regle_ecoute,
+       exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_emettre') as regle_envoi,
        public.hb_canaux_ligne('hb_players', '{"id": "x", "scope_dept": "83", "scope_club": "6383015", "data": {"createdBy": "u1"}}'::jsonb) as essai_canaux;
 
 -- ---------- RETOUR ARRIÈRE (à lancer seulement pour annuler ce script ; l'appli repasse d'elle-même à postgres_changes) ----------
 -- do $$
--- declare t text;
 -- begin
---   foreach t in array array['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts',
---                            'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log',
---                            'saved_questions'] loop
---     if to_regclass('public.hb_' || t) is not null then execute format('drop trigger if exists hb_diffuser on public.hb_%1$s', t); end if;
---   end loop;
---   if to_regclass('realtime.messages') is not null then execute 'drop policy if exists "hb_recevoir" on realtime.messages'; end if;
+--   if to_regclass('realtime.messages') is not null then
+--     execute 'drop policy if exists "hb_recevoir" on realtime.messages';
+--     execute 'drop policy if exists "hb_emettre" on realtime.messages';
+--   end if;
 -- end $$;
--- drop function if exists public.hb_diffuser();
 -- drop function if exists public.hb_canaux_ligne(text, jsonb);
 -- drop function if exists public.hb_mes_canaux();
 -- drop function if exists public.hb_quoi_de_neuf(jsonb);
