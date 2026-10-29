@@ -9,7 +9,10 @@
  *  - lignes reçues (relecture ou en direct) à garder face à celles de l'appareil ;
  *  - regroupement des signaux (Grouper) ; annonce d'une nouvelle version (vérification dans les 30 s) ;
  *  - ENVOI des signaux par l'appareil qui écrit (plan B : la base ne diffuse plus) : canaux d'une ligne, même règle que
- *    hb_canaux_ligne (rowChannels), et messages d'un envoi réussi, groupés, limités aux canaux ouverts (outgoingSignals).
+ *    hb_canaux_ligne (rowChannels), et messages d'un envoi réussi, groupés, limités aux canaux ouverts (outgoingSignals) ;
+ *  - PREMIÈRE SYNCHRONISATION allégée (essai de charge du 29/10) : lecture par pages (readPages, correcte quand le serveur
+ *    plafonne à 1 000 lignes par réponse) ; affectations : toutes pour un administrateur, les siennes seulement pour les
+ *    autres (assignmentScopeKey, planAssignmentScope ; clé « mes_affectations » de hb_quoi_de_neuf).
  */
 import type { SyncTable } from './db'
 import { playerClub, playerDepartment, type ServerScope } from './perimeter'
@@ -135,6 +138,99 @@ export function planPull(tables: readonly SyncTable[], fresh: ReadonlySet<SyncTa
     else pull.push(t)
   }
   return { pull, absent, quiet }
+}
+
+/*
+ * Affectations (hb_assignments) : à l'essai de charge, chaque appareil relisait TOUTES les affectations (20 000 comptes : 20
+ * pages par appareil neuf, ~5 900 s de base sur le palier de 5 000), soit un coût qui croît comme le carré du nombre de
+ * membres du staff. L'appareil n'en a besoin que pour lui (son périmètre affiché, ses pôles, l'organisateur proposé d'un
+ * événement : src/perimeter.ts, src/poleSeason.ts, src/eventOrganizer.ts). Seul l'administrateur garde tout (écran Structure
+ * modifiable, « Voir comme… », sauvegarde complète). L'écran Structure en lecture seule lit la liste complète À LA DEMANDE
+ * (src/sync.ts, fetchAllAssignments). Ce n'est qu'un tri de ce qui est synchronisé : les droits de lecture ne changent pas.
+ */
+export type AssignmentScope = 'all' | 'mine'
+
+/** Affectations reçues par l'appareil : toutes (administrateur), sinon les siennes (rôle encore inconnu compris). */
+export const assignmentScope = (role: string | null | undefined): AssignmentScope => (role === 'admin' ? 'all' : 'mine')
+
+/** Signature gardée sur l'appareil avec le curseur des affectations : « all », ou « mine:<compte> ». */
+export const assignmentScopeKey = (role: string | null | undefined, uid: string) => (assignmentScope(role) === 'all' ? 'all' : `mine:${uid}`)
+
+/**
+ * Signature changée (rôle connu après le début de la synchro, administrateur nommé ou retiré, appareil d'avant ce tri) :
+ *  - reset : relire depuis le début (les affectations des autres, devenues utiles, sont anciennes pour le curseur) ; toujours
+ *    quand la signature change (relire les siennes seules ne coûte qu'une requête) ;
+ *  - forgetOthers : retirer de l'appareil celles des autres (sauf celles qui attendent d'être envoyées).
+ */
+export function planAssignmentScope(prev: string | null, next: string): { reset: boolean; forgetOthers: boolean } {
+  if (prev === next) return { reset: false, forgetOthers: false }
+  return { reset: true, forgetOthers: next !== 'all' }
+}
+
+/** Affectations des autres à retirer de l'appareil (passage à « mine ») : jamais celles qui attendent d'être envoyées. */
+export const otherAssignmentIds = (rows: readonly { id: string; userId?: string }[], uid: string, pending: ReadonlySet<string>) =>
+  rows.filter((r) => r.userId !== uid && !pending.has(r.id)).map((r) => r.id)
+
+/** Clé de hb_quoi_de_neuf pour les seules affectations du compte (057 : data.userId = le compte connecté). */
+export const MY_ASSIGNMENTS_KEY = 'mes_affectations'
+
+/**
+ * Curseurs envoyés à hb_quoi_de_neuf : ceux des tables ; affectations du compte seulement (mine) : sous MY_ASSIGNMENTS_KEY
+ * (sinon le serveur dirait « à relire » dès qu'une affectation d'un autre change, et l'appareil relirait pour rien à chaque fois).
+ */
+export function whatsNewRequest(cursors: Readonly<Record<string, string | null | undefined>>, mine: boolean): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [t, c] of Object.entries(cursors)) out[mine && t === 'assignments' ? MY_ASSIGNMENTS_KEY : t] = c ?? ''
+  return out
+}
+
+/** Réponse de hb_quoi_de_neuf, ramenée aux tables (null : réponse illisible). Serveur sans la clé : absente, donc relue (prudence). */
+export function whatsNewAnswer(data: unknown, mine: boolean): WhatsNew | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const out: WhatsNew = { ...(data as WhatsNew) }
+  if (mine) {
+    delete out.assignments
+    if (MY_ASSIGNMENTS_KEY in out) out.assignments = out[MY_ASSIGNMENTS_KEY]
+    delete out[MY_ASSIGNMENTS_KEY]
+  }
+  return out
+}
+
+// ---------- Lecture par pages ----------
+
+/**
+ * Lignes par page (relecture par curseur, identifiants visibles). Le serveur plafonne chaque réponse à db-max-rows lignes
+ * (Supabase : 1 000 par défaut ; serveur autohébergé : PGRST_DB_MAX_ROWS=1000) : une page n'est la dernière que si elle est
+ * PLUS COURTE que PULL_PAGE. PULL_PAGE ne doit donc jamais dépasser ce plafond (sinon une page pleine, coupée par le serveur,
+ * passerait pour la dernière et la suite ne serait lue qu'à la synchronisation suivante).
+ */
+export const PULL_PAGE = 1000
+
+/** Repère de la dernière ligne reçue : la page suivante commence strictement après (server_updated_at, id). */
+export type PageKey = { at: string; id: string }
+
+/**
+ * Lit une table par pages triées (server_updated_at, id) : fetch(après) rend la page suivante (après null : la première,
+ * depuis le curseur) ; onPage est appelé pour chaque page non vide, dans l'ordre. S'arrête sur une page vide ou plus courte
+ * que pageSize. Renvoie le nombre de lignes reçues.
+ */
+export async function readPages<R extends { id: string; server_updated_at: string }>(
+  fetch: (after: PageKey | null) => Promise<readonly R[]>,
+  onPage: (rows: readonly R[]) => Promise<void> | void,
+  pageSize = PULL_PAGE,
+): Promise<number> {
+  let after: PageKey | null = null
+  let received = 0
+  for (;;) {
+    const rows = await fetch(after)
+    if (!rows.length) break
+    received += rows.length
+    await onPage(rows)
+    const last = rows[rows.length - 1]
+    after = { at: last.server_updated_at, id: last.id }
+    if (rows.length < pageSize) break
+  }
+  return received
 }
 
 // ---------- Lignes reçues ----------

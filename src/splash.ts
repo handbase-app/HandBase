@@ -70,7 +70,8 @@ export function splashDecision(i: SplashInput): SplashDecision {
 export function splashBar(sync: SplashSync, p: SyncProgress | null): number | null {
   // À jour, ou rien à attendre (données de l'appareil prêtes) : barre pleine.
   if (sync === 'done' || sync === 'none') return 1
-  if (p && p.total > 0) return Math.min(1, p.done / p.total)
+  // Avancement par tables et par pages (src/syncProgress.ts) : rien encore reçu, barre « en attente ».
+  if (p && p.share > 0) return Math.min(1, p.share)
   return null
 }
 
@@ -79,6 +80,6 @@ export function splashText(sync: SplashSync, p: SyncProgress | null, server: boo
   if (sync === 'login') return ''
   if (sync === 'done') return 'À jour'
   if (sync === 'none') return !server ? 'Données de l’appareil' : online ? 'Synchro impossible : données de l’appareil' : 'Hors ligne : données de l’appareil'
-  if (p && p.total > 0) return progressLabel(p)
+  if (p && p.done > 0) return progressLabel(p)
   return 'Synchronisation…'
 }

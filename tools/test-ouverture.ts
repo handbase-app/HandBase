@@ -79,19 +79,23 @@ assert.equal(first(25_000, { sync: 'done', lastActivity: 25_000 }).enter, true)
 assert.equal(first(MIN_MS, { sync: 'none' }).enter, true)
 assert.equal(first(12_000, { sync: 'none' }).enter, true)
 
-// Barre : progression réelle, pleine à la fin, « en attente » sans chiffres ; jamais au-delà de 100 %.
-const p = (done: number, total: number, first = false) => ({ table: 'players' as const, done, total, first })
+// Barre : progression réelle (par tables et par pages, sans comptage : src/syncProgress.ts), pleine à la fin, « en attente »
+// tant que rien n'est reçu ; jamais au-delà de 100 %.
+const p = (done: number, share: number, first = false) => ({ table: 'players' as const, done, share, first })
 assert.equal(splashBar('done', null), 1)
 assert.equal(splashBar('none', null), 1)
 assert.equal(splashBar('pending', null), null)
 assert.equal(splashBar('pending', p(0, 0)), null)
-assert.equal(splashBar('pending', p(738, 2583)), 738 / 2583)
-assert.equal(splashBar('pending', p(3000, 2583)), 1)
+assert.equal(splashBar('pending', p(738, 0.25)), 0.25)
+assert.equal(splashBar('pending', p(3000, 1.2)), 1)
 
 // Texte (espaces fines insécables des milliers selon toLocaleString : comparé sans espaces).
 const flat = (s: string) => s.replace(/\s/g, ' ')
-assert.equal(flat(splashText('pending', p(738, 2583), true, true)), 'Mise à jour : 738 / 2 583 éléments (joueurs)')
-assert.equal(flat(splashText('pending', p(12400, 40001, true), true, true)), 'Premier chargement : 12 400 / 40 001 éléments (joueurs)')
+assert.equal(flat(splashText('pending', p(738, 0.25), true, true)), 'Mise à jour : 738 éléments reçus (joueurs)')
+assert.equal(flat(splashText('pending', p(12400, 0.4, true), true, true)), 'Premier chargement : 12 400 éléments reçus (joueurs)')
+assert.equal(flat(splashText('pending', p(1, 0.5, true), true, true)), 'Premier chargement : 1 élément reçu (joueurs)')
+// Rien encore reçu : texte d'attente (plus de « 0 / 40 001 » : le total n'est plus demandé au serveur).
+assert.equal(splashText('pending', p(0, 0, true), true, true), 'Synchronisation…')
 assert.equal(splashText('pending', null, true, true), 'Synchronisation…')
 assert.equal(splashText('done', p(10, 10), true, true), 'À jour')
 assert.equal(splashText('none', null, true, false), 'Hors ligne : données de l’appareil')

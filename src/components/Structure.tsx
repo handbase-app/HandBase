@@ -20,7 +20,7 @@ import {
   type AssignmentRole,
   type TreeNode,
 } from '../structureTree'
-import { supabase } from '../sync'
+import { deviceHasAllAssignments, fetchAllAssignments, supabase } from '../sync'
 import { ask, inform } from './Confirm'
 import { StructureImport } from './StructureImport'
 import { fold } from './PlayerFilter'
@@ -311,10 +311,37 @@ function useMembers(enabled: boolean) {
   return { list, err, online }
 }
 
+/**
+ * Affectations montrées par l'écran : celles de l'appareil quand il les a toutes (administrateur, src/sync.ts) ; sinon (les
+ * autres comptes ne reçoivent que les leurs, src/syncLive.ts assignmentScope) la liste complète lue À LA DEMANDE au serveur,
+ * à l'ouverture de l'écran. complete : false tant qu'elle n'est pas lue (hors ligne) : nombres de personnes non montrés.
+ */
+function useStructureAssignments(): { list: Assignment[]; complete: boolean; missing: string } {
+  const local = useAssignments()
+  const all = deviceHasAllAssignments()
+  const online = useOnline()
+  // null : pas encore lue ; 'failed' : lecture refusée ou en échec (réessayée à la prochaine ouverture de l'écran).
+  const [remote, setRemote] = useState<Assignment[] | 'failed' | null>(null)
+  useEffect(() => {
+    if (all || !online || remote) return
+    let on = true
+    void fetchAllAssignments().then((r) => {
+      if (on) setRemote(r ?? 'failed')
+    })
+    return () => {
+      on = false
+    }
+  }, [all, online, remote])
+  if (all) return { list: local, complete: true, missing: '' }
+  if (Array.isArray(remote)) return { list: remote, complete: true, missing: '' }
+  const missing = !online ? 'Toutes les personnes affectées : visibles en ligne.' : remote ? 'Liste des personnes affectées indisponible pour l’instant.' : 'Lecture des personnes affectées…'
+  return { list: local, complete: false, missing }
+}
+
 function UnitsSection({ editable }: { editable: boolean }) {
   const levels = useLevels()
   const units = useUnits()
-  const assignments = useAssignments()
+  const { list: assignments, complete } = useStructureAssignments()
   const [open, setOpen] = useState<string | null>(null)
   // Unités dépliées. Petit arbre (saisi à la main) : tout est déplié ; grand arbre (import) : tout est replié au départ.
   const [expanded, setExpanded] = useState<Set<string> | null>(null)
@@ -417,7 +444,7 @@ function UnitsSection({ editable }: { editable: boolean }) {
                         unit.departments?.length ? unit.departments.join(', ') : '',
                         unit.city ?? '',
                         sub ? plural(sub, 'sous-unité') : '',
-                        people ? plural(people, 'personne') : '',
+                        complete && people ? plural(people, 'personne') : '',
                       ]
                         .filter(Boolean)
                         .join(' · ')}
@@ -491,7 +518,7 @@ function UnitDetail({
 }) {
   const levels = useLevels()
   const units = useUnits()
-  const assignments = useAssignments()
+  const { list: assignments, complete, missing } = useStructureAssignments()
   const people = assignmentsIn(assignments, unit.id)
   const indent = useMemo(() => new Map(flatten(buildTree(units, levels)).map((r, i) => [r.unit.id, { depth: r.depth, pos: i }])), [units, levels])
   // Parents possibles, dans l'ordre de l'arbre. Grand arbre (import) : seulement les niveaux au-dessus (sinon des milliers de
@@ -514,14 +541,16 @@ function UnitDetail({
         {club}
         {pole && <PoleInfo unit={unit} />}
         {unit.departments?.length ? <div>Territoire : {unit.departments.map((d) => departmentLabel(d)).join(', ')}</div> : null}
-        {people.length ? (
-          people.map((a) => (
-            <div key={a.id}>
-              {a.userName ?? 'Compte'} · <span className="text-muted">{ROLE_LABEL[a.role]}</span>
-            </div>
-          ))
+        {people.map((a) => (
+          <div key={a.id}>
+            {a.userName ?? 'Compte'} · <span className="text-muted">{ROLE_LABEL[a.role]}</span>
+          </div>
+        ))}
+        {/* Liste complète lue en ligne (l'appareil n'a que ses propres affectations) : en attendant, on le dit. */}
+        {!complete ? (
+          <div className="text-muted">{missing}</div>
         ) : (
-          <div className="text-muted">Personne d’affecté.</div>
+          !people.length && <div className="text-muted">Personne d’affecté.</div>
         )}
       </div>
     )

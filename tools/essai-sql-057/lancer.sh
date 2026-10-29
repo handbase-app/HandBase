@@ -2,7 +2,8 @@
 # Essai de supabase/057_synchro_legere.sql sur un Postgres 16 JETABLE (Docker, conteneur hbpg-essai, supprimé à la fin) :
 # bouchons des schémas Supabase (bouchons.sql : auth, realtime, vault, net, cron), schema.sql puis 002 → 056, l'ANCIENNE
 # version de 057 (déclencheurs hb_diffuser, commit 974ed51), la nouvelle deux fois (relançable : déclencheurs retirés),
-# les essais (essais.sql : règles d'envoi et d'écoute, aucune diffusion par la base) et la comparaison des canaux avec
+# les essais (essais.sql : règles d'envoi et d'écoute, aucune diffusion par la base, clé « mes_affectations » et colonne
+# user_id des affectations) et la comparaison des canaux avec
 # l'appli (lignes.sql + miroir.ts). Données fictives seulement. Rien n'est envoyé à une base distante.
 #
 #   bash tools/essai-sql-057/lancer.sh

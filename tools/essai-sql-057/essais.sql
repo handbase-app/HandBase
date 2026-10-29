@@ -168,3 +168,83 @@ begin
   assert c @> array['hb:commun', 'hb:staff', 'hb:club:6383015', 'hb:compte:00000000-0000-0000-0000-0000000000d1'] and not c @> array['hb:tout'], 'mes canaux : ' || c::text;
   raise notice 'quoi de neuf et mes canaux : ok';
 end $$;
+
+-- ---------- « Quoi de neuf ? » : les seules affectations du compte (clé « mes_affectations », 29/10) ----------
+-- Affectations existantes ramenées loin dans le passé (déclencheurs coupés), puis une nouvelle pour le comité, maintenant :
+-- la table a changé, mais rien parmi celles du club.
+set session_replication_role = replica;
+update public.hb_assignments set server_updated_at = '2026-01-01T00:00:00Z';
+set session_replication_role = default;
+insert into public.hb_assignments (id, data) values
+  ('aff-c2', '{"id":"aff-c2","userId":"00000000-0000-0000-0000-0000000000c1","unitId":"club-1","role":"observateur"}');
+do $$
+declare
+  comite text := '00000000-0000-0000-0000-0000000000c1';
+  club text := '00000000-0000-0000-0000-0000000000d1';
+  jeune text := '00000000-0000-0000-0000-0000000000e1';
+  vieux jsonb := '{"mes_affectations": "2026-06-01T00:00:00Z", "assignments": "2026-06-01T00:00:00Z"}';
+  recent jsonb := jsonb_build_object('mes_affectations', now()::text);
+  v jsonb;
+  n integer := 0;
+begin
+  perform set_config('test.uid', club, true);
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf(vieux);
+  reset role;
+  assert v = '{"assignments": true, "mes_affectations": false}'::jsonb, 'club, curseur ancien : ' || v::text; n := n + 1;
+  perform set_config('test.uid', comite, true);
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf(vieux);
+  reset role;
+  assert v = '{"assignments": true, "mes_affectations": true}'::jsonb, 'comité, curseur ancien : ' || v::text; n := n + 1;
+  -- Curseur récent : recouvrement de 60 s (l'affectation du comité, posée il y a quelques secondes, compte encore).
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf(recent);
+  reset role;
+  assert v = '{"mes_affectations": true}'::jsonb, 'comité, curseur récent : ' || v::text; n := n + 1;
+  perform set_config('test.uid', club, true);
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf(recent);
+  reset role;
+  assert v = '{"mes_affectations": false}'::jsonb, 'club, curseur récent : ' || v::text; n := n + 1;
+  -- Sans curseur : à relire.
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf('{"mes_affectations": ""}'::jsonb);
+  reset role;
+  assert v = '{"mes_affectations": true}'::jsonb, 'club, sans curseur : ' || v::text; n := n + 1;
+  -- Compte joueur : la structure ne lui est pas lisible (051) : rien.
+  perform set_config('test.uid', jeune, true);
+  set local role authenticated;
+  v := public.hb_quoi_de_neuf('{"mes_affectations": "2020-01-01T00:00:00Z"}'::jsonb);
+  reset role;
+  assert v = '{"mes_affectations": false}'::jsonb, 'joueur : ' || v::text; n := n + 1;
+  raise notice 'quoi de neuf, mes affectations : % assertions', n;
+end $$;
+
+-- Colonne user_id (copie de data.userId) : son index sert SOUS LES RÈGLES DE LECTURE (égalité de textes, leakproof), alors
+-- que « data ->> 'userId' » ne peut pas servir d'index pour un compte (opérateur non leakproof) : parcours de toute la table.
+do $$
+declare
+  club text := '00000000-0000-0000-0000-0000000000d1';
+  r text;
+  v_col boolean := false;
+  v_json boolean := false;
+begin
+  perform set_config('test.uid', club, true);
+  set local role authenticated;
+  set local enable_seqscan = off;
+  for r in execute format('explain select id, data, server_updated_at from public.hb_assignments where user_id = %L and server_updated_at >= %L order by server_updated_at, id limit 1000', club, '1970-01-01') loop
+    if r like '%Index Cond: ((user_id = %' then v_col := true; end if;
+  end loop;
+  for r in execute format('explain select id, data, server_updated_at from public.hb_assignments where (data ->> ''userId'') = %L and server_updated_at >= %L order by server_updated_at, id limit 1000', club, '1970-01-01') loop
+    if r like '%Index Cond: (((data ->> ''userId''::text) = %' then v_json := true; end if;
+  end loop;
+  reset enable_seqscan;
+  reset role;
+  assert v_col, 'lecture de ses affectations : index (user_id, server_updated_at, id) utilisé sous les règles';
+  assert not v_json, 'data->>userId sous les règles : pas d''index (d''où la colonne)';
+  assert (select user_id from public.hb_assignments where id = 'aff-d') = club, 'colonne = data.userId';
+  update public.hb_assignments set data = data || jsonb_build_object('userId', club) where id = 'aff-c2';
+  assert (select user_id from public.hb_assignments where id = 'aff-c2') = club, 'colonne suivie à la modification';
+  raise notice 'quoi de neuf, mes affectations : colonne user_id et index utilisables sous les règles de lecture : ok';
+end $$;

@@ -197,6 +197,14 @@ t('signature : ordre des listes sans importance', () => {
 })
 t('première lecture (appareil d’avant 046) : oublier, sans tout relire', () => {
   assert.deepEqual(planScopeChange(null, comite, 0, now), { resetCursors: false, forget: true })
+  assert.deepEqual(planScopeChange(null, comite, 0, now, false), { resetCursors: false, forget: true })
+})
+t('appareil neuf (premier chargement, base locale vide) : ni relecture ni oubli (tout vient d’être reçu avec ce périmètre)', () => {
+  assert.deepEqual(planScopeChange(null, comite, 0, now, true), { resetCursors: false, forget: false })
+  assert.deepEqual(planScopeChange(null, tout, 0, now, true), { resetCursors: false, forget: false })
+  // Seulement à la première lecture : ensuite, mêmes règles qu'avant (périmètre changé, vérification du jour).
+  assert.deepEqual(planScopeChange(scopeSignature(comite), ligue, now, now, true), { resetCursors: true, forget: true })
+  assert.deepEqual(planScopeChange(scopeSignature(comite), comite, now - FULL_FORGET_EVERY_MS, now, true), { resetCursors: false, forget: true })
 })
 t('périmètre élargi (comité → ligue) : relire depuis le début (lignes devenues visibles = anciennes) et oublier', () => {
   assert.deepEqual(planScopeChange(scopeSignature(comite), ligue, now, now), { resetCursors: true, forget: true })

@@ -17,6 +17,19 @@
 --    sans effet ; c'est le prix de la sûreté) ; curseur plus ancien : strictement après le curseur. Table inconnue du
 --    serveur (script pas encore passé) : null ; clé sans curseur : true ; clé inconnue : ignorée.
 --    Rien de changé : une synchronisation = cette seule requête. L'appli relit ensuite les seules tables à true.
+--    Clé « mes_affectations » (appli du 29/10 et après) : les seules affectations du compte connecté (hb_assignments,
+--    data.userId). POURQUOI (essai de charge du 29/10, 5 000 appareils neufs en 5 minutes) : chaque appareil relisait les
+--    20 000 affectations (~5 900 s de base sur le palier ; coût en N² avec le nombre de membres du staff). Un compte qui
+--    n'est pas administrateur ne reçoit plus que les siennes (src/syncLive.ts, assignmentScope ; l'écran Structure lit la
+--    liste complète à la demande) ; sous la clé « assignments », son curseur (heure de SA dernière affectation) paraîtrait
+--    en retard dès qu'une affectation d'un autre change, et l'appareil relirait pour rien à chaque synchronisation.
+--    Rien ne change des droits de lecture (staff_read de 051).
+--    COLONNE user_id (copie de data.userId, colonne générée) et son index (user_id, server_updated_at, id) : sous les règles
+--    de lecture, Postgres n'utilise un index que pour des opérateurs « leakproof » ; « data ->> 'userId' » ne l'est pas (l'index
+--    hb_assignments_user de 046 ne sert donc qu'aux fonctions SECURITY DEFINER) et chaque appareil parcourrait toute la table.
+--    Sur user_id (égalité de textes, leakproof), la lecture de ses affectations et la clé « mes_affectations » sont des
+--    lectures d'index. Les écritures (hb_upsert) ne changent pas : la colonne se calcule seule. L'appli filtre sur user_id et,
+--    sur un serveur qui ne l'a pas encore, sur data->>userId (même résultat, sans index).
 -- 2) DIFFUSION EN DIRECT par canaux privés (Realtime, broadcast) au lieu de postgres_changes : après chaque envoi réussi,
 --    L'APPAREIL QUI ÉCRIT envoie un SIGNAL ({t: table, id, v} : ni nom ni contenu) sur ceux de SES canaux qui lisent les
 --    lignes envoyées (src/sync.ts, signalWrites ; canaux d'une ligne : src/syncLive.ts, rowChannels, miroir de
@@ -71,11 +84,21 @@
 
 -- ---------- 1. « Quoi de neuf ? » : une requête au lieu de 19 ----------
 
+-- Affectations du compte (clé « mes_affectations », relecture filtrée de l'appli) : colonne user_id = data.userId, et un index
+-- utilisable sous les règles de lecture (point 1 de l'en-tête). Une table de 20 000 lignes est réécrite une fois (verrou de
+-- quelques secondes au plus) ; relancé : rien à faire.
+do $$
+begin
+  if to_regclass('public.hb_assignments') is null then return; end if; -- 044 pas passé
+  alter table public.hb_assignments add column if not exists user_id text generated always as (data ->> 'userId') stored;
+  create index if not exists hb_assignments_mine on public.hb_assignments (user_id, server_updated_at, id);
+end $$;
+
 -- curseurs : { players: '2026-10-28T10:00:00.123456+00:00', criteria: …, … } (src/sync.ts, PULL_KEY). Renvoie, pour chaque
 -- table synchronisée (src/db.ts, SYNC_TABLES) citée : true (à relire), false (rien de nouveau pour ce compte), null (table
 -- inconnue du serveur). SECURITY INVOKER : chaque « exists » passe par les règles de lecture du compte, et le périmètre n'est
 -- calculé qu'une fois (hb_my_scope, gardé pour la transaction) ; l'index sur server_updated_at arrête chaque lecture à la
--- première ligne.
+-- première ligne. Clé « mes_affectations » : voir le point 1 de l'en-tête (réponse sous la même clé).
 create or replace function public.hb_quoi_de_neuf(curseurs jsonb) returns jsonb
 language plpgsql stable security invoker set search_path = public as $$
 declare
@@ -83,6 +106,8 @@ declare
                            'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log',
                            'saved_questions'];
   t text;
+  v_rel text;
+  v_mine text;
   v_cur timestamptz;
   v_new boolean;
   v_out jsonb := '{}'::jsonb;
@@ -90,8 +115,18 @@ begin
   if auth.uid() is null then raise exception 'Connexion requise'; end if;
   if jsonb_typeof(curseurs) is distinct from 'object' then raise exception 'curseurs : objet { table: heure } attendu'; end if;
   for t in select jsonb_object_keys(curseurs) loop
-    if not (t = any (v_tables)) then continue; end if;
-    if to_regclass('public.hb_' || t) is null then
+    -- « mes_affectations » : hb_assignments, lignes du compte seulement ($2 ; colonne user_id, index hb_assignments_mine) ;
+    -- sinon une table de la liste blanche.
+    if t = 'mes_affectations' then
+      v_rel := 'assignments';
+      v_mine := ' and user_id = $2';
+    elsif t = any (v_tables) then
+      v_rel := t;
+      v_mine := '';
+    else
+      continue;
+    end if;
+    if to_regclass('public.hb_' || v_rel) is null then
       v_out := v_out || jsonb_build_object(t, null);
       continue;
     end if;
@@ -104,10 +139,11 @@ begin
       v_new := true;
     elsif clock_timestamp() - v_cur < interval '5 minutes' then
       -- Curseur récent : une ligne validée en retard peut porter une heure antérieure (recouvrement de 60 s, comme l'appli).
-      execute format('select exists (select 1 from public.hb_%I where server_updated_at >= $1)', t)
-        into v_new using v_cur - interval '60 seconds';
+      execute format('select exists (select 1 from public.hb_%I where server_updated_at >= $1%s)', v_rel, v_mine)
+        into v_new using v_cur - interval '60 seconds', auth.uid()::text;
     else
-      execute format('select exists (select 1 from public.hb_%I where server_updated_at > $1)', t) into v_new using v_cur;
+      execute format('select exists (select 1 from public.hb_%I where server_updated_at > $1%s)', v_rel, v_mine)
+        into v_new using v_cur, auth.uid()::text;
     end if;
     v_out := v_out || jsonb_build_object(t, v_new);
   end loop;
@@ -289,14 +325,17 @@ grant execute on function public.hb_annoncer_version(text) to authenticated;
 
 -- ---------- Vérification (lecture seule) ----------
 -- Attendu : 4 fonctions ; aucun déclencheur hb_diffuser (0) ; realtime_send, regle_ecoute et regle_envoi vrais sur
--- Supabase (faux sur un Postgres nu) ; essai_canaux = {hb:club:6383015,hb:compte:u1,hb:dept:83,hb:tout}.
+-- Supabase (faux sur un Postgres nu) ; essai_canaux = {hb:club:6383015,hb:compte:u1,hb:dept:83,hb:tout} ;
+-- affectations_user_id vrai (colonne et index hb_assignments_mine).
 select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
          where n.nspname = 'public' and p.proname in ('hb_quoi_de_neuf', 'hb_mes_canaux', 'hb_canaux_ligne', 'hb_annoncer_version')) as fonctions_4,
        (select count(*) from pg_trigger where tgname = 'hb_diffuser' and not tgisinternal) as declencheurs_0,
        to_regprocedure('realtime.send(jsonb, text, text, boolean)') is not null as realtime_send,
        exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_recevoir') as regle_ecoute,
        exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_emettre') as regle_envoi,
-       public.hb_canaux_ligne('hb_players', '{"id": "x", "scope_dept": "83", "scope_club": "6383015", "data": {"createdBy": "u1"}}'::jsonb) as essai_canaux;
+       public.hb_canaux_ligne('hb_players', '{"id": "x", "scope_dept": "83", "scope_club": "6383015", "data": {"createdBy": "u1"}}'::jsonb) as essai_canaux,
+       exists (select 1 from pg_attribute where attrelid = to_regclass('public.hb_assignments') and attname = 'user_id' and not attisdropped)
+         and to_regclass('public.hb_assignments_mine') is not null as affectations_user_id;
 
 -- ---------- RETOUR ARRIÈRE (à lancer seulement pour annuler ce script ; l'appli repasse d'elle-même à postgres_changes) ----------
 -- do $$
@@ -310,5 +349,7 @@ select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronames
 -- drop function if exists public.hb_mes_canaux();
 -- drop function if exists public.hb_quoi_de_neuf(jsonb);
 -- drop function if exists public.hb_annoncer_version(text);
+-- drop index if exists public.hb_assignments_mine;
+-- alter table public.hb_assignments drop column if exists user_id;   -- seulement si plus aucune appli ne filtre dessus
 -- Plus tard, quand tous les appareils sont sur la nouvelle version (plus personne sur postgres_changes) :
 -- alter publication supabase_realtime drop table public.hb_players, public.hb_criteria, …  (les tables de pg_publication_tables)

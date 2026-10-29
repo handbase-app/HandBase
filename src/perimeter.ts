@@ -250,16 +250,19 @@ export interface ScopePlan {
  * Que faire après avoir lu le périmètre du serveur ?
  *  - première lecture sur cet appareil (prev absent) : l'appareil peut garder des joueurs reçus avant 046 (tout le monde
  *    voyait tout) → on oublie ce qui n'est plus visible ; rien à relire (on avait déjà tout) ;
+ *    SAUF appareil neuf (freshDevice : premier chargement, tout vient d'être reçu avec ce périmètre) : rien à oublier, et
+ *    la liste des joueurs visibles n'est pas relue (à l'essai de charge du 29/10 : ~2 200 s de base sur le palier de 5 000,
+ *    pour retrouver exactement les joueurs qu'on venait de recevoir) ; la vérification du jour part de là ;
  *  - périmètre changé : on relit tout (les nouveaux joueurs visibles ne sont pas « récents » pour le serveur) et on oublie
  *    ce qui n'est plus visible ;
  *  - inchangé : seulement la vérification du jour (un joueur qui a muté hors du périmètre : le serveur ne prévient pas) ;
  *  - « tout » : rien à oublier.
  */
-export function planScopeChange(prev: string | null, next: ServerScope, lastFullForget: number, now: number): ScopePlan {
+export function planScopeChange(prev: string | null, next: ServerScope, lastFullForget: number, now: number, freshDevice = false): ScopePlan {
   const sig = scopeSignature(next)
   const changed = prev !== null && prev !== sig
   if (next.all) return { resetCursors: changed, forget: false }
-  if (prev === null) return { resetCursors: false, forget: true }
+  if (prev === null) return { resetCursors: false, forget: !freshDevice }
   if (changed) return { resetCursors: true, forget: true }
   return { resetCursors: false, forget: now - lastFullForget >= FULL_FORGET_EVERY_MS }
 }

@@ -4,13 +4,17 @@
 // « quoi de neuf ? », lignes reçues à garder, regroupement des signaux ; envoi des signaux par l'appareil qui écrit (canaux
 // d'une ligne, miroir de hb_canaux_ligne ; messages groupés, seulement sur les canaux ouverts, sans nom) ; et le script SQL
 // écrit comme l'appli l'attend (mêmes noms de canaux, mêmes tables, plus de diffusion par la base, règles d'écoute et
-// d'envoi). Données fictives seulement.
+// d'envoi). Première synchronisation allégée (29/10) : avancement sans comptage, lecture par pages correcte avec un serveur
+// qui plafonne à 1 000 lignes par réponse, affectations du compte seulement (hors administrateur) et clé « mes_affectations »
+// de « quoi de neuf ? ». Données fictives seulement.
 //
 //   npx jiti tools/test-synchro-legere.ts
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   ALL_TOPIC,
+  assignmentScope,
+  assignmentScopeKey,
   BROAD_JITTER_MS,
   channelsOf,
   COMMON_TOPIC,
@@ -24,26 +28,39 @@ import {
   jitter,
   keepRows,
   LIVE_SYNC_MS,
+  MY_ASSIGNMENTS_KEY,
+  otherAssignmentIds,
   outgoingSignals,
   parseSignal,
+  planAssignmentScope,
   planPull,
+  PULL_PAGE,
   pullDelay,
+  readPages,
   rowChannels,
   STAFF_TOPIC,
   SYNC_MS,
   syncEvery,
   VERSION_JITTER_MS,
   versionCheckDelay,
+  whatsNewAnswer,
+  whatsNewRequest,
   type ChannelLookup,
+  type PageKey,
   type SentRow,
   type Timers,
 } from '../src/syncLive'
+import { aggregate, forward, percent, PROGRESS_MIN, progressLabel, showProgress, startTable, tableShare, type TableProgress } from '../src/syncProgress'
 
 let n = 0
-const t = (name: string, f: () => void) => {
-  f()
-  n++
-  console.log(`ok ${n} - ${name}`)
+// Les tests passent l'un après l'autre (certains attendent : lecture par pages) ; un échec arrête tout (code de sortie non nul).
+let chain: Promise<void> = Promise.resolve()
+const t = (name: string, f: () => void | Promise<void>) => {
+  chain = chain.then(async () => {
+    await f()
+    n++
+    console.log(`ok ${n} - ${name}`)
+  })
 }
 
 // Tables synchronisées (src/db.ts, SYNC_TABLES), lues dans le source pour ne pas charger Dexie ici.
@@ -396,6 +413,159 @@ t('ligne gardée pour la signaler : les champs des canaux seulement (même résu
   assert.equal(forSignal('criteria', crit), crit)
 })
 
+// ---------- Première synchronisation allégée (essai de charge du 29/10) ----------
+
+t('avancement sans comptage : chaque table une part égale, pages qui rapprochent de la fin, 100 % seulement à la fin', () => {
+  const per: Partial<Record<'players' | 'criteria' | 'measurements', TableProgress>> = { players: startTable(), criteria: startTable(), measurements: startTable() }
+  const shares: number[] = []
+  const step = () => {
+    const a = aggregate(per, 'players', true)
+    shares.push(a.share)
+    return a
+  }
+  assert.deepEqual(step(), { table: 'players', done: 0, share: 0, first: true })
+  // Joueurs : 3 pages pleines puis une dernière courte.
+  for (let i = 0; i < 3; i++) {
+    per.players!.done += PULL_PAGE
+    per.players!.pages++
+    step()
+  }
+  assert.equal(tableShare(per.players!), 3 / 4)
+  per.players!.done += 120
+  per.players!.pages++
+  per.players!.finished = true
+  step()
+  // Critères : une page courte ; mesures : une page pleine, puis une page vide (table finie sans page de plus).
+  Object.assign(per.criteria!, { done: 12, pages: 1, finished: true })
+  step()
+  Object.assign(per.measurements!, { done: PULL_PAGE, pages: 1 })
+  const before = step()
+  assert.ok(before.share < 1 && percent(before) < 100, 'pas 100 % avant la fin')
+  per.measurements!.finished = true
+  const end = step()
+  assert.equal(end.share, 1)
+  assert.equal(percent(end), 100)
+  assert.equal(end.done, 3 * PULL_PAGE + 120 + 12 + PULL_PAGE)
+  for (let i = 1; i < shares.length; i++) assert.ok(shares[i] >= shares[i - 1], `jamais en arrière (${i})`)
+  // Rien de suivi : 0.
+  assert.equal(aggregate({}).share, 0)
+})
+t('avancement : une table en gros retard qui s’ajoute ne fait pas reculer la barre ; affichée au-delà de 2 000 éléments', () => {
+  const per: Partial<Record<'players' | 'seen', TableProgress>> = { players: { done: 5000, pages: 5, finished: true } }
+  const shown = aggregate(per, 'players', false)
+  assert.equal(shown.share, 1)
+  per.seen = { done: PULL_PAGE, pages: 1, finished: false }
+  const next = aggregate(per, 'seen', false)
+  assert.ok(next.share < shown.share)
+  assert.equal(forward(shown, next).share, shown.share)
+  assert.equal(forward(shown, next).done, 6000)
+  assert.equal(forward(null, next), next)
+  assert.equal(showProgress({ table: null, done: PROGRESS_MIN, share: 0.5, first: true }), false)
+  assert.equal(showProgress({ table: null, done: PROGRESS_MIN + 1, share: 0.5, first: true }), true)
+  assert.equal(showProgress(null), false)
+  const flat = (x: string) => x.replace(/\s/g, ' ')
+  assert.equal(flat(progressLabel({ table: 'measurements', done: 23000, share: 0.4, first: true })), 'Premier chargement : 23 000 éléments reçus (mesures)')
+  assert.equal(flat(progressLabel({ table: null, done: 1, share: 0.1, first: false })), 'Mise à jour : 1 élément reçu')
+})
+
+/** Serveur fictif : lignes triées (server_updated_at, id), page suivante strictement après le repère, plafond par réponse. */
+function fakeServer(n: number, cap: number, tie = 7) {
+  const rows = Array.from({ length: n }, (_, i) => ({
+    id: `r${String(i).padStart(6, '0')}`,
+    // Plusieurs lignes à la même heure (import, transaction) : des égalités à cheval sur deux pages.
+    server_updated_at: `2026-10-29T20:${String(Math.floor(i / tie / 60) % 60).padStart(2, '0')}:${String(Math.floor(i / tie) % 60).padStart(2, '0')}.000000+00:00`,
+    data: { id: `r${i}` },
+  })).sort((a, b) => a.server_updated_at.localeCompare(b.server_updated_at) || a.id.localeCompare(b.id))
+  const calls: (PageKey | null)[] = []
+  const fetch = async (after: PageKey | null) => {
+    calls.push(after)
+    const from = after ? rows.filter((r) => r.server_updated_at > after.at || (r.server_updated_at === after.at && r.id > after.id)) : rows
+    return from.slice(0, Math.min(PULL_PAGE, cap)) // limit=PULL_PAGE, coupé au plafond du serveur (db-max-rows)
+  }
+  return { rows, calls, fetch }
+}
+
+t('lecture par pages : correcte quand le serveur plafonne à 1 000 lignes par réponse (égalités d’heure à cheval sur deux pages)', async () => {
+  // Supabase (et PGRST_DB_MAX_ROWS du serveur autohébergé) : 1 000. PULL_PAGE ne doit jamais dépasser ce plafond.
+  assert.ok(PULL_PAGE <= 1000)
+  for (const [n, requests] of [[0, 1], [1, 1], [999, 1], [1000, 2], [1001, 2], [2500, 3], [3000, 4]] as const) {
+    const srv = fakeServer(n, 1000)
+    const got: string[] = []
+    const received = await readPages(srv.fetch, (page) => {
+      got.push(...page.map((r) => r.id))
+    })
+    assert.equal(received, n, `${n} lignes`)
+    assert.deepEqual(got, srv.rows.map((r) => r.id), `${n} lignes : toutes, une fois, dans l'ordre`)
+    assert.equal(srv.calls.length, requests, `${n} lignes : ${requests} requête(s)`)
+  }
+  // Serveur sans plafond (db-max-rows non réglé) : même résultat (la limite de la requête suffit).
+  const free = fakeServer(2500, Infinity)
+  let count = 0
+  assert.equal(await readPages(free.fetch, (page) => void (count += page.length)), 2500)
+  assert.equal(count, 2500)
+})
+
+t('affectations : toutes pour un administrateur, les siennes pour les autres ; signature changée → relues depuis le début', () => {
+  assert.equal(assignmentScope('admin'), 'all')
+  for (const r of ['preparateur', 'observateur', 'joueur', null, undefined, '']) assert.equal(assignmentScope(r), 'mine', String(r))
+  assert.equal(assignmentScopeKey('admin', 'u1'), 'all')
+  assert.equal(assignmentScopeKey('observateur', 'u1'), 'mine:u1')
+  // Rôle encore inconnu (premier lancement) : les siennes ; devenu administrateur : tout relire.
+  assert.equal(assignmentScopeKey(null, 'u1'), 'mine:u1')
+  assert.deepEqual(planAssignmentScope('mine:u1', 'mine:u1'), { reset: false, forgetOthers: false })
+  assert.deepEqual(planAssignmentScope('all', 'all'), { reset: false, forgetOthers: false })
+  assert.deepEqual(planAssignmentScope('mine:u1', 'all'), { reset: true, forgetOthers: false })
+  // Administrateur retiré, ou appareil d'avant ce tri (il avait tout) : les autres quittent l'appareil.
+  assert.deepEqual(planAssignmentScope('all', 'mine:u1'), { reset: true, forgetOthers: true })
+  assert.deepEqual(planAssignmentScope(null, 'mine:u1'), { reset: true, forgetOthers: true })
+  assert.deepEqual(planAssignmentScope(null, 'all'), { reset: true, forgetOthers: false })
+  const rows = [
+    { id: 'a1', userId: 'u1' },
+    { id: 'a2', userId: 'u2' },
+    { id: 'a3', userId: 'u3' },
+    { id: 'a4' },
+  ]
+  // Jamais une affectation qui attend d'être envoyée (a3).
+  assert.deepEqual(otherAssignmentIds(rows, 'u1', new Set(['a3'])), ['a2', 'a4'])
+})
+
+t('quoi de neuf : affectations du compte sous « mes_affectations », réponse ramenée à la table ; serveur sans la clé : relue', () => {
+  assert.equal(MY_ASSIGNMENTS_KEY, 'mes_affectations')
+  assert.deepEqual(whatsNewRequest({ players: 'p', assignments: 'a' }, true), { players: 'p', mes_affectations: 'a' })
+  assert.deepEqual(whatsNewRequest({ players: 'p', assignments: 'a' }, false), { players: 'p', assignments: 'a' })
+  assert.deepEqual(whatsNewRequest({ seen: null }, false), { seen: '' })
+  assert.deepEqual(whatsNewAnswer({ players: true, mes_affectations: false }, true), { players: true, assignments: false })
+  assert.deepEqual(whatsNewAnswer({ players: true, assignments: false }, false), { players: true, assignments: false })
+  assert.equal(whatsNewAnswer(null, true), null)
+  assert.equal(whatsNewAnswer([true], true), null)
+  const tables = ['players', 'assignments'] as const
+  // Rien de neuf parmi les siennes : pas de relecture, même si d'autres affectations ont changé.
+  assert.deepEqual(planPull(tables, new Set(), whatsNewAnswer({ players: false, mes_affectations: false }, true)), { pull: [], absent: [], quiet: ['players', 'assignments'] })
+  // Serveur avec l'ancienne version de 057 (clé ignorée, absente de la réponse) : prudence, relue (une requête, les siennes).
+  assert.deepEqual(planPull(tables, new Set(), whatsNewAnswer({ players: false }, true)), { pull: ['assignments'], absent: [], quiet: ['players'] })
+  // Table inconnue du serveur.
+  assert.deepEqual(planPull(tables, new Set(), whatsNewAnswer({ players: false, mes_affectations: null }, true)), { pull: [], absent: ['assignments'], quiet: ['players'] })
+})
+
+t('appli : plus aucun comptage à la synchronisation ; affectations filtrées sur le compte ; lecture à la demande pour Structure', () => {
+  const sync = readFileSync(new URL('../src/sync.ts', import.meta.url), 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '')
+  assert.ok(!/count:\s*['"](exact|estimated|planned)['"]/.test(sync), 'aucun count=…')
+  assert.ok(!/head:\s*true/.test(sync), 'aucune requête HEAD')
+  // Filtre sur la colonne user_id (index utilisable sous les règles de lecture) ; serveur sans elle : data->>userId.
+  assert.ok(sync.includes("select.eq('user_id', uid)") && sync.includes("select.eq('data->>userId', uid)"), 'affectations du compte : user_id, à défaut data->>userId')
+  assert.ok(/error\.code === '42703'/.test(sync), 'repli seulement sur colonne inconnue')
+  assert.ok(sync.includes('export function fetchAllAssignments'))
+  const structure = readFileSync(new URL('../src/components/Structure.tsx', import.meta.url), 'utf8')
+  assert.ok(structure.includes('fetchAllAssignments') && structure.includes('deviceHasAllAssignments'), 'écran Structure : liste complète à la demande')
+  // 057 : la même clé, filtrée sur le compte connecté.
+  const sql = readFileSync(new URL('../supabase/057_synchro_legere.sql', import.meta.url), 'utf8').replace(/^\s*--.*$/gm, '')
+  assert.ok(sql.includes(`if t = '${MY_ASSIGNMENTS_KEY}' then`))
+  assert.ok(sql.includes("v_mine := ' and user_id = $2';"))
+  // Colonne générée (copie de data.userId) et index, relançables.
+  assert.ok(sql.includes("add column if not exists user_id text generated always as (data ->> 'userId') stored"))
+  assert.ok(sql.includes('create index if not exists hb_assignments_mine on public.hb_assignments (user_id, server_updated_at, id)'))
+})
+
 // ---------- Le script SQL, écrit comme l'appli l'attend ----------
 
 t('057 : mêmes canaux, mêmes tables que l’appli ; plus de diffusion par la base ; écoute et envoi sur ses canaux', () => {
@@ -426,4 +596,10 @@ t('057 : mêmes canaux, mêmes tables que l’appli ; plus de diffusion par la b
   assert.ok(code.includes(`drop policy if exists "hb_recevoir" on realtime.messages`) && code.includes(`drop policy if exists "hb_emettre" on realtime.messages`))
 })
 
-console.log(`\n${n} tests réussis.`)
+chain.then(
+  () => console.log(`\n${n} tests réussis.`),
+  (e) => {
+    console.error(e)
+    process.exit(1)
+  },
+)

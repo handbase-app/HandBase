@@ -1,26 +1,35 @@
 import { createClient, isAuthRetryableFetchError, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
-import { db, SYNC_TABLES, TRIAL, type SyncTable } from './db'
+import { db, SYNC_TABLES, TRIAL, type Assignment, type SyncTable } from './db'
 import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
-import { aggregate, type SyncProgress, type TableProgress } from './syncProgress'
+import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
 import { playerReadsTable } from './playerSpace'
 import { unitTerritory } from './eventOrganizer'
 import {
+  assignmentScope,
+  assignmentScopeKey,
   CONTENT_TABLES,
   dueForSync,
   forSignal,
   Grouper,
   keepRows,
   LIVE_EVENTS,
+  otherAssignmentIds,
   outgoingSignals,
   parseSignal,
+  planAssignmentScope,
   planPull,
+  PULL_PAGE,
   pullDelay,
+  readPages,
+  whatsNewAnswer,
+  whatsNewRequest,
   type ChannelLookup,
+  type PageKey,
   type SentRow,
   type ServerRow,
   type WhatsNew,
@@ -52,6 +61,13 @@ import {
  *    sinon ; toujours au retour sur l'appli et au retour du réseau ;
  *  - une nouvelle version annoncée (hb_annoncer_version, canal commun) : vérification de la mise à jour dans les 30 s.
  *  Serveur sans 057 (fonctions absentes) : relecture complète des 19 tables et postgres_changes, comme avant.
+ *
+ * PREMIÈRE SYNCHRONISATION allégée (essai de charge du 29/10 : 5 000 appareils ouverts en 5 minutes saturaient la base) :
+ *  - aucun comptage d'avance (18 requêtes HEAD par appareil neuf) : l'avancement se lit dans les pages reçues
+ *    (src/syncProgress.ts) ;
+ *  - affectations : toutes pour un administrateur, les siennes seulement pour les autres (src/syncLive.ts, assignmentScope) ;
+ *    l'écran Structure lit la liste complète à la demande (fetchAllAssignments) ;
+ *  - appareil neuf : pas de relecture des identifiants visibles ni de vérification des joueurs juste après avoir tout reçu.
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -309,6 +325,22 @@ function playerAccount() {
     return false
   }
 }
+const storedRole = () => {
+  try {
+    return localStorage.getItem(ROLE_KEY)
+  } catch {
+    return null
+  }
+}
+/** Signature des affectations reçues (« all » ou « mine:<compte> ») : changée, elles sont relues depuis le début. */
+const ASSIGN_SCOPE_KEY = `handbase${TRIAL ? '-essai' : ''}.affectations`
+/**
+ * L'appareil a-t-il TOUTES les affectations ? Administrateur (écran Structure modifiable, « Voir comme… », sauvegarde
+ * complète), une fois reçues, ou mode local : oui ; les autres comptes ne reçoivent que les leurs (src/syncLive.ts,
+ * assignmentScope) : l'écran Structure lit alors la liste complète à la demande (fetchAllAssignments).
+ */
+export const deviceHasAllAssignments = () => !supabase || store.get(ASSIGN_SCOPE_KEY) === 'all'
+
 function readsTable(table: SyncTable) {
   if (playerAccount()) return playerReadsTable(table)
   if (!ADMIN_READ.includes(table)) return true
@@ -446,22 +478,21 @@ async function restoreFromServer(table: SyncTable, ids: string[]) {
  */
 const PULL_OVERLAP_MS = 60_000
 const OVERLAP_WINDOW_MS = 5 * 60_000
-const PULL_PAGE = 1000
+// PULL_PAGE (1 000, src/syncLive.ts) : jamais plus que le plafond de lignes par réponse du serveur (db-max-rows).
+const EPOCH = '1970-01-01T00:00:00Z'
 
-/** Nombre de lignes à recevoir depuis start, estimé par le serveur sans les télécharger (0 si inconnu). */
-async function countSince(table: SyncTable, start: string) {
-  try {
-    const { count } = await supabase!.from(`hb_${table}`).select('id', { count: 'estimated', head: true }).gte('server_updated_at', start)
-    return count ?? 0
-  } catch {
-    return 0
-  }
-}
-
+/*
+ * Avancement (src/syncProgress.ts) : AUCUNE requête de comptage. Jusqu'au 29/10/2026, chaque appareil neuf comptait d'avance
+ * ses 18 tables (HEAD « count=estimated ») : sous les règles de lecture, c'était le premier poste de la base à l'essai de
+ * charge. L'avancement se lit maintenant dans les pages reçues.
+ */
 const setProgress = (p: SyncProgress | null) => {
   progress = p
   listeners.forEach((l) => l())
 }
+/** Avancement recalculé après une page (jamais en arrière pendant le même téléchargement). */
+const showPages = (per: Partial<Record<SyncTable, TableProgress>>, table: SyncTable | null, first: boolean) =>
+  setProgress(forward(progress, aggregate(per, table, first)))
 
 /**
  * Staffs dont ce compte est membre (ou créateur), avec leur version : un staff qui apparaît ou change (on vient
@@ -484,14 +515,16 @@ let whatsNewMissingAt = 0
 
 async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
   if (!tables.length || Date.now() - whatsNewMissingAt < ASK_AGAIN_MS) return null
-  const curseurs: Record<string, string> = {}
-  for (const t of tables) curseurs[t] = localStorage.getItem(PULL_KEY(t))!
-  const { data, error } = await supabase!.rpc('hb_quoi_de_neuf', { curseurs })
+  const cursors: Record<string, string | null> = {}
+  for (const t of tables) cursors[t] = localStorage.getItem(PULL_KEY(t))
+  // Affectations : seulement les siennes (hors administrateur) : demandées sous la clé « mes_affectations » (057).
+  const mine = tables.includes('assignments') && assignmentScope(storedRole()) === 'mine'
+  const { data, error } = await supabase!.rpc('hb_quoi_de_neuf', { curseurs: whatsNewRequest(cursors, mine) })
   if (error) {
     if (missingFunction(error)) whatsNewMissingAt = Date.now()
     return null
   }
-  return data && typeof data === 'object' && !Array.isArray(data) ? (data as WhatsNew) : null
+  return whatsNewAnswer(data, mine)
 }
 
 /**
@@ -501,15 +534,17 @@ async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
  */
 async function pull(uid: string, scope: Set<SyncTable> | null) {
   /*
-   * Avancement : tables jamais téléchargées comptées d'avance (en parallèle) ; les autres seulement si
-   * leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
+   * Avancement (sans comptage, src/syncProgress.ts) : tables jamais téléchargées suivies dès le départ ; les autres
+   * seulement si leur premier paquet est plein (gros retard). Une petite synchro ordinaire ne fait aucune requête de plus.
    */
   const per: Partial<Record<SyncTable, TableProgress>> = {}
   const readable = SYNC_TABLES.filter(readsTable)
   const wanted = scope ? readable.filter((t) => scope.has(t)) : readable
   const fresh = new Set(wanted.filter((t) => !localStorage.getItem(PULL_KEY(t))))
   const first = fresh.size === readable.length
-  await Promise.all([...fresh].map(async (t) => (per[t] = { done: 0, total: await countSince(t, '1970-01-01T00:00:00Z') })))
+  // Appareil neuf : premier chargement ET base locale vide (rien reçu avant, rien créé hors ligne) : rien à oublier ensuite.
+  const emptyDevice = first && !scope && (await localRowsCount()) === 0
+  for (const t of fresh) per[t] = startTable()
   if (fresh.size) setProgress(aggregate(per, null, first))
   // Complète, appareil déjà servi au moins une fois : une requête dit quelles tables ont changé (premier chargement : tout).
   const flags = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)))
@@ -517,13 +552,19 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   for (const t of plan.quiet) knowTable(t, true)
   for (const t of plan.absent) knowTable(t, false)
   const toPull = new Set(plan.pull)
+  // Affectations reçues autrement qu'à la dernière fois (rôle changé, appareil d'avant ce tri) : relues quoi qu'en dise
+  // « quoi de neuf ? » (pullTable les reprend depuis le début).
+  // (Table inconnue du serveur, 044 pas passé : pas redemandée à chaque fois pendant ce lancement.)
+  if (wanted.includes('assignments') && serverTables.get('assignments') !== false && store.get(ASSIGN_SCOPE_KEY) !== assignmentScopeKey(storedRole(), uid))
+    toPull.add('assignments')
   try {
     const teamsBefore = await myTeams(uid)
     let structureRows = 0
     for (const table of SYNC_TABLES) {
       // Staffs changés : les groupes « Mon staff » et les « à revoir » (041, visibles par le staff de leur auteur) qu'ils
-      // ouvrent sont relus en entier.
-      if (table === 'groups') {
+      // ouvrent sont relus en entier. Premier chargement : rien à faire, ils viennent d'être lus depuis le début avec les
+      // staffs tels qu'ils sont (sinon les événements, déjà reçus, étaient tous relus juste après).
+      if (table === 'groups' && !first) {
         const after = await myTeams(uid)
         if ([...after].some(([id, v]) => teamsBefore.get(id) !== v)) {
           localStorage.removeItem(PULL_KEY('groups'))
@@ -541,7 +582,7 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
         continue
       }
       if (!toPull.has(table)) continue
-      const n = await pullTable(table, per, first)
+      const n = await pullTable(table, uid, per, first)
       if (table === 'levels' || table === 'units' || table === 'assignments') structureRows += n
     }
     structureChanged = structureChanged || structureRows > 0
@@ -555,8 +596,19 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   // Compte joueur : ni groupes, ni staffs, ni périmètre : rien à vérifier (sa fiche arrive par le curseur ; retirée du compte
   // (accès retiré) : le serveur ne la montre plus, l'appli repasse à « Entre ton code » et l'appareil est effacé à la déconnexion).
   if (playerAccount()) return
-  await forgetHidden()
-  await checkPerimeter(uid)
+  // Appareil neuf : il vient de tout recevoir tel que le serveur le montre ; relire les identifiants visibles (staffs, groupes,
+  // « à revoir », événements, joueurs) ne retrouverait que ces mêmes lignes. Première vérification dans 10 minutes (et
+  // celle des joueurs dans un jour), comme après une vérification faite.
+  if (emptyDevice) lastForget = Date.now()
+  else await forgetHidden()
+  await checkPerimeter(uid, emptyDevice)
+}
+
+/** Lignes déjà sur l'appareil dans les tables que les vérifications nettoient (0 : appareil vide). */
+async function localRowsCount() {
+  const tables: string[] = ['teams', 'groups', 'rewatch', 'events', ...SCOPED_TABLES]
+  const counts = await Promise.all(tables.map((t) => db.table(t).count()))
+  return counts.reduce((a, b) => a + b, 0)
 }
 
 /*
@@ -656,14 +708,17 @@ const SCOPE_FORGET_KEY = `handbase${TRIAL ? '-essai' : ''}.perimetre.verifie`
 let lastScopeCheck = 0
 let structureChanged = false
 
-async function checkPerimeter(uid: string) {
+async function checkPerimeter(uid: string, emptyDevice = false) {
   if (!structureChanged && Date.now() - lastScopeCheck < FORGET_EVERY_MS) return
   const { data, error } = await supabase!.rpc('hb_my_perimeter')
   if (error || !data || typeof data !== 'object') return // 046 pas passé, ou réseau : on réessaiera
   lastScopeCheck = Date.now()
   structureChanged = false
   const scope = data as ServerScope
-  const plan = planScopeChange(store.get(SCOPE_KEY), scope, Number(store.get(SCOPE_FORGET_KEY) ?? 0), Date.now())
+  const prev = store.get(SCOPE_KEY)
+  const plan = planScopeChange(prev, scope, Number(store.get(SCOPE_FORGET_KEY) ?? 0), Date.now(), emptyDevice)
+  // Appareil neuf : rien à oublier (planScopeChange) ; la vérification du jour part de maintenant.
+  if (emptyDevice && prev === null) store.set(SCOPE_FORGET_KEY, String(Date.now()))
   if (plan.forget) {
     const visible = await visibleIds('players')
     if (!visible) return // erreur : on garde l'ancienne signature, tout sera refait la prochaine fois
@@ -717,46 +772,127 @@ async function applyServerRows(table: SyncTable, rows: ServerRow[]) {
   })
 }
 
-/** Reçoit les lignes changées depuis le curseur de la table ; renvoie le nombre de lignes reçues. */
-async function pullTable(table: SyncTable, per: Partial<Record<SyncTable, TableProgress>>, first: boolean): Promise<number> {
-  const since = localStorage.getItem(PULL_KEY(table)) ?? '1970-01-01T00:00:00Z'
-  let received = 0
+type PulledRow = ServerRow & { server_updated_at: string }
+
+/** Colonne hb_assignments.user_id (057) : true connue du serveur, false absente (filtre sur data->>userId), undefined pas essayée. */
+let assignmentUserColumn: boolean | undefined
+
+/**
+ * Reçoit les lignes changées depuis le curseur de la table, par pages de PULL_PAGE triées (server_updated_at, id) ;
+ * renvoie le nombre de lignes reçues. Affectations d'un compte qui n'est pas administrateur : les siennes seulement
+ * (data.userId, index hb_assignments_user de 046) ; signature changée : relues depuis le début (planAssignmentScope).
+ */
+async function pullTable(table: SyncTable, uid: string, per: Partial<Record<SyncTable, TableProgress>>, first: boolean): Promise<number> {
+  const scopeKey = table === 'assignments' ? assignmentScopeKey(storedRole(), uid) : null
+  const scopePlan = scopeKey ? planAssignmentScope(store.get(ASSIGN_SCOPE_KEY), scopeKey) : null
+  if (scopePlan?.reset) localStorage.removeItem(PULL_KEY(table))
+  const mine = !!scopeKey && scopeKey !== 'all'
+  const since = localStorage.getItem(PULL_KEY(table)) ?? EPOCH
   const at = new Date(since).getTime()
   const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
-  let after: { at: string; id: string } | null = null
-  for (;;) {
-    const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
+  let missing = false
+  const read = (after: PageKey | null, byColumn: boolean) => {
+    const select = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
+    // Ses affectations : colonne user_id (057, index utilisable sous les règles de lecture), sinon data->>userId (sans index).
+    const base = !mine ? select : byColumn ? select.eq('user_id', uid) : select.eq('data->>userId', uid)
     const filtered = after
       ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
       : base.gte('server_updated_at', start)
-    const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
-    // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
-    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) {
-      knowTable(table, false)
-      return received
-    }
-    if (error) throw error
-    if (!data?.length) break
-    received += data.length
-    await applyServerRows(table, data as ServerRow[])
-    const last: { id: string; server_updated_at: string } = data[data.length - 1]
-    after = { at: last.server_updated_at, id: last.id }
-    if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
-    // Gros retard (premier paquet plein) : on compte ce qui reste, une seule fois.
-    if (!per[table] && data.length === PULL_PAGE) per[table] = { done: 0, total: await countSince(table, start) }
-    const p = per[table]
-    if (p) {
-      p.done += data.length
-      setProgress(aggregate(per, table, first))
-    }
-    if (data.length < PULL_PAGE) break
+    return filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
   }
-  // Table terminée : son total devient exact (l'estimation peut être un peu fausse).
-  if (per[table]) per[table]!.total = per[table]!.done
-  // Table vide sur le serveur : curseur posé quand même, pour ne plus la recompter à chaque synchro.
+  const received = await readPages<PulledRow>(
+    async (after) => {
+      let { data, error } = await read(after, mine && assignmentUserColumn !== false)
+      if (error && mine && assignmentUserColumn !== false && (error.code === '42703' || /user_id/.test(error.message ?? ''))) {
+        // Serveur sans la colonne user_id (057 d'avant le 29/10, ou pas passé ; Postgres 42703) : même lecture sur data.userId.
+        const again = await read(after, false)
+        if (!again.error) assignmentUserColumn = false
+        ;({ data, error } = again)
+      } else if (!error && mine) assignmentUserColumn ??= true
+      // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
+      if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) {
+        missing = true
+        return []
+      }
+      if (error) throw error
+      return (data ?? []) as PulledRow[]
+    },
+    async (rows) => {
+      await applyServerRows(table, rows as PulledRow[])
+      const last = rows[rows.length - 1]
+      if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
+      // Gros retard (premier paquet plein) : suivi dans l'avancement à partir de là.
+      if (!per[table] && rows.length === PULL_PAGE) per[table] = startTable()
+      const p = per[table]
+      if (p) {
+        p.done += rows.length
+        p.pages++
+        p.finished = rows.length < PULL_PAGE
+        showPages(per, table, first)
+      }
+    },
+  )
+  // Table terminée (ou absente du serveur) : sa part de l'avancement est faite.
+  const p = per[table]
+  if (p && !p.finished) {
+    p.finished = true
+    showPages(per, table, first)
+  }
+  if (missing) {
+    knowTable(table, false)
+    return received
+  }
+  // Table vide sur le serveur : curseur posé quand même, pour ne plus la relire en entier à chaque synchro.
   if (!localStorage.getItem(PULL_KEY(table))) localStorage.setItem(PULL_KEY(table), since)
+  if (scopeKey) {
+    if (scopePlan?.forgetOthers) await forgetOtherAssignments(uid)
+    store.set(ASSIGN_SCOPE_KEY, scopeKey)
+  }
   knowTable(table, true)
   return received
+}
+
+/** Affectations des autres comptes retirées de l'appareil (sauf celles qui attendent d'être envoyées). */
+async function forgetOtherAssignments(uid: string) {
+  await db.transaction('rw', db.assignments, db.outbox, async () => {
+    const pending = new Set((await db.outbox.where('table').equals('assignments').toArray()).map((i) => i.rowId))
+    const gone = otherAssignmentIds(await db.assignments.toArray(), uid, pending)
+    if (gone.length) await db.assignments.bulkDelete(gone)
+  })
+}
+
+/*
+ * Toutes les affectations, LUES À LA DEMANDE (écran Structure en lecture seule d'un compte qui n'est pas administrateur :
+ * l'appareil n'a que les siennes). Pages de PULL_PAGE par identifiant (rien de sauté si le serveur change entre deux pages),
+ * affectations non supprimées. Gardées 5 minutes pendant le lancement. null : hors ligne, déconnecté ou erreur.
+ */
+const ALL_ASSIGNMENTS_MS = 5 * 60_000
+let allAssignments: { at: number; rows: Assignment[] } | null = null
+/** Lecture en cours (deux parties de l'écran la demandent en même temps : une seule lecture). */
+let allAssignmentsReading: Promise<Assignment[] | null> | null = null
+
+export function fetchAllAssignments(): Promise<Assignment[] | null> {
+  if (!supabase || !navigator.onLine) return Promise.resolve(null)
+  if (allAssignments && Date.now() - allAssignments.at < ALL_ASSIGNMENTS_MS) return Promise.resolve(allAssignments.rows)
+  allAssignmentsReading ??= (async () => {
+    try {
+      const rows: Assignment[] = []
+      for (let after = ''; ; ) {
+        const { data, error } = await supabase!.from('hb_assignments').select('id, data').eq('deleted', false).gt('id', after).order('id').limit(PULL_PAGE)
+        if (error) return null
+        for (const r of data) if (r.data && !(r.data as Assignment).deleted) rows.push(r.data as Assignment)
+        if (data.length < PULL_PAGE) break
+        after = data[data.length - 1].id as string
+      }
+      allAssignments = { at: Date.now(), rows }
+      return rows
+    } catch {
+      return null
+    } finally {
+      allAssignmentsReading = null
+    }
+  })()
+  return allAssignmentsReading
 }
 
 // Plusieurs changements rapprochés (ex. un import) ne déclenchent qu'une synchronisation complète.
