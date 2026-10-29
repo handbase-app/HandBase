@@ -105,7 +105,12 @@ begin
   assert pg_temp.peut_emettre(club, 'hb:compte:' || club), 'club : son compte'; n := n + 1;
   assert pg_temp.peut_emettre(comite, 'hb:dept:83'), 'comité : son département'; n := n + 1;
   assert pg_temp.peut_emettre(admin, 'hb:tout'), 'admin : tout'; n := n + 1;
-  assert pg_temp.peut_emettre(jeune, 'hb:joueur:p1'), 'joueur : sa fiche'; n := n + 1;
+  -- Compte joueur ou sans rôle : il n'écrit jamais, il n'émet sur aucun canal (même les siens).
+  assert not pg_temp.peut_emettre(jeune, 'hb:joueur:p1'), 'joueur : pas même sa fiche'; n := n + 1;
+  assert not pg_temp.peut_emettre(jeune, 'hb:commun'), 'joueur : pas le commun'; n := n + 1;
+  assert not pg_temp.peut_emettre(jeune, 'hb:compte:' || jeune), 'joueur : pas son compte'; n := n + 1;
+  assert not pg_temp.peut_emettre(sansrole, 'hb:commun'), 'sans rôle : pas le commun'; n := n + 1;
+  assert not pg_temp.peut_emettre(sansrole, 'hb:compte:' || sansrole), 'sans rôle : pas son compte'; n := n + 1;
   -- Ailleurs : refusé.
   assert not pg_temp.peut_emettre(club, 'hb:tout'), 'club : pas tout'; n := n + 1;
   assert not pg_temp.peut_emettre(club, 'hb:dept:83'), 'club : pas le département du comité'; n := n + 1;
@@ -126,6 +131,7 @@ begin
   assert not pg_temp.peut_ecouter(club, 'hb:tout'), 'écoute : pas tout'; n := n + 1;
   assert pg_temp.peut_ecouter(comite, 'hb:dept:83'), 'écoute : son département'; n := n + 1;
   assert not pg_temp.peut_ecouter(comite, 'hb:dept:13'), 'écoute : pas un autre département'; n := n + 1;
+  assert pg_temp.peut_ecouter(jeune, 'hb:joueur:p1') and pg_temp.peut_ecouter(jeune, 'hb:commun'), 'écoute : le joueur écoute toujours les siens'; n := n + 1;
   raise notice 'règles d''envoi et d''écoute : % assertions', n;
 end $$;
 
@@ -247,4 +253,135 @@ begin
   update public.hb_assignments set data = data || jsonb_build_object('userId', club) where id = 'aff-c2';
   assert (select user_id from public.hb_assignments where id = 'aff-c2') = club, 'colonne suivie à la modification';
   raise notice 'quoi de neuf, mes affectations : colonne user_id et index utilisables sous les règles de lecture : ok';
+end $$;
+
+-- ---------- hb_upsert_lignes : écrire et renvoyer les lignes enregistrées (ligne dans le signal, série 5 du 29/10) ----------
+do $$
+declare
+  comite text := '00000000-0000-0000-0000-0000000000c1';
+  club text := '00000000-0000-0000-0000-0000000000d1';
+  v jsonb;
+  l jsonb;
+  gros text := (select string_agg(md5(i::text), '') from generate_series(1, 1000) i);
+  n integer := 0;
+begin
+  -- Encadrant du comité : une mesure sur p1 (club 6383015, département 83) : acceptée, renvoyée telle qu'enregistrée.
+  perform set_config('test.uid', comite, true);
+  set local role authenticated;
+  v := public.hb_upsert_lignes('measurements', '[{"id":"m2","data":{"id":"m2","playerId":"p1","criterionId":"taille","value":182,"updatedAt":10},"updated_at_client":10,"deleted":false}]'::jsonb);
+  reset role;
+  assert v -> 'refusees' = '[]'::jsonb, 'mesure acceptée : ' || v::text; n := n + 1;
+  assert jsonb_array_length(v -> 'lignes') = 1, 'une ligne renvoyée : ' || v::text; n := n + 1;
+  l := v -> 'lignes' -> 0;
+  assert l ->> 'id' = 'm2' and (l -> 'data' ->> 'value')::numeric = 182 and l -> 'deleted' = 'false'::jsonb, 'contenu : ' || l::text; n := n + 1;
+  assert l ->> 'scope_dept' = '83' and l ->> 'scope_club' = '6383015', 'périmètre de la ligne (046) : ' || l::text; n := n + 1;
+  assert l -> 'data' ->> 'createdBy' = comite, 'signature posée par le serveur (hb_stamp) : ' || l::text; n := n + 1;
+  assert (l ->> 'server_updated_at')::timestamptz = (select server_updated_at from public.hb_measurements where id = 'm2'), 'heure serveur enregistrée'; n := n + 1;
+  assert l -> 'data' = (select data from public.hb_measurements where id = 'm2'), 'data = la ligne enregistrée'; n := n + 1;
+  -- Même ligne, version plus ancienne : refusée (comme hb_upsert), rien de renvoyé.
+  set local role authenticated;
+  v := public.hb_upsert_lignes('measurements', '[{"id":"m2","data":{"id":"m2","playerId":"p1","value":1,"updatedAt":5},"updated_at_client":5,"deleted":false}]'::jsonb);
+  reset role;
+  assert v = '{"refusees": ["m2"], "lignes": null}'::jsonb, 'version plus ancienne : ' || v::text; n := n + 1;
+  -- Plus de lignes acceptées que p_max : écrites, mais aucune renvoyée (un import : l'appli n'envoie que des identifiants).
+  set local role authenticated;
+  v := public.hb_upsert_lignes('measurements', '[{"id":"m3","data":{"id":"m3","playerId":"p1","value":170,"updatedAt":10},"updated_at_client":10,"deleted":false},
+                                                {"id":"m4","data":{"id":"m4","playerId":"p1","value":171,"updatedAt":10},"updated_at_client":10,"deleted":false}]'::jsonb, 1);
+  reset role;
+  assert v = '{"refusees": [], "lignes": null}'::jsonb and (select count(*) from public.hb_measurements where id in ('m3', 'm4')) = 2, 'au-delà de p_max : ' || v::text; n := n + 1;
+  -- Ligne trop grosse (taille stockée > p_octets) : écrite, pas renvoyée ; la petite du même paquet l'est.
+  set local role authenticated;
+  v := public.hb_upsert_lignes('measurements', jsonb_build_array(
+         jsonb_build_object('id', 'm5', 'data', jsonb_build_object('id', 'm5', 'playerId', 'p1', 'value', 1, 'note', gros, 'updatedAt', 10), 'updated_at_client', 10, 'deleted', false),
+         jsonb_build_object('id', 'm6', 'data', jsonb_build_object('id', 'm6', 'playerId', 'p1', 'value', 2, 'updatedAt', 10), 'updated_at_client', 10, 'deleted', false)), 20, 6000);
+  reset role;
+  assert v -> 'refusees' = '[]'::jsonb and (select count(*) from public.hb_measurements where id in ('m5', 'm6')) = 2, 'deux lignes écrites : ' || v::text; n := n + 1;
+  assert (select array_agg(x ->> 'id') from jsonb_array_elements(v -> 'lignes') x) = array['m6'], 'seule la petite revient : ' || (v -> 'lignes')::text; n := n + 1;
+  -- Relecture avec les règles de lecture de CELUI QUI ÉCRIT (SECURITY INVOKER) : un avis du journal des questions, que
+  -- l'encadrant crée mais ne peut pas relire (lecture réservée aux administrateurs, 043), est accepté mais pas renvoyé.
+  set local role authenticated;
+  v := public.hb_upsert_lignes('question_log', '[{"id":"qa1","data":{"id":"qa1","kind":"avis","questionId":"q1","verdict":"super","updatedAt":10},"updated_at_client":10,"deleted":false}]'::jsonb);
+  reset role;
+  assert v = '{"refusees": [], "lignes": []}'::jsonb and (select count(*) from public.hb_question_log where id = 'qa1') = 1, 'journal : écrit, pas relu : ' || v::text; n := n + 1;
+  assert (select not prosecdef from pg_proc where proname = 'hb_upsert_lignes'), 'SECURITY INVOKER'; n := n + 1;
+  -- Table sans colonnes de périmètre : pas de scope_* ; table inconnue : l'erreur de hb_upsert.
+  perform set_config('test.uid', '00000000-0000-0000-0000-0000000000a1', true);
+  set local role authenticated;
+  v := public.hb_upsert_lignes('criteria', '[{"id":"c3","data":{"id":"c3","label":"Duel","updatedAt":10},"updated_at_client":10,"deleted":false}]'::jsonb);
+  reset role;
+  assert jsonb_array_length(v -> 'lignes') = 1 and not (v -> 'lignes' -> 0 ? 'scope_dept'), 'critère : ' || v::text; n := n + 1;
+  begin
+    set local role authenticated;
+    v := public.hb_upsert_lignes('profiles', '[]'::jsonb);
+    reset role;
+    assert false, 'table inconnue acceptée';
+  exception when raise_exception then
+    reset role;
+    assert sqlerrm like 'Table inconnue%', sqlerrm;
+  end;
+  n := n + 1;
+  -- Compte de club : une mesure sur p2 (département 13, hors de son périmètre) : refusée par hb_scope (046), rien renvoyé.
+  perform set_config('test.uid', club, true);
+  set local role authenticated;
+  v := public.hb_upsert_lignes('measurements', '[{"id":"m7","data":{"id":"m7","playerId":"p2","value":3,"updatedAt":10},"updated_at_client":10,"deleted":false}]'::jsonb);
+  reset role;
+  assert v = '{"refusees": ["m7"], "lignes": null}'::jsonb, 'hors périmètre : ' || v::text; n := n + 1;
+  raise notice 'hb_upsert_lignes (ligne dans le signal) : % assertions', n;
+end $$;
+
+-- ---------- Ligne dans le signal : tout abonné d'un canal où la ligne voyage peut la lire par la synchronisation normale ----------
+-- Pour chaque compte (administrateur, comité, club, joueur, sans rôle) et chaque ligne des quatre tables dont le contenu
+-- voyage (joueurs, mesures, avis, « vu ») : si un de SES canaux (hb_mes_canaux) est un canal où la ligne voyage (hb:tout,
+-- hb:dept:<scope_dept>, hb:club:<scope_club>, hb:compte:<auteur> ; src/syncLive.ts, serverRowChannels et rowFitsTopic), il
+-- DOIT la voir avec ses règles de lecture. Les lignes écrites par un compte qui peut écrire (rôle du staff) seulement : un
+-- compte sans rôle ou joueur n'écrit pas, et ne peut émettre sur aucun canal (règle hb_emettre).
+create temp table nx_voyage as
+  select x.t, x.id, array_remove(array['hb:tout', 'hb:dept:' || x.scope_dept, 'hb:club:' || x.scope_club,
+                                       'hb:compte:' || (x.data ->> 'createdBy')], null) as canaux
+    from (select 'players' t, id, data, scope_dept, scope_club from public.hb_players
+          union all select 'measurements', id, data, scope_dept, scope_club from public.hb_measurements
+          union all select 'evaluations', id, data, scope_dept, scope_club from public.hb_evaluations
+          union all select 'seen', id, data, scope_dept, scope_club from public.hb_seen) x;
+grant select on nx_voyage to authenticated;
+do $$
+declare
+  u text;
+  c text[];
+  attendus int;
+  vus int;
+  n integer := 0;
+  total int := 0;
+begin
+  foreach u in array array['00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000d1',
+                           '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000f1'] loop
+    perform set_config('test.uid', u, true);
+    set local role authenticated;
+    c := public.hb_mes_canaux();
+    select count(*) into attendus from nx_voyage v where v.canaux && c;
+    select count(*) into vus from nx_voyage v where v.canaux && c and (
+         (v.t = 'players' and exists (select 1 from public.hb_players p where p.id = v.id))
+      or (v.t = 'measurements' and exists (select 1 from public.hb_measurements p where p.id = v.id))
+      or (v.t = 'evaluations' and exists (select 1 from public.hb_evaluations p where p.id = v.id))
+      or (v.t = 'seen' and exists (select 1 from public.hb_seen p where p.id = v.id)));
+    reset role;
+    assert vus = attendus, format('compte %s : %s lignes sur ses canaux, %s lisibles', u, attendus, vus); n := n + 1;
+    total := total + attendus;
+  end loop;
+  -- Le jeu couvre les cas : l'administrateur (tout), le comité (83), le club (6383015) reçoivent des lignes ; le club ne
+  -- reçoit rien du 13 ni du 971.
+  assert total >= 10, 'jeu trop maigre : ' || total;
+  perform set_config('test.uid', '00000000-0000-0000-0000-0000000000d1', true);
+  set local role authenticated;
+  c := public.hb_mes_canaux();
+  reset role;
+  assert not exists (select 1 from nx_voyage v join public.hb_seen s on s.id = v.id where v.canaux && c and s.scope_dept = '13'), 'club : rien du 13';
+  -- Contre-essai : « à revoir » (règle de lecture plus étroite que le périmètre : son auteur, son staff, les administrateurs,
+  -- 041) ne doit JAMAIS porter son contenu : le comité écoute hb:dept:83, où r1 (joueur p1) voyagerait, mais ne le lit pas.
+  perform set_config('test.uid', '00000000-0000-0000-0000-0000000000c1', true);
+  set local role authenticated;
+  c := public.hb_mes_canaux();
+  assert 'hb:dept:83' = any (c) and not exists (select 1 from public.hb_rewatch where id = 'r1'), 'à revoir : canal du 83 sans droit de lecture';
+  reset role;
+  assert (select scope_dept from public.hb_rewatch where id = 'r1') = '83', 'r1 est bien du 83';
+  raise notice 'ligne dans le signal : canal ⇒ droit de lecture vérifié pour % comptes (% lignes reçues au total)', n, total;
 end $$;

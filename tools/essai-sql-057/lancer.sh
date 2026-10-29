@@ -3,7 +3,7 @@
 # bouchons des schémas Supabase (bouchons.sql : auth, realtime, vault, net, cron), schema.sql puis 002 → 056, l'ANCIENNE
 # version de 057 (déclencheurs hb_diffuser, commit 974ed51), la nouvelle deux fois (relançable : déclencheurs retirés),
 # les essais (essais.sql : règles d'envoi et d'écoute, aucune diffusion par la base, clé « mes_affectations » et colonne
-# user_id des affectations) et la comparaison des canaux avec
+# user_id des affectations, hb_upsert_lignes et « canal où la ligne voyage ⇒ droit de lecture ») et la comparaison des canaux avec
 # l'appli (lignes.sql + miroir.ts). Données fictives seulement. Rien n'est envoyé à une base distante.
 #
 #   bash tools/essai-sql-057/lancer.sh
@@ -30,7 +30,7 @@ n=$($P -tA -c "select count(*) from pg_trigger where tgname = 'hb_diffuser'")
 f=$($P -tA -c "select count(*) from pg_proc where proname = 'hb_diffuser'")
 echo "nouveau 057 (deux fois) : déclencheurs = $n, fonction hb_diffuser = $f"
 [ "$n" = 0 ] && [ "$f" = 0 ]
-$P < "$D/essais.sql" 2>&1 | grep -E 'NOTICE:  (règles|écritures|quoi)|ERROR|CONTEXT'
+$P < "$D/essais.sql" 2>&1 | grep -E 'NOTICE:  (règles|écritures|quoi|hb_upsert_lignes|ligne dans)|ERROR|CONTEXT'
 $P -tA < "$D/lignes.sql" > "$D/.lignes.json"
 cd "$REPO" && npx jiti "$D/miroir.ts" "$D/.lignes.json"
 rm -f "$D/.lignes.json" "$D/.erreur.txt"

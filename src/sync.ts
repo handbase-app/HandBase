@@ -13,23 +13,41 @@ import {
   assignmentScope,
   assignmentScopeKey,
   CONTENT_TABLES,
+  dropProvisional,
   dueForSync,
   forSignal,
+  GROUP_MS,
   Grouper,
-  keepRows,
+  IDS_PER_READ,
   LIVE_EVENTS,
+  LIVE_ROWS_MAX,
+  liveKey,
+  liveRowsToApply,
+  markProvisional,
   otherAssignmentIds,
   outgoingSignals,
   parseSignal,
   planAssignmentScope,
+  planLive,
   planPull,
+  planVerify,
+  PROVISIONAL_MAX,
+  provisionalBefore,
+  provisionalCount,
   PULL_PAGE,
   pullDelay,
   readPages,
+  readProvisional,
+  ROW_TABLES,
+  rowsToWrite,
+  SIGNAL_MAX_BYTES,
+  splitLiveKeys,
   whatsNewAnswer,
   whatsNewRequest,
+  writeAnswer,
   type ChannelLookup,
   type PageKey,
+  type Provisional,
   type SentRow,
   type ServerRow,
   type WhatsNew,
@@ -68,6 +86,19 @@ import {
  *  - affectations : toutes pour un administrateur, les siennes seulement pour les autres (src/syncLive.ts, assignmentScope) ;
  *    l'écran Structure lit la liste complète à la demande (fetchAllAssignments) ;
  *  - appareil neuf : pas de relecture des identifiants visibles ni de vérification des joueurs juste après avoir tout reçu.
+ *
+ * LIGNE DANS LE SIGNAL (essai de charge du 29/10, série 5 : à 3 500 appareils, les relectures déclenchées par les signaux
+ * faisaient 80 % du temps de la base ; règles pures et sécurité : src/syncLive.ts, section « Ligne dans le signal ») :
+ *  - joueurs, mesures, avis, « vu » partent par hb_upsert_lignes (057) : mêmes contrôles que hb_upsert, et les lignes telles
+ *    que le serveur les a enregistrées (petits envois) ; l'appareil qui écrit les reprend aussitôt, puis les met dans son
+ *    signal, sur les seuls canaux dont tous les abonnés peuvent les lire ; les autres lignes : leurs identifiants ;
+ *  - à la réception : lignes appliquées sans rien relire (jamais par-dessus une version plus récente ni un envoi en attente),
+ *    identifiants relus par identifiant (id=in.(…), sans recouvrement) après le regroupement de 1,5 s ; signal simple (appli
+ *    d'avant, gros envoi) : relecture de la table par curseur, comme avant ;
+ *  - le curseur n'avance jamais pour une ligne reçue en direct ou relue par identifiant : le filet de sécurité (« quoi de
+ *    neuf ? » toutes les 5 minutes) reste la référence ; une ligne reçue en direct est « à confirmer » (provisoire) jusqu'à
+ *    la synchronisation complète suivante, qui la remplace par la version du serveur (ou la retire), quelle que soit son heure.
+ *  Serveur sans hb_upsert_lignes : hb_upsert, et des signaux avec les seuls identifiants.
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -379,12 +410,37 @@ const rowKey = (table: SyncTable, id: string) => `${table}:${id}`
 const transient = (e: { code?: string }) => !e.code || e.code.startsWith('PGRST') || e.code === '57014'
 
 type Payload = { id: string; data: unknown; updated_at_client: number; deleted: boolean }
-/** Lignes acceptées par le serveur pendant un envoi, par table (pour les signaux en direct). */
-type Sent = { table: SyncTable; rows: SentRow[] }
+/**
+ * Lignes acceptées par le serveur pendant un envoi, par table (pour les signaux en direct) ; server : ces lignes telles que
+ * le serveur les a enregistrées (hb_upsert_lignes : joueurs, mesures, avis, « vu », petits envois).
+ */
+type Sent = { table: SyncTable; rows: SentRow[]; server?: ServerRow[] }
 
 // Le serveur ne garde que les lignes autorisées pour le rôle du compte, et seulement si
 // la version envoyée est plus récente (voir supabase/002_roles.sql). Il renvoie les refusées.
 const upsert = (table: SyncTable, rows: Payload[]) => supabase!.rpc('hb_upsert', { p_table: table, p_rows: rows })
+
+/** hb_upsert_lignes absente du serveur (057 pas passé) : hb_upsert, redemandée une heure plus tard. */
+let upsertRowsMissingAt = 0
+
+/**
+ * Envoi d'un paquet : joueurs, mesures, avis, « vu » par hb_upsert_lignes (057 : mêmes contrôles et même refus que
+ * hb_upsert, plus les lignes enregistrées, au plus LIVE_ROWS_MAX et SIGNAL_MAX_BYTES chacune) ; le reste par hb_upsert.
+ * data : identifiants refusés (comme hb_upsert) ; server : lignes enregistrées (null : pas demandées ou pas renvoyées).
+ */
+async function write(table: SyncTable, rows: Payload[]): Promise<{ data: unknown; error: { code?: string; message: string } | null; server: ServerRow[] | null }> {
+  if (ROW_TABLES.includes(table) && Date.now() - upsertRowsMissingAt >= ASK_AGAIN_MS) {
+    const r = await supabase!.rpc('hb_upsert_lignes', { p_table: table, p_rows: rows, p_max: LIVE_ROWS_MAX, p_octets: SIGNAL_MAX_BYTES })
+    if (!r.error) {
+      const w = writeAnswer(r.data)
+      return { data: w.rejected, error: null, server: w.rows }
+    }
+    if (!missingFunction(r.error)) return { data: null, error: r.error, server: null }
+    upsertRowsMissingAt = Date.now()
+  }
+  const r = await upsert(table, rows)
+  return { data: r.data, error: r.error, server: null }
+}
 
 async function push(accepted: Sent[]) {
   // « Voir comme… » : rien de neuf à envoyer (lecture seule), et les lectures ne voient que le périmètre du membre simulé
@@ -407,7 +463,7 @@ async function push(accepted: Sent[]) {
         updated_at_client: r.updatedAt,
         deleted: !!r.deleted,
       }))
-      const { data, error } = await upsert(table, payload)
+      const { data, error, server } = await write(table, payload)
       // Suivis, staffs ou vidéos envoyés avant que le serveur ne les connaisse (supabase/032_suivis.sql, 034_equipes_encadrants.sql,
       // 036_videos.sql pas encore passés) : gardés dans la file, renvoyés plus tard, sans bloquer la synchronisation.
       if (error && OPTIONAL_TABLES.includes(table) && /Table inconnue/.test(error.message)) break
@@ -416,13 +472,14 @@ async function push(accepted: Sent[]) {
         await applyRejected(table, data)
         await db.outbox.bulkDelete(part.map((it) => it.seq!))
         const refused = new Set(Array.isArray(data) ? (data as string[]) : [])
-        accepted.push({ table, rows: rows.filter((r) => !refused.has(r.id)).map((r) => forSignal(table, r)) })
+        const stored = await keepStored(table, server, refused)
+        accepted.push({ table, rows: rows.filter((r) => !refused.has(r.id)).map((r) => forSignal(table, r)), server: stored })
         continue
       }
       if (transient(error)) throw error
       // Paquet refusé : on renvoie ligne par ligne pour isoler la ou les lignes fautives.
       for (const p of payload) {
-        const one = await upsert(table, [p])
+        const one = await write(table, [p])
         const k = rowKey(table, p.id)
         if (one.error) {
           if (transient(one.error)) throw one.error
@@ -435,7 +492,10 @@ async function push(accepted: Sent[]) {
         failures.delete(k)
         await applyRejected(table, one.data)
         await db.outbox.bulkDelete(part.filter((it) => it.rowId === p.id).map((it) => it.seq!))
-        if (!(Array.isArray(one.data) && one.data.includes(p.id))) accepted.push({ table, rows: [forSignal(table, p.data as SentRow)] })
+        if (!(Array.isArray(one.data) && one.data.includes(p.id))) {
+          const stored = await keepStored(table, one.server, new Set())
+          accepted.push({ table, rows: [forSignal(table, p.data as SentRow)], server: stored })
+        }
       }
       // Entrées de la file dont la ligne n'existe plus sur l'appareil : rien à envoyer.
       const sent = new Set(payload.map((p) => p.id))
@@ -444,6 +504,17 @@ async function push(accepted: Sent[]) {
   }
   // Lignes refusées pas encore mises de côté : on le signale (elles repartiront au prochain envoi).
   if ([...failures.keys()].some((k) => !setAside.has(k))) throw new Error(`Envoi refusé : ${lastPushError}`)
+}
+
+/**
+ * Lignes enregistrées renvoyées par hb_upsert_lignes (refusées exclues) : l'appareil qui écrit reprend tout de suite la
+ * version du serveur (signature, nom, département posé par le serveur…), sauf sur une modification faite entre-temps
+ * (encore dans la file) ; renvoyées pour le signal.
+ */
+async function keepStored(table: SyncTable, server: ServerRow[] | null, refused: ReadonlySet<string>): Promise<ServerRow[]> {
+  const stored = (server ?? []).filter((r) => !refused.has(r.id))
+  if (stored.length) await applyServerRows(table, stored, { skipPending: true })
+  return stored
 }
 
 /** Refus du serveur (droits, ou version plus ancienne que la sienne) : on reprend sa version. */
@@ -593,6 +664,12 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   if (toPull.has('criteria')) await retireUnpublishedCriteria()
   // Ciblée : rien d'autre (les vérifications périodiques attendent la prochaine complète).
   if (scope) return
+  // Lignes reçues en direct avant cette synchronisation et pas encore confirmées par une relecture : relues par identifiant.
+  try {
+    await verifyProvisional(lastFull)
+  } catch (e) {
+    console.warn('Lignes reçues en direct :', e instanceof Error ? e.message : e)
+  }
   // Compte joueur : ni groupes, ni staffs, ni périmètre : rien à vérifier (sa fiche arrive par le curseur ; retirée du compte
   // (accès retiré) : le serveur ne la montre plus, l'appli repasse à « Entre ton code » et l'appareil est effacé à la déconnexion).
   if (playerAccount()) return
@@ -763,13 +840,118 @@ const missingFunction = (e: { code?: string }) => e.code === '42883' || e.code =
  * seule transaction par paquet (premier chargement : des dizaines de milliers de lignes) ; seules les lignes à garder (src/syncLive.ts,
  * keepRows : jamais par-dessus une version plus récente, ligne identique pas réécrite, effacement toujours appliqué).
  */
-async function applyServerRows(table: SyncTable, rows: ServerRow[]) {
+async function applyServerRows(table: SyncTable, rows: ServerRow[], opts: { skipPending?: boolean; force?: ReadonlySet<string> } = {}) {
   if (!rows.length) return
-  await db.transaction('rw', db.table(table), async () => {
-    const locals = (await db.table(table).bulkGet(rows.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
-    const newer = keepRows(rows, locals)
+  const force = opts.force ?? new Set<string>()
+  const outbox = opts.skipPending || force.size > 0
+  await db.transaction('rw', outbox ? [db.table(table), db.outbox] : [db.table(table)], async () => {
+    const pending = outbox ? await pendingIds(table, rows.map((r) => r.id)) : new Set<string>()
+    const list = opts.skipPending ? rows.filter((r) => !pending.has(r.id)) : rows
+    const locals = (await db.table(table).bulkGet(list.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+    // Ligne reçue en direct confirmée par cette lecture du serveur (force) : la version du serveur l'emporte (src/syncLive.ts, rowsToWrite).
+    const newer = rowsToWrite(list, locals, force, pending)
     if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
   })
+}
+
+/** Identifiants (parmi ids) qui attendent d'être envoyés (à appeler dans une transaction qui couvre db.outbox). */
+async function pendingIds(table: SyncTable, ids: string[]) {
+  if (!ids.length) return new Set<string>()
+  const items = await db.outbox.where('rowId').anyOf(ids).toArray()
+  return new Set(items.filter((i) => i.table === table).map((i) => i.rowId))
+}
+
+/*
+ * Lignes reçues EN DIRECT (contenu d'un signal ; configuration, critères, niveaux par l'événement « ligne ») : « à
+ * confirmer ». Elles viennent d'un autre appareil, pas du serveur : la synchronisation complète suivante les remplace par la
+ * version du serveur (relecture par curseur, ou par identifiant pour celles qu'elle n'a pas relues) ou les retire, quelle que
+ * soit leur heure (une ligne erronée ou forgée, même datée dans le futur, ne survit pas). Liste gardée sur l'appareil
+ * (effacée avec lui), au plus PROVISIONAL_MAX lignes (au-delà, les lignes reçues sont relues par identifiant).
+ */
+const PROVISIONAL_KEY = `handbase${TRIAL ? '-essai' : ''}.provisoire`
+let provisional: Provisional | null = null
+const prov = () => (provisional ??= readProvisional(store.get(PROVISIONAL_KEY)))
+const setProv = (p: Provisional) => {
+  if (p === provisional) return
+  provisional = p
+  store.set(PROVISIONAL_KEY, JSON.stringify(p))
+}
+
+/**
+ * Applique des lignes reçues en direct (src/syncLive.ts, liveRowsToApply : jamais par-dessus une version plus récente ni un
+ * envoi en attente) et note celles écrites comme « à confirmer ». Renvoie les identifiants à relire plutôt qu'appliquer
+ * (version trop en avance, liste des lignes à confirmer pleine).
+ */
+async function applyLiveRows(table: SyncTable, rows: ServerRow[]): Promise<string[]> {
+  if (!rows.length) return []
+  if (provisionalCount(prov()) + rows.length > PROVISIONAL_MAX) return rows.map((r) => r.id)
+  let written: string[] = []
+  let reread: string[] = []
+  await db.transaction('rw', db.table(table), db.outbox, async () => {
+    const pending = await pendingIds(table, rows.map((r) => r.id))
+    const locals = (await db.table(table).bulkGet(rows.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+    const plan = liveRowsToApply(rows, locals, pending, Date.now())
+    reread = plan.reread
+    if (plan.apply.length) await db.table(table).bulkPut(plan.apply.map((r) => r.data))
+    written = plan.apply.map((r) => r.id)
+  })
+  setProv(markProvisional(prov(), table, written, Date.now()))
+  return reread
+}
+
+/**
+ * Relectures CIBLÉES (signal avec identifiants) : regroupées comme les signaux (1,5 s, canaux larges étalés), puis par table,
+ * id=in.(…) par paquets de IDS_PER_READ, sans recouvrement ni curseur (le filet de sécurité reste la référence). La version du
+ * serveur confirme les lignes reçues en direct avant la lecture. Erreur : la table est relue par curseur (comme avant).
+ */
+const rereads = new Grouper<string>((keys) => void readIds(keys))
+
+async function readIds(keys: Set<string>) {
+  if (!supabase || wiping) return
+  for (const [table, ids] of splitLiveKeys(keys, SYNC_TABLES)) {
+    if (!readsTable(table)) continue
+    for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+      const part = ids.slice(i, i + IDS_PER_READ)
+      const askedAt = Date.now()
+      try {
+        const { data, error } = await supabase.from(`hb_${table}`).select('id, data, server_updated_at').in('id', part)
+        if (error) throw error
+        const rows = (data ?? []) as ServerRow[]
+        const force = provisionalBefore(prov(), table, askedAt)
+        await applyServerRows(table, rows, { skipPending: true, force })
+        setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
+      } catch {
+        signals.add(table, GROUP_MS)
+        break
+      }
+    }
+  }
+}
+
+/**
+ * Fin d'une synchronisation complète : les lignes reçues en direct AVANT son début que les relectures par curseur n'ont pas
+ * confirmées sont relues par identifiant : la version du serveur les remplace ; absentes (inconnues du serveur, ou plus
+ * visibles par ce compte), elles sont retirées ; jamais une ligne qui attend d'être envoyée. Erreur : réessayé à la suivante.
+ */
+async function verifyProvisional(before: number) {
+  for (const table of Object.keys(prov()) as SyncTable[]) {
+    if (!SYNC_TABLES.includes(table) || !readsTable(table)) {
+      setProv(dropProvisional(prov(), table, Object.keys(prov()[table] ?? {})))
+      continue
+    }
+    const ids = [...provisionalBefore(prov(), table, before)]
+    for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+      const part = ids.slice(i, i + IDS_PER_READ)
+      const { data, error } = await supabase!.from(`hb_${table}`).select('id, data, server_updated_at').in('id', part)
+      if (error) return
+      await db.transaction('rw', db.table(table), db.outbox, async () => {
+        const plan = planVerify(part, (data ?? []) as ServerRow[], await pendingIds(table, part))
+        if (plan.put.length) await db.table(table).bulkPut(plan.put.map((r) => r.data))
+        if (plan.remove.length) await db.table(table).bulkDelete(plan.remove)
+      })
+      setProv(dropProvisional(prov(), table, part))
+    }
+  }
 }
 
 type PulledRow = ServerRow & { server_updated_at: string }
@@ -800,8 +982,11 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
       : base.gte('server_updated_at', start)
     return filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
   }
+  // Heure de la demande de la page en cours : les lignes reçues en direct AVANT elle sont confirmées par la page (src/syncLive.ts, rowsToWrite).
+  let askedAt = 0
   const received = await readPages<PulledRow>(
     async (after) => {
+      askedAt = Date.now()
       let { data, error } = await read(after, mine && assignmentUserColumn !== false)
       if (error && mine && assignmentUserColumn !== false && (error.code === '42703' || /user_id/.test(error.message ?? ''))) {
         // Serveur sans la colonne user_id (057 d'avant le 29/10, ou pas passé ; Postgres 42703) : même lecture sur data.userId.
@@ -818,7 +1003,9 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
       return (data ?? []) as PulledRow[]
     },
     async (rows) => {
-      await applyServerRows(table, rows as PulledRow[])
+      const force = provisionalBefore(prov(), table, askedAt)
+      await applyServerRows(table, rows as PulledRow[], { force })
+      if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
       const last = rows[rows.length - 1]
       if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
       // Gros retard (premier paquet plein) : suivi dans l'avancement à partir de là.
@@ -984,20 +1171,38 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
     versionHooks.announced((payload as { v?: unknown } | undefined)?.v)
     return
   }
+  // Table connue (SYNC_TABLES) et lue par ce compte : sinon rien, avec ou sans lignes.
   const s = parseSignal(payload, SYNC_TABLES)
   if (!s || !readsTable(s.table)) return
   // Ligne entière (configuration, critères, niveaux) : appliquée tout de suite, sans toucher au curseur (la relecture reste
   // la référence : la prochaine complète la fera, étalée). Rien d'autre à relire pour ce signal.
   if (event === 'ligne' && s.row && CONTENT_TABLES.includes(s.table)) {
-    void applyServerRows(s.table, [s.row]).catch(() => signals.add(s.table, pullDelay(topic)))
+    void applyLiveRows(s.table, [s.row]).then(
+      (again) => again.length && signals.add(s.table, pullDelay(topic)),
+      () => signals.add(s.table, pullDelay(topic)),
+    )
     return
   }
-  signals.add(s.table, pullDelay(topic))
+  // Signal ciblé (src/syncLive.ts, planLive) : lignes appliquées sans rien relire, identifiants relus par identifiant ;
+  // signal simple : la table est relue par curseur, comme avant.
+  const plan = planLive(s, topic)
+  if (plan.table) {
+    signals.add(s.table, pullDelay(topic))
+    return
+  }
+  const delay = pullDelay(topic)
+  const reread = (ids: string[]) => {
+    for (const id of ids) rereads.add(liveKey(s.table, id), delay)
+  }
+  reread(plan.ids)
+  if (plan.rows.length)
+    void applyLiveRows(s.table, plan.rows).then(reread, () => reread(plan.rows.map((r) => r.id)))
 }
 
 /**
  * Prévient les autres appareils d'un envoi réussi (plan B de 057 : la base ne diffuse plus) : messages calculés par
- * src/syncLive.ts (outgoingSignals : un signal par table et par canal, contenu pour configuration, critères et niveaux),
+ * src/syncLive.ts (outgoingSignals : un signal par table et par canal, avec les lignes enregistrées de joueurs, mesures, avis
+ * et « vu » là où elles peuvent voyager, sinon les identifiants ; contenu pour configuration, critères et niveaux),
  * envoyés seulement sur les canaux privés prêts. Ce qu'il faut savoir des lignes citées (joueur d'un avis, unité
  * organisatrice, membres d'un staff) est lu dans la base de l'appareil. Rien ne bloque ni n'échoue : un signal perdu est
  * rattrapé par le filet de sécurité des autres appareils.
@@ -1059,6 +1264,7 @@ function stopRealtime() {
   if (!supabase) return
   listening++
   signals.cancel()
+  rereads.cancel()
   for (const ch of channels) void supabase.removeChannel(ch)
   channels = []
   ready.clear()

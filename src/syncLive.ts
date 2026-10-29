@@ -12,7 +12,12 @@
  *    hb_canaux_ligne (rowChannels), et messages d'un envoi réussi, groupés, limités aux canaux ouverts (outgoingSignals) ;
  *  - PREMIÈRE SYNCHRONISATION allégée (essai de charge du 29/10) : lecture par pages (readPages, correcte quand le serveur
  *    plafonne à 1 000 lignes par réponse) ; affectations : toutes pour un administrateur, les siennes seulement pour les
- *    autres (assignmentScopeKey, planAssignmentScope ; clé « mes_affectations » de hb_quoi_de_neuf).
+ *    autres (assignmentScopeKey, planAssignmentScope ; clé « mes_affectations » de hb_quoi_de_neuf) ;
+ *  - LIGNE DANS LE SIGNAL (série 5 du 29/10 : à 3 500 appareils, les relectures après chaque signal faisaient 80 % du temps
+ *    de la base) : la ligne telle que le serveur l'a enregistrée voyage dans le signal (joueurs, mesures, avis, « vu »,
+ *    seulement sur les canaux dont tous les abonnés peuvent la lire : rowFitsTopic), sinon ses seuls identifiants (relecture
+ *    ciblée id=in.(…), sans recouvrement) ; à la réception, planLive, liveRowsToApply ; lignes reçues « à confirmer »
+ *    jusqu'à la synchronisation complète suivante (Provisional, rowsToWrite, planVerify).
  */
 import type { SyncTable } from './db'
 import { playerClub, playerDepartment, type ServerScope } from './perimeter'
@@ -86,12 +91,17 @@ export const dueForSync = (now: number, lastFull: number, live: boolean) => now 
 
 // ---------- Signaux ----------
 
-/** Ligne telle que le serveur l'envoie (relecture : id, data, server_updated_at ; en direct : aussi deleted). */
+/**
+ * Ligne telle que le serveur l'envoie (relecture : id, data, server_updated_at ; en direct et hb_upsert_lignes : aussi
+ * deleted ; hb_upsert_lignes : aussi scope_dept / scope_club, le périmètre de la ligne pour le serveur, 046).
+ */
 export interface ServerRow {
   id: string
   data: { id?: string; updatedAt?: number; purged?: boolean; deleted?: boolean } & Record<string, unknown>
   server_updated_at?: string
   deleted?: boolean
+  scope_dept?: string | null
+  scope_club?: string | null
 }
 
 export interface Signal {
@@ -101,21 +111,56 @@ export interface Signal {
   v?: string
   /** Contenu de la ligne (événement « ligne », tables de CONTENT_TABLES). */
   row?: ServerRow
+  /**
+   * Signal CIBLÉ (appli du 29/10 et après : champs « lignes » ou « ids » présents) : les lignes enregistrées qu'il porte
+   * (rows) et les identifiants à relire (ids) sont TOUT ce qui a changé ; rien d'autre n'est relu. Sans ces champs (appli
+   * d'avant, ou envoi trop gros) : relecture de la table par curseur, comme avant.
+   */
+  targeted?: boolean
+  rows?: ServerRow[]
+  ids?: string[]
 }
 
-/** Lit un signal reçu en direct ({t, id, v, ligne?}) ; null s'il est mal formé ou vise une table inconnue (tables : SYNC_TABLES). */
+/** Au plus, par signal reçu : lignes et identifiants lus (un signal plus gros, mal formé ou forgé, n'est pas lu en entier). */
+const PARSE_ROWS_MAX = 100
+const PARSE_IDS_MAX = 500
+const isId = (x: unknown): x is string => typeof x === 'string' && x !== '' && x.length <= 200
+
+/** Une ligne reçue (contenu d'un signal, réponse de hb_upsert_lignes) ; null si mal formée (data.id différent compris). */
+export function readServerRow(x: unknown): ServerRow | null {
+  const l = x as { id?: unknown; data?: unknown; deleted?: unknown; server_updated_at?: unknown; scope_dept?: unknown; scope_club?: unknown } | null
+  if (!l || typeof l !== 'object' || !isId(l.id) || !l.data || typeof l.data !== 'object' || Array.isArray(l.data)) return null
+  const data = l.data as ServerRow['data']
+  if (data.id !== undefined && data.id !== l.id) return null
+  const row: ServerRow = { id: l.id, data }
+  if (typeof l.deleted === 'boolean') row.deleted = l.deleted
+  if (typeof l.server_updated_at === 'string') row.server_updated_at = l.server_updated_at
+  for (const k of ['scope_dept', 'scope_club'] as const) if (typeof l[k] === 'string' || l[k] === null) row[k] = l[k] as string | null
+  return row
+}
+
+/**
+ * Lit un signal reçu en direct ({t, id, v, ligne?, lignes?, ids?}) ; null s'il est mal formé ou vise une table inconnue
+ * (tables : SYNC_TABLES). Une table inconnue n'est jamais acceptée, avec ou sans lignes.
+ */
 export function parseSignal(payload: unknown, tables: readonly string[]): Signal | null {
   if (!payload || typeof payload !== 'object') return null
-  const p = payload as { t?: unknown; id?: unknown; v?: unknown; ligne?: unknown }
+  const p = payload as { t?: unknown; id?: unknown; v?: unknown; ligne?: unknown; lignes?: unknown; ids?: unknown }
   if (typeof p.t !== 'string' || !tables.includes(p.t)) return null
   const out: Signal = { table: p.t as SyncTable }
   if (typeof p.id === 'string') out.id = p.id
   if (typeof p.v === 'string') out.v = p.v
-  const l = p.ligne as { id?: unknown; data?: unknown; deleted?: unknown; server_updated_at?: unknown } | undefined
-  if (l && typeof l === 'object' && typeof l.id === 'string' && l.data && typeof l.data === 'object' && !Array.isArray(l.data)) {
-    out.row = { id: l.id, data: l.data as ServerRow['data'] }
-    if (typeof l.deleted === 'boolean') out.row.deleted = l.deleted
-    if (typeof l.server_updated_at === 'string') out.row.server_updated_at = l.server_updated_at
+  const row = p.ligne === undefined ? null : readServerRow(p.ligne)
+  if (row) out.row = row
+  if (Array.isArray(p.lignes) || Array.isArray(p.ids)) {
+    out.targeted = true
+    const rows = (Array.isArray(p.lignes) ? p.lignes.slice(0, PARSE_ROWS_MAX) : []).map(readServerRow).filter((r): r is ServerRow => !!r)
+    const ids = (Array.isArray(p.ids) ? p.ids.slice(0, PARSE_IDS_MAX) : []).filter(isId)
+    // Lignes en trop ou mal formées : le signal n'est plus complet, la table est relue (prudence).
+    const lost = (Array.isArray(p.lignes) && rows.length < p.lignes.length) || (Array.isArray(p.ids) && ids.length < p.ids.length)
+    if (lost) out.targeted = false
+    if (rows.length) out.rows = rows
+    if (ids.length) out.ids = ids
   }
   return out
 }
@@ -432,11 +477,22 @@ export function forSignal(table: SyncTable, row: SentRow): SentRow {
   return out
 }
 
-/** Message à envoyer sur un canal (broadcast) : même forme que ceux que la base envoyait ({t, id, v[, ligne]}). */
+/**
+ * Message à envoyer sur un canal (broadcast) : même forme que ceux que la base envoyait ({t, id, v[, ligne]}), plus, pour un
+ * signal ciblé, les lignes enregistrées (lignes) et les identifiants à relire (ids). Une appli d'avant ne lit que {t, id, v}
+ * et relit la table : rien ne casse.
+ */
 export interface OutgoingSignal {
   topic: string
   event: 'signal' | 'ligne'
-  payload: { t: SyncTable; id: string; v: string; ligne?: { id: string; data: Record<string, unknown>; deleted: boolean } }
+  payload: {
+    t: SyncTable
+    id: string
+    v: string
+    ligne?: { id: string; data: Record<string, unknown>; deleted: boolean }
+    lignes?: ServerRow[]
+    ids?: string[]
+  }
 }
 
 /** Au-delà, un envoi de configuration, critères ou niveaux part en un seul signal (un import de 300 critères = 1 message). */
@@ -446,38 +502,304 @@ export const CONTENT_MAX = 20
 const withoutNames = (row: SentRow): Record<string, unknown> => Object.fromEntries(Object.entries(row).filter(([k]) => !/ByName$/.test(k)))
 
 /**
- * Messages à envoyer après un envoi réussi (sent : par table, les lignes acceptées par le serveur) :
+ * Messages à envoyer après un envoi réussi (sent : par table, les lignes acceptées par le serveur et, pour joueurs, mesures,
+ * avis et « vu », ces lignes TELLES QUE LE SERVEUR LES A ENREGISTRÉES, réponse de hb_upsert_lignes) :
  *  - seulement sur les canaux ouverts par l'appareil (open : abonnés, donc permis par la règle hb_emettre) ;
- *  - un seul signal par table et par canal ({t, id de la première ligne, v}) ; jamais de nom ni de contenu ;
+ *  - un seul signal par table et par canal ({t, id de la première ligne, v}) ; jamais de nom ;
+ *  - signal CIBLÉ (packSignal) : les lignes enregistrées qui peuvent voyager sur ce canal (rowFitsTopic) dans « lignes »,
+ *    jusqu'à SIGNAL_MAX_BYTES par message, et les identifiants des autres dans « ids » (relus par identifiant) ; trop
+ *    d'identifiants, ou table relue autrement (ID_TABLES) : signal simple, la table est relue par curseur comme avant ;
+ *  - canaux d'une ligne enregistrée : son périmètre selon le serveur (serverRowChannels, colonnes scope_* de 046) ; sinon
+ *    calculés sur la ligne de l'appareil (rowChannels) ;
  *  - configuration, critères, niveaux : la ligne entière, une par ligne (événement « ligne »), jusqu'à CONTENT_MAX lignes
  *    par table ; au-delà, un seul signal.
- * v : heure de l'envoi (l'appareil ne connaît pas l'heure serveur) ; repère seulement, le destinataire relit la table.
+ * v : heure de l'envoi (l'appareil ne connaît pas l'heure serveur) ; repère seulement.
  */
 export function outgoingSignals(
-  sent: readonly { table: SyncTable; rows: readonly SentRow[] }[],
+  sent: readonly { table: SyncTable; rows: readonly SentRow[]; server?: readonly ServerRow[] }[],
   open: ReadonlySet<string>,
   look: ChannelLookup,
   now: string,
 ): OutgoingSignal[] {
   const out: OutgoingSignal[] = []
-  const done = new Set<string>()
-  const byTable = new Map<SyncTable, SentRow[]>()
-  for (const s of sent) byTable.set(s.table, [...(byTable.get(s.table) ?? []), ...s.rows])
-  for (const [table, rows] of byTable) {
-    const content = CONTENT_TABLES.includes(table) && rows.length <= CONTENT_MAX
-    for (const row of rows) {
-      for (const topic of rowChannels(table, row, look)) {
+  const byTable = new Map<SyncTable, { rows: Map<string, SentRow>; server: Map<string, ServerRow> }>()
+  for (const s of sent) {
+    const t = byTable.get(s.table) ?? { rows: new Map<string, SentRow>(), server: new Map<string, ServerRow>() }
+    for (const r of s.rows) t.rows.set(r.id, r)
+    for (const r of s.server ?? []) t.server.set(r.id, r)
+    byTable.set(s.table, t)
+  }
+  for (const [table, { rows, server }] of byTable) {
+    const list = [...rows.values()]
+    const content = CONTENT_TABLES.includes(table) && list.length <= CONTENT_MAX
+    const groups = new Map<string, string[]>() // canal → identifiants, dans l'ordre de l'envoi
+    for (const row of list) {
+      const stored = ROW_TABLES.includes(table) ? server.get(row.id) : undefined
+      for (const topic of stored ? serverRowChannels(table, stored) : rowChannels(table, row, look)) {
         if (!open.has(topic)) continue
         if (content) {
           out.push({ topic, event: 'ligne', payload: { t: table, id: row.id, v: now, ligne: { id: row.id, data: withoutNames(row), deleted: !!row.deleted } } })
           continue
         }
-        const k = `${table}>${topic}`
-        if (done.has(k)) continue
-        done.add(k)
-        out.push({ topic, event: 'signal', payload: { t: table, id: row.id, v: now } })
+        const ids = groups.get(topic) ?? []
+        if (!groups.has(topic)) groups.set(topic, ids)
+        ids.push(row.id)
       }
     }
+    for (const [topic, ids] of groups) out.push({ topic, event: 'signal', payload: packSignal(table, topic, ids, server, now) })
+  }
+  return out
+}
+
+// ---------- Ligne dans le signal (série 5 du 29/10) ----------
+//
+// POURQUOI : à l'essai de charge du 29/10 (3 500 appareils, profil « jour de détection »), chaque écriture était reçue par
+// ~18 appareils, et chacun relisait la table depuis son curseur moins 60 s de recouvrement : ~280 000 relectures de
+// hb_measurements et hb_seen, 80 % du temps de la base. L'appareil qui écrit met maintenant la ligne enregistrée dans le
+// signal ; ceux qui la reçoivent l'appliquent sans rien relire ; une ligne trop grosse (ou une table qui ne voyage pas) :
+// ses seuls identifiants, relus par identifiant (id=in.(…), sans recouvrement). Le filet de sécurité (« quoi de neuf ? »
+// toutes les 5 minutes, curseur et recouvrement) ne change pas : il rattrape ce qui manque, et le curseur n'est JAMAIS
+// avancé par une ligne reçue en direct ni par une relecture ciblée.
+//
+// SÉCURITÉ (le contenu ne doit aller qu'à qui peut le lire par la synchronisation normale) :
+//  - les lignes viennent de hb_upsert_lignes (057), SECURITY INVOKER : relues dans la transaction d'écriture avec les règles
+//    de lecture de celui qui écrit ;
+//  - elles ne voyagent que pour ROW_TABLES, dont la règle de lecture est EXACTEMENT « rôle du staff et (tout, ou département
+//    couvert, ou club couvert, ou auteur) » (046 : staff_read sur scope_dept / scope_club) ; et seulement sur un canal dont
+//    l'abonnement implique ce droit (rowFitsTopic) : hb:tout (périmètre « tout »), hb:dept:<scope_dept de la ligne>,
+//    hb:club:<scope_club de la ligne>, ou son propre canal hb:compte:… (ses autres appareils). hb_mes_canaux donne ces canaux
+//    avec le MÊME périmètre (hb_scope_of) que la règle de lecture, et Realtime refuse l'abonnement aux autres (hb_recevoir) ;
+//  - « à revoir » (règle de lecture plus étroite que le périmètre, 041), vidéos, staffs, groupes, événements… : jamais de
+//    contenu, seulement les identifiants (relus avec les règles de lecture du destinataire) ;
+//  - à la réception, mêmes contrôles (table connue : parseSignal ; rowFitsTopic avec le canal d'arrivée : une ligne qui n'a
+//    rien à faire sur ce canal est relue au lieu d'être appliquée) ; une ligne reçue est « à confirmer » : la synchronisation
+//    complète suivante la remplace par la version du serveur (ou la retire), quelle que soit son heure (Provisional).
+
+/** Tables dont la ligne enregistrée voyage dans le signal (règle de lecture = périmètre exactement, 046). */
+export const ROW_TABLES: readonly SyncTable[] = ['players', 'measurements', 'evaluations', 'seen']
+
+/**
+ * Tables relues PAR IDENTIFIANT après un signal ciblé. Les autres gardent la relecture par curseur : staffs (teams : une
+ * entrée dans un staff ouvre des groupes qui, eux, n'ont pas changé ; la synchronisation le voit en comparant les staffs
+ * avant et après leur relecture), affectations (les siennes seulement, filtre user_id), journal des questions (écriture
+ * seule hors administrateurs), configuration, critères et niveaux (contenu diffusé par l'événement « ligne »).
+ */
+export const ID_TABLES: readonly SyncTable[] = ['players', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'units', 'saved_questions']
+
+/** Plafond d'un signal ciblé : charge utile en JSON, en octets UTF-8 (lignes et identifiants compris). */
+export const SIGNAL_MAX_BYTES = 6000
+/** Lignes enregistrées demandées au plus à hb_upsert_lignes par paquet (au-delà, un import : identifiants seulement). */
+export const LIVE_ROWS_MAX = 20
+/** Une version reçue en direct plus de 5 minutes en avance sur l'horloge de l'appareil est écartée (relue), comme le serveur. */
+export const FUTURE_MS = 5 * 60_000
+/** Identifiants par requête de relecture ciblée (id=in.(…)). */
+export const IDS_PER_READ = 100
+/** Lignes reçues en direct en attente de confirmation, au plus (au-delà : relues par identifiant au lieu d'être appliquées). */
+export const PROVISIONAL_MAX = 2000
+
+const utf8 = (s: string) => new TextEncoder().encode(s).length
+
+/** Canaux d'une ligne ENREGISTRÉE de ROW_TABLES : son périmètre selon le serveur (même règle que staff_read, 046). */
+export function serverRowChannels(table: SyncTable, row: ServerRow): string[] {
+  if (!ROW_TABLES.includes(table)) return []
+  const author = str(row.data.createdBy)
+  return [...new Set([ALL_TOPIC, str(row.scope_dept) && `hb:dept:${row.scope_dept}`, str(row.scope_club) && `hb:club:${row.scope_club}`, author && `hb:compte:${author}`].filter((x): x is string => !!x))].sort()
+}
+
+/**
+ * La ligne enregistrée peut-elle voyager sur ce canal ? Oui seulement si TOUT abonné du canal peut la lire par la
+ * synchronisation normale : table de ROW_TABLES, et canal « tout », son département, son club, ou un canal de compte (on
+ * n'écoute et n'émet que sur le sien : ce sont les autres appareils du même compte).
+ */
+export function rowFitsTopic(table: SyncTable, topic: string, row: ServerRow): boolean {
+  if (!ROW_TABLES.includes(table)) return false
+  if (topic === ALL_TOPIC || topic.startsWith('hb:compte:')) return true
+  if (topic.startsWith('hb:dept:')) return !!str(row.scope_dept) && topic === `hb:dept:${row.scope_dept}`
+  if (topic.startsWith('hb:club:')) return !!str(row.scope_club) && topic === `hb:club:${row.scope_club}`
+  return false
+}
+
+/** Ligne telle qu'elle part dans le signal : les seuls champs de ServerRow. */
+const wireRow = (r: ServerRow): ServerRow => {
+  const w: ServerRow = { id: r.id, data: r.data }
+  if (r.deleted !== undefined) w.deleted = r.deleted
+  if (r.server_updated_at !== undefined) w.server_updated_at = r.server_updated_at
+  if (r.scope_dept !== undefined) w.scope_dept = r.scope_dept
+  if (r.scope_club !== undefined) w.scope_club = r.scope_club
+  return w
+}
+
+/**
+ * Charge utile d'un signal (une table, un canal, les identifiants envoyés dans l'ordre) : {t, id, v} toujours ; table de
+ * ID_TABLES : les lignes enregistrées qui peuvent voyager sur ce canal, tant que le message reste sous SIGNAL_MAX_BYTES, et
+ * les identifiants des autres. Tous les identifiants ne tiennent pas : signal simple (relecture par curseur).
+ */
+export function packSignal(table: SyncTable, topic: string, ids: readonly string[], server: ReadonlyMap<string, ServerRow>, now: string): OutgoingSignal['payload'] {
+  const base: OutgoingSignal['payload'] = { t: table, id: ids[0], v: now }
+  if (!ID_TABLES.includes(table) || !ids.length) return base
+  const idBytes = ids.map((id) => utf8(JSON.stringify(id)) + 1)
+  let size = utf8(JSON.stringify({ ...base, lignes: [], ids: [] })) + idBytes.reduce((a, b) => a + b, 0)
+  if (size > SIGNAL_MAX_BYTES) return base
+  const lignes: ServerRow[] = []
+  const rest: string[] = []
+  ids.forEach((id, i) => {
+    const r = server.get(id)
+    if (r && rowFitsTopic(table, topic, r)) {
+      const w = wireRow(r)
+      const grow = utf8(JSON.stringify(w)) + 1 - idBytes[i]
+      if (size + grow <= SIGNAL_MAX_BYTES) {
+        lignes.push(w)
+        size += grow
+        return
+      }
+    }
+    rest.push(id)
+  })
+  return { ...base, ...(lignes.length ? { lignes } : {}), ...(rest.length ? { ids: rest } : {}) }
+}
+
+/**
+ * Que faire d'un signal reçu sur ce canal ? rows : lignes à appliquer ; ids : à relire par identifiant ; table : relire la
+ * table par curseur (signal simple, appli d'avant, table relue autrement). Une ligne qui ne peut pas voyager sur ce canal
+ * (rowFitsTopic) n'est pas appliquée : elle est relue, avec les règles de lecture du destinataire.
+ */
+export function planLive(s: Signal, topic: string): { rows: ServerRow[]; ids: string[]; table: boolean } {
+  if (!s.targeted || !ID_TABLES.includes(s.table)) return { rows: [], ids: [], table: true }
+  const rows: ServerRow[] = []
+  const ids = new Set(s.ids ?? [])
+  for (const r of s.rows ?? []) {
+    if (rowFitsTopic(s.table, topic, r)) rows.push(r)
+    else ids.add(r.id)
+  }
+  for (const r of rows) ids.delete(r.id)
+  return { rows, ids: [...ids], table: false }
+}
+
+/**
+ * Lignes reçues en direct à écrire sur l'appareil (locals : celles de l'appareil, même ordre ; pending : identifiants qui
+ * attendent d'être envoyés) : jamais par-dessus un envoi en attente (l'envoi tranchera : accepté, c'est la plus récente ;
+ * refusé, l'appareil reprend la version du serveur) ; version plus de FUTURE_MS en avance sur l'horloge de l'appareil :
+ * écartée, relue par identifiant (reread) ; sinon la règle de toute ligne reçue (keepRows : jamais par-dessus une version
+ * plus récente, ligne identique pas réécrite).
+ */
+export function liveRowsToApply<T extends ServerRow>(rows: readonly T[], locals: readonly LocalRow[], pending: ReadonlySet<string>, now: number): { apply: T[]; reread: string[] } {
+  const reread: string[] = []
+  const ok: T[] = []
+  const okLocals: LocalRow[] = []
+  rows.forEach((r, i) => {
+    if (pending.has(r.id)) return
+    const at = r.data.updatedAt
+    if (at !== undefined && (typeof at !== 'number' || !Number.isFinite(at) || at > now + FUTURE_MS)) {
+      reread.push(r.id)
+      return
+    }
+    ok.push(r)
+    okLocals.push(locals[i])
+  })
+  return { apply: keepRows(ok, okLocals), reread }
+}
+
+/** Lignes reçues en direct, à confirmer : table → identifiant → heure de réception (horloge de l'appareil). */
+export type Provisional = Record<string, Record<string, number>>
+
+/** Relit la liste gardée sur l'appareil (texte JSON) ; illisible : vide. */
+export function readProvisional(text: string | null): Provisional {
+  try {
+    const p = JSON.parse(text ?? '{}') as unknown
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return {}
+    const out: Provisional = {}
+    for (const [t, ids] of Object.entries(p as Record<string, unknown>)) {
+      if (!ids || typeof ids !== 'object' || Array.isArray(ids)) continue
+      const keep = Object.entries(ids as Record<string, unknown>).filter((e): e is [string, number] => typeof e[1] === 'number')
+      if (keep.length) out[t] = Object.fromEntries(keep)
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export const provisionalCount = (p: Provisional) => Object.values(p).reduce((n, ids) => n + Object.keys(ids).length, 0)
+
+/** Note des lignes reçues (nouvelle liste ; la plus récente réception l'emporte). */
+export function markProvisional(p: Provisional, table: string, ids: readonly string[], at: number): Provisional {
+  if (!ids.length) return p
+  return { ...p, [table]: { ...(p[table] ?? {}), ...Object.fromEntries(ids.map((id) => [id, at])) } }
+}
+
+/** Identifiants d'une table reçus AVANT `before` (une lecture partie à `before` donne pour eux la version du serveur). */
+export function provisionalBefore(p: Provisional, table: string, before: number): Set<string> {
+  return new Set(Object.entries(p[table] ?? {}).filter(([, at]) => at < before).map(([id]) => id))
+}
+
+/** Retire des identifiants confirmés (nouvelle liste). */
+export function dropProvisional(p: Provisional, table: string, ids: Iterable<string>): Provisional {
+  const left = { ...(p[table] ?? {}) }
+  let changed = false
+  for (const id of ids) {
+    if (id in left) {
+      delete left[id]
+      changed = true
+    }
+  }
+  if (!changed) return p
+  const out = { ...p }
+  if (Object.keys(left).length) out[table] = left
+  else delete out[table]
+  return out
+}
+
+/**
+ * Lignes du serveur (relecture) à écrire : keepRows, plus celles qui confirment une ligne reçue en direct (force) : la
+ * version du serveur l'emporte alors QUELLE QUE SOIT son heure (une ligne forgée, datée dans le futur, ne survit pas), sauf
+ * sur un envoi en attente (pending) ; identique : pas réécrite.
+ */
+export function rowsToWrite<T extends ServerRow>(rows: readonly T[], locals: readonly LocalRow[], force: ReadonlySet<string>, pending: ReadonlySet<string>): T[] {
+  const kept = new Set(keepRows(rows, locals))
+  return rows.filter((r, i) => {
+    if (kept.has(r)) return true
+    if (!force.has(r.id) || pending.has(r.id)) return false
+    const l = locals[i]
+    return !l || JSON.stringify(r.data) !== JSON.stringify(l)
+  })
+}
+
+/**
+ * Vérification des lignes reçues en direct que la synchronisation complète n'a pas relues (ids) : celles que le serveur
+ * rend (found) remplacent celles de l'appareil ; les autres (inconnues du serveur ou plus visibles) sont retirées ; jamais
+ * une ligne qui attend d'être envoyée.
+ */
+export function planVerify<T extends ServerRow>(ids: readonly string[], found: readonly T[], pending: ReadonlySet<string>): { put: T[]; remove: string[] } {
+  const byId = new Map(found.map((r) => [r.id, r]))
+  return {
+    put: found.filter((r) => ids.includes(r.id) && !pending.has(r.id)),
+    remove: ids.filter((id) => !byId.has(id) && !pending.has(id)),
+  }
+}
+
+/** Réponse de hb_upsert_lignes ({refusees, lignes}) ; ancienne réponse de hb_upsert (tableau des refusées) : sans lignes. */
+export function writeAnswer(data: unknown): { rejected: string[]; rows: ServerRow[] | null } {
+  if (Array.isArray(data)) return { rejected: data.filter((x): x is string => typeof x === 'string'), rows: null }
+  const d = (data ?? {}) as { refusees?: unknown; lignes?: unknown }
+  const rejected = Array.isArray(d.refusees) ? d.refusees.filter((x): x is string => typeof x === 'string') : []
+  const rows = Array.isArray(d.lignes) ? d.lignes.map(readServerRow).filter((r): r is ServerRow => !!r) : null
+  return { rejected, rows }
+}
+
+/** Clé d'une relecture ciblée en attente (table et identifiant ; un nom de table n'a jamais de « : »). */
+export const liveKey = (table: SyncTable, id: string) => `${table}:${id}`
+
+/** Relectures ciblées regroupées → identifiants par table (tables : SYNC_TABLES ; clé d'une table inconnue : ignorée). */
+export function splitLiveKeys(keys: Iterable<string>, tables: readonly string[]): Map<SyncTable, string[]> {
+  const out = new Map<SyncTable, string[]>()
+  for (const k of keys) {
+    const i = k.indexOf(':')
+    if (i <= 0) continue
+    const t = k.slice(0, i)
+    if (!tables.includes(t)) continue
+    const list = out.get(t as SyncTable) ?? []
+    list.push(k.slice(i + 1))
+    out.set(t as SyncTable, list)
   }
   return out
 }

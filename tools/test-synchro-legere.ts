@@ -6,7 +6,9 @@
 // écrit comme l'appli l'attend (mêmes noms de canaux, mêmes tables, plus de diffusion par la base, règles d'écoute et
 // d'envoi). Première synchronisation allégée (29/10) : avancement sans comptage, lecture par pages correcte avec un serveur
 // qui plafonne à 1 000 lignes par réponse, affectations du compte seulement (hors administrateur) et clé « mes_affectations »
-// de « quoi de neuf ? ». Données fictives seulement.
+// de « quoi de neuf ? ». Ligne dans le signal (série 5 du 29/10) : tables et canaux où la ligne enregistrée peut voyager,
+// plafond de taille, relecture ciblée des seuls identifiants, table inconnue refusée, fusion d'une ligne reçue (plus
+// récente, plus ancienne, envoi en attente), lignes à confirmer par la synchronisation suivante. Données fictives seulement.
 //
 //   npx jiti tools/test-synchro-legere.ts
 import assert from 'node:assert/strict'
@@ -45,11 +47,35 @@ import {
   versionCheckDelay,
   whatsNewAnswer,
   whatsNewRequest,
+  dropProvisional,
+  FUTURE_MS,
+  ID_TABLES,
+  LIVE_ROWS_MAX,
+  liveKey,
+  liveRowsToApply,
+  markProvisional,
+  packSignal,
+  planLive,
+  planVerify,
+  PROVISIONAL_MAX,
+  provisionalBefore,
+  provisionalCount,
+  readProvisional,
+  readServerRow,
+  ROW_TABLES,
+  rowFitsTopic,
+  rowsToWrite,
+  serverRowChannels,
+  SIGNAL_MAX_BYTES,
+  splitLiveKeys,
+  writeAnswer,
   type ChannelLookup,
   type PageKey,
   type SentRow,
+  type ServerRow,
   type Timers,
 } from '../src/syncLive'
+import { SCOPED_TABLES } from '../src/perimeter'
 import { aggregate, forward, percent, PROGRESS_MIN, progressLabel, showProgress, startTable, tableShare, type TableProgress } from '../src/syncProgress'
 
 let n = 0
@@ -361,16 +387,18 @@ t('signaux d’un envoi : un par table et par canal, seulement sur les canaux ou
   )
   // Jamais un canal non écouté (le serveur le refuserait : règle hb_emettre).
   for (const m of out) assert.ok(open.has(m.topic), m.topic)
-  // Charge utile : {t, id, v} et rien d'autre (ni nom, ni texte, ni contenu).
-  for (const m of out) assert.deepEqual(Object.keys(m.payload).sort(), ['id', 't', 'v'])
+  // Charge utile : {t, id, v} et les identifiants envoyés (relus par identifiant), rien d'autre (ni nom, ni texte, ni contenu :
+  // pas de ligne enregistrée renvoyée par le serveur ici).
+  for (const m of out) assert.deepEqual(Object.keys(m.payload).sort(), ['id', 'ids', 't', 'v'])
+  assert.deepEqual(out.find((m) => m.payload.t === 'evaluations')!.payload.ids, ['ev1', 'ev2', 'ev3'])
   assert.ok(!JSON.stringify(out).includes('Fictif') && !JSON.stringify(out).includes('Coach') && !JSON.stringify(out).includes('Texte'))
   // Même table en deux paquets : toujours un seul signal par canal.
   const twice = outgoingSignals([{ table: 'evaluations', rows: evals.slice(0, 1) }, { table: 'evaluations', rows: evals.slice(1) }], open, LOOK, 'v')
   assert.equal(twice.length, 2)
   // Aucun canal ouvert (direct pas encore abonné) : rien.
   assert.deepEqual(outgoingSignals([{ table: 'evaluations', rows: evals }], new Set(), LOOK, 'v'), [])
-  // Le signal se lit comme ceux que la base envoyait.
-  assert.deepEqual(parseSignal(out[0].payload, SYNC_TABLES), { table: out[0].payload.t, id: out[0].payload.id, v: '2026-10-28T12:00:00.000Z' })
+  // Le signal se lit comme ceux que la base envoyait ({t, id, v}), plus les identifiants (signal ciblé).
+  assert.deepEqual(parseSignal(out[0].payload, SYNC_TABLES), { table: out[0].payload.t, id: out[0].payload.id, v: '2026-10-28T12:00:00.000Z', targeted: true, ids: out[0].payload.ids })
 })
 
 t('signaux d’un envoi : contenu pour configuration, critères et niveaux, sans les noms ; au-delà de CONTENT_MAX, un signal', () => {
@@ -589,11 +617,231 @@ t('057 : mêmes canaux, mêmes tables que l’appli ; plus de diffusion par la b
   // Canaux privés : écoute (select) et envoi (insert) sur ses seuls canaux, broadcast seulement ; rien d'autre.
   const rule = "realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[])"
   assert.ok(code.includes(`create policy "hb_recevoir" on realtime.messages for select to authenticated\n      using (${rule})`))
-  assert.ok(code.includes(`create policy "hb_emettre" on realtime.messages for insert to authenticated\n      with check (${rule})`))
+  // Envoi : en plus, seulement un compte du staff (un compte joueur ou sans rôle n'écrit jamais, il n'a rien à signaler).
+  assert.ok(code.includes(`create policy "hb_emettre" on realtime.messages for insert to authenticated\n      with check (${rule} and (select public.hb_has_role()))`))
   assert.equal([...code.matchAll(/create policy [^;]* on realtime\.messages/g)].length, 2)
   assert.ok(!/on realtime\.messages for (all|update|delete)/.test(code))
   // Relançable : les deux règles sont retirées avant d'être reposées.
   assert.ok(code.includes(`drop policy if exists "hb_recevoir" on realtime.messages`) && code.includes(`drop policy if exists "hb_emettre" on realtime.messages`))
+})
+
+// ---------- Ligne dans le signal (série 5 du 29/10) ----------
+
+// Lignes telles que le serveur les a enregistrées (réponse de hb_upsert_lignes) : mesure d'un joueur du club 6383015 (83),
+// « vu » d'un joueur du 13, fiche du 971. Données fictives.
+const stored = (id: string, scope_dept: string | null, scope_club: string | null, extra: Record<string, unknown> = {}): ServerRow => ({
+  id,
+  data: { id, updatedAt: 10, createdBy: 'u1', createdByName: 'Coach Un', ...extra },
+  deleted: false,
+  server_updated_at: '2026-10-29T21:40:00.123456+00:00',
+  scope_dept,
+  scope_club,
+})
+
+t('ligne dans le signal : tables concernées (périmètre exactement), tables relues par identifiant', () => {
+  assert.deepEqual([...ROW_TABLES].sort(), ['evaluations', 'measurements', 'players', 'seen'])
+  // Seulement des tables du périmètre (046), et jamais « à revoir » ni les vidéos (règle de lecture différente du périmètre).
+  for (const t of ROW_TABLES) assert.ok((SCOPED_TABLES as readonly string[]).includes(t), t)
+  assert.ok(!ROW_TABLES.includes('rewatch') && !ROW_TABLES.includes('videos'))
+  for (const t of ROW_TABLES) assert.ok(ID_TABLES.includes(t), t)
+  // Relues par identifiant : toutes les tables, sauf staffs, affectations, journal, et tables de contenu (événement « ligne »).
+  assert.deepEqual([...ID_TABLES, 'teams', 'assignments', 'question_log', ...CONTENT_TABLES].sort(), [...SYNC_TABLES].sort())
+  assert.ok(SIGNAL_MAX_BYTES >= 4000 && SIGNAL_MAX_BYTES <= 8000, 'plafond de 4 à 8 Ko')
+  assert.equal(LIVE_ROWS_MAX, 20)
+})
+
+t('ligne dans le signal : canaux où elle peut voyager (tout abonné peut la lire par la synchronisation normale)', () => {
+  const m = stored('m1', '83', '6383015')
+  assert.ok(rowFitsTopic('measurements', ALL_TOPIC, m))
+  assert.ok(rowFitsTopic('measurements', 'hb:dept:83', m))
+  assert.ok(rowFitsTopic('measurements', 'hb:club:6383015', m))
+  assert.ok(rowFitsTopic('measurements', 'hb:compte:u1', m), 'son propre compte (ses autres appareils)')
+  assert.ok(!rowFitsTopic('measurements', 'hb:dept:13', m), 'autre département')
+  assert.ok(!rowFitsTopic('measurements', 'hb:club:6383099', m), 'autre club')
+  assert.ok(!rowFitsTopic('measurements', STAFF_TOPIC, m), 'tout le staff : non (périmètre)')
+  assert.ok(!rowFitsTopic('measurements', COMMON_TOPIC, m), 'commun : jamais')
+  assert.ok(!rowFitsTopic('measurements', 'hb:joueur:p1', m))
+  // Sans département ni club (joueur sans licence, hors de tout périmètre) : tout et son compte seulement.
+  const sans = stored('m2', null, null)
+  assert.ok(rowFitsTopic('measurements', ALL_TOPIC, sans) && !rowFitsTopic('measurements', 'hb:dept:', sans) && !rowFitsTopic('measurements', 'hb:club:null', sans))
+  // Autres tables : jamais de contenu, même sur « tout ».
+  for (const t of ['rewatch', 'videos', 'events', 'groups', 'teams', 'question_log', 'assignments'] as const) assert.ok(!rowFitsTopic(t, ALL_TOPIC, m), t)
+  // Canaux d'une ligne enregistrée : son périmètre selon le serveur (pas la fiche de l'appareil, peut-être ancienne).
+  assert.deepEqual(serverRowChannels('measurements', m), ['hb:club:6383015', 'hb:compte:u1', 'hb:dept:83', 'hb:tout'])
+  assert.deepEqual(serverRowChannels('seen', stored('s', '13', null)), ['hb:compte:u1', 'hb:dept:13', 'hb:tout'])
+  assert.deepEqual(serverRowChannels('rewatch', m), [])
+})
+
+t('signal d’un envoi avec lignes enregistrées : contenu seulement là où il peut aller, identifiants ailleurs', () => {
+  // Compte de club (6383015) : il écoute le commun, le sien, le staff et son club.
+  const open = new Set(channelsOf({ uid: 'u1', role: 'observateur', scope: { all: false, depts: [], clubs: ['6383015'] } }))
+  const m = stored('m1', '83', '6383015', { playerId: 'p1', value: 182 })
+  // La fiche de l'appareil dirait un autre club (fiche pas encore à jour) : les canaux viennent du serveur.
+  const out = outgoingSignals([{ table: 'measurements', rows: [row('m1', { playerId: 'p2' })], server: [m] }], open, LOOK, 'v')
+  assert.deepEqual(out.map((x) => x.topic).sort(), ['hb:club:6383015', 'hb:compte:u1'])
+  for (const x of out) {
+    assert.deepEqual(x.payload.lignes, [m], x.topic)
+    assert.equal(x.payload.ids, undefined, 'tout est dans les lignes')
+    assert.equal(x.payload.id, 'm1')
+  }
+  // Reçu sur le canal du club : appliqué tel quel, rien à relire.
+  const s = parseSignal(out[0].payload, SYNC_TABLES)!
+  assert.ok(s.targeted)
+  assert.deepEqual(planLive(s, out[0].topic), { rows: [m], ids: [], table: false })
+  // Une ligne d'un autre comptage (« à revoir ») ou sans ligne enregistrée : identifiants seulement.
+  const rw = outgoingSignals([{ table: 'rewatch', rows: [row('r1', { playerId: 'p1' })], server: [stored('r1', '83', '6383015')] }], open, LOOK, 'v')
+  assert.ok(rw.length > 0 && rw.every((x) => x.payload.lignes === undefined && x.payload.ids?.join() === 'r1'))
+  assert.ok(!JSON.stringify(rw).includes('Coach'))
+})
+
+t('signal d’un envoi : plafond de taille (ligne trop grosse → identifiant ; trop d’identifiants → signal simple)', () => {
+  const open = new Set([ALL_TOPIC])
+  const petite = stored('p-a', '83', null)
+  const grosse = stored('p-b', '83', null, { photo: 'x'.repeat(SIGNAL_MAX_BYTES) })
+  const p = packSignal('players', ALL_TOPIC, ['p-a', 'p-b'], new Map([['p-a', petite], ['p-b', grosse]]), 'v')
+  assert.deepEqual(p.lignes?.map((r) => r.id), ['p-a'])
+  assert.deepEqual(p.ids, ['p-b'])
+  assert.ok(new TextEncoder().encode(JSON.stringify(p)).length <= SIGNAL_MAX_BYTES)
+  // Plusieurs lignes : on remplit jusqu'au plafond, le reste en identifiants ; jamais au-delà du plafond (accents compris).
+  const many = Array.from({ length: 40 }, (_, i) => stored(`m${i}`, '83', null, { note: 'é'.repeat(150) }))
+  const q = packSignal('measurements', ALL_TOPIC, many.map((r) => r.id), new Map(many.map((r) => [r.id, r])), 'v')
+  assert.ok(q.lignes!.length > 0 && q.ids!.length > 0)
+  assert.equal(q.lignes!.length + q.ids!.length, 40)
+  assert.ok(new TextEncoder().encode(JSON.stringify(q)).length <= SIGNAL_MAX_BYTES)
+  // Un import (des centaines d'identifiants) : signal simple, la table est relue par curseur.
+  const ids = Array.from({ length: 300 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`)
+  assert.deepEqual(packSignal('measurements', ALL_TOPIC, ids, new Map(), 'v'), { t: 'measurements', id: ids[0], v: 'v' })
+  // Staffs, affectations, journal : jamais d'identifiants (relus autrement) : signal simple.
+  assert.deepEqual(packSignal('teams', 'hb:compte:u1', ['s1'], new Map(), 'v'), { t: 'teams', id: 's1', v: 'v' })
+  assert.deepEqual(outgoingSignals([{ table: 'teams', rows: [row('s1')] }], new Set(['hb:compte:u1']), LOOK, 'v')[0].payload, { t: 'teams', id: 's1', v: 'v' })
+  void open
+})
+
+t('signal reçu : table inconnue refusée, lignes lues et contrôlées, relecture ciblée seulement des identifiants', () => {
+  const m = stored('m1', '83', '6383015')
+  // Table inconnue : refusée, même avec des lignes.
+  assert.equal(parseSignal({ t: 'profiles', id: 'x', v: 'v', lignes: [m] }, SYNC_TABLES), null)
+  assert.equal(parseSignal({ t: 'hb_measurements', lignes: [m] }, SYNC_TABLES), null)
+  // Signal ciblé : lignes et identifiants.
+  const s = parseSignal({ t: 'measurements', id: 'm1', v: 'v', lignes: [m], ids: ['m9'] }, SYNC_TABLES)!
+  assert.deepEqual(s, { table: 'measurements', id: 'm1', v: 'v', targeted: true, rows: [m], ids: ['m9'] })
+  // Sur le canal du club : la ligne appliquée, m9 relu par identifiant (sans recouvrement : pas la table).
+  assert.deepEqual(planLive(s, 'hb:club:6383015'), { rows: [m], ids: ['m9'], table: false })
+  // Arrivée sur un canal où elle n'a rien à faire (un autre club) : pas appliquée, relue avec les droits du destinataire.
+  assert.deepEqual(planLive(s, 'hb:club:6383099'), { rows: [], ids: ['m9', 'm1'], table: false })
+  assert.deepEqual(planLive(s, STAFF_TOPIC), { rows: [], ids: ['m9', 'm1'], table: false })
+  // Ancien format ({t, id, v}) : relecture de la table par curseur, comme avant.
+  assert.deepEqual(planLive(parseSignal({ t: 'measurements', id: 'm1', v: 'v' }, SYNC_TABLES)!, 'hb:club:6383015'), { rows: [], ids: [], table: true })
+  // Table relue autrement (staffs) : toujours par curseur, lignes ignorées.
+  assert.equal(planLive(parseSignal({ t: 'teams', lignes: [stored('s1', null, null)] }, SYNC_TABLES)!, 'hb:compte:u1').table, true)
+  // Ligne mal formée (identifiant de data différent, data tableau) : le signal n'est plus complet, la table est relue.
+  const bad = parseSignal({ t: 'measurements', lignes: [{ id: 'm1', data: { id: 'm2' } }] }, SYNC_TABLES)!
+  assert.equal(bad.targeted, false)
+  assert.equal(planLive(bad, ALL_TOPIC).table, true)
+  assert.equal(readServerRow({ id: 'm1', data: [1] }), null)
+  assert.equal(readServerRow({ id: '', data: {} }), null)
+  assert.deepEqual(readServerRow({ id: 'm1', data: { v: 1 }, scope_dept: null, scope_club: 5 }), { id: 'm1', data: { v: 1 }, scope_dept: null })
+  // Identifiants seuls (ligne trop grosse) : relus, rien appliqué.
+  assert.deepEqual(planLive(parseSignal({ t: 'players', ids: ['p1', 'p1', 'p2'] }, SYNC_TABLES)!, ALL_TOPIC), { rows: [], ids: ['p1', 'p2'], table: false })
+})
+
+t('ligne reçue : fusion (plus récente appliquée, plus ancienne ou identique ignorée, envoi en attente jamais écrasé)', () => {
+  const now = 1_000_000
+  const rows = [
+    { id: 'a', data: { id: 'a', updatedAt: 20, v: 1 } }, // plus récente que l'appareil
+    { id: 'b', data: { id: 'b', updatedAt: 5, v: 2 } }, // plus ancienne que l'appareil
+    { id: 'c', data: { id: 'c', updatedAt: 10, v: 3 } }, // identique
+    { id: 'd', data: { id: 'd', updatedAt: 30, v: 4 } }, // plus récente, mais modification locale en attente d'envoi
+    { id: 'e', data: { id: 'e', updatedAt: 7, v: 5 } }, // absente de l'appareil
+    { id: 'f', data: { id: 'f', updatedAt: now + FUTURE_MS + 1, v: 6 } }, // datée trop loin dans le futur
+    { id: 'g', data: { id: 'g', updatedAt: 'demain' as unknown as number } }, // heure illisible
+  ]
+  const locals = [
+    { id: 'a', updatedAt: 10, v: 0 },
+    { id: 'b', updatedAt: 10, v: 0 },
+    { id: 'c', updatedAt: 10, v: 3 },
+    { id: 'd', updatedAt: 25, v: 0 },
+    undefined,
+    { id: 'f', updatedAt: 10 },
+    undefined,
+  ]
+  const plan = liveRowsToApply(rows, locals, new Set(['d']), now)
+  assert.deepEqual(plan.apply.map((r) => r.id), ['a', 'e'])
+  assert.deepEqual(plan.reread, ['f', 'g'], 'trop en avance ou illisible : relue par identifiant')
+})
+
+t('ligne reçue à confirmer : la version du serveur l’emporte à la relecture, quelle que soit son heure (sauf envoi en attente)', () => {
+  // L'appareil a appliqué en direct x (forgée, datée loin) et y ; le serveur rend leurs vraies versions.
+  const server = [
+    { id: 'x', data: { id: 'x', updatedAt: 10, v: 'vraie' } },
+    { id: 'y', data: { id: 'y', updatedAt: 10, v: 'même' } },
+    { id: 'z', data: { id: 'z', updatedAt: 10, v: 'serveur' } },
+    { id: 'w', data: { id: 'w', updatedAt: 10, v: 'serveur' } },
+  ]
+  const locals = [
+    { id: 'x', updatedAt: 9_999_999_999_999, v: 'forgée' },
+    { id: 'y', updatedAt: 10, v: 'même' },
+    { id: 'z', updatedAt: 99, v: 'locale' }, // pas reçue en direct : plus récente sur l'appareil, gardée (règle normale)
+    { id: 'w', updatedAt: 99, v: 'en attente' }, // reçue en direct, mais modifiée depuis et pas encore envoyée
+  ]
+  const force = new Set(['x', 'y', 'w'])
+  assert.deepEqual(rowsToWrite(server, locals, force, new Set(['w'])).map((r) => r.id), ['x'])
+  // Sans confirmation à faire : la règle normale (keepRows).
+  assert.deepEqual(rowsToWrite(server, locals, new Set(), new Set()).map((r) => r.id), [])
+  // Vérification de fin de synchronisation : rendue → remplacée ; absente du serveur → retirée ; en attente → rien.
+  assert.deepEqual(planVerify(['x', 'gone', 'w'], [server[0], server[3]], new Set(['w'])), { put: [server[0]], remove: ['gone'] })
+})
+
+t('lignes à confirmer : notées à la réception, confirmées par une lecture partie après, gardées sur l’appareil', () => {
+  let p = markProvisional({}, 'measurements', ['m1', 'm2'], 100)
+  p = markProvisional(p, 'seen', ['s1'], 200)
+  assert.equal(provisionalCount(p), 3)
+  // Une lecture partie à 150 confirme m1 et m2 (reçues avant), pas s1 (reçue après : peut-être plus récente que la lecture).
+  assert.deepEqual([...provisionalBefore(p, 'measurements', 150)].sort(), ['m1', 'm2'])
+  assert.deepEqual([...provisionalBefore(p, 'seen', 150)], [])
+  p = dropProvisional(p, 'measurements', ['m1', 'm2'])
+  assert.deepEqual(p, { seen: { s1: 200 } })
+  assert.equal(dropProvisional(p, 'seen', ['autre']), p, 'rien à retirer : même liste')
+  // Relue depuis le stockage de l'appareil ; illisible : vide.
+  assert.deepEqual(readProvisional(JSON.stringify(p)), p)
+  assert.deepEqual(readProvisional('pas du json'), {})
+  assert.deepEqual(readProvisional(null), {})
+  assert.deepEqual(readProvisional('{"seen": {"s1": "x", "s2": 3}, "x": 4}'), { seen: { s2: 3 } })
+  assert.ok(PROVISIONAL_MAX >= 1000)
+})
+
+t('réponse de hb_upsert_lignes ; relectures ciblées regroupées par table', () => {
+  const m = stored('m1', '83', null)
+  assert.deepEqual(writeAnswer({ refusees: ['m2'], lignes: [m, { id: 'bad' }] }), { rejected: ['m2'], rows: [m] })
+  assert.deepEqual(writeAnswer({ refusees: [], lignes: null }), { rejected: [], rows: null })
+  // Ancienne réponse (hb_upsert : tableau des refusées).
+  assert.deepEqual(writeAnswer(['m3']), { rejected: ['m3'], rows: null })
+  assert.deepEqual(writeAnswer(null), { rejected: [], rows: null })
+  // Identifiants avec « : » (vu : <compte>:<événement>:<joueur>) ; table inconnue ignorée.
+  const keys = [liveKey('seen', 'u1:e1:p1'), liveKey('seen', 'u1:e1:p2'), liveKey('measurements', 'm1'), 'profiles:x', 'sans-table']
+  assert.deepEqual([...splitLiveKeys(keys, SYNC_TABLES)], [['seen', ['u1:e1:p1', 'u1:e1:p2']], ['measurements', ['m1']]])
+})
+
+t('appli : écriture par hb_upsert_lignes, curseur jamais avancé par une ligne reçue en direct ni une relecture ciblée', () => {
+  const sync = readFileSync(new URL('../src/sync.ts', import.meta.url), 'utf8')
+  assert.ok(sync.includes("rpc('hb_upsert_lignes', { p_table: table, p_rows: rows, p_max: LIVE_ROWS_MAX, p_octets: SIGNAL_MAX_BYTES })"))
+  // Repli sur hb_upsert quand la fonction manque (057 pas passé).
+  assert.ok(/if \(!missingFunction\(r\.error\)\) return/.test(sync) && sync.includes('upsertRowsMissingAt = Date.now()'))
+  const body = (name: string) => {
+    const i = sync.indexOf(`async function ${name}(`)
+    assert.ok(i >= 0, name)
+    const j = sync.indexOf('\n}\n', i)
+    return sync.slice(i, j)
+  }
+  for (const f of ['applyLiveRows', 'readIds', 'verifyProvisional']) assert.ok(!body(f).includes('PULL_KEY'), `${f} : pas de curseur`)
+  // Relecture ciblée : par identifiant, sans filtre d'heure.
+  assert.ok(body('readIds').includes(".in('id', part)") && !body('readIds').includes('server_updated_at.'))
+  // 057 : la fonction, relançable, relit avec les règles de lecture de celui qui écrit.
+  const sql = readFileSync(new URL('../supabase/057_synchro_legere.sql', import.meta.url), 'utf8').replace(/^\s*--.*$/gm, '')
+  assert.ok(sql.includes('create or replace function public.hb_upsert_lignes(p_table text, p_rows jsonb, p_max integer default 20, p_octets integer default 6000)'))
+  assert.ok(/hb_upsert_lignes[^$]*language plpgsql security invoker/.test(sql))
+  assert.ok(sql.includes('grant execute on function public.hb_upsert_lignes(text, jsonb, integer, integer) to authenticated;'))
+  assert.ok(sql.includes('v_refus := coalesce(public.hb_upsert(p_table, p_rows)'), 'mêmes contrôles que hb_upsert')
 })
 
 chain.then(

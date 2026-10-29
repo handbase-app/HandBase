@@ -56,6 +56,19 @@
 --    ligne reçue (jamais par-dessus une version plus récente) sans avancer son curseur : la relecture reste la référence.
 --    Ce qui ne vient pas d'un téléphone (SQL, imports côté serveur, tâches de nuit) ne prévient personne : le filet de
 --    sécurité le rattrape (« quoi de neuf ? » toutes les 5 minutes quand le direct est abonné, toutes les minutes sinon).
+--    LIGNE DANS LE SIGNAL (essai de charge du 29/10, série 5 : à 3 500 appareils, chaque écriture était reçue par ~18
+--    appareils qui relisaient la table depuis leur curseur moins 60 s ; ces relectures de hb_measurements et hb_seen
+--    faisaient 80 % du temps de la base) : joueurs, mesures, avis et « vu » partent par hb_upsert_lignes (section 7), qui
+--    renvoie les lignes TELLES QU'ENREGISTRÉES (relues avec les règles de lecture de celui qui écrit) ; l'appareil les met
+--    dans son signal (champ « lignes ») seulement sur les canaux dont TOUS les abonnés peuvent les lire par la
+--    synchronisation normale : hb:tout, hb:dept:<scope_dept de la ligne>, hb:club:<scope_club de la ligne>, son propre
+--    hb:compte:… ; la règle de lecture de ces quatre tables (046, staff_read) est exactement « rôle du staff et (tout, ou
+--    département couvert, ou club couvert, ou auteur) », et hb_mes_canaux donne ces canaux avec le même périmètre
+--    (hb_scope_of). Ailleurs, et pour les autres tables : les seuls identifiants (champ « ids »), relus par identifiant
+--    avec les règles de lecture du destinataire. Ceux qui reçoivent appliquent la ligne sans rien relire (jamais par-dessus
+--    une version plus récente ni un envoi en attente) ; le filet de sécurité ne change pas et confirme ces lignes.
+--    ENVOI réservé aux comptes du staff (règle hb_emettre, section 5) : un compte joueur ou sans rôle n'écrit jamais, il
+--    n'a rien à signaler (et ne peut donc pas diffuser de fausse configuration sur hb:commun).
 --    POURQUOI pas la base (première version de ce script : déclencheur hb_diffuser → realtime.send) : à l'essai de charge
 --    (Realtime auto-hébergé 2.143.3), les messages envoyés par la base n'arrivaient jamais aux abonnés, alors qu'un message
 --    envoyé par un client sur le même canal l'était ; et ces envois, dans chaque transaction d'écriture, chargeaient la
@@ -281,7 +294,8 @@ drop function if exists public.hb_diffuser();
 -- Realtime vérifie à l'abonnement, avec le jeton du compte, qu'une ligne de realtime.messages portant le canal demandé
 -- serait lisible (écoute : hb_recevoir) et pourrait être insérée (envoi : hb_emettre) : dans les deux cas, seulement les
 -- canaux de hb_mes_canaux(), et seulement les messages « broadcast ». Un compte ne peut donc rien envoyer sur un canal
--- qu'il n'a pas le droit d'écouter (le département d'un autre comité, hb:tout pour un club…).
+-- qu'il n'a pas le droit d'écouter (le département d'un autre comité, hb:tout pour un club…). Envoi : en plus, seulement un
+-- compte du staff (hb_has_role : administrateur, encadrant, observateur) ; un compte joueur ou sans rôle écoute seulement.
 do $$
 begin
   if to_regclass('realtime.messages') is null or to_regprocedure('realtime.topic()') is null then
@@ -295,7 +309,7 @@ begin
     execute $p$create policy "hb_recevoir" on realtime.messages for select to authenticated
       using (realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[]))$p$;
     execute $p$create policy "hb_emettre" on realtime.messages for insert to authenticated
-      with check (realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[]))$p$;
+      with check (realtime.messages.extension = 'broadcast' and realtime.topic() = any ((select public.hb_mes_canaux())::text[]) and (select public.hb_has_role()))$p$;
   exception when others then
     raise warning 'Règles hb_recevoir / hb_emettre non posées sur realtime.messages (%) : repasser ce bloc en super-utilisateur.', sqlerrm;
   end;
@@ -323,19 +337,70 @@ end $$;
 revoke all on function public.hb_annoncer_version(text) from public, anon;
 grant execute on function public.hb_annoncer_version(text) to authenticated;
 
+-- ---------- 7. Écrire et renvoyer les lignes enregistrées (ligne dans le signal) ----------
+
+-- Voir « LIGNE DANS LE SIGNAL » au point 2 de l'en-tête. hb_upsert_lignes fait EXACTEMENT hb_upsert (mêmes contrôles, même
+-- liste blanche de tables, mêmes refus), puis relit les lignes acceptées DANS LA MÊME TRANSACTION, par clé primaire :
+--   { "refusees": [identifiants refusés, comme hb_upsert],
+--     "lignes": [{ id, data, deleted, server_updated_at, scope_dept, scope_club }] ou null }
+--  - SECURITY INVOKER : la relecture passe par les règles de lecture de celui qui écrit (une ligne qu'il ne pourrait pas
+--    relire n'est pas renvoyée : journal des questions d'un compte qui n'est pas administrateur, par exemple) ;
+--  - scope_dept / scope_club (046, tables qui les ont) : le périmètre de la ligne pour le serveur ; l'appli choisit d'après
+--    eux les canaux où la ligne peut voyager (src/syncLive.ts, serverRowChannels et rowFitsTopic) ;
+--  - seulement si le paquet a au plus p_max lignes acceptées (l'appli : 20 ; au-delà, un import : null, l'appli n'envoie
+--    que des identifiants), et seulement les lignes dont data pèse au plus p_octets (taille stockée ; l'appli : 6 000) ;
+--  - coût : une lecture par clé primaire par ligne, dans la transaction de l'écriture (périmètre du compte déjà en cache,
+--    hb.scope_cache), sans aller-retour de plus ; rien à côté des ~18 relectures par écriture qu'elle évite.
+-- Serveur sans cette fonction : l'appli garde hb_upsert et n'envoie que des identifiants.
+create or replace function public.hb_upsert_lignes(p_table text, p_rows jsonb, p_max integer default 20, p_octets integer default 6000)
+returns jsonb
+language plpgsql security invoker set search_path = public as $$
+declare
+  v_refus jsonb;
+  v_ids text[];
+  v_scope boolean;
+  v_lignes jsonb;
+begin
+  -- Tous les contrôles d'écriture (et l'erreur « Table inconnue » pour une table hors liste blanche) : ceux de hb_upsert.
+  v_refus := coalesce(public.hb_upsert(p_table, p_rows), '[]'::jsonb);
+  select array_agg(distinct x ->> 'id') into v_ids
+    from jsonb_array_elements(case when jsonb_typeof(p_rows) = 'array' then p_rows else '[]'::jsonb end) x
+   where coalesce(x ->> 'id', '') <> '' and not (v_refus ? (x ->> 'id'));
+  if coalesce(cardinality(v_ids), 0) = 0 or cardinality(v_ids) > least(greatest(coalesce(p_max, 0), 0), 200) then
+    return jsonb_build_object('refusees', v_refus, 'lignes', null);
+  end if;
+  v_scope := exists (select 1 from pg_attribute
+                      where attrelid = to_regclass('public.hb_' || p_table) and attname = 'scope_dept' and not attisdropped);
+  -- id = any($1) : égalité de textes (leakproof), la clé primaire sert sous les règles de lecture.
+  execute format($f$
+    select coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'data', t.data, 'deleted', t.deleted,
+                                                 'server_updated_at', t.server_updated_at)%s), '[]'::jsonb)
+      from public.%I t
+     where t.id = any ($1) and pg_column_size(t.data) <= $2
+  $f$, case when v_scope then ' || jsonb_build_object(''scope_dept'', t.scope_dept, ''scope_club'', t.scope_club)' else '' end,
+       'hb_' || p_table)
+    into v_lignes using v_ids, greatest(coalesce(p_octets, 0), 0);
+  return jsonb_build_object('refusees', v_refus, 'lignes', v_lignes);
+end $$;
+revoke all on function public.hb_upsert_lignes(text, jsonb, integer, integer) from public, anon;
+grant execute on function public.hb_upsert_lignes(text, jsonb, integer, integer) to authenticated;
+
 -- ---------- Vérification (lecture seule) ----------
--- Attendu : 4 fonctions ; aucun déclencheur hb_diffuser (0) ; realtime_send, regle_ecoute et regle_envoi vrais sur
+-- Attendu : 5 fonctions ; aucun déclencheur hb_diffuser (0) ; realtime_send, regle_ecoute et regle_envoi vrais sur
 -- Supabase (faux sur un Postgres nu) ; essai_canaux = {hb:club:6383015,hb:compte:u1,hb:dept:83,hb:tout} ;
--- affectations_user_id vrai (colonne et index hb_assignments_mine).
+-- affectations_user_id vrai (colonne et index hb_assignments_mine) ; ecriture_invoker vrai (hb_upsert_lignes relit avec les
+-- règles de lecture de celui qui écrit).
 select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-         where n.nspname = 'public' and p.proname in ('hb_quoi_de_neuf', 'hb_mes_canaux', 'hb_canaux_ligne', 'hb_annoncer_version')) as fonctions_4,
+         where n.nspname = 'public' and p.proname in ('hb_quoi_de_neuf', 'hb_mes_canaux', 'hb_canaux_ligne', 'hb_annoncer_version',
+                                                      'hb_upsert_lignes')) as fonctions_5,
        (select count(*) from pg_trigger where tgname = 'hb_diffuser' and not tgisinternal) as declencheurs_0,
        to_regprocedure('realtime.send(jsonb, text, text, boolean)') is not null as realtime_send,
        exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_recevoir') as regle_ecoute,
        exists (select 1 from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname = 'hb_emettre') as regle_envoi,
        public.hb_canaux_ligne('hb_players', '{"id": "x", "scope_dept": "83", "scope_club": "6383015", "data": {"createdBy": "u1"}}'::jsonb) as essai_canaux,
        exists (select 1 from pg_attribute where attrelid = to_regclass('public.hb_assignments') and attname = 'user_id' and not attisdropped)
-         and to_regclass('public.hb_assignments_mine') is not null as affectations_user_id;
+         and to_regclass('public.hb_assignments_mine') is not null as affectations_user_id,
+       (select not prosecdef from pg_proc where oid = to_regprocedure('public.hb_upsert_lignes(text, jsonb, integer, integer)')) as ecriture_invoker;
 
 -- ---------- RETOUR ARRIÈRE (à lancer seulement pour annuler ce script ; l'appli repasse d'elle-même à postgres_changes) ----------
 -- do $$
@@ -349,6 +414,7 @@ select (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronames
 -- drop function if exists public.hb_mes_canaux();
 -- drop function if exists public.hb_quoi_de_neuf(jsonb);
 -- drop function if exists public.hb_annoncer_version(text);
+-- drop function if exists public.hb_upsert_lignes(text, jsonb, integer, integer);   -- l'appli repasse d'elle-même à hb_upsert
 -- drop index if exists public.hb_assignments_mine;
 -- alter table public.hb_assignments drop column if exists user_id;   -- seulement si plus aucune appli ne filtre dessus
 -- Plus tard, quand tous les appareils sont sur la nouvelle version (plus personne sur postgres_changes) :

@@ -5,6 +5,12 @@ create role supabase_admin nologin superuser; create role supabase_realtime_admi
 create schema auth; create schema extensions; create schema vault; create schema net; create schema cron; create schema realtime;
 create extension pgcrypto with schema extensions;
 grant usage on schema auth, extensions, realtime to anon, authenticated, service_role;
+-- Droits par défaut de Supabase sur public (tout pour anon, authenticated, service_role ; 040 retire ensuite l'écriture
+-- directe et tout pour anon) : sans eux, une lecture SECURITY INVOKER (hb_upsert_lignes) bute sur des droits que la vraie base a.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}', raw_app_meta_data jsonb default '{}',
   created_at timestamptz default now(), last_sign_in_at timestamptz, encrypted_password text, email_confirmed_at timestamptz,
   aud text, role text, instance_id uuid, updated_at timestamptz, confirmation_token text, recovery_token text,
