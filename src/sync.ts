@@ -6,6 +6,26 @@ import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
 import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
+import {
+  ASK_AGAIN_MS,
+  askWhatsNew,
+  decideFilet,
+  ledgerEndPull,
+  ledgerNote,
+  ledgerStartPull,
+  ledgerTrim,
+  OVERLAP_US,
+  PullBuffer,
+  readFiletAnswer,
+  readLedger,
+  rowHash,
+  suaMicros,
+  type AskState,
+  type FiletAnswer,
+  type FiletDecision,
+  type Ledger,
+  type LedgerEntry,
+} from './filet'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
@@ -103,7 +123,9 @@ import {
  *    d'avant, gros envoi) : relecture de la table par curseur, comme avant ;
  *  - le curseur n'avance jamais pour une ligne reçue en direct ou relue par identifiant : le filet de sécurité (« quoi de
  *    neuf ? » toutes les 5 minutes) reste la référence ; une ligne reçue en direct est « à confirmer » (provisoire) jusqu'à
- *    la synchronisation complète suivante, qui la remplace par la version du serveur (ou la retire), quelle que soit son heure.
+ *    la synchronisation complète suivante, qui la remplace par la version du serveur (ou la retire), quelle que soit son heure ;
+ *    filet économe (059, plus bas) : confirmée sans relecture quand l'empreinte du serveur (contenu compris) est la même, et le
+ *    curseur avance alors à la dernière heure de la fenêtre.
  *  Serveur sans hb_upsert_lignes : hb_upsert, et des signaux avec les seuls identifiants.
  *
  * LECTURE PAR PÉRIMÈTRE INDEXÉE (supabase/058_lecture_perimetre.sql ; série 6 du 29/10 : les pages de mesures, « vu » et
@@ -114,6 +136,16 @@ import {
  *  - pages suivantes « >= heure de la dernière ligne reçue », égalités déjà reçues écartées sur l'appareil ; page pleine d'une
  *    seule heure : page suivante à l'ancien filtre ;
  *  - fonction absente (058 pas passé) : la même demande en lecture directe, nouvel essai une heure plus tard.
+ *
+ * FILET ÉCONOME (supabase/059_filet_econome.sql ; série 8 du 30/10 : « quoi de neuf ? » ne répondait « rien de neuf » que
+ * 4 % du temps ; règles pures : src/filet.ts) :
+ *  - hb_filet rend, par table, l'empreinte de ce que le compte peut lire dans la fenêtre [curseur − 60 s, maintenant] ;
+ *    l'appareil la compare à son REGISTRE (lignes du serveur reçues dans la fenêtre : relectures, ses propres envois,
+ *    relectures par identifiant, lignes reçues en direct) : identique, rien à relire, le curseur avance et les lignes reçues
+ *    en direct de la fenêtre sont confirmées ; différente, relecture comme avant ; pas d'empreinte (plus de 500 lignes) ou
+ *    registre incomplet : la réponse d'avant ;
+ *  - fonction absente (059 pas passé) : hb_quoi_de_neuf comme avant, nouvel essai une heure plus tard ;
+ *  - quand hb_filet répond, la relecture par curseur recouvre toujours la dernière minute (le registre en a besoin).
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -567,7 +599,11 @@ async function push(accepted: Sent[]) {
  */
 async function keepStored(table: SyncTable, server: ServerRow[] | null, refused: ReadonlySet<string>): Promise<ServerRow[]> {
   const stored = (server ?? []).filter((r) => !refused.has(r.id))
-  if (stored.length) await applyServerRows(table, stored, { skipPending: true })
+  if (stored.length) {
+    await applyServerRows(table, stored, { skipPending: true })
+    // Filet économe : ses propres lignes, telles que le serveur les a enregistrées, ne seront pas relues.
+    await noteRows(table, stored)
+  }
   return stored
 }
 
@@ -630,26 +666,109 @@ async function myTeams(uid: string) {
 }
 
 /**
- * « Quoi de neuf ? » (hb_quoi_de_neuf, 057) : une requête avec les curseurs des tables ; pour chacune, true (à relire), false
- * (rien de nouveau pour ce compte), null (table inconnue du serveur). Fonction absente (script pas passé) : null → relecture
- * de toutes les tables, comme avant ; on réessaie une heure plus tard. Autre erreur (réseau) : null aussi (la relecture
- * complète reste juste).
+ * Fonctions absentes du serveur (hb_filet : 059, hb_quoi_de_neuf : 057), redemandées une heure plus tard ; filetOn : hb_filet a
+ * répondu pendant ce lancement (la relecture par curseur recouvre alors toujours la dernière minute).
  */
-const ASK_AGAIN_MS = 60 * 60_000
-let whatsNewMissingAt = 0
+const ask: AskState = { filetMissingAt: 0, oldMissingAt: 0, filetOn: false }
 
+/*
+ * REGISTRE du filet économe (src/filet.ts) : lignes du serveur reçues dans la fenêtre de chaque table, gardé sur l'appareil
+ * (effacé avec lui). Lignes notées : pages relues (pullTable), lignes enregistrées de ses propres envois (keepStored), relectures
+ * par identifiant, vérifications, lignes reçues en direct (applyLiveRows). Rien de ce registre ne remplace une donnée : il ne
+ * sert qu'à savoir si une relecture rapporterait quelque chose.
+ */
+const LEDGER_KEY = `handbase${TRIAL ? '-essai' : ''}.filet`
+let ledger: Ledger | null = null
+const led = () => (ledger ??= readLedger(store.get(LEDGER_KEY)))
+// Gardé sur l'appareil au plus une fois par seconde (lignes reçues en direct en rafale) : un registre perdu en partie (appli
+// fermée entre-temps) ne fait que relire une fois, jamais manquer une ligne (une ligne absente du registre = empreinte différente).
+let ledgerSave: ReturnType<typeof setTimeout> | undefined
+const setLedger = (l: Ledger) => {
+  if (l === ledger) return
+  ledger = l
+  ledgerSave ??= setTimeout(() => {
+    ledgerSave = undefined
+    if (ledger && !wiping) store.set(LEDGER_KEY, JSON.stringify(ledger))
+  }, 1000)
+}
+/** Curseur d'une table en µs (null : pas de curseur). */
+const cursorUs = (t: SyncTable) => suaMicros(localStorage.getItem(PULL_KEY(t)))
+
+/** Empreintes de lignes du serveur (heure serveur lisible, pas sous la fenêtre du curseur actuel). */
+async function ledgerEntries(table: SyncTable, rows: readonly ServerRow[]): Promise<LedgerEntry[]> {
+  const c = cursorUs(table)
+  const below = c === null ? -Infinity : c - OVERLAP_US
+  const out: LedgerEntry[] = []
+  for (const r of rows) {
+    const us = suaMicros(r.server_updated_at)
+    if (us === null || us < below) continue
+    out.push({ id: r.id, us, h: await rowHash(r.id, us, r.data) })
+  }
+  return out
+}
+
+/** Note des lignes du serveur reçues dans le registre (jamais bloquant : une erreur laisse seulement relire plus tard). */
+async function noteRows(table: SyncTable, rows: readonly ServerRow[]) {
+  // Serveur sans 059 : registre inutile (hb_quoi_de_neuf ne donne pas d'empreinte).
+  if (!rows.length || (ask.filetMissingAt && !ask.filetOn)) return
+  try {
+    const entries = await ledgerEntries(table, rows)
+    if (entries.length) setLedger(ledgerNote(led(), table, entries))
+  } catch (e) {
+    console.warn('Registre du filet :', e instanceof Error ? e.message : e)
+  }
+}
+
+/**
+ * Réponse de hb_filet : décision par table (src/filet.ts, decideFilet) ; tables identiques : curseur avancé à la dernière heure
+ * de la fenêtre, lignes reçues en direct de la fenêtre confirmées, registre allégé sous la nouvelle fenêtre. Renvoie les tables à
+ * relire, comme hb_quoi_de_neuf.
+ */
+async function applyFilet(answer: Record<string, FiletAnswer>): Promise<WhatsNew> {
+  const flags: WhatsNew = {}
+  for (const [t, a] of Object.entries(answer)) {
+    if (!SYNC_TABLES.includes(t as SyncTable)) continue
+    const table = t as SyncTable
+    let d: FiletDecision
+    try {
+      d = await decideFilet(a, led()[table])
+    } catch {
+      d = { pull: true, why: 'differente' } // empreinte incalculable (navigateur sans Web Crypto) : on relit, comme avant
+    }
+    filetStats[d.why]++
+    flags[table] = d.pull
+    if (!d.confirm) continue
+    const m = suaMicros(d.confirm.cursor)
+    const c = cursorUs(table)
+    if (d.confirm.cursor && m !== null && (c === null || m > c)) localStorage.setItem(PULL_KEY(table), d.confirm.cursor)
+    if (d.confirm.ids.length) setProv(dropProvisional(prov(), table, d.confirm.ids))
+    const now = cursorUs(table)
+    if (now !== null) setLedger(ledgerTrim(led(), table, now - OVERLAP_US))
+  }
+  return flags
+}
+
+/** Décisions du filet depuis le lancement (indication pour les essais et le simulateur de charge). */
+export const filetStats: Record<FiletDecision['why'], number> = { identique: 0, differente: 0, avant: 0, absente: 0 }
+
+/**
+ * « Quoi de neuf ? » : une requête avec les curseurs des tables ; pour chacune, true (à relire), false (rien de nouveau pour
+ * ce compte), null (table inconnue du serveur). hb_filet (059) : empreintes comparées au registre (applyFilet) ; absente :
+ * hb_quoi_de_neuf (057) ; absente aussi : null → relecture de toutes les tables, comme avant ; on réessaie une heure plus tard.
+ * Autre erreur (réseau) : null aussi (la relecture complète reste juste).
+ */
 async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
-  if (!tables.length || Date.now() - whatsNewMissingAt < ASK_AGAIN_MS) return null
+  if (!tables.length) return null
   const cursors: Record<string, string | null> = {}
   for (const t of tables) cursors[t] = localStorage.getItem(PULL_KEY(t))
   // Affectations : seulement les siennes (hors administrateur) : demandées sous la clé « mes_affectations » (057).
   const mine = tables.includes('assignments') && assignmentScope(storedRole()) === 'mine'
-  const { data, error } = await supabase!.rpc('hb_quoi_de_neuf', { curseurs: whatsNewRequest(cursors, mine) })
-  if (error) {
-    if (missingFunction(error)) whatsNewMissingAt = Date.now()
-    return null
-  }
-  return whatsNewAnswer(data, mine)
+  // Filet économe (059) : empreintes comparées au registre ; fonction absente : hb_quoi_de_neuf, comme avant (src/filet.ts).
+  const r = await askWhatsNew((fn, args) => supabase!.rpc(fn, args), whatsNewRequest(cursors, mine), ask, Date.now(), missingFunction)
+  if (!r) return null
+  if (r.kind === 'ancien') return whatsNewAnswer(r.data, mine)
+  const answer = readFiletAnswer(r.data, mine)
+  return answer ? applyFilet(answer) : null
 }
 
 /**
@@ -943,6 +1062,7 @@ async function applyLiveRows(table: SyncTable, rows: ServerRow[]): Promise<strin
   if (provisionalCount(prov()) + rows.length > PROVISIONAL_MAX) return rows.map((r) => r.id)
   let written: string[] = []
   let reread: string[] = []
+  let held: ServerRow[] = []
   await db.transaction('rw', db.table(table), db.outbox, async () => {
     const pending = await pendingIds(table, rows.map((r) => r.id))
     const locals = (await db.table(table).bulkGet(rows.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
@@ -950,10 +1070,19 @@ async function applyLiveRows(table: SyncTable, rows: ServerRow[]): Promise<strin
     reread = plan.reread
     if (plan.apply.length) await db.table(table).bulkPut(plan.apply.map((r) => r.data))
     written = plan.apply.map((r) => r.id)
+    // Lignes que l'appareil tient maintenant telles qu'elles sont arrivées (écrites, ou déjà identiques) : notées au registre du
+    // filet (src/filet.ts) ; leur contenu n'est confirmé que si le serveur rend la même empreinte.
+    const applied = new Set(written)
+    held = rows.filter((r, i) => applied.has(r.id) || (!pending.has(r.id) && !reread.includes(r.id) && sameRow(r, locals[i])))
   })
   setProv(markProvisional(prov(), table, written, Date.now()))
+  await noteRows(table, held)
   return reread
 }
+
+/** Ligne reçue identique à celle de l'appareil (même version, même contenu). */
+const sameRow = (r: ServerRow, l: { updatedAt?: number } | undefined) =>
+  !!l && (r.data.updatedAt ?? 0) === (l.updatedAt ?? 0) && JSON.stringify(r.data) === JSON.stringify(l)
 
 /**
  * Relectures CIBLÉES (signal avec identifiants) : regroupées comme les signaux (1,5 s, canaux larges étalés), puis par table,
@@ -976,6 +1105,7 @@ async function readIds(keys: Set<string>) {
         const force = provisionalBefore(prov(), table, askedAt)
         await applyServerRows(table, rows, { skipPending: true, force })
         setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
+        await noteRows(table, rows)
       } catch {
         signals.add(table, GROUP_MS)
         break
@@ -1006,6 +1136,7 @@ async function verifyProvisional(before: number) {
         if (plan.remove.length) await db.table(table).bulkDelete(plan.remove)
       })
       setProv(dropProvisional(prov(), table, part))
+      await noteRows(table, (data ?? []) as ServerRow[])
     }
   }
 }
@@ -1035,7 +1166,13 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   const scoped = pullReader(table, storedRole(), store.get(SCOPE_KEY), Date.now() - perimeterMissingAt < ASK_AGAIN_MS) === 'perimetre'
   const since = localStorage.getItem(PULL_KEY(table)) ?? EPOCH
   const at = new Date(since).getTime()
-  const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
+  // Filet économe (059) : recouvrement toujours (le registre doit tenir la fenêtre [curseur − 60 s, …] ; plus de « oui » pour
+  // rien, la comparaison d'empreintes le rend sans coût).
+  const startMs = ask.filetOn || Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at
+  const start = new Date(startMs).toISOString()
+  // Registre du filet : refait au-dessus de start par cette relecture (incomplet tant qu'elle n'a pas fini).
+  setLedger(ledgerStartPull(led(), table, startMs * 1000))
+  const buffer = new PullBuffer<PulledRow>(startMs * 1000)
   let missing = false
   const read = (after: PageKey | null, byColumn: boolean) => {
     const select = supabase!.from(`hb_${table}`).select('id, data, server_updated_at')
@@ -1065,6 +1202,7 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   const onPage = async (rows: readonly PulledRow[], more = rows.length === PULL_PAGE) => {
     const force = provisionalBefore(prov(), table, askedAt)
     await applyServerRows(table, rows as PulledRow[], { force })
+    buffer.page(rows)
     if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
     const last = rows[rows.length - 1]
     if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
@@ -1122,6 +1260,14 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   }
   // Table vide sur le serveur : curseur posé quand même, pour ne plus la relire en entier à chaque synchro.
   if (!localStorage.getItem(PULL_KEY(table))) localStorage.setItem(PULL_KEY(table), since)
+  // Registre du filet : complet depuis le seuil de cette relecture (lignes les plus récentes, empreintes calculées une fois).
+  try {
+    const entries: LedgerEntry[] = []
+    for (const { row, us } of buffer.rows) entries.push({ id: row.id, us, h: await rowHash(row.id, us, row.data) })
+    setLedger(ledgerEndPull(led(), table, entries, buffer.threshold()))
+  } catch (e) {
+    console.warn('Registre du filet :', e instanceof Error ? e.message : e)
+  }
   if (scopeKey) {
     if (scopePlan?.forgetOthers) await forgetOtherAssignments(uid)
     store.set(ASSIGN_SCOPE_KEY, scopeKey)

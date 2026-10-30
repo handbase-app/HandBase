@@ -655,7 +655,8 @@ export function outgoingSignals(
 // signal ; ceux qui la reçoivent l'appliquent sans rien relire ; une ligne trop grosse (ou une table qui ne voyage pas) :
 // ses seuls identifiants, relus par identifiant (id=in.(…), sans recouvrement). Le filet de sécurité (« quoi de neuf ? »
 // toutes les 5 minutes, curseur et recouvrement) ne change pas : il rattrape ce qui manque, et le curseur n'est JAMAIS
-// avancé par une ligne reçue en direct ni par une relecture ciblée.
+// avancé par une ligne reçue en direct ni par une relecture ciblée (sauf confirmation par l'empreinte du filet économe, 059 :
+// src/filet.ts).
 //
 // SÉCURITÉ (le contenu ne doit aller qu'à qui peut le lire par la synchronisation normale) :
 //  - les lignes viennent de hb_upsert_lignes (057), SECURITY INVOKER : relues dans la transaction d'écriture avec les règles
