@@ -55,10 +55,10 @@ html { touch-action: pan-x pan-y; }
 /* Teinte de l'échelle de la carte du bilan (src/pages/Coverage.tsx) ; les styles de l'installation la changent. */
 :root { --color-scale: #14b8a6; }
 
-/* Place prise par la navigation : en bas (barre d'onglets) ou à gauche (colonne). Les barres d'action
-   collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
+/* Place prise par la navigation : en bas (capsule d'onglets de 52 px posée à 10 px du bord) ou à gauche (colonne). Les
+   barres d'action collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
 :root {
-  --nav-b: calc(52px + env(safe-area-inset-bottom));
+  --nav-b: calc(62px + env(safe-area-inset-bottom));
   --nav-l: 0px;
 }
 @media (orientation: landscape) and (max-height: 520px) {

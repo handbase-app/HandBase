@@ -228,7 +228,7 @@ function UpdateBanner() {
   const ready = useUpdateReady()
   if (!ready) return null
   return (
-    <div className="no-print fixed inset-x-0 bottom-20 z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
+    <div className="no-print fixed inset-x-0 bottom-[calc(var(--nav-b)+0.75rem)] z-30 mx-auto flex max-w-2xl px-4 wide:bottom-4 wide:left-[var(--nav-l)]">
       <div className="flex w-full items-center gap-3 rounded-win border border-accent bg-panel px-3 py-2 text-xs shadow-lg">
         <span className="min-w-0 flex-1">Nouvelle version de {appName()} disponible.</span>
         <button className="btn-primary shrink-0 px-3 py-1.5 text-xs" onClick={async () => (await canLeave()) && applyUpdate()}>
@@ -270,6 +270,10 @@ export default function App() {
   // Téléphone couché : plus d'en-tête ; « Demander » en haut du menu de gauche, suivis, cible et profil en bas.
   const rail = useMedia(MQ.rail)
   const railShort = useMedia(RAIL_SHORT)
+  // Téléphone tenu droit (ni colonne, ni menu à gauche) : « Demander » dans un rond à droite de la capsule d'onglets, en bas
+  // (plus dans l'en-tête : choix du 30/10). Un seul bouton monté à la fois (raccourci « / »).
+  const side = useMedia(MQ.side)
+  const dock = !rail && !side
   const navigate = useNavigate()
   const goGuarded = (to: string) => async () => {
     if (await canLeave()) navigate(to)
@@ -310,7 +314,7 @@ export default function App() {
           {!player && !rail && <FollowStar n={followNews} />}
         </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
-        {player || rail ? <span aria-hidden /> : <AskButton />}
+        {player || !side ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
           {!rail && <ProfileButton />}
@@ -412,10 +416,11 @@ export default function App() {
         </Suspense>
       </main>
 
-      {/* Onglets : barre en bas (tenu droit), fine colonne d'icônes (téléphone couché), menu à gauche (ordinateur). */}
+      {/* Onglets : capsule flottante en bas, icônes seules (tenu droit, choix du 30/10), fine colonne d'icônes (téléphone
+          couché), menu à gauche (ordinateur). Tenu droit, le rond « Demander » est juste à droite de la capsule (plus bas). */}
       <nav
         aria-label="Menu principal"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur wide:top-0 wide:right-auto wide:w-[var(--nav-l)] wide:border-t-0 wide:border-r wide:pb-[env(safe-area-inset-bottom)] rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]"
+        className={`fixed bottom-[calc(0.625rem+env(safe-area-inset-bottom))] left-3 z-20 rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur ${player ? 'right-3' : 'right-[4.5rem]'} wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
         {/* Ordinateur : le haut du menu a la hauteur et la couleur de l'en-tête (--hdr, bande orange comprise) ; la ligne
             sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
@@ -432,7 +437,7 @@ export default function App() {
             {!player && <AskButton rail />}
           </div>
         )}
-        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:min-h-0 rail:w-full rail:flex-1 rail:justify-center rail:gap-0.5 side:gap-0.5 side:px-2 side:pt-4">
+        <div className="mx-auto flex h-[50px] max-w-2xl items-center justify-around px-1 wide:h-auto wide:max-w-none wide:flex-col wide:items-stretch rail:min-h-0 rail:w-full rail:flex-1 rail:justify-center rail:gap-0.5 rail:px-0 side:gap-0.5 side:px-2 side:pt-4">
           {nav.map((n) => (
             <GuardedLink
               key={n.to}
@@ -440,20 +445,27 @@ export default function App() {
               end={n.to === '/'}
               title={n.label}
               className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-bold wide:flex-none side:flex-row side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
+                `flex min-w-0 flex-1 flex-col items-center justify-center font-bold wide:flex-none rail:py-2 side:flex-row side:justify-start side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
               }
             >
-              <span className="relative">
-                <svg viewBox="0 0 24 24" className="h-5 w-5 rail:h-6 rail:w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
-                  <path d={n.icon} />
-                </svg>
-                {/* Propositions à valider : pastille sur l'accueil (le bouton Propositions y est). */}
-                {n.to === '/' && toReview > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 rounded-full bg-amber-400 px-1 text-[9px] leading-tight text-black">{toReview}</span>
-                )}
-              </span>
-              {/* Téléphone couché : icônes seules (le libellé reste lu par les lecteurs d'écran et en info-bulle). */}
-              <span className="rail:sr-only">{n.label}</span>
+              {({ isActive }) => (
+                <>
+                  {/* Tenu droit : l'onglet ouvert dans un rond teinté. */}
+                  <span className={`flex h-10 w-10 items-center justify-center rounded-full wide:h-auto wide:w-auto wide:bg-transparent ${isActive ? 'bg-accent/15' : ''}`}>
+                    <span className="relative">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6 side:h-5 side:w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+                        <path d={n.icon} />
+                      </svg>
+                      {/* Propositions à valider : pastille sur l'accueil (le bouton Propositions y est). */}
+                      {n.to === '/' && toReview > 0 && (
+                        <span className="absolute -top-1.5 -right-2.5 rounded-full bg-amber-400 px-1 text-[9px] leading-tight text-black">{toReview}</span>
+                      )}
+                    </span>
+                  </span>
+                  {/* Tenu droit et couché : icônes seules (le libellé reste lu par les lecteurs d'écran et en info-bulle). */}
+                  <span className="sr-only side:not-sr-only">{n.label}</span>
+                </>
+              )}
             </GuardedLink>
           ))}
         </div>
@@ -466,6 +478,15 @@ export default function App() {
           </div>
         )}
       </nav>
+      {/* Tenu droit : « Demander » (toucher : la fenêtre en haut ; appui long : dictée), rond à droite de la capsule. */}
+      {/* Tenu droit : un voile du fond sous la capsule, pour que la page qui défile dessous (et sous les barres « Enregistrer »
+          collées au-dessus) ne se lise pas autour des boutons. */}
+      {dock && <div aria-hidden className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-[15] h-[calc(var(--nav-b)+1rem)] bg-linear-to-t from-bg from-70% to-transparent" />}
+      {dock && !player && (
+        <div className="no-print fixed right-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20">
+          <AskButton dock />
+        </div>
+      )}
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
       {!player && <VideoDock />}

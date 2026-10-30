@@ -816,7 +816,7 @@ export function useKeyboardInset(on: boolean) {
  *    l'étoile filante, l'étoile tourne pendant une demande) ; même toucher, même appui long ; la fenêtre s'ouvre à droite
  *    du menu, sur le fond voilé et flouté du téléphone.
  */
-export function AskButton({ rail = false }: { rail?: boolean } = {}) {
+export function AskButton({ rail = false, dock = false }: { rail?: boolean; dock?: boolean } = {}) {
   const brand = useAppBrand()
   const nextar = brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase()
   // Nom du sport de l'installation (« Handball », « Volley ») : dit aux lecteurs d'écran après « Nextar » (plus écrit dans
@@ -838,6 +838,9 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   // Ordinateur : la palette s'accroche sous la bulle (bord gauche aligné, 8 px dessous), sans sortir de l'écran.
   const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null)
   const measure = () => {
+    // Téléphone tenu droit : le rond est en bas à droite (App.tsx) ; la fenêtre reste en haut, juste sous l'en-tête (--hdr),
+    // au-dessus du clavier.
+    if (dock) return { left: 0, top: (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 56) + 8, width: 0 }
     const b = (cap.current ?? btn.current)?.getBoundingClientRect()
     if (!b) return null
     // Téléphone couché : à droite du menu de gauche, en haut de l'écran (le bouton est en haut du menu).
@@ -852,7 +855,7 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
 
   const openPalette = () => {
     if (open) return input.current?.focus()
-    const ph = isPhone() || rail
+    const ph = isPhone() || rail || dock
     // Rendu tout de suite, pour donner le focus dans le même geste (le clavier du téléphone s'ouvre).
     flushSync(() => {
       setPhone(ph)
@@ -1068,6 +1071,34 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
           ) : (
             <AppMark className={`h-9 w-9 rounded-lg ${sending || flight ? 'animate-pulse' : ''}`} />
           )}
+        </button>
+        {palette}
+      </>
+    )
+
+  if (dock)
+    return (
+      <>
+        {/* Téléphone tenu droit : rond au liseré néon (comme la capsule), l'étoile de Nextar au milieu ; même toucher, même
+            appui long (dictée) que la capsule de l'en-tête. */}
+        <button
+          type="button"
+          data-noswipe
+          aria-label={`${nextar ? `${brand.name} ${sportName}` : brand.name}. ${label}`}
+          aria-busy={sending || !!flight || undefined}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-keyshortcuts="/"
+          ref={btn}
+          title={`Demander à ${brand.name} (touche /)`}
+          className={`flex h-[52px] w-[52px] shrink-0 touch-none items-center justify-center rounded-full shadow-lg transition select-none [-webkit-touch-callout:none] ${
+            rec ? 'animate-pulse bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : `ask-capsule active:scale-95 ${open ? 'ring-2 ring-ai' : 'hover:brightness-110'}`
+          }`}
+          {...press}
+        >
+          <span className={`flex ${rec ? '' : 'ask-star'} ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+            <NextarStar className="h-6 w-6" />
+          </span>
         </button>
         {palette}
       </>
