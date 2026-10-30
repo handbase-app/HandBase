@@ -36,8 +36,10 @@ import {
   provisionalCount,
   PULL_PAGE,
   pullDelay,
+  pullReader,
   readPages,
   readProvisional,
+  readScopedPages,
   ROW_TABLES,
   rowsToWrite,
   SIGNAL_MAX_BYTES,
@@ -48,6 +50,7 @@ import {
   type ChannelLookup,
   type PageKey,
   type Provisional,
+  type ScopedRequest,
   type SentRow,
   type ServerRow,
   type WhatsNew,
@@ -99,6 +102,15 @@ import {
  *    neuf ? » toutes les 5 minutes) reste la référence ; une ligne reçue en direct est « à confirmer » (provisoire) jusqu'à
  *    la synchronisation complète suivante, qui la remplace par la version du serveur (ou la retire), quelle que soit son heure.
  *  Serveur sans hb_upsert_lignes : hb_upsert, et des signaux avec les seuls identifiants.
+ *
+ * LECTURE PAR PÉRIMÈTRE INDEXÉE (supabase/058_lecture_perimetre.sql ; série 6 du 29/10 : les pages de mesures, « vu » et
+ * joueurs étaient les requêtes les plus coûteuses ; règles pures : src/syncLive.ts, pullReader et readScopedPages) :
+ *  - joueurs, mesures, avis, « vu » d'un compte qui ne voit pas tout (club, comité, ligue, joueur ; périmètre ou rôle pas
+ *    encore connus) : hb_lire_perimetre (mêmes lignes que la lecture directe, lues par des index) ; administrateur et
+ *    périmètre « tout » : lecture directe, comme avant ;
+ *  - pages suivantes « >= heure de la dernière ligne reçue », égalités déjà reçues écartées sur l'appareil ; page pleine d'une
+ *    seule heure : page suivante à l'ancien filtre ;
+ *  - fonction absente (058 pas passé) : la même demande en lecture directe, nouvel essai une heure plus tard.
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -960,6 +972,12 @@ type PulledRow = ServerRow & { server_updated_at: string }
 let assignmentUserColumn: boolean | undefined
 
 /**
+ * Lecture par périmètre (supabase/058_lecture_perimetre.sql, src/syncLive.ts, pullReader / readScopedPages) : fonction
+ * hb_lire_perimetre absente du serveur (058 pas passé) : lecture directe, et on réessaie une heure plus tard.
+ */
+let perimeterMissingAt = 0
+
+/**
  * Reçoit les lignes changées depuis le curseur de la table, par pages de PULL_PAGE triées (server_updated_at, id) ;
  * renvoie le nombre de lignes reçues. Affectations d'un compte qui n'est pas administrateur : les siennes seulement
  * (data.userId, index hb_assignments_user de 046) ; signature changée : relues depuis le début (planAssignmentScope).
@@ -969,6 +987,8 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   const scopePlan = scopeKey ? planAssignmentScope(store.get(ASSIGN_SCOPE_KEY), scopeKey) : null
   if (scopePlan?.reset) localStorage.removeItem(PULL_KEY(table))
   const mine = !!scopeKey && scopeKey !== 'all'
+  // Joueurs, mesures, avis, « vu » d'un compte qui ne voit pas tout : lecture par périmètre indexée (058).
+  const scoped = pullReader(table, storedRole(), store.get(SCOPE_KEY), Date.now() - perimeterMissingAt < ASK_AGAIN_MS) === 'perimetre'
   const since = localStorage.getItem(PULL_KEY(table)) ?? EPOCH
   const at = new Date(since).getTime()
   const start = new Date(Date.now() - at < OVERLAP_WINDOW_MS ? at - PULL_OVERLAP_MS : at).toISOString()
@@ -982,43 +1002,68 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
       : base.gte('server_updated_at', start)
     return filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
   }
+  /*
+   * Page par la lecture par périmètre (058) : depuis une heure incluse (hb_lire_perimetre ; fonction absente : la même
+   * demande en lecture directe), ou après (heure, id) à l'ancien filtre (page pleine d'une seule heure).
+   */
+  const readScoped = async (req: ScopedRequest) => {
+    if ('after' in req) return read(req.after, false)
+    if (Date.now() - perimeterMissingAt >= ASK_AGAIN_MS) {
+      const res = await supabase!.rpc('hb_lire_perimetre', { p_table: table, p_curseur: req.since, p_limite: PULL_PAGE })
+      if (!res.error || !missingFunction(res.error)) return res
+      perimeterMissingAt = Date.now()
+    }
+    return supabase!.from(`hb_${table}`).select('id, data, server_updated_at').gte('server_updated_at', req.since).order('server_updated_at').order('id').limit(PULL_PAGE)
+  }
   // Heure de la demande de la page en cours : les lignes reçues en direct AVANT elle sont confirmées par la page (src/syncLive.ts, rowsToWrite).
   let askedAt = 0
-  const received = await readPages<PulledRow>(
-    async (after) => {
-      askedAt = Date.now()
-      let { data, error } = await read(after, mine && assignmentUserColumn !== false)
-      if (error && mine && assignmentUserColumn !== false && (error.code === '42703' || /user_id/.test(error.message ?? ''))) {
-        // Serveur sans la colonne user_id (057 d'avant le 29/10, ou pas passé ; Postgres 42703) : même lecture sur data.userId.
-        const again = await read(after, false)
-        if (!again.error) assignmentUserColumn = false
-        ;({ data, error } = again)
-      } else if (!error && mine) assignmentUserColumn ??= true
-      // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
-      if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) {
-        missing = true
-        return []
-      }
-      if (error) throw error
-      return (data ?? []) as PulledRow[]
-    },
-    async (rows) => {
-      const force = provisionalBefore(prov(), table, askedAt)
-      await applyServerRows(table, rows as PulledRow[], { force })
-      if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
-      const last = rows[rows.length - 1]
-      if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
-      // Gros retard (premier paquet plein) : suivi dans l'avancement à partir de là.
-      if (!per[table] && rows.length === PULL_PAGE) per[table] = startTable()
-      const p = per[table]
-      if (p) {
-        p.done += rows.length
-        p.pages++
-        p.finished = rows.length < PULL_PAGE
-        showPages(per, table, first)
-      }
-    },
-  )
+  // more : d'autres pages suivent (lecture par périmètre : la page brute était pleine, égalités écartées comprises).
+  const onPage = async (rows: readonly PulledRow[], more = rows.length === PULL_PAGE) => {
+    const force = provisionalBefore(prov(), table, askedAt)
+    await applyServerRows(table, rows as PulledRow[], { force })
+    if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
+    const last = rows[rows.length - 1]
+    if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
+    // Gros retard (premier paquet plein) : suivi dans l'avancement à partir de là.
+    if (!per[table] && more) per[table] = startTable()
+    const p = per[table]
+    if (p) {
+      p.done += rows.length
+      p.pages++
+      p.finished = !more
+      showPages(per, table, first)
+    }
+  }
+  const check = (data: unknown, error: { code?: string; message: string } | null) => {
+    // Table des suivis, des staffs ou des vidéos absente du serveur (supabase/032, 034, 036 pas encore passés) : rien à recevoir.
+    if (error && OPTIONAL_TABLES.includes(table) && missingTable(error)) {
+      missing = true
+      return []
+    }
+    if (error) throw error
+    return (data ?? []) as PulledRow[]
+  }
+  const received = scoped
+    ? await readScopedPages<PulledRow>(
+        start,
+        async (req) => {
+          askedAt = Date.now()
+          const { data, error } = await readScoped(req)
+          return check(data, error)
+        },
+        onPage,
+      )
+    : await readPages<PulledRow>(async (after) => {
+        askedAt = Date.now()
+        let { data, error } = await read(after, mine && assignmentUserColumn !== false)
+        if (error && mine && assignmentUserColumn !== false && (error.code === '42703' || /user_id/.test(error.message ?? ''))) {
+          // Serveur sans la colonne user_id (057 d'avant le 29/10, ou pas passé ; Postgres 42703) : même lecture sur data.userId.
+          const again = await read(after, false)
+          if (!again.error) assignmentUserColumn = false
+          ;({ data, error } = again)
+        } else if (!error && mine) assignmentUserColumn ??= true
+        return check(data, error)
+      }, (rows) => onPage(rows))
   // Table terminée (ou absente du serveur) : sa part de l'avancement est faite.
   const p = per[table]
   if (p && !p.finished) {

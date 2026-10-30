@@ -278,6 +278,89 @@ export async function readPages<R extends { id: string; server_updated_at: strin
   return received
 }
 
+// ---------- Lecture par périmètre (058) ----------
+
+/*
+ * LECTURE PAR PÉRIMÈTRE INDEXÉE (supabase/058_lecture_perimetre.sql ; essai de charge du 29/10, série 6 : les pages de mesures,
+ * de « vu » et de joueurs étaient les requêtes les plus coûteuses). Sous la règle de lecture (« tout OU département OU club OU
+ * auteur »), le serveur parcourait toute la table dans l'ordre des heures pour remplir une page d'un compte de club ;
+ * hb_lire_perimetre(table, curseur, limite) lit la même page par des index (club, département, auteur), avec les mêmes
+ * règles (SECURITY INVOKER : elle ne peut rendre que ce que la lecture directe rendrait).
+ *  - qui : les comptes qui ne voient pas tout (club, comité, ligue, pôle, joueur, rôle encore inconnu) ; administrateur et
+ *    périmètre « tout » connu sur l'appareil : lecture directe, comme avant (pullReader) ;
+ *  - pages suivantes : « server_updated_at >= heure de la dernière ligne reçue » (un index sur trois colonnes ne lit pas le
+ *    OU de l'ancien filtre), et l'appareil écarte les lignes de cette heure déjà reçues ; une page PLEINE d'une seule heure
+ *    (import de masse) : page suivante à l'ancien filtre (lecture directe, heure >, ou = et id >), sinon la même page
+ *    reviendrait sans fin (readScopedPages) ;
+ *  - fonction absente (058 pas passé) : la même demande (>= curseur) en lecture directe : mêmes lignes, sans index.
+ */
+
+/** Tables lues par hb_lire_perimetre (058) ; les autres (dont « à revoir », règle plus étroite) : lecture directe. */
+export const PERIMETER_TABLES: readonly SyncTable[] = ['players', 'measurements', 'evaluations', 'seen']
+
+/**
+ * Lecture d'une table pour ce compte : « perimetre » (hb_lire_perimetre) ou « table » (lecture directe d'avant). role : rôle
+ * gardé sur l'appareil (null : inconnu) ; scopeSig : signature du périmètre reçu (src/perimeter.ts, scopeSignature ; null :
+ * pas encore lu) ; missing : fonction absente du serveur (récemment).
+ */
+export function pullReader(table: SyncTable, role: string | null, scopeSig: string | null, missing: boolean): 'perimetre' | 'table' {
+  if (missing || !PERIMETER_TABLES.includes(table)) return 'table'
+  if (role === 'admin') return 'table'
+  if (scopeSig) {
+    try {
+      if ((JSON.parse(scopeSig) as { all?: boolean }).all === true) return 'table'
+    } catch {
+      /* signature illisible : périmètre inconnu */
+    }
+  }
+  return 'perimetre'
+}
+
+/** Demande d'une page : depuis une heure incluse (hb_lire_perimetre, ou lecture directe >=), ou après (heure, id) (ancien filtre). */
+export type ScopedRequest = { since: string } | { after: PageKey }
+
+/**
+ * Lit une table par pages avec le protocole de 058 (voir plus haut) : fetch(demande) rend la page brute, triée
+ * (server_updated_at, id) ; onPage reçoit les seules lignes nouvelles, et more : la page brute était pleine (d'autres
+ * suivent, même si des égalités ont été écartées). Première demande : depuis since. S'arrête sur une page brute plus courte
+ * que pageSize. Renvoie le nombre de lignes reçues (sans les égalités écartées).
+ */
+export async function readScopedPages<R extends { id: string; server_updated_at: string }>(
+  since: string,
+  fetch: (req: ScopedRequest) => Promise<readonly R[]>,
+  onPage: (rows: readonly R[], more: boolean) => Promise<void> | void,
+  pageSize = PULL_PAGE,
+): Promise<number> {
+  let req: ScopedRequest = { since }
+  /** Dernière ligne reçue (la plus avancée dans l'ordre du serveur). */
+  let after: PageKey | null = null
+  /** Identifiants déjà reçus à l'heure after.at. */
+  let atHour = new Set<string>()
+  let received = 0
+  for (let guard = 0; guard < 1_000_000; guard++) {
+    const raw: readonly R[] = await fetch(req)
+    if (!raw.length) break
+    // « >= » : les lignes de l'heure de la dernière ligne reçue, déjà reçues, reviennent : écartées.
+    const prev: PageKey | null = after
+    const rows: readonly R[] = 'since' in req && prev ? raw.filter((r) => !(r.server_updated_at === prev.at && atHour.has(r.id))) : raw
+    if (rows.length) {
+      received += rows.length
+      await onPage(rows, raw.length >= pageSize)
+      for (const r of rows as R[]) {
+        if (!after || r.server_updated_at !== after.at) atHour = new Set()
+        atHour.add(r.id)
+        after = { at: r.server_updated_at, id: r.id }
+      }
+    }
+    if (raw.length < pageSize) break
+    // Page pleine d'une seule heure : la suivante à l'ancien filtre (strictement après la dernière ligne reçue).
+    const single = raw[0].server_updated_at === raw[raw.length - 1].server_updated_at
+    if (!after) break // (impossible : une page non vide a au moins une ligne nouvelle ou déjà reçue)
+    req = single ? { after } : { since: after.at }
+  }
+  return received
+}
+
 // ---------- Lignes reçues ----------
 
 type LocalRow = { updatedAt?: number } | undefined
