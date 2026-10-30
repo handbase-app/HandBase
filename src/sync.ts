@@ -5,6 +5,7 @@ import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
+import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
@@ -135,7 +136,29 @@ const restFetch = retryingFetch({
   onWait: (_n, ms) => setBusy(Date.now() + ms),
   onDone: () => setBusy(0),
 })
-export const supabase: SupabaseClient | null = url && key ? createClient(url, key, { global: { fetch: restFetch } }) : null
+/*
+ * RENOUVELLEMENT DU JETON (src/authRefresh.ts ; série 8 du 30/10 : à 20 000 appareils, 12,8 % des renouvellements en erreur
+ * 500) : une erreur passagère du service de connexion (5xx, 429, délai, coupure) ne déconnecte plus : la session est gardée,
+ * l'appli travaille hors ligne (saisies dans la file d'envoi), nouvel essai après 2, 4, 8, 16, 30 s puis toutes les 60 s (un
+ * peu de hasard, Retry-After respecté) ; seul un refus définitif (jeton invalide ou révoqué) ramène à la connexion. Un seul
+ * renouvellement à la fois pour tous les onglets (verrou), et jamais avec un jeton déjà remplacé.
+ */
+const authFetch = guardRefresh({
+  fetch: restFetch,
+  lock: webLock(),
+  storedToken: () => {
+    try {
+      return storedRefreshToken(localStorage)
+    } catch {
+      return null
+    }
+  },
+  // (store est défini plus bas : lu seulement à l'appel.)
+  gate: storedGate({ get: (k) => store.get(k), set: (k, v) => store.set(k, v) }),
+  onWait: (until) => setBusy(until),
+  onDone: () => setBusy(0),
+})
+export const supabase: SupabaseClient | null = url && key ? createClient(url, key, { global: { fetch: authFetch } }) : null
 // Adresse et clé publique du serveur, pour la page d'essai de dictée (public/essai-dictee/) servie sur le même site :
 // elle ouvre sa propre connexion (même session, renouvelée comme dans un 2e onglet). Rien de secret.
 if (url && key) {
