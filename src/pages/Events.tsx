@@ -176,7 +176,7 @@ export default function Events() {
   if (view === 'autour')
     return (
       <div className="flex flex-col gap-3">
-        <h1 className="text-lg font-extrabold">Événements</h1>
+        <h1 className="sr-only">Événements</h1>
         <Suspense fallback={<div className="py-20 text-center text-sm text-muted">Chargement…</div>}>
           <AroundMe tabs={tabs} />
         </Suspense>
@@ -210,16 +210,15 @@ export default function Events() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Le titre seul ; les actions (« ⋯ » : Nouvel événement, Depuis une feuille de match) sont au bout de la barre
-          « Demander ». Liste vide (pas de barre) : le bouton de création reste à côté du titre. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-extrabold">Événements</h1>
-        {events.length === 0 && canCreate && (
-          <button className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap" onClick={() => setCreating({})}>
-            + Événement
-          </button>
-        )}
-      </div>
+      {/* Titre pour les lecteurs d'écran seulement : l'onglet du menu, en surbrillance, dit déjà où l'on est (30/10). Les
+          actions (« ⋯ » : Nouvel événement, Depuis une feuille de match) sont au bout de la barre « Demander ». Liste vide
+          (pas de barre) : le bouton de création, seul en haut. */}
+      <h1 className="sr-only">Événements</h1>
+      {events.length === 0 && canCreate && (
+        <button className="btn-primary self-start px-3 py-1.5 text-xs whitespace-nowrap" onClick={() => setCreating({})}>
+          + Événement
+        </button>
+      )}
       {fromSheet && (
         <Suspense fallback={null}>
           <MatchImport

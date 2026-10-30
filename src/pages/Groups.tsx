@@ -239,10 +239,10 @@ export default function Groups() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex min-h-8 flex-wrap items-center gap-2">
-        <h1 className="mr-auto text-lg font-extrabold">Groupes</h1>
-        {addButton}
-      </div>
+      {/* Titre pour les lecteurs d'écran seulement : l'onglet du menu, en surbrillance, dit déjà où l'on est (30/10). Aucun
+          groupe : le bouton de création, seul en haut. */}
+      <h1 className="sr-only">Groupes</h1>
+      {addButton && <div className="self-start">{addButton}</div>}
       {newGroup && (
         <NewGroupWindow
           playerIds={newGroup.playerIds}

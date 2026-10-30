@@ -1203,7 +1203,7 @@ function BilanLoading({ region, snapKey }: { region: string; snapKey: string | n
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
       <div className="flex flex-col gap-2">
-        <h1 className="text-lg font-extrabold">Bilan de détection</h1>
+        <h1 className="sr-only">Bilan de détection</h1>
         {snap ? (
           <p className="flex items-center gap-2 text-[11px] text-muted" role="status" data-bilan-stale="">
             <span className="size-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
@@ -1709,12 +1709,9 @@ export default function Coverage() {
       {/* Fenêtre « Filtres » de la barre (posée au-dessus de la page) : rendue même quand les filtres sont repliés (téléphone). */}
       {bar.window}
       <div className="flex flex-col gap-2">
-        {/* Plus de « ← lieu du dessus » (26/10) : le fil « France › Région › Département » remonte d'un étage. */}
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h1 className="text-lg font-extrabold">Bilan de détection</h1>
-          </div>
-        </div>
+        {/* Plus de « ← lieu du dessus » (26/10) : le fil « France › Région › Département » remonte d'un étage. Titre pour les
+            lecteurs d'écran seulement : l'onglet du menu, en surbrillance, dit déjà où l'on est (30/10). */}
+        <h1 className="sr-only">Bilan de détection</h1>
         {/* « Poser une question » (réponse calculée sur l'appareil, page /bilan/question), « Filtres » dans la pilule, et « ⋯ »
             (« Rapport ») juste à droite : comme Joueurs, Événements, Groupes, sur téléphone aussi. Sans la dictée sur téléphone :
             pas de barre de question (le « ⋯ » reste, au bout de la ligne des filtres). */}

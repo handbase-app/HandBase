@@ -161,9 +161,9 @@ export default function Players() {
   return (
     <div onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
       <TabBackButton className="mb-2 block" />
-      {/* Le titre seul ; le nombre de joueurs et les actions (« ⋯ » : Nouveau joueur, Ajouter à un groupe, Exporter) sont
-          dans la barre « Demander » en dessous. */}
-      <h1 className="mb-2 text-lg font-extrabold">Joueurs</h1>
+      {/* Titre pour les lecteurs d'écran seulement : l'onglet du menu, en surbrillance, dit déjà où l'on est (30/10). Le
+          nombre de joueurs et les actions (« ⋯ » : Nouveau joueur, Ajouter à un groupe, Exporter) sont dans la barre « Demander ». */}
+      <h1 className="sr-only">Joueurs</h1>
 
       {(nPending > 0 || nRefused > 0 || view !== 'base') && (
         <div className="mb-3 flex gap-2">
