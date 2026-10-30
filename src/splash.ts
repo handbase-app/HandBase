@@ -16,7 +16,7 @@
  *    29/10), un premier chargement complet pouvait attendre plusieurs minutes ; l'appli est utile dès les joueurs reçus ;
  *  - toucher / clic / Entrée / Échap : on passe (sauf pendant le premier chargement, où c'est le bouton).
  */
-import { progressLabel, type SyncProgress } from './syncProgress'
+import { BUSY_LABEL, progressLabel, type SyncProgress } from './syncProgress'
 
 export const MIN_MS = 2800
 export const STALL_MS = 2500
@@ -83,11 +83,15 @@ export function splashBar(sync: SplashSync, p: SyncProgress | null): number | nu
   return null
 }
 
-/** Texte sous la barre (lu poliment par les lecteurs d'écran). */
-export function splashText(sync: SplashSync, p: SyncProgress | null, server: boolean, online: boolean): string {
+/**
+ * Texte sous la barre (lu poliment par les lecteurs d'écran). busy : serveur très demandé, une requête attend son tour : le
+ * message d'attente (src/syncProgress.ts, BUSY_LABEL) plutôt qu'un compte qui n'avance plus.
+ */
+export function splashText(sync: SplashSync, p: SyncProgress | null, server: boolean, online: boolean, busy = false): string {
   if (sync === 'login') return ''
   if (sync === 'done') return 'À jour'
   if (sync === 'none') return !server ? 'Données de l’appareil' : online ? 'Synchro impossible : données de l’appareil' : 'Hors ligne : données de l’appareil'
+  if (busy) return BUSY_LABEL
   if (p && p.done > 0) return progressLabel(p)
   return 'Synchronisation…'
 }

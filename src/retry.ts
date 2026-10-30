@@ -111,7 +111,7 @@ export interface RetryOptions {
   now?: () => number
   /** Réseau disponible (navigator.onLine) ; faux : rien n'est rejoué. */
   online?: () => boolean
-  /** Prévenu avant chaque attente (tentative n°, attente en ms, cause) : indication discrète « serveur très demandé ». */
+  /** Prévenu avant chaque attente (tentative n°, attente en ms, cause) : message d’attente (src/syncProgress.ts, BUSY_LABEL). */
   onWait?: (attempt: number, ms: number, cause: string) => void
   /** Prévenu quand la requête a enfin abouti (ou abandonné) après au moins une attente. */
   onDone?: (retried: number, ok: boolean) => void

@@ -16,7 +16,8 @@ export function SyncProgressBar() {
           <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${percent(progress)}%` }} />
         </div>
       )}
-      <p className="truncate px-4 py-1 text-[10px] font-bold text-muted">{busy ? `${BUSY_LABEL}…` : bar ? `${progressLabel(progress)}…` : ''}</p>
+      {/* Message d'attente en couleur du texte (contraste 13:1 au moins dans tous les thèmes ; l'atténué descend à 4,6:1). */}
+      <p className={`truncate px-4 py-1 text-[10px] font-bold ${busy ? 'text-fg' : 'text-muted'}`}>{busy ? BUSY_LABEL : bar ? `${progressLabel(progress)}…` : ''}</p>
     </div>
   )
 }

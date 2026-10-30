@@ -56,8 +56,12 @@ export const forward = (prev: SyncProgress | null, next: SyncProgress): SyncProg
  */
 export const showProgress = (p: SyncProgress | null): p is SyncProgress => !!p && (p.first ? p.done > 0 : p.done > PROGRESS_MIN)
 
-/** Serveur très demandé (requête rejouée plus tard, src/retry.ts) : texte de l'indication discrète. */
-export const BUSY_LABEL = 'Serveur très demandé : on attend son tour, la synchro reprend toute seule'
+/**
+ * MESSAGE D'ATTENTE (le seul endroit où il est écrit) : serveur très demandé, une requête attend son tour pour être rejouée
+ * (src/retry.ts). Montré sous l'en-tête (src/components/SyncProgress.tsx) et sur l'écran d'ouverture (src/splash.ts). Court
+ * (il tient sur une ligne d'un téléphone de 360 px), humain, sans mot technique ; points de suspension compris.
+ */
+export const BUSY_LABEL = 'Beaucoup de monde en ce moment — vos joueurs arrivent…'
 
 export const percent = (p: SyncProgress) => Math.min(100, Math.floor(p.share * 100))
 

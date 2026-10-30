@@ -86,12 +86,12 @@ export function startSplash() {
     try {
       const now = performance.now() - t0
       const sync = syncKind()
-      const { progress, playersReady } = syncSnapshot()
+      const { progress, playersReady, busy } = syncSnapshot()
       const d = splashDecision({ elapsed: now, lastActivity, sync, firstLoad, skipped, forced, playersReady })
       const share = splashBar(sync, progress)
       bar?.classList.toggle('sp-wait', share === null)
       if (fill) fill.style.width = share === null ? '' : `${(share * 100).toFixed(1)}%`
-      const text = splashText(sync, progress, syncEnabled, navigator.onLine)
+      const text = splashText(sync, progress, syncEnabled, navigator.onLine, busy)
       if (txt && txt.textContent !== text) txt.textContent = text
       btn?.classList.toggle('sp-show', d.button)
       el!.title = d.skippable ? 'Toucher pour passer' : ''

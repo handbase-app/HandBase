@@ -4,7 +4,12 @@
 //
 //   npx jiti tools/test-ouverture.ts
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { BUTTON_MS, LOGIN_MIN_MS, MAX_MS, MIN_MS, splashBar, splashDecision, splashText, STALL_MS, type SplashInput } from '../src/splash'
+import { BUSY_LABEL } from '../src/syncProgress'
+import { THEMES } from '../src/theme'
+import { contrast, paletteOf, STYLES } from '../src/uiStyle'
 
 const at = (elapsed: number, o: Partial<SplashInput> = {}) => splashDecision({ elapsed, lastActivity: elapsed, sync: 'pending', firstLoad: false, ...o })
 const enters = (elapsed: number, o: Partial<SplashInput> = {}) => at(elapsed, o).enter
@@ -102,5 +107,39 @@ assert.equal(splashText('none', null, true, false), 'Hors ligne : données de l�
 assert.equal(splashText('none', null, true, true), 'Synchro impossible : données de l’appareil')
 assert.equal(splashText('none', null, false, true), 'Données de l’appareil')
 assert.equal(splashText('login', null, true, true), '')
+
+// Message d'attente (serveur très demandé) : à la place du compte pendant la synchro, jamais quand elle est finie ou impossible.
+assert.equal(splashText('pending', p(738, 0.25), true, true, true), BUSY_LABEL)
+assert.equal(splashText('pending', null, true, true, true), BUSY_LABEL)
+assert.equal(splashText('done', null, true, true, true), 'À jour')
+assert.equal(splashText('none', null, true, false, true), 'Hors ligne : données de l’appareil')
+assert.equal(splashText('login', null, true, true, true), '')
+// Un seul endroit : le texte n'est écrit que dans src/syncProgress.ts ; l'ancien texte a disparu.
+const files = (dir: string): string[] =>
+  readdirSync(dir).flatMap((f) => {
+    const x = join(dir, f)
+    return statSync(x).isDirectory() ? files(x) : /\.(ts|tsx|html)$/.test(f) ? [x] : []
+  })
+const root = new URL('..', import.meta.url).pathname
+const sources = [...files(join(root, 'src')), join(root, 'index.html')]
+const holders = sources.filter((f) => readFileSync(f, 'utf8').includes(BUSY_LABEL.slice(0, 20)))
+assert.deepEqual(holders.map((f) => f.slice(root.length)), ['src/syncProgress.ts'])
+assert.ok(!sources.some((f) => readFileSync(f, 'utf8').includes('la synchro reprend toute seule')), 'ancien texte retiré')
+assert.ok(BUSY_LABEL.endsWith('…') && !/serveur|requête|synchro/i.test(BUSY_LABEL), 'humain, sans mot technique')
+// Tient sur une ligne d'un téléphone de 360 px (10 px gras : ~5,6 px par caractère, 32 px de marges).
+assert.ok(BUSY_LABEL.length <= 58, `${BUSY_LABEL.length} caractères`)
+const bar = readFileSync(join(root, 'src/components/SyncProgress.tsx'), 'utf8')
+assert.ok(bar.includes("busy ? 'text-fg' : 'text-muted'") && bar.includes('{busy ? BUSY_LABEL :'), 'barre : texte en couleur du texte, sans « … » ajouté')
+// Contraste (AA, 4,5:1) du message dans la barre (couleur du texte sur le fond) : tous les thèmes et styles, clairs et sombres ;
+// écran d'ouverture (toujours sombre, index.html : #8fb3bd sur #0A182D).
+for (const t of THEMES) assert.ok(contrast(t.colors.fg, t.colors.bg) >= 4.5, `thème ${t.id}`)
+for (const st of STYLES)
+  for (const light of [true, false]) {
+    const pal = paletteOf(st, light)
+    if (pal) assert.ok(contrast(pal.fg, pal.bg) >= 4.5, `style ${st.id} ${light ? 'clair' : 'sombre'}`)
+  }
+const html = readFileSync(join(root, 'index.html'), 'utf8')
+assert.ok(html.includes('#splash .sp-txt{') && html.includes('color:#8fb3bd'))
+assert.ok(contrast('#8fb3bd', '#0A182D') >= 4.5, 'écran d’ouverture')
 
 console.log('test-ouverture : OK')
