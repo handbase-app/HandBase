@@ -29,7 +29,7 @@ export default function Home({ toReview, followNews, alerts }: { toReview: numbe
     // Téléphone couché : actions à gauche, fil « Quoi de neuf » à droite. Ordinateur : en-tête et actions sur toute
     // la largeur (tuiles sur une rangée), fil en dessous. Pas de tuile « Bilan de détection » : il est déjà dans la
     // barre de navigation (même condition, can.viewCoverage).
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 pt-2 rail:grid rail:max-w-5xl rail:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] rail:items-start rail:gap-6 rail:pt-0 side:max-w-6xl side:gap-5">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 pt-2 rail:grid rail:max-w-5xl rail:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] rail:items-start rail:gap-6 rail:pt-0 side:max-w-6xl side:gap-5">
       <div className="flex flex-col gap-4 side:grid side:grid-cols-5 side:gap-x-4 side:gap-y-5">
       <OrgHeader />
 

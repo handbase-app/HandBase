@@ -290,19 +290,20 @@ export default function App() {
   return (
     // Téléphone tenu droit : colonne étroite, onglets en bas. Paysage / ordinateur : navigation à gauche
     // (--nav-l, index.css), contenu élargi selon la page (PAGE_W).
-    <div className="mx-auto flex min-h-dvh max-w-2xl flex-col wide:max-w-none wide:pl-[var(--nav-l)]">
+    // Tenu droit, même sur un écran plus large (tablette, fenêtre zoomée) : les bandes de l'en-tête vont d'un bord à l'autre,
+    // tout le reste (contenu de l'en-tête, pages, capsule d'onglets) suit la même colonne centrée de 42rem (31/10).
+    <div className="flex min-h-dvh flex-col wide:pl-[var(--nav-l)]">
       <header
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
-        className="app-header sticky top-0 z-20 grid grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 border-b border-line bg-bg/90 px-4 py-3 backdrop-blur rail:hidden side:gap-3 side:px-6"
+        className="app-header sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur rail:hidden"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
-        {TRIAL && (
-          <div className="col-span-3 -mx-4 -mt-3 mb-0.5 bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black side:-mx-6">
-            {TRIAL_LABEL}
-          </div>
-        )}
+        {TRIAL && <div className="bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black">{TRIAL_LABEL}</div>}
+        <div
+          className={`mx-auto grid max-w-2xl grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 px-4 pb-3 wide:max-w-none side:gap-3 side:px-6 ${TRIAL ? 'pt-0.5' : 'pt-3'}`}
+        >
         {/* Trois colonnes partout : « Mes suivis » à gauche · capsule « Nextar » au milieu · bulle de profil (point de
             synchro) à droite. Les deux colonnes du bord gardent la place de leur contenu (max-content) : sur téléphone étroit, la
             capsule glisse un peu plutôt que de passer sous un bouton. Compte joueur : ni capsule, ni suivis (outils du staff) ; la bulle de profil reste (synchro, réglages, déconnexion). */}
@@ -317,6 +318,7 @@ export default function App() {
         <div className="flex min-w-0 items-center justify-end gap-3">
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
           {!rail && <ProfileButton />}
+        </div>
         </div>
         {!rail && <SyncProgressBar />}
         {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
@@ -416,10 +418,11 @@ export default function App() {
       </main>
 
       {/* Onglets : capsule flottante en bas, icônes seules (tenu droit, choix du 30/10), fine colonne d'icônes (téléphone
-          couché), menu à gauche (ordinateur). « Demander » reste au milieu de l'en-tête. */}
+          couché), menu à gauche (ordinateur). « Demander » reste au milieu de l'en-tête. Écran plus large (tablette tenue droite,
+          fenêtre zoomée) : la capsule garde la largeur de la colonne, comme l'en-tête (31/10). */}
       <nav
         aria-label="Menu principal"
-        className={`fixed bottom-[calc(0.625rem+env(safe-area-inset-bottom))] left-3 z-20 rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur right-3 wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
+        className={`fixed inset-x-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20 mx-auto max-w-[calc(42rem-1.5rem)] rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:mx-0 wide:max-w-none wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
         {/* Ordinateur : le haut du menu a la hauteur et la couleur de l'en-tête (--hdr, bande orange comprise) ; la ligne
             sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
