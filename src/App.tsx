@@ -167,9 +167,8 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
  */
 function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
   const { name } = useAppBrand()
-  // Réglages → Apparence : logo et nom masqués au choix (src/brandPref.ts).
-  // Menu de gauche (ordinateur) : une marge à la place, pour que « Accueil » ne colle pas au bord.
-  if (!useShowBrand()) return stacked ? <div aria-hidden className="hidden side:block side:h-4" /> : null
+  // Réglages → Apparence : logo et nom masqués au choix (src/brandPref.ts) ; en haut du menu, la place reste (même hauteur que l'en-tête).
+  if (!useShowBrand()) return null
   return (
     <GuardedLink to="/" aria-label={`${name}, accueil`} className={`leading-none ${stacked ? 'text-lg' : 'flex min-w-0 items-center gap-2 text-[17px]'} ${className}`}>
       <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
@@ -418,7 +417,14 @@ export default function App() {
         aria-label="Menu principal"
         className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur wide:top-0 wide:right-auto wide:w-[var(--nav-l)] wide:border-t-0 wide:border-r wide:pb-[env(safe-area-inset-bottom)] rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]"
       >
-        <Logo stacked className="hidden side:block side:px-5 side:pt-4 side:pb-5" />
+        {/* Ordinateur : le haut du menu a la hauteur et la couleur de l'en-tête (--hdr, bande orange comprise) ; la ligne
+            sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
+        <div className="app-header hidden shrink-0 flex-col border-b border-line side:flex side:h-[var(--hdr)]">
+          {TRIAL && <div aria-hidden className="h-[18px] shrink-0 bg-amber-500" />}
+          <div className="flex min-h-0 flex-1 items-center px-5">
+            <Logo stacked />
+          </div>
+        </div>
         {/* Téléphone couché : en haut, le repère « version d'essai » et le bouton « Demander » (pictogramme de l'appli). */}
         {rail && (
           <div className="flex shrink-0 flex-col items-center pt-2">
@@ -426,7 +432,7 @@ export default function App() {
             {!player && <AskButton rail />}
           </div>
         )}
-        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:min-h-0 rail:w-full rail:flex-1 rail:justify-center rail:gap-0.5 side:gap-0.5 side:px-2">
+        <div className="mx-auto flex max-w-2xl wide:max-w-none wide:flex-col rail:min-h-0 rail:w-full rail:flex-1 rail:justify-center rail:gap-0.5 side:gap-0.5 side:px-2 side:pt-4">
           {nav.map((n) => (
             <GuardedLink
               key={n.to}
