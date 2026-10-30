@@ -569,7 +569,7 @@ export function RowPictos({ p, fiche, seen, rewatch, follow }: { p: Player; fich
         break
       case 'videos':
         out.push(
-          <PictoLink key={k} to={tab('profil', '#videos')} state={fiche.state} onClick={fiche.onClick} icon="video" n={f.videos} cls={f.videos ? 'text-violet-300' : OFF}
+          <PictoLink key={k} to={tab('videos')} state={fiche.state} onClick={fiche.onClick} icon="video" n={f.videos} cls={f.videos ? 'text-violet-300' : OFF}
             label={f.videos ? `${f.videos} vidéo${f.videos > 1 ? 's' : ''} — ouvrir la fiche` : 'Aucune vidéo — ouvrir la fiche pour en ajouter'} />,
         )
         break

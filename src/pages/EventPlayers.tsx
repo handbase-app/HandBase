@@ -16,7 +16,7 @@ import { pluralG, setGender, w } from '../gender'
  * Fiche d'un joueur ouverte depuis un événement : /evenements/:id/joueurs/:pid (partageable).
  * Ordinateur : les joueurs de l'événement seulement à gauche (même ordre et mêmes titres que sa page : tri choisi,
  * « Par équipe et poste »…), la fiche à droite ; « Fermer » revient à l'événement. Téléphone : fiche en plein écran
- * sous la barre « événement · 5 / 23 » (‹ ›, retour à l'événement à la même position).
+ * sous la barre « événement · 5 / 23 » (glisser la fiche, retour à l'événement à la même position).
  */
 
 /** Joueurs de l'événement, dans l'ordre de sa page (sans ses filtres : tous les joueurs de la liste). */
@@ -60,8 +60,9 @@ export default function EventPlayers() {
   if (!split)
     return (
       <>
-        <ContextBar title={ev.name} ids={ids} current={pid} base={base} back={() => void leave.go()} />
-        <Outlet />
+        <ContextBar title={ev.name} ids={ids} current={pid} base={base} back={() => void leave.go()}>
+          <Outlet />
+        </ContextBar>
       </>
     )
   return (

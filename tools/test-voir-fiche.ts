@@ -20,7 +20,7 @@ for (const bad of [null, undefined, '', 'mesure', 'mesure:', ':taille', 'courbe:
 assert.equal(focusLink('p1', { kind: 'mesure', id: 'taille' }), '/joueurs/p1?onglet=tests&voir=mesure%3Ataille')
 assert.equal(focusLink('p1', { kind: 'mesure', id: 'poids', row: 'm9' }), '/joueurs/p1?onglet=tests&voir=mesure%3Apoids%3Am9')
 assert.equal(focusLink('p1', { kind: 'avis', id: 'e1' }), '/joueurs/p1?onglet=avis&voir=avis%3Ae1')
-assert.equal(focusLink('p1', { kind: 'video', id: 'v1' }), '/joueurs/p1?voir=video%3Av1')
+assert.equal(focusLink('p1', { kind: 'video', id: 'v1' }), '/joueurs/p1?onglet=videos&voir=video%3Av1')
 for (const f of [{ kind: 'mesure', id: 'taille', row: 'm9' }, { kind: 'avis', id: 'e1' }, { kind: 'video', id: 'toutes' }] as const) {
   const q = new URLSearchParams(focusLink('p1', f).split('?')[1])
   assert.deepEqual(parseFocus(q.get('voir')), f)

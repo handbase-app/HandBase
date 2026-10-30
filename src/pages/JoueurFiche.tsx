@@ -6,7 +6,7 @@ import PlayerDetail from './PlayerDetail'
 
 /**
  * /joueurs/:id : fiche d'un joueur ouverte depuis la liste Joueurs. Ordinateur : la liste filtrée reste à gauche
- * (MasterDetail). Téléphone : barre « Joueurs · 5 / 23 » avec ‹ › sur la liste filtrée (mêmes filtres, même ordre) et
+ * (MasterDetail). Téléphone : barre « Joueurs · 5 / 23 », glisser la fiche sur la liste filtrée (mêmes filtres, même ordre) et
  * retour à la liste telle quelle ; fiche ouverte directement (lien, rechargement) : la fiche seule.
  */
 export default function JoueurFiche() {
@@ -16,9 +16,8 @@ export default function JoueurFiche() {
   const ids = playersContext()
   if (split || !id || ids.length < 2 || !ids.includes(id)) return <PlayerDetail />
   return (
-    <>
-      <ContextBar title="Joueurs" ids={ids} current={id} base="/joueurs" back={() => void leave.go()} />
+    <ContextBar title="Joueurs" ids={ids} current={id} base="/joueurs" back={() => void leave.go()}>
       <PlayerDetail id={id} hideBack />
-    </>
+    </ContextBar>
   )
 }

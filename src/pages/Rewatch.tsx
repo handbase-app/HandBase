@@ -370,8 +370,9 @@ export function RewatchPlayers() {
   if (!split)
     return (
       <>
-        <ContextBar title="À revoir" ids={players.map((p) => p.id)} current={pid} base={BASE} back={() => void leave.go()} />
-        <Outlet />
+        <ContextBar title="À revoir" ids={players.map((p) => p.id)} current={pid} base={BASE} back={() => void leave.go()}>
+          <Outlet />
+        </ContextBar>
       </>
     )
   return (

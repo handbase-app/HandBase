@@ -984,7 +984,7 @@ export function SavedQuestions({ model, open: startOpen = false, clubDept }: { m
 
 // ---------- Fiche d'un joueur ouverte depuis une réponse ----------
 
-/** Joueurs de la réponse affichée (liste, ou joueurs du club choisi sur la carte), pour ‹ › et la colonne de gauche. */
+/** Joueurs de la réponse affichée (liste, ou joueurs du club choisi sur la carte), pour le glisser (téléphone) et la colonne de gauche. */
 function answerIds(recipe: Recipe | null, answer: Answer<Player> | null, index: QIndex<Player> | null, params: URLSearchParams): Player[] {
   if (!recipe || !answer || !index) return []
   if (recipe.out.type === 'list') return (answer.rows ?? []).map((r) => r.p)
@@ -998,7 +998,7 @@ const QCtx = createContext<{ value: (p: Player) => string } | null>(null)
 
 /**
  * /bilan/question/joueurs/:pid?r=… : fiche dans le contexte de la réponse (comme depuis un événement, un groupe ou le
- * bilan) ; ordinateur : les joueurs de la réponse à gauche ; téléphone : ‹ › ; « Retour » revient à la réponse telle quelle.
+ * bilan) ; ordinateur : les joueurs de la réponse à gauche ; téléphone : glisser la fiche ; « Retour » revient à la réponse telle quelle.
  */
 export function QuestionPlayers() {
   const { pid } = useParams()
@@ -1028,8 +1028,9 @@ export function QuestionPlayers() {
   if (!split)
     return (
       <QCtx.Provider value={{ value }}>
-        <ContextBar title="Réponse" ids={ids} current={pid} base={base} search={search} back={() => void leave.go()} />
-        <Outlet />
+        <ContextBar title="Réponse" ids={ids} current={pid} base={base} search={search} back={() => void leave.go()}>
+          <Outlet />
+        </ContextBar>
       </QCtx.Provider>
     )
   return (

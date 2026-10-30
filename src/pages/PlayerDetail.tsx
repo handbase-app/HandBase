@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { StampLine } from '../components/ActivityLog'
+import { stampOf } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { PlayerGroups } from '../components/Groups'
 import { Opinions } from '../components/Opinions'
@@ -14,7 +14,7 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtView } from '../components/CourtPicker'
-import { Avatar, fmtValue, groupBy, playerName, PosBadges, QuarterBadge } from '../components/ui'
+import { Avatar, fmtValue, groupBy, Icon, playerName, PosBadges, QuarterBadge, type IconName } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, today, type Criterion, type Measurement, type Player, dayOf } from '../db'
 import { teamSummary } from '../rencontres'
 import { sportContent } from '../sportContent'
@@ -26,7 +26,8 @@ import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
-import { PageHeader } from '../components/PageHeader'
+import { HeaderMenu, PageHeader } from '../components/PageHeader'
+import { FormActions, FormWindow } from '../components/FormWindow'
 import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
@@ -35,19 +36,28 @@ import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
 import { StaffJournal } from '../components/PlayerJournal'
-import { FOCUS_KEY, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
+import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
-const TABS: readonly { id: PlayerTab; label: string }[] = [
-  { id: 'profil', label: 'Profil' },
-  { id: 'tests', label: 'Tests' },
-  { id: 'avis', label: 'Avis' },
-  { id: 'croissance', label: 'Croissance' },
+// Ordre choisi le 30/10 : Profil · Croissance · Tests · Vidéos · Avis · Compte joueur (vidéos et accès à l'espace joueur :
+// onglets à part, plus dans « Profil » ; « Compte joueur » seulement pour qui peut s'en servir).
+const TABS: readonly { id: PlayerTab; label: string; icon: IconName }[] = [
+  { id: 'profil', label: 'Profil', icon: 'user' },
+  { id: 'croissance', label: 'Croissance', icon: 'growth' },
+  { id: 'tests', label: 'Tests', icon: 'stopwatch' },
+  { id: 'videos', label: 'Vidéos', icon: 'video' },
+  { id: 'avis', label: 'Avis', icon: 'chat' },
+  { id: 'compte', label: 'Compte joueur', icon: 'key' },
 ]
 type TabId = PlayerTab
 
-/** Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. */
-function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; avis: number }) {
+/**
+ * Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. Un pictogramme par onglet ; le nom écrit
+ * seulement dans l'onglet ouvert (pastille teintée, comme la barre du bas), nom complet en title et pour les lecteurs
+ * d'écran (choix du 30/10 : les six tiennent sur 375 px). `counts` : nombre d'avis, de vidéos (petite pastille sur le
+ * pictogramme, à côté du nom dans l'onglet ouvert). `hidden` : onglets absents (Compte joueur sans droit).
+ */
+function Tabs({ tab, setTab, counts, hidden }: { tab: TabId; setTab: (t: TabId) => void; counts: Partial<Record<TabId, number>>; hidden: TabId[] }) {
   // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…) ; dans le panneau de droite
   // (ordinateur), le panneau défile seul : les onglets se collent en haut du panneau.
   const inPanel = !!usePanel()
@@ -68,17 +78,36 @@ function Tabs({ tab, setTab, avis }: { tab: TabId; setTab: (t: TabId) => void; a
     // Dans le panneau de droite (marge haute pt-3), les onglets collent au bord même du cadre : sinon une bande
     // de 0,75 rem laisse voir le contenu qui défile au-dessus d'eux.
     <div data-fiche-onglets className={`sticky z-10 -mx-4 border-b border-line px-4 ${inPanel ? 'bg-bg' : 'bg-bg/95 backdrop-blur'}`} style={{ top: inPanel ? '-0.75rem' : top }}>
-      <div className="flex">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex-1 border-b-2 py-2.5 text-xs font-bold ${tab === t.id ? 'border-accent text-fg' : 'border-transparent text-muted'}`}
-          >
-            {t.label}
-            {t.id === 'avis' && avis > 0 && <span className="ml-1 text-[10px] text-muted">{avis}</span>}
-          </button>
-        ))}
+      <div className="flex items-center gap-1 py-1.5">
+        {TABS.filter((t) => !hidden.includes(t.id)).map((t) => {
+          const on = tab === t.id
+          const n = counts[t.id] ?? 0
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              aria-label={n ? `${t.label} (${n})` : t.label}
+              aria-current={on ? 'true' : undefined}
+              title={t.label}
+              className={`flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full text-xs font-bold transition ${on ? 'flex-none bg-accent/15 px-3 text-accent' : 'flex-1 text-muted hover:text-fg'}`}
+            >
+              <span className="relative shrink-0">
+                <Icon name={t.icon} className="h-[18px] w-[18px]" />
+                {!on && n > 0 && (
+                  <span aria-hidden className="absolute -top-1.5 -right-2.5 min-w-4 rounded-full bg-line px-1 text-center text-[9px] leading-4 font-bold text-fg">
+                    {n}
+                  </span>
+                )}
+              </span>
+              {on && (
+                <span aria-hidden className="whitespace-nowrap">
+                  {t.label}
+                  {n > 0 && <span className="ml-1 text-[10px] opacity-70">{n}</span>}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -120,31 +149,37 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     if (voir === null) return
     const f = parseFocus(voir)
     if (f) setAimed((old) => ({ ...f, pid: id, n: (old?.n ?? 0) + 1 }))
-    setParams(new URLSearchParams(withoutFocus(search)), { replace: true, state })
+    // L'onglet de l'élément visé s'ouvre de lui-même (vidéo : onglet Vidéos, même par un ancien lien sans `onglet`).
+    const rest = withoutFocus(search)
+    setParams(new URLSearchParams(f ? withTab(rest, FOCUS_TAB[f.kind], PLAYER_TABS, PLAYER_TAB_DEFAULT, tabKey) : rest), { replace: true, state })
   }, [voir]) // eslint-disable-line react-hooks/exhaustive-deps
   const focus = aimed && aimed.pid === id ? aimed : null
   useFocusScroll(focus)
   /** Lien vers une autre fiche (doublon, fiche fusionnée) : même onglet. */
   const sameTab = withTab('', tab, PLAYER_TABS, PLAYER_TAB_DEFAULT)
   const [merging, setMerging] = useState(false)
+  // Fenêtre « Infos de la fiche » (créée par…, modifiée par…), ouverte par le ⋮.
+  const [stampOpen, setStampOpen] = useState(false)
   // « À revoir » de ce joueur visibles (mon staff) : bouton « à revoir ×2 » (supabase/041).
   const rewatch = usePlayerRewatch(id!)
   const per = usePerimeter()
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
     if (!player) return null
-    const [criteria, measurements, evaluations, events, homonyms] = await Promise.all([
+    const [criteria, measurements, evaluations, events, homonyms, videos] = await Promise.all([
       db.criteria.orderBy('order').toArray().then(alive),
       db.measurements.where('playerId').equals(id!).toArray().then(alive),
       db.evaluations.where('playerId').equals(id!).toArray().then(alive),
       db.events.toArray(), // y compris supprimés : leurs avis gardent le nom de l'événement
       db.players.where('lastName').equalsIgnoreCase(player.lastName).toArray().then(alive),
+      // Nombre de vidéos (onglet « Vidéos ») : mêmes liens que la section (src/components/Videos.tsx).
+      db.videos.where('targetId').equals(id!).filter((v) => !v.deleted && v.targetKind === 'player' && !!v.url).count(),
     ])
     // Doublons possibles de cette fiche (même nom, naissance compatible, l'une proposée ou sans licence).
     const duplicates = possibleDuplicates(homonyms)
       .filter(([a, b]) => a.id === player.id || b.id === player.id)
       .map(([a, b]) => (a.id === player.id ? b : a))
-    return { player, criteria, measurements, evaluations, events, duplicates }
+    return { player, criteria, measurements, evaluations, events, duplicates, videos }
   }, [id])
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -213,44 +248,59 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     leave.exit()
   }
 
+  const stamp = stampOf(p)
+  // Onglet « Compte joueur » (accès à l'espace joueur) : pour qui peut s'en servir ; sinon ?onglet=compte ouvre « Profil ».
+  const account = canInvite(role, p) || canPreviewPlayerPage(role)
+  const view: TabId = tab === 'compte' && !account ? 'profil' : tab
   return (
-    <div className="flex flex-col gap-4">
-      {/* En-tête : retour, puis les actions de la fiche dans le ⋮ (Supprimer en dernier, avec confirmation). */}
-      <PageHeader
-        back={panel ? <PanelClose /> : hideBack ? <span /> : <BackButton fallback="/joueurs" label="JOUEURS" />}
-        menu={{
-          title: playerName(p),
-          subtitle: [p.club, a !== null ? `${a} ans` : ''].filter(Boolean).join(' · ') || undefined,
-          items: [
-            can.editPlayer(role, p) && { label: can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition', icon: 'pencil', onSelect: () => nav(`/joueurs/${p.id}/modifier`) },
-            can.exportPlayer(role) && {
-              label: 'Ses données',
-              icon: 'download',
-              hint: `copie de toutes ses données (demande ${g.duJoueur} ou de ses parents)`,
-              onSelect: () => void exportPlayer(p.id),
-            },
-            { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
-            // Espace joueur (supabase/051) : la carte de l'onglet Profil fait tout (donner / retirer l'accès, aperçu) ; ici, on y va.
-            (canInvite(role, p) || canPreviewPlayerPage(role)) && {
-              label: 'Espace joueur',
-              icon: 'key',
-              hint: 'donner ou retirer l’accès, voir sa page',
-              onSelect: () => {
-                setTab('profil')
-                setTimeout(() => document.querySelector('[data-testid="espace-joueur"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
-              },
-            },
-            can.deletePlayers(role) && { label: 'Supprimer la fiche', icon: 'trash', danger: true, onSelect: () => void del() },
-          ],
-        }}
-      />
+    // data-fiche : la fiche de ce joueur est affichée (le glisser de ContextBar attend qu'elle le soit pour la faire arriver).
+    <div className="flex flex-col gap-4" data-fiche={p.id}>
+      {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est à côté de « Suivre », depuis le 30/10). */}
+      <PageHeader back={panel ? <PanelClose /> : hideBack ? null : <BackButton fallback="/joueurs" label="JOUEURS" />} />
 
-      <div className="flex items-center gap-4">
+      {/* Initiales alignées en haut avec le nom ; au bout de la rangée du nom : « Suivre » puis le ⋮ (actions de la fiche,
+          Supprimer en dernier, avec confirmation). */}
+      <div className="flex items-start gap-4">
         <Avatar p={p} size={64} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-lg font-extrabold">{playerName(p)}</h1>
-            <FollowButton kind="player" id={p.id} sex={p.sex} />
+            <div className="flex shrink-0 items-center gap-1">
+              <FollowButton kind="player" id={p.id} sex={p.sex} />
+              <HeaderMenu
+                title={playerName(p)}
+                subtitle={[p.club, a !== null ? `${a} ans` : ''].filter(Boolean).join(' · ') || undefined}
+                items={[
+                  can.editPlayer(role, p) && { label: can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition', icon: 'pencil', onSelect: () => nav(`/joueurs/${p.id}/modifier`) },
+                  can.exportPlayer(role) && {
+                    label: 'Ses données',
+                    icon: 'download',
+                    hint: `copie de toutes ses données (demande ${g.duJoueur} ou de ses parents)`,
+                    onSelect: () => void exportPlayer(p.id),
+                  },
+                  { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
+                  // Créée par…, modifiée par… : plus dans l'en-tête (30/10), ici seulement s'il y a quelque chose à dire.
+                  stamp && { label: 'Infos de la fiche', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
+                  // Espace joueur (supabase/051) : l'onglet « Compte joueur » fait tout (donner / retirer l'accès, aperçu) ; ici, on y va.
+                  account && {
+                    label: 'Espace joueur',
+                    icon: 'key',
+                    hint: 'donner ou retirer l’accès, voir sa page',
+                    onSelect: () => setTab('compte'),
+                  },
+                  // Plus de boutons en bas de « Profil » (30/10) : « Modifier » est en tête du ⋮, la fusion ici (administrateurs).
+                  role === 'admin' &&
+                    !merging &&
+                    !mergeWith && {
+                      label: 'Fusionner avec une autre fiche',
+                      icon: 'users',
+                      hint: 'doublon',
+                      onSelect: () => (setMerging(true), (document.querySelector('.md-panel') ?? window).scrollTo({ top: 0, behavior: 'smooth' })),
+                    },
+                  can.deletePlayers(role) && { label: 'Supprimer la fiche', icon: 'trash', danger: true, onSelect: () => void del() },
+                ]}
+              />
+            </div>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
             <PosBadges p={p} />
@@ -261,11 +311,32 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
               <span title={p.usualTeam?.src === 'joueur' ? `Dit par ${g.leJoueur} depuis sa page` : 'Équipe en championnat'}>{teamText}</span>
             )}
           </div>
-          <StampLine row={p} />
           <FollowedVia playerId={p.id} sex={p.sex} />
           <RewatchButton playerId={p.id} rows={rewatch.filter((r) => !r.done)} className="mt-1.5 px-2.5 py-1 text-[11px]" />
         </div>
       </div>
+
+      {stampOpen && stamp && (
+        <FormWindow title="Infos de la fiche" onClose={() => setStampOpen(false)} width={400} phoneFull={false} guard={false}>
+          <div className="flex flex-col gap-2 text-xs">
+            {stamp.created && (
+              <p>
+                <span className="text-muted">Création :</span> <b>{stamp.created.by}</b>, le {stamp.created.at}
+              </p>
+            )}
+            {stamp.updated && (
+              <p>
+                <span className="text-muted">Dernière modification :</span> <b>{stamp.updated.by}</b>, le {stamp.updated.at}
+              </p>
+            )}
+          </div>
+          <FormActions>
+            <button className="btn-primary flex-1" onClick={() => setStampOpen(false)}>
+              OK
+            </button>
+          </FormActions>
+        </FormWindow>
+      )}
 
       {p.review && p.review !== 'validated' && (
         <div className={`rounded-lg border p-3 text-xs ${p.review === 'pending' ? 'border-amber-500/40 bg-amber-500/10' : 'border-line bg-panel'}`}>
@@ -325,9 +396,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         />
       )}
 
-      <Tabs tab={tab} setTab={setTab} avis={evaluations.length} />
+      <Tabs tab={view} setTab={setTab} counts={{ avis: evaluations.length, videos: data.videos }} hidden={account ? [] : ['compte']} />
 
-      {tab === 'profil' && (
+      {view === 'profil' && (
         <>
         <PlayerGroups playerId={p.id} />
         <ScoutHistory playerId={p.id} sex={p.sex} />
@@ -344,8 +415,6 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         </div>
 
         <PoleCard player={p} />
-
-        <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />
 
         {(p.position || (p.secondaryPositions ?? []).length > 0) && (
           <div className="card p-4">
@@ -367,10 +436,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         )}
 
         {/* Espace joueur (supabase/051, 052) : ce qu'il a écrit lui-même (si quelque chose), son journal du hand (tendance des
-            humeurs, notes partagées), puis l'accès (compte, code, retrait, aperçu). */}
+            humeurs, notes partagées). L'accès (compte, code, retrait, aperçu) : onglet « Compte joueur » (30/10). */}
         <SelfSection player={p} />
         <StaffJournal player={p} />
-        <PlayerSpaceCard player={p} />
 
         {p.mergedFrom && p.mergedFrom.length > 0 && (
           <div className="card p-4">
@@ -401,7 +469,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         </>
       )}
 
-      {tab === 'tests' && (
+      {view === 'tests' && (
         <>
           {can.editMeasurements(role) && (
             <Link to={`/joueurs/${p.id}/mesures`} className="btn-primary">
@@ -429,12 +497,12 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       )}
 
       {/* Avis subjectifs ; « Donner un avis » ici = avis spontané (sur un événement : depuis l'événement). */}
-      {tab === 'avis' && (
+      {view === 'avis' && (
         <Link to={`/evaluer?contexte=libre&joueur=${p.id}`} className="btn-primary">
           + Donner un avis
         </Link>
       )}
-      {tab === 'avis' && (
+      {view === 'avis' && (
         <div className="card p-4" data-voir="avis:tous">
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
             <span className="text-accent">★</span> Avis du staff
@@ -443,18 +511,12 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         </div>
       )}
 
-      {tab === 'croissance' && <MaturityCard player={p} measurements={measurements} />}
+      {view === 'croissance' && <MaturityCard player={p} measurements={measurements} />}
 
-      {tab === 'profil' && can.editPlayer(role, p) && (
-        <Link to={`/joueurs/${p.id}/modifier`} className="btn-primary">
-          {can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition'}
-        </Link>
-      )}
-      {tab === 'profil' && role === 'admin' && !merging && !mergeWith && (
-        <button className="btn-ghost text-xs" onClick={() => (setMerging(true), (document.querySelector('.md-panel') ?? window).scrollTo({ top: 0, behavior: 'smooth' }))}>
-          Fusionner avec une autre fiche (doublon)…
-        </button>
-      )}
+      {/* Onglet à part depuis le 30/10 (avant : sous « Profil ») ; ?voir=video:… l'ouvre de lui-même. */}
+      {view === 'videos' && <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />}
+
+      {view === 'compte' && <PlayerSpaceCard player={p} />}
     </div>
   )
 }
@@ -557,7 +619,8 @@ function Tracking({
             ))}
           </select>
           {series.length > 1 ? (
-            <div className="h-48">
+            // Le doigt promène l'infobulle de la courbe : pas de glisser vers un autre joueur ici (useSwipeNav).
+            <div className="h-48" data-noswipe>
               <ResponsiveContainer>
                 <LineChart data={series.map((m) => ({ date: fmtDate(m.date).slice(0, 5) + '/' + m.date.slice(2, 4), v: m.value }))} margin={{ left: -18, right: 8, top: 8 }}>
                   <CartesianGrid stroke={themeColor('line')} strokeDasharray="3 3" />

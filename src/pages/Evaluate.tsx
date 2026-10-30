@@ -6,6 +6,7 @@ import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
+import { useSwipeNav } from '../components/useSwipeNav'
 import { eventSections, filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort, type RosterGroup } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
@@ -82,9 +83,6 @@ export default function Evaluate() {
   const [saved, setSaved] = useState(false)
   // Menu « ⋮ » de l'avis (« Retirer mon avis »), loin du bouton « Enregistrer / Suivant ».
   const avisMenu = useRowMenu()
-  // Sens de l'animation au changement de joueur par glissement.
-  // Joueur qui arrive après un glissement (ou une flèche), et de quel côté : seule sa fiche s'anime.
-  const [enter, setEnter] = useState<{ id: string; dir: 'left' | 'right' } | null>(null)
 
   // Fiches par nom, gardées en mémoire (src/playersCache.ts).
   const players = usePlayersByName() ?? NO_PLAYERS
@@ -151,17 +149,10 @@ export default function Evaluate() {
   const dirty = !!player && fingerprint(draft) !== baseline
   // Avant de quitter l'écran (menu du bas) ou l'onglet : proposer d'enregistrer.
   const leaveRef = useRef<() => Promise<boolean>>(async () => true)
-  // Geste de glisser (voir plus bas) : déclaré ici, avant l'écran « Qui évalue ? », car un hook
-  // doit être appelé à chaque affichage, dans le même ordre.
-  // Glissement en cours : départ du doigt, et sens décidé (horizontal = on fait glisser la fiche).
-  const swipe = useRef<{ x: number; y: number; t: number; horizontal?: boolean; dx: number } | null>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
-  // Nouveau joueur affiché après un changement : on repart en haut de sa fiche si on était descendu plus bas.
-  useEffect(() => {
-    if (!enter || enter.id !== playerId) return
-    const top = cardRef.current?.getBoundingClientRect().top
-    if (top !== undefined && top < 0) window.scrollBy({ top: top - 80 })
-  }, [enter, playerId])
+  // Glisser pour changer de joueur (src/components/useSwipeNav.ts, même geste que la fiche ouverte depuis une liste) :
+  // déclaré ici, avant l'écran « Qui évalue ? », car un hook doit être appelé à chaque affichage, dans le même ordre.
+  const swipeNav = useSwipeNav(playerId)
+  const cardRef = swipeNav.cardRef
 
   // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
   const [rosterSort] = useRosterSort(eventId || undefined)
@@ -348,67 +339,12 @@ export default function Evaluate() {
   listModeRef.current = listMode
   const inList = !!player && !!event && (event.playerIds ?? []).includes(player.id)
 
-  // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement).
-  // La fiche suit le doigt ; au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté,
-  // ou elle revient en place si le geste est trop court. Pas dans un champ de saisie (qui garde son propre geste).
+  // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement). La fiche suit le doigt ;
+  // au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté, ou elle revient en place si le geste est
+  // trop court (src/components/useSwipeNav.ts). Avis pas enregistré : la question est posée avant de partir.
   const canSwipe = !spontaneous && roster.length > 0 && idx >= 0
-  const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  const setCard = (x: number, transition = '', opacity = 1) => {
-    const el = cardRef.current
-    if (!el) return
-    el.style.transition = transition
-    el.style.transform = x ? `translateX(${x}px)` : ''
-    el.style.opacity = opacity === 1 ? '' : String(opacity)
-  }
-  const springBack = () => setCard(0, 'transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)')
-
-  /** Passe au joueur `target` : la fiche actuelle sort du côté `dir`, la nouvelle arrive de l'autre côté. */
-  async function changePlayer(target: Player, dir: 'left' | 'right') {
-    if (dirty) {
-      // Avis pas enregistré : la fiche revient en place, la question est posée (et « Rester » ne bouge rien).
-      springBack()
-      setEnter({ id: target.id, dir })
-      return void go('joueur', target.id)
-    }
-    if (!reduceMotion && cardRef.current) {
-      const w = cardRef.current.offsetWidth
-      setCard(dir === 'left' ? -w : w, 'transform 0.16s ease-in, opacity 0.16s ease-in', 0)
-      await new Promise((r) => setTimeout(r, 160))
-    }
-    setEnter({ id: target.id, dir })
-    void go('joueur', target.id)
-  }
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    const el = e.target as HTMLElement
-    swipe.current =
-      !canSwipe || el.closest('input, textarea, select, [data-noswipe]') ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dx: 0 }
-  }
-  const onTouchMove = (e: React.TouchEvent) => {
-    const s = swipe.current
-    if (!s) return
-    const dx = e.touches[0].clientX - s.x
-    const dy = e.touches[0].clientY - s.y
-    // On décide du sens dès que le doigt a un peu bougé : vertical = défilement normal, on laisse faire.
-    if (s.horizontal === undefined) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-      s.horizontal = Math.abs(dx) > Math.abs(dy) * 1.2
-      if (!s.horizontal) return void (swipe.current = null)
-    }
-    // Résistance au bout de la liste (pas de joueur de ce côté).
-    s.dx = (dx < 0 && !next) || (dx > 0 && !prev) ? dx * 0.25 : dx
-    setCard(s.dx)
-  }
-  const onTouchEnd = () => {
-    const s = swipe.current
-    swipe.current = null
-    if (!s?.horizontal) return
-    const w = cardRef.current?.offsetWidth ?? 360
-    const speed = Math.abs(s.dx) / Math.max(1, Date.now() - s.t) // px/ms
-    const target = s.dx < 0 ? next : prev
-    if (target && (Math.abs(s.dx) > w * 0.28 || (speed > 0.5 && Math.abs(s.dx) > 30))) void changePlayer(target, s.dx < 0 ? 'left' : 'right')
-    else springBack()
-  }
+  const swipe = swipeNav.handlers({ enabled: canSwipe, prev: prev?.id, next: next?.id, go: (id) => go('joueur', id), hold: () => dirty })
+  const changePlayer = (target: Player, dir: 'left' | 'right') => swipe.change(target.id, dir)
 
   // Ordinateur, un joueur ouvert : joueur et contexte à gauche, grille de notation à droite.
   // Ailleurs, les deux blocs s'effacent (display: contents) : même colonne qu'avant.
@@ -585,7 +521,7 @@ export default function Evaluate() {
           key={player.id}
           ref={cardRef}
           style={{ touchAction: 'pan-y' }}
-          className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'} ${enter?.id === player.id ? (enter.dir === 'left' ? 'animate-slide-left' : 'animate-slide-right') : ''}`}
+          className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'}`}
         >
           {/* Voir la fiche du joueur (mesures, avis, maturité…) ; le bouton retour ramène ici. Sans poste, les encadrants
               et admins sont invités à la compléter directement. */}
@@ -796,7 +732,7 @@ export default function Evaluate() {
         </div>
   )
 
-  const touch = { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: springBack }
+  const touch = swipe.touch
   if (listMode && event)
     return (
       <div className="grid items-start gap-5 rail:gap-2" style={{ gridTemplateColumns: 'minmax(0, var(--md-col)) minmax(0, 1fr)' }} {...touch}>

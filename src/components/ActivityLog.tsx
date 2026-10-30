@@ -282,25 +282,37 @@ export function ActivityLog() {
   )
 }
 
-/** « Créé par … le … · modifié par … le … » (signature posée par le serveur). */
-export function StampLine({
-  row,
-}: {
-  row: { createdByName?: string; createdAtServer?: string; updatedByName?: string; updatedAtServer?: string }
-}) {
+type Stamped = { createdByName?: string; createdAtServer?: string; updatedByName?: string; updatedAtServer?: string }
+
+/**
+ * Signature posée par le serveur : qui a créé, qui a modifié en dernier (et quand) ; la modification est omise si elle est
+ * la création même. null : ni l'un ni l'autre (rien à montrer). Ligne StampLine, ou fenêtre « Infos de la fiche »
+ * (fiche joueur, depuis le 30/10 : plus dans l'en-tête).
+ */
+export function stampOf(row: Stamped) {
   const fmt = (s?: string) => (s ? new Date(s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '')
   if (!row.createdByName && !row.updatedByName) return null
   const sameAsCreation = row.updatedByName === row.createdByName && row.updatedAtServer === row.createdAtServer
+  return {
+    created: row.createdByName ? { by: row.createdByName, at: fmt(row.createdAtServer) } : undefined,
+    updated: row.updatedByName && !sameAsCreation ? { by: row.updatedByName, at: fmt(row.updatedAtServer) } : undefined,
+  }
+}
+
+/** « Créé par … le … · modifié par … le … » (signature posée par le serveur). */
+export function StampLine({ row }: { row: Stamped }) {
+  const st = stampOf(row)
+  if (!st) return null
   return (
     <div className="text-[10px] text-muted">
-      {row.createdByName && (
+      {st.created && (
         <>
-          Créé par <b className="text-fg">{row.createdByName}</b> le {fmt(row.createdAtServer)}
+          Créé par <b className="text-fg">{st.created.by}</b> le {st.created.at}
         </>
       )}
-      {row.updatedByName && !sameAsCreation && (
+      {st.updated && (
         <>
-          {row.createdByName ? ' · ' : ''}modifié par <b className="text-fg">{row.updatedByName}</b> le {fmt(row.updatedAtServer)}
+          {st.created ? ' · ' : ''}modifié par <b className="text-fg">{st.updated.by}</b> le {st.updated.at}
         </>
       )}
     </div>

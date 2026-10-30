@@ -252,7 +252,8 @@ export function VideoSection({
     const v = videos.find((x) => x.id === focus.id)
     if (v && embedOf(v.url)) openVideo(owner, v)
   }, [focus, videos, played, owner])
-  // Ouverte par le pictogramme « Vidéos » d'une ligne de joueur (…#videos) : la section vient à l'écran.
+  // Ancien lien vers la section (…#videos ; le pictogramme « Vidéos » d'une ligne ouvre l'onglet Vidéos depuis le 30/10) :
+  // la section vient à l'écran.
   const loaded = !!videos
   useEffect(() => {
     if (loaded && kind === 'player' && window.location.hash === '#videos') document.getElementById('videos')?.scrollIntoView({ block: 'start' })
