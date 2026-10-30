@@ -444,13 +444,14 @@ export default function App() {
               end={n.to === '/'}
               title={n.label}
               className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center justify-center font-bold wide:flex-none rail:py-2 side:flex-row side:justify-start side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
+                `flex min-w-0 flex-auto flex-col items-center justify-center text-xs font-bold wide:flex-none rail:py-2 side:flex-row side:justify-start side:gap-3 side:rounded-lg side:px-3 side:py-2.5 side:text-sm side:hover:bg-panel-2 ${isActive ? 'text-accent side:bg-accent/10 side:hover:bg-accent/15' : 'text-muted side:hover:text-fg'}`
               }
             >
               {({ isActive }) => (
                 <>
-                  {/* Tenu droit : l'onglet ouvert dans un rond teinté. */}
-                  <span className={`flex h-10 w-10 items-center justify-center rounded-full wide:h-auto wide:w-auto wide:bg-transparent ${isActive ? 'bg-accent/15' : ''}`}>
+                  {/* Tenu droit : l'onglet ouvert dans une pastille teintée, pictogramme et nom ; les autres, pictogramme seul
+                      (choix du 30/10). */}
+                  <span className={`flex h-10 items-center justify-center gap-1.5 rounded-full wide:h-auto wide:w-auto wide:bg-transparent wide:px-0 side:gap-3 ${isActive ? 'bg-accent/15 px-3.5' : 'w-10'}`}>
                     <span className="relative">
                       <svg viewBox="0 0 24 24" className="h-6 w-6 side:h-5 side:w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
                         <path d={n.icon} />
@@ -460,9 +461,9 @@ export default function App() {
                         <span className="absolute -top-1.5 -right-2.5 rounded-full bg-amber-400 px-1 text-[9px] leading-tight text-black">{toReview}</span>
                       )}
                     </span>
+                    {/* Nom écrit : onglet ouvert (tenu droit) et ordinateur ; ailleurs lu par les lecteurs d'écran et en info-bulle. */}
+                    <span className={`whitespace-nowrap ${isActive ? 'rail:sr-only' : 'sr-only side:not-sr-only'}`}>{n.label}</span>
                   </span>
-                  {/* Tenu droit et couché : icônes seules (le libellé reste lu par les lecteurs d'écran et en info-bulle). */}
-                  <span className="sr-only side:not-sr-only">{n.label}</span>
                 </>
               )}
             </GuardedLink>
