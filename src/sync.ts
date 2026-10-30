@@ -5,6 +5,7 @@ import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
+import { delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, regroupement, type Niveau } from './charge'
 import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
 import {
   ASK_AGAIN_MS,
@@ -34,11 +35,10 @@ import { unitTerritory } from './eventOrganizer'
 import {
   assignmentScope,
   assignmentScopeKey,
+  COMMON_TOPIC,
   CONTENT_TABLES,
   dropProvisional,
-  dueForSync,
   forSignal,
-  GROUP_MS,
   Grouper,
   IDS_PER_READ,
   LIVE_EVENTS,
@@ -101,8 +101,9 @@ import {
  *    hasard) ; configuration, critères et niveaux arrivent avec leur contenu (appliqué comme une ligne relue, curseur
  *    inchangé) ;
  *  - une écriture de l'appareil n'envoie que la file (ses autres appareils sont prévenus par hb:compte:…) ;
- *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes
- *    sinon ; toujours au retour sur l'appli et au retour du réseau ;
+ *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné ; direct coupé : 60 s,
+ *    puis 2 min, puis 5 min (un peu de hasard) ; en charge, 15 min en direct (src/charge.ts) ; toujours au retour sur
+ *    l'appli et au retour du réseau ;
  *  - une nouvelle version annoncée (hb_annoncer_version, canal commun) : vérification de la mise à jour dans les 30 s.
  *  Serveur sans 057 (fonctions absentes) : relecture complète des 19 tables et postgres_changes, comme avant.
  *
@@ -163,10 +164,19 @@ const setBusy = (until: number) => {
   busyUntil = until
   listeners.forEach((l) => l())
 }
+/*
+ * NIVEAU DE CHARGE (src/charge.ts ; séries 8 et 9 du 30/10) : chaque requête vers la base est un indice (refus, délais,
+ * lenteur) ; le serveur peut aussi annoncer un niveau (message « charge » sur hb:commun). En charge, l'appareil espace ce qui
+ * peut attendre (relectures après un signal, « vu », traces, signe de vie, filet de sécurité), jamais une notation.
+ */
+const charge = new LoadMeter({ onChange: () => listeners.forEach((l) => l()) })
+/** Niveau de charge estimé par l'appareil (src/charge.ts). */
+export const niveauCharge = (): Niveau => charge.niveau()
 const restFetch = retryingFetch({
   fetch: (input, init) => fetch(input, init),
   onWait: (_n, ms) => setBusy(Date.now() + ms),
   onDone: () => setBusy(0),
+  onResult: (r) => charge.note(r),
 })
 /*
  * RENOUVELLEMENT DU JETON (src/authRefresh.ts ; série 8 du 30/10 : à 20 000 appareils, 12,8 % des renouvellements en erreur
@@ -316,8 +326,15 @@ let running: Promise<void> | null = null
 let again = false
 /** Tables demandées (signaux reçus pendant une synchronisation) : relues ensuite, si aucune complète n'est demandée. */
 let asked: Set<SyncTable> | null = null
-/** Début de la dernière synchronisation complète (filet de sécurité, src/syncLive.ts dueForSync). */
+/** Début de la dernière synchronisation complète (filet de sécurité, src/charge.ts delaiFilet). */
 let lastFull = 0
+/**
+ * Filet de sécurité (src/charge.ts, delaiFilet) : palier du cycle en cours (synchronisations complètes faites depuis que le
+ * direct est coupé, 0 en direct), compte de ces synchronisations (remis à zéro quand le direct revient) et hasard du cycle.
+ */
+let filetStep = 0
+let filetCoupes = 0
+let filetHasard = Math.random()
 
 /**
  * Lance une synchronisation (ou attend celle en cours). retry : renvoie aussi les modifications mises de côté.
@@ -372,7 +389,12 @@ async function runOnce(scope: Set<SyncTable> | null) {
     if (!data.session) return setState(isAuthRetryableFetchError(error) ? 'offline' : 'login')
     if (!claimDevice(data.session.user.id)) return
     setState('syncing')
-    if (!scope) lastFull = Date.now()
+    if (!scope) {
+      lastFull = Date.now()
+      // Direct coupé : 60 s, puis 2 min, puis 5 min (un peu de hasard) au lieu de 60 s à chaque fois (src/charge.ts).
+      filetStep = liveSignals ? 0 : filetCoupes++
+      filetHasard = Math.random()
+    }
     rejectedCount = 0
     // Un envoi en échec n'empêche pas de recevoir les nouveautés des autres.
     let pushError: unknown = null
@@ -1107,7 +1129,7 @@ async function readIds(keys: Set<string>) {
         setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
         await noteRows(table, rows)
       } catch {
-        signals.add(table, GROUP_MS)
+        signals.add(table, regroupement(charge.niveau(), false))
         break
       }
     }
@@ -1327,11 +1349,25 @@ function syncSoon(delay = 400) {
 }
 
 // Écritures de l'appareil rapprochées : un seul envoi de la file (ses lignes reviennent par le signal du serveur, ou par la
-// prochaine synchronisation complète : rien à relire tout de suite).
+// prochaine synchronisation complète : rien à relire tout de suite). Délai (src/charge.ts, delaiEnvoi) : 0,5 s dès qu'une
+// notation, une évaluation ou toute autre modification attend ; « vu » et traces seuls : 0,5 s au calme, 10 s ou 30 s en
+// charge (ils partent avec la notation suivante, ou à l'échéance ; une échéance déjà prévue n'est jamais repoussée).
 let pushSoon: number | undefined
-function pushLater(delay = 500) {
+let pushAt = 0
+const pushTables = new Set<string>()
+function pushLater(table?: string) {
+  if (table) pushTables.add(table)
+  const delay = delaiEnvoi(pushTables, charge.niveau())
+  const at = Date.now() + delay
+  // « Vu » ou trace pendant une attente déjà prévue (plus tôt) : on garde l'échéance.
+  if (pushSoon !== undefined && delay > 500 && at >= pushAt) return
   window.clearTimeout(pushSoon)
-  pushSoon = window.setTimeout(() => void syncNow({ tables: [] }), delay)
+  pushAt = at
+  pushSoon = window.setTimeout(() => {
+    pushSoon = undefined
+    pushTables.clear()
+    void syncNow({ tables: [] })
+  }, delay)
 }
 
 /** Signaux reçus en direct, regroupés (src/syncLive.ts) : une synchronisation ciblée sur les tables signalées. */
@@ -1351,6 +1387,8 @@ const setLive = (signalsOn: boolean, on: boolean) => {
   const was = live
   live = on
   liveSignals = on && signalsOn
+  // Direct revenu : le filet reprend son rythme ordinaire (le prochain direct coupé repartira de 60 s).
+  if (liveSignals) filetCoupes = 0
   versionHooks.live(liveSignals)
   // En (re)connexion, on rattrape ce qui a pu changer pendant la coupure.
   if (live && !was) syncSoon(0)
@@ -1408,6 +1446,13 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
     versionHooks.announced((payload as { v?: unknown } | undefined)?.v)
     return
   }
+  // Niveau de charge annoncé par le serveur (src/charge.ts) : canal commun seulement ; plancher borné dans le temps.
+  if (event === 'charge') {
+    const a = topic === COMMON_TOPIC ? lireAnnonce(payload) : null
+    if (a) charge.annonce(a)
+    return
+  }
+  const niveau = charge.niveau()
   // Table connue (SYNC_TABLES) et lue par ce compte : sinon rien, avec ou sans lignes.
   const s = parseSignal(payload, SYNC_TABLES)
   if (!s || !readsTable(s.table)) return
@@ -1415,8 +1460,8 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
   // la référence : la prochaine complète la fera, étalée). Rien d'autre à relire pour ce signal.
   if (event === 'ligne' && s.row && CONTENT_TABLES.includes(s.table)) {
     void applyLiveRows(s.table, [s.row]).then(
-      (again) => again.length && signals.add(s.table, pullDelay(topic)),
-      () => signals.add(s.table, pullDelay(topic)),
+      (again) => again.length && signals.add(s.table, pullDelay(topic, Math.random, niveau)),
+      () => signals.add(s.table, pullDelay(topic, Math.random, niveau)),
     )
     return
   }
@@ -1424,10 +1469,10 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
   // signal simple : la table est relue par curseur, comme avant.
   const plan = planLive(s, topic)
   if (plan.table) {
-    signals.add(s.table, pullDelay(topic))
+    signals.add(s.table, pullDelay(topic, Math.random, niveau))
     return
   }
-  const delay = pullDelay(topic)
+  const delay = pullDelay(topic, Math.random, niveau)
   const reread = (ids: string[]) => {
     for (const id of ids) rereads.add(liveKey(s.table, id), delay)
   }
@@ -1523,7 +1568,7 @@ export function startSync() {
   window.addEventListener('offline', () => setState('offline'))
   // Retour sur l'appli (téléphone déverrouillé, onglet réaffiché) : on se met à jour.
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && syncSoon(0))
-  db.outbox.hook('creating', () => pushLater())
+  db.outbox.hook('creating', (_key, item) => pushLater(item.table))
   // Ne pas appeler Supabase directement dans ce callback (risque de blocage) : on diffère.
   supabase.auth.onAuthStateChange((_e, session) =>
     setTimeout(() => {
@@ -1532,10 +1577,11 @@ export function startSync() {
       void syncNow()
     }, 0),
   )
-  // Filet de sécurité si une notification est perdue : complète toutes les 5 minutes en direct, toutes les minutes sinon.
+  // Filet de sécurité si une notification est perdue (src/charge.ts, delaiFilet) : en direct, 5 minutes (15 en charge) ;
+  // direct coupé, 60 s, puis 2 min, puis 5 min, avec un peu de hasard (en charge, on part de plus haut).
   setInterval(() => {
-    if (dueForSync(Date.now(), lastFull, liveSignals)) void syncNow()
-  }, 30_000)
+    if (Date.now() - lastFull >= delaiFilet(liveSignals, charge.niveau(), filetStep, filetHasard)) void syncNow()
+  }, 10_000)
   void syncNow()
 }
 
@@ -1557,7 +1603,7 @@ function markPlayersReady() {
 const serverBusy = () => busyUntil > Date.now()
 
 /** État de la synchro hors React (écran d'ouverture, src/splashScreen.ts). */
-export const syncSnapshot = () => ({ state, progress, runs, playersReady, busy: serverBusy() })
+export const syncSnapshot = () => ({ state, progress, runs, playersReady, busy: serverBusy(), niveau: charge.niveau() })
 
 /** Abonnement hors React ; renvoie la fonction de désabonnement. */
 export function subscribeSync(l: () => void) {

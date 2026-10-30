@@ -115,6 +115,12 @@ export interface RetryOptions {
   onWait?: (attempt: number, ms: number, cause: string) => void
   /** Prévenu quand la requête a enfin abouti (ou abandonné) après au moins une attente. */
   onDone?: (retried: number, ok: boolean) => void
+  /**
+   * Prévenu après CHAQUE tentative (réponse ou erreur) : statut (0 : coupure ou délai dépassé), durée, Retry-After (ms),
+   * refus explicite, délai dépassé. Sert à estimer le niveau de charge du serveur (src/charge.ts) ; jamais appelé pour une
+   * requête annulée par l'appelant ni hors ligne.
+   */
+  onResult?: (r: { status: number; ms: number; retryAfterMs: number | null; refused: boolean; timeout: boolean }) => void
   maxRetries?: number
   timeoutMs?: number
 }
@@ -186,6 +192,7 @@ export function retryingFetch(opts: RetryOptions): typeof fetch {
     for (let n = 0; ; n++) {
       let res: Response | null = null
       let err: unknown = null
+      const t0 = now()
       try {
         res = await attempt(opts.fetch, input, init, timeoutMs)
       } catch (e) {
@@ -193,6 +200,19 @@ export function retryingFetch(opts: RetryOptions): typeof fetch {
       }
       const aborted = !!init?.signal?.aborted
       const last = n >= max || aborted || !online()
+      if (opts.onResult && !aborted && online()) {
+        try {
+          opts.onResult({
+            status: res ? res.status : 0,
+            ms: Math.max(0, now() - t0),
+            retryAfterMs: res ? retryAfterMs(res.headers.get('Retry-After'), now()) : null,
+            refused: res ? refusedResponse(res.headers) : false,
+            timeout: !res && err instanceof TimeoutError,
+          })
+        } catch {
+          /* l'estimation ne doit jamais gêner la requête */
+        }
+      }
       if (res) {
         if (!retryableStatus(res.status, canReplay, refusedResponse(res.headers)) || last) {
           if (n > 0) opts.onDone?.(n, res.ok)

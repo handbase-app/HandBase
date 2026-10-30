@@ -4,7 +4,9 @@
  *  - canaux privés du compte, même règle que hb_mes_canaux() (miroir, pour le test et la lecture du code) ;
  *  - délai de relecture après un signal : regroupement 1,5 s ; canaux larges (commun, staff, tout) : + 0 à 10 s au hasard,
  *    pour que des milliers d'appareils ne relisent pas la même table à la même seconde ;
- *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes sinon ;
+ *  - filet de sécurité : synchronisation complète toutes les 5 minutes quand le direct est abonné, toutes les minutes sinon
+ *    (règles d'origine ; l'appli suit maintenant src/charge.ts, delaiFilet : 15 min en charge, et 60 s → 2 min → 5 min quand
+ *    le direct est coupé) ;
  *  - quelles tables relire d'après la réponse de hb_quoi_de_neuf ;
  *  - lignes reçues (relecture ou en direct) à garder face à celles de l'appareil ;
  *  - regroupement des signaux (Grouper) ; annonce d'une nouvelle version (vérification dans les 30 s) ;
@@ -21,6 +23,7 @@
  */
 import type { SyncTable } from './db'
 import { playerClub, playerDepartment, type ServerScope } from './perimeter'
+import { CHARGE_REGLES, regroupement, type Niveau } from './charge'
 
 // ---------- Canaux ----------
 
@@ -37,8 +40,11 @@ export const isBroadTopic = (topic: string) => BROAD_TOPICS.includes(topic)
 /** Tables dont la ligne entière est diffusée (rien de personnel, lues par tout le staff) : événement « ligne ». */
 export const CONTENT_TABLES: readonly SyncTable[] = ['config', 'criteria', 'levels']
 
-/** Événements diffusés sur les canaux (realtime.send) : signal (table changée), ligne (signal + contenu), version (nouvelle appli). */
-export const LIVE_EVENTS = ['signal', 'ligne', 'version'] as const
+/**
+ * Événements diffusés sur les canaux (realtime.send) : signal (table changée), ligne (signal + contenu), version (nouvelle
+ * appli), charge (niveau de charge annoncé par le serveur, canal commun seulement : src/charge.ts).
+ */
+export const LIVE_EVENTS = ['signal', 'ligne', 'version', 'charge'] as const
 
 /**
  * Canaux du compte, même règle que hb_mes_canaux() : le commun et le sien pour tous ; un joueur : sa fiche ; le staff : le
@@ -63,10 +69,13 @@ export function channelsOf(input: { uid: string | null; role: string | null; pla
 
 // ---------- Délais ----------
 
-/** Regroupement des signaux : plusieurs tables signalées en 1,5 s = une seule relecture. */
-export const GROUP_MS = 1500
-/** Canal large : relecture étalée sur 10 s. */
-export const BROAD_JITTER_MS = 10_000
+/**
+ * Regroupement des signaux : plusieurs tables signalées en 1,5 s = une seule relecture (serveur calme ; en charge : 5 s ou
+ * 10 s, src/charge.ts, CHARGE_REGLES.regroupementMs).
+ */
+export const GROUP_MS = CHARGE_REGLES.regroupementMs.calme
+/** Canal large : relecture étalée sur 10 s (serveur calme ; en charge : 20 s ou 30 s). */
+export const BROAD_JITTER_MS = CHARGE_REGLES.largeHasardMs.calme
 /** Nouvelle version annoncée : vérification étalée sur 30 s. */
 export const VERSION_JITTER_MS = 30_000
 /** Filet de sécurité (synchronisation complète) : 5 minutes en direct, 1 minute sinon (une notification perdue). */
@@ -76,8 +85,8 @@ export const SYNC_MS = 60_000
 /** Entier au hasard dans [0, max) ; rnd : tirage dans [0, 1) (Math.random, ou fixé par le test). */
 export const jitter = (max: number, rnd: () => number = Math.random) => Math.floor(Math.min(Math.max(rnd(), 0), 0.999999) * max)
 
-/** Délai avant de relire une table signalée sur ce canal. */
-export const pullDelay = (topic: string, rnd: () => number = Math.random) => GROUP_MS + (isBroadTopic(topic) ? jitter(BROAD_JITTER_MS, rnd) : 0)
+/** Délai avant de relire une table signalée sur ce canal (niveau de charge : src/charge.ts ; calme par défaut). */
+export const pullDelay = (topic: string, rnd: () => number = Math.random, niveau: Niveau = 'calme') => regroupement(niveau, isBroadTopic(topic), rnd)
 
 /** Délai avant de vérifier une version annoncée ; aucune vérification si c'est déjà la mienne (ou rien d'annoncé). */
 export function versionCheckDelay(announced: unknown, mine: string, rnd: () => number = Math.random): number | null {

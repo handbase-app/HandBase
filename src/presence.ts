@@ -1,9 +1,11 @@
-import { supabase } from './sync'
+import { niveauCharge, supabase } from './sync'
+import { delaiSigneDeVie } from './charge'
 
 /*
  * « L'appli est ouverte » (supabase/030_connexions.sql) : un signe de vie toutes les 30 s tant que l'appli est
  * affichée et en ligne. Les administrateurs voient ainsi qui est connecté et quand (Réglages → Utilisateurs).
  * Pas de canal temps réel : il montrerait à tout le staff qui est en ligne.
+ * Serveur en charge (src/charge.ts) : toutes les 60 s (chargé) ou 120 s (saturé).
  */
 
 /** Identifiant de cette ouverture de l'appli (randomUUID n'existe pas hors https, ex. test en réseau local). */
@@ -41,7 +43,12 @@ export function startPresence() {
   if (!supabase) return
   // Démarrage avec un compte, ou connexion : tout de suite (callback différé, comme dans sync.ts).
   supabase.auth.onAuthStateChange((e, s) => s && (e === 'INITIAL_SESSION' || e === 'SIGNED_IN') && setTimeout(() => void ping(), 0))
-  setInterval(() => void ping(), 30_000)
+  // Intervalle relu à chaque tour : il suit le niveau de charge (30 s au calme).
+  const tick = () => {
+    void ping()
+    setTimeout(tick, delaiSigneDeVie(niveauCharge()))
+  }
+  setTimeout(tick, delaiSigneDeVie(niveauCharge()))
   document.addEventListener('visibilitychange', () => void ping())
   window.addEventListener('online', () => void ping())
 }
