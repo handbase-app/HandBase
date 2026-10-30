@@ -816,7 +816,7 @@ export function useKeyboardInset(on: boolean) {
  *    l'étoile filante, l'étoile tourne pendant une demande) ; même toucher, même appui long ; la fenêtre s'ouvre à droite
  *    du menu, sur le fond voilé et flouté du téléphone.
  */
-export function AskButton({ rail = false }: { rail?: boolean } = {}) {
+export function AskButton({ rail = false, bar = false }: { rail?: boolean; bar?: boolean } = {}) {
   const brand = useAppBrand()
   const nextar = brand.name.toLowerCase() === DEFAULT_APP_NAME.toLowerCase()
   // Nom du sport de l'installation (« Handball », « Volley ») : dit aux lecteurs d'écran après « Nextar » (plus écrit dans
@@ -1076,6 +1076,66 @@ export function AskButton({ rail = false }: { rail?: boolean } = {}) {
   // Pastille micro au bout de la capsule : seulement si la dictée est disponible (mêmes conditions que l'appui long et le
   // micro de la palette : rôle, serveur, enregistreur, accès, réglage de l'appareil).
   const dictable = questionReady
+  if (bar)
+    return (
+      <>
+        {/* En-tête façon Instagram (téléphone, tablette tenue droite ; choix du 31/10) : le mot « Nextar » à gauche, sans capsule,
+            ouvre « Demander » (appui long : dictée) ; le micro est un pictogramme à droite, avant l'étoile et le profil. */}
+        <button
+          type="button"
+          data-noswipe
+          aria-label={`${nextar ? `${brand.name} ${sportName}` : brand.name}. ${label}`}
+          aria-busy={sending || !!flight || undefined}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-keyshortcuts="/"
+          ref={btn}
+          title={`Demander à ${brand.name} (touche /)`}
+          className={`flex min-w-0 shrink touch-none items-center gap-1.5 rounded-lg py-1 text-xl leading-none font-bold text-fg select-none [-webkit-touch-callout:none] active:opacity-70 ${rec ? 'animate-pulse text-red-500' : ''}`}
+          style={{ fontFamily: BRAND_FONT }}
+          {...press}
+        >
+          {nextar ? (
+            <NextarWordmark className="h-[26px]" spin={sending || !!flight} />
+          ) : (
+            <>
+              <span className={`ask-star flex ${sending || flight ? 'wait-spin' : ''}`} aria-hidden>
+                <NextarStar className="h-[18px] w-[18px]" />
+              </span>
+              <span className="truncate">{brand.name}</span>
+            </>
+          )}
+        </button>
+        <span aria-hidden className="flex-1" />
+        {dictable && (
+          <button
+            type="button"
+            aria-label={rec ? 'Finir la dictée et envoyer' : sending ? 'Transcription en cours' : 'Dicter une question'}
+            aria-pressed={rec}
+            title={mic.error || (rec ? 'Finir la dictée : la phrase est envoyée' : sending ? 'J’écris ce que vous avez dit…' : 'Dicter une question (touchez pour commencer, touchez pour finir)')}
+            disabled={sending}
+            className={`flex h-9 w-9 shrink-0 touch-none items-center justify-center rounded-full transition select-none [-webkit-touch-callout:none] active:scale-95 ${rec ? 'animate-pulse bg-red-600 text-white' : 'text-muted hover:text-fg'}`}
+            {...mic.buttonProps}
+            onPointerDown={(e) => {
+              if (open && e.button === 0) closePalette()
+              mic.buttonProps.onPointerDown(e)
+            }}
+          >
+            {sending ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+            ) : rec ? (
+              <span className="h-3 w-3 rounded-[2px] bg-current" aria-hidden />
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+              </svg>
+            )}
+          </button>
+        )}
+        {palette}
+      </>
+    )
   return (
     <>
       {/* Capsule « Nextar » (le mot dessiné) aux couleurs du thème, liseré menthe (.ask-capsule, src/index.css) ; deux boutons côte à

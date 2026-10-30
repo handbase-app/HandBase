@@ -272,7 +272,6 @@ body {
   box-shadow: var(--neon-glow);
 }
 :root[data-light] .ask-capsule { --ask-bg: var(--color-fg); color: var(--color-panel); }
-:root[data-header] .app-header .ask-capsule { --ask-bg: rgb(255 255 255 / 0.16); --ask-under: var(--header-bg); color: var(--header-fg); }
 .ask-capsule .ask-star { color: var(--neon-a); }
 /* Pastille micro au bout de la capsule (dictée disponible) : ronde, dégradé néon, micro à l'encre du néon ; pendant la dictée,
    blanche avec un carré rouge (arrêter). */
@@ -292,19 +291,6 @@ body {
 /* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
    d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */
 main[tabindex='-1']:focus { outline: none; }
-
-/* En-tête coloré (style Officiel). */
-:root[data-header] .app-header {
-  --color-fg: var(--header-fg);
-  --color-muted: var(--header-muted);
-  --color-line: var(--header-line);
-  --color-panel: var(--header-panel);
-  --color-panel-2: var(--header-panel);
-  --color-accent-text: var(--header-fg);
-  background: var(--header-bg);
-  color: var(--header-fg);
-  border-bottom-color: var(--header-line);
-}
 
 /* Carte du bilan sur fond propre (style Sport : bleu nuit, échelle orange) ; la légende suit. */
 :root[data-map] :is(.map-surface, .map-legend) {

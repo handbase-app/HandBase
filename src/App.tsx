@@ -296,11 +296,21 @@ export default function App() {
       <header
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
-        className="app-header sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur rail:hidden"
+        // Fond uni de la page, comme les applis pro (Instagram : choix du 31/10) ; plus d'en-tête coloré par le style.
+        className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur rail:hidden"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
         {TRIAL && <div className="bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black">{TRIAL_LABEL}</div>}
+        {/* Téléphone, tablette tenue droite : « Nextar » à gauche (ouvre « Demander »), puis micro, « Mes suivis » et profil à
+            droite, comme l'en-tête d'Instagram (31/10). */}
+        {!side && !rail && !player ? (
+          <div className={`mx-auto flex max-w-2xl items-center gap-3 px-4 pb-2.5 ${TRIAL ? 'pt-1.5' : 'pt-2.5'}`}>
+            <AskButton bar />
+            <FollowStar n={followNews} compact />
+            <ProfileButton />
+          </div>
+        ) : (
         <div
           className={`mx-auto grid max-w-2xl grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-2 px-4 pb-3 wide:max-w-none side:gap-3 side:px-6 ${TRIAL ? 'pt-0.5' : 'pt-3'}`}
         >
@@ -320,6 +330,7 @@ export default function App() {
           {!rail && <ProfileButton />}
         </div>
         </div>
+        )}
         {!rail && <SyncProgressBar />}
         {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
         {!rail && <SpyBanner />}
@@ -424,9 +435,9 @@ export default function App() {
         aria-label="Menu principal"
         className={`fixed inset-x-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20 mx-auto max-w-[calc(42rem-1.5rem)] rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:mx-0 wide:max-w-none wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
-        {/* Ordinateur : le haut du menu a la hauteur et la couleur de l'en-tête (--hdr, bande orange comprise) ; la ligne
+        {/* Ordinateur : le haut du menu a la hauteur de l'en-tête (--hdr, bande orange comprise) ; la ligne
             sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
-        <div className="app-header hidden shrink-0 flex-col border-b border-line side:flex side:h-[var(--hdr)]">
+        <div className="hidden shrink-0 flex-col border-b border-line side:flex side:h-[var(--hdr)]">
           {TRIAL && <div aria-hidden className="h-[18px] shrink-0 bg-amber-500" />}
           <div className="flex min-h-0 flex-1 items-center px-5">
             <Logo stacked />
