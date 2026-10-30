@@ -1091,7 +1091,8 @@ export function AskButton({ rail = false, bar = false }: { rail?: boolean; bar?:
           aria-keyshortcuts="/"
           ref={btn}
           title={`Demander à ${brand.name} (touche /)`}
-          className={`flex min-w-0 shrink touch-none items-center gap-1.5 rounded-lg py-1 text-xl leading-none font-bold text-fg select-none [-webkit-touch-callout:none] active:opacity-70 ${rec ? 'animate-pulse text-red-500' : ''}`}
+          // Ordinateur : sorti de la rangée, posé dans le carré en haut du menu de gauche (même hauteur que l'en-tête).
+          className={`flex min-w-0 shrink touch-none items-center gap-1.5 rounded-lg py-1 text-xl leading-none font-bold text-fg select-none [-webkit-touch-callout:none] active:opacity-70 side:absolute side:top-1/2 side:left-[calc(1.25rem-var(--nav-l))] side:-translate-y-1/2 ${rec ? 'animate-pulse text-red-500' : ''}`}
           style={{ fontFamily: BRAND_FONT }}
           {...press}
         >

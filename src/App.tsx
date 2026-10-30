@@ -5,7 +5,6 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, type NavLin
 import { canLeave, ConfirmHost } from './components/Confirm'
 import { GlobalCompareBar } from './components/ComparePick'
 import { TRIAL, TRIAL_LABEL } from './db'
-import { useShowBrand } from './brandPref'
 import { useDepartments } from './lists'
 import { useSportConfig } from './installation'
 import Evaluate from './pages/Evaluate'
@@ -24,8 +23,7 @@ import { Icon, ICONS } from './components/ui'
 import { ProfileButton } from './components/ProfileMenu'
 import { can, useRole } from './roles'
 import { useThemeVersion } from './theme'
-import { AppLockup } from './components/Brand'
-import { appName, useAppBrand } from './appBrand'
+import { appName } from './appBrand'
 import { SyncProgressBar } from './components/SyncProgress'
 import { BackTracker } from './backNav'
 import { STAFF } from './staffLabels'
@@ -161,22 +159,6 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
 }
 
 /**
- * Identité de l'appli (en-tête sur téléphone ; en haut du menu de gauche sur ordinateur) : pictogramme et nom écrit à côté
- * (Nextar par défaut ; Réglages → Administration → « Appli : nom et logo » ; src/components/Brand.tsx). Le nom et le logo
- * du style de l'installation sont ceux de l'organisation : ils sont sur l'accueil (OrgHeader, src/pages/Home.tsx), plus ici.
- */
-function Logo({ className = '', stacked = false }: { className?: string; stacked?: boolean }) {
-  const { name } = useAppBrand()
-  // Réglages → Apparence : logo et nom masqués au choix (src/brandPref.ts) ; en haut du menu, la place reste (même hauteur que l'en-tête).
-  if (!useShowBrand()) return null
-  return (
-    <GuardedLink to="/" aria-label={`${name}, accueil`} className={`leading-none ${stacked ? 'text-lg' : 'flex min-w-0 items-center gap-2 text-[17px]'} ${className}`}>
-      <AppLockup mark={stacked ? 'h-8 w-8' : 'h-7 w-7'} />
-    </GuardedLink>
-  )
-}
-
-/**
  * Largeur du contenu en paysage et sur ordinateur, selon l'écran (sur téléphone tenu droit, tout reste
  * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
  */
@@ -297,17 +279,19 @@ export default function App() {
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
         // Fond uni de la page, comme les applis pro (Instagram : choix du 31/10) ; plus d'en-tête coloré par le style.
-        className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur rail:hidden"
+        // z-30 sur ordinateur : « Nextar » déborde sur le haut du menu de gauche (plus bas), par-dessus lui.
+        className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur rail:hidden side:z-30"
       >
         {/* Version d'essai ou démonstration : une bande orange tout en haut, sur toute la largeur, qui porte son texte (plus
             de badge à côté du nom de l'appli, qu'il coupait sur téléphone). Dans l'en-tête : sa hauteur compte dans --hdr. */}
         {TRIAL && <div className="bg-amber-500 text-center text-[10px] leading-[18px] font-extrabold tracking-wider text-black">{TRIAL_LABEL}</div>}
-        {/* Téléphone, tablette tenue droite : « Nextar » à gauche (ouvre « Demander »), puis micro, « Mes suivis » et profil à
-            droite, comme l'en-tête d'Instagram (31/10). */}
-        {!side && !rail && !player ? (
-          <div className={`mx-auto flex max-w-2xl items-center gap-3 px-4 pb-2.5 ${TRIAL ? 'pt-1.5' : 'pt-2.5'}`}>
+        {/* Comme l'en-tête d'Instagram (31/10) : « Nextar » à gauche (ouvre « Demander »), puis micro, « Mes suivis » et profil
+            à droite. Ordinateur : « Nextar » dans le carré en haut du menu de gauche, au-dessus d'« Accueil » (AskButton bar,
+            placé là depuis cette rangée). Compte joueur : la bulle de profil seule (plus bas). */}
+        {!rail && !player ? (
+          <div className={`mx-auto flex max-w-2xl items-center gap-3 px-4 pb-2.5 wide:max-w-none side:relative side:gap-4 side:px-6 ${TRIAL ? 'pt-1.5' : 'pt-2.5'}`}>
             <AskButton bar />
-            <FollowStar n={followNews} compact />
+            <FollowStar n={followNews} compact={!side} />
             <ProfileButton />
           </div>
         ) : (
@@ -436,12 +420,10 @@ export default function App() {
         className={`fixed inset-x-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20 mx-auto max-w-[calc(42rem-1.5rem)] rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:mx-0 wide:max-w-none wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
         {/* Ordinateur : le haut du menu a la hauteur de l'en-tête (--hdr, bande orange comprise) ; la ligne
-            sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
+            sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). Plus de logo ici :
+            « Nextar » est à gauche de l'en-tête, comme sur téléphone (31/10). */}
         <div className="hidden shrink-0 flex-col border-b border-line side:flex side:h-[var(--hdr)]">
           {TRIAL && <div aria-hidden className="h-[18px] shrink-0 bg-amber-500" />}
-          <div className="flex min-h-0 flex-1 items-center px-5">
-            <Logo stacked />
-          </div>
         </div>
         {/* Téléphone couché : en haut, le repère « version d'essai » et le bouton « Demander » (pictogramme de l'appli). */}
         {rail && (
