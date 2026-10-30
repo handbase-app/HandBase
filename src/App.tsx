@@ -270,10 +270,9 @@ export default function App() {
   // Téléphone couché : plus d'en-tête ; « Demander » en haut du menu de gauche, suivis, cible et profil en bas.
   const rail = useMedia(MQ.rail)
   const railShort = useMedia(RAIL_SHORT)
-  // Téléphone tenu droit (ni colonne, ni menu à gauche) : « Demander » dans un rond à droite de la capsule d'onglets, en bas
-  // (plus dans l'en-tête : choix du 30/10). Un seul bouton monté à la fois (raccourci « / »).
+  // Téléphone tenu droit (ni colonne, ni menu à gauche) : capsule d'onglets flottante en bas.
   const side = useMedia(MQ.side)
-  const dock = !rail && !side
+  const portrait = !rail && !side
   const navigate = useNavigate()
   const goGuarded = (to: string) => async () => {
     if (await canLeave()) navigate(to)
@@ -314,7 +313,7 @@ export default function App() {
           {!player && !rail && <FollowStar n={followNews} />}
         </div>
         {/* Bulle ✦ « Demander » (toutes les pages ; raccourci « / » ; appui long : dictée) : src/components/Demander.tsx. */}
-        {player || !side ? <span aria-hidden /> : <AskButton />}
+        {player || rail ? <span aria-hidden /> : <AskButton />}
         <div className="flex min-w-0 items-center justify-end gap-3">
           {/* Bulle de profil : initiales, point de synchro ; menu Réglages, Confidentialité, déconnexion (ProfileMenu.tsx). */}
           {!rail && <ProfileButton />}
@@ -417,10 +416,10 @@ export default function App() {
       </main>
 
       {/* Onglets : capsule flottante en bas, icônes seules (tenu droit, choix du 30/10), fine colonne d'icônes (téléphone
-          couché), menu à gauche (ordinateur). Tenu droit, le rond « Demander » est juste à droite de la capsule (plus bas). */}
+          couché), menu à gauche (ordinateur). « Demander » reste au milieu de l'en-tête. */}
       <nav
         aria-label="Menu principal"
-        className={`fixed bottom-[calc(0.625rem+env(safe-area-inset-bottom))] left-3 z-20 rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur ${player ? 'right-3' : 'right-[4.5rem]'} wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
+        className={`fixed bottom-[calc(0.625rem+env(safe-area-inset-bottom))] left-3 z-20 rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur right-3 wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
         {/* Ordinateur : le haut du menu a la hauteur et la couleur de l'en-tête (--hdr, bande orange comprise) ; la ligne
             sous l'en-tête continue jusqu'au bord gauche et « Accueil » commence dessous (choix du 30/10). */}
@@ -478,15 +477,9 @@ export default function App() {
           </div>
         )}
       </nav>
-      {/* Tenu droit : « Demander » (toucher : la fenêtre en haut ; appui long : dictée), rond à droite de la capsule. */}
       {/* Tenu droit : un voile du fond sous la capsule, pour que la page qui défile dessous (et sous les barres « Enregistrer »
           collées au-dessus) ne se lise pas autour des boutons. */}
-      {dock && <div aria-hidden className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-[15] h-[calc(var(--nav-b)+1rem)] bg-linear-to-t from-bg from-70% to-transparent" />}
-      {dock && !player && (
-        <div className="no-print fixed right-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20">
-          <AskButton dock />
-        </div>
-      )}
+      {portrait && <div aria-hidden className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-[15] h-[calc(var(--nav-b)+1rem)] bg-linear-to-t from-bg from-70% to-transparent" />}
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
       {!player && <VideoDock />}
