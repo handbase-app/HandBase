@@ -1,12 +1,16 @@
 /*
  * Onglet d'une fiche gardé dans l'adresse (?onglet=…, sans paramètre pour l'onglet par défaut), et gardé quand on passe
- * d'un élément à l'autre (clic dans la liste de gauche, ‹ ›, ↑ ↓) : on compare la croissance de plusieurs joueurs sans
+ * d'un élément à l'autre (clic dans la liste de gauche, glisser la fiche sur téléphone, ↑ ↓) : on compare la croissance de plusieurs joueurs sans
  * revenir chaque fois sur « Profil ». Même règle que les onglets d'un événement (src/pages/Events.tsx).
  */
 import { POLE_VIEW_DEFAULT, POLE_VIEWS, type PoleView } from './poleSeason'
 
-/** Onglets de la fiche d'un joueur (src/pages/PlayerDetail.tsx), « profil » par défaut. */
-export const PLAYER_TABS = ['profil', 'tests', 'avis', 'croissance'] as const
+/**
+ * Onglets de la fiche d'un joueur (src/pages/PlayerDetail.tsx), dans l'ordre affiché, « profil » par défaut. Depuis le
+ * 30/10 : « videos » (avant : une carte de « Profil ») et « compte » (Compte joueur : l'accès à l'espace joueur, pour qui
+ * peut s'en servir ; avant : une carte de « Profil »).
+ */
+export const PLAYER_TABS = ['profil', 'croissance', 'tests', 'videos', 'avis', 'compte'] as const
 export type PlayerTab = (typeof PLAYER_TABS)[number]
 export const PLAYER_TAB_DEFAULT: PlayerTab = 'profil'
 

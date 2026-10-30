@@ -4,10 +4,10 @@
  *   ?onglet=tests&voir=mesure:<critère>[:<mesure>]  courbe de ce critère (« Suivi des mesures »), la ligne de cette mesure
  *                                         marquée dans l'historique ; ou sa valeur si le critère n'a pas de courbe ;
  *   ?onglet=avis&voir=avis:<id>          cet avis, déplié, dans le « Détail des avis » (avis:tous : le détail des avis) ;
- *   ?voir=video:<id>                     cette vidéo (onglet Profil), lancée dans le lecteur quand elle s'y lit
+ *   ?onglet=videos&voir=video:<id>       cette vidéo (onglet Vidéos), lancée dans le lecteur quand elle s'y lit
  *                                         (video:toutes : la section Vidéos).
  * La fiche (src/pages/PlayerDetail.tsx) lit `voir`, le retire de l'adresse (remplacée : « Retour » ramène à l'écran
- * d'origine), puis fait venir l'élément marqué `data-voir="<type>:<id>"` à l'écran, un instant en évidence.
+ * d'origine), ouvre l'onglet de l'élément (FOCUS_TAB : un ancien lien sans `onglet` arrive au bon endroit), puis fait venir l'élément marqué `data-voir="<type>:<id>"` à l'écran, un instant en évidence.
  * Logique pure : test dans tools/test-voir-fiche.ts.
  */
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, withTab, type PlayerTab } from './tabQuery'
@@ -24,7 +24,7 @@ export interface PlayerFocus {
 }
 
 /** Onglet de la fiche où se trouve l'élément visé. */
-export const FOCUS_TAB: Record<FocusKind, PlayerTab> = { mesure: 'tests', avis: 'avis', video: 'profil' }
+export const FOCUS_TAB: Record<FocusKind, PlayerTab> = { mesure: 'tests', avis: 'avis', video: 'videos' }
 
 /**
  * « mesure:taille » → { kind: 'mesure', id: 'taille' } ; « mesure:taille:<id> » → la ligne de cette mesure en plus ;

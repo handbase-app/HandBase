@@ -2252,7 +2252,7 @@ function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string;
   // Féminin : filtre « Féminin », ou club dont tous les joueurs listés sont des filles.
   const g: Gender = listGender(filterG, [...main, ...rest])
   const tab = tabOf(o, g)
-  // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou ‹ › (téléphone), retour à l'identique.
+  // Fiche ouverte dans le bilan : les joueurs du club à côté (ordinateur) ou glisser la fiche (téléphone), retour à l'identique.
   const linkTo = (p: Player) => ({ to: `/bilan/joueurs/${p.id}${search}` })
   const addEvents = can.manageEvents(role)
   return (

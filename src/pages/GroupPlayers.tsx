@@ -67,8 +67,9 @@ export default function GroupPlayers() {
   if (!split)
     return (
       <>
-        <ContextBar title={g.name} ids={ids} current={pid} base={base} search={search} back={() => void leave.go()} />
-        <Outlet />
+        <ContextBar title={g.name} ids={ids} current={pid} base={base} search={search} back={() => void leave.go()}>
+          <Outlet />
+        </ContextBar>
       </>
     )
   return (

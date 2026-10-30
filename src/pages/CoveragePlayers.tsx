@@ -20,7 +20,7 @@ import { AddToEventDialog, sightText, tabOf, useBilanModel, useBilanQuestion, us
  * choisi, avec l'onglet et les filtres du bilan (même ordre que « Qui ? » : à voir puis déjà vus ; à mesurer puis
  * déjà mesurés ; profils repérés puis les autres ; licenciés : tous), pas toute la base.
  * Ordinateur : ces joueurs à gauche, la fiche à droite ; « Fermer » (Échap) revient au bilan tel qu'on l'a laissé.
- * Téléphone : fiche en plein écran sous la barre « club · 3 / 16 » (‹ ›, retour au bilan à la même position).
+ * Téléphone : fiche en plein écran sous la barre « club · 3 / 16 » (glisser la fiche, retour au bilan à la même position).
  * Question posée au bilan (?q=…) : les joueurs du club qui y répondent, avec ce que la question dit de chacun.
  * Uniquement des marques positives ou neutres : « vu le …, par … », « à voir », « à mesurer », « profil repéré ».
  */
@@ -73,8 +73,9 @@ export default function CoveragePlayers() {
   if (!split)
     return (
       <BilanCtx.Provider value={ctx}>
-        <ContextBar title={name} ids={ids} current={pid} base={base} search={search} back={() => void leave.go()} />
-        <Outlet />
+        <ContextBar title={name} ids={ids} current={pid} base={base} search={search} back={() => void leave.go()}>
+          <Outlet />
+        </ContextBar>
       </BilanCtx.Provider>
     )
   return (
