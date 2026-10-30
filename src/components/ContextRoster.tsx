@@ -171,10 +171,10 @@ function selContext(base: string) {
 // ---------- Téléphone : barre au-dessus de la fiche ----------
 
 /**
- * « ← liste · 5 / 23 » collée sous l'en-tête (retour à la liste), puis la fiche (`children`). Plus de ‹ › (30/10) : on glisse
- * la fiche elle-même vers la gauche (joueur suivant) ou la droite (précédent), même ordre que la liste, même geste que
- * l'écran de notation (src/components/useSwipeNav.ts). Lecteurs d'écran : deux boutons invisibles « Joueur précédent /
- * suivant » dans la barre.
+ * La fiche (`children`) ouverte depuis une liste, sur téléphone. Plus de ‹ › (30/10) ni de barre « ← liste · 5 / 23 »
+ * (31/10) : on glisse la fiche elle-même vers la gauche (joueur suivant) ou la droite (précédent), même ordre que la liste,
+ * même geste que l'écran de notation (src/components/useSwipeNav.ts) ; le geste Retour ramène à la liste. Lecteurs
+ * d'écran : retour, précédent, suivant dans une navigation invisible.
  */
 export function ContextBar({
   title,
@@ -202,28 +202,13 @@ export function ContextBar({
   const swipe = nav.handlers({ enabled: i >= 0, prev, next, go: show, hold: hasUnsaved })
   return (
     <>
-      <div
-        data-ctx-bar
-        className="sticky top-[var(--hdr)] z-10 -mx-4 -mt-4 mb-3 flex items-center gap-2 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur rail:-mt-3"
-      >
-        <button onClick={back} className="flex h-9 shrink-0 items-center px-1 text-sm font-bold text-muted" aria-label={`Revenir à ${title}`} title="Revenir à la liste">
-          ←
-        </button>
-        <span className="min-w-0 flex-1 truncate text-xs font-bold">
-          {title}
-          {i >= 0 && <span className="font-normal text-muted"> · {i + 1} / {ids.length}</span>}
-        </span>
-        {prev && (
-          <button className="sr-only" onClick={() => void swipe.change(prev, 'right')}>
-            Joueur précédent
-          </button>
-        )}
-        {next && (
-          <button className="sr-only" onClick={() => void swipe.change(next, 'left')}>
-            Joueur suivant
-          </button>
-        )}
-      </div>
+      {/* Plus de barre visible (31/10) : on revient à la liste par le geste Retour du téléphone, on change de joueur en
+          glissant la fiche. Lecteurs d'écran : retour, précédent, suivant et la place dans la liste restent là. */}
+      <nav className="sr-only" aria-label={`${title}${i >= 0 ? ` · ${i + 1} sur ${ids.length}` : ''}`}>
+        <button onClick={back}>Revenir à {title}</button>
+        {prev && <button onClick={() => void swipe.change(prev, 'right')}>Joueur précédent</button>}
+        {next && <button onClick={() => void swipe.change(next, 'left')}>Joueur suivant</button>}
+      </nav>
       {/* La fiche suit le doigt (défilement vertical laissé au navigateur : pan-y). */}
       <div ref={nav.cardRef} style={{ touchAction: 'pan-y' }} {...swipe.touch}>
         {children}

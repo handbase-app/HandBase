@@ -64,12 +64,7 @@ function Tabs({ tab, setTab, counts, hidden }: { tab: TabId; setTab: (t: TabId) 
   const [top, setTop] = useState(50)
   // Remesurée quand l'écran tourne (en-tête plus compact sur téléphone couché).
   useLayoutEffect(() => {
-    // Barre collée sous l'en-tête (fiche ouverte depuis un événement, sur téléphone) : les onglets se collent dessous.
-    const measure = () =>
-      setTop(
-        (document.querySelector('header')?.getBoundingClientRect().height ?? 50) +
-          (document.querySelector<HTMLElement>('[data-ctx-bar]')?.offsetHeight ?? 0),
-      )
+    const measure = () => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50)
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)

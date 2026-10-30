@@ -6,8 +6,8 @@ import PlayerDetail from './PlayerDetail'
 
 /**
  * /joueurs/:id : fiche d'un joueur ouverte depuis la liste Joueurs. Ordinateur : la liste filtrée reste à gauche
- * (MasterDetail). Téléphone : barre « Joueurs · 5 / 23 », glisser la fiche sur la liste filtrée (mêmes filtres, même ordre) et
- * retour à la liste telle quelle ; fiche ouverte directement (lien, rechargement) : la fiche seule.
+ * (MasterDetail). Téléphone : glisser la fiche sur la liste filtrée (mêmes filtres, même ordre), le geste Retour ramène à
+ * la liste telle quelle ; fiche ouverte directement (lien, rechargement) : la fiche seule.
  */
 export default function JoueurFiche() {
   const { id } = useParams()
