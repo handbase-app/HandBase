@@ -295,6 +295,19 @@ export async function readPages<R extends { id: string; server_updated_at: strin
  *  - fonction absente (058 pas passé) : la même demande (>= curseur) en lecture directe : mêmes lignes, sans index.
  */
 
+/**
+ * Ordre de lecture des tables (premier chargement comme synchronisation ordinaire) : SERVIR D'ABORD LE PÉRIMÈTRE DU COMPTE.
+ * D'abord les petites tables qui font l'appli (configuration du sport, critères, listes, structure et ses affectations : une
+ * page chacune), puis les joueurs du périmètre et ce qui leur est rattaché (mesures, avis, « vu ») : l'appli s'ouvre dès la
+ * première page de joueurs (src/splash.ts) ; enfin le reste. Contraintes de src/sync.ts (pull) : les staffs avant les groupes
+ * (un staff changé fait relire les groupes « Mon staff ») et les groupes avant « à revoir ».
+ */
+export const PULL_ORDER: readonly SyncTable[] = [
+  'config', 'criteria', 'lists', 'levels', 'units', 'assignments',
+  'players', 'measurements', 'evaluations', 'seen',
+  'teams', 'events', 'groups', 'alerts', 'follows', 'videos', 'rewatch', 'question_log', 'saved_questions',
+]
+
 /** Tables lues par hb_lire_perimetre (058) ; les autres (dont « à revoir », règle plus étroite) : lecture directe. */
 export const PERIMETER_TABLES: readonly SyncTable[] = ['players', 'measurements', 'evaluations', 'seen']
 

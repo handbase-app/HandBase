@@ -50,8 +50,14 @@ export function aggregate(per: Partial<Record<SyncTable, TableProgress>>, table:
  */
 export const forward = (prev: SyncProgress | null, next: SyncProgress): SyncProgress => (prev && prev.share > next.share ? { ...next, share: prev.share } : next)
 
-/** Avancement à montrer (null : rien à afficher). */
-export const showProgress = (p: SyncProgress | null): p is SyncProgress => !!p && p.done > PROGRESS_MIN
+/**
+ * Avancement à montrer (null : rien à afficher) : premier chargement, dès le premier élément (l'appli s'ouvre dès les premiers
+ * joueurs reçus, le reste arrive derrière : src/splash.ts) ; rattrapage d'un retard, au-delà de PROGRESS_MIN éléments.
+ */
+export const showProgress = (p: SyncProgress | null): p is SyncProgress => !!p && (p.first ? p.done > 0 : p.done > PROGRESS_MIN)
+
+/** Serveur très demandé (requête rejouée plus tard, src/retry.ts) : texte de l'indication discrète. */
+export const BUSY_LABEL = 'Serveur très demandé : on attend son tour, la synchro reprend toute seule'
 
 export const percent = (p: SyncProgress) => Math.min(100, Math.floor(p.share * 100))
 

@@ -4,6 +4,7 @@ import { db, SYNC_TABLES, TRIAL, type Assignment, type SyncTable } from './db'
 import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
+import { retryingFetch } from './retry'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
@@ -34,6 +35,7 @@ import {
   PROVISIONAL_MAX,
   provisionalBefore,
   provisionalCount,
+  PULL_ORDER,
   PULL_PAGE,
   pullDelay,
   pullReader,
@@ -116,7 +118,24 @@ import {
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null
+/*
+ * OUVERTURE ÉQUITABLE (« tourniquet », src/retry.ts ; série 6 du 29/10 : à 10 000 ouvertures, 4,86 % d'erreurs) : une
+ * requête vers la base refusée parce que le serveur est occupé (503, 429 ; délai dépassé ou coupure pour une lecture ou une
+ * écriture « la plus récente gagne ») est rejouée telle quelle après 1, 2, 4, 8… s (plafond 30 s, un peu de hasard, Retry-After
+ * respecté) : la synchronisation attend son tour et reprend à la page en cours, au lieu d'échouer et de repartir plus tard.
+ * Pendant l'attente, une indication discrète (serverBusy, src/components/SyncProgress.tsx).
+ */
+let busyUntil = 0
+const setBusy = (until: number) => {
+  busyUntil = until
+  listeners.forEach((l) => l())
+}
+const restFetch = retryingFetch({
+  fetch: (input, init) => fetch(input, init),
+  onWait: (_n, ms) => setBusy(Date.now() + ms),
+  onDone: () => setBusy(0),
+})
+export const supabase: SupabaseClient | null = url && key ? createClient(url, key, { global: { fetch: restFetch } }) : null
 // Adresse et clé publique du serveur, pour la page d'essai de dictée (public/essai-dictee/) servie sur le même site :
 // elle ouvre sa propre connexion (même session, renouvelée comme dans un 2e onglet). Rien de secret.
 if (url && key) {
@@ -643,7 +662,9 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   try {
     const teamsBefore = await myTeams(uid)
     let structureRows = 0
-    for (const table of SYNC_TABLES) {
+    // Ordre (src/syncLive.ts, PULL_ORDER) : réglages et structure (petits), puis le périmètre du compte (joueurs, mesures,
+    // avis, « vu ») : l'appli s'ouvre dès la première page de joueurs (premier chargement), le reste arrive derrière.
+    for (const table of PULL_ORDER) {
       // Staffs changés : les groupes « Mon staff » et les « à revoir » (041, visibles par le staff de leur auteur) qu'ils
       // ouvrent sont relus en entier. Premier chargement : rien à faire, ils viennent d'être lus depuis le début avec les
       // staffs tels qu'ils sont (sinon les événements, déjà reçus, étaient tous relus juste après).
@@ -1024,6 +1045,7 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
     if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
     const last = rows[rows.length - 1]
     if (new Date(last.server_updated_at) > new Date(since)) localStorage.setItem(PULL_KEY(table), last.server_updated_at)
+    if (table === 'players') markPlayersReady()
     // Gros retard (premier paquet plein) : suivi dans l'avancement à partir de là.
     if (!per[table] && more) per[table] = startTable()
     const p = per[table]
@@ -1064,6 +1086,7 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
         } else if (!error && mine) assignmentUserColumn ??= true
         return check(data, error)
       }, (rows) => onPage(rows))
+  if (table === 'players') markPlayersReady()
   // Table terminée (ou absente du serveur) : sa part de l'avancement est faite.
   const p = per[table]
   if (p && !p.finished) {
@@ -1350,8 +1373,22 @@ export function startSync() {
 /** Nombre de synchronisations terminées depuis le lancement (réussies ou non) : l'écran d'ouverture attend la première. */
 let runs = 0
 
+/**
+ * Première page de joueurs reçue pendant ce lancement (ou table des joueurs lue jusqu'au bout, même vide) : au premier
+ * chargement, l'écran d'ouverture laisse entrer dès ce moment (src/splash.ts), le reste arrive derrière.
+ */
+let playersReady = false
+function markPlayersReady() {
+  if (playersReady) return
+  playersReady = true
+  listeners.forEach((l) => l())
+}
+
+/** Serveur très demandé : une requête attend son tour pour être rejouée (src/retry.ts). */
+const serverBusy = () => busyUntil > Date.now()
+
 /** État de la synchro hors React (écran d'ouverture, src/splashScreen.ts). */
-export const syncSnapshot = () => ({ state, progress, runs })
+export const syncSnapshot = () => ({ state, progress, runs, playersReady, busy: serverBusy() })
 
 /** Abonnement hors React ; renvoie la fonction de désabonnement. */
 export function subscribeSync(l: () => void) {
@@ -1373,5 +1410,5 @@ export function useSyncState() {
       listeners.delete(l)
     }
   }, [])
-  return { state, lastError, live, progress }
+  return { state, lastError, live, progress, busy: serverBusy() }
 }

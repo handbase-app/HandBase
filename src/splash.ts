@@ -8,8 +8,12 @@
  *  - pas de synchro possible (pas de serveur, hors ligne, erreur) → on entre à la fin de l'animation ;
  *  - plafond MAX_MS ;
  *  - pas connecté : animation courte (LOGIN_MIN_MS) puis l'écran de connexion ;
- *  - tout premier chargement (appareil vide) : on reste avec la vraie progression, bouton « Entrer quand même » après
- *    BUTTON_MS, entrée automatique à la fin (ou si la synchro devient impossible) ;
+ *  - tout premier chargement (appareil vide) : on reste avec la vraie progression jusqu'à la PREMIÈRE PAGE DE JOUEURS reçue
+ *    (réglages et structure arrivent avant, src/syncLive.ts, PULL_ORDER), puis on entre (au plus tôt à la fin de
+ *    l'animation) : le reste arrive derrière, avec la barre discrète sous l'en-tête (src/components/SyncProgress.tsx).
+ *    Bouton « Entrer quand même » après BUTTON_MS, entrée automatique à la fin (ou si la synchro devient impossible : hors
+ *    ligne, l'appli s'ouvre sur ce qu'a l'appareil, comme avant). POURQUOI : à 10 000 ouvertures simultanées (série 6 du
+ *    29/10), un premier chargement complet pouvait attendre plusieurs minutes ; l'appli est utile dès les joueurs reçus ;
  *  - toucher / clic / Entrée / Échap : on passe (sauf pendant le premier chargement, où c'est le bouton).
  */
 import { progressLabel, type SyncProgress } from './syncProgress'
@@ -38,6 +42,8 @@ export interface SplashInput {
   skipped?: boolean
   /** Bouton « Entrer quand même ». */
   forced?: boolean
+  /** Première page de joueurs reçue (premier chargement : on peut entrer, le reste arrive derrière). */
+  playersReady?: boolean
 }
 
 export interface SplashDecision {
@@ -57,6 +63,8 @@ export function splashDecision(i: SplashInput): SplashDecision {
   // Premier chargement : seule la fin de la synchro (ou son impossibilité) ou le bouton font entrer.
   if (i.firstLoad && i.sync === 'pending') {
     const button = i.elapsed >= BUTTON_MS
+    // Joueurs reçus : on entre à la fin de l'animation (la pastille clignote : la synchro continue).
+    if (i.playersReady && i.elapsed >= MIN_MS) return out(true, { button, skippable: false })
     return out(button && !!i.forced, { button, skippable: false })
   }
   if (i.skipped || i.forced) return out(true)

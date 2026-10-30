@@ -488,8 +488,12 @@ t('avancement : une table en gros retard qui s’ajoute ne fait pas reculer la b
   assert.equal(forward(shown, next).share, shown.share)
   assert.equal(forward(shown, next).done, 6000)
   assert.equal(forward(null, next), next)
-  assert.equal(showProgress({ table: null, done: PROGRESS_MIN, share: 0.5, first: true }), false)
-  assert.equal(showProgress({ table: null, done: PROGRESS_MIN + 1, share: 0.5, first: true }), true)
+  // Rattrapage d'un retard : au-delà de PROGRESS_MIN éléments. Premier chargement : dès le premier (l'appli s'ouvre dès les
+  // premiers joueurs reçus, le reste arrive derrière avec la barre ; série 6 du 30/10, src/splash.ts).
+  assert.equal(showProgress({ table: null, done: PROGRESS_MIN, share: 0.5, first: false }), false)
+  assert.equal(showProgress({ table: null, done: PROGRESS_MIN + 1, share: 0.5, first: false }), true)
+  assert.equal(showProgress({ table: null, done: 0, share: 0, first: true }), false)
+  assert.equal(showProgress({ table: null, done: 1, share: 0.1, first: true }), true)
   assert.equal(showProgress(null), false)
   const flat = (x: string) => x.replace(/\s/g, ' ')
   assert.equal(flat(progressLabel({ table: 'measurements', done: 23000, share: 0.4, first: true })), 'Premier chargement : 23 000 éléments reçus (mesures)')
