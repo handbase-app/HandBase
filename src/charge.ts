@@ -92,6 +92,15 @@ export const CHARGE_REGLES = {
   filetCoupeDepart: { calme: 0, charge: 1, sature: 2 } as Record<Niveau, number>,
   /** Hasard ajouté au filet, direct coupé : jusqu'à cette part du délai. */
   filetHasard: 0.25,
+  /**
+   * Vérification des lignes plus visibles (identifiants des staffs, groupes, « à revoir », événements : hb_events?select=id
+   * et les autres ; src/sync.ts, forgetHidden) : intervalle pendant l'utilisation, selon le niveau.
+   */
+  verifVisiblesMs: { calme: 10 * 60_000, charge: 30 * 60_000, sature: 60 * 60_000 } as Record<Niveau, number>,
+  /** Vérification faite il y a moins que cela (lancement précédent) : pas refaite avant cette échéance. */
+  verifVisiblesRepriseMs: 60 * 60_000,
+  /** Au lancement, première vérification au hasard entre ces deux délais : jamais pendant l'ouverture, étalée. */
+  verifVisiblesEtalementMs: [30_000, 180_000] as readonly [number, number],
 }
 export type ChargeRegles = typeof CHARGE_REGLES
 
@@ -134,6 +143,23 @@ export function delaiFilet(live: boolean, niveau: Niveau, coupes: number, hasard
   const i = Math.min(steps.length - 1, Math.max(0, Math.floor(coupes)) + r.filetCoupeDepart[niveau])
   return Math.round(steps[i] * (1 + r.filetHasard * clamp01(hasard)))
 }
+
+/**
+ * Vérification des lignes plus visibles : instant de la PREMIÈRE vérification d'un lancement. Au plus tôt dans 30 s à 3 min
+ * (au hasard : ni pendant l'ouverture, ni tous les appareils à la même seconde le matin) ; et pas avant une heure après la
+ * dernière vérification faite (derniere : son heure, gardée sur l'appareil ; null : jamais, ou illisible).
+ * POURQUOI (série 9) : les identifiants des événements visibles (hb_events?select=id), relus à CHAQUE lancement, coûtaient à
+ * eux seuls autant de temps de base qu'un « quoi de neuf ? » (1 192 s au palier de 10 000 jour J).
+ */
+export function premiereVerifVisibles(now: number, derniere: number | null, rnd: () => number = Math.random, r: ChargeRegles = CHARGE_REGLES): number {
+  const [min, max] = r.verifVisiblesEtalementMs
+  const etale = now + min + Math.floor(clamp01(rnd()) * (max - min))
+  const reprise = derniere !== null && Number.isFinite(derniere) && derniere <= now ? derniere + r.verifVisiblesRepriseMs : -Infinity
+  return Math.max(etale, reprise)
+}
+
+/** Vérification suivante, après une vérification faite maintenant. */
+export const prochaineVerifVisibles = (now: number, niveau: Niveau, r: ChargeRegles = CHARGE_REGLES) => now + r.verifVisiblesMs[niveau]
 
 // ---------- Annonce du serveur ----------
 

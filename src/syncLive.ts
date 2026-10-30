@@ -307,14 +307,16 @@ export async function readPages<R extends { id: string; server_updated_at: strin
 /**
  * Ordre de lecture des tables (premier chargement comme synchronisation ordinaire) : SERVIR D'ABORD LE PÉRIMÈTRE DU COMPTE.
  * D'abord les petites tables qui font l'appli (configuration du sport, critères, listes, structure et ses affectations : une
- * page chacune), puis les joueurs du périmètre et ce qui leur est rattaché (mesures, avis, « vu ») : l'appli s'ouvre dès la
- * première page de joueurs (src/splash.ts) ; enfin le reste. Contraintes de src/sync.ts (pull) : les staffs avant les groupes
- * (un staff changé fait relire les groupes « Mon staff ») et les groupes avant « à revoir ».
+ * page chacune), puis les événements (le plus souvent une page : ils disent quels joueurs on verra aujourd'hui et demain,
+ * lus d'abord au premier chargement : src/priorite.ts), puis les joueurs du périmètre et ce qui leur est rattaché (mesures,
+ * avis, « vu ») : l'appli s'ouvre dès la première page de joueurs (src/splash.ts) ; enfin le reste. Contraintes de
+ * src/sync.ts (pull) : les staffs avant les groupes (un staff changé fait relire les groupes « Mon staff », les « à revoir »
+ * et les événements, à la synchronisation suivante) et les groupes avant « à revoir ».
  */
 export const PULL_ORDER: readonly SyncTable[] = [
-  'config', 'criteria', 'lists', 'levels', 'units', 'assignments',
+  'config', 'criteria', 'lists', 'levels', 'units', 'assignments', 'events',
   'players', 'measurements', 'evaluations', 'seen',
-  'teams', 'events', 'groups', 'alerts', 'follows', 'videos', 'rewatch', 'question_log', 'saved_questions',
+  'teams', 'groups', 'alerts', 'follows', 'videos', 'rewatch', 'question_log', 'saved_questions',
 ]
 
 /** Tables lues par hb_lire_perimetre (058) ; les autres (dont « à revoir », règle plus étroite) : lecture directe. */

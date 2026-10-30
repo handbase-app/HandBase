@@ -1,11 +1,12 @@
 import { createClient, isAuthRetryableFetchError, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
-import { db, SYNC_TABLES, TRIAL, type Assignment, type SyncTable } from './db'
+import { db, SYNC_TABLES, today, TRIAL, type Assignment, type SyncTable } from './db'
 import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
-import { delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, regroupement, type Niveau } from './charge'
+import { delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
+import { eventDayPlayers, planPriorite, PRIORITE_TABLES } from './priorite'
 import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
 import {
   ASK_AGAIN_MS,
@@ -843,6 +844,16 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
           again = true
         }
       }
+      // Premier chargement (ou relecture complète après un changement de périmètre) : les joueurs des événements d'aujourd'hui
+      // et de demain d'abord, avec leurs mesures et avis (src/priorite.ts) ; la lecture ordinaire suit et pose les curseurs.
+      if (table === 'players' && !scope && PRIORITE_TABLES.some((t) => fresh.has(t) && toPull.has(t) && readsTable(t))) {
+        try {
+          const ids = eventDayPlayers(await db.events.toArray(), today())
+          await pullPriority(planPriorite(fresh, toPull, ids).filter(readsTable), ids)
+        } catch (e) {
+          console.warn('Joueurs du jour :', e instanceof Error ? e.message : e) // la lecture ordinaire suit : rien de perdu
+        }
+      }
       // Écriture seule (journal des questions, hors administrateurs) : rien à recevoir ; lignes envoyées retirées.
       // Compte joueur : tables du staff jamais demandées (et retirées de l'appareil si une ancienne session en avait laissé).
       if (!readsTable(table)) {
@@ -873,7 +884,7 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   // Appareil neuf : il vient de tout recevoir tel que le serveur le montre ; relire les identifiants visibles (staffs, groupes,
   // « à revoir », événements, joueurs) ne retrouverait que ces mêmes lignes. Première vérification dans 10 minutes (et
   // celle des joueurs dans un jour), comme après une vérification faite.
-  if (emptyDevice) lastForget = Date.now()
+  if (emptyDevice) nextForgetAt = prochaineVerifVisibles(Date.now(), 'calme')
   else await forgetHidden()
   await checkPerimeter(uid, emptyDevice)
 }
@@ -899,13 +910,20 @@ async function localRowsCount() {
  *    (Dans l'autre sens, rien à faire : un joueur de mon périmètre inscrit à un événement, ou un joueur inscrit qui entre
  *    dans mon périmètre, réécrit l'événement sur le serveur (liste changée, ou recalcul de players_dept / players_club en
  *    fin de transaction) : nouvelle heure serveur, il arrive par le curseur.)
- * Au lancement puis toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs
- * identifiants : quelques centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une
- * modification pas encore envoyée. (Rendre un groupe moins visible en crée une copie et supprime l'ancien, voir
- * GroupForm : cela, tous les appareils le reçoivent tout de suite.)
+ * Toutes les 10 minutes, on relit la liste des staffs et des groupes visibles (seulement leurs identifiants : quelques
+ * centaines au plus) et on retire de l'appareil ceux qui n'y sont plus, sauf s'ils ont une modification pas encore envoyée.
+ * (Rendre un groupe moins visible en crée une copie et supprime l'ancien, voir GroupForm : cela, tous les appareils le
+ * reçoivent tout de suite.)
+ * MOINS SOUVENT (série 9 du 30/10 : les identifiants des événements, relus à chaque lancement, coûtaient autant de temps de
+ * base qu'un « quoi de neuf ? » ; règles : src/charge.ts) : plus pendant l'ouverture, mais 30 s à 3 min après (au hasard,
+ * les appareils du matin ne viennent pas ensemble), et pas avant une heure après la dernière vérification (heure gardée sur
+ * l'appareil) ; en charge, toutes les 30 minutes (chargé) ou 60 minutes (saturé). Ces lignes ne sont que des copies que le
+ * compte ne voit plus : les garder quelques minutes de plus ne montre rien de nouveau.
  */
 const FORGET_EVERY_MS = 10 * 60_000
-let lastForget = 0
+const FORGET_KEY = `handbase${TRIAL ? '-essai' : ''}.visibles.verifie`
+/** Prochaine vérification (null : pas encore décidée pour ce lancement ; 0 : tout de suite). */
+let nextForgetAt: number | null = null
 
 type ForgetTable = 'groups' | 'teams' | 'rewatch' | 'players' | 'events'
 
@@ -938,16 +956,19 @@ async function forgetRows(table: ForgetTable, visible: Set<string>) {
  * serveur qui me retire l'accès à un groupe (réattribution d'un groupe privé, supabase/038), il est effacé de l'appareil.
  */
 export function syncAndForgetHidden() {
-  lastForget = 0
+  nextForgetAt = 0
   lastScopeCheck = 0
   return syncNow()
 }
 
 async function forgetHidden() {
-  if (Date.now() - lastForget < FORGET_EVERY_MS) return
+  const kept = Number(store.get(FORGET_KEY))
+  nextForgetAt ??= premiereVerifVisibles(Date.now(), kept > 0 ? kept : null)
+  if (Date.now() < nextForgetAt) return
   const [teams, groups, rewatch, events] = await Promise.all([visibleIds('teams'), visibleIds('groups'), visibleIds('rewatch'), visibleIds('events')])
   if (!groups) return
-  lastForget = Date.now()
+  nextForgetAt = prochaineVerifVisibles(Date.now(), charge.niveau())
+  store.set(FORGET_KEY, String(Date.now()))
   // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence. Aucun staff
   // visible, en revanche, est courant (personne n'en a encore créé) ; table absente du serveur (null) : rien.
   if (!groups.size) return
@@ -1005,7 +1026,7 @@ async function checkPerimeter(uid: string, emptyDevice = false) {
     // Événements (048) : ceux organisés dans le nouveau périmètre n'ont pas changé non plus ; ceux qui en sortent sont
     // retirés à la synchronisation suivante (forgetHidden, sans attendre les 10 minutes).
     localStorage.removeItem(PULL_KEY('events'))
-    lastForget = 0
+    nextForgetAt = 0
     again = true // nouvelle synchronisation juste après celle-ci : relit les tables depuis le début
   }
   const sig = scopeSignature(scope)
@@ -1296,6 +1317,46 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   }
   knowTable(table, true)
   return received
+}
+
+/**
+ * JOUEURS DU JOUR D'ABORD (src/priorite.ts) : pour les tables jamais reçues, les lignes des joueurs prioritaires (par
+ * identifiant pour les joueurs, par data.playerId pour mesures et avis : index de 046, règles de lecture habituelles), par
+ * paquets de IDS_PER_READ joueurs et pages de PULL_PAGE lignes. Le curseur n'est JAMAIS avancé ici (lignes lues hors de
+ * l'ordre du curseur) : la lecture ordinaire qui suit les relit (sans les réécrire : identiques) et le pose. Erreur : on passe
+ * à la table suivante, la lecture ordinaire rattrape tout.
+ */
+async function pullPriority(tables: SyncTable[], ids: string[]) {
+  for (const table of tables) {
+    const since = localStorage.getItem(PULL_KEY(table)) ?? EPOCH
+    const column = table === 'players' ? 'id' : 'data->>playerId'
+    try {
+      for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+        const part = ids.slice(i, i + IDS_PER_READ)
+        let askedAt = 0
+        await readPages<PulledRow>(
+          async (after) => {
+            askedAt = Date.now()
+            const base = supabase!.from(`hb_${table}`).select('id, data, server_updated_at').in(column, part)
+            const filtered = after
+              ? base.or(`server_updated_at.gt."${after.at}",and(server_updated_at.eq."${after.at}",id.gt."${after.id}")`)
+              : base.gte('server_updated_at', since)
+            const { data, error } = await filtered.order('server_updated_at').order('id').limit(PULL_PAGE)
+            if (error) throw error
+            return (data ?? []) as PulledRow[]
+          },
+          async (rows) => {
+            const force = provisionalBefore(prov(), table, askedAt)
+            await applyServerRows(table, rows as PulledRow[], { force })
+            if (force.size) setProv(dropProvisional(prov(), table, rows.map((r) => r.id).filter((id) => force.has(id))))
+            if (table === 'players') markPlayersReady()
+          },
+        )
+      }
+    } catch (e) {
+      console.warn('Joueurs du jour :', e instanceof Error ? e.message : e)
+    }
+  }
 }
 
 /** Affectations des autres comptes retirées de l'appareil (sauf celles qui attendent d'être envoyées). */
