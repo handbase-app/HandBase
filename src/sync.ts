@@ -5,7 +5,7 @@ import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
-import { delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
+import { CHARGE_REGLES, delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
 import { eventDayPlayers, planPriorite, PRIORITE_TABLES } from './priorite'
 import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
 import {
@@ -1421,7 +1421,7 @@ function pushLater(table?: string) {
   const delay = delaiEnvoi(pushTables, charge.niveau())
   const at = Date.now() + delay
   // « Vu » ou trace pendant une attente déjà prévue (plus tôt) : on garde l'échéance.
-  if (pushSoon !== undefined && delay > 500 && at >= pushAt) return
+  if (pushSoon !== undefined && delay > CHARGE_REGLES.envoiImmediatMs && at >= pushAt) return
   window.clearTimeout(pushSoon)
   pushAt = at
   pushSoon = window.setTimeout(() => {
