@@ -25,7 +25,8 @@ import { can, useRole } from './roles'
 import { useThemeVersion } from './theme'
 import { appName } from './appBrand'
 import { SyncProgressBar } from './components/SyncProgress'
-import { BackTracker } from './backNav'
+import { BackTracker, useBack } from './backNav'
+import { useShowBackArrow } from './backArrowPref'
 import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
 import { spyTarget } from './spy'
@@ -106,6 +107,33 @@ function HeaderShortcut({ to, icon, label, n, aria, compact }: { to: string; ico
 
 /** Profils recherchés (téléphone couché seulement : menu de gauche), avec le nombre de joueurs qui viennent d'y entrer. */
 const AlertBell = ({ n }: { n: number }) => <HeaderShortcut to="/alertes" icon="target" label="Profils recherchés" n={n} aria={n ? `Profils recherchés : ${n} nouveau${n > 1 ? 'x' : ''}` : 'Profils recherchés'} compact />
+
+/** Onglets du menu : pas de flèche de retour (l'onglet en surbrillance dit où l'on est, on y arrive par le menu). */
+const TAB_ROOTS = ['/', '/joueurs', '/evenements', '/groupes', '/bilan']
+
+/**
+ * Flèche ← de l'en-tête (31/10) : sur les écrans qui ne sont pas un onglet du menu (fiche ouverte seule, Mes suivis, À revoir,
+ * Changement de saison, Comparer, rapports…), retour à l'écran d'avant tel qu'on l'a laissé (useBack, src/backNav.tsx) ;
+ * entrée directe (lien, rechargement) : l'onglet du menu dont l'écran dépend. Ordinateur : pas sur un élément ouvert à côté
+ * de sa liste (le panneau a son « Fermer »). Zone de toucher de 44 px (gros doigts). Masquable dans Réglages → Apparence.
+ */
+function HeaderBack({ split }: { split: boolean }) {
+  const { pathname } = useLocation()
+  const on = useShowBackArrow()
+  const root = `/${pathname.split('/')[1] ?? ''}`
+  const fallback = TAB_ROOTS.includes(root) ? root : '/'
+  const back = useBack(fallback, '')
+  const beside = split && /^\/(joueurs|evenements|groupes)\/[^/]+$/.test(pathname)
+  if (!on || TAB_ROOTS.includes(pathname) || beside) return null
+  const label = back.label ? `Revenir à ${back.label.charAt(0) + back.label.slice(1).toLowerCase()}` : 'Revenir en arrière'
+  return (
+    <button type="button" onClick={() => void back.go()} aria-label={label} title={label} className="-ml-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg hover:bg-panel-2 active:bg-panel-2">
+      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M15 5l-7 7 7 7" />
+      </svg>
+    </button>
+  )
+}
 
 /** « Mes suivis », avec le nombre de nouveautés pas encore vues. */
 const FollowStar = ({ n, compact }: { n: number; compact?: boolean }) => <HeaderShortcut to="/suivis" icon="star" label="Mes suivis" n={n} aria={n ? `Mes suivis : ${n} nouveauté${n > 1 ? 's' : ''}` : 'Mes suivis'} compact={compact} />
@@ -254,6 +282,7 @@ export default function App() {
   const railShort = useMedia(RAIL_SHORT)
   // Téléphone tenu droit (ni colonne, ni menu à gauche) : capsule d'onglets flottante en bas.
   const side = useMedia(MQ.side)
+  const split = useMedia(MQ.split)
   const portrait = !rail && !side
   const navigate = useNavigate()
   const goGuarded = (to: string) => async () => {
@@ -290,6 +319,7 @@ export default function App() {
             placé là depuis cette rangée). Compte joueur : la bulle de profil seule (plus bas). */}
         {!rail && !player ? (
           <div className={`mx-auto flex max-w-2xl items-center gap-3 px-4 pb-2.5 wide:max-w-none side:relative side:gap-4 side:px-6 ${TRIAL ? 'pt-1.5' : 'pt-2.5'}`}>
+            <HeaderBack split={split} />
             <AskButton bar />
             <FollowStar n={followNews} compact={!side} />
             <ProfileButton />

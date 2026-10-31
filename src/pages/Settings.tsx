@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
+import { setShowBackArrow, useShowBackArrow } from '../backArrowPref'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { BackButton } from '../backNav'
@@ -585,7 +586,22 @@ function ApparenceFold() {
   return (
     <Fold id="apparence" icon="palette" title="Apparence" summary={appearanceSummary()}>
       <AppearanceSettings />
+      <BackArrowToggle />
     </Fold>
+  )
+}
+
+/** Flèche ← de l'en-tête sur les écrans hors onglets (src/backArrowPref.ts) : affichée par défaut, au choix sur cet appareil. */
+function BackArrowToggle() {
+  const on = useShowBackArrow()
+  return (
+    <label className="flex cursor-pointer items-start gap-3 text-sm">
+      <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--color-accent)]" checked={on} onChange={(e) => setShowBackArrow(e.target.checked)} />
+      <span>
+        <span className="block font-bold">Afficher la flèche de retour</span>
+        <span className="block text-[11px] text-muted">En haut à gauche, sur les écrans qui ne sont pas un onglet du menu. Réglage de cet appareil.</span>
+      </span>
+    </label>
   )
 }
 
