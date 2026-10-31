@@ -431,7 +431,6 @@ export const ICONS = {
   /** Croissance (courbe qui monte ; onglet de la fiche d'un joueur). */
   growth: 'M3 17l6-6 4 4 8-8M15 7h6v6',
   /** Tests (chronomètre ; onglet de la fiche d'un joueur). */
-  stopwatch: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 1.5M10 2h4M18.5 5.5L20 4',
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
   calendar: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4',
   check: 'M9 12l2 2 4-4M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',

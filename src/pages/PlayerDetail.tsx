@@ -43,7 +43,7 @@ import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerF
 const TABS: readonly { id: PlayerTab; label: string; icon: IconName }[] = [
   { id: 'profil', label: 'Profil', icon: 'user' },
   { id: 'croissance', label: 'Croissance', icon: 'growth' },
-  { id: 'tests', label: 'Tests', icon: 'stopwatch' },
+  { id: 'tests', label: 'Tests', icon: 'ruler' },
   { id: 'videos', label: 'Vidéos', icon: 'video' },
   { id: 'avis', label: 'Avis', icon: 'chat' },
   { id: 'compte', label: 'Compte joueur', icon: 'key' },
