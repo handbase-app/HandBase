@@ -28,6 +28,7 @@ import { SyncProgressBar } from './components/SyncProgress'
 import { BackTracker, useBack } from './backNav'
 import { useShowBackArrow } from './backArrowPref'
 import { useHeaderBack } from './headerBack'
+import { useRatingFocus } from './focusMode'
 import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
 import { spyTarget } from './spy'
@@ -287,6 +288,16 @@ export default function App() {
   const side = useMedia(MQ.side)
   const split = useMedia(MQ.split)
   const portrait = !rail && !side
+  // Notation d'un joueur sur téléphone tenu droit : pas de menu du bas (on note, on ne change pas d'onglet ; une ligne de
+  // critères de plus, « Enregistrer » et le micro tout en bas, sous le pouce). On en sort par la flèche ‹ ou le retour
+  // du téléphone (31/10). data-nonav sur <html> remet --nav-b à zéro (src/index.css).
+  const ratingFocus = useRatingFocus()
+  const noNav = portrait && ratingFocus
+  useLayoutEffect(() => {
+    if (!noNav) return
+    document.documentElement.setAttribute('data-nonav', '')
+    return () => document.documentElement.removeAttribute('data-nonav')
+  }, [noNav])
   const navigate = useNavigate()
   const goGuarded = (to: string) => async () => {
     if (await canLeave()) navigate(to)
@@ -452,6 +463,7 @@ export default function App() {
           fenêtre zoomée) : la capsule garde la largeur de la colonne, comme l'en-tête (31/10). */}
       <nav
         aria-label="Menu principal"
+        hidden={noNav}
         className={`fixed inset-x-3 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-20 mx-auto max-w-[calc(42rem-1.5rem)] rounded-full border border-line bg-panel/95 shadow-lg backdrop-blur wide:top-0 wide:bottom-0 wide:left-0 wide:right-auto wide:mx-0 wide:max-w-none wide:w-[var(--nav-l)] wide:rounded-none wide:border-0 wide:border-r wide:bg-bg/95 wide:pb-[env(safe-area-inset-bottom)] wide:shadow-none rail:flex rail:flex-col rail:pl-[env(safe-area-inset-left)]`}
       >
         {/* Ordinateur : le haut du menu a la hauteur de l'en-tête (--hdr, bande orange comprise) ; la ligne
@@ -511,7 +523,7 @@ export default function App() {
       </nav>
       {/* Tenu droit : un voile du fond sous la capsule, pour que la page qui défile dessous (et sous les barres « Enregistrer »
           collées au-dessus) ne se lise pas autour des boutons. */}
-      {portrait && <div aria-hidden className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-[15] h-[calc(var(--nav-b)+1rem)] bg-linear-to-t from-bg from-70% to-transparent" />}
+      {portrait && !noNav && <div aria-hidden className="no-print pointer-events-none fixed inset-x-0 bottom-0 z-[15] h-[calc(var(--nav-b)+1rem)] bg-linear-to-t from-bg from-70% to-transparent" />}
       <UpdateBanner />
       {/* Lecteur vidéo, hors des pages : il reste ouvert quand la mise en page change (téléphone tourné). */}
       {!player && <VideoDock />}

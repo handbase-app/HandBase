@@ -70,6 +70,10 @@ html { scrollbar-gutter: stable; }
 @media (min-width: 1024px) and (min-height: 521px) {
   :root { --nav-b: 0px; --nav-l: 13rem; }
 }
+/* Écran de notation sur téléphone tenu droit : menu du bas caché (App.tsx, data-nonav) ; la barre « Enregistrer » descend
+   tout en bas et garde la marge du bord du téléphone (barre de gestes). */
+:root[data-nonav] { --nav-b: 0px; }
+:root[data-nonav] .save-bar { padding-bottom: calc(0.5rem + env(safe-area-inset-bottom)); }
 
 /* Listes de cartes : une colonne sur téléphone tenu droit ; 2 colonnes AU PLUS en paysage et sur ordinateur, quelle que
    soit la largeur (à trois, les cartes deviennent étroites et illisibles : décidé le 20/10/2026).

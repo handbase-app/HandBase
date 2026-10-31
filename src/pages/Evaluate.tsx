@@ -18,6 +18,7 @@ import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { DictationTextarea } from '../components/MicButton'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
+import { setRatingFocus } from '../focusMode'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
 import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
@@ -112,6 +113,13 @@ export default function Evaluate() {
   )
 
   const player = players.find((p) => p.id === playerId)
+  // Un joueur à noter : menu du bas caché sur téléphone tenu droit (src/focusMode.ts, App.tsx).
+  const rating = !!player
+  useEffect(() => {
+    if (!rating) return
+    setRatingFocus(true)
+    return () => setRatingFocus(false)
+  }, [rating])
   const event = events.find((e) => e.id === eventId)
   const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
   const existing = spontaneous
@@ -121,6 +129,8 @@ export default function Evaluate() {
   const [draft, setDraft] = useState<Partial<Evaluation>>({ scores: {} })
   // « Avis vocal » : notes et commentaires PROPOSÉS, pas encore acceptés (jamais enregistrés tels quels).
   const [avis, setAvis] = useState<AvisState | null>(null)
+  // Place du micro de l'avis vocal, à droite de « Enregistrer » (AvisVocal y rend son bouton).
+  const [micSlot, setMicSlot] = useState<HTMLSpanElement | null>(null)
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
@@ -625,6 +635,7 @@ export default function Evaluate() {
             state={avis}
             setState={setAvis}
             acceptAll={acceptAllAvis}
+            slot={micSlot}
           />
 
           {noCriteria && <NoCriteria kind="subjective" />}
@@ -700,8 +711,9 @@ export default function Evaluate() {
 
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
         </div>
-          {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
-          <div className={`sticky bottom-[var(--nav-b)] z-10 flex flex-col gap-1 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
+          {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur), ou tout en bas sur téléphone
+              tenu droit, où le menu est caché pendant la notation (App.tsx) ; ne glisse pas avec la fiche. */}
+          <div className={`save-bar sticky bottom-[var(--nav-b)] z-10 flex flex-col gap-1 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
           <div className="flex items-center gap-2">
             {existing && !dirty && nextTodo ? (
               // Avis enregistré et rien de modifié : le bouton principal passe au joueur suivant à noter.
@@ -726,6 +738,8 @@ export default function Evaluate() {
                 Annuler
               </button>
             )}
+            {/* Micro de l'avis vocal (src/components/AvisVocal.tsx), à droite. */}
+            <span ref={setMicSlot} className="contents" />
           </div>
           <OfflineNote show={dirty || !!existing} />
           </div>

@@ -26,7 +26,7 @@ import { useWait, WaitLine } from './Attente'
  * la ligne si elle n'est pas encore écrite, sinon une ligne d'avis de plus. Jamais rien du joueur. Rien en « Voir comme… ».
  */
 
-/** Le bouton « Avis vocal », l'état de l'analyse et le résumé des propositions (en haut de la fiche). */
+/** Le micro « Avis vocal » (dans la barre « Enregistrer »), l'état de l'analyse et le résumé des propositions (en haut de la fiche). */
 export function AvisVocal({
   playerId,
   position,
@@ -35,6 +35,7 @@ export function AvisVocal({
   state,
   setState,
   acceptAll,
+  slot,
 }: {
   playerId: string
   position?: Position
@@ -44,6 +45,8 @@ export function AvisVocal({
   state: AvisState | null
   setState: (s: AvisState | null) => void
   acceptAll: () => void
+  /** Place du micro, à droite de « Enregistrer » (barre du bas de l'écran de notation). */
+  slot: HTMLElement | null
 }) {
   const { avisReady } = useDictation()
   const [busy, setBusy] = useState(false)
@@ -133,8 +136,8 @@ export function AvisVocal({
     return id ? logAvisVocalVerdict({ vocalId: id, verdict, comment }) : false
   }
   const ignoreAll = () => state && setState(decideAll(state, 'ignore'))
-  // Commandes flottantes : on parle en faisant défiler les critères, le haut de la fiche (bouton, propositions) sort de
-  // l'écran. « Terminer » pendant l'enregistrement, « Tout valider / Tout ignorer » ensuite, en bas à droite.
+  // Commandes flottantes : on parle en faisant défiler les critères, les propositions du haut de la fiche sortent de l'écran.
+  // « Tout valider / Tout ignorer » en bas à droite (le micro, lui, reste dans la barre « Enregistrer »).
   const root = useRef<HTMLDivElement>(null)
   const [topVisible, setTopVisible] = useState(true)
   useEffect(() => {
@@ -154,74 +157,47 @@ export function AvisVocal({
   const n = mine?.result.suggestions.length ?? 0
 
   return (
-    <div ref={root} className="flex flex-col gap-2" data-noswipe>
-      <div className="flex items-center gap-3">
-        {/* Même famille que la capsule « Nextar » de l'en-tête (.ask-capsule, src/index.css) : liseré menthe et halo, « ✦ Avis
-            vocal », pastille micro menthe au bout. Enregistrement : capsule rouge qui pulse, pastille blanche à carré rouge ;
-            transcription et analyse : roue dans la pastille. Tout le bouton reste la cible (toucher, ou maintenir pour parler). */}
-        <button
-          type="button"
-          aria-pressed={rec}
-          aria-busy={working || undefined}
-          aria-label={rec ? 'Finir l’avis vocal' : working ? 'Avis vocal : analyse en cours' : 'Avis vocal : parler du joueur pour obtenir des notes proposées'}
-          title="Parlez librement du joueur : je propose des notes, vous validez (toucher pour commencer et pour finir, ou maintenir)"
-          disabled={working}
-          className={`flex h-11 shrink-0 touch-none items-center gap-2 rounded-full pr-1.5 pl-4 text-sm font-bold transition select-none [-webkit-touch-callout:none] disabled:cursor-wait ${
-            rec ? 'animate-pulse border-[1.5px] border-transparent bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'ask-capsule hover:brightness-110 active:brightness-95'
-          }`}
-          {...mic.buttonProps}
-        >
-          {/* Taille identique dans tous les états (repos, enregistrement, transcription, erreur) : place fixe de l'étoile, les
-              deux libellés superposés dans la même case (la plus large donne la largeur), pastille de 32 px. */}
-          <span className="flex w-3.5 shrink-0 justify-center text-[13px] leading-none" aria-hidden>
-            {rec ? <span className="h-2 w-2 rounded-full bg-white" /> : <span className="ask-star">✦</span>}
-          </span>
-          <span className="grid whitespace-nowrap" aria-hidden>
-            <span className={`col-start-1 row-start-1 text-center ${rec ? 'invisible' : ''}`}>Avis vocal</span>
-            <span className={`col-start-1 row-start-1 text-center ${rec ? '' : 'invisible'}`}>Terminer</span>
-          </span>
-          <span className={`ask-mic flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${rec ? 'ask-mic-rec' : ''}`} aria-hidden>
+    <div ref={root} className="flex flex-col gap-2 empty:hidden" data-noswipe>
+      {/* Micro rond dans la barre « Enregistrer », à droite (choix du 31/10 : plus de capsule néon en haut de la fiche ; sous
+          le pouce même en bas de la fiche). Enregistrement : rouge qui pulse, carré blanc (arrêter) ; transcription et
+          analyse : roue. Toucher pour commencer et pour finir, ou maintenir pour parler. */}
+      {slot &&
+        createPortal(
+          <button
+            type="button"
+            aria-pressed={rec}
+            aria-busy={working || undefined}
+            aria-label={rec ? 'Finir l’avis vocal' : working ? 'Avis vocal : analyse en cours' : 'Avis vocal : parler du joueur pour obtenir des notes proposées'}
+            title="Avis vocal : parlez librement du joueur, je propose des notes, vous validez (toucher pour commencer et pour finir, ou maintenir)"
+            disabled={working}
+            data-noswipe
+            className={`flex h-11 w-11 shrink-0 touch-none items-center justify-center rounded-full border-[1.5px] transition select-none [-webkit-touch-callout:none] disabled:cursor-wait ${
+              rec ? 'animate-pulse border-red-300 bg-red-600 text-white shadow-[0_0_0_4px_rgba(220,38,38,0.35)]' : 'border-line bg-panel text-fg hover:bg-panel-2 active:bg-panel-2'
+            }`}
+            {...mic.buttonProps}
+          >
             {working ? (
-              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
             ) : rec ? (
-              <span className="h-3 w-3 rounded-[2px] bg-current" />
+              <span className="h-3.5 w-3.5 rounded-[2px] bg-white" aria-hidden />
             ) : (
               <MicGlyph />
             )}
-          </span>
-        </button>
-        {/* Toujours affiché (pendant l'enregistrement aussi) : rien ne bouge autour du bouton d'un état à l'autre. */}
-        <span className="min-w-0 text-[11px] text-muted">Parlez du joueur : je propose des notes, vous validez.</span>
-      </div>
+          </button>,
+          slot,
+        )}
       {!topVisible &&
-        (rec || working || left > 0) &&
+        left > 0 &&
+        !rec &&
+        !working &&
         createPortal(
           <div data-noswipe className="fixed right-4 bottom-[calc(var(--nav-b)+4.5rem+var(--save-extra,0px))] z-40 flex items-center gap-2">
-            {rec ? (
-              <button
-                type="button"
-                onClick={() => mic.finish()}
-                aria-label="Finir l’avis vocal"
-                className="flex min-h-12 items-center gap-2 rounded-full border-2 border-red-300 bg-red-600 px-4 text-sm font-extrabold text-white shadow-[0_0_0_6px_rgba(220,38,38,0.35)]"
-              >
-                <span className="h-4 w-4 rounded-sm bg-white" />
-                Terminer · {Math.floor(mic.seconds)} s
-              </button>
-            ) : working ? (
-              <span className="neon-ring flex min-h-12 items-center gap-2 rounded-full px-4 text-sm font-bold [--neon-fill:var(--color-bg)]" role="status">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                Analyse…
-              </span>
-            ) : (
-              <>
-                <button type="button" className="neon-fill min-h-12 rounded-full px-4 text-sm font-extrabold shadow-[var(--neon-glow)] hover:brightness-105" onClick={acceptAll}>
-                  ✦ Tout valider
-                </button>
-                <button type="button" className="min-h-12 rounded-full border-[1.5px] border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
-                  Tout ignorer
-                </button>
-              </>
-            )}
+            <button type="button" className="neon-fill min-h-12 rounded-full px-4 text-sm font-extrabold shadow-[var(--neon-glow)] hover:brightness-105" onClick={acceptAll}>
+              ✦ Tout valider
+            </button>
+            <button type="button" className="min-h-12 rounded-full border-[1.5px] border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
+              Tout ignorer
+            </button>
           </div>,
           document.body,
         )}
