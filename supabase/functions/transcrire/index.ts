@@ -456,6 +456,7 @@ Règles :
 4. "valeur" : un entier de l'échelle du critère (respecte les libelles s'il y en a). "excellent", "explose", "remarquable", "très fort" : le maximum ; "bon", "solide", "à l'aise" : au-dessus du milieu ; "correct", "moyen", "niveau attendu" : le milieu ; "doit travailler", "en retard", "un peu juste", "fragile" : sous le milieu. Le minimum seulement si l'entraîneur le dit clairement ("très insuffisant").
 5. "confiance" : "forte" si l'intensité est claire, sinon "moyenne".
 6. "pointsForts" : reformule brièvement, en termes positifs, les qualités citées. "axes" : ce qu'il faut travailler selon l'entraîneur, de façon constructive, en commençant par "À travailler : ". Rien d'inventé, aucun jugement définitif, aucun nom de personne. Chaîne vide si rien n'est dit.
+7. Rien de ce que dit l'entraîneur ne doit être perdu : une remarque qui ne correspond à aucun critère (attitude, gabarit, comportement, potentiel…) va aussi dans "pointsForts" si c'est une qualité, ou dans "axes" si c'est à travailler.
 Réponds UNIQUEMENT par un objet JSON strict : {"notes":[{"id":"...","valeur":0,"extrait":"...","confiance":"forte"}],"pointsForts":"...","axes":"...","ambigus":["..."]}
 
 Exemple 1. Critères : c1 Vitesse (1-5), c2 Tir (1-5), c3 Défense (1-5).

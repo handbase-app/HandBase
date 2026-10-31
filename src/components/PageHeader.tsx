@@ -57,7 +57,7 @@ export function PageHeader({
 }
 
 /**
- * « ⋯ » d'une page de liste (Joueurs, Événements, Groupes) : toutes les actions de la liste (« Nouveau joueur » en premier,
+ * « ⋮ » d'une page de liste (Joueurs, Événements, Groupes) : toutes les actions de la liste (« Nouveau joueur » en premier,
  * « Ajouter à un groupe », « Exporter »…) dans ce menu (petite fenêtre accrochée au bouton, sur téléphone aussi). Posé au
  * bout de la barre « Demander » de la liste, juste à droite de la pilule (BarActions) : rond, même hauteur que la pilule.
  */
@@ -81,9 +81,10 @@ export function MoreActions({ title, subtitle, items, label = 'Plus d’actions'
         className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border bg-panel text-fg shadow-sm transition hover:border-accent ${menu.anchor ? 'border-accent' : 'border-line'}`}
       >
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
-          <circle cx="5" cy="12" r="1.7" />
+          {/* ⋮ vertical, comme tous les menus de l'appli (31/10). */}
+          <circle cx="12" cy="5" r="1.7" />
           <circle cx="12" cy="12" r="1.7" />
-          <circle cx="19" cy="12" r="1.7" />
+          <circle cx="12" cy="19" r="1.7" />
         </svg>
       </button>
       {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={list} onClose={menu.close} pop />}
@@ -92,7 +93,7 @@ export function MoreActions({ title, subtitle, items, label = 'Plus d’actions'
 }
 
 /**
- * Actions d'une page de liste (son « ⋯ ») posées dans sa barre « Demander », juste à droite de la pilule : la page entoure
+ * Actions d'une page de liste (son « ⋮ ») posées dans sa barre « Demander », juste à droite de la pilule : la page entoure
  * la barre de ses filtres (`ui` de usePlayersQuery / useListQuery) avec BarActions, la barre les place (BarActionsSlot).
  * `below` : posé juste sous la pilule, avant les pastilles (onglets de la page Groupes), à la largeur de la barre.
  */
@@ -113,7 +114,7 @@ export function BarBelowSlot() {
 }
 
 /**
- * Sous la barre (onglets…) : à la largeur du champ seul, sans passer sous le « ⋯ » (même retrait que lui : bouton de 48 px
+ * Sous la barre (onglets…) : à la largeur du champ seul, sans passer sous le « ⋮ » (même retrait que lui : bouton de 48 px
  * et l'écart de la rangée) ; sans « ⋯ », toute la largeur.
  */
 export function BelowBar({ actions, children }: { actions?: ReactNode; children: ReactNode }) {

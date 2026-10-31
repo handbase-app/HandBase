@@ -262,6 +262,7 @@ export function AvisVocal({
           }}
           onClose={() => setOpen(false)}
           admin={realRole() === 'admin'}
+          written={{ strengths: current.strengths, improvements: current.improvements }}
           feedback={canLogQuestion() ? <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} /> : null}
         />
       )}
@@ -287,6 +288,7 @@ function AvisReview({
   onRefuse,
   onClose,
   admin,
+  written,
   feedback,
 }: {
   state: AvisState
@@ -295,6 +297,8 @@ function AvisReview({
   onRefuse: () => void
   onClose: () => void
   admin: boolean
+  /** Points forts / Axes déjà écrits sur la fiche : la proposition s'ajoute à la suite, on montre les deux. */
+  written: { strengths?: string; improvements?: string }
   feedback: ReactNode
 }) {
   const sugs = state.result.suggestions.filter((x) => state.pending.includes(x.criterionId))
@@ -340,8 +344,12 @@ function AvisReview({
             </div>
           )
         })}
-        {state.strengths && <CommentPick label="Points forts" text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />}
-        {state.improvements && <CommentPick label="Axes de progression" text={state.result.axes} checked={improvements} onChange={setImprovements} className={check} />}
+        {state.strengths && (
+          <CommentPick label="Points forts" before={written.strengths} text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />
+        )}
+        {state.improvements && (
+          <CommentPick label="Axes de progression" before={written.improvements} text={state.result.axes} checked={improvements} onChange={setImprovements} className={check} />
+        )}
       </div>
       {admin && (
         <>
@@ -377,14 +385,37 @@ function AvisReview({
   )
 }
 
-function CommentPick({ label, text, checked, onChange, className }: { label: string; text: string; checked: boolean; onChange: (v: boolean) => void; className: string }) {
+/**
+ * Points forts / Axes proposés : le texte déjà écrit sur la fiche (s'il y en a), puis la proposition qui s'ajoutera à la ligne
+ * en dessous, dans l'aspect d'une proposition (teinte et liseré pointillé) : on voit le résultat avant d'accepter.
+ */
+function CommentPick({
+  label,
+  before,
+  text,
+  checked,
+  onChange,
+  className,
+}: {
+  label: string
+  before?: string
+  text: string
+  checked: boolean
+  onChange: (v: boolean) => void
+  className: string
+}) {
+  const kept = before?.trim()
   return (
     <div className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${checked ? '' : 'opacity-50'}`}>
       <label className="flex min-h-8 items-center gap-2 text-xs font-bold">
         <input type="checkbox" className={className} checked={checked} onChange={(e) => onChange(e.target.checked)} />
         {label}
+        {kept && <span className="font-normal text-muted">· ajouté à la suite</span>}
       </label>
-      <p className="rounded-lg bg-panel-2 px-2.5 py-2 text-xs">{text}</p>
+      <div className="flex flex-col gap-1 rounded-lg bg-panel-2 px-2.5 py-2 text-xs">
+        {kept && <p className="whitespace-pre-line text-muted">{kept}</p>}
+        <p className="sug-fill rounded-md px-2 py-1">{text}</p>
+      </div>
     </div>
   )
 }
