@@ -22,7 +22,7 @@ import { AvisVocal } from '../components/AvisVocal'
 import { decide, mergeComment, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
 import { usePlayersByName } from '../playersCache'
-import { FormActions } from '../components/FormWindow'
+import { FormActions, FormWindow } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
 import {
   alive,
@@ -129,6 +129,8 @@ export default function Evaluate() {
   const [avis, setAvis] = useState<AvisState | null>(null)
   // Place du micro de l'avis vocal, à droite de « Enregistrer » (AvisVocal y rend son bouton).
   const [micSlot, setMicSlot] = useState<HTMLSpanElement | null>(null)
+  // Fenêtre « liste des joueurs de l'événement » (toucher le nom de l'événement).
+  const [rosterOpen, setRosterOpen] = useState(false)
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
@@ -339,6 +341,10 @@ export default function Evaluate() {
   const listMode = split && !spontaneous && !!event && fullRoster.length > 0
   listModeRef.current = listMode
   const inList = !!player && !!event && (event.playerIds ?? []).includes(player.id)
+  // Événement, un joueur ouvert (téléphone, ordinateur sans liste à gauche) : plus de bloc « Joueur » (31/10, il prenait trop
+  // de place) ; ‹ › de part et d'autre du nom, compteur dessous, liste des joueurs en touchant le nom de l'événement.
+  const compact = !listMode && !!event && !spontaneous && !!player && !proposing
+  const notedCount = roster.filter((p) => evaluatedHere.has(p.id)).length
 
   // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement). La fiche suit le doigt ;
   // au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté, ou elle revient en place si le geste est
@@ -368,7 +374,16 @@ export default function Evaluate() {
 
       {listMode ? null : event && !spontaneous ? (
         <div>
-          <h1 className="text-lg font-extrabold">{event.name}</h1>
+          {compact ? (
+            <button data-noswipe className="flex max-w-full items-center gap-1.5 text-left" onClick={() => setRosterOpen(true)} title={`Liste des ${ew.joueurs} de l’événement`}>
+              <h1 className="min-w-0 text-lg font-extrabold">{event.name}</h1>
+              <span aria-hidden className="shrink-0 text-sm text-muted">
+                ▾
+              </span>
+            </button>
+          ) : (
+            <h1 className="text-lg font-extrabold">{event.name}</h1>
+          )}
           <div className="text-xs text-muted">
             {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
             {event.place ? ` · ${event.place}` : ''}
@@ -398,7 +413,40 @@ export default function Evaluate() {
       )}
 
       {/* Joueur (liste à gauche : seulement pour choisir un joueur hors liste, ou s'il en est un) */}
-      {(event || spontaneous) && (!listMode || !player || !!proposing || !inList) && (
+      {compact && rosterOpen && (
+        <FormWindow title={`${ew.Joueurs} · ${notedCount} / ${roster.length} ${accord('noté', eg, 2)}`} onClose={() => setRosterOpen(false)} phoneFull={false} guard={false} width={520}>
+          <PlayerPicker
+            players={players}
+            roster={roster}
+            value=""
+            done={evaluatedHere}
+            onChange={(id) => {
+              setRosterOpen(false)
+              if (id) void go('joueur', id)
+            }}
+            onPropose={(q) => {
+              setRosterOpen(false)
+              const [lastName, ...rest] = q.trim().split(/\s+/)
+              setProposing({ lastName, firstName: rest.join(' ') || undefined })
+            }}
+          />
+        </FormWindow>
+      )}
+      {compact && !inList && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
+          {can.editEvent(role, event) || can.contributeEvent(role, event) ? (
+            <>
+              <b>{pw.Joueur} hors liste.</b> Tu organises cet événement : en enregistrant ton avis, {pw.il} sera {pw.ajoute} à la liste.
+            </>
+          ) : (
+            <>
+              <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />{pw.Joueur} hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+              administrateur : il ne comptera qu’une fois validé, et {pw.leJoueur} sera alors {pw.ajoute} à la liste.
+            </>
+          )}
+        </div>
+      )}
+      {(event || spontaneous) && !compact && (!listMode || !player || !!proposing || !inList) && (
       <div className="card flex flex-col gap-2 p-3">
         <span className="label">{listMode && !player ? `${ew.Joueur} hors liste` : player ? pw.Joueur : ew.Joueur}</span>
         {listMode && !player && !proposing && (
@@ -535,7 +583,58 @@ export default function Evaluate() {
               ✎ Pas de poste : compléter la fiche
             </button>
           )}
-          <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
+          {compact && (
+            // ‹ photo, nom, poste et « 1 / 29 · 3 notés » › (au milieu des deux flèches) : remplace le bloc « Joueur » (glisser marche toujours).
+            <div className="flex items-center gap-2">
+              {roster.length > 0 && (
+                <button
+                  data-noswipe
+                  aria-label={`${accord('Joueur précédent', eg)}`}
+                  disabled={!prev}
+                  onClick={() => prev && void changePlayer(prev, 'right')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-line bg-panel text-lg text-fg disabled:opacity-35"
+                >
+                  ‹
+                </button>
+              )}
+              <button
+                data-noswipe
+                className="group flex min-w-0 flex-1 items-center justify-center gap-2.5 text-left"
+                title={`Voir la fiche de ${playerName(player)}`}
+                onClick={async () => {
+                  if (!(await confirmLeave())) return
+                  navigate(`/joueurs/${player.id}`)
+                }}
+              >
+                <Avatar p={player} size={40} />
+                {/* Nom, puis poste et compteur juste en dessous. */}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <b className="truncate text-sm underline-offset-2 group-hover:underline">{playerName(player)}</b>
+                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted">
+                    <PosBadges p={player} />
+                    {roster.length > 0 && (
+                      <span>
+                        {idx >= 0 ? `${idx + 1} / ${roster.length}` : pluralG(roster.length, eg)} · {notedCount} {accord('noté', eg, notedCount)}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </button>
+              {roster.length > 0 && (
+                <button
+                  data-noswipe
+                  aria-label={`${accord('Joueur suivant', eg)}`}
+                  disabled={idx >= 0 ? !next : false}
+                  onClick={() => void changePlayer(next ?? roster[0], 'left')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-line bg-panel text-lg text-fg disabled:opacity-35"
+                >
+                  ›
+                </button>
+              )}
+            </div>
+          )}
+          <div className={`flex items-center ${compact ? 'justify-end' : 'justify-between'} ${listMode ? 'gap-2' : ''}`}>
+            {!compact && (
             <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
               {/* Photo (ou initiales) et nom : un toucher ouvre la fiche (mesures, avis, maturité…) ; le retour ramène ici. */}
               <button
@@ -550,7 +649,7 @@ export default function Evaluate() {
                 <Avatar p={player} size={listMode ? 32 : 40} />
                 <span className="underline-offset-2 group-hover:underline">{playerName(player)}</span>
               </button>{' '}
-              <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
+              <PosBadges p={player} />
               {/* Liste à gauche, sans poste : « Compléter le poste » sur la ligne du nom. */}
               {listMode && !player.position && can.editPlayers(role) && (
                 <button
@@ -566,6 +665,7 @@ export default function Evaluate() {
                 </button>
               )}
             </div>
+            )}
             <div className={`flex items-center gap-1 ${listMode ? 'shrink-0' : ''}`}>
               {/* Avec le « ⋮ » : bascule un peu plus étroite, pour tenir en 360 px de large. */}
               <div className={listMode ? 'w-36 shrink-0' : existing ? 'w-40' : 'w-44'}>
@@ -1220,7 +1320,7 @@ function PlayerPicker({
             <b>
               {p.lastName.toUpperCase()} {p.firstName}
             </b>
-            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>} <QuarterBadge birthDate={p.birthDate} />
+            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>}
             {p.review === 'pending' && <span className="text-amber-300"> · proposée</span>}
             {p.review === 'refused' && <span className="text-muted"> · hors cadre</span>}
           </span>
