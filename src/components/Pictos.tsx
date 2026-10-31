@@ -216,7 +216,7 @@ export function BarChip({
   n?: number
   title?: string
   label?: string
-  /** Rond du terrain de la fiche (poste : G, ALG…) avec le nombre en petite pastille, au lieu d'une pilule. */
+  /** Rond du terrain de la fiche (poste : GB, AG…) avec le nombre en petite pastille, au lieu d'une pilule. */
   dot?: boolean
   children: ReactNode
 }) {

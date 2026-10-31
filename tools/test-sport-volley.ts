@@ -129,14 +129,15 @@ t('libéro (postes par défaut ou de l’installation) : famille « Libéro », 
 
 // ---------- 3. Terrain ----------
 
-t('courtTag : les codes eux-mêmes en volley, G / ALG… en handball', () => {
+t('courtTag : les codes eux-mêmes en volley, codes officiels en handball aussi (GB, AG…)', () => {
   applySportConfig(resolveSportConfig([], 'volley'))
   for (const c of ['P', 'R4', 'C', 'PT', 'L']) assert.equal(courtTag(c), c)
   assert.equal(courtTag('GB'), 'GB', 'code sans place : tel quel')
-  assert.equal(courtTag('GB', 'handball'), 'G')
+  assert.equal(courtTag('GB', 'handball'), 'GB')
   applySportConfig(resolveSportConfig([], 'handball'))
-  assert.equal(courtTag('GB'), 'G')
-  assert.equal(courtTag('AG'), 'ALG')
+  assert.equal(courtTag('GB'), 'GB')
+  assert.equal(courtTag('AG'), 'AG')
+  assert.equal(courtTag('PIV'), 'PIV')
   assert.equal(courtTag('R4'), 'R4')
 })
 t('places du volley : R4 zone 4, C zone 3, PT zone 2 (devant), P zone 1, L zone 5 en pointillés', () => {
