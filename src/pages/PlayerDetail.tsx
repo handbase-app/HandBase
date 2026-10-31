@@ -505,36 +505,51 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
  * paraît que pour qui peut les renseigner.
  */
 function PosteCard({ player: p, canEdit }: { player: Player; canEdit: boolean }) {
-  const [editing, setEditing] = useState(false)
+  // Brouillon pendant la modification : chaque toucher ne change que l'écran (immédiat, même sur téléphone) ;
+  // la fiche n'est écrite sur l'appareil, puis envoyée au serveur, qu'une fois, avec « Terminé ».
+  const [draft, setDraft] = useState<Pick<Player, 'position' | 'secondaryPositions' | 'laterality'> | null>(null)
   const hasPos = !!p.position || (p.secondaryPositions ?? []).length > 0
   if (!hasPos && !p.laterality && !canEdit) return null
-  const put = (patch: Partial<Player>) => void save<Player>('players', { ...p, ...patch })
+  const finish = () => {
+    if (draft && (draft.position !== p.position || draft.laterality !== p.laterality || (draft.secondaryPositions ?? []).join() !== (p.secondaryPositions ?? []).join()))
+      void save<Player>('players', { ...p, ...draft })
+    setDraft(null)
+  }
   return (
     <div className="card p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="section-title mb-0">Poste et latéralité</div>
         {canEdit &&
-          (editing ? (
-            <button className="text-xs font-bold text-accent" onClick={() => setEditing(false)}>
-              Terminé
-            </button>
+          (draft ? (
+            <div className="flex items-center gap-4">
+              <button className="text-xs font-bold text-muted" onClick={() => setDraft(null)}>
+                Annuler
+              </button>
+              <button className="text-xs font-bold text-accent" onClick={finish}>
+                Terminé
+              </button>
+            </div>
           ) : (
             <button
               className="-m-1.5 flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg"
               aria-label="Modifier le poste et la latéralité"
               title="Modifier le poste et la latéralité"
-              onClick={() => setEditing(true)}
+              onClick={() => setDraft({ position: p.position, secondaryPositions: p.secondaryPositions, laterality: p.laterality })}
             >
               <Icon name="pencil" className="h-4 w-4" />
             </button>
           ))}
       </div>
-      {editing ? (
+      {draft ? (
         <div className="flex flex-col gap-3">
-          <CourtPicker value={p.position} secondary={p.secondaryPositions} onChange={(pos, sec) => put({ position: pos, secondaryPositions: sec.length ? sec : undefined })} />
+          <CourtPicker
+            value={draft.position}
+            secondary={draft.secondaryPositions}
+            onChange={(pos, sec) => setDraft({ ...draft, position: pos, secondaryPositions: sec.length ? sec : undefined })}
+          />
           <Segmented
-            value={p.laterality}
-            onChange={(v) => put({ laterality: v })}
+            value={draft.laterality}
+            onChange={(v) => setDraft({ ...draft, laterality: v })}
             options={[
               { value: 'droitier', label: lateralityLabel('droitier', p.sex) },
               { value: 'gaucher', label: lateralityLabel('gaucher', p.sex) },
