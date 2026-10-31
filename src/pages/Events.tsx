@@ -22,14 +22,14 @@ import { useEventsQuery, type EventStats } from '../components/EventsQuery'
 import { usePlayersQuery } from '../components/PlayersQuery'
 import { usePlayersByName } from '../playersCache'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
-import { StampLine } from '../components/ActivityLog'
+import { stampOf, StampWindow } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
 import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
 import { RosterChip, RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
-import { BarActions, MoreActions, PageHeader } from '../components/PageHeader'
+import { BarActions, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
 import { MQ, useMedia, useWidth } from '../layout'
 import { playerScore } from '../compare'
@@ -550,6 +550,8 @@ export function EventDetail() {
   // « Modifier » : fenêtre par-dessus la page (ouverte aussi par ?modifier=1, une fois le paramètre retiré de l'adresse).
   const [editing, setEditing] = useState(false)
   const [duplicating, setDuplicating] = useState(false)
+  // « Infos de l'événement » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
+  const [stampOpen, setStampOpen] = useState(false)
   // Après Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
   const leave = useBack('/evenements', 'ÉVÉNEMENTS')
   // « Modifier » choisi depuis un autre écran (menu d'une ligne de la liste) : Enregistrer ou Annuler y ramène.
@@ -845,10 +847,11 @@ export function EventDetail() {
     if (await ask(msg, { ok: 'Retirer', focusCancel: true })) await setRoster((ev!.playerIds ?? []).filter((x) => x !== p.id))
   }
 
+  const stamp = stampOf(ev)
   return (
     <PlayerMenuScope.Provider value={{ pick, eventId: ev.id }}>
     <div ref={boxRef} className="flex flex-col gap-4">
-      {/* En-tête : retour, puis les actions de l'événement dans le ⋮ (Supprimer en dernier, avec confirmation). */}
+      {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est au bout du nom, comme la fiche joueur, 31/10). */}
       <PageHeader
         back={
           // Avis ouverts en pleine largeur : Échap (ou « avis » sur la ligne du joueur) les referme ; plus de « ← » (26/10).
@@ -858,28 +861,6 @@ export function EventDetail() {
             <BackButton fallback="/evenements" label="ÉVÉNEMENTS" />
           )
         }
-        menu={{
-          title: ev.name,
-          subtitle: [typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · '),
-          items: [
-            manage && !editing && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
-            // Copie à compléter (« Dupliquer l'événement ») : rien n'est écrit avant « Créer ».
-            can.manageEvents(role) && { label: 'Dupliquer…', icon: 'list', hint: 'choisir ce qui est copié', onSelect: () => setDuplicating(true) },
-            // Archiver : retiré des listes (Évaluer, événements), avis conservés.
-            manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
-            { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
-            // Fichier .ics fait sur l'appareil (src/agenda.ts) : jour, heure, lieu, nombre de jeunes ; jamais leurs noms.
-            /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && { label: 'Ajouter à mon agenda', icon: 'calendar', hint: 'fichier pour ton agenda', onSelect: () => void eventToAgenda(ev) },
-            manage && {
-              label: 'Supprimer',
-              icon: 'trash',
-              danger: true,
-              onSelect: async () => {
-                if (await deleteEvent(ev, role)) leave.exit()
-              },
-            },
-          ],
-        }}
       />
       {editing && (
         <FormWindow title="Modifier l’événement" onClose={doneEditing}>
@@ -887,9 +868,40 @@ export function EventDetail() {
         </FormWindow>
       )}
       {duplicating && <DuplicateEvent ev={ev} onClose={() => setDuplicating(false)} />}
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos de l’événement" onClose={() => setStampOpen(false)} />}
         <div>
           {ev.archived && <div className="mb-1 w-fit rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-bold text-muted">ARCHIVÉ</div>}
-          <h1 className="text-lg font-extrabold">{ev.name}</h1>
+          {/* Le nom, et au bout de la rangée le ⋮ (actions de l'événement, Supprimer en dernier, avec confirmation) ; pas de
+              suivi pour les événements. */}
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="min-w-0 text-lg font-extrabold">{ev.name}</h1>
+            <div className="flex shrink-0 items-center gap-1">
+              <HeaderMenu
+                title={ev.name}
+                subtitle={[typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · ')}
+                items={[
+                  manage && !editing && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  // Copie à compléter (« Dupliquer l'événement ») : rien n'est écrit avant « Créer ».
+                  can.manageEvents(role) && { label: 'Dupliquer…', icon: 'list', hint: 'choisir ce qui est copié', onSelect: () => setDuplicating(true) },
+                  // Archiver : retiré des listes (Évaluer, événements), avis conservés.
+                  manage && { label: ev.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', hint: ev.archived ? undefined : 'avis conservés', onSelect: () => void toggleArchiveEvent(ev) },
+                  { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/evenements/${ev.id}`) },
+                  // Fichier .ics fait sur l'appareil (src/agenda.ts) : jour, heure, lieu, nombre de jeunes ; jamais leurs noms.
+                  /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && { label: 'Ajouter à mon agenda', icon: 'calendar', hint: 'fichier pour ton agenda', onSelect: () => void eventToAgenda(ev) },
+                  // Créé par…, modifié par… : plus dans « Infos » (31/10), ici seulement s'il y a quelque chose à dire.
+                  stamp && { label: 'Infos de l’événement', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
+                  manage && {
+                    label: 'Supprimer',
+                    icon: 'trash',
+                    danger: true,
+                    onSelect: async () => {
+                      if (await deleteEvent(ev, role)) leave.exit()
+                    },
+                  },
+                ]}
+              />
+            </div>
+          </div>
           <div className="text-xs text-muted">
             {typeLabel(ev.type)} · {fmtDate(ev.date)}
             {ev.time ? ` · ${ev.time}` : ''}
@@ -918,7 +930,7 @@ export function EventDetail() {
             onClick={() => setInfos(!infos)}
           >
             <span className="shrink-0 font-bold">Infos</span>
-            {!infos && <span className="min-w-0 truncate">· {organizerName ? `Organisé par : ${organizerName}` : 'organisateur, participants, historique'}</span>}
+            {!infos && <span className="min-w-0 truncate">· {organizerName ? `Organisé par : ${organizerName}` : 'organisateur, participants'}</span>}
             <span className={`shrink-0 transition-transform ${infos ? 'rotate-90' : ''}`} aria-hidden>
               ›
             </span>
@@ -941,7 +953,6 @@ export function EventDetail() {
                     : undefined
                 }
               />
-              <StampLine row={ev} />
             </div>
           )}
           {viaMyPlayers > 0 && (

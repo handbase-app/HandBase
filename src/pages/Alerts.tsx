@@ -8,7 +8,8 @@ import { Empty, Icon, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
-import { PageHeader } from '../components/PageHeader'
+import { HeaderMenu, PageHeader } from '../components/PageHeader'
+import { stampOf, StampWindow } from '../components/ActivityLog'
 import { alive, db, lateralityLabel, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
@@ -119,6 +120,8 @@ export function AlertDetail() {
   const leave = useBack('/alertes', 'PROFILS RECHERCHÉS')
   // Formulaire ouvert depuis un autre écran (« Modifier » du menu d'une ligne de la liste) : on y revient en le fermant.
   const [editFromOutside] = useState(editing)
+  // « Infos du profil » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
+  const [stampOpen, setStampOpen] = useState(false)
   const data = useLiveQuery(async () => {
     const alert = await db.alerts.get(id!)
     return { alert, ctx: await loadAlertContext() }
@@ -148,41 +151,43 @@ export function AlertDetail() {
       />
     )
   const manage = can.editGroup(role, alert)
+  const stamp = stampOf(alert)
   // Accord (src/gender.ts) : profil « Féminin », ou liste faite seulement de filles.
   const g: Gender = listGender(alert.rules.sex, players)
   const sorted = [...players].sort((a, b) => Number(fresh?.has(b.id) ?? 0) - Number(fresh?.has(a.id) ?? 0) || a.lastName.localeCompare(b.lastName))
 
   return (
     <div className="flex flex-col gap-3">
-      {/* En-tête : retour, puis Modifier et Supprimer (en dernier, avec confirmation) dans le ⋮. */}
-      <PageHeader
-        back={<BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />}
-        menu={
-          manage
-            ? {
-                title: alert.name,
-                items: [
-                  { label: 'Modifier', icon: 'pencil', onSelect: () => setParams({ modifier: '' }, { replace: true }) },
-                  {
-                    label: 'Supprimer',
-                    icon: 'trash',
-                    danger: true,
-                    onSelect: async () => {
-                      if (await deleteAlert(alert)) leave.exit()
-                    },
-                  },
-                ],
-              }
-            : undefined
-        }
-      />
+      {/* Pas de panneau ici : pas de rangée d'en-tête (le ⋮ est au bout du nom, comme la fiche joueur, 31/10). */}
+      <PageHeader back={<BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />} />
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du profil" onClose={() => setStampOpen(false)} />}
       <div>
-        <h1 className="flex items-center gap-2 text-lg font-extrabold">
-          {alert.private && <Icon name="lock" className="h-4 w-4 text-muted" />}
-          {alert.name}
-        </h1>
+        {/* Le nom, et au bout de la rangée le ⋮ (Modifier, Infos du profil, Supprimer en dernier, avec confirmation). */}
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="flex min-w-0 items-center gap-2 text-lg font-extrabold">
+            {alert.private && <Icon name="lock" className="h-4 w-4 text-muted" />}
+            {alert.name}
+          </h1>
+          <div className="flex shrink-0 items-center gap-1">
+            <HeaderMenu
+              title={alert.name}
+              items={[
+                manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setParams({ modifier: '' }, { replace: true }) },
+                // Créée par…, modifiée par… : plus sous le titre (31/10), ici seulement s'il y a quelque chose à dire.
+                stamp && { label: 'Infos du profil', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
+                manage && {
+                  label: 'Supprimer',
+                  icon: 'trash',
+                  danger: true,
+                  onSelect: async () => {
+                    if (await deleteAlert(alert)) leave.exit()
+                  },
+                },
+              ]}
+            />
+          </div>
+        </div>
         <p className="text-xs text-muted">{rulesSummary(alert.rules, ctx.criteria)}</p>
-        {alert.createdByName && <p className="text-[10px] text-muted">Créée par {alert.createdByName}</p>}
       </div>
       <div className="section-title mt-1 mb-0">
         {pluralG(players.length, g)}

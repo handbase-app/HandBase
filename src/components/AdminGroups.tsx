@@ -8,14 +8,14 @@ import type { Role } from '../roles'
 import { spyTarget } from '../spy'
 import { ADMIN_GROUPS, STAFF } from '../staffLabels'
 import { supabase } from '../sync'
-import { StampLine } from './ActivityLog'
+import { stampOf, StampWindow } from './ActivityLog'
 import { ask, inform } from './Confirm'
 import { PanelClose, selectedCls, usePanel, useSelected } from './MasterDetail'
 import { TransferGroup, useOnline } from './TransferGroup'
 import { Empty, Icon } from './ui'
 import { PlayerRow } from './PlayerRow'
 import { PlayerList } from './Pictos'
-import { PageHeader } from './PageHeader'
+import { HeaderMenu, PageHeader } from './PageHeader'
 import { FoldSection } from './FoldSection'
 import { foldKey, startsOpen } from '../fold'
 
@@ -231,12 +231,15 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
   const [err, setErr] = useState('')
   const [transferring, setTransferring] = useState(false)
   const [busy, setBusy] = useState(false)
+  // « Infos du groupe » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
+  const [stampOpen, setStampOpen] = useState(false)
 
   // Chaque ouverture est notée par le serveur (journal d'activité).
   useEffect(() => {
     setG(null)
     setErr('')
     setTransferring(false)
+    setStampOpen(false)
     if (!supabase || !online) return
     let live = true
     void supabase.rpc('hb_admin_group', { p_id: id }).then(({ data, error }) => {
@@ -272,6 +275,7 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
   const sorted = [...(players ?? [])].sort((a, b) => a.lastName.localeCompare(b.lastName, 'fr') || a.firstName.localeCompare(b.firstName, 'fr'))
   const missing = g.playerIds.length - sorted.length
   const others = g.editors.map((u) => who(u) ?? '?')
+  const stamp = stampOf(g)
 
   async function del() {
     if (!supabase || !g) return
@@ -287,18 +291,9 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* En-tête : retour, puis Réattribuer et Supprimer (en dernier, avec confirmation) dans le ⋮. */}
-      <PageHeader
-        back={back}
-        menu={{
-          title: g.name,
-          subtitle: g.ownerLabel,
-          items: [
-            { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
-            !busy && { label: 'Supprimer', icon: 'trash', danger: true, onSelect: () => void del() },
-          ],
-        }}
-      />
+      {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est au bout du nom, comme la fiche joueur, 31/10). */}
+      <PageHeader back={back} />
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du groupe" onClose={() => setStampOpen(false)} />}
 
       {transferring && (
         <TransferGroup
@@ -318,11 +313,26 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
       </p>
 
       <div>
-        <h1 className="text-lg font-extrabold">
-          <Icon name={g.private ? 'lock' : 'users'} className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
-          {g.name}
-          {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
-        </h1>
+        {/* Le nom, et au bout de la rangée le ⋮ (Réattribuer, Infos du groupe, Supprimer en dernier, avec confirmation). */}
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="min-w-0 text-lg font-extrabold">
+            <Icon name={g.private ? 'lock' : 'users'} className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
+            {g.name}
+            {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
+          </h1>
+          <div className="flex shrink-0 items-center gap-1">
+            <HeaderMenu
+              title={g.name}
+              subtitle={g.ownerLabel}
+              items={[
+                { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
+                // Créé par…, modifié par… : plus sous le titre (31/10), ici seulement s'il y a quelque chose à dire.
+                stamp && { label: 'Infos du groupe', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
+                !busy && { label: 'Supprimer', icon: 'trash', danger: true, onSelect: () => void del() },
+              ]}
+            />
+          </div>
+        </div>
         {text && <div className="text-xs font-bold text-accent">{text}</div>}
         {g.description && <div className="text-xs text-muted">{g.description}</div>}
         {!g.private && (others.length > 0 || g.teamsCount > 0) && (
@@ -330,9 +340,6 @@ export function OtherGroupDetail({ id, info }: { id: string; info: Info }) {
             Participants : {[...others, ...(g.teamsCount ? [STAFF.hidden(g.teamsCount)] : [])].join(', ')}
           </div>
         )}
-        <div className="mt-1">
-          <StampLine row={g} />
-        </div>
       </div>
 
       <div className="text-[11px] text-muted">

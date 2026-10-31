@@ -5,7 +5,8 @@ import { BackButton } from '../backNav'
 import { ask } from '../components/Confirm'
 import { copyLink } from '../components/ItemMenu'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
-import { PageHeader } from '../components/PageHeader'
+import { HeaderMenu, PageHeader } from '../components/PageHeader'
+import { stampOf, StampWindow } from '../components/ActivityLog'
 import { FormActions, FormWindow } from '../components/FormWindow'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Empty, Icon } from '../components/ui'
@@ -152,7 +153,12 @@ export function WorkGroupDetail({ id }: { id: string }) {
   const panel = usePanel()
   const nav = useNavigate()
   const [editing, setEditing] = useState(false)
-  useEffect(() => setEditing(false), [id])
+  // « Infos du groupe de travail » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
+  const [stampOpen, setStampOpen] = useState(false)
+  useEffect(() => {
+    setEditing(false)
+    setStampOpen(false)
+  }, [id])
   if (!teams) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const t = teams.find((x) => x.id === id)
   const back = panel ? <PanelClose /> : <BackButton fallback={STAFF.tabRoute} label={STAFF.title.toUpperCase()} />
@@ -164,22 +170,37 @@ export function WorkGroupDetail({ id }: { id: string }) {
       </div>
     )
   const manage = can.editTeam(t)
+  const stamp = stampOf(t)
   const me = currentUserId()
   const u = shared?.get(t.id)
   const linkCls = 'card flex items-center justify-between gap-3 px-3 py-2 hover:border-accent'
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader
-        back={back}
-        menu={
-          editing
-            ? undefined
-            : {
-                title: t.name,
-                subtitle: STAFF.count(t.members.length),
-                items: [
+      {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est au bout du nom, comme la fiche joueur, 31/10). */}
+      <PageHeader back={back} />
+      {editing && (
+        <FormWindow title="Modifier le groupe de travail" onClose={() => setEditing(false)}>
+          <TeamForm key={t.id} team={t} onDone={() => setEditing(false)} />
+        </FormWindow>
+      )}
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du groupe de travail" onClose={() => setStampOpen(false)} />}
+      <div>
+        {/* Le nom, et au bout de la rangée le ⋮ (Modifier, Copier le lien, Supprimer en dernier, avec confirmation). */}
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="flex min-w-0 items-center gap-2 text-lg font-extrabold">
+            <Icon name="users" className="h-4 w-4 shrink-0 text-muted" />
+            <span className="min-w-0 break-words">{t.name}</span>
+          </h1>
+          {!editing && (
+            <div className="flex shrink-0 items-center gap-1">
+              <HeaderMenu
+                title={t.name}
+                subtitle={STAFF.count(t.members.length)}
+                items={[
                   manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(workGroupPath(t.id)) },
+                  // Création, dernière modification (avec les dates) : seulement s'il y a quelque chose à dire.
+                  stamp && { label: 'Infos du groupe de travail', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
                   manage && {
                     label: 'Supprimer',
                     icon: 'trash',
@@ -190,20 +211,11 @@ export function WorkGroupDetail({ id }: { id: string }) {
                       nav(STAFF.tabRoute, { replace: true })
                     },
                   },
-                ],
-              }
-        }
-      />
-      {editing && (
-        <FormWindow title="Modifier le groupe de travail" onClose={() => setEditing(false)}>
-          <TeamForm key={t.id} team={t} onDone={() => setEditing(false)} />
-        </FormWindow>
-      )}
-      <div>
-        <h1 className="flex items-center gap-2 text-lg font-extrabold">
-          <Icon name="users" className="h-4 w-4 shrink-0 text-muted" />
-          <span className="min-w-0 break-words">{t.name}</span>
-        </h1>
+                ]}
+              />
+            </div>
+          )}
+        </div>
         {t.description && <div className="text-xs text-muted">{t.description}</div>}
         <div className="text-[11px] text-muted">
           {[manage ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member].filter(Boolean).join(' · ')}
