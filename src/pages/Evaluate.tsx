@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { RowAvatar } from '../components/PlayerRow'
 import { Avatar, CriterionInput, groupBy, Icon, InfoButton, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
@@ -375,12 +376,18 @@ export default function Evaluate() {
       {listMode ? null : event && !spontaneous ? (
         <div>
           {compact ? (
-            <button data-noswipe className="flex max-w-full items-center gap-1.5 text-left" onClick={() => setRosterOpen(true)} title={`Liste des ${ew.joueurs} de l’événement`}>
-              <h1 className="min-w-0 text-lg font-extrabold">{event.name}</h1>
-              <span aria-hidden className="shrink-0 text-sm text-muted">
-                ▾
+            <div className="flex items-start justify-between gap-2">
+              <button data-noswipe className="flex min-w-0 items-center gap-1.5 text-left" onClick={() => setRosterOpen(true)} title={`Liste des ${ew.joueurs} de l’événement`}>
+                <h1 className="min-w-0 text-lg font-extrabold">{event.name}</h1>
+                <span aria-hidden className="shrink-0 text-sm text-muted">
+                  ▾
+                </span>
+              </button>
+              {/* Options de l'avis : tous les critères / essentiels, annuler, retirer (le menu est rendu avec la fiche). */}
+              <span data-noswipe className="contents">
+                <MenuButton label="Options de l’avis" open={!!avisMenu.anchor} className="-mr-2 shrink-0" onOpen={avisMenu.open} />
               </span>
-            </button>
+            </div>
           ) : (
             <h1 className="text-lg font-extrabold">{event.name}</h1>
           )}
@@ -584,29 +591,30 @@ export default function Evaluate() {
             </button>
           )}
           {compact && (
-            // ‹ photo, nom, poste et « 1 / 29 · 3 notés » › (au milieu des deux flèches) : remplace le bloc « Joueur » (glisser marche toujours).
-            <div className="flex items-center gap-2">
+            // Gélule « ‹ joueur › » (31/10) : au milieu, photo, nom, poste et « 2 / 29 · 3 notés » ; un toucher sur le joueur ouvre
+            // sa fiche, les flèches passent au précédent / suivant (glisser marche toujours). Remplace le bloc « Joueur ».
+            <div className="flex items-center gap-1 rounded-full border-[1.5px] border-line bg-panel p-1">
               {roster.length > 0 && (
                 <button
                   data-noswipe
                   aria-label={`${accord('Joueur précédent', eg)}`}
                   disabled={!prev}
                   onClick={() => prev && void changePlayer(prev, 'right')}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-line bg-panel text-lg text-fg disabled:opacity-35"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-fg hover:bg-panel-2 active:bg-panel-2 disabled:opacity-30"
                 >
                   ‹
                 </button>
               )}
               <button
                 data-noswipe
-                className="group flex min-w-0 flex-1 items-center justify-center gap-2.5 text-left"
+                className="group flex min-w-0 flex-1 items-center justify-center gap-2.5 py-0.5 text-left"
                 title={`Voir la fiche de ${playerName(player)}`}
                 onClick={async () => {
                   if (!(await confirmLeave())) return
                   navigate(`/joueurs/${player.id}`)
                 }}
               >
-                <Avatar p={player} size={40} />
+                <RowAvatar p={player} size={38} />
                 {/* Nom, puis poste et compteur juste en dessous. */}
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <b className="truncate text-sm underline-offset-2 group-hover:underline">{playerName(player)}</b>
@@ -626,15 +634,15 @@ export default function Evaluate() {
                   aria-label={`${accord('Joueur suivant', eg)}`}
                   disabled={idx >= 0 ? !next : false}
                   onClick={() => void changePlayer(next ?? roster[0], 'left')}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-line bg-panel text-lg text-fg disabled:opacity-35"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-fg hover:bg-panel-2 active:bg-panel-2 disabled:opacity-30"
                 >
                   ›
                 </button>
               )}
             </div>
           )}
-          <div className={`flex items-center ${compact ? 'justify-end' : 'justify-between'} ${listMode ? 'gap-2' : ''}`}>
-            {!compact && (
+          {!compact && (
+          <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
             <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
               {/* Photo (ou initiales) et nom : un toucher ouvre la fiche (mesures, avis, maturité…) ; le retour ramène ici. */}
               <button
@@ -665,33 +673,22 @@ export default function Evaluate() {
                 </button>
               )}
             </div>
-            )}
             <div className={`flex items-center gap-1 ${listMode ? 'shrink-0' : ''}`}>
-              {/* Avec le « ⋮ » : bascule un peu plus étroite, pour tenir en 360 px de large. */}
-              <div className={listMode ? 'w-36 shrink-0' : existing ? 'w-40' : 'w-44'}>
-                <Segmented
-                  look="capsule"
-                  label="Fiche rapide ou complète"
-                  value={mode}
-                  onChange={setMode}
-                  options={[
-                    { value: 'rapide', label: 'Rapide' },
-                    { value: 'complet', label: 'Complet' },
-                  ]}
-                />
-              </div>
-              {(existing || dirty) && (
-                <span data-noswipe className="contents">
-                  <MenuButton label="Autres actions sur mon avis" open={!!avisMenu.anchor} className="-mr-2" onOpen={avisMenu.open} />
-                </span>
-              )}
+              <span data-noswipe className="contents">
+                <MenuButton label="Options de l’avis" open={!!avisMenu.anchor} className="-mr-2" onOpen={avisMenu.open} />
+              </span>
             </div>
           </div>
-          {(existing || dirty) && avisMenu.anchor && (
+          )}
+          {avisMenu.anchor && (
             <ItemMenu
               anchor={avisMenu.anchor}
               title={`Mon avis sur ${playerName(player)}`}
               items={[
+                // Rapide / Complet (31/10) : plus de bascule à l'écran, une option du ⋮.
+                mode === 'rapide'
+                  ? { label: 'Afficher tous les critères', icon: 'list' as const, hint: 'Fiche complète', onSelect: () => setMode('complet') }
+                  : { label: 'Critères essentiels seulement', icon: 'list' as const, hint: 'Fiche rapide', onSelect: () => setMode('rapide') },
                 // « Annuler » n'est plus dans la barre du bas (Enregistrer + micro seulement, 31/10) : ici, avec « Retirer ».
                 ...(dirty ? [{ label: 'Annuler mes modifications', icon: 'undo' as const, onSelect: revert }] : []),
                 ...(existing ? [{ label: 'Retirer mon avis', icon: 'trash' as const, danger: true, onSelect: () => void withdraw() }] : []),
