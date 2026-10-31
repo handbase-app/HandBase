@@ -166,6 +166,8 @@ function ParcoursPopover({ paliers, anchor, onClose }: { paliers: Palier[]; anch
 
   return createPortal(
     <div className="fixed inset-0 z-50" onClick={onClose}>
+      {/* Fond légèrement assombri et flouté, comme les bulles des filtres (src/components/FilterWindow.tsx). */}
+      <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" aria-hidden />
       <div
         ref={box}
         tabIndex={-1}

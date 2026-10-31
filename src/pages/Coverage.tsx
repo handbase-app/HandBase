@@ -2423,7 +2423,7 @@ function ReportDialog({
   }
   const full = allowed.every((o) => c.tabs.includes(o))
   return createPortal(
-    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
+    <div className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-[3px] p-4 sm:items-center" onClick={onClose}>
       <div
         ref={box}
         role="dialog"

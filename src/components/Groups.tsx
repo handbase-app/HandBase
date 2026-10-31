@@ -86,7 +86,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => onClose()}>
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-[3px] p-4 sm:items-center" onClick={() => onClose()}>
       <div className="win flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="text-sm font-extrabold">Mettre {label} dans un groupe</div>
         {groups === undefined ? (
