@@ -6,6 +6,7 @@ import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, interpretAvis, mergeComment, type AvisRef, type AvisState } from '../dictation/avis'
 import { newId, type Criterion, type Position } from '../db'
 import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
+import { realRole } from '../roles'
 import { MAX_COMMENT, VOCAL_VERDICT_LABEL, VOCAL_VERDICTS, type VocalVerdict } from '../questionLogCore'
 import { useWait, WaitLine } from './Attente'
 import { FormActions, FormWindow } from './FormWindow'
@@ -168,7 +169,8 @@ export function AvisVocal({
   }
   const payload = criteria.length > 0 ? buildAvisPayload(criteria, position) : null
   const usable = !!payload && payload.criteres.length > 0
-  const refs = payload?.refs ?? {}
+  // Échelle de chaque critère proposé (les références de l'analyse sont rangées par c1, c2… : ici par critère).
+  const refs = Object.fromEntries(Object.values(payload?.refs ?? {}).map((r) => [r.criterionId, r]))
   if (!avisReady || !usable) return null
 
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
@@ -259,6 +261,7 @@ export function AvisVocal({
             setOpen(false)
           }}
           onClose={() => setOpen(false)}
+          admin={realRole() === 'admin'}
           feedback={canLogQuestion() ? <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} /> : null}
         />
       )}
@@ -270,9 +273,11 @@ type AvisPick = { scores: Record<string, number | undefined>; strengths: boolean
 
 /**
  * Fenêtre des propositions de l'avis vocal (31/10) : tout ce qui est proposé, au même endroit, quelle que soit la ligne de
- * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note pour la changer ;
- * la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter (n) » pose ce qui est coché
- * sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ; ✕ ou Retour : plus tard.
+ * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note de l'échelle
+ * (1 à 5…) pour la changer ; la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter
+ * (n) » pose ce qui est coché sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ;
+ * ✕ ou Retour : plus tard. Pas d'explication. Administrateurs seulement (phase de test) : propositions écartées,
+ * « Ce que j'ai entendu » et l'appréciation « Cohérente · En partie · Pas cohérente ».
  */
 function AvisReview({
   state,
@@ -280,6 +285,7 @@ function AvisReview({
   onApply,
   onRefuse,
   onClose,
+  admin,
   feedback,
 }: {
   state: AvisState
@@ -287,6 +293,7 @@ function AvisReview({
   onApply: (pick: AvisPick) => void
   onRefuse: () => void
   onClose: () => void
+  admin: boolean
   feedback: ReactNode
 }) {
   const sugs = state.result.suggestions.filter((x) => state.pending.includes(x.criterionId))
@@ -299,7 +306,6 @@ function AvisReview({
   const check = 'h-5 w-5 shrink-0 accent-[var(--color-fg)]'
   return (
     <FormWindow title={`${total} proposition${total > 1 ? 's' : ''}`} onClose={onClose} phoneFull={false} guard={false} width={520}>
-      <p className="text-[11px] text-muted">Décochez ce que vous ne voulez pas, touchez une autre note pour la changer.</p>
       <div className="flex flex-col divide-y divide-line" data-noswipe>
         {sugs.map((x) => {
           const id = x.criterionId
@@ -336,17 +342,21 @@ function AvisReview({
         {state.strengths && <CommentPick label="Points forts" text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />}
         {state.improvements && <CommentPick label="Axes de progression" text={state.result.axes} checked={improvements} onChange={setImprovements} className={check} />}
       </div>
-      {state.result.ambigus.map((a) => (
-        <div key={a} className="text-[11px] text-muted">
-          Je n’ai pas su choisir : {a}
-        </div>
-      ))}
-      {state.result.dropped.length > 0 && <div className="text-[11px] text-muted">{droppedText(state.result.dropped)}</div>}
-      <details className="text-[11px] text-muted">
-        <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
-        <p className="italic">« {state.transcript} »</p>
-      </details>
-      {feedback}
+      {admin && (
+        <>
+          {state.result.ambigus.map((a) => (
+            <div key={a} className="text-[11px] text-muted">
+              Je n’ai pas su choisir : {a}
+            </div>
+          ))}
+          {state.result.dropped.length > 0 && <div className="text-[11px] text-muted">{droppedText(state.result.dropped)}</div>}
+          <details className="text-[11px] text-muted">
+            <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
+            <p className="italic">« {state.transcript} »</p>
+          </details>
+          {feedback}
+        </>
+      )}
       <FormActions>
         <button
           type="button"
