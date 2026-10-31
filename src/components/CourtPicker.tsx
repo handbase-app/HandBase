@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { POSITIONS, type Position } from '../db'
 import { spotsOf } from '../courtSpots'
 import { currentSport } from '../sportConfig'
-import { choose } from './Confirm'
 
 /*
  * Demi-terrain des postes, dessiné selon le sport de l'installation (src/sportConfig.ts) : SPOTS (place et étiquette de
@@ -67,9 +66,9 @@ const COURT_LINES: Record<string, () => ReactNode> = {
 }
 
 /**
- * Demi-terrain cliquable : le premier poste touché est le poste principal (rond plein), les suivants
- * sont des postes secondaires (rond entouré, retouché = retiré). Retoucher le principal propose de le
- * retirer ou de le passer en secondaire.
+ * Demi-terrain cliquable, sans question (31/10, demande de Geoffroy) : chaque toucher ajoute le poste à la suite ou le
+ * retire s'il y est déjà. Le premier de la liste est le poste principal (rond plein), les suivants les postes secondaires,
+ * dans l'ordre où on les a touchés (2e, 3e…). Retirer le principal fait passer le suivant en principal.
  */
 export function CourtPicker({
   value,
@@ -81,28 +80,20 @@ export function CourtPicker({
   onChange: (principal: Position | undefined, secondary: Position[]) => void
 }) {
   const sec = secondary.filter((x) => x !== value)
-  async function tap(pos: Position) {
-    if (!value) return onChange(pos, sec.filter((x) => x !== pos))
-    if (pos === value) {
-      const c = await choose(`${POSITIONS.find((x) => x.id === pos)?.label} : poste principal.`, [
-        { value: 'cancel', label: 'Annuler', style: 'ghost' },
-        { value: 'sec', label: 'Passer en secondaire', style: 'ghost' },
-        { value: 'del', label: 'Retirer', style: 'danger' },
-      ])
-      if (c === 'del') onChange(undefined, sec)
-      else if (c === 'sec') onChange(undefined, [...sec, pos])
-      return
-    }
-    onChange(value, sec.includes(pos) ? sec.filter((x) => x !== pos) : [...sec, pos])
+  const order = [...(value ? [value] : []), ...sec]
+  function tap(pos: Position) {
+    const next = order.includes(pos) ? order.filter((x) => x !== pos) : [...order, pos]
+    onChange(next[0], next.slice(1))
   }
+  const short = (id: Position) => POSITIONS.find((p) => p.id === id)?.short
   return (
     <div className="flex flex-col items-center">
-      <Court value={value} sec={sec} onTap={(pos) => void tap(pos)} />
+      <Court value={value} sec={sec} onTap={tap} />
       <div className="mt-1 text-xs font-bold text-accent">
         {value ? POSITIONS.find((p) => p.id === value)?.label : sec.length ? 'Pas de poste principal' : 'Choisir un poste'}
-        {sec.length > 0 && <span className="text-muted"> + {sec.map((x) => POSITIONS.find((p) => p.id === x)?.short).join(', ')}</span>}
+        {sec.length > 0 && <span className="text-muted"> + {sec.map(short).join(', ')}</span>}
       </div>
-      <div className="text-[10px] text-muted">● principal · ○ secondaire (toucher un autre poste)</div>
+      <div className="text-[10px] text-muted">1er toucher : principal ● · les suivants : secondaires ○, dans l’ordre · retoucher : retirer</div>
     </div>
   )
 }
