@@ -2333,9 +2333,9 @@ function Who({ club, label, last }: { club: ClubCoverage<Player>; label: string;
 function YesNo({ name, label, value, onChange, disabled, reason }: { name: string; label: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean; reason?: string }) {
   const opt = (v: boolean, text: string) => (
     <label
-      className={`flex min-h-10 flex-1 items-center justify-center rounded-md border px-2 text-xs font-bold transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
-        value === v ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'
-      } ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:text-fg'}`}
+      className={`flex min-h-9 flex-1 items-center justify-center rounded-full px-2 text-xs font-bold transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
+        value === v ? 'bg-accent/15 text-accent' : 'text-muted'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : value === v ? 'cursor-pointer' : 'cursor-pointer hover:bg-fg/5 hover:text-fg'}`}
     >
       <input type="radio" name={name} className="sr-only" checked={value === v} disabled={disabled} onChange={() => onChange(v)} />
       {text}
@@ -2344,7 +2344,8 @@ function YesNo({ name, label, value, onChange, disabled, reason }: { name: strin
   return (
     <fieldset className="flex flex-col gap-1.5" disabled={disabled}>
       <legend className="mb-1.5 text-xs font-extrabold">{label}</legend>
-      <div className="flex gap-2">
+      {/* Même capsule que les choix segmentés (Segmented, 31/10). */}
+      <div className="flex gap-[3px] rounded-full border border-line bg-panel p-[3px]">
         {opt(false, 'Non')}
         {opt(true, 'Oui')}
       </div>

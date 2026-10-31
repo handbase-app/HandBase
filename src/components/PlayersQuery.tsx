@@ -70,7 +70,7 @@ import { ask as confirmAsk } from './Confirm'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { department, hayOf, readSex, tokensOf, useSessionState, writeSex } from './PlayerFilter'
 import { FilterChip, GROUP_OPTIONS, groupLabel, PeriodPicker, RecipeChips, RenameSaved, SaveForm, statText, TargetPicker, valueText, type RecipeModel } from './RecipeChips'
-import { Icon } from './ui'
+import { Icon, SEG_BOX, segItem } from './ui'
 import { Demander, recordAsk, useIncomingAsk } from './Demander'
 import { startAskAction } from './AskAction'
 import { detectAction } from '../askAction'
@@ -1220,7 +1220,7 @@ function SortPicker({ recipe, model, onChange, ctl }: { recipe: Recipe; model: R
           }}
         />
         {s && s.by !== 'priority' && (
-          <div className="flex shrink-0 overflow-hidden rounded-md border border-line text-xs font-bold" role="group" aria-label="Sens du tri">
+          <div className={`${SEG_BOX} shrink-0 text-xs`} role="group" aria-label="Sens du tri">
             {(
               [
                 ['asc', '↑', 'Croissant'],
@@ -1234,7 +1234,7 @@ function SortPicker({ recipe, model, onChange, ctl }: { recipe: Recipe; model: R
                 aria-label={name}
                 title={name}
                 onClick={() => set({ sort: { by: s.by, dir } })}
-                className={`min-h-10 w-10 ${s.dir === dir ? 'bg-accent text-white' : 'bg-panel-2 text-muted hover:text-fg'}`}
+                className={`min-h-9 w-9 ${segItem(s.dir === dir)}`}
               >
                 {arrow}
               </button>

@@ -33,7 +33,7 @@ import {
 } from '../scouting'
 import { addToGroup } from './Groups'
 import { inform } from './Confirm'
-import { getMe, GroupMark, Icon } from './ui'
+import { getMe, GroupMark, Icon, SEG_BOX, segItem } from './ui'
 import { DictationTextarea } from './MicButton'
 import { accord, pluralG, w, type Gender } from '../gender'
 import { pickOrigin } from '../rewatchCore'
@@ -626,7 +626,7 @@ export function TournamentPanel({
           )}
           {edit && (
             <>
-              <div className="flex overflow-hidden rounded-md border border-line text-[11px] font-bold">
+              <div className={`${SEG_BOX} text-[11px]`}>
                 {(
                   [
                     ['equipes', `Équipes (${ts.length})`],
@@ -638,7 +638,7 @@ export function TournamentPanel({
                     key={v}
                     disabled={v !== 'equipes' && !ts.length}
                     onClick={() => setPart(part === v ? null : v)}
-                    className={`flex-1 py-1.5 disabled:opacity-40 ${part === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+                    className={`min-h-8 flex-1 px-1 py-1 leading-tight disabled:opacity-40 ${segItem(part === v)}`}
                   >
                     {label}
                   </button>

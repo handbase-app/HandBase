@@ -175,6 +175,10 @@ body {
 @utility btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-bold transition active:scale-[.98] disabled:opacity-40; }
 @utility btn-primary { @apply btn bg-accent text-white hover:brightness-110; }
 @utility btn-ghost { @apply btn border border-line bg-panel-2 text-fg hover:border-accent; }
+/* Action en tête d'un contenu (« + Ajouter des joueurs », « + Nouvelle séance de tests », « + Donner un avis », « Évaluer les
+   joueurs ») : pastille teintée comme les onglets (31/10), plus légère que le bouton plein ; toute la largeur sur téléphone,
+   largeur de son texte à partir de 640 px. Les validations de formulaire gardent btn-primary / btn-save. */
+@utility btn-soft { @apply btn min-h-10 w-full rounded-full bg-accent/15 text-accent hover:bg-accent/25 sm:w-fit; }
 @utility section-title { @apply mb-2 text-[11px] font-extrabold uppercase tracking-wider text-accent; }
 /* Barres « Enregistrer / Annuler » collées en bas d'un formulaire (écran d'avis, fiche joueur, séance de tests) : capsule
    pleine dans la couleur du texte du thème (blanche en sombre, foncée en clair ; texte inversé), « Annuler » en capsule fine. */

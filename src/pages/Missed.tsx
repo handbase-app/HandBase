@@ -50,12 +50,12 @@ export default function Missed() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-extrabold">Ratés</h1>
-      <p className="text-[11px] text-muted">
-        {gw.Joueurs} dont la fiche a été mise hors cadre, et ce qu’{gw.ils} sont {f ? 'devenues' : 'devenus'} depuis : licence, convocations, avis validés après la décision.
-        En tête, {gw.ceux} qui ont le plus progressé : de bons enseignements pour la détection.
-      </p>
+      {/* Explication seulement dans l'état vide (31/10), plus sous le titre. */}
       {rows.length === 0 ? (
-        <Empty>Aucune fiche mise hors cadre pour l’instant.</Empty>
+        <Empty>
+          Aucune fiche mise hors cadre pour l’instant. Ici viendront les {gw.joueurs} dont la fiche a été mise hors cadre, et ce qu’{gw.ils} sont{' '}
+          {f ? 'devenues' : 'devenus'} depuis (licence, convocations, avis validés après la décision), {gw.ceux} qui ont le plus progressé en tête.
+        </Empty>
       ) : (
         <PlayerList ids={rows.map((r) => r.p.id)}>
           {rows.map(({ p, refusal, signals }) => (

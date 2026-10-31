@@ -448,7 +448,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {view === 'tests' && (
         <>
           {can.editMeasurements(role) && (
-            <Link to={`/joueurs/${p.id}/mesures`} className="btn-primary">
+            <Link to={`/joueurs/${p.id}/mesures`} className="btn-soft">
               + Nouvelle séance de tests
             </Link>
           )}
@@ -474,7 +474,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
       {/* Avis subjectifs ; « Donner un avis » ici = avis spontané (sur un événement : depuis l'événement). */}
       {view === 'avis' && (
-        <Link to={`/evaluer?contexte=libre&joueur=${p.id}`} className="btn-primary">
+        <Link to={`/evaluer?contexte=libre&joueur=${p.id}`} className="btn-soft">
           + Donner un avis
         </Link>
       )}

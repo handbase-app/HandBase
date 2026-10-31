@@ -294,7 +294,7 @@ export function Members() {
         />
       ) : (
         list && (
-          <button className="btn-primary text-xs" onClick={() => (setOpen('nouveau'), setAccess(null))}>
+          <button className="btn-soft" onClick={() => (setOpen('nouveau'), setAccess(null))}>
             + Membre (observateur ou encadrant)
           </button>
         )
