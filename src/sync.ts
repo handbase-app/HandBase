@@ -5,7 +5,7 @@ import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
 import { retryingFetch } from './retry'
-import { CHARGE_REGLES, delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
+import { CHARGE_REGLES, delaiEnvoi, delaiFilet, heureSignal, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
 import { eventDayPlayers, planPriorite, PRIORITE_TABLES } from './priorite'
 import { guardRefresh, storedGate, webLock } from './authRefresh'
 import { GATE_MIRROR_KEY, idbKv, refreshTokenOf, sessionStorageKey, sharedSessionStorage } from './sessionStore'
@@ -29,6 +29,7 @@ import {
   type Ledger,
   type LedgerEntry,
 } from './filet'
+import { curseurApres, curseurTrop, diffCanaux, filetRareDu, lireEtatRegistre, lireRegistre, memesCanaux, planRegistre, type RegistreEtat } from './registre'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
@@ -69,6 +70,7 @@ import {
   rowsToWrite,
   SIGNAL_MAX_BYTES,
   splitLiveKeys,
+  STAFF_TOPIC,
   whatsNewAnswer,
   whatsNewRequest,
   writeAnswer,
@@ -149,6 +151,21 @@ import {
  *    registre incomplet : la réponse d'avant ;
  *  - fonction absente (059 pas passé) : hb_quoi_de_neuf comme avant, nouvel essai une heure plus tard ;
  *  - quand hb_filet répond, la relecture par curseur recouvre toujours la dernière minute (le registre en a besoin).
+ *
+ * REGISTRE DES CHANGEMENTS (supabase/061_registre_changements.sql ; série 10 du 30/10 : hb_filet était devenu la requête la
+ * plus coûteuse de la base ; règles pures : src/registre.ts) :
+ *  - « quoi de neuf ? » = hb_registre_depuis(curseur) : les lignes changées des canaux du compte depuis le dernier passage
+ *    (identifiant, heure serveur, empreinte, « perte ») ; celles que l'appareil a déjà (registre du filet : même heure, même
+ *    empreinte) ne coûtent rien et confirment les lignes reçues en direct ; les autres, et les pertes d'accès, sont relues par
+ *    identifiant (absente : retirée de l'appareil) ; tables « trop » : relecture par curseur ; curseurs des autres tables
+ *    avancés ; le signe de vie part dans le même appel (src/presence.ts) ;
+ *  - filet de 059 (empreintes) une fois par jour seulement, ou quand le registre n'est pas complet (premier appel, longue
+ *    absence, purge) ; vérification des lignes plus visibles (identifiants des staffs, groupes, « à revoir », événements) et
+ *    du périmètre (hb_my_perimeter) une fois par jour, ou tout de suite quand les canaux du compte changent (la réponse les
+ *    porte) ou qu'un staff change ;
+ *  - canaux du direct : hb_mes_canaux_memo (les droits gardés par le serveur rendent chaque abonnement quasi gratuit) ; un
+ *    changement de canaux n'ouvre et ne ferme que ceux qui changent ;
+ *  - fonction absente (061 pas passé) : filet de 059 comme avant, nouvel essai une heure plus tard.
  */
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -260,6 +277,16 @@ let liveSignals = false
  * sans le service worker) : nouvelle version annoncée en direct ; annonces disponibles (vérifications de fond espacées).
  */
 export const versionHooks: { announced: (v: unknown) => void; live: (on: boolean) => void } = { announced: () => {}, live: () => {} }
+/**
+ * Branchements de src/presence.ts (même raison : presence.ts importe ce fichier) : session de cette ouverture de l'appli à
+ * joindre à « quoi de neuf ? » (null : appli cachée, hors ligne, ou signe de vie arrêté) ; signe de vie parti avec lui ;
+ * « qui est là ? » reçu d'un administrateur (écran Membres).
+ */
+export const presenceHooks: { session: () => { id: string; device: string } | null; noted: (at: number) => void; demande: () => void } = {
+  session: () => null,
+  noted: () => {},
+  demande: () => {},
+}
 /** Avancement d'un gros téléchargement en cours (null sinon). */
 let progress: SyncProgress | null = null
 const listeners = new Set<() => void>()
@@ -433,6 +460,8 @@ async function runOnce(scope: Set<SyncTable> | null) {
       filetHasard = Math.random()
     }
     rejectedCount = 0
+    const startedAt = Date.now()
+    const freshBefore = SYNC_TABLES.some((t) => readsTable(t) && !localStorage.getItem(PULL_KEY(t)))
     // Un envoi en échec n'empêche pas de recevoir les nouveautés des autres.
     let pushError: unknown = null
     const sent: Sent[] = []
@@ -444,6 +473,9 @@ async function runOnce(scope: Set<SyncTable> | null) {
     // Ce qui est parti (même si un paquet suivant a échoué) : les autres appareils sont prévenus.
     if (sent.length) void signalWrites(sent)
     await pull(data.session.user.id, scope)
+    // Durée de la synchronisation entière (indices v2, src/charge.ts) : pas pour un premier chargement ni un gros envoi (leur
+    // longueur ne dit rien de la charge).
+    if (!freshBefore && sent.reduce((n, x) => n + x.rows.length, 0) <= 100) charge.noteSync(Date.now() - startedAt)
     if (pushError) throw pushError
     const notes = [
       rejectedCount && `${rejectedCount} modification(s) annulée(s) : refusée(s) par le serveur (droits) ou plus ancienne(s) que sa version.`,
@@ -768,8 +800,8 @@ async function ledgerEntries(table: SyncTable, rows: readonly ServerRow[]): Prom
 
 /** Note des lignes du serveur reçues dans le registre (jamais bloquant : une erreur laisse seulement relire plus tard). */
 async function noteRows(table: SyncTable, rows: readonly ServerRow[]) {
-  // Serveur sans 059 : registre inutile (hb_quoi_de_neuf ne donne pas d'empreinte).
-  if (!rows.length || (ask.filetMissingAt && !ask.filetOn)) return
+  // Serveur sans 059 ni 061 : registre inutile (hb_quoi_de_neuf ne donne pas d'empreinte).
+  if (!rows.length || (ask.filetMissingAt && !ask.filetOn && !registreOn)) return
   try {
     const entries = await ledgerEntries(table, rows)
     if (entries.length) setLedger(ledgerNote(led(), table, entries))
@@ -812,12 +844,22 @@ export const filetStats: Record<FiletDecision['why'], number> = { identique: 0, 
 
 /**
  * « Quoi de neuf ? » : une requête avec les curseurs des tables ; pour chacune, true (à relire), false (rien de nouveau pour
- * ce compte), null (table inconnue du serveur). hb_filet (059) : empreintes comparées au registre (applyFilet) ; absente :
+ * ce compte), null (table inconnue du serveur). Registre (061, askRegistre) d'abord ; filet de 059 une fois par jour ou
+ * quand le registre n'est pas complet ; hb_filet (059) : empreintes comparées au registre (applyFilet) ; absente :
  * hb_quoi_de_neuf (057) ; absente aussi : null → relecture de toutes les tables, comme avant ; on réessaie une heure plus tard.
  * Autre erreur (réseau) : null aussi (la relecture complète reste juste).
  */
-async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
+async function whatsNew(tables: SyncTable[], uid: string): Promise<WhatsNew | null> {
   if (!tables.length) return null
+  if (Date.now() - registreMissingAt >= ASK_AGAIN_MS) {
+    const r = await askRegistre(tables, uid)
+    if (r !== undefined) return r
+  }
+  return askFilet(tables)
+}
+
+/** Filet de 059 (ou « quoi de neuf ? » de 057), comme avant 061. */
+async function askFilet(tables: SyncTable[]): Promise<WhatsNew | null> {
   const cursors: Record<string, string | null> = {}
   for (const t of tables) cursors[t] = localStorage.getItem(PULL_KEY(t))
   // Affectations : seulement les siennes (hors administrateur) : demandées sous la clé « mes_affectations » (057).
@@ -828,6 +870,154 @@ async function whatsNew(tables: SyncTable[]): Promise<WhatsNew | null> {
   if (r.kind === 'ancien') return whatsNewAnswer(r.data, mine)
   const answer = readFiletAnswer(r.data, mine)
   return answer ? applyFilet(answer) : null
+}
+
+/*
+ * REGISTRE DES CHANGEMENTS (supabase/061, règles pures : src/registre.ts). État gardé sur l'appareil (effacé avec lui) :
+ * curseur du registre, heure du dernier filet complet, canaux vus au dernier passage.
+ */
+const REGISTRE_KEY = `handbase${TRIAL ? '-essai' : ''}.registre`
+/** hb_registre_depuis absente (061 pas passé) : heure du constat (redemandée une heure plus tard). */
+let registreMissingAt = 0
+/** hb_registre_depuis a répondu pendant ce lancement. */
+let registreOn = false
+/** Filet rare et vérifications du jour : pas avant cet instant (5 à 30 min après le lancement, au hasard ; src/charge.ts). */
+const rareApres = (() => {
+  const [min, max] = CHARGE_REGLES.rareEtalementMs
+  return Date.now() + min + Math.floor(Math.random() * (max - min))
+})()
+/** Décisions du registre depuis le lancement (indication pour les essais et le simulateur de charge). */
+export const registreStats = { passages: 0, complets: 0, lus: 0, confirmes: 0, trop: 0, filetsRares: 0 }
+
+const setRegistreEtat = (e: RegistreEtat) => store.set(REGISTRE_KEY, JSON.stringify(e))
+
+/**
+ * Un passage du registre : undefined si le serveur ne l'a pas (ou réponse illisible : on fait comme avant) ; sinon les tables
+ * à relire par curseur (WhatsNew), après avoir relu par identifiant ce qui l'exige. Pas complet, ou filet rare dû : le filet
+ * de 059, puis le nouveau curseur est gardé.
+ */
+async function askRegistre(tables: SyncTable[], uid: string): Promise<WhatsNew | null | undefined> {
+  const etat = lireEtatRegistre(store.get(REGISTRE_KEY))
+  const session = presenceHooks.session()
+  const { data, error } = await supabase!.rpc('hb_registre_depuis', { p_curseur: etat.c, p_session: session?.id ?? null, p_appareil: session?.device ?? null })
+  if (error) {
+    if (missingFunction(error)) {
+      registreMissingAt = Date.now()
+      registreOn = false
+      return undefined
+    }
+    return null // réseau : relecture complète, comme avant
+  }
+  const rep = lireRegistre(data)
+  if (!rep) return undefined
+  registreOn = true
+  registreStats.passages++
+  if (session) presenceHooks.noted(Date.now())
+  // Niveau de charge annoncé par le serveur (src/charge.ts) : le même plancher que l'annonce en direct.
+  const annonce = rep.k ? lireAnnonce(rep.k) : null
+  if (annonce) charge.annonce(annonce)
+  // Canaux du compte changés (rôle, affectation, structure) : périmètre, lignes plus visibles et canaux du direct, tout de suite.
+  // Inchangés depuis le lancement précédent : le périmètre gardé tient (pas de hb_my_perimeter à chaque ouverture).
+  if (rep.canaux) {
+    if (etat.canaux && !memesCanaux(rep.canaux, etat.canaux)) {
+      structureChanged = true
+      nextForgetAt = 0
+    } else if (etat.canaux && lastScopeCheck === 0 && store.get(SCOPE_KEY) !== null) lastScopeCheck = Date.now()
+    if (rep.canaux.length && channels.size && !memesCanaux(rep.canaux, [...channels.keys()])) void refreshChannels(rep.canaux)
+  }
+  const now = Date.now()
+  if (!rep.complet || (now >= rareApres && filetRareDu(now, etat.f, CHARGE_REGLES.filetRareMs))) {
+    // Filet de 059 : longue absence, premier passage, ou une fois par jour (jamais à l'ouverture : 5 à 30 min après). Les
+    // vérifications du jour l'accompagnent.
+    registreStats.filetsRares++
+    const flags = await askFilet(tables)
+    if (flags) {
+      setRegistreEtat({ c: rep.c, f: now, canaux: rep.canaux ?? etat.canaux })
+      if (etat.f !== null) {
+        nextForgetAt = 0
+        lastScopeCheck = 0
+      }
+    }
+    return flags
+  }
+  registreStats.complets++
+  const plan = planRegistre(rep, tables, led(), (t) => new Set(Object.keys(prov()[t] ?? {})))
+  const flags: WhatsNew = {}
+  let ok = true
+  for (const t of tables) {
+    const p = plan[t]
+    if (!p) {
+      flags[t] = false
+      continue
+    }
+    if (p.trop !== undefined) {
+      // Trop de lignes citées : relecture par curseur, depuis la plus ancienne heure citée si elle est avant le curseur.
+      registreStats.trop++
+      const c = curseurTrop(localStorage.getItem(PULL_KEY(t)), p.trop)
+      if (c !== null) localStorage.setItem(PULL_KEY(t), c)
+      flags[t] = true
+      continue
+    }
+    if (p.confirmer.length) {
+      registreStats.confirmes += p.confirmer.length
+      setProv(dropProvisional(prov(), t, p.confirmer))
+    }
+    if (p.lire.length) {
+      registreStats.lus += p.lire.length
+      if (!(await readCited(t, p.lire, uid))) {
+        ok = false
+        flags[t] = true // erreur : la table est relue par curseur (et le curseur du registre n'avance pas)
+        continue
+      }
+      // Un staff qui change ouvre ou ferme des groupes, « à revoir », événements : vérification tout de suite.
+      if (t === 'teams') nextForgetAt = 0
+    }
+    flags[t] = false
+  }
+  // Tables à jour : curseur avancé à (heure du serveur − 60 s) (une relecture par curseur plus tard ne reprend pas la journée).
+  for (const t of tables) {
+    if (flags[t] !== false) continue
+    const cur = localStorage.getItem(PULL_KEY(t))
+    if (cur === null) continue
+    const next = curseurApres(cur, rep.t)
+    if (next !== null && next !== cur) {
+      localStorage.setItem(PULL_KEY(t), next)
+      const us = cursorUs(t)
+      if (us !== null) setLedger(ledgerTrim(led(), t, us - OVERLAP_US))
+    }
+  }
+  if (ok) setRegistreEtat({ c: rep.c, f: etat.f, canaux: rep.canaux ?? etat.canaux })
+  return flags
+}
+
+/**
+ * Lignes citées par le registre, relues PAR IDENTIFIANT sous les règles de lecture : trouvées, elles remplacent la copie (la
+ * version du serveur confirme une ligne reçue en direct) ; absentes (plus visibles, ou supprimées), elles sont retirées de
+ * l'appareil ; jamais une ligne qui attend d'être envoyée. Affectations d'un compte qui ne les reçoit pas toutes : seulement
+ * les siennes. false : erreur (à refaire).
+ */
+async function readCited(table: SyncTable, ids: string[], uid: string): Promise<boolean> {
+  const onlyMine = table === 'assignments' && assignmentScope(storedRole()) === 'mine'
+  for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+    const part = ids.slice(i, i + IDS_PER_READ)
+    const { data, error } = await supabase!.from(`hb_${table}`).select('id, data, server_updated_at').in('id', part)
+    if (error) return false
+    const rows = ((data ?? []) as ServerRow[]).filter((r) => !onlyMine || (r.data as { userId?: unknown }).userId === uid)
+    const found = new Set(((data ?? []) as ServerRow[]).map((r) => r.id))
+    await db.transaction('rw', db.table(table), db.outbox, async () => {
+      // (Affectation d'un autre compte, visible mais pas gardée ici : ni écrite, ni « absente ».)
+      const plan = planVerify(part.filter((id) => rows.some((r) => r.id === id) || !found.has(id)), rows, await pendingIds(table, part))
+      if (plan.put.length) {
+        const locals = (await db.table(table).bulkGet(plan.put.map((r) => r.id))) as ({ updatedAt?: number } | undefined)[]
+        const newer = rowsToWrite(plan.put, locals, new Set(plan.put.map((r) => r.id)), new Set())
+        if (newer.length) await db.table(table).bulkPut(newer.map((r) => r.data))
+      }
+      if (plan.remove.length) await db.table(table).bulkDelete(plan.remove)
+    })
+    setProv(dropProvisional(prov(), table, part))
+    await noteRows(table, rows)
+  }
+  return true
 }
 
 /**
@@ -850,7 +1040,9 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   for (const t of fresh) per[t] = startTable()
   if (fresh.size) setProgress(aggregate(per, null, first))
   // Complète, appareil déjà servi au moins une fois : une requête dit quelles tables ont changé (premier chargement : tout).
-  const flags = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)))
+  // Staffs de ce compte AVANT « quoi de neuf ? » (le registre peut déjà en relire un par identifiant).
+  const teamsBefore = await myTeams(uid)
+  const flags = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)), uid)
   const plan = planPull(wanted, fresh, flags)
   for (const t of plan.quiet) knowTable(t, true)
   for (const t of plan.absent) knowTable(t, false)
@@ -861,7 +1053,6 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   if (wanted.includes('assignments') && serverTables.get('assignments') !== false && store.get(ASSIGN_SCOPE_KEY) !== assignmentScopeKey(storedRole(), uid))
     toPull.add('assignments')
   try {
-    const teamsBefore = await myTeams(uid)
     let structureRows = 0
     // Ordre (src/syncLive.ts, PULL_ORDER) : réglages et structure (petits), puis le périmètre du compte (joueurs, mesures,
     // avis, « vu ») : l'appli s'ouvre dès la première page de joueurs (premier chargement), le reste arrive derrière.
@@ -877,6 +1068,8 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
           // Événements (048) : participant par un staff, je vois aussi ceux hors de mes territoires ; l'événement, lui,
           // n'a pas changé : relu au prochain passage.
           localStorage.removeItem(PULL_KEY('events'))
+          // Groupes, « à revoir », événements que ce staff ouvrait : retirés s'ils ne sont plus visibles (sans attendre).
+          nextForgetAt = 0
           again = true
         }
       }
@@ -999,11 +1192,16 @@ export function syncAndForgetHidden() {
 
 async function forgetHidden() {
   const kept = Number(store.get(FORGET_KEY))
-  nextForgetAt ??= premiereVerifVisibles(Date.now(), kept > 0 ? kept : null)
+  // Registre (061) : les pertes d'accès arrivent par lui ; cette vérification complète n'est plus qu'une fois par jour (ou tout
+  // de suite quand les canaux du compte ou un de ses staffs changent : nextForgetAt = 0).
+  const regles = registreOn
+    ? { ...CHARGE_REGLES, verifVisiblesRepriseMs: CHARGE_REGLES.verifRegistreMs, verifVisiblesEtalementMs: CHARGE_REGLES.rareEtalementMs }
+    : CHARGE_REGLES
+  nextForgetAt ??= premiereVerifVisibles(Date.now(), kept > 0 ? kept : null, Math.random, regles)
   if (Date.now() < nextForgetAt) return
   const [teams, groups, rewatch, events] = await Promise.all([visibleIds('teams'), visibleIds('groups'), visibleIds('rewatch'), visibleIds('events')])
   if (!groups) return
-  nextForgetAt = prochaineVerifVisibles(Date.now(), charge.niveau())
+  nextForgetAt = registreOn ? Date.now() + CHARGE_REGLES.verifRegistreMs : prochaineVerifVisibles(Date.now(), charge.niveau())
   store.set(FORGET_KEY, String(Date.now()))
   // Aucun groupe visible (compte sans rôle, réponse anormale) : on ne retire rien, par prudence. Aucun staff
   // visible, en revanche, est courant (personne n'en a encore créé) ; table absente du serveur (null) : rien.
@@ -1040,7 +1238,9 @@ let lastScopeCheck = 0
 let structureChanged = false
 
 async function checkPerimeter(uid: string, emptyDevice = false) {
-  if (!structureChanged && Date.now() - lastScopeCheck < FORGET_EVERY_MS) return
+  // Registre (061) : un changement de périmètre change les canaux du compte, que la réponse du registre porte (structureChanged) ;
+  // sinon une fois par jour.
+  if (!structureChanged && Date.now() - lastScopeCheck < (registreOn ? CHARGE_REGLES.verifRegistreMs : FORGET_EVERY_MS)) return
   const { data, error } = await supabase!.rpc('hb_my_perimeter')
   if (error || !data || typeof data !== 'object') return // 046 pas passé, ou réseau : on réessaiera
   lastScopeCheck = Date.now()
@@ -1067,7 +1267,7 @@ async function checkPerimeter(uid: string, emptyDevice = false) {
   }
   const sig = scopeSignature(scope)
   // Périmètre changé (ou première lecture) : les canaux en direct suivent (hb_mes_canaux relu).
-  if (store.get(SCOPE_KEY) !== sig && (channels.length || channel)) restartRealtime()
+  if (store.get(SCOPE_KEY) !== sig && (channels.size || channel)) void refreshChannels()
   store.set(SCOPE_KEY, sig)
 }
 
@@ -1470,8 +1670,10 @@ function pushLater(table?: string) {
 /** Signaux reçus en direct, regroupés (src/syncLive.ts) : une synchronisation ciblée sur les tables signalées. */
 const signals = new Grouper<SyncTable>((tables) => void syncNow({ tables }))
 
-/** Canaux privés abonnés (057) ; à défaut, l'ancien canal postgres_changes. */
-let channels: RealtimeChannel[] = []
+/** Canaux privés ouverts, par sujet (057) ; à défaut, l'ancien canal postgres_changes. */
+const channels = new Map<string, RealtimeChannel>()
+/** Sujets dont l'abonnement est confirmé (en direct quand tous les canaux ouverts le sont). */
+const subscribedTopics = new Set<string>()
 /** Canaux privés prêts (abonnement confirmé) : les seuls où l'appareil envoie ses signaux. */
 const ready = new Map<string, RealtimeChannel>()
 let channel: RealtimeChannel | null = null
@@ -1493,17 +1695,36 @@ const setLive = (signalsOn: boolean, on: boolean) => {
 }
 
 /**
- * Écoute le serveur (seulement une fois connecté) : les canaux privés de hb_mes_canaux (signaux par table, contenu des
- * tables sans donnée personnelle, annonces de version) ; serveur sans 057 : postgres_changes sur toutes les tables.
+ * Canaux du compte : hb_mes_canaux_memo (061 : la même liste que hb_mes_canaux, et le serveur la garde pour les contrôles de
+ * Realtime qui suivent : chaque abonnement devient quasi gratuit) ; fonction absente : hb_mes_canaux (057), nouvel essai une
+ * heure plus tard.
+ */
+let memoMissingAt = 0
+async function myTopics(): Promise<{ topics: string[]; error: { code?: string; message: string } | null }> {
+  let res: { data: unknown; error: { code?: string; message: string } | null } | null = null
+  if (Date.now() - memoMissingAt >= ASK_AGAIN_MS) {
+    res = await supabase!.rpc('hb_mes_canaux_memo')
+    if (res.error && missingFunction(res.error)) {
+      memoMissingAt = Date.now()
+      res = null
+    }
+  }
+  res ??= await supabase!.rpc('hb_mes_canaux')
+  const topics = Array.isArray(res.data) ? (res.data as unknown[]).filter((t): t is string => typeof t === 'string' && t.startsWith('hb:')) : []
+  return { topics, error: res.error }
+}
+
+/**
+ * Écoute le serveur (seulement une fois connecté) : les canaux privés du compte (signaux par table, contenu des tables sans
+ * donnée personnelle, annonces de version) ; serveur sans 057 : postgres_changes sur toutes les tables.
  */
 async function startRealtime() {
-  if (!supabase || channel || channels.length || opening) return
+  if (!supabase || channel || channels.size || opening) return
   opening = true
   const gen = listening
   try {
-    const { data, error } = await supabase.rpc('hb_mes_canaux')
-    if (wiping || gen !== listening || channel || channels.length) return
-    const topics = Array.isArray(data) ? (data as unknown[]).filter((t): t is string => typeof t === 'string' && t.startsWith('hb:')) : []
+    const { topics, error } = await myTopics()
+    if (wiping || gen !== listening || channel || channels.size) return
     if (error || !topics.length) {
       // Fonction absente (057 pas passé), compte sans canal (rôle pas encore connu) ou réseau : l'ancien canal ; la liste
       // sera relue au prochain changement de périmètre ou de session.
@@ -1517,28 +1738,73 @@ async function startRealtime() {
   }
 }
 
+/** En direct quand tous les canaux ouverts ont confirmé leur abonnement (realtime-js réessaie seul ceux qui échouent). */
+const updateLive = () => setLive(true, channels.size > 0 && [...channels.keys()].every((t) => subscribedTopics.has(t)))
+
 /** Canaux privés : Realtime vérifie le droit d'écoute à l'abonnement (jeton de session, règle hb_recevoir), puis diffuse. */
 function openChannels(topics: string[]) {
-  const subscribed = new Set<string>()
   for (const topic of topics) {
+    if (channels.has(topic)) continue
     const ch = supabase!.channel(topic, { config: { private: true } })
     for (const event of LIVE_EVENTS) ch.on('broadcast', { event }, (msg) => onLiveMessage(topic, event, (msg as { payload?: unknown }).payload))
+    channels.set(topic, ch)
     ch.subscribe((status) => {
-      if (status === 'SUBSCRIBED') subscribed.add(topic)
-      else subscribed.delete(topic)
-      // (Un canal déjà remplacé, périmètre changé, n'est jamais repris.)
-      if (status === 'SUBSCRIBED' && channels.includes(ch)) ready.set(topic, ch)
-      else if (ready.get(topic) === ch) ready.delete(topic)
+      // (Un canal déjà fermé ou remplacé, périmètre changé, n'est jamais repris.)
+      if (channels.get(topic) !== ch) return
+      if (status === 'SUBSCRIBED') {
+        subscribedTopics.add(topic)
+        ready.set(topic, ch)
+      } else {
+        subscribedTopics.delete(topic)
+        if (ready.get(topic) === ch) ready.delete(topic)
+      }
       if (status === 'CHANNEL_ERROR') console.warn(`Canal en direct refusé : ${topic}`)
-      // En direct dès que tous les canaux répondent (realtime-js réessaie seul ceux qui échouent).
-      setLive(true, subscribed.size === topics.length)
+      updateLive()
     })
-    channels.push(ch)
   }
+}
+
+/** Ferme ces canaux (les autres restent abonnés). */
+function closeChannels(topics: string[]) {
+  for (const topic of topics) {
+    const ch = channels.get(topic)
+    if (!ch) continue
+    channels.delete(topic)
+    subscribedTopics.delete(topic)
+    if (ready.get(topic) === ch) ready.delete(topic)
+    void supabase!.removeChannel(ch)
+  }
+  if (topics.length) updateLive()
+}
+
+/**
+ * Canaux du compte peut-être changés (périmètre, rôle ; liste donnée par le registre, sinon relue) : seuls ceux qui changent
+ * sont fermés ou ouverts (src/registre.ts, diffCanaux), les autres restent abonnés : pas de reconnexion, pas de nouveau
+ * contrôle des droits pour eux. Ancien canal postgres_changes, ou rien d'ouvert : on repart de zéro, comme avant.
+ */
+async function refreshChannels(next?: string[]) {
+  if (!supabase || wiping) return
+  if (channel || !channels.size || opening) return restartRealtime()
+  const gen = listening
+  let topics = next
+  if (!topics) {
+    const r = await myTopics()
+    if (r.error || gen !== listening) return
+    topics = r.topics
+  }
+  if (!topics.length) return restartRealtime()
+  const d = diffCanaux([...channels.keys()], topics)
+  closeChannels(d.fermer)
+  openChannels(d.ouvrir)
 }
 
 /** Un message reçu sur un canal privé. */
 function onLiveMessage(topic: string, event: string, payload: unknown) {
+  // « Qui est là ? » d'un administrateur (écran Membres) : canal du staff seulement ; src/presence.ts décide de répondre.
+  if (event === 'presence') {
+    if (topic === STAFF_TOPIC) presenceHooks.demande()
+    return
+  }
   if (event === 'version') {
     versionHooks.announced((payload as { v?: unknown } | undefined)?.v)
     return
@@ -1553,6 +1819,9 @@ function onLiveMessage(topic: string, event: string, payload: unknown) {
   // Table connue (SYNC_TABLES) et lue par ce compte : sinon rien, avec ou sans lignes.
   const s = parseSignal(payload, SYNC_TABLES)
   if (!s || !readsTable(s.table)) return
+  // Retard du direct (indices v2, src/charge.ts) : réception − heure du signal.
+  const at = heureSignal(s.v, [...(s.rows ?? []), ...(s.row ? [s.row] : [])].map((r) => r.server_updated_at))
+  if (at !== null) charge.noteRetard(Date.now() - at)
   // Ligne entière (configuration, critères, niveaux) : appliquée tout de suite, sans toucher au curseur (la relecture reste
   // la référence : la prochaine complète la fera, étalée). Rien d'autre à relire pour ce signal.
   if (event === 'ligne' && s.row && CONTENT_TABLES.includes(s.table)) {
@@ -1626,6 +1895,20 @@ async function signalWrites(sent: Sent[]) {
   }
 }
 
+/**
+ * « Qui est là ? » (écran Membres d'un administrateur, src/components/Members.tsx) : un message sur le canal du staff ; les
+ * appareils affichés répondent par un signe de vie (src/presence.ts). Rien si le canal n'est pas prêt.
+ */
+export function demanderPresence() {
+  void ready
+    .get(STAFF_TOPIC)
+    ?.send({ type: 'broadcast', event: 'presence', payload: {} })
+    .catch(() => {})
+}
+
+/** « Quoi de neuf ? » passe par le registre (061) pendant ce lancement : le signe de vie part avec lui (src/presence.ts). */
+export const registreActif = () => registreOn
+
 /** Ancien mode (serveur sans 057) : postgres_changes sur toutes les tables, chaque changement relance une synchronisation complète. */
 function startPostgresChanges() {
   if (!supabase || channel) return
@@ -1644,8 +1927,9 @@ function stopRealtime() {
   listening++
   signals.cancel()
   rereads.cancel()
-  for (const ch of channels) void supabase.removeChannel(ch)
-  channels = []
+  for (const ch of channels.values()) void supabase.removeChannel(ch)
+  channels.clear()
+  subscribedTopics.clear()
   ready.clear()
   if (channel) void supabase.removeChannel(channel)
   channel = null

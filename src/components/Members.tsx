@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
-import { supabase } from '../sync'
+import { CHARGE_REGLES } from '../charge'
+import { demanderPresence, supabase } from '../sync'
 import { ask } from './Confirm'
 import { fold } from './PlayerFilter'
 import { Icon, SectionTitle, Segmented } from './ui'
@@ -34,7 +35,10 @@ interface Access {
 // « joueur » (espace joueur, supabase/051) : le compte d'un jeune, relié ensuite à sa fiche par un code donné depuis la fiche.
 type StaffRole = 'observateur' | 'preparateur' | 'joueur'
 
-/** Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (un toutes les 30 s, supabase/030). */
+/**
+ * Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (supabase/030 : un toutes les 30 s ; avec 061, tant que
+ * cet écran est affiché, « qui est là ? » toutes les 45 s et chaque appareil affiché répond en moins de 10 s, src/presence.ts).
+ */
 const ONLINE_MS = 90_000
 const DAY = (t: number) => new Date(t).toDateString()
 
@@ -240,7 +244,14 @@ export function Members() {
       })
     loadSeen()
     const t = setInterval(loadSeen, 20_000)
-    return () => clearInterval(t)
+    // « Qui est là ? » (src/presence.ts) : tant que l'écran est affiché ; les réponses arrivent avant la relecture suivante.
+    const quiEstLa = () => document.visibilityState === 'visible' && demanderPresence()
+    quiEstLa()
+    const q = setInterval(quiEstLa, CHARGE_REGLES.presenceDemandeMs)
+    return () => {
+      clearInterval(t)
+      clearInterval(q)
+    }
   }, [])
   const seenOf = (id: string) => (seen ? (seen[id] ?? null) : undefined)
 

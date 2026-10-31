@@ -17,6 +17,17 @@
  *  - retour au calme PROGRESSIF (hystérésis) : un niveau est gardé tant que les points restent au-dessus de son seuil de
  *    SORTIE (plus bas que celui d'entrée) ; il ne descend que d'UN cran après calmeAvantDescenteMs sans indice suffisant, puis
  *    encore un cran après la même durée : saturé → chargé → calme prend au moins 2 × calmeAvantDescenteMs. Pas de va-et-vient.
+ * INDICES V2 (série 10, scénario dur : les règles ne s'étaient presque jamais déclenchées : chaque requête restait sous 2 s,
+ * la saturation était dans leur NOMBRE et dans la distribution du direct) :
+ *  - durée d'une synchronisation entière (envoi, « quoi de neuf ? », relectures ; hors premier chargement et gros envois) :
+ *    plus de syncLongueMs (10 s) 1 point, plus de syncTresLongueMs (30 s) 2 points ;
+ *  - retard du direct (réception − heure du signal : heure serveur des lignes portées, sinon heure d'envoi) : plus de
+ *    retardMs (10 s) 1 point, plus de retardTresMs (60 s) 2 points ; mesuré au-delà du plus petit retard vu depuis le
+ *    lancement (une horloge d'appareil en avance ne fait pas croire à une charge ; plus de retardBaseMaxMs d'avance : indice
+ *    pas utilisé), au plus un
+ *    indice par retardEspacementMs (une rafale de signaux en retard compte une fois), valeurs absurdes ignorées ;
+ *  - annonce du serveur portée aussi par la réponse du registre (supabase/061, champ k), toutes les 5 minutes, même là où
+ *    les messages envoyés par la base ne sont pas distribués (tâche hb_surveiller_charge, non activée par défaut).
  * ANNONCE DU SERVEUR (facultative) : message « charge » sur le canal commun hb:commun, { niveau: 'calme' | 'charge' |
  * 'sature', ttl?: secondes } (tools/annoncer-charge.mjs). Le niveau annoncé est un PLANCHER jusqu'à son échéance (ttl,
  * annonceTtlMs par défaut, annonceMaxMs au plus) ; « calme » retire le plancher (les indices de l'appareil restent). À
@@ -28,7 +39,9 @@
  *    10, 20, 30 s ;
  *  - « vu » et traces (journal des questions) regroupés : l'envoi de la file attend 0,5 s (calme), 10 s (chargé), 30 s
  *    (saturé) quand elle ne contient QUE cela ; une notation, une évaluation ou toute autre modification part toujours après
- *    0,5 s (et emporte le reste avec elle) ; signe de vie 30 s, 60 s, 120 s ;
+ *    0,5 s (et emporte le reste avec elle) ; signe de vie 30 s, 60 s, 120 s (serveur sans 061) ; avec 061, le signe de vie
+ *    part avec « quoi de neuf ? » (src/presence.ts), et une requête à part seulement toutes les 10, 20, 30 min s'il n'est pas
+ *    parti entre-temps ;
  *  - filet de sécurité, direct abonné : 5 min (calme), 15 min (chargé ou saturé) ;
  *  - filet, direct COUPÉ (ou pas encore abonné) : 60 s, puis 2 min, puis 5 min (et 5 min ensuite), chaque délai allongé au
  *    hasard de 0 à 25 % ; en charge, on part plus haut (chargé : 2 min, saturé : 5 min). Le compte repart de zéro quand le
@@ -60,7 +73,25 @@ export const CHARGE_REGLES = {
     coupure: 0.5,
     lent: 1,
     tresLent: 2,
+    /** Synchronisation entière longue / très longue (indices v2). */
+    syncLongue: 1,
+    syncTresLongue: 2,
+    /** Retard du direct / grand retard (indices v2). */
+    retard: 1,
+    retardTres: 2,
   },
+  /** Synchronisation entière longue / très longue. */
+  syncLongueMs: 10_000,
+  syncTresLongueMs: 30_000,
+  /** Retard du direct (réception − heure du signal, au-delà du plus petit retard vu) : retard / grand retard. */
+  retardMs: 10_000,
+  retardTresMs: 60_000,
+  /** Plus petit retard vu retiré (horloge de l'appareil en avance) jusqu'à cette valeur ; au-delà, l'indice n'est pas utilisé. */
+  retardBaseMaxMs: 120_000,
+  /** Retard au-delà (ou avance au-delà, négatif) : horloge fausse, ignoré. */
+  retardIgnoreMs: 30 * 60_000,
+  /** Au plus un indice de retard par cette durée. */
+  retardEspacementMs: 5_000,
   /** Seuils d'ENTRÉE (points dans la fenêtre) : chargé, saturé. */
   entree: { charge: 4, sature: 10 },
   /** Seuils de SORTIE (en dessous, le niveau peut redescendre d'un cran après calmeAvantDescenteMs). */
@@ -82,8 +113,28 @@ export const CHARGE_REGLES = {
   envoiImmediatMs: 500,
   /** Envoi de la file quand elle ne contient que des « vu » et des traces. */
   envoiDiscretMs: { calme: 500, charge: 10_000, sature: 30_000 } as Record<Niveau, number>,
-  /** Signe de vie (hb_ping). */
+  /** Signe de vie (hb_ping), serveur sans 061. */
   signeDeVieMs: { calme: 30_000, charge: 60_000, sature: 120_000 } as Record<Niveau, number>,
+  /**
+   * Signe de vie avec 061 : il part avec chaque « quoi de neuf ? » du registre (toutes les 5 min) ; une requête hb_ping à part
+   * seulement s'il n'est pas parti depuis ce délai.
+   */
+  signeDeVieRegistreMs: { calme: 10 * 60_000, charge: 20 * 60_000, sature: 30 * 60_000 } as Record<Niveau, number>,
+  /** Écran Membres ouvert (administrateur) : « qui est là ? » sur le canal du staff, toutes les… */
+  presenceDemandeMs: 45_000,
+  /** Un appareil répond (hb_ping) seulement si son dernier signe de vie date d'au moins… */
+  presenceRepondreMinMs: 30_000,
+  /** … après un délai au hasard jusqu'à (pas tous à la même seconde). */
+  presenceHasardMs: 10_000,
+  /** Registre (061) : filet de 059 (empreintes) une fois par… (et quand le registre n'est pas complet). */
+  filetRareMs: 24 * 60 * 60_000,
+  /** Registre (061) : vérification des lignes plus visibles et du périmètre une fois par… (et quand les canaux changent). */
+  verifRegistreMs: 24 * 60 * 60_000,
+  /**
+   * Registre (061) : filet rare et vérifications du jour, au plus tôt entre ces deux délais après le lancement (au hasard) :
+   * jamais dans la vague des ouvertures du matin.
+   */
+  rareEtalementMs: [5 * 60_000, 30 * 60_000] as readonly [number, number],
   /** Filet de sécurité, direct abonné. */
   filetDirectMs: { calme: 5 * 60_000, charge: 15 * 60_000, sature: 15 * 60_000 } as Record<Niveau, number>,
   /** Filet, direct coupé : délais successifs (le dernier se répète). */
@@ -129,8 +180,48 @@ export function delaiEnvoi(tables: Iterable<string>, niveau: Niveau, r: ChargeRe
   return any ? r.envoiDiscretMs[niveau] : r.envoiImmediatMs
 }
 
-/** Intervalle du signe de vie. */
-export const delaiSigneDeVie = (niveau: Niveau, r: ChargeRegles = CHARGE_REGLES) => r.signeDeVieMs[niveau]
+/** Intervalle du signe de vie (registre : 061 passé, le signe de vie part avec « quoi de neuf ? »). */
+export const delaiSigneDeVie = (niveau: Niveau, r: ChargeRegles = CHARGE_REGLES, registre = false) =>
+  registre ? r.signeDeVieRegistreMs[niveau] : r.signeDeVieMs[niveau]
+
+/**
+ * « Qui est là ? » (écran Membres d'un administrateur) : l'appareil répond par un signe de vie s'il est affiché, si le serveur
+ * est calme et si son dernier signe de vie date d'au moins presenceRepondreMinMs (sinon il est déjà « en ligne »). Un message
+ * forgé ne fait donc jamais plus d'un signe de vie par appareil toutes les 30 s (ce que faisait chaque appareil avant 061).
+ */
+export function doitRepondrePresence(now: number, dernier: number, niveau: Niveau, visible: boolean, r: ChargeRegles = CHARGE_REGLES): boolean {
+  return visible && niveau === 'calme' && now - dernier >= r.presenceRepondreMinMs
+}
+
+/** Délai au hasard avant de répondre à « qui est là ? ». */
+export const delaiReponsePresence = (rnd: () => number = Math.random, r: ChargeRegles = CHARGE_REGLES) => Math.floor(clamp01(rnd()) * r.presenceHasardMs)
+
+/**
+ * Heure d'un signal reçu en direct (ms) : la plus récente heure serveur des lignes qu'il porte (horloge du serveur), sinon son
+ * heure d'envoi (v, horloge de l'appareil qui écrit) ; null : aucune heure lisible.
+ */
+export function heureSignal(v: unknown, heuresLignes: readonly unknown[] = []): number | null {
+  let best: number | null = null
+  for (const h of heuresLignes) {
+    const t = typeof h === 'string' ? Date.parse(h) : NaN
+    if (Number.isFinite(t) && (best === null || t > best)) best = t
+  }
+  if (best !== null) return best
+  const t = typeof v === 'string' ? Date.parse(v) : NaN
+  return Number.isFinite(t) ? t : null
+}
+
+/** Points d'une synchronisation entière de `ms` (indices v2). */
+export function indiceSync(ms: number, r: ChargeRegles = CHARGE_REGLES): number {
+  if (!Number.isFinite(ms)) return 0
+  return ms >= r.syncTresLongueMs ? r.points.syncTresLongue : ms >= r.syncLongueMs ? r.points.syncLongue : 0
+}
+
+/** Points d'un retard du direct déjà corrigé du plus petit retard vu (indices v2). */
+export function indiceRetard(excesMs: number, r: ChargeRegles = CHARGE_REGLES): number {
+  if (!Number.isFinite(excesMs)) return 0
+  return excesMs >= r.retardTresMs ? r.points.retardTres : excesMs >= r.retardMs ? r.points.retard : 0
+}
 
 /**
  * Délai du filet de sécurité après une synchronisation complète. live : direct abonné ; coupes : synchronisations complètes
@@ -234,6 +325,34 @@ export class LoadMeter {
   note(o: Observation) {
     const { pts, min } = indice(o, this.r)
     if (pts > 0 || min !== 'calme') this.obs.push({ at: this.now(), pts, min: rang(min) })
+    this.eval()
+  }
+
+  /** Synchronisation entière terminée en `ms` (indices v2 ; hors premier chargement et gros envois : à l'appelant). */
+  noteSync(ms: number) {
+    const pts = indiceSync(ms, this.r)
+    if (pts > 0) this.obs.push({ at: this.now(), pts, min: 0 })
+    this.eval()
+  }
+
+  /** Plus petit retard du direct vu depuis le lancement, et heure du dernier indice de retard. */
+  private retardBase: number | null = null
+  private dernierRetard = -Infinity
+
+  /** Signal reçu en direct `ms` après son heure (réception − heure du signal ; indices v2). */
+  noteRetard(ms: number) {
+    if (!Number.isFinite(ms) || Math.abs(ms) > this.r.retardIgnoreMs) return
+    this.retardBase = this.retardBase === null ? ms : Math.min(this.retardBase, ms)
+    // Plus petit retard vu au-delà de retardBaseMaxMs : horloge de l'appareil fausse (ou ouverture déjà saturée) : cet indice
+    // n'est pas utilisé (les autres, et l'annonce du serveur, restent).
+    if (this.retardBase > this.r.retardBaseMaxMs) return this.eval()
+    const exces = ms - Math.max(this.retardBase, 0)
+    const pts = indiceRetard(exces, this.r)
+    const t = this.now()
+    if (pts > 0 && t - this.dernierRetard >= this.r.retardEspacementMs) {
+      this.dernierRetard = t
+      this.obs.push({ at: t, pts, min: 0 })
+    }
     this.eval()
   }
 
