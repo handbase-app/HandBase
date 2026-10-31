@@ -361,7 +361,7 @@ function AvisReview({
       <FormActions>
         <button
           type="button"
-          className="btn-primary"
+          className="btn-save"
           disabled={count === 0}
           onClick={() =>
             onApply({ scores: Object.fromEntries(sugs.map((x) => [x.criterionId, on[x.criterionId] ? vals[x.criterionId] : undefined])), strengths, improvements })
@@ -369,7 +369,7 @@ function AvisReview({
         >
           ✓ Accepter ({count})
         </button>
-        <button type="button" className="btn-ghost" onClick={onRefuse}>
+        <button type="button" className="btn-save-ghost" onClick={onRefuse}>
           Tout refuser
         </button>
       </FormActions>
