@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { poleStatus, POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
 import { spyTarget } from '../spy'
@@ -321,38 +321,63 @@ export function fmtValue(c: Criterion | undefined, v: number | string | undefine
   return v
 }
 
-/** Petite icône ⓘ : l'explication s'ouvre dans une fenêtre au clic, au lieu d'encombrer la page. */
+/**
+ * Petite icône ⓘ : l'explication s'ouvre dans une bulle accrochée au ⓘ touché (31/10 : plus de fenêtre en bas de l'écran,
+ * on n'a pas à baisser les yeux), dessous s'il y a la place, sinon dessus ; fond légèrement voilé et flouté (scrim-light,
+ * comme les autres bulles) ; un long texte défile dans la bulle. Un toucher à côté, Échap ou le défilement de la page la ferment.
+ */
 export function InfoButton({ title, children }: { title?: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false)
+  const btn = useRef<HTMLButtonElement>(null)
+  const bubble = useRef<HTMLDivElement>(null)
+  const [at, setAt] = useState<DOMRect | null>(null)
   useEffect(() => {
-    if (!open) return
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    if (!at) return
+    const close = () => setAt(null)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    // Le défilement de la page ferme la bulle, pas celui du texte dans la bulle.
+    const scroll = (e: Event) => !(e.target instanceof Node && bubble.current?.contains(e.target)) && close()
     window.addEventListener('keydown', esc)
-    return () => window.removeEventListener('keydown', esc)
-  }, [open])
+    window.addEventListener('scroll', scroll, { passive: true, capture: true })
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('keydown', esc)
+      window.removeEventListener('scroll', scroll, { capture: true })
+      window.removeEventListener('resize', close)
+    }
+  }, [at])
+  const vw = typeof window === 'undefined' ? 360 : window.innerWidth
+  const vh = typeof window === 'undefined' ? 640 : window.innerHeight
+  const width = Math.min(320, vw - 24)
+  const below = !!at && at.bottom < vh * 0.6
+  const left = at ? Math.max(12, Math.min(at.left + at.width / 2 - width / 2, vw - width - 12)) : 0
   return (
     <>
       <button
+        ref={btn}
         type="button"
         aria-label="Explications"
         title="Explications"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-muted/60 align-middle text-[10px] font-bold normal-case tracking-normal text-muted hover:border-accent hover:text-accent"
+        aria-expanded={!!at}
+        onClick={() => setAt(btn.current?.getBoundingClientRect() ?? null)}
+        className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-muted/60 align-middle text-[10px] font-bold normal-case tracking-normal text-muted before:absolute before:-inset-3 before:content-[''] hover:border-accent hover:text-accent"
       >
         i
       </button>
-      {open &&
+      {at &&
         // Affichée à la racine de la page : elle n'hérite pas du style du titre où se trouve le ⓘ.
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-end justify-center scrim p-4 sm:items-center" onClick={() => setOpen(false)}>
-            <div role="dialog" aria-modal="true" className="win w-full max-w-sm p-5 text-sm leading-relaxed shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              {title && <div className="mb-2 font-extrabold">{title}</div>}
+          <div className="fixed inset-0 z-50" onClick={() => setAt(null)}>
+            <div className="absolute inset-0 scrim-light" aria-hidden />
+            <div
+              ref={bubble}
+              role="dialog"
+              aria-label={title ?? 'Explications'}
+              className="win absolute overflow-y-auto overscroll-contain p-4 text-sm leading-relaxed shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width, left, ...(below ? { top: at.bottom + 8, maxHeight: vh - at.bottom - 20 } : { bottom: vh - at.top + 8, maxHeight: at.top - 20 }) }}
+            >
+              {title && <div className="mb-1.5 text-[13px] font-extrabold">{title}</div>}
               <div className="flex flex-col gap-2 text-[13px] text-fg/90">{children}</div>
-              <div className="mt-5 flex justify-end">
-                <button autoFocus className="btn-primary px-5" onClick={() => setOpen(false)}>
-                  OK
-                </button>
-              </div>
             </div>
           </div>,
           document.body,
