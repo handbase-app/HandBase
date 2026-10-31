@@ -117,6 +117,11 @@ export function parsePlan(raw: unknown): PlanCheck {
   const a = fold(clean(o.action ?? o.type, 40)).replace(/[\s-]+/g, '_')
   if (!a) return no('illisible')
   if (a === 'aucune' || a === 'aucun' || a === 'recherche' || a === 'filtrer') return no('aucune')
+  // Action pas encore prévue, rendue avec sa famille (« quoi ») : le message qui dit comment faire aujourd'hui.
+  if (a === 'pas_prevue' || a === 'non_prevue') {
+    const quoi = fold(clean(o.quoi, 20)).replace(/[\s-]+/g, '_')
+    return { ok: false, reason: 'inconnue', text: Object.hasOwn(UNPLANNED_TEXT, quoi) ? UNPLANNED_TEXT[quoi as Unplanned] : REFUSAL_TEXT.inconnue }
+  }
   if (!(PLAN_ACTIONS as readonly string[]).includes(a)) return no(FORBIDDEN_ACTION.test(a) ? 'interdite' : 'inconnue')
   const action = a as PlanAction
   const target = clean(o.cible ?? o.target, MAX_TARGET) || undefined
@@ -142,6 +147,11 @@ export function parsePlan(raw: unknown): PlanCheck {
   const l = fold(clean(o.liste ?? o.list, 20))
   const list = l.startsWith('groupe') ? 'groupes' : l.startsWith('evenement') ? 'evenements' : undefined
   const nonGere = strings(o.nonGere, 10, 80)
+  // Deuxième étape (« … et ajoute-les à l'événement X ») : un ajout seulement, après une création ou un ajout.
+  const pu = isObj(o.puis) ? o.puis : isObj(o.ensuite) ? o.ensuite : undefined
+  const pa = pu ? fold(clean(pu.action, 40)).replace(/[\s-]+/g, '_') : ''
+  const pt = pu ? clean(pu.cible ?? pu.target, MAX_TARGET) : ''
+  const then: AskPlan['then'] = WRITES.includes(action) && (pa === 'ajouter_groupe' || pa === 'ajouter_evenement') && pt ? { action: pa, target: pt } : undefined
   if (TARGETED.includes(action) && !target) return no('cible_absente')
   if (action === 'filtrer_createur' && !creators.length) return no('cible_absente')
   return {
@@ -152,6 +162,7 @@ export function parsePlan(raw: unknown): PlanCheck {
       ...(name && action === 'creer_groupe' ? { name } : {}),
       ...(players ? { players } : {}),
       ...(action === 'filtrer_createur' ? { creators, list: list ?? 'groupes' } : {}),
+      ...(then ? { then } : {}),
       nonGere,
     },
   }

@@ -11,7 +11,7 @@
 //
 //   npx jiti tools/test-catalogue-demandes.ts
 import assert from 'node:assert/strict'
-import { buildCard, detectAction, matchTarget, UNPLANNED_TEXT, type AskPlan, type Detected } from '../src/askAction'
+import { buildCard, detectAction, matchTarget, parsePlan, UNPLANNED_TEXT, type AskPlan, type Detected } from '../src/askAction'
 import { routeAsk, type AskContext } from '../src/demander'
 import { correctQuestionPhrase } from '../src/questionRescue'
 import { applySportConfig, resolveSportConfig } from '../src/sportConfig'
@@ -211,6 +211,19 @@ if (RAPPORT) {
   assert.equal(c.canAccept, false, 'deuxième étape impossible : rien n’est fait')
   assert.equal(c.blocked, 'Cet événement est archivé : désarchive-le d’abord.')
   assert.equal(buildCard({ ...base }).canAccept, false, 'droits de la deuxième étape inconnus : pas d’« Accepter »')
+
+  // ---------- Plan du modèle : deuxième étape et action pas encore prévue (consigne proposée pour transcrire) ----------
+  const pm = parsePlan({ action: 'creer_groupe', nom: 'Intercomité 2012', joueurs: { population: { annee: 2012 } }, puis: { action: 'ajouter_evenement', cible: 'prochain intercomité' }, nonGere: [] })
+  assert.deepEqual(pm.ok && pm.plan.then, { action: 'ajouter_evenement', target: 'prochain intercomité' })
+  // Deuxième étape qui n'est pas un ajout, ou après une ouverture : ignorée.
+  const bad = parsePlan({ action: 'creer_groupe', joueurs: {}, puis: { action: 'supprimer_groupe', cible: 'X' } })
+  assert.ok(bad.ok && !bad.plan.then)
+  const open2 = parsePlan({ action: 'ouvrir_groupe', cible: 'X', joueurs: {}, puis: { action: 'ajouter_groupe', cible: 'Y' } })
+  assert.ok(open2.ok && !open2.plan.then)
+  const np2 = parsePlan({ action: 'pas_prevue', quoi: 'a_revoir', nonGere: [] })
+  assert.deepEqual(np2, { ok: false, reason: 'inconnue', text: UNPLANNED_TEXT.a_revoir })
+  const np3 = parsePlan({ action: 'pas_prevue', quoi: 'toString' })
+  assert.ok(!np3.ok && np3.reason === 'inconnue' && /Je ne sais pas encore faire cette action/.test(np3.text), 'famille inconnue : message général')
 
   // ---------- En-tête : libellés des nouvelles propositions ----------
   assert.equal(routeAsk('Exporte le groupe Repérés 2011', ctx)[0].label, 'Action pas encore prévue : comment faire')
