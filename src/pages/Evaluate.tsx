@@ -752,24 +752,25 @@ export default function Evaluate() {
           />
 
           {noCriteria && <NoCriteria kind="subjective" />}
-          {/* Une seule carte, les familles en petits titres ; chaque critère sur une ligne : libellé à gauche, notes à droite
-              (31/10, fiche plus compacte). Échelle longue, choix, texte ou nombre : sous le libellé, sur toute la largeur.
-              Descriptions des critères : « Explication des critères » dans le ⋮. */}
+          {/* Une carte par famille ; chaque critère sur une ligne : libellé à gauche, notes à droite (31/10, fiche plus compacte).
+              Les cartes partagent la même grille (subgrid) : la colonne des libellés prend la largeur du plus long (au plus
+              40 %, au-delà il passe à la ligne), un petit espace, puis toutes les échelles ont la même largeur et prennent toute la place restante.
+              Échelle longue, choix, texte ou nombre : sous le libellé, sur toute la largeur. Descriptions : « Explication des
+              critères » dans le ⋮. */}
           {shown.length > 0 && (
-            <div className="card px-3 pt-1 pb-1.5">
+            <div className={`grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 ${listMode ? 'gap-y-3' : 'gap-y-4'}`}>
               {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
-                <div key={cat}>
-                  <div className="section-title mt-2.5 mb-0.5">{cat}</div>
-                  {cs.map((c) => {
+                <div key={cat} className="card col-span-2 grid grid-cols-subgrid gap-y-0 px-3 pt-2.5 pb-1.5">
+                  <div className="section-title col-span-2 mb-0.5">{cat}</div>
+                  {cs.map((c, i) => {
                     const max = scaleMax(c.scale)
                     const inline = max !== null && max - scaleMin(c.scale) <= 5
                     return (
-                      <div
-                        key={c.id}
-                        className={`border-line/60 py-1.5 [&+&]:border-t ${inline ? 'flex items-center justify-between gap-3' : 'flex flex-col items-stretch gap-1.5'}`}
-                      >
-                        <div className="min-w-0 text-xs leading-tight font-bold">{c.label}</div>
-                        <CriterionInput c={c} value={draft.scores?.[c.id]} wide={!inline} onChange={(v) => setScore(c.id, v)} />
+                      <div key={c.id} className={`col-span-2 grid grid-cols-subgrid items-center gap-y-1.5 py-1.5 ${i ? 'border-t border-line' : ''}`}>
+                        <div className={`min-w-0 text-xs leading-tight font-bold ${inline ? '' : 'col-span-2'}`}>{c.label}</div>
+                        <div className={inline ? '' : 'col-span-2'}>
+                          <CriterionInput c={c} value={draft.scores?.[c.id]} wide onChange={(v) => setScore(c.id, v)} />
+                        </div>
                       </div>
                     )
                   })}
