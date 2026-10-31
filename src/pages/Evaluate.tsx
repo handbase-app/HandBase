@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Avatar, CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { Avatar, CriterionInput, groupBy, Icon, InfoButton, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -735,10 +735,11 @@ export default function Evaluate() {
                     // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
                     <div key={c.id} className="flex flex-col items-stretch gap-1.5">
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold">
+                        {/* Description du critère derrière un ⓘ (31/10) : utile au début, ensuite elle prenait de la place. */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold" data-noswipe>
                           {c.label}
+                          {c.description && <InfoButton title={c.label}>{c.description}</InfoButton>}
                         </div>
-                        {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
                       </div>
                       <CriterionInput c={c} value={draft.scores?.[c.id]} wide onChange={(v) => setScore(c.id, v)} />
                     </div>
