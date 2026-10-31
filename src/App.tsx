@@ -304,6 +304,9 @@ export default function App() {
     // Tenu droit, même sur un écran plus large (tablette, fenêtre zoomée) : les bandes de l'en-tête vont d'un bord à l'autre,
     // tout le reste (contenu de l'en-tête, pages, capsule d'onglets) suit la même colonne centrée de 42rem (31/10).
     <div className="flex min-h-dvh flex-col wide:pl-[var(--nav-l)]">
+      {/* Avant l'en-tête : l'entrée d'historique de l'écran est notée avant que la flèche de retour (HeaderBack) ne calcule
+          l'écran d'avant ; sinon, sur un écran qui ne se redessine pas (notation), elle croyait n'en avoir aucun → Accueil. */}
+      <BackTracker />
       <header
         ref={header}
         // Téléphone couché : pas d'en-tête (toute la hauteur pour la page) ; son contenu est dans le menu de gauche (plus bas).
@@ -359,7 +362,6 @@ export default function App() {
         </div>
       )}
 
-      <BackTracker />
       <main
         className={`flex-1 px-4 pb-28 wide:pb-10 rail:pr-[max(1rem,env(safe-area-inset-right))] side:px-6 ${spyTarget() ? 'pt-14' : 'pt-4 rail:pt-3 side:pt-5'}`}
       >
