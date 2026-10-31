@@ -217,9 +217,6 @@ export function WorkGroupDetail({ id }: { id: string }) {
           )}
         </div>
         {t.description && <div className="text-xs text-muted">{t.description}</div>}
-        <div className="text-[11px] text-muted">
-          {[manage ? STAFF.mine : t.createdByName && STAFF.createdBy(t.createdByName), isMember(t) && STAFF.member].filter(Boolean).join(' · ')}
-        </div>
       </div>
 
       <section className="flex flex-col gap-1.5">
