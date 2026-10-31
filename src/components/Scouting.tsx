@@ -795,47 +795,26 @@ function PlayerTeamRow({ ev, p }: { ev: HBEvent; p: Player }) {
 
 // ---------- Fiche joueur : historique ----------
 
-/** Historique compact du repérage : « Vu à … (3 obs.) → à revoir au … → revu ✓ ». */
-export function ScoutHistory({ playerId, sex }: { playerId: string; sex?: string }) {
+/**
+ * « À revoir » de la fiche (onglet Profil) : « à revoir au … · par X → revu ✓ », dans l'ordre. Les événements où le joueur a
+ * été vu ou noté sont dans le parcours (src/components/Parcours.tsx, 31/10) : cette carte ne garde que les « à revoir ».
+ */
+export function RewatchHistory({ playerId, sex }: { playerId: string; sex?: string }) {
   const data = useLiveQuery(async () => {
-    const [seen, evals, rewatch] = await Promise.all([
-      db.seen.where('playerId').equals(playerId).toArray().then(alive),
-      db.evaluations.where('playerId').equals(playerId).toArray().then(alive),
-      db.rewatch.where('playerId').equals(playerId).toArray().then(alive),
-    ])
-    const eventIds = [...new Set([...seen.map((s) => s.eventId), ...evals.map((e) => e.eventId).filter((x): x is string => !!x), ...rewatch.flatMap((r) => [...(r.events ?? []), ...(r.originEventId ? [r.originEventId] : [])])])]
+    const rewatch = await db.rewatch.where('playerId').equals(playerId).toArray().then(alive)
+    const eventIds = [...new Set(rewatch.flatMap((r) => [...(r.events ?? []), ...(r.originEventId ? [r.originEventId] : [])]))]
     const events = new Map((await db.events.bulkGet(eventIds)).filter((e): e is HBEvent => !!e).map((e) => [e.id, e]))
     const groups = new Map((await db.groups.bulkGet(rewatch.flatMap((r) => r.groups ?? []))).filter((g): g is PlayerGroup => !!g).map((g) => [g.id, g]))
     const keys = await revisitedKeys(rewatch.flatMap((r) => r.events ?? []))
-    return { seen, evals, rewatch, events, groups, keys }
+    return { rewatch, events, groups, keys }
   }, [playerId])
-  if (!data) return null
-  const { seen, evals, rewatch, events, groups, keys } = data
-  // Événements où il a été vu (« vu » ou avis) : nombre d'observateurs distincts.
-  const obs = new Map<string, Set<string>>()
-  const add = (eid: string, who: string) => obs.set(eid, (obs.get(eid) ?? new Set()).add(who))
-  seen.forEach((s) => add(s.eventId, s.createdBy ?? s.id.split(':')[0]))
-  evals.forEach((e) => e.eventId && add(e.eventId, e.observerId ?? e.createdBy ?? e.observer))
-  type Step = { key: string; date: string; node: ReactNode }
-  const steps: Step[] = [...obs]
-    .filter(([eid]) => events.has(eid))
-    .map(([eid, who]) => {
-      const ev = events.get(eid)!
-      return {
-        key: `v${eid}`,
-        date: ev.date,
-        node: (
-          <Link to={`/evenements/${eid}`} className="hover:underline">
-            {accord('Vu', sex)} à <b>{ev.name}</b> ({who.size} obs.)
-          </Link>
-        ),
-      }
-    })
-  for (const r of rewatch) {
+  if (!data?.rewatch.length) return null
+  const { rewatch, events, groups, keys } = data
+  const steps = rewatch.map((r) => {
     const dests = [...(r.events ?? []).map((e) => events.get(e)?.name), ...(r.groups ?? []).map((g) => groups.get(g)?.name)].filter(Boolean)
     const at = revisitedAt(r, keys)
-    steps.push({
-      key: `r${r.id}`,
+    return {
+      key: r.id,
       date: r.createdAtServer ? dayOf(r.createdAtServer) : new Date(stamp(r)).toLocaleDateString('sv'),
       node: (
         <span title={r.note}>
@@ -846,14 +825,13 @@ export function ScoutHistory({ playerId, sex }: { playerId: string; sex?: string
           )}
         </span>
       ),
-    })
-  }
-  if (!steps.length) return null
+    }
+  })
   steps.sort((a, b) => a.date.localeCompare(b.date))
   return (
     <div className="card p-3">
       <div className="section-title mb-1.5 flex items-center gap-1.5">
-        <Icon name="eye" className="h-3.5 w-3.5 text-accent" /> Repérage
+        <Icon name="clock" className="h-3.5 w-3.5 text-accent" /> À revoir
       </div>
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
         {steps.map((s, i) => (

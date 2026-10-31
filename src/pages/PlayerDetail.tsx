@@ -28,7 +28,8 @@ import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
 import { HeaderMenu, PageHeader } from '../components/PageHeader'
 import { copyLink } from '../components/ItemMenu'
-import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
+import { RewatchButton, RewatchHistory, usePlayerRewatch } from '../components/Scouting'
+import { ParcoursColumn, ParcoursStrip, usePlayerParcours, useWideFiche } from '../components/Parcours'
 import { usePerimeter } from '../installation'
 import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
@@ -175,6 +176,10 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       .map(([a, b]) => (a.id === player.id ? b : a))
     return { player, criteria, measurements, evaluations, events, duplicates, videos }
   }, [id])
+  // Parcours par palier (src/parcours.ts) : frise sous le nom sur fiche étroite, colonne à gauche sur fiche large (mesurée :
+  // la fiche peut être dans le panneau de droite).
+  const paliers = usePlayerParcours(data?.player) ?? []
+  const [ficheRef, wide] = useWideFiche()
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data?.player.mergedInto)
@@ -247,7 +252,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const view: TabId = tab === 'compte' && !account ? 'profil' : tab
   return (
     // data-fiche : la fiche de ce joueur est affichée (le glisser de ContextBar attend qu'elle le soit pour la faire arriver).
-    <div className="flex flex-col gap-4" data-fiche={p.id}>
+    <div ref={ficheRef} className="flex flex-col gap-4" data-fiche={p.id}>
       {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est à côté de « Suivre », depuis le 30/10). */}
       <PageHeader back={panel ? <PanelClose /> : hideBack ? null : <BackButton fallback="/joueurs" label="JOUEURS" />} />
 
@@ -308,6 +313,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           <RewatchButton playerId={p.id} rows={rewatch.filter((r) => !r.done)} className="mt-1.5 px-2.5 py-1 text-[11px]" />
         </div>
       </div>
+
+      {/* Fiche étroite : frise du parcours sous le nom, au-dessus des onglets (fiche large : colonne de gauche). */}
+      {!wide && <ParcoursStrip paliers={paliers} />}
 
       {stampOpen && stamp && (
         <StampWindow stamp={stamp} title="Infos de la fiche" onClose={() => setStampOpen(false)} />
@@ -371,12 +379,17 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         />
       )}
 
+      {/* Fiche large avec un parcours : colonne fixe à gauche (quel que soit l'onglet), onglets et contenu à droite. */}
+      <div className={wide && paliers.length ? 'grid grid-cols-[17rem_minmax(0,1fr)] items-start gap-5' : 'contents'}>
+      {wide && <ParcoursColumn paliers={paliers} inPanel={!!panel} />}
+      <div className={wide && paliers.length ? 'flex min-w-0 flex-col gap-4' : 'contents'}>
       <Tabs tab={view} setTab={setTab} counts={{ avis: evaluations.length, videos: data.videos }} hidden={account ? [] : ['compte']} />
 
       {view === 'profil' && (
         <>
         <PlayerGroups playerId={p.id} />
-        <ScoutHistory playerId={p.id} sex={p.sex} />
+        {/* « À revoir » (le reste de l'ancienne carte « Repérage » est dans le parcours). */}
+        <RewatchHistory playerId={p.id} sex={p.sex} />
 
         <div className="card divide-y divide-line">
           {info
@@ -487,6 +500,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {view === 'videos' && <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />}
 
       {view === 'compte' && <PlayerSpaceCard player={p} />}
+      </div>
+      </div>
     </div>
   )
 }

@@ -46,6 +46,11 @@ export interface SportContent {
    * (FFvolley) : M13, M15, M18, mêmes âges (comme src/demoVolley.ts, CAT_YEARS), puis M21 = 19-21 ans.
    */
   youthCategories: readonly YouthCategory[]
+  /**
+   * Noms des paliers du parcours d'un joueur (fiche, src/parcours.ts), au singulier puis au pluriel ; « Repéré » vient de
+   * src/gender.ts (accordé), le Pôle a un seul nom.
+   */
+  parcours: { comite: readonly [string, string]; ligue: readonly [string, string]; france: readonly [string, string]; pole: string }
 }
 
 /** Une catégorie de jeunes : code affiché et stocké (« U15 »), âges de saison couverts. */
@@ -72,6 +77,12 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
       { code: 'U15', ages: [14, 15] },
       { code: 'U18', ages: [16, 17, 18] },
     ],
+    parcours: {
+      comite: ['Stage intercomités', 'Stages intercomités'],
+      ligue: ['Stage de ligue', 'Stages de ligue'],
+      france: ['Stage équipe de France', 'Stages équipe de France'],
+      pole: 'Pôle Espoirs',
+    },
   },
   volley: {
     demoCriteria: 'demo/criteres-volley.json',
@@ -95,6 +106,13 @@ export const SPORT_CONTENT: Record<string, SportContent> = {
       { code: 'M18', ages: [16, 17, 18] },
       { code: 'M21', ages: [19, 20, 21] },
     ],
+    // Volley : les comités forment des sélections départementales (filière fédérale).
+    parcours: {
+      comite: ['Sélection départementale', 'Sélections départementales'],
+      ligue: ['Stage de ligue', 'Stages de ligue'],
+      france: ['Stage équipe de France', 'Stages équipe de France'],
+      pole: 'Pôle Espoirs',
+    },
   },
 }
 
