@@ -4,7 +4,7 @@
  *
  * Le message reçu ne dit que QUELS événements préparer ({ type: "veille", jour, ev: [{ id, nom, h }] }) ; le service worker :
  *  1. affiche TOUJOURS une notification tout de suite (pas de push silencieux sur le web) : « Demain : Détection U13 à
- *     9 h 30 », « Préparation hors ligne de vos joueurs… » ;
+ *     9 h 30 », « Préparation hors ligne de tes joueurs… » ;
  *  2. attend 0 à 20 s au hasard (5 s au plus sur iPhone, où le service worker vit moins longtemps) : les téléphones d'un même
  *     lot ne téléchargent pas tous à la même seconde ;
  *  3. prend la session de la personne (src/authRefresh.ts, workerSession) ; sans session valable : la notification invite à
@@ -14,7 +14,7 @@
  *     il abandonne sans insister, l'appli se synchronisera à l'ouverture ;
  *  5. range les lignes dans la base du téléphone (Dexie) avec la règle de l'appli (src/syncLive.ts, keepRows : jamais
  *     par-dessus une version plus récente, ligne identique pas réécrite), et jamais une ligne qui attend d'être envoyée ;
- *  6. remplace la notification par le résultat exact : « Vos 24 joueurs sont prêts hors ligne. », ou ce qui a manqué.
+ *  6. remplace la notification par le résultat exact : « Tes 24 joueurs sont prêts hors ligne. », ou ce qui a manqué.
  * Le curseur de synchronisation n'est jamais avancé (comme la lecture prioritaire, src/priorite.ts) : la synchronisation
  * suivante relit tout normalement, rien ne peut être sauté.
  */
@@ -94,25 +94,25 @@ export function texteVeille(m: VeilleMessage, issue: Issue): string {
       : ''
   switch (issue.kind) {
     case 'en-cours':
-      return `${liste}Préparation hors ligne de vos joueurs…`
+      return `${liste}Préparation hors ligne de tes joueurs…`
     case 'pret': {
-      if (issue.evenements === 0) return `${liste}Ouvrez l’appli pour retrouver ${total > 1 ? 'ces événements' : 'cet événement'}.`
+      if (issue.evenements === 0) return `${liste}Ouvre l’appli pour retrouver ${total > 1 ? 'ces événements' : 'cet événement'}.`
       const base =
         issue.joueurs === 0
           ? 'Prêt hors ligne (aucun joueur dans la liste pour l’instant).'
           : issue.joueurs === 1
-            ? 'Votre joueur est prêt hors ligne.'
-            : `Vos ${nb(issue.joueurs, 'joueur')} sont prêts hors ligne.`
+            ? 'Ton joueur est prêt hors ligne.'
+            : `Tes ${nb(issue.joueurs, 'joueur')} sont prêts hors ligne.`
       return `${liste}${base}${issue.manquants > 0 ? ' Le reste arrivera à l’ouverture de l’appli.' : ''}`
     }
     case 'occupe':
-      return `${liste}Serveur très demandé : vos joueurs se chargeront à l’ouverture de l’appli.`
+      return `${liste}Serveur très demandé : tes joueurs se chargeront à l’ouverture de l’appli.`
     case 'session':
-      return `${liste}Ouvrez l’appli pour préparer vos joueurs hors ligne (connexion à renouveler).`
+      return `${liste}Ouvre l’appli pour préparer tes joueurs hors ligne (connexion à renouveler).`
     case 'reseau':
-      return `${liste}Pas de réseau : ouvrez l’appli une fois connecté pour préparer vos joueurs.`
+      return `${liste}Pas de réseau : ouvre l’appli une fois connecté pour préparer tes joueurs.`
     default:
-      return `${liste}Préparation impossible pour l’instant : ouvrez l’appli pour charger vos joueurs.`
+      return `${liste}Préparation impossible pour l’instant : ouvre l’appli pour charger tes joueurs.`
   }
 }
 

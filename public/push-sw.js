@@ -13,7 +13,7 @@ self.addEventListener('push', (event) => {
     const p = self.HBVeille && self.HBVeille.push(d)
     if (p) return event.waitUntil(p)
     // veille-sw.js absent (ancienne version en cache) : une notification simple, toujours visible.
-    d = { title: 'Nextar', body: 'Événements demain : ouvrez l’appli pour préparer vos joueurs hors ligne.', url: '/evenements', tag: 'veille' }
+    d = { title: 'Nextar', body: 'Événements demain : ouvre l’appli pour préparer tes joueurs hors ligne.', url: '/evenements', tag: 'veille' }
     return event.waitUntil(self.registration.showNotification(d.title, { body: d.body, tag: d.tag, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url } }))
   }
   event.waitUntil(

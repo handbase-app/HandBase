@@ -71,19 +71,19 @@ t('notification : titre et textes exacts selon l’issue', () => {
   assert.equal(titreVeille(un), 'Demain : Détection U13 à 9 h 30')
   assert.equal(titreVeille(trois), 'Demain : 5 événements')
   assert.equal(titreVeille(parseVeille({ type: 'veille', jour: '2026-11-13', ev: [{ id: 'e', nom: 'Tournoi' }] })!), 'Demain : Tournoi')
-  assert.equal(texteVeille(un, { kind: 'en-cours' }), 'Préparation hors ligne de vos joueurs…')
-  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 24, evenements: 1, manquants: 0 }), 'Vos 24 joueurs sont prêts hors ligne.')
-  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 1, evenements: 1, manquants: 0 }), 'Votre joueur est prêt hors ligne.')
+  assert.equal(texteVeille(un, { kind: 'en-cours' }), 'Préparation hors ligne de tes joueurs…')
+  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 24, evenements: 1, manquants: 0 }), 'Tes 24 joueurs sont prêts hors ligne.')
+  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 1, evenements: 1, manquants: 0 }), 'Ton joueur est prêt hors ligne.')
   assert.equal(texteVeille(un, { kind: 'pret', joueurs: 0, evenements: 1, manquants: 0 }), 'Prêt hors ligne (aucun joueur dans la liste pour l’instant).')
-  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 1200, evenements: 1, manquants: 40 }), `Vos ${(1200).toLocaleString('fr-FR')} joueurs sont prêts hors ligne. Le reste arrivera à l’ouverture de l’appli.`)
-  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 0, evenements: 0, manquants: 0 }), 'Ouvrez l’appli pour retrouver cet événement.')
-  assert.equal(texteVeille(un, { kind: 'occupe' }), 'Serveur très demandé : vos joueurs se chargeront à l’ouverture de l’appli.')
-  assert.equal(texteVeille(un, { kind: 'session' }), 'Ouvrez l’appli pour préparer vos joueurs hors ligne (connexion à renouveler).')
-  assert.equal(texteVeille(un, { kind: 'reseau' }), 'Pas de réseau : ouvrez l’appli une fois connecté pour préparer vos joueurs.')
-  assert.equal(texteVeille(un, { kind: 'erreur' }), 'Préparation impossible pour l’instant : ouvrez l’appli pour charger vos joueurs.')
+  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 1200, evenements: 1, manquants: 40 }), `Tes ${(1200).toLocaleString('fr-FR')} joueurs sont prêts hors ligne. Le reste arrivera à l’ouverture de l’appli.`)
+  assert.equal(texteVeille(un, { kind: 'pret', joueurs: 0, evenements: 0, manquants: 0 }), 'Ouvre l’appli pour retrouver cet événement.')
+  assert.equal(texteVeille(un, { kind: 'occupe' }), 'Serveur très demandé : tes joueurs se chargeront à l’ouverture de l’appli.')
+  assert.equal(texteVeille(un, { kind: 'session' }), 'Ouvre l’appli pour préparer tes joueurs hors ligne (connexion à renouveler).')
+  assert.equal(texteVeille(un, { kind: 'reseau' }), 'Pas de réseau : ouvre l’appli une fois connecté pour préparer tes joueurs.')
+  assert.equal(texteVeille(un, { kind: 'erreur' }), 'Préparation impossible pour l’instant : ouvre l’appli pour charger tes joueurs.')
   assert.equal(
     texteVeille(trois, { kind: 'pret', joueurs: 30, evenements: 3, manquants: 0 }),
-    'Détection U13 (9 h 30), Stage gardiens (14 h), Tournoi et 2 autres. Vos 30 joueurs sont prêts hors ligne.',
+    'Détection U13 (9 h 30), Stage gardiens (14 h), Tournoi et 2 autres. Tes 30 joueurs sont prêts hors ligne.',
   )
   // Jamais de mot négatif sur des jeunes (règle « positif seulement ») : les textes parlent du téléphone, pas des joueurs.
   for (const k of ['en-cours', 'occupe', 'session', 'reseau', 'erreur'] as const) assert.ok(!/retenu|refus|échec/i.test(texteVeille(un, { kind: k })))
