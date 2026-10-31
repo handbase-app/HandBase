@@ -1,9 +1,26 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
-import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, interpretAvis, mergeComment, parseAmbigu, type AvisRef, type AvisState } from '../dictation/avis'
+import {
+  avisProposals,
+  buildAvisPayload,
+  decide,
+  decideAll,
+  droppedText,
+  expressionText,
+  interpretAvis,
+  mergeComment,
+  parseAmbigu,
+  sensFromValue,
+  type AvisRef,
+  type AvisState,
+} from '../dictation/avis'
+import { loadExpressions, saveExpressions } from '../expressions'
+import type { ExpressionCible } from '../expressionsCore'
+import { useBackCloses } from '../backNav'
+import { groupBy } from './ui'
 import { newId, type Criterion, type Position } from '../db'
 import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
 import { realRole } from '../roles'
@@ -26,6 +43,8 @@ import { FormActions, FormWindow } from './FormWindow'
  * joueur, fermeture) : écrite aussi, les notes encore en attente comptées comme ignorées. Sous les propositions, une barre
  * « Cette proposition : Cohérente · En partie · Pas cohérente » + commentaire facultatif, une fois par analyse : jointe à
  * la ligne si elle n'est pas encore écrite, sinon une ligne d'avis de plus. Jamais rien du joueur. Rien en « Voir comme… ».
+ * « Mes expressions » (src/expressions.ts) : le vocabulaire de l'entraîneur part avec le texte dicté (jamais rien du joueur) ;
+ * une hésitation ou une remarque « pas reliée » tranchée dans la fenêtre peut être retenue comme expression.
  */
 
 /** Le micro « Avis vocal » (dans la barre « Enregistrer »), l'état de l'analyse et le résumé des propositions (en haut de la fiche). */
@@ -43,11 +62,11 @@ export function AvisVocal({
   position?: Position
   criteria: Criterion[]
   /** Saisie en cours : une proposition déjà identique (même note, commentaire déjà présent) n'est pas reproposée. */
-  current: { scores?: Record<string, number | string>; strengths?: string; improvements?: string }
+  current: { scores?: Record<string, number | string>; strengths?: string; improvements?: string; portrait?: string }
   state: AvisState | null
   setState: (s: AvisState | null) => void
-  /** Propositions acceptées dans la fenêtre : notes à poser (critère → note) et commentaires à ajouter. */
-  onApply: (scores: Record<string, number>, comments: { strengths?: string; improvements?: string }) => void
+  /** Propositions acceptées dans la fenêtre : notes à poser (critère → note), commentaires à ajouter, portrait à poser. */
+  onApply: (scores: Record<string, number>, comments: { strengths?: string; improvements?: string; portrait?: string }) => void
   /** Place du micro, à droite de « Enregistrer » (barre du bas de l'écran de notation). */
   slot: HTMLElement | null
 }) {
@@ -68,13 +87,14 @@ export function AvisVocal({
   async function analyse(text: string) {
     if (abort.current) return
     const { playerId: pid, position: pos, criteria: cs } = latest.current
-    const payload = buildAvisPayload(cs, pos)
     setError('')
     setBusy(true)
     const ctrl = new AbortController()
     abort.current = ctrl
     try {
-      const ans = await sendAvisRequest(text, payload.criteres, ctrl.signal)
+      // Vocabulaire de l'entraîneur : ses expressions dont un critère est dans la liste de ce joueur.
+      const payload = buildAvisPayload(cs, pos, await loadExpressions().catch(() => []))
+      const ans = await sendAvisRequest(text, payload.criteres, ctrl.signal, payload.expressions)
       // Autre joueur affiché entre-temps : la réponse ne le concerne pas.
       if (ctrl.signal.aborted || latest.current.playerId !== pid) return
       const result = interpretAvis(ans.raw, payload, text)
@@ -87,6 +107,7 @@ export function AvisVocal({
         pending: result.suggestions.filter((s) => cur.scores?.[s.criterionId] !== s.value).map((s) => s.criterionId),
         strengths: !!result.pointsForts && mergeComment(cur.strengths, result.pointsForts) !== (cur.strengths ?? ''),
         improvements: !!result.axes && mergeComment(cur.improvements, result.axes) !== (cur.improvements ?? ''),
+        portrait: !!result.portrait && result.portrait !== (cur.portrait ?? '').trim(),
       })
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
@@ -148,7 +169,7 @@ export function AvisVocal({
     const k = m.id ?? m.transcript
     if (opened.current === k) return
     opened.current = k
-    setOpen(m.pending.length > 0 || m.strengths || m.improvements)
+    setOpen(m.pending.length > 0 || m.strengths || m.improvements || !!m.portrait)
   }, [state, playerId])
   /** « Accepter » : notes cochées (proposées ou changées) posées, décochées écartées, commentaires cochés ajoutés. */
   function apply(pick: AvisPick) {
@@ -161,24 +182,32 @@ export function AvisVocal({
       next = decide(next, id, v === undefined ? 'ignore' : { value: v })
       if (v !== undefined) scores[id] = v
     }
-    // Hésitations tranchées dans la fenêtre : critère choisi et note donnés par le coach.
+    // Hésitations et remarques « pas reliées » tranchées dans la fenêtre : critère choisi et note donnés par le coach.
     for (const [id, v] of Object.entries(pick.extra)) scores[id] = v
     const strengths = m.strengths && pick.strengths ? m.result.pointsForts : undefined
     const improvements = m.improvements && pick.improvements ? m.result.axes : undefined
-    onApply(scores, { strengths, improvements })
-    const added = Object.keys(scores).length + (strengths ? 1 : 0) + (improvements ? 1 : 0)
-    setState({ ...next, strengths: false, improvements: false, added: (m.added ?? 0) + added })
+    const portrait = m.portrait && pick.portrait ? m.result.portrait : undefined
+    onApply(scores, { strengths, improvements, portrait })
+    // « Retenir pour la prochaine fois » : expressions créées ou mises à jour (même texte).
+    if (pick.retain.length) void saveExpressions(pick.retain).catch((e) => console.error(e))
+    const added = Object.keys(scores).length + (strengths ? 1 : 0) + (improvements ? 1 : 0) + (portrait ? 1 : 0)
+    setState({ ...next, strengths: false, improvements: false, portrait: false, added: (m.added ?? 0) + added })
   }
   const payload = criteria.length > 0 ? buildAvisPayload(criteria, position) : null
   const usable = !!payload && payload.criteres.length > 0
   // Échelle de chaque critère proposé (les références de l'analyse sont rangées par c1, c2… : ici par critère).
   const refs = Object.fromEntries(Object.values(payload?.refs ?? {}).map((r) => [r.criterionId, r]))
+  // Critères de la liste par famille, pour « Relier à un critère ».
+  const families = groupBy(
+    criteria.filter((c) => refs[c.id]),
+    (c) => c.category,
+  ).map(([cat, cs]) => [cat, cs.map((c) => c.id)] as [string, string[]])
   if (!avisReady || !usable) return null
 
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const working = mic.phase === 'sending' || busy
   const mine = state?.playerId === playerId ? state : null
-  const left = mine ? mine.pending.length + (mine.strengths ? 1 : 0) + (mine.improvements ? 1 : 0) : 0
+  const left = mine ? mine.pending.length + (mine.strengths ? 1 : 0) + (mine.improvements ? 1 : 0) + (mine.portrait ? 1 : 0) : 0
   const n = mine?.result.suggestions.length ?? 0
   const applied = mine?.added ?? 0
 
@@ -233,7 +262,7 @@ export function AvisVocal({
               <>
                 ✓ {applied} proposition{applied > 1 ? 's' : ''} ajoutée{applied > 1 ? 's' : ''} · relisez, puis enregistrez
               </>
-            ) : n === 0 && !mine.result.pointsForts && !mine.result.axes ? (
+            ) : n === 0 && !mine.result.pointsForts && !mine.result.axes && !mine.result.portrait ? (
               'Aucune note proposée : je n’ai reconnu aucun critère de la fiche.'
             ) : (
               'Propositions refusées.'
@@ -254,6 +283,7 @@ export function AvisVocal({
           key={keyOf(mine)}
           state={mine}
           refs={refs}
+          families={families}
           onApply={(sel) => {
             apply(sel)
             setOpen(false)
@@ -264,7 +294,7 @@ export function AvisVocal({
           }}
           onClose={() => setOpen(false)}
           admin={realRole() === 'admin'}
-          written={{ strengths: current.strengths, improvements: current.improvements }}
+          written={{ strengths: current.strengths, improvements: current.improvements, portrait: current.portrait }}
           feedback={canLogQuestion() ? <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} /> : null}
         />
       )}
@@ -272,20 +302,46 @@ export function AvisVocal({
   )
 }
 
-type AvisPick = { scores: Record<string, number | undefined>; extra: Record<string, number>; strengths: boolean; improvements: boolean }
+type AvisPick = {
+  scores: Record<string, number | undefined>
+  extra: Record<string, number>
+  strengths: boolean
+  improvements: boolean
+  portrait: boolean
+  /** « Retenir pour la prochaine fois » : expressions à créer ou à mettre à jour (même texte). */
+  retain: { texte: string; cibles: ExpressionCible[] }[]
+}
+
+/** Remarque à trancher : une hésitation de l'analyse (« J'hésite ») ou une remarque reliée à aucun critère (« Pas relié »). */
+type Pending = { key: string; kind: 'doute' | 'libre'; quote: string; ids: string[] }
+
+const MAX_CHOSEN = 3
+
+const foldText = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
 
 /**
  * Fenêtre des propositions de l'avis vocal (31/10) : tout ce qui est proposé, au même endroit, quelle que soit la ligne de
- * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note de l'échelle
- * (1 à 5…) pour la changer ; la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter
- * (n) » pose ce qui est coché sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ;
- * ✕ ou Retour : plus tard. Pas d'explication. Mêmes tailles que la fiche derrière (libellé, échelle, phrase). Aspect d'une proposition (liseré pointillé, note teintée : .sug-ring /
- * .sug-fill, src/index.css) ; une fois acceptée, la note est pleine sur la fiche. Administrateurs seulement (phase de test) : propositions écartées,
- * « Ce que j'ai entendu » et l'appréciation « Cohérente · En partie · Pas cohérente ».
+ * la fiche. Portrait en premier (une phrase), puis chaque note proposée, cochée ; on décoche ce qu'on ne veut pas, on touche
+ * une autre note de l'échelle (1 à 5…) pour la changer. Note déduite (critère pas nommé) : « déduit » discret après le libellé.
+ * Hésitations (« J'hésite ») : on touche un ou plusieurs critères (3 au plus), chacun reçoit sa note. Remarques reliées à aucun
+ * critère (« Pas relié ») : « Relier à un critère ▾ » ouvre une bulle (critères par famille, 3 au plus). Tranchée, une remarque
+ * peut être retenue (« Retenir pour la prochaine fois », décoché) : elle devient une de « Mes expressions ». Points forts /
+ * Axes proposés : cochés aussi. « Accepter (n) » pose ce qui est coché sur la fiche (rien n'est enregistré avant
+ * « Enregistrer »), « Tout refuser » écarte tout ; ✕ ou Retour : plus tard. Pas d'explication. Mêmes tailles que la fiche
+ * derrière (libellé, échelle). Aspect d'une proposition (liseré pointillé, note teintée : .sug-ring / .sug-fill,
+ * src/index.css). Administrateurs seulement (phase de test) : propositions écartées, « Ce que j'ai entendu » et
+ * l'appréciation « Cohérente · En partie · Pas cohérente ».
  */
 function AvisReview({
   state,
   refs,
+  families,
   onApply,
   onRefuse,
   onClose,
@@ -295,12 +351,14 @@ function AvisReview({
 }: {
   state: AvisState
   refs: Record<string, AvisRef>
+  /** Critères de la liste par famille (identifiants), pour « Relier à un critère ». */
+  families: [string, string[]][]
   onApply: (pick: AvisPick) => void
   onRefuse: () => void
   onClose: () => void
   admin: boolean
-  /** Points forts / Axes déjà écrits sur la fiche : la proposition s'ajoute à la suite, on montre les deux. */
-  written: { strengths?: string; improvements?: string }
+  /** Points forts / Axes / portrait déjà écrits sur la fiche : la proposition s'ajoute à la suite (le portrait remplace). */
+  written: { strengths?: string; improvements?: string; portrait?: string }
   feedback: ReactNode
 }) {
   const sugs = state.result.suggestions.filter((x) => state.pending.includes(x.criterionId))
@@ -308,36 +366,80 @@ function AvisReview({
   const [on, setOn] = useState<Record<string, boolean>>(() => Object.fromEntries(sugs.map((x) => [x.criterionId, true])))
   const [strengths, setStrengths] = useState(state.strengths)
   const [improvements, setImprovements] = useState(state.improvements)
-  // Hésitations (« joue très personnel » : Jeu collectif ou Prise de décision) : le coach choisit le critère, puis la note.
+  const [portrait, setPortrait] = useState(!!state.portrait)
+  // Hésitations (« joue très personnel » : Jeu collectif ou Prise de décision) et remarques « pas reliées » : le coach choisit
+  // le ou les critères, puis la note de chacun.
   const proposedIds = new Set(sugs.map((x) => x.criterionId))
   const doubts = state.result.ambigus.map((text) => {
     const p = parseAmbigu(text, Object.values(refs))
-    return { text, quote: p?.quote, ids: (p?.ids ?? []).filter((id) => !proposedIds.has(id)) }
+    return { text, quote: p?.quote ?? '', ids: (p?.ids ?? []).filter((id) => !proposedIds.has(id)) }
   })
-  const [chosen, setChosen] = useState<Record<number, string>>({})
+  const pendings: Pending[] = [
+    ...doubts.flatMap((d, i) => (d.ids.length >= 2 ? [{ key: `d${i}`, kind: 'doute' as const, quote: d.quote, ids: d.ids }] : [])),
+    ...state.result.nonRelies
+      .filter((q) => !doubts.some((d) => d.quote && foldText(d.quote) === foldText(q)))
+      .map((q, i) => ({ key: `n${i}`, kind: 'libre' as const, quote: q, ids: [] })),
+  ]
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
   const [extra, setExtra] = useState<Record<string, number>>({})
-  const extraIds = Object.values(chosen)
-  const extraCount = extraIds.filter((id) => extra[id] !== undefined).length
-  const total = sugs.length + (state.strengths ? 1 : 0) + (state.improvements ? 1 : 0)
-  const count = sugs.filter((x) => on[x.criterionId]).length + extraCount + (state.strengths && strengths ? 1 : 0) + (state.improvements && improvements ? 1 : 0)
+  const [retain, setRetain] = useState<Record<string, boolean>>({})
+  const extraIds = [...new Set(Object.values(picked).flat())].filter((id) => extra[id] !== undefined)
+  const total = sugs.length + (state.strengths ? 1 : 0) + (state.improvements ? 1 : 0) + (state.portrait ? 1 : 0)
+  const count =
+    sugs.filter((x) => on[x.criterionId]).length +
+    extraIds.length +
+    (state.strengths && strengths ? 1 : 0) +
+    (state.improvements && improvements ? 1 : 0) +
+    (state.portrait && portrait ? 1 : 0)
   const check = 'h-4 w-4 shrink-0 accent-[var(--color-fg)]'
   const stepsOf = (id: string, fallback?: number) => {
     const r = refs[id]
     return r && r.max - r.min <= 10 ? Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i) : fallback !== undefined ? [fallback] : []
   }
   const labelOf = (id: string) => refs[id]?.label ?? id
+  const toggle = (key: string, id: string) =>
+    setPicked((p) => {
+      const cur = p[key] ?? []
+      return { ...p, [key]: cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < MAX_CHOSEN ? [...cur, id] : cur }
+    })
+  /** Critères choisis pour une remarque, et leur note : rangée « critère + échelle », puis « Retenir pour la prochaine fois ». */
+  const chosenRows = (row: Pending) => {
+    const ids = picked[row.key] ?? []
+    return (
+      <>
+        {ids.map((id) => (
+          <div key={id} className="col-span-2 grid grid-cols-subgrid items-center">
+            <div className="min-w-0 text-xs leading-tight font-bold">{labelOf(id)}</div>
+            <PickScale label={labelOf(id)} steps={stepsOf(id)} value={extra[id]} active onPick={(v) => setExtra((o) => ({ ...o, [id]: v }))} />
+          </div>
+        ))}
+        {ids.some((id) => extra[id] !== undefined) && (
+          <label className="col-span-2 inline-flex min-h-9 cursor-pointer items-center gap-2 justify-self-start rounded-full border-[1.5px] border-line px-3 text-xs font-bold has-[:checked]:border-fg">
+            <input type="checkbox" className={check} checked={!!retain[row.key]} onChange={(e) => setRetain((o) => ({ ...o, [row.key]: e.target.checked }))} />
+            Retenir pour la prochaine fois
+          </label>
+        )}
+      </>
+    )
+  }
   return (
     <FormWindow title={`${total} proposition${total > 1 ? 's' : ''}`} onClose={onClose} phoneFull={false} guard={false} width={520}>
       {/* Une ligne par note (case et libellé à gauche, échelle à droite, alignées comme la fiche) ; pas de phrase pour
           justifier : le coach sait ce qu'il a dit (31/10). */}
       <div className="grid grid-cols-[fit-content(42%)_minmax(0,1fr)] gap-x-2" data-noswipe>
+        {state.portrait && (
+          <CommentPick label="Portrait" before={written.portrait} replace text={state.result.portrait} checked={portrait} onChange={setPortrait} className={check} first />
+        )}
         {sugs.map((x, i) => {
           const id = x.criterionId
           return (
-            <div key={id} className={`col-span-2 grid grid-cols-subgrid items-center py-1.5 transition-opacity ${i ? 'border-t border-line' : ''} ${on[id] ? '' : 'opacity-50'}`}>
+            <div key={id} className={`col-span-2 grid grid-cols-subgrid items-center py-1.5 transition-opacity ${i || state.portrait ? 'border-t border-line' : ''} ${on[id] ? '' : 'opacity-50'}`}>
               <label className="flex min-w-0 items-center gap-2 text-xs leading-tight font-bold">
                 <input type="checkbox" className={check} checked={on[id]} onChange={(e) => setOn((o) => ({ ...o, [id]: e.target.checked }))} />
-                {x.label}
+                <span className="min-w-0">
+                  {x.label}
+                  {x.confidence === 'deduit' && <span className="ml-1.5 text-[11px] font-normal text-muted">déduit</span>}
+                </span>
               </label>
               <PickScale
                 label={x.label}
@@ -352,35 +454,51 @@ function AvisReview({
             </div>
           )
         })}
-        {doubts.map((d, i) =>
-          d.ids.length >= 2 ? (
-            <div key={d.text} className="col-span-2 flex flex-col gap-1.5 border-t border-line py-2">
-              <div className="text-xs">
-                <b>J’hésite</b> <span className="text-muted">· « {d.quote} »</span>
+        {pendings.map((row) =>
+          row.kind === 'doute' ? (
+            <div key={row.key} className="col-span-2 grid grid-cols-subgrid items-center gap-y-1.5 border-t border-line py-2">
+              <div className="col-span-2 text-xs">
+                <b>J’hésite</b> <span className="text-muted">· « {row.quote} »</span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {d.ids.map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={chosen[i] === id}
-                    onClick={() => setChosen((c) => ({ ...c, [i]: id }))}
-                    className={`min-h-9 rounded-full px-3 text-xs font-bold transition ${chosen[i] === id ? 'bg-fg text-panel' : 'sug-ring text-fg'}`}
-                  >
-                    {labelOf(id)}
-                  </button>
-                ))}
+              <div className="col-span-2 flex flex-wrap gap-1.5">
+                {row.ids.map((id) => {
+                  const sel = (picked[row.key] ?? []).includes(id)
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={sel}
+                      disabled={!sel && (picked[row.key] ?? []).length >= MAX_CHOSEN}
+                      onClick={() => toggle(row.key, id)}
+                      className={`min-h-9 rounded-full px-3 text-xs font-bold transition disabled:opacity-40 ${sel ? 'bg-fg text-panel' : 'sug-ring text-fg'}`}
+                    >
+                      {labelOf(id)}
+                    </button>
+                  )
+                })}
               </div>
-              {chosen[i] && (
-                <PickScale label={labelOf(chosen[i])} steps={stepsOf(chosen[i])} value={extra[chosen[i]]} active onPick={(v) => setExtra((o) => ({ ...o, [chosen[i]]: v }))} />
-              )}
+              {chosenRows(row)}
             </div>
-          ) : admin ? (
-            <div key={d.text} className="col-span-2 border-t border-line py-2 text-[11px] text-muted">
-              Je n’ai pas su choisir : {d.text}
+          ) : (
+            <div key={row.key} className="col-span-2 grid grid-cols-subgrid items-center gap-y-1.5 border-t border-line py-2">
+              <div className="col-span-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                <span className="min-w-0 text-xs">
+                  <b>Pas relié</b> <span className="text-muted">· « {row.quote} »</span>
+                </span>
+                <LinkPicker families={families} exclude={proposedIds} labelOf={labelOf} chosen={picked[row.key] ?? []} onToggle={(id) => toggle(row.key, id)} />
+              </div>
+              {chosenRows(row)}
             </div>
-          ) : null,
+          ),
         )}
+        {admin &&
+          doubts
+            .filter((d) => d.ids.length < 2)
+            .map((d) => (
+              <div key={d.text} className="col-span-2 border-t border-line py-2 text-[11px] text-muted">
+                Je n’ai pas su choisir : {d.text}
+              </div>
+            ))}
         {state.strengths && (
           <CommentPick label="Points forts" before={written.strengths} text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />
         )}
@@ -406,9 +524,16 @@ function AvisReview({
           onClick={() =>
             onApply({
               scores: Object.fromEntries(sugs.map((x) => [x.criterionId, on[x.criterionId] ? vals[x.criterionId] : undefined])),
-              extra: Object.fromEntries(extraIds.filter((id) => extra[id] !== undefined).map((id) => [id, extra[id]])),
+              extra: Object.fromEntries(extraIds.map((id) => [id, extra[id]])),
               strengths,
               improvements,
+              portrait,
+              retain: pendings.flatMap((row) => {
+                const ids = (picked[row.key] ?? []).filter((id) => extra[id] !== undefined && refs[id])
+                const texte = expressionText(row.quote)
+                if (!retain[row.key] || !ids.length || !texte) return []
+                return [{ texte, cibles: ids.map((id) => ({ criterionId: id, sens: sensFromValue(extra[id], refs[id].min, refs[id].max) })) }]
+              }),
             })
           }
         >
@@ -419,6 +544,121 @@ function AvisReview({
         </button>
       </FormActions>
     </FormWindow>
+  )
+}
+
+/**
+ * « Relier à un critère ▾ » : pastille pointillée qui ouvre, là où on l'a touchée (dessous, ou dessus faute de place), une
+ * bulle des critères de la fiche par famille ; on en coche 3 au plus. Fond légèrement voilé et flouté ; toucher à côté,
+ * Échap ou Retour la ferme (comme le ⓘ, src/components/ui.tsx InfoButton).
+ */
+function LinkPicker({
+  families,
+  exclude,
+  labelOf,
+  chosen,
+  onToggle,
+}: {
+  families: [string, string[]][]
+  exclude: Set<string>
+  labelOf: (id: string) => string
+  chosen: string[]
+  onToggle: (id: string) => void
+}) {
+  const btn = useRef<HTMLButtonElement>(null)
+  const bubble = useRef<HTMLDivElement>(null)
+  const [at, setAt] = useState<DOMRect | null>(null)
+  const close = () => setAt(null)
+  useBackCloses(close, !!at)
+  useEffect(() => {
+    if (!at) return
+    // Échap ferme la bulle seulement (pas la fenêtre des propositions derrière).
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setAt(null)
+    }
+    const scroll = (e: Event) => !(e.target instanceof Node && bubble.current?.contains(e.target)) && setAt(null)
+    const resize = () => setAt(null)
+    window.addEventListener('keydown', esc, true)
+    window.addEventListener('scroll', scroll, { passive: true, capture: true })
+    window.addEventListener('resize', resize)
+    return () => {
+      window.removeEventListener('keydown', esc, true)
+      window.removeEventListener('scroll', scroll, { capture: true })
+      window.removeEventListener('resize', resize)
+    }
+  }, [at])
+  useLayoutEffect(() => {
+    if (at) bubble.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
+  }, [at])
+  const vw = typeof window === 'undefined' ? 360 : window.innerWidth
+  const vh = typeof window === 'undefined' ? 640 : window.innerHeight
+  const width = Math.min(320, vw - 24)
+  const below = !!at && at.bottom < vh * 0.6
+  const left = at ? Math.max(12, Math.min(at.left + at.width / 2 - width / 2, vw - width - 12)) : 0
+  const groups = families.map(([cat, ids]) => [cat, ids.filter((id) => !exclude.has(id))] as const).filter(([, ids]) => ids.length)
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={!!at}
+        onClick={() => setAt(btn.current?.getBoundingClientRect() ?? null)}
+        className="sug-ring inline-flex min-h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-bold text-fg"
+      >
+        {chosen.length ? 'Changer de critère' : 'Relier à un critère'} <span aria-hidden>▾</span>
+      </button>
+      {at &&
+        createPortal(
+          <div className="fixed inset-0 z-[60]" onClick={close}>
+            <div className="absolute inset-0 scrim-light" aria-hidden />
+            <div
+              ref={bubble}
+              role="dialog"
+              aria-label="Relier à un critère"
+              data-popup
+              className="win absolute flex flex-col gap-2 overflow-y-auto overscroll-contain p-3 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width, left, ...(below ? { top: at.bottom + 8, maxHeight: vh - at.bottom - 20 } : { bottom: vh - at.top + 8, maxHeight: at.top - 20 }) }}
+            >
+              <div className="text-xs font-extrabold">
+                Relier à un critère <span className="font-normal text-muted">· 3 au plus</span>
+              </div>
+              {groups.map(([cat, ids]) => (
+                <div key={cat} className="flex flex-col">
+                  <div className="section-title mb-0.5">{cat}</div>
+                  {ids.map((id) => {
+                    const sel = chosen.includes(id)
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={sel}
+                        disabled={!sel && chosen.length >= MAX_CHOSEN}
+                        onClick={() => onToggle(id)}
+                        className="flex min-h-10 items-center gap-2 rounded-lg px-1.5 text-left text-xs font-bold hover:bg-panel-2 disabled:opacity-40"
+                      >
+                        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-[1.5px] text-[10px] ${sel ? 'border-fg bg-fg text-panel' : 'border-muted'}`} aria-hidden>
+                          {sel ? '✓' : ''}
+                        </span>
+                        {labelOf(id)}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+              <button type="button" className="btn-save mt-1 min-h-10 self-end px-5 text-xs" onClick={close}>
+                OK
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }
 
@@ -446,6 +686,7 @@ function PickScale({ label, steps, value, active, onPick }: { label: string; ste
 /**
  * Points forts / Axes proposés : le texte déjà écrit sur la fiche (s'il y en a), puis la proposition qui s'ajoutera à la ligne
  * en dessous, dans l'aspect d'une proposition (teinte et liseré pointillé) : on voit le résultat avant d'accepter.
+ * Portrait (`replace`) : la phrase déjà écrite, discrète, que la proposition remplace.
  */
 function CommentPick({
   label,
@@ -454,6 +695,8 @@ function CommentPick({
   checked,
   onChange,
   className,
+  replace = false,
+  first = false,
 }: {
   label: string
   before?: string
@@ -461,14 +704,16 @@ function CommentPick({
   checked: boolean
   onChange: (v: boolean) => void
   className: string
+  replace?: boolean
+  first?: boolean
 }) {
   const kept = before?.trim()
   return (
-    <div className={`col-span-2 flex flex-col gap-1.5 border-t border-line py-2 transition-opacity ${checked ? '' : 'opacity-50'}`}>
+    <div className={`col-span-2 flex flex-col gap-1.5 py-2 transition-opacity ${first ? '' : 'border-t border-line'} ${checked ? '' : 'opacity-50'}`}>
       <label className="flex min-h-7 items-center gap-2 text-xs font-bold">
         <input type="checkbox" className={className} checked={checked} onChange={(e) => onChange(e.target.checked)} />
         {label}
-        {kept && <span className="font-normal text-muted">· ajouté à la suite</span>}
+        {kept && <span className="font-normal text-muted">{replace ? '· remplace l’actuel' : '· ajouté à la suite'}</span>}
       </label>
       <div className="flex flex-col gap-1 rounded-lg bg-panel-2 px-2.5 py-2 text-xs">
         {kept && <p className="whitespace-pre-line text-muted">{kept}</p>}

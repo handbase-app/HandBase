@@ -137,6 +137,8 @@ export default function Evaluate() {
   const [rosterOpen, setRosterOpen] = useState(false)
   // Fenêtre « Explication des critères » (⋮ de l'avis).
   const [helpOpen, setHelpOpen] = useState(false)
+  // Champ « Portrait » montré à la demande (« + Portrait ») quand il est encore vide.
+  const [portraitOpen, setPortraitOpen] = useState(false)
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
@@ -149,6 +151,7 @@ export default function Evaluate() {
     setBaseline(fingerprint(init))
     setSaved(false)
     setAvis(null)
+    setPortraitOpen(false)
     // Liste à gauche : le joueur choisi s'affiche depuis le haut de sa fiche.
     if (listModeRef.current && window.scrollY > 0) window.scrollTo({ top: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,13 +260,14 @@ export default function Evaluate() {
     setAvis((a) => (a && a.pending.includes(id) ? decide(a, id, { value: isFilled(v) ? v : undefined }) : a))
   }
 
-  /** Propositions acceptées dans la fenêtre de l'avis vocal : notes posées, commentaires ajoutés (à relire avant d'enregistrer). */
-  function applyAvis(picked: Record<string, number>, comments: { strengths?: string; improvements?: string }) {
+  /** Propositions acceptées dans la fenêtre de l'avis vocal : notes posées, commentaires ajoutés, portrait posé (à relire avant d'enregistrer). */
+  function applyAvis(picked: Record<string, number>, comments: { strengths?: string; improvements?: string; portrait?: string }) {
     setDraft((d) => ({
       ...d,
       scores: { ...(d.scores ?? {}), ...picked },
       ...(comments.strengths && { strengths: mergeComment(d.strengths, comments.strengths) }),
       ...(comments.improvements && { improvements: mergeComment(d.improvements, comments.improvements) }),
+      ...(comments.portrait && { portrait: comments.portrait }),
     }))
   }
 
@@ -695,6 +699,8 @@ export default function Evaluate() {
                   ? { label: 'Afficher tous les critères', icon: 'list' as const, hint: 'Fiche complète', onSelect: () => setMode('complet') }
                   : { label: 'Critères essentiels seulement', icon: 'list' as const, hint: 'Fiche rapide', onSelect: () => setMode('rapide') },
                 { label: 'Explication des critères', icon: 'info' as const, onSelect: () => setHelpOpen(true) },
+                // Vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx) ; Retour ramène ici, saisie gardée.
+                { label: 'Mes expressions', icon: 'chat' as const, onSelect: () => void confirmLeave().then((ok) => ok && navigate('/expressions')) },
                 // « Annuler » n'est plus dans la barre du bas (Enregistrer + micro seulement, 31/10) : ici, avec « Retirer ».
                 ...(dirty ? [{ label: 'Annuler mes modifications', icon: 'undo' as const, onSelect: revert }] : []),
                 ...(existing ? [{ label: 'Retirer mon avis', icon: 'trash' as const, danger: true, onSelect: () => void withdraw() }] : []),
@@ -792,6 +798,23 @@ export default function Evaluate() {
                 </div>
               )}
             </div>
+            {draft.portrait?.trim() || portraitOpen ? (
+              <div>
+                <span className="label">Portrait</span>
+                <textarea
+                  className="field min-h-14"
+                  maxLength={300}
+                  autoFocus={portraitOpen && !draft.portrait}
+                  placeholder="Le type de joueur, en une phrase"
+                  value={draft.portrait ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, portrait: e.target.value }))}
+                />
+              </div>
+            ) : (
+              <button type="button" className="-mb-1 inline-flex min-h-8 items-center self-start rounded-full border border-line px-3 text-xs font-bold text-muted hover:text-fg" onClick={() => setPortraitOpen(true)}>
+                + Portrait
+              </button>
+            )}
             <div>
               <span className="label">Points forts</span>
               <textarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(e) => setDraft((d) => ({ ...d, strengths: e.target.value }))} />
@@ -1382,7 +1405,7 @@ function fingerprint(d: Partial<Evaluation>) {
     .filter(([, v]) => isFilled(v))
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
-  return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
+  return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace), txt(d.portrait)])
 }
 
 /**

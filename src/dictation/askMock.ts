@@ -28,8 +28,8 @@ export type AskMock = {
   action?: (phrase: string) => unknown
   /** Dictée : le texte rendu à la place de la transcription (le son enregistré n'est envoyé nulle part). */
   dictee?: () => string
-  /** Réponse du mode « avis » (avis vocal) : { notes, pointsForts?, axes?, ambigus? }, relue par interpretAvis. */
-  avis?: (texte: string, criteres: unknown[]) => unknown
+  /** Réponse du mode « avis » (avis vocal) : { notes, pointsForts?, axes?, ambigus?, portrait?, nonRelies? }, relue par interpretAvis ; reçoit aussi le vocabulaire envoyé. */
+  avis?: (texte: string, criteres: unknown[], expressions?: unknown[]) => unknown
 }
 
 let mock: AskMock | null = null

@@ -82,8 +82,8 @@ export const VOLLEY: Record<NomConsignes, readonly Paire[]> = {
       'Texte : "Il est toujours bien placé. Par contre il doit travailler son contre, il saute souvent en retard."',
     ],
     [
-      '{"id":"c3","valeur":1,"extrait":"il doit travailler ses replis","confiance":"moyenne"}],"pointsForts":"Bonne vision du jeu.","axes":"À travailler : les replis défensifs.","ambigus":["« Il voit bien le jeu » : Lecture du jeu ou Prise d\'information"]}',
-      '{"id":"c3","valeur":2,"extrait":"il doit travailler son contre","confiance":"moyenne"}],"pointsForts":"Toujours bien placé.","axes":"À travailler : le timing au contre.","ambigus":["« Il est toujours bien placé » : Déplacements ou Lecture du jeu"]}',
+      '{"id":"c3","valeur":1,"extrait":"il doit travailler ses replis","confiance":"moyenne"}],"pointsForts":"Bonne vision du jeu.","axes":"À travailler : les replis défensifs.","ambigus":["« Il voit bien le jeu » : Lecture du jeu ou Prise d\'information"]',
+      '{"id":"c3","valeur":2,"extrait":"il doit travailler son contre","confiance":"moyenne"}],"pointsForts":"Toujours bien placé.","axes":"À travailler : le timing au contre.","ambigus":["« Il est toujours bien placé » : Déplacements ou Lecture du jeu"]',
     ],
   ],
   question: [

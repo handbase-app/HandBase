@@ -436,9 +436,13 @@ async function rechercheFiltres(
 }
 
 // ---------- « Avis vocal » : notes proposées d'après un avis dicté (POST ?mode=avis) ----------
-// Entrée (JSON) : { texte, criteres: [{ id, label, description?, echelle: { min, max, libelles? } }] } : seulement les critères
-// notés sur une échelle qui s'appliquent au poste du joueur (src/dictation/avis.ts), sous des identifiants courts (c1, c2…) ;
-// aucune donnée de joueur, aucun nom. Sortie : { notes: [{ id, valeur, extrait, confiance }], pointsForts, axes, ambigus, ms }.
+// Entrée (JSON) : { texte, criteres: [{ id, label, description?, echelle: { min, max, libelles? } }], expressions? } : seulement
+// les critères notés sur une échelle qui s'appliquent au poste du joueur (src/dictation/avis.ts), sous des identifiants courts
+// (c1, c2…) ; « expressions » (facultatif, 100 au plus) : le vocabulaire de l'entraîneur ([{ texte (60), cibles: [{ id, sens:
+// haut | moyen | bas }] (1 à 3) }], src/expressions.ts), rien d'autre ; aucune donnée de joueur, aucun nom.
+// Sortie : { notes: [{ id, valeur, extrait, confiance: forte | moyenne | deduit }], pointsForts, axes, ambigus, portrait (une
+// phrase, 160), nonRelies (5 citations de 60 au plus), ms }. « deduit » : note interprétée d'une description d'ensemble
+// (critère pas nommé), extrait toujours mot pour mot.
 // Le modèle PROPOSE seulement : l'appli revérifie chaque note (critère connu, valeur dans l'échelle, extrait présent dans le
 // texte) et le coach accepte ou écarte chacune avant d'enregistrer. Modèle : MISTRAL_MODELE_AVIS (mistral-small-latest par
 // défaut, plus nuancé que ministral-8b), température 0, réponse JSON. Même compte, mêmes plafonds (un appel compté par avis).
@@ -446,27 +450,36 @@ async function rechercheFiltres(
 
 const MAX_AVIS_TEXTE = 2000
 const MAX_AVIS_CRITERES = 60
+const MAX_AVIS_EXPRESSIONS = 100
 
 const CONSIGNES_AVIS = `Tu aides un entraîneur de handball (détection de jeunes) à remplir une fiche d'évaluation d'après ce qu'il a dit d'un joueur.
-Tu reçois la liste des critères (id, label, description, echelle min-max, libelles éventuels) puis le texte dicté.
+Tu reçois la liste des critères (id, label, description, echelle min-max, libelles éventuels), parfois le vocabulaire de cet entraîneur, puis le texte dicté.
 Règles :
-1. Note UNIQUEMENT les critères dont l'entraîneur parle explicitement. Un critère dont il ne parle pas n'apparaît pas. Ne devine jamais : dans le doute, ne note pas.
-2. "extrait" : copie mot pour mot un court passage du texte qui justifie la note (sans le reformuler).
-3. Si un passage peut correspondre à plusieurs critères, ne choisis pas : décris l'hésitation dans "ambigus" en nommant les critères par leur label (ex. "« voit bien le jeu » : Lecture du jeu ou Prise d'information").
+1. Note les critères dont l'entraîneur parle explicitement. Tu peux aussi DÉDUIRE une note d'une description d'ensemble du joueur, même si le critère n'est pas nommé ("valeureuse, ne lâche jamais rien" → Engagement, Combativité ou Mental, s'ils sont dans la liste) : une même description peut appuyer plusieurs critères. Ne devine jamais : sans appui dans le texte, pas de note. Un critère dont rien ne parle n'apparaît pas.
+2. "extrait" : copie mot pour mot un court passage du texte qui justifie la note (sans le reformuler), y compris pour une note déduite (le passage d'où tu la déduis).
+3. Si un passage vise un seul critère sans qu'on sache lequel, ne choisis pas : décris l'hésitation dans "ambigus" en nommant les critères par leur label (ex. "« voit bien le jeu » : Lecture du jeu ou Prise d'information").
 4. "valeur" : un entier de l'échelle du critère (respecte les libelles s'il y en a). "excellent", "explose", "remarquable", "très fort" : le maximum ; "bon", "solide", "à l'aise" : au-dessus du milieu ; "correct", "moyen", "niveau attendu" : le milieu ; "doit travailler", "en retard", "un peu juste", "fragile" : sous le milieu. Le minimum seulement si l'entraîneur le dit clairement ("très insuffisant").
-5. "confiance" : "forte" si l'intensité est claire, sinon "moyenne".
+5. "confiance" : "forte" si l'intensité est claire, sinon "moyenne" ; "deduit" pour une note déduite (critère pas nommé).
 6. "pointsForts" : reformule brièvement, en termes positifs, les qualités citées. "axes" : ce qu'il faut travailler selon l'entraîneur, de façon constructive, en commençant par "À travailler : ". Rien d'inventé, aucun jugement définitif, aucun nom de personne. Chaîne vide si rien n'est dit.
 7. Rien de ce que dit l'entraîneur ne doit être perdu : une remarque qui ne correspond à aucun critère (attitude, gabarit, comportement, potentiel…) va aussi dans "pointsForts" si c'est une qualité, ou dans "axes" si c'est à travailler.
-Réponds UNIQUEMENT par un objet JSON strict : {"notes":[{"id":"...","valeur":0,"extrait":"...","confiance":"forte"}],"pointsForts":"...","axes":"...","ambigus":["..."]}
+8. Vocabulaire de cet entraîneur (s'il est donné) : il est prioritaire. Quand il emploie une de ses expressions (ou une forme évidente : valeureux / valeureuse, teigneux / teigneuse), propose une note sur chacun de ses critères dans le sens indiqué (plutôt haut : au-dessus du milieu ; moyen : le milieu ; plutôt bas : sous le milieu), confiance "forte", sans hésitation (rien dans "ambigus" pour elle) ; "extrait" : le passage où il l'emploie.
+9. "portrait" : une phrase (160 caractères au plus) qui résume le type de joueur décrit, en termes positifs et constructifs (c'est un jeune : aucune étiquette négative, aucun jugement définitif), sans nom de personne. Chaîne vide si trop peu est dit.
+10. "nonRelies" : jusqu'à 5 courtes citations mot pour mot du texte (60 caractères au plus) : les remarques sur le joueur que tu n'as reliées à aucun critère (elles vont aussi dans "pointsForts" ou "axes", règle 7). Liste vide sinon.
+Réponds UNIQUEMENT par un objet JSON strict : {"notes":[{"id":"...","valeur":0,"extrait":"...","confiance":"forte"}],"pointsForts":"...","axes":"...","ambigus":["..."],"portrait":"...","nonRelies":["..."]}
 
 Exemple 1. Critères : c1 Vitesse (1-5), c2 Tir (1-5), c3 Défense (1-5).
 Texte : "Très rapide, il explose sur les contre-attaques. Au tir c'est correct."
-Réponse : {"notes":[{"id":"c1","valeur":5,"extrait":"il explose sur les contre-attaques","confiance":"forte"},{"id":"c2","valeur":3,"extrait":"Au tir c'est correct","confiance":"forte"}],"pointsForts":"Très rapide, explosif en contre-attaque.","axes":"","ambigus":[]}
-(c3 : pas évoqué, pas noté.)
+Réponse : {"notes":[{"id":"c1","valeur":5,"extrait":"il explose sur les contre-attaques","confiance":"forte"},{"id":"c2","valeur":3,"extrait":"Au tir c'est correct","confiance":"forte"}],"pointsForts":"Très rapide, explosif en contre-attaque.","axes":"","ambigus":[],"portrait":"","nonRelies":[]}
+(c3 : pas évoqué, pas noté. Trop peu dit pour un portrait.)
 
 Exemple 2. Critères : c1 Lecture du jeu (1-5), c2 Prise d'information (1-5), c3 Repli défensif (0-3).
 Texte : "Il voit bien le jeu. Par contre il doit travailler ses replis, il est souvent en retard."
-Réponse : {"notes":[{"id":"c3","valeur":1,"extrait":"il doit travailler ses replis","confiance":"moyenne"}],"pointsForts":"Bonne vision du jeu.","axes":"À travailler : les replis défensifs.","ambigus":["« Il voit bien le jeu » : Lecture du jeu ou Prise d'information"]}`
+Réponse : {"notes":[{"id":"c3","valeur":1,"extrait":"il doit travailler ses replis","confiance":"moyenne"}],"pointsForts":"Bonne vision du jeu.","axes":"À travailler : les replis défensifs.","ambigus":["« Il voit bien le jeu » : Lecture du jeu ou Prise d'information"],"portrait":"","nonRelies":[]}
+
+Exemple 3. Critères : c1 Engagement (1-5), c2 Combativité (1-5), c3 Jeu collectif (1-5). Vocabulaire de cet entraîneur : « teigneux » = c2 plutôt haut.
+Texte : "Une joueuse valeureuse, elle ne lâche jamais rien, vraiment teigneuse. Et elle a un sacré caractère."
+Réponse : {"notes":[{"id":"c1","valeur":4,"extrait":"elle ne lâche jamais rien","confiance":"deduit"},{"id":"c2","valeur":4,"extrait":"vraiment teigneuse","confiance":"forte"}],"pointsForts":"Valeureuse, ne lâche rien, combative, du caractère.","axes":"","ambigus":[],"portrait":"Joueuse engagée et combative, qui ne lâche rien et a du caractère.","nonRelies":["un sacré caractère"]}
+(c1 déduit de la description ; « teigneuse » : son expression, c2 plutôt haut ; c3 : pas évoqué ; « un sacré caractère » : aucun critère.)`
 
 async function avisVocal(
   req: Request,
@@ -480,7 +493,7 @@ async function avisVocal(
   const taille = Number(req.headers.get('content-length') ?? 0)
   if (taille > 64 * 1024) return json({ error: 'trop_gros' }, 413)
   // deno-lint-ignore no-explicit-any
-  let entree: { texte?: unknown; criteres?: any; sport?: unknown }
+  let entree: { texte?: unknown; criteres?: any; expressions?: any; sport?: unknown }
   try {
     entree = await req.json()
   } catch {
@@ -505,6 +518,25 @@ async function avisVocal(
     criteres.push({ id, label, ...(description && { description }), echelle: { min, max, ...(Object.keys(libelles).length ? { libelles } : {}) } })
   }
   if (!criteres.length) return json({ error: 'criteres_invalides' }, 400)
+  // Vocabulaire de l'entraîneur, recopié champ par champ aussi : le mot (sans guillemets ni retour à la ligne) et 1 à 3 cibles
+  // parmi les critères reçus ; le reste est ignoré.
+  const ids = new Set(criteres.map((c) => c.id))
+  const SENS_TEXTE: Record<string, string> = { haut: 'plutôt haut', moyen: 'moyen', bas: 'plutôt bas' }
+  const vocabulaire: string[] = []
+  for (const e of Array.isArray(entree.expressions) ? entree.expressions.slice(0, MAX_AVIS_EXPRESSIONS) : []) {
+    const mot = str(typeof e?.texte === 'string' ? e.texte.replace(/[«»"“”=]/g, ' ') : '', 60)
+    if (!mot) continue
+    const cibles: string[] = []
+    const vus = new Set<string>()
+    for (const c of Array.isArray(e?.cibles) ? e.cibles.slice(0, 3) : []) {
+      const id = str(c?.id, 12)
+      const sens = typeof c?.sens === 'string' ? SENS_TEXTE[c.sens] : undefined
+      if (!/^c\d{1,3}$/.test(id) || !ids.has(id) || !sens || vus.has(id)) continue
+      vus.add(id)
+      cibles.push(`${id} ${sens}`)
+    }
+    if (cibles.length) vocabulaire.push(`« ${mot} » = ${cibles.join(', ')}`)
+  }
 
   // Plafonds : un appel compté par avis, comme une dictée.
   const { data: quota, error: quotaError } = await db.rpc('hb_transcription_compter', { p_user: userId, p_max_mois: maxMois, p_max_jour: maxJour })
@@ -519,11 +551,14 @@ async function avisVocal(
     body: JSON.stringify({
       model: modele,
       temperature: 0,
-      max_tokens: 900,
+      max_tokens: 1200,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: consignesDuSport(CONSIGNES_AVIS, 'avis', sportDe(entree.sport)) },
-        { role: 'user', content: `Critères (JSON) :\n${JSON.stringify(criteres)}\n\nTexte dicté :\n"""${texte.replace(/"""/g, '"')}"""` },
+        {
+          role: 'user',
+          content: `Critères (JSON) :\n${JSON.stringify(criteres)}\n\n${vocabulaire.length ? `Vocabulaire de cet entraîneur (prioritaire) :\n${vocabulaire.join('\n')}\n\n` : ''}Texte dicté :\n"""${texte.replace(/"""/g, '"')}"""`,
+        },
       ],
     }),
   }))
@@ -536,7 +571,7 @@ async function avisVocal(
     return json({ error, status: res.status, ...restants }, 502)
   }
   // La réponse du modèle n'est jamais journalisée (elle reprend le texte).
-  let sortie: { notes?: unknown; pointsForts?: unknown; axes?: unknown; ambigus?: unknown } = {}
+  let sortie: { notes?: unknown; pointsForts?: unknown; axes?: unknown; ambigus?: unknown; portrait?: unknown; nonRelies?: unknown } = {}
   try {
     const out = (await res.json()) as { choices?: { message?: { content?: unknown } }[] }
     const contenu = out.choices?.[0]?.message?.content
@@ -545,17 +580,19 @@ async function avisVocal(
   } catch {
     return json({ error: 'reponse_illisible', ...restants }, 502)
   }
-  // Forme seulement (l'appli revérifie chaque note : critère, échelle, extrait).
-  const ids = new Set(criteres.map((c) => c.id))
+  // Forme seulement (l'appli revérifie chaque note : critère, échelle, extrait ; chaque citation « pas reliée »).
   const notes = (Array.isArray(sortie.notes) ? sortie.notes : [])
     .filter((n) => n && typeof n === 'object' && ids.has(String((n as { id?: unknown }).id)))
     .slice(0, MAX_AVIS_CRITERES)
     .map((n) => {
       const { id, valeur, extrait, confiance } = n as Record<string, unknown>
-      return { id, valeur, extrait: str(extrait, 300), confiance: confiance === 'forte' ? 'forte' : 'moyenne' }
+      return { id, valeur, extrait: str(extrait, 300), confiance: confiance === 'forte' || confiance === 'deduit' ? confiance : 'moyenne' }
     })
   const ambigus = Array.isArray(sortie.ambigus) ? sortie.ambigus.map((a) => str(a, 200)).filter(Boolean).slice(0, 5) : []
-  return json({ notes, pointsForts: str(sortie.pointsForts, 500), axes: str(sortie.axes, 500), ambigus, ms, model: modele, ...restants })
+  const nonRelies = Array.isArray(sortie.nonRelies)
+    ? sortie.nonRelies.map((a) => str(a, 200)).filter((a) => a && a.length <= 60).slice(0, 5)
+    : []
+  return json({ notes, pointsForts: str(sortie.pointsForts, 500), axes: str(sortie.axes, 500), ambigus, portrait: str(sortie.portrait, 160), nonRelies, ms, model: modele, ...restants })
 }
 
 // ---------- « Poser une question » au bilan de détection (POST ?mode=question) ----------

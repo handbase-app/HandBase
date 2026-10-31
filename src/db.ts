@@ -18,6 +18,7 @@ import type { PlayerSelf } from './playerSpace'
 import type { RewatchOrigin } from './rewatchCore'
 import type { UsualTeam } from './rencontres'
 import type { RencontreSnapshot } from './rencontreEvent'
+import type { ExpressionRow } from './expressionsCore'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -346,6 +347,8 @@ export interface Evaluation extends Syncable {
   minutesObserved?: number
   strengths?: string
   improvements?: string
+  /** Le type de joueur décrit, en une phrase (proposé par l'avis vocal, modifiable). */
+  portrait?: string
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */
@@ -606,6 +609,7 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   units: EntityTable<Unit, 'id'>
   assignments: EntityTable<Assignment, 'id'>
   saved_questions: EntityTable<SavedQuestionRow, 'id'>
+  expressions: EntityTable<ExpressionRow, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -682,6 +686,10 @@ db.version(16).stores({
 
 // v17 : questions et filtres enregistrés, sur le compte (supabase/054_questions_enregistrees.sql).
 db.version(17).stores({ saved_questions: 'id, updatedAt' })
+
+// v18 : « Mes expressions » (vocabulaire de l'entraîneur pour l'avis vocal, supabase/062_mes_expressions.sql). Hors de la
+// synchronisation générale : src/expressions.ts les envoie et les relit lui-même.
+db.version(18).stores({ expressions: 'id, owner, updatedAt' })
 
 // « Voir comme… » : l'écran ne lit que le périmètre du membre simulé (src/viewAsFilter.ts). Hors simulation : rien.
 if (spyTarget()) db.use(viewAsMiddleware)

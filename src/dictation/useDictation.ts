@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../sync'
 import { can, useRole } from '../roles'
-import { understandAvis, type AvisAnswer, type AvisCritere } from './avis'
+import { understandAvis, type AvisAnswer, type AvisCritere, type AvisExpression } from './avis'
 import { askMock, mockDelay, onAskMock } from './askMock'
 import { timeAi } from '../aiWait'
 import {
@@ -296,17 +296,17 @@ export async function sendSqlRequest(phrase: string, schema: Record<string, stri
   }
 }
 
-/** « Avis vocal » : le texte dicté et les critères applicables seulement (src/dictation/avis.ts), jamais de données de joueur. */
-export async function sendAvisRequest(texte: string, criteres: AvisCritere[], signal?: AbortSignal): Promise<AvisAnswer> {
+/** « Avis vocal » : le texte dicté, les critères applicables et le vocabulaire de l'entraîneur seulement (src/dictation/avis.ts), jamais de données de joueur. */
+export async function sendAvisRequest(texte: string, criteres: AvisCritere[], signal?: AbortSignal, expressions: AvisExpression[] = []): Promise<AvisAnswer> {
   const m = askMock()
   if (m?.avis) {
     const a = m.avis
-    return timeAi('avis', async () => (await mockDelay(signal), { raw: a(texte, criteres) }))
+    return timeAi('avis', async () => (await mockDelay(signal), { raw: a(texte, criteres, expressions) }))
   }
   const ep = await endpoint()
   if (!ep) throw new DictationError('non_connecte')
   try {
-    const r = await timeAi('avis', () => understandAvis(ep, texte, criteres, signal))
+    const r = await timeAi('avis', () => understandAvis(ep, texte, criteres, signal, expressions))
     afterCall(ep.uid, r)
     return r
   } catch (e) {

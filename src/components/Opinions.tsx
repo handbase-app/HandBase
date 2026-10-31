@@ -518,6 +518,8 @@ export function AvisCard({
           )}
         </div>
       </div>
+      {/* Portrait (le type de joueur, en une phrase) : en tête de l'avis, en italique. */}
+      {e.portrait && <div className={`italic ${shut ? 'truncate' : ''}`}>{e.portrait}</div>}
       {criteria && !shut && <ScoreChips e={e} criteria={criteria} />}
       {e.strengths && (
         <div className={shut ? 'truncate' : ''}>

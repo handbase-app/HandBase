@@ -74,6 +74,7 @@ const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ defa
 // Espace joueur (/moi) : la seule page d'un compte joueur ; aperçu pour un administrateur depuis une fiche.
 const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
+const Expressions = lazy(() => import('./pages/Expressions'))
 
 /**
  * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis ») dès que la place
@@ -195,7 +196,7 @@ function GuardedLink(props: NavLinkProps & { to: string }) {
  * dans la colonne de 42rem). Listes et tableaux de bord s'élargissent ; les formulaires restent étroits.
  */
 const PAGE_W: [RegExp, string][] = [
-  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|moi)$/, ''],
+  [/^\/(joueurs\/nouveau|joueurs\/[^/]+\/(modifier|mesures)|groupes\/nouveau|alertes\/nouvelle|confidentialite|moi|expressions)$/, ''],
   // Notation : joueur (ou liste de l'événement) à gauche, grille à droite ; téléphone couché : pleine largeur pour la liste,
   // l'écran garde sa colonne étroite sans elle (Evaluate.tsx).
   [/^\/evaluer$/, 'side:max-w-6xl rail:max-w-none'],
@@ -436,6 +437,8 @@ export default function App() {
           {/* Ancienne vue nationale : onglets du bilan de détection (liens et favoris gardés). */}
           <Route path="/national" element={<Navigate to="/bilan?onglet=licencies" replace />} />
           <Route path="/comparer" element={<Compare />} />
+          {/* « Mes expressions » : vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx). */}
+          <Route path="/expressions" element={<Expressions />} />
           <Route path="/a-revoir" element={<RewatchPage />} />
           {/* Fiche ouverte depuis « À revoir » : ses joueurs à gauche (ordinateur), ‹ › sur téléphone (Rewatch.tsx). */}
           <Route path="/a-revoir/joueurs" element={<RewatchPlayers />}>

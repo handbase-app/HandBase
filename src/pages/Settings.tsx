@@ -35,6 +35,7 @@ import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
 import { VEILLE_EXPLICATION } from '../components/VeillePrep'
 import { useDictation } from '../dictation/useDictation'
+import { useExpressions } from '../expressions'
 import { useThemeVersion } from '../theme'
 import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
 import { appName } from '../appBrand'
@@ -521,6 +522,7 @@ function NotificationSettings() {
  */
 function DictationSetting() {
   const { available, enabled, setEnabled, access } = useDictation()
+  const expressions = useExpressions()
   const search = !!access?.filtres
   if (!available) return null
   return (
@@ -530,6 +532,15 @@ function DictationSetting() {
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <b>Dictée vocale (essai)</b>
         </label>
+        {/* Vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx). */}
+        <Link to="/expressions" className="-mx-1 flex min-h-11 items-center justify-between gap-2 rounded-lg px-1 text-xs font-bold hover:bg-panel-2">
+          <span>
+            Mes expressions{expressions?.length ? ` (${expressions.length})` : ''}
+          </span>
+          <span className="text-muted" aria-hidden>
+            ›
+          </span>
+        </Link>
         <p className="text-[11px] text-muted">
           Le son est envoyé à Mistral AI (France) pour être transcrit, puis effacé ; seul le texte est gardé. Pendant l'essai (offre
           gratuite), évitez de dicter des noms.
@@ -562,7 +573,7 @@ function DictationSetting() {
             Avis vocal : sur l’écran de notation, touchez « ✨ Avis vocal » et parlez librement du joueur. Les notes proposées sont
             mises en évidence avec le passage dicté : touchez-les pour les accepter, choisissez-en une autre ou écartez-les ; les
             commentaires proposés s’ajoutent d’un toucher. Rien n’est enregistré avant « Enregistrer », l’avis reste le vôtre. Seuls
-            le texte dicté et la liste des critères sont envoyés ; deux dictées comptées par avis.
+            le texte dicté, la liste des critères et vos expressions (« Mes expressions ») sont envoyés ; deux dictées comptées par avis.
           </p>
         )}
         {search && access?.modes?.includes('question') && (
