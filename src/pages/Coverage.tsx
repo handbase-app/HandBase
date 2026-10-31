@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from 'react'
+import { setHeaderBack } from '../headerBack'
 import { appName } from '../appBrand'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
@@ -1242,7 +1243,16 @@ export default function Coverage() {
   const regionLabel = useRegionLabel()
   const deptName = useDeptName()
   // Onglet et filtres communs à la carte, aux générations et aux clubs : dans l'adresse, retrouvés au retour d'une fiche joueur.
-  const { st, set, busy, search, national } = useBilanState()
+  const { st, set, busy, search, national, up } = useBilanState()
+  // Dans un lieu (région, département, club) : la flèche ← de l'en-tête remonte d'un étage ; sur la carte de France, rien (31/10).
+  const upRef = useRef(up)
+  upRef.current = up
+  const deep = !!up
+  useEffect(() => {
+    if (!deep) return
+    setHeaderBack({ go: () => upRef.current?.(), label: 'Remonter d’un étage' })
+    return () => setHeaderBack(null)
+  }, [deep])
   const per = usePerimeter()
   const { onglet: o, sex, period, mapBy, years: picked, region, dept } = st
   // Accord (src/gender.ts) : filtre « Féminin » du bilan (ou de la question posée) ; sinon masculin générique.

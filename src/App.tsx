@@ -27,6 +27,7 @@ import { appName } from './appBrand'
 import { SyncProgressBar } from './components/SyncProgress'
 import { BackTracker, useBack } from './backNav'
 import { useShowBackArrow } from './backArrowPref'
+import { useHeaderBack } from './headerBack'
 import { STAFF } from './staffLabels'
 import { SpyBanner } from './components/ViewAs'
 import { spyTarget } from './spy'
@@ -123,11 +124,13 @@ function HeaderBack({ split }: { split: boolean }) {
   const root = `/${pathname.split('/')[1] ?? ''}`
   const fallback = TAB_ROOTS.includes(root) ? root : '/'
   const back = useBack(fallback, '')
+  // Onglet qui pose son propre retour (bilan dans un lieu : remonter d'un étage, src/headerBack.ts).
+  const own = useHeaderBack()
   const beside = split && /^\/(joueurs|evenements|groupes)\/[^/]+$/.test(pathname)
-  if (!on || TAB_ROOTS.includes(pathname) || beside) return null
-  const label = back.label ? `Revenir à ${back.label.charAt(0) + back.label.slice(1).toLowerCase()}` : 'Revenir en arrière'
+  if (!on || beside || (TAB_ROOTS.includes(pathname) && !own)) return null
+  const label = own ? own.label : back.label ? `Revenir à ${back.label.charAt(0) + back.label.slice(1).toLowerCase()}` : 'Revenir en arrière'
   return (
-    <button type="button" onClick={() => void back.go()} aria-label={label} title={label} className="-ml-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg hover:bg-panel-2 active:bg-panel-2">
+    <button type="button" onClick={() => (own ? own.go() : void back.go())} aria-label={label} title={label} className="-ml-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg hover:bg-panel-2 active:bg-panel-2">
       <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M15 5l-7 7 7 7" />
       </svg>
