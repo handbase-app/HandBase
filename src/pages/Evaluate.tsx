@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, ProposedTag, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -18,8 +18,8 @@ import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { setRatingFocus } from '../focusMode'
-import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
-import { decide, decideAll, mergeComment, pendingSuggestion, type AvisState } from '../dictation/avis'
+import { AvisVocal } from '../components/AvisVocal'
+import { decide, mergeComment, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
 import { usePlayersByName } from '../playersCache'
 import { scoreLegend } from '../sportContent'
@@ -250,21 +250,14 @@ export default function Evaluate() {
     setAvis((a) => (a && a.pending.includes(id) ? decide(a, id, { value: isFilled(v) ? v : undefined }) : a))
   }
 
-  /** « Tout accepter » : les notes proposées encore en attente et les commentaires proposés (à relire avant d'enregistrer). */
-  function acceptAllAvis() {
-    if (!avis || avis.playerId !== playerId) return
-    const a = avis
-    setDraft((d) => {
-      const scores = { ...(d.scores ?? {}) }
-      for (const s of a.result.suggestions) if (a.pending.includes(s.criterionId)) scores[s.criterionId] = s.value
-      return {
-        ...d,
-        scores,
-        ...(a.strengths && { strengths: mergeComment(d.strengths, a.result.pointsForts) }),
-        ...(a.improvements && { improvements: mergeComment(d.improvements, a.result.axes) }),
-      }
-    })
-    setAvis(decideAll(a, 'accepte'))
+  /** Propositions acceptées dans la fenêtre de l'avis vocal : notes posées, commentaires ajoutés (à relire avant d'enregistrer). */
+  function applyAvis(picked: Record<string, number>, comments: { strengths?: string; improvements?: string }) {
+    setDraft((d) => ({
+      ...d,
+      scores: { ...(d.scores ?? {}), ...picked },
+      ...(comments.strengths && { strengths: mergeComment(d.strengths, comments.strengths) }),
+      ...(comments.improvements && { improvements: mergeComment(d.improvements, comments.improvements) }),
+    }))
   }
 
   /** Brouillon vierge pour ce joueur (on garde le contexte d'un avis spontané : lieu, date…). */
@@ -637,7 +630,7 @@ export default function Evaluate() {
             current={draft}
             state={avis}
             setState={setAvis}
-            acceptAll={acceptAllAvis}
+            onApply={applyAvis}
             slot={micSlot}
           />
 
@@ -647,21 +640,16 @@ export default function Evaluate() {
               <div className="section-title">{cat}</div>
               <div className="flex flex-col gap-3">
                 {cs.map((c) => {
-                  const sug = pendingSuggestion(avis, player.id, c.id)
                   return (
                     // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
                     <div key={c.id} className="flex flex-col items-stretch gap-1.5">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold">
                           {c.label}
-                          {sug && <ProposedTag />}
                         </div>
                         {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
                       </div>
-                      <CriterionInput c={c} value={draft.scores?.[c.id]} suggested={sug?.value} wide onChange={(v) => setScore(c.id, v)} />
-                      {sug && (
-                        <SuggestionNote s={sug} onDismiss={() => setAvis((a) => a && decide(a, c.id, 'ignore'))} />
-                      )}
+                      <CriterionInput c={c} value={draft.scores?.[c.id]} wide onChange={(v) => setScore(c.id, v)} />
                     </div>
                   )
                 })}
@@ -684,30 +672,10 @@ export default function Evaluate() {
             </div>
             <div>
               <span className="label">Points forts</span>
-              {avis?.playerId === player.id && avis.strengths && (
-                <CommentProposal
-                  text={avis.result.pointsForts}
-                  onAdd={() => {
-                    setDraft((d) => ({ ...d, strengths: mergeComment(d.strengths, avis.result.pointsForts) }))
-                    setAvis((a) => a && { ...a, strengths: false })
-                  }}
-                  onDismiss={() => setAvis((a) => a && { ...a, strengths: false })}
-                />
-              )}
               <textarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(e) => setDraft((d) => ({ ...d, strengths: e.target.value }))} />
             </div>
             <div>
               <span className="label">Axes de progression</span>
-              {avis?.playerId === player.id && avis.improvements && (
-                <CommentProposal
-                  text={avis.result.axes}
-                  onAdd={() => {
-                    setDraft((d) => ({ ...d, improvements: mergeComment(d.improvements, avis.result.axes) }))
-                    setAvis((a) => a && { ...a, improvements: false })
-                  }}
-                  onDismiss={() => setAvis((a) => a && { ...a, improvements: false })}
-                />
-              )}
               <textarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(e) => setDraft((d) => ({ ...d, improvements: e.target.value }))} />
             </div>
           </div>

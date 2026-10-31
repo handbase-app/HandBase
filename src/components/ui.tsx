@@ -277,16 +277,6 @@ export function CriterionInput({
   return <NumberField value={value as number | undefined} unit={c.unit} onChange={onChange} />
 }
 
-/** Étiquette « proposé » (teinte discrète de la couleur du texte) à côté du nom d'un critère dont la note vient de l'avis vocal. */
-export function ProposedTag() {
-  return (
-    <span className="sug-tag inline-flex items-center rounded-full px-2 py-px text-[10px] leading-4 font-bold">
-      <span aria-hidden>proposé</span>
-      <span className="sr-only">proposé par l’avis vocal</span>
-    </span>
-  )
-}
-
 /** Champ numérique qui accepte la virgule (clavier français). */
 export function NumberField({
   value,

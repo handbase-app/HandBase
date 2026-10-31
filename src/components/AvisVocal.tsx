@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
-import { avisProposals, buildAvisPayload, decideAll, droppedText, interpretAvis, mergeComment, type AvisState, type AvisSuggestion } from '../dictation/avis'
+import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, interpretAvis, mergeComment, type AvisRef, type AvisState } from '../dictation/avis'
 import { newId, type Criterion, type Position } from '../db'
 import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
 import { MAX_COMMENT, VOCAL_VERDICT_LABEL, VOCAL_VERDICTS, type VocalVerdict } from '../questionLogCore'
 import { useWait, WaitLine } from './Attente'
+import { FormActions, FormWindow } from './FormWindow'
 
 /*
  * « Avis vocal » (essai) sur l'écran de notation : le coach parle librement du joueur, l'appli PROPOSE des notes et des
@@ -34,7 +35,7 @@ export function AvisVocal({
   current,
   state,
   setState,
-  acceptAll,
+  onApply,
   slot,
 }: {
   playerId: string
@@ -44,7 +45,8 @@ export function AvisVocal({
   current: { scores?: Record<string, number | string>; strengths?: string; improvements?: string }
   state: AvisState | null
   setState: (s: AvisState | null) => void
-  acceptAll: () => void
+  /** Propositions acceptées dans la fenêtre : notes à poser (critère → note) et commentaires à ajouter. */
+  onApply: (scores: Record<string, number>, comments: { strengths?: string; improvements?: string }) => void
   /** Place du micro, à droite de « Enregistrer » (barre du bas de l'écran de notation). */
   slot: HTMLElement | null
 }) {
@@ -135,8 +137,38 @@ export function AvisVocal({
     }
     return id ? logAvisVocalVerdict({ vocalId: id, verdict, comment }) : false
   }
-  const ignoreAll = () => state && setState(decideAll(state, 'ignore'))
-  const usable = criteria.length > 0 && buildAvisPayload(criteria, position).criteres.length > 0
+  // Fenêtre des propositions : elle s'ouvre d'elle-même à chaque nouvelle analyse qui propose quelque chose (une nouvelle
+  // dictée après coup ne propose que ce qui change : src/dictation/avis.ts, pending) ; ✕ la referme, « Voir » la rouvre.
+  const [open, setOpen] = useState(false)
+  const opened = useRef('')
+  useEffect(() => {
+    const m = state?.playerId === playerId ? state : null
+    if (!m) return setOpen(false)
+    const k = m.id ?? m.transcript
+    if (opened.current === k) return
+    opened.current = k
+    setOpen(m.pending.length > 0 || m.strengths || m.improvements)
+  }, [state, playerId])
+  /** « Accepter » : notes cochées (proposées ou changées) posées, décochées écartées, commentaires cochés ajoutés. */
+  function apply(pick: AvisPick) {
+    const m = state
+    if (!m) return
+    let next = m
+    const scores: Record<string, number> = {}
+    for (const id of m.pending) {
+      const v = pick.scores[id]
+      next = decide(next, id, v === undefined ? 'ignore' : { value: v })
+      if (v !== undefined) scores[id] = v
+    }
+    const strengths = m.strengths && pick.strengths ? m.result.pointsForts : undefined
+    const improvements = m.improvements && pick.improvements ? m.result.axes : undefined
+    onApply(scores, { strengths, improvements })
+    const added = Object.keys(scores).length + (strengths ? 1 : 0) + (improvements ? 1 : 0)
+    setState({ ...next, strengths: false, improvements: false, added: (m.added ?? 0) + added })
+  }
+  const payload = criteria.length > 0 ? buildAvisPayload(criteria, position) : null
+  const usable = !!payload && payload.criteres.length > 0
+  const refs = payload?.refs ?? {}
   if (!avisReady || !usable) return null
 
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
@@ -144,6 +176,7 @@ export function AvisVocal({
   const mine = state?.playerId === playerId ? state : null
   const left = mine ? mine.pending.length + (mine.strengths ? 1 : 0) + (mine.improvements ? 1 : 0) : 0
   const n = mine?.result.suggestions.length ?? 0
+  const applied = mine?.added ?? 0
 
   return (
     <div className="flex flex-col gap-2 empty:hidden" data-noswipe>
@@ -186,105 +219,161 @@ export function AvisVocal({
       ) : null}
 
       {mine && !working && !rec && (
-        <div className="flex flex-col gap-1.5 rounded-xl sug-box p-2.5 text-xs" role="status">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              {n > 0 ? (
-                <b>
-                  <span aria-hidden>
-                    ✦{' '}
-                  </span>
-                  {n} note{n > 1 ? 's' : ''} proposée{n > 1 ? 's' : ''}
-                  {mine.pending.length < n && ` · ${mine.pending.length} en attente`}
-                </b>
-              ) : (
-                <b>Aucune note proposée : je n’ai reconnu aucun critère de la fiche.</b>
-              )}
-              {left > 0 && (
-                <div className="mt-0.5 text-[11px] text-muted">
-                  {mine.pending.length > 0 && 'Touchez la note proposée pour la valider, ou choisissez-en une autre. '}
-                  {(mine.strengths || mine.improvements) && 'Commentaires proposés plus bas. '}
-                  Rien n’est enregistré avant « Enregistrer ».
-                </div>
-              )}
-              {left === 0 && n > 0 && <div className="mt-0.5 text-[11px] text-muted">Propositions traitées : relisez, puis enregistrez.</div>}
-            </div>
-            <button
-              type="button"
-              className="-m-1.5 flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:text-fg"
-              aria-label="Fermer les propositions"
-              onClick={() => setState(null)}
-            >
-              ✕
-            </button>
-          </div>
+        <div className="flex items-center gap-2 rounded-xl sug-box py-1 pr-1 pl-3 text-xs" role="status">
+          <span className="min-w-0 flex-1 py-1.5">
+            {left > 0 ? (
+              <b>
+                ✦ {left} proposition{left > 1 ? 's' : ''} en attente
+              </b>
+            ) : applied > 0 ? (
+              <>
+                ✓ {applied} proposition{applied > 1 ? 's' : ''} ajoutée{applied > 1 ? 's' : ''} · relisez, puis enregistrez
+              </>
+            ) : n === 0 && !mine.result.pointsForts && !mine.result.axes ? (
+              'Aucune note proposée : je n’ai reconnu aucun critère de la fiche.'
+            ) : (
+              'Propositions refusées.'
+            )}
+          </span>
           {left > 0 && (
-            <div className="flex gap-2">
-              <button type="button" className="min-h-11 flex-1 rounded-full bg-fg px-3 text-xs font-extrabold text-panel hover:opacity-90" onClick={acceptAll}>
-                Tout valider
-              </button>
-              <button type="button" className="min-h-11 flex-1 rounded-full border-[1.5px] border-line px-3 text-xs font-bold text-fg hover:border-muted" onClick={ignoreAll}>
-                Tout ignorer
-              </button>
-            </div>
+            <button type="button" className="min-h-10 shrink-0 rounded-full bg-fg px-3.5 text-xs font-extrabold text-panel hover:opacity-90" onClick={() => setOpen(true)}>
+              Voir
+            </button>
           )}
-          {mine.result.ambigus.map((a) => (
-            <div key={a} className="text-[11px] text-muted">
-              Je n’ai pas su choisir : {a}
-            </div>
-          ))}
-          {mine.result.dropped.length > 0 && <div className="text-[11px] text-muted">{droppedText(mine.result.dropped)}</div>}
-          <details className="text-[11px] text-muted">
-            <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
-            <p className="italic">« {mine.transcript} »</p>
-          </details>
-          {canLogQuestion() && <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} />}
+          <button type="button" className="flex h-10 w-10 shrink-0 items-center justify-center text-muted hover:text-fg" aria-label="Fermer" onClick={() => setState(null)}>
+            ✕
+          </button>
         </div>
+      )}
+      {open && mine && left > 0 && (
+        <AvisReview
+          key={keyOf(mine)}
+          state={mine}
+          refs={refs}
+          onApply={(sel) => {
+            apply(sel)
+            setOpen(false)
+          }}
+          onRefuse={() => {
+            setState(decideAll(mine, 'ignore'))
+            setOpen(false)
+          }}
+          onClose={() => setOpen(false)}
+          feedback={canLogQuestion() ? <VocalFeedback key={keyOf(mine)} onSend={(v, c) => sendVerdict(mine, v, c)} /> : null}
+        />
       )}
     </div>
   )
 }
 
-/** Sous un critère : la note proposée, le passage dicté qui la justifie, et ✕ pour l'écarter. */
-export function SuggestionNote({ s, onDismiss }: { s: AvisSuggestion; onDismiss: () => void }) {
+type AvisPick = { scores: Record<string, number | undefined>; strengths: boolean; improvements: boolean }
+
+/**
+ * Fenêtre des propositions de l'avis vocal (31/10) : tout ce qui est proposé, au même endroit, quelle que soit la ligne de
+ * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note pour la changer ;
+ * la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter (n) » pose ce qui est coché
+ * sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ; ✕ ou Retour : plus tard.
+ */
+function AvisReview({
+  state,
+  refs,
+  onApply,
+  onRefuse,
+  onClose,
+  feedback,
+}: {
+  state: AvisState
+  refs: Record<string, AvisRef>
+  onApply: (pick: AvisPick) => void
+  onRefuse: () => void
+  onClose: () => void
+  feedback: ReactNode
+}) {
+  const sugs = state.result.suggestions.filter((x) => state.pending.includes(x.criterionId))
+  const [vals, setVals] = useState<Record<string, number>>(() => Object.fromEntries(sugs.map((x) => [x.criterionId, x.value])))
+  const [on, setOn] = useState<Record<string, boolean>>(() => Object.fromEntries(sugs.map((x) => [x.criterionId, true])))
+  const [strengths, setStrengths] = useState(state.strengths)
+  const [improvements, setImprovements] = useState(state.improvements)
+  const total = sugs.length + (state.strengths ? 1 : 0) + (state.improvements ? 1 : 0)
+  const count = sugs.filter((x) => on[x.criterionId]).length + (state.strengths && strengths ? 1 : 0) + (state.improvements && improvements ? 1 : 0)
+  const check = 'h-5 w-5 shrink-0 accent-[var(--color-fg)]'
   return (
-    <div className="flex w-full max-w-xl items-start gap-1" data-noswipe>
-      <div className="min-w-0 flex-1 pt-1 text-[11px]">
-        <span className="font-bold">✦ Proposé : {s.value}</span>
-        <span className="italic text-muted"> · « {s.quote} »</span>
+    <FormWindow title={`${total} proposition${total > 1 ? 's' : ''}`} onClose={onClose} phoneFull={false} guard={false} width={520}>
+      <p className="text-[11px] text-muted">Décochez ce que vous ne voulez pas, touchez une autre note pour la changer.</p>
+      <div className="flex flex-col divide-y divide-line" data-noswipe>
+        {sugs.map((x) => {
+          const id = x.criterionId
+          const r = refs[id]
+          const steps = r && r.max - r.min <= 10 ? Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i) : [x.value]
+          return (
+            <div key={id} className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${on[id] ? '' : 'opacity-50'}`}>
+              <label className="flex min-h-8 items-center gap-2.5 text-sm font-bold">
+                <input type="checkbox" className={check} checked={on[id]} onChange={(e) => setOn((o) => ({ ...o, [id]: e.target.checked }))} />
+                {x.label}
+              </label>
+              <div role="group" aria-label={`${x.label} : note`} className="flex gap-[3px] rounded-full border-[1.5px] border-line p-[3px]">
+                {steps.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={on[id] && vals[id] === v}
+                    onClick={() => {
+                      setVals((o) => ({ ...o, [id]: v }))
+                      setOn((o) => ({ ...o, [id]: true }))
+                    }}
+                    className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
+                      vals[id] === v ? 'bg-fg text-panel' : 'text-muted hover:bg-fg/5 hover:text-fg'
+                    }`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+              {x.quote && <div className="text-[11px] text-muted italic">« {x.quote} »</div>}
+            </div>
+          )
+        })}
+        {state.strengths && <CommentPick label="Points forts" text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />}
+        {state.improvements && <CommentPick label="Axes de progression" text={state.result.axes} checked={improvements} onChange={setImprovements} className={check} />}
       </div>
-      <button
-        type="button"
-        className="-my-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:text-fg"
-        aria-label={`Écarter la note proposée pour ${s.label}`}
-        title="Écarter cette proposition"
-        onClick={onDismiss}
-      >
-        ✕
-      </button>
-    </div>
+      {state.result.ambigus.map((a) => (
+        <div key={a} className="text-[11px] text-muted">
+          Je n’ai pas su choisir : {a}
+        </div>
+      ))}
+      {state.result.dropped.length > 0 && <div className="text-[11px] text-muted">{droppedText(state.result.dropped)}</div>}
+      <details className="text-[11px] text-muted">
+        <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
+        <p className="italic">« {state.transcript} »</p>
+      </details>
+      {feedback}
+      <FormActions>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={count === 0}
+          onClick={() =>
+            onApply({ scores: Object.fromEntries(sugs.map((x) => [x.criterionId, on[x.criterionId] ? vals[x.criterionId] : undefined])), strengths, improvements })
+          }
+        >
+          ✓ Accepter ({count})
+        </button>
+        <button type="button" className="btn-ghost" onClick={onRefuse}>
+          Tout refuser
+        </button>
+      </FormActions>
+    </FormWindow>
   )
 }
 
-/** Au-dessus d'un commentaire : le texte proposé, à ajouter d'un toucher (il reste modifiable dans le champ) ou à écarter. */
-export function CommentProposal({ text, onAdd, onDismiss }: { text: string; onAdd: () => void; onDismiss: () => void }) {
+function CommentPick({ label, text, checked, onChange, className }: { label: string; text: string; checked: boolean; onChange: (v: boolean) => void; className: string }) {
   return (
-    <div className="mb-1.5 flex items-start gap-1 rounded-xl sug-box p-1.5 pl-2.5" data-noswipe>
-      <div className="min-w-0 flex-1 py-1 text-xs">
-        <span className="font-bold">✦ Proposé : </span>
-        <span className="italic">{text}</span>
-      </div>
-      <button type="button" className="min-h-11 shrink-0 rounded-full bg-fg px-3.5 text-xs font-extrabold text-panel hover:opacity-90" onClick={onAdd}>
-        Ajouter
-      </button>
-      <button
-        type="button"
-        className="flex h-11 w-11 shrink-0 items-center justify-center text-muted hover:text-fg"
-        aria-label="Écarter ce commentaire proposé"
-        onClick={onDismiss}
-      >
-        ✕
-      </button>
+    <div className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${checked ? '' : 'opacity-50'}`}>
+      <label className="flex min-h-8 items-center gap-2.5 text-sm font-bold">
+        <input type="checkbox" className={className} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        {label}
+      </label>
+      <p className="rounded-lg bg-panel-2 px-2.5 py-2 text-xs">{text}</p>
     </div>
   )
 }

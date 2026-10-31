@@ -91,7 +91,7 @@ const states = (value: number | string | undefined, suggested: number | undefine
   const rule = (cls: string) => css.slice(css.indexOf(`${cls} {`), css.indexOf('}', css.indexOf(`${cls} {`)))
   for (const cls of ['.ask-capsule', '.ask-mic']) assert.match(rule(cls), /var\(--neon-grad\)/, cls)
   // Propositions de l'avis vocal : dans la couleur du texte du thème, sans dégradé ni halo (le néon était criard).
-  for (const cls of ['.sug-ring', '.sug-fill', '.sug-tag', '.sug-box']) {
+  for (const cls of ['.sug-ring', '.sug-fill', '.sug-box']) {
     assert.ok(css.includes(`${cls} {`), cls)
     assert.match(rule(cls), /var\(--color-fg\)/, cls)
     assert.doesNotMatch(rule(cls), /--neon-/, cls)

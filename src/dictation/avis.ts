@@ -244,6 +244,8 @@ export type AvisState = {
   id?: string
   /** Réponses du coach aux notes proposées (journal des évaluations vocales) : acceptée, modifiée (note mise), ignorée. */
   decisions?: Record<string, AvisDecision>
+  /** Propositions posées sur la fiche par « Accepter » (fenêtre des propositions) : notes et commentaires. */
+  added?: number
 }
 
 export type AvisDecision = { kept: 'accepte' | 'modifie' | 'ignore'; final?: number }
