@@ -396,6 +396,8 @@ main[tabindex='-1']:focus { outline: none; }
 /* Barre « Afficher / Sélectionner » d'une liste de joueurs (Pictos.tsx) : dans le panneau de droite, qui défile seul,
    collée en haut du panneau (et non sous l'en-tête de l'appli). */
 .md-panel .plist-sticky { top: 0; }
+/* Barre « Demander » d'une liste dans le panneau de droite (joueurs d'un événement, StickyQuery) : même chose. */
+.md-panel .qbar-sticky { top: 0; }
 
 /* Fenêtre « Demander » (bulle ✦, components/Demander.tsx) : apparaît en glissant un peu depuis la bulle. */
 @keyframes ask-pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }

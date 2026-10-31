@@ -7,22 +7,21 @@ import { playerSub } from '../components/PlayerRow'
 import { Icon } from '../components/ui'
 import { alive, db, type Player, type Rewatch } from '../db'
 import { MQ, useMedia } from '../layout'
-import { eventSections, sortRoster, useRosterGroup, useRosterSort } from '../rosterOrder'
+import { eventSections, sortRoster, useRosterGroup } from '../rosterOrder'
 import { numOf, sightingNames, sightings } from '../scouting'
 import PlayerDetail from './PlayerDetail'
 import { pluralG, setGender, w } from '../gender'
 
 /*
  * Fiche d'un joueur ouverte depuis un événement : /evenements/:id/joueurs/:pid (partageable).
- * Ordinateur : les joueurs de l'événement seulement à gauche (même ordre et mêmes titres que sa page : tri choisi,
+ * Ordinateur : les joueurs de l'événement seulement à gauche (même ordre et mêmes titres que sa page : par nom,
  * « Par équipe et poste »…), la fiche à droite ; « Fermer » revient à l'événement. Téléphone : fiche en plein écran
  * sous la barre « événement · 5 / 23 » (glisser la fiche, retour à l'événement à la même position).
  */
 
 /** Joueurs de l'événement, dans l'ordre de sa page (sans ses filtres : tous les joueurs de la liste). */
 function useEventRoster(id: string) {
-  // Même ordre que la page de l'événement : tri gardé sur l'appareil, regroupement gardé pendant la session.
-  const [sort] = useRosterSort(id)
+  // Même ordre que la page de l'événement : par nom dans chaque poste, regroupement gardé pendant la session.
   const [group] = useRosterGroup(id)
   const data = useLiveQuery(async () => {
     const ev = await db.events.get(id)
@@ -38,7 +37,7 @@ function useEventRoster(id: string) {
     return { ev, roster, seen, evals, rewatch: rewatch.filter((r) => r.originEventId === id) }
   }, [id])
   if (!data?.ev) return data
-  const sections = eventSections(sortRoster(data.roster, sort), data.ev, group)
+  const sections = eventSections(sortRoster(data.roster, 'nom'), data.ev, group)
   const rewatchFrom = new Map<string, Rewatch[]>()
   for (const r of data.rewatch) rewatchFrom.set(r.playerId, [...(rewatchFrom.get(r.playerId) ?? []), r])
   return { ...data, sections, ids: sections.flatMap((s) => s.players.map((p) => p.id)), sight: sightings(data.seen, data.evals), rewatchFrom }

@@ -23,7 +23,7 @@ export function StickyQuery({ children }: { children: ReactNode }) {
     }
   }, [])
   return (
-    <div ref={ref} className="sticky top-[var(--hdr)] z-[16] -mx-1 mb-2 bg-bg/95 px-1 pt-1 pb-2 backdrop-blur">
+    <div ref={ref} className="qbar-sticky sticky top-[var(--hdr)] z-[16] -mx-1 mb-2 bg-bg/95 px-1 pt-1 pb-2 backdrop-blur">
       {children}
     </div>
   )

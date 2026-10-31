@@ -7,7 +7,8 @@ import { ROSTER_SORTS, type RosterSection, type RosterSort, rosterPositions } fr
 /*
  * Rangement par poste d'une liste de joueurs (page d'un événement, page d'un groupe, « Mes suivis ») : un encadré de réglages
  * (« Dans chaque poste, trier par »…), les pastilles des postes avec leur nombre, qui filtrent (dans la capsule des
- * pictogrammes, collée en haut : rosterBarLead), et la liste découpée par poste (titres GARDIEN, AILIER GAUCHE…, en colonnes sur grand écran). La logique (tri, découpage) est
+ * pictogrammes, collée en haut : rosterBarLead ; l'événement les a dans la fenêtre « Filtres » de sa barre, sans
+ * encadré), et la liste découpée par poste (titres GARDIEN, AILIER GAUCHE…, en colonnes sur grand écran). La logique (tri, découpage) est
  * dans src/positionOrder.ts ; la ligne de chaque joueur est fournie par la page (ses actions propres).
  */
 

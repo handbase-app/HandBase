@@ -174,8 +174,15 @@ export type HostedBar = {
    * sur son réglage, data-filter=`key` ; × le remet par défaut), comptés dans « Filtres n ». « Tout effacer » les remet
    * aussi par défaut : `onReset` reçoit la requête de la barre sans ses pastilles (un seul changement de l'écran).
    */
-  own?: { panel: ReactNode; chips: { key: string; label: string; onRemove: () => void }[]; onReset: (q: JoueursQuery) => void }
+  own?: OwnFilters
 }
+
+/**
+ * Filtres propres à l'écran, en tête de la fenêtre « Filtres » (bilan : sexe, période, années ; page d'un événement : où
+ * j'en suis, postes). `count` : nombre de joueurs que l'écran affichera, d'après ceux retenus par la barre (ses filtres
+ * en plus), dit dans la fenêtre.
+ */
+export type OwnFilters = { panel: ReactNode; chips: { key: string; label: string; onRemove: () => void }[]; onReset: (q: JoueursQuery) => void; count?: (filtered: Player[]) => number }
 
 /**
  * Filtres d'une liste de joueurs. `scope` : autre liste que Joueurs (ajout de joueurs à un événement ou un groupe :
@@ -191,10 +198,11 @@ export type HostedBar = {
 /**
  * `initial` : requête de départ d'une liste à part (`scope`), avant tout choix de la session (page « À revoir » : pas encore
  * revus). `rewatchTop` : les réglages « À revoir » en tête de la fenêtre (page « À revoir »), plus sous « Seulement ».
+ * `own` : filtres propres de l'écran (liste à part, page d'un événement), comme ceux d'une barre posée (HostedBar `own`).
  */
 export function usePlayersQuery(
   players: Player[] | undefined,
-  opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean; initial?: JoueursQuery; rewatchTop?: boolean },
+  opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean; initial?: JoueursQuery; rewatchTop?: boolean; own?: OwnFilters },
 ) {
   const hosted = opts.hosted
   const keys = opts.scope
@@ -549,13 +557,15 @@ export function usePlayersQuery(
   // Filtres visibles (barre posée : sans ceux que l'écran commande lui-même).
   const shownKeys = activeKeys(qy).filter((k) => !hosted?.hidden.has(k))
   // Filtres propres de l'écran posés (bilan : sexe, période, années) : pastilles et nombre de « Filtres ».
-  const own = hosted?.own
+  const own = hosted?.own ?? opts.own
   const ownChips = own?.chips ?? []
-  const clearable = (hosted ? shownKeys.length > 0 || ownChips.length > 0 : hasQuery(qy)) || !!qy.calc
+  const clearable = (hosted ? shownKeys.length > 0 : hasQuery(qy)) || ownChips.length > 0 || !!qy.calc
   const reset = () => {
     // Barre posée : « Tout effacer » retire ses pastilles, pas les commandes de l'écran (lieu ; sexe et années, sauf filtres
     // propres de l'écran dans la fenêtre : remis par défaut avec, `own.onReset`).
     setQy(hosted ? removeKeys({ ...qy, calc: undefined }, shownKeys) : EMPTY_QUERY, true)
+    // Liste à part : ses filtres propres remis par défaut avec.
+    if (!hosted) opts.own?.onReset(EMPTY_QUERY)
     setText('')
     setResult(null)
     setSql(null)
@@ -967,7 +977,7 @@ export function usePlayersQuery(
             <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
               Tout effacer
             </button>
-            {!saving && !hosted && (
+            {!saving && !hosted && hasQuery(qy) && (
               <button type="button" className="flex min-h-9 items-center gap-1 px-1 text-[11px] font-bold text-muted underline" onClick={() => setSaving(true)}>
                 <Icon name="star" className="h-3 w-3" />
                 Enregistrer ce filtre
@@ -993,7 +1003,7 @@ export function usePlayersQuery(
   const filterWindow = (
     <FilterWindow
       w={fw}
-      count={<CountText n={filtered.length} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
+      count={<CountText n={own?.count ? own.count(filtered) : filtered.length} noun={(n) => (n > 1 ? gw.joueurs : gw.joueur)} />}
       onClear={clearable ? reset : undefined}
     >
       {own?.panel}

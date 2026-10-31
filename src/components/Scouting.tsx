@@ -34,6 +34,7 @@ import {
 import { addToGroup } from './Groups'
 import { inform } from './Confirm'
 import { getMe, GroupMark, Icon, SEG_BOX, segItem } from './ui'
+import { FormActions, FormWindow } from './FormWindow'
 import { DictationTextarea } from './MicButton'
 import { accord, pluralG, w, type Gender } from '../gender'
 import { pickOrigin } from '../rewatchCore'
@@ -105,65 +106,16 @@ export function SeenBy({ list, sex }: { list: Sighting[]; sex?: string }) {
 
 export type CoverageFilter = 'tous' | 'pasvus' | 'vus' | 'notes' | 'arevoir'
 
-/** Compteurs de couverture de l'équipe et filtres de la liste. */
-export function CoverageBar({
-  total,
-  seen,
-  noted,
-  rewatch,
-  mine,
-  filter,
-  setFilter,
-  g,
-}: {
-  total: number
-  seen: number
-  noted: number
-  rewatch: number
-  /** Mes équipes (tournoi réparti) : vus / total. */
-  mine?: { seen: number; total: number }
-  filter: CoverageFilter
-  setFilter: (f: CoverageFilter) => void
-  /** Genre de la liste (src/gender.ts) : « Pas encore vues », « 26 joueuses »… quand ce sont des filles. */
-  g?: Gender
-}) {
-  const chips: [CoverageFilter, string, number][] = [
-    ['tous', w(g).Tous, total],
-    ['pasvus', accord('Pas encore vu', g, 2), total - seen],
-    ['vus', accord('Vu', g, 2), seen],
-    ['notes', accord('Noté', g, 2), noted],
-    ['arevoir', 'À revoir', rewatch],
-  ]
-  return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-accent/40 bg-accent/5 p-2.5">
-      <div className="text-[11px] text-muted">
-        <b className="text-fg">{pluralG(total, g)}</b> · <b className="text-fg">{seen}</b> {accord('vu', g, seen)} par l’équipe ·{' '}
-        <b className="text-fg">{total - seen}</b> {accord('pas encore vu', g, total - seen)} · <b className="text-fg">{noted}</b> {accord('noté', g, noted)} ·{' '}
-        <b className="text-fg">{rewatch}</b> à revoir
-      </div>
-      {mine && mine.total > 0 && (
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="shrink-0 font-bold">Mes équipes : {mine.seen} sur {mine.total} {accord('vu', g, mine.total)}</span>
-          <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-panel-2">
-            <span className="block h-full bg-accent" style={{ width: `${Math.round((mine.seen / mine.total) * 100)}%` }} />
-          </span>
-        </div>
-      )}
-      {/* Défilement horizontal sur téléphone : tous les filtres sous le pouce, sans retour à la ligne. */}
-      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
-        {chips.map(([v, label, n]) => (
-          <button
-            key={v}
-            onClick={() => setFilter(v)}
-            className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-bold whitespace-nowrap ${filter === v ? 'border-accent bg-accent text-white' : 'border-line bg-panel text-muted'}`}
-          >
-            {label} <span className="opacity-70">{n}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
+/**
+ * Couverture de l'équipe, filtre de la liste d'un événement (fenêtre « Filtres », section « Où j'en suis ») : libellés
+ * accordés (src/gender.ts), dans l'ordre des pastilles ; « tous » = pas de filtre.
+ */
+export const coverageLabels = (g?: Gender): [CoverageFilter, string][] => [
+  ['pasvus', accord('Pas encore vu', g, 2)],
+  ['vus', accord('Vu', g, 2)],
+  ['notes', accord('Noté', g, 2)],
+  ['arevoir', 'À revoir'],
+]
 
 // ---------- À revoir ----------
 
@@ -530,12 +482,35 @@ export function RewatchInEvent({
 
 // ---------- Répartition d'un tournoi ----------
 
+/** Chiffres de la répartition d'un tournoi : par équipe, mes équipes, sans équipe. */
+function tournamentStats(ev: HBEvent, roster: Player[], sight: Map<string, Sighting[]>) {
+  const ts = tournamentTeams(ev)
+  const mine = myTournamentTeams(ev)
+  const stat = (tid?: string) => {
+    const ps = roster.filter((p) => teamOf(ev, p.id) === tid || (!tid && !ts.some((t) => t.id === teamOf(ev, p.id))))
+    return { total: ps.length, seen: ps.filter((p) => (sight.get(p.id) ?? []).length).length }
+  }
+  const mineStat = [...mine].reduce((a, t) => ({ total: a.total + stat(t).total, seen: a.seen + stat(t).seen }), { total: 0, seen: 0 })
+  return { ts, mine, stat, mineStat, loose: stat(undefined) }
+}
+
 /**
- * Répartition par équipe d'un tournoi : couverture par équipe (vus / total, qui en a la charge) ; pour l'organisateur
- * et les participants : équipes engagées, observateurs de chaque équipe, équipe et numéro de chaque joueur.
- * Facultative : sans équipe déclarée, tout le monde voit tout.
+ * Résumé de la répartition (« 3 équipes · mes équipes : 4 sur 9 vus ») : ligne discrète sous la liste de l'événement, qui
+ * ouvre la répartition. Rien sans équipe déclarée.
  */
-export function TournamentPanel({
+export function tournamentSummary(ev: HBEvent, roster: Player[], sight: Map<string, Sighting[]>, g?: Gender): string | null {
+  const { ts, mine, mineStat, loose } = tournamentStats(ev, roster, sight)
+  if (!ts.length) return null
+  return `${plural(ts.length, 'équipe')}${mine.size ? ` · mes équipes : ${mineStat.seen} sur ${mineStat.total} ${accord('vu', g, mineStat.total)}` : ''}${loose.total ? ` · ${loose.total} sans équipe` : ''}`
+}
+
+/**
+ * Répartition par équipe d'un tournoi (fenêtre ouverte depuis le ⋮ de l'événement, « Répartir par équipe », ou sa ligne
+ * de résumé) : couverture par équipe (vus / total, qui en a la charge) ; pour l'organisateur et les participants : équipes
+ * engagées, observateurs de chaque équipe, équipe et numéro de chaque joueur. Facultative : sans équipe déclarée, tout le
+ * monde voit tout. Chaque changement est enregistré tout de suite (rien à perdre en fermant).
+ */
+export function TournamentWindow({
   ev,
   roster,
   sight,
@@ -543,6 +518,7 @@ export function TournamentPanel({
   manage,
   teams,
   g,
+  onClose,
 }: {
   ev: HBEvent
   roster: Player[]
@@ -553,204 +529,190 @@ export function TournamentPanel({
   teams: Team[]
   /** Genre de l'événement (src/gender.ts). */
   g?: Gender
+  onClose: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const [part, setPart] = useState<'equipes' | 'observateurs' | 'joueurs' | null>(null)
   const [newName, setNewName] = useState('')
-  const ts = tournamentTeams(ev)
-  const mine = myTournamentTeams(ev)
+  const { ts, mine, stat, loose } = tournamentStats(ev, roster, sight)
   const people = eventPeople(ev, manage)
   const name = (u: string) => personName(u, ev, teams)
-  const stat = (tid?: string) => {
-    const ps = roster.filter((p) => teamOf(ev, p.id) === tid || (!tid && !ts.some((t) => t.id === teamOf(ev, p.id))))
-    return { total: ps.length, seen: ps.filter((p) => (sight.get(p.id) ?? []).length).length }
-  }
-  const mineStat = [...mine].reduce((a, t) => ({ total: a.total + stat(t).total, seen: a.seen + stat(t).seen }), { total: 0, seen: 0 })
-  const loose = stat(undefined)
   // Match importé d'une feuille : joueurs reliés encore sans équipe (« Reprendre les deux équipes de la feuille »).
   const fromSheet = ev.matchSheet ? sheetPlayersWithoutTeam(ev.tournament, ev.matchSheet, ev.playerIds ?? []) : 0
-  const summary = ts.length
-    ? `${plural(ts.length, 'équipe')}${mine.size ? ` · mes équipes : ${mineStat.seen} sur ${mineStat.total} ${accord('vu', g, mineStat.total)}` : ''}${loose.total ? ` · ${loose.total} sans équipe` : ''}`
-    : 'Pas de répartition : tout le monde voit tout.'
   // Noms des observateurs choisis : gardés avec l'événement (affichage hors ligne, chez les autres participants).
   const namesOf = (us: string[]) => Object.fromEntries(us.map((u) => [u, personName(u, ev, teams)]).filter(([u, n]) => n !== '?' && n !== 'toi' && u !== 'local'))
 
   return (
-    <div className={`card overflow-hidden ${open ? 'border-accent/50' : ''}`}>
-      <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <Icon name="users" className="h-4 w-4 shrink-0 text-accent" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-bold">Répartition par équipe</span>
-          {!open && <span className="block truncate text-[11px] text-muted">{summary}</span>}
-        </span>
-        <span className={`shrink-0 text-muted transition ${open ? 'rotate-90' : ''}`}>›</span>
-      </button>
-      {open && (
-        <div className="flex flex-col gap-3 border-t border-line p-3">
-          {ts.length === 0 && (
-            <p className="text-[11px] text-muted">
-              Déclare les équipes engagées, rattache chaque joueur à son équipe et confie une ou plusieurs équipes à chaque observateur : chacun voit
-              « Mes équipes » en premier, l’événement montre la couverture par équipe. Sans répartition, tout le monde voit tout.
-              {edit && fromSheet > 0 && ' Match importé d’une feuille : « Équipes », puis « Reprendre les deux équipes de la feuille de match ».'}
-            </p>
-          )}
-          {ts.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              {[...ts].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id))).map((t) => {
-                const s = stat(t.id)
-                const obs = teamObservers(ev, t.id)
-                return (
-                  <div key={t.id} className={`rounded-md border px-2.5 py-1.5 text-xs ${mine.has(t.id) ? 'border-accent/60 bg-accent/10' : 'border-line bg-panel-2'}`}>
-                    <div className="flex items-center gap-2">
-                      <b className="min-w-0 flex-1 truncate">
-                        {t.name}
-                        {mine.has(t.id) && <span className="ml-1.5 rounded bg-accent px-1 text-[9px] text-white">MON ÉQUIPE</span>}
-                      </b>
-                      <span className="shrink-0 text-[11px]">
-                        <b>{s.seen}</b> / {s.total} {accord('vu', g, s.total)}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1 overflow-hidden rounded-full bg-panel">
-                      <span className="block h-full bg-accent" style={{ width: s.total ? `${Math.round((s.seen / s.total) * 100)}%` : 0 }} />
-                    </div>
-                    <div className="mt-0.5 truncate text-[10px] text-muted">{obs.length ? `suivie par ${obs.map(name).join(', ')}` : 'personne n’en a la charge'}</div>
+    <FormWindow title="Répartition par équipe" onClose={onClose} guard={false} width={560}>
+      <div className="flex flex-col gap-3">
+        {ts.length === 0 && (
+          <p className="text-[11px] text-muted">
+            Déclare les équipes engagées, rattache chaque joueur à son équipe et confie une ou plusieurs équipes à chaque observateur : chacun voit
+            « Mes équipes » en premier, l’événement montre la couverture par équipe. Sans répartition, tout le monde voit tout.
+            {edit && fromSheet > 0 && ' Match importé d’une feuille : « Équipes », puis « Reprendre les deux équipes de la feuille de match ».'}
+          </p>
+        )}
+        {ts.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {[...ts].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id))).map((t) => {
+              const s = stat(t.id)
+              const obs = teamObservers(ev, t.id)
+              return (
+                <div key={t.id} className={`rounded-md border px-2.5 py-1.5 text-xs ${mine.has(t.id) ? 'border-accent/60 bg-accent/10' : 'border-line bg-panel-2'}`}>
+                  <div className="flex items-center gap-2">
+                    <b className="min-w-0 flex-1 truncate">
+                      {t.name}
+                      {mine.has(t.id) && <span className="ml-1.5 rounded bg-accent px-1 text-[9px] text-white">MON ÉQUIPE</span>}
+                    </b>
+                    <span className="shrink-0 text-[11px]">
+                      <b>{s.seen}</b> / {s.total} {accord('vu', g, s.total)}
+                    </span>
                   </div>
-                )
-              })}
-              {loose.total > 0 && (
-                <div className="text-[11px] text-muted">
-                  Sans équipe : <b className="text-fg">{loose.seen}</b> / {loose.total} {accord('vu', g, loose.total)}
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-panel">
+                    <span className="block h-full bg-accent" style={{ width: s.total ? `${Math.round((s.seen / s.total) * 100)}%` : 0 }} />
+                  </div>
+                  <div className="mt-0.5 truncate text-[10px] text-muted">{obs.length ? `suivie par ${obs.map(name).join(', ')}` : 'personne n’en a la charge'}</div>
                 </div>
-              )}
-            </div>
-          )}
-          {edit && (
-            <>
-              <div className={`${SEG_BOX} text-[11px]`}>
-                {(
-                  [
-                    ['equipes', `Équipes (${ts.length})`],
-                    ['observateurs', 'Observateurs'],
-                    ['joueurs', `${w(g).Joueurs}${loose.total && ts.length ? ` (${loose.total} sans équipe)` : ''}`],
-                  ] as const
-                ).map(([v, label]) => (
-                  <button
-                    key={v}
-                    disabled={v !== 'equipes' && !ts.length}
-                    onClick={() => setPart(part === v ? null : v)}
-                    className={`min-h-8 flex-1 px-1 py-1 leading-tight disabled:opacity-40 ${segItem(part === v)}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              )
+            })}
+            {loose.total > 0 && (
+              <div className="text-[11px] text-muted">
+                Sans équipe : <b className="text-fg">{loose.seen}</b> / {loose.total} {accord('vu', g, loose.total)}
               </div>
-              {part === 'equipes' && (
-                <div className="flex flex-col gap-1.5">
-                  {fromSheet > 0 && (
-                    <button
-                      className="btn-ghost min-h-8 justify-center px-3 py-1 text-xs"
-                      title={`${pluralG(fromSheet, g)} de la feuille de match encore sans équipe : rangés dans leur équipe, avec leur numéro`}
-                      onClick={() => void saveTournament(ev, (x) => teamsFromSheet(x, ev.matchSheet!, ev.playerIds ?? []))}
-                    >
-                      Reprendre les deux équipes de la feuille de match
-                    </button>
-                  )}
-                  {ts.map((t) => (
-                    <div key={`${t.id}:${t.name}`} className="flex items-center gap-2">
-                      <input
-                        className="field min-w-0 flex-1 py-1 text-xs"
-                        defaultValue={t.name}
-                        maxLength={60}
-                        aria-label="Nom de l’équipe"
-                        onBlur={(e) => {
-                          const v = e.target.value.trim()
-                          if (v && v !== t.name) void saveTournament(ev, (x) => ({ ...x, teams: x.teams.map((y) => (y.id === t.id ? { ...y, name: v } : y)) }))
-                        }}
-                      />
-                      <button
-                        className="shrink-0 px-1 text-muted hover:text-red-400"
-                        title="Retirer cette équipe (ses joueurs restent dans la liste, sans équipe)"
-                        onClick={() =>
-                          void saveTournament(ev, (x) => ({
-                            teams: x.teams.filter((y) => y.id !== t.id),
-                            players: Object.fromEntries(Object.entries(x.players ?? {}).map(([k, v]) => [k, v.team === t.id ? { num: v.num } : v])),
-                            assign: Object.fromEntries(Object.entries(x.assign ?? {}).map(([k, v]) => [k, v.filter((y) => y !== t.id)])),
-                          }))
-                        }
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  <form
-                    className="flex gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault()
-                      const v = newName.trim()
-                      if (!v) return
-                      setNewName('')
-                      void saveTournament(ev, (x) => ({ ...x, teams: [...x.teams, { id: newTeamId(), name: v }] }))
-                    }}
+            )}
+          </div>
+        )}
+        {edit && (
+          <>
+            <div className={`${SEG_BOX} text-[11px]`}>
+              {(
+                [
+                  ['equipes', `Équipes (${ts.length})`],
+                  ['observateurs', 'Observateurs'],
+                  ['joueurs', `${w(g).Joueurs}${loose.total && ts.length ? ` (${loose.total} sans équipe)` : ''}`],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  disabled={v !== 'equipes' && !ts.length}
+                  onClick={() => setPart(part === v ? null : v)}
+                  className={`min-h-8 flex-1 px-1 py-1 leading-tight disabled:opacity-40 ${segItem(part === v)}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {part === 'equipes' && (
+              <div className="flex flex-col gap-1.5">
+                {fromSheet > 0 && (
+                  <button
+                    className="btn-ghost min-h-8 justify-center px-3 py-1 text-xs"
+                    title={`${pluralG(fromSheet, g)} de la feuille de match encore sans équipe : rangés dans leur équipe, avec leur numéro`}
+                    onClick={() => void saveTournament(ev, (x) => teamsFromSheet(x, ev.matchSheet!, ev.playerIds ?? []))}
                   >
-                    <input className="field min-w-0 flex-1 py-1 text-xs" maxLength={60} placeholder="Ex. HBC Rhône Sud 1" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                    <button className="btn-primary shrink-0 px-3 py-1 text-xs" disabled={!newName.trim()}>
-                      + Équipe
+                    Reprendre les deux équipes de la feuille de match
+                  </button>
+                )}
+                {ts.map((t) => (
+                  <div key={`${t.id}:${t.name}`} className="flex items-center gap-2">
+                    <input
+                      className="field min-w-0 flex-1 py-1 text-xs"
+                      defaultValue={t.name}
+                      maxLength={60}
+                      aria-label="Nom de l’équipe"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        if (v && v !== t.name) void saveTournament(ev, (x) => ({ ...x, teams: x.teams.map((y) => (y.id === t.id ? { ...y, name: v } : y)) }))
+                      }}
+                    />
+                    <button
+                      className="shrink-0 px-1 text-muted hover:text-red-400"
+                      title="Retirer cette équipe (ses joueurs restent dans la liste, sans équipe)"
+                      onClick={() =>
+                        void saveTournament(ev, (x) => ({
+                          teams: x.teams.filter((y) => y.id !== t.id),
+                          players: Object.fromEntries(Object.entries(x.players ?? {}).map(([k, v]) => [k, v.team === t.id ? { num: v.num } : v])),
+                          assign: Object.fromEntries(Object.entries(x.assign ?? {}).map(([k, v]) => [k, v.filter((y) => y !== t.id)])),
+                        }))
+                      }
+                    >
+                      ✕
                     </button>
-                  </form>
-                </div>
-              )}
-              {part === 'observateurs' && (
-                <div className="flex flex-col gap-2">
-                  <p className="text-[11px] text-muted">Encadrants de l’événement (organisateur et participants). Réattribuable à tout moment.</p>
-                  {people.map((u) => {
-                    const has = new Set(ev.tournament?.assign?.[u] ?? [])
-                    return (
-                      <div key={u} className="flex flex-col gap-1">
-                        <span className="text-xs font-bold">{name(u)}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {ts.map((t) => (
-                            <button
-                              key={t.id}
-                              onClick={() =>
-                                void saveTournament(
-                                  ev,
-                                  (x) => {
-                                    const cur = x.assign?.[u] ?? []
-                                    const next = cur.includes(t.id) ? cur.filter((y) => y !== t.id) : [...cur, t.id]
-                                    const assign = { ...x.assign, [u]: next }
-                                    if (!next.length) delete assign[u]
-                                    return { ...x, assign }
-                                  },
-                                  namesOf([u]),
-                                )
-                              }
-                              className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${has.has(t.id) ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'}`}
-                            >
-                              {t.name}
-                            </button>
-                          ))}
-                        </div>
+                  </div>
+                ))}
+                <form
+                  className="flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const v = newName.trim()
+                    if (!v) return
+                    setNewName('')
+                    void saveTournament(ev, (x) => ({ ...x, teams: [...x.teams, { id: newTeamId(), name: v }] }))
+                  }}
+                >
+                  <input className="field min-w-0 flex-1 py-1 text-xs" maxLength={60} placeholder="Ex. HBC Rhône Sud 1" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                  <button className="btn-primary shrink-0 px-3 py-1 text-xs" disabled={!newName.trim()}>
+                    + Équipe
+                  </button>
+                </form>
+              </div>
+            )}
+            {part === 'observateurs' && (
+              <div className="flex flex-col gap-2">
+                <p className="text-[11px] text-muted">Encadrants de l’événement (organisateur et participants). Réattribuable à tout moment.</p>
+                {people.map((u) => {
+                  const has = new Set(ev.tournament?.assign?.[u] ?? [])
+                  return (
+                    <div key={u} className="flex flex-col gap-1">
+                      <span className="text-xs font-bold">{name(u)}</span>
+                      <div className="flex flex-wrap gap-1">
+                        {ts.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() =>
+                              void saveTournament(
+                                ev,
+                                (x) => {
+                                  const cur = x.assign?.[u] ?? []
+                                  const next = cur.includes(t.id) ? cur.filter((y) => y !== t.id) : [...cur, t.id]
+                                  const assign = { ...x.assign, [u]: next }
+                                  if (!next.length) delete assign[u]
+                                  return { ...x, assign }
+                                },
+                                namesOf([u]),
+                              )
+                            }
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${has.has(t.id) ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'}`}
+                          >
+                            {t.name}
+                          </button>
+                        ))}
                       </div>
-                    )
-                  })}
-                  {!people.length && <p className="text-[11px] text-muted">Ajoute des participants à l’événement (Modifier) pour leur confier des équipes.</p>}
-                </div>
-              )}
-              {part === 'joueurs' && (
-                <div className="flex flex-col gap-1">
-                  <p className="text-[11px] text-muted">Équipe et numéro de maillot de chaque {w(g).joueur} de la liste.</p>
-                  {[...roster]
-                    .sort((a, b) => (teamOf(ev, a.id) ? 1 : 0) - (teamOf(ev, b.id) ? 1 : 0) || byNumber(ev)(a, b))
-                    .map((p) => (
-                      <PlayerTeamRow key={`${p.id}:${numOf(ev, p.id) ?? ''}`} ev={ev} p={p} />
-                    ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
+                    </div>
+                  )
+                })}
+                {!people.length && <p className="text-[11px] text-muted">Ajoute des participants à l’événement (Modifier) pour leur confier des équipes.</p>}
+              </div>
+            )}
+            {part === 'joueurs' && (
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] text-muted">Équipe et numéro de maillot de chaque {w(g).joueur} de la liste.</p>
+                {[...roster]
+                  .sort((a, b) => (teamOf(ev, a.id) ? 1 : 0) - (teamOf(ev, b.id) ? 1 : 0) || byNumber(ev)(a, b))
+                  .map((p) => (
+                    <PlayerTeamRow key={`${p.id}:${numOf(ev, p.id) ?? ''}`} ev={ev} p={p} />
+                  ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      {/* Rien à valider : tout est déjà enregistré. */}
+      <FormActions>
+        <button type="button" className="btn-primary" onClick={onClose}>
+          Terminé
+        </button>
+      </FormActions>
+    </FormWindow>
   )
 }
 

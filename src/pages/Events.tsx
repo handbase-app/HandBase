@@ -1,10 +1,10 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
-import { Empty, Icon, QuarterBadge, SEG_BOX, Segmented, segItem } from '../components/ui'
+import { Empty, Icon, QuarterBadge, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { PlayerMenuScope } from '../components/PlayerMenu'
@@ -20,15 +20,18 @@ import { usePerimeter, useSportHas, useUnits } from '../installation'
 import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughMyPlayers, type TerritoryFilter, type TerritoryPlayer } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
-import { usePlayersQuery } from '../components/PlayersQuery'
+import { usePlayersQuery, type OwnFilters } from '../components/PlayersQuery'
 import { usePlayersByName } from '../playersCache'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { stampOf, StampWindow } from '../components/ActivityLog'
 import { Participants } from '../components/Participants'
 import { VideoSection } from '../components/Videos'
 import { useTeams } from '../teams'
-import { filterRoster, isMine, ROSTER_GROUPS, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
-import { RosterChip, RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
+import { filterRoster, isMine, ROSTER_GROUPS, rosterPositions, rosterSections, sortRoster, teamGroups, type RosterSection, useRosterFilter, useRosterGroup } from '../rosterOrder'
+import { RosterSectionList } from '../components/PositionRoster'
+import { ChoicePills, FilterField, pillClass } from '../components/FilterWindow'
+import { courtTag } from '../courtSpots'
+import { EMPTY_QUERY } from '../playerQuery'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { BarActions, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
@@ -37,9 +40,9 @@ import { playerScore } from '../compare'
 import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } from '../components/ComparePick'
 import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
-import { CoverageBar, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, TournamentPanel, type CoverageFilter } from '../components/Scouting'
+import { coverageLabels, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, tournamentSummary, TournamentWindow, type CoverageFilter } from '../components/Scouting'
 import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
-import { myTournamentTeams, numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
+import { numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 import { FoldSection } from '../components/FoldSection'
 import { afterWindow, FormWindow } from '../components/FormWindow'
 import { DuplicateEvent } from '../components/DuplicateEvent'
@@ -567,15 +570,16 @@ export function EventDetail() {
   const [importing, setImporting] = useState(false)
   // Feuille de match FFHB : handball seulement ; une feuille déjà importée reste affichée.
   const sheets = useSportHas('feuilleMatchFFHB')
-  // Liste des joueurs : toujours par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour cet
-  // événement, repris par la notation). Filtres rapides : masquer ceux que j'ai notés, un poste.
-  const [sort, setSort] = useRosterSort(id)
-  // Filtres partagés avec la notation : elle ne propose que les joueurs affichés ici.
+  // Liste des joueurs : toujours par poste, et par nom dans chaque poste (31/10 : plus de choix du tri ; même ordre pour la
+  // notation et la fiche ouverte d'ici). Filtres (fenêtre « Filtres » de la barre) : un poste, masquer ceux que j'ai notés,
+  // partagés avec la notation : elle ne propose que les joueurs affichés ici.
   const { pos: posFilter, setPos: setPosFilter, hideNoted, setHideNoted } = useRosterFilter(id)
   // Couverture de l'équipe d'observateurs (supabase/041) : filtre de la liste (gardé pendant la session) ;
   // événement réparti en équipes : liste par équipe et poste (par défaut), par équipe et numéro, ou par poste.
   const [cover, setCover] = useSessionState<CoverageFilter>(`handbase.couverture.${id}`, 'tous')
   const [groupBy, setGroupBy] = useRosterGroup(id)
+  // « Répartir par équipe » (⋮, ou la ligne de résumé sous la liste) : fenêtre de la répartition d'un tournoi.
+  const [splitOpen, setSplitOpen] = useState(false)
   const panel = usePanel()
   // Ordinateur : boutons en barre d'actions compacte ; et liste des joueurs à gauche, avis du joueur choisi à droite
   // (dans le panneau, qui passe alors en pleine largeur ; sur téléphone, les avis se déplient sous la ligne).
@@ -703,7 +707,7 @@ export function EventDetail() {
   const notedByMe = new Set(evals.filter(isMine).map((e) => e.playerId))
   const roster = sortRoster(
     (ev.playerIds ?? []).map((pid) => byId.get(pid)).filter((p): p is Player => !!p),
-    sort,
+    'nom',
   )
   const shownRoster = filterRoster(roster, { pos: posFilter, hideNoted }, notedByMe)
   // Accord au genre (src/gender.ts) : sexe déclaré de l'événement, sinon déduit de la liste (toutes des filles → féminin).
@@ -719,13 +723,12 @@ export function EventDetail() {
   const coverOk = (p: Player) =>
     cover === 'pasvus' ? !isSeen(p) : cover === 'vus' ? isSeen(p) : cover === 'notes' ? notedSet.has(p.id) : cover === 'arevoir' ? rewatchFrom.has(p.id) : true
   const askIds = askFilter ? new Set(askFilter.ids) : null
-  const displayed = shownRoster.filter((p) => coverOk(p) && (!askIds || askIds.has(p.id)))
+  // Avant la barre « Demander » (ses filtres : EventRosterBar, au rendu de la liste).
+  const listed = shownRoster.filter((p) => coverOk(p) && (!askIds || askIds.has(p.id)))
   // Tournoi réparti : équipes, mes équipes et leur progression.
   const tTeams = tournamentTeams(ev)
-  const myTeams = myTournamentTeams(ev)
   const byTeam = tTeams.length > 0 && groupBy !== 'poste'
   const teamName = (pid: string) => tTeams.find((t) => t.id === teamOf(ev, pid))?.name
-  const myRoster = roster.filter((p) => myTeams.has(teamOf(ev, p.id) ?? ''))
   const nameOf = (uid: string) => personName(uid, ev, teams)
   // Titres de poste, sauf si aucun joueur n'a de poste (un seul titre « Sans poste » n'apporterait rien).
   const withHeadings = roster.some((p) => p.position)
@@ -778,6 +781,98 @@ export function EventDetail() {
       {label}
     </button>
   )
+  // Répartition par équipe : tournoi, événement déjà réparti ou match importé d'une feuille (lecture pour tous, réglage
+  // pour l'organisateur et les participants).
+  const showSplit = ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet
+  const canRemove = roster.some((p) => can.removeFromEvent(role, ev, p.id))
+  // Actions de la liste des joueurs, en tête du ⋮ du titre (31/10) : la page garde « Évaluer » et la liste.
+  const toPlayers = () => setTab('joueurs')
+  const listActions = ([
+    canAdd && !adding && { label: `Ajouter des ${ew.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${ew.un} par ${ew.un}`, onSelect: () => (toPlayers(), setAdding(true)) },
+    roster.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
+    canRemove && !pick.on && !removing && { label: `Retirer des ${ew.joueurs}`, icon: 'close', onSelect: () => (toPlayers(), setAdding(false), setRemoving(true)) },
+    showSplit && { label: 'Répartir par équipe', icon: 'users', hint: 'observateurs par équipe (tournoi)', onSelect: () => setSplitOpen(true) },
+  ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
+  // Un trait entre ces actions et celles de l'événement (Modifier, Dupliquer…).
+  const afterListActions = (items: (MenuItem | false | undefined | null)[]) => {
+    const rest = items.filter((x): x is MenuItem => !!x)
+    if (listActions.length && rest[0]) rest[0] = { ...rest[0], separated: true }
+    return [...listActions, ...rest]
+  }
+  const split = showSplit ? tournamentSummary(ev, roster, sight, eg) : null
+
+  // Couverture de l'équipe (ligne de chiffres sous la barre, pastilles « Où j'en suis » de la fenêtre « Filtres »).
+  const nSeen = roster.filter(isSeen).length
+  const nNoted = roster.filter((p) => notedSet.has(p.id)).length
+  const nRewatch = roster.filter((p) => rewatchFrom.has(p.id)).length
+  const coverCounts: Record<string, number> = { pasvus: roster.length - nSeen, vus: nSeen, notes: nNoted, arevoir: nRewatch }
+  const coverLabels = coverageLabels(eg)
+  const positions = rosterPositions(roster)
+  const posLabel = positions.find((x) => x.id === posFilter)?.label
+  const notedLabel = `${ew.ceux} que j’ai ${accord('noté', eg, 2)}`
+  // Filtres de la page dans la fenêtre « Filtres » de la barre, avant ceux de la liste Joueurs : où j'en suis (un seul à la
+  // fois, comme avant), postes (un seul : partagé avec la notation), rangement d'un tournoi réparti. Posés : une pastille.
+  const ownFilters: OwnFilters = {
+    panel: (
+      <>
+        <ChoicePills<CoverageFilter>
+          k="evt-cover evt-hide"
+          label="Où j’en suis"
+          allLabel={ew.Tous}
+          total={roster.length}
+          value={cover === 'tous' ? [] : [cover]}
+          options={coverLabels.map(([value, label]) => ({ value, label }))}
+          counts={coverCounts}
+          onChange={(vs) => setCover(vs.find((v) => v !== cover) ?? 'tous')}
+          extra={
+            (nNotedInRoster > 0 || hideNoted) && (
+              <button type="button" aria-pressed={hideNoted} className={pillClass(hideNoted)} onClick={() => setHideNoted(!hideNoted)}>
+                Masquer {notedLabel}
+                <span className="ml-1 text-[10px] font-normal tabular-nums opacity-75">{nNotedInRoster}</span>
+              </button>
+            )
+          }
+        />
+        {positions.length > 1 && (
+          <ChoicePills<Position>
+            k="evt-pos"
+            label="Postes"
+            total={roster.length}
+            value={posFilter ? [posFilter] : []}
+            options={positions.map((x) => ({ value: x.id, label: x.label, short: courtTag(x.id) }))}
+            counts={Object.fromEntries(positions.map((x) => [x.id, x.n]))}
+            onChange={(vs) => setPosFilter(vs.find((v) => v !== posFilter) ?? '')}
+          />
+        )}
+        {tTeams.length > 0 && (
+          <FilterField label="Ranger la liste" k="evt-group">
+            <div role="radiogroup" aria-label="Ranger la liste" className="flex flex-wrap gap-1.5">
+              {ROSTER_GROUPS.map(({ value: v, label }) => (
+                <button key={v} type="button" role="radio" aria-checked={groupBy === v} className={pillClass(groupBy === v)} onClick={() => setGroupBy(v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </FilterField>
+        )}
+      </>
+    ),
+    chips: [
+      ...(cover !== 'tous' ? [{ key: 'evt-cover', label: coverLabels.find(([v]) => v === cover)?.[1] ?? '', onRemove: () => setCover('tous') }] : []),
+      ...(hideNoted ? [{ key: 'evt-hide', label: `Sans ${notedLabel}`, onRemove: () => setHideNoted(false) }] : []),
+      ...(posFilter ? [{ key: 'evt-pos', label: posLabel ?? courtTag(posFilter), onRemove: () => setPosFilter('') }] : []),
+    ],
+    onReset: () => {
+      setCover('tous')
+      setHideNoted(false)
+      setPosFilter('')
+    },
+    // Dans la fenêtre : les joueurs que la page affichera (ses filtres et ceux de la barre).
+    count: (f) => {
+      const ids = new Set(f.map((p) => p.id))
+      return listed.filter((p) => ids.has(p.id)).length
+    },
+  }
   // Feuille de match : importée depuis le formulaire « Modifier », ou depuis l'onglet Vidéo tant qu'il n'y en a pas.
   const importSheet = !ev.matchSheet && manage && sheets && (
     <button
@@ -818,12 +913,17 @@ export function EventDetail() {
       ]}
     />
   )
-  const sections = byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings, eg) : rosterSections(displayed, withHeadings)
+  // Liste affichée : après les filtres de la page, ceux de la barre « Demander » (`inBar` : null tant qu'elle se prépare).
+  const sectionsFor = (displayed: Player[]) =>
+    byTeam ? teamSections(displayed, ev, sight, nameOf, groupBy === 'equipe-poste' && withHeadings, eg) : rosterSections(displayed, withHeadings)
   // Joueur dont les avis sont affichés dans la colonne de droite (mode « duo »).
   const avisPlayer = avisShown ? players.find((p) => p.id === openAvis) : undefined
-  // ↑ ↓ : joueurs de la liste affichée puis hors liste, ceux qui ont des avis.
+  // ↑ ↓ : joueurs de la liste affichée puis hors liste, ceux qui ont des avis (liste affichée : reprise au rendu de la liste).
   const withAvis = new Set(evals.map((e) => e.playerId))
-  avisOrder.current = [...sections.flatMap((sec) => sec.players), ...settled].map((p) => p.id).filter((pid) => withAvis.has(pid))
+  const setAvisOrder = (sections: RosterSection[]) => {
+    avisOrder.current = [...sections.flatMap((sec) => sec.players), ...settled].map((p) => p.id).filter((pid) => withAvis.has(pid))
+  }
+  setAvisOrder([])
 
   // Fin de « Modifier » (fenêtre) : Enregistrer, Annuler ou ✕. Ouvert depuis un autre écran (menu d'une ligne de la
   // liste) : retour à cet écran, une fois l'entrée d'historique de la fenêtre retirée.
@@ -872,7 +972,7 @@ export function EventDetail() {
               <HeaderMenu
                 title={ev.name}
                 subtitle={[typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · ')}
-                items={[
+                items={afterListActions([
                   manage && !editing && { label: 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
                   // Copie à compléter (« Dupliquer l'événement ») : rien n'est écrit avant « Créer ».
                   can.manageEvents(role) && { label: 'Dupliquer…', icon: 'list', hint: 'choisir ce qui est copié', onSelect: () => setDuplicating(true) },
@@ -891,7 +991,7 @@ export function EventDetail() {
                       if (await deleteEvent(ev, role)) leave.exit()
                     },
                   },
-                ]}
+                ])}
               />
             </div>
           </div>
@@ -963,32 +1063,19 @@ export function EventDetail() {
         </Suspense>
       )}
 
-      {/* Ordinateur : une barre d'actions compacte. Liste vide : « + Ajouter des joueurs » passe en bouton principal. */}
+      {/* Ordinateur : une barre d'actions compacte (« Évaluer » et les onglets) ; les autres actions de la liste sont dans le ⋮. */}
       {bar && (
         <div className="flex flex-wrap items-center gap-2">
-          {tab === 'video' ? null : addFirst && tab === 'joueurs' && !adding ? (
-            <>
-              {addButton('btn-primary px-3 py-1.5 text-xs')}
-              {evaluate('btn-ghost px-3 py-1.5 text-xs')}
-            </>
-          ) : (
-            <>
-              {evaluate('btn-primary px-3 py-1.5 text-xs')}
-              {tab === 'joueurs' && !adding && canAdd && addButton('btn-ghost px-3 py-1.5 text-xs')}
-            </>
-          )}
+          {tab !== 'video' && !(tab === 'joueurs' && adding) && evaluate(`${addFirst && tab === 'joueurs' ? 'btn-ghost' : 'btn-primary'} px-3 py-1.5 text-xs`)}
           {tabs('ml-auto min-w-64 max-w-80 flex-1')}
         </div>
       )}
 
-      {/* Téléphone : les joueurs d'abord ; « Évaluer » vient juste au-dessus de la liste, après la couverture. */}
+      {/* Téléphone : les onglets, puis « Évaluer » (l'action principale), au-dessus de la barre de la liste. */}
       {!bar && tabs()}
-      {!bar && tab === 'classement' && evaluate('btn-soft')}
+      {!bar && (tab === 'classement' || (tab === 'joueurs' && !adding)) && evaluate(addFirst && tab === 'joueurs' ? 'btn-ghost text-xs' : 'btn-soft')}
 
-      {/* Joueurs : la répartition par équipe en haut (repliée), puis la liste. */}
-      {tab === 'joueurs' && !adding && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
-        <TournamentPanel ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} g={eg} />
-      )}
+      {splitOpen && <TournamentWindow ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} g={eg} onClose={() => setSplitOpen(false)} />}
 
       {/* Vidéo : vidéos, feuille de match (calage, moments, déroulé) et son import. Toujours monté, seulement masqué sur
           les autres onglets : le lecteur (VideoDock), le mode édition du séquençage et l'état des cartes (déroulé ouvert…)
@@ -1056,10 +1143,6 @@ export function EventDetail() {
                 {evals.length ? `Choisis « avis » sur la ligne d’${ew.unJoueur} : ses avis et son radar s’affichent à droite.` : 'Aucun avis pour l’instant sur cet événement.'}
               </p>
             )}
-            {!bar &&
-              canAdd &&
-              (addFirst ? addButton('btn-soft') : addButton('btn-ghost text-xs', `+ Ajouter des ${ew.joueurs} (par groupe ou ${ew.un} par ${ew.un})`))}
-            {!bar && roster.length === 0 && evaluate(addFirst ? 'btn-ghost text-xs' : 'btn-soft')}
             <RewatchInEvent
               ev={ev}
               rows={rewatch.filter((r) => r.events?.includes(ev.id))}
@@ -1116,84 +1199,69 @@ export function EventDetail() {
             )}
             <HiddenPlayers count={hidden.length} />
             {roster.length === 0 ? (
-              offList.length || hidden.length ? null : <Empty>{ew.AucunJoueur} dans la liste. {manage ? `Ajoute un groupe (club + année…) ou des ${ew.joueurs} ${ew.un} par ${ew.un}.` : ''}</Empty>
-            ) : (
+              // Liste vide : « + Ajouter des joueurs » reste à portée (pas seulement dans le ⋮).
               <>
-                <CoverageBar
-                  total={roster.length}
-                  seen={roster.filter(isSeen).length}
-                  noted={roster.filter((p) => notedSet.has(p.id)).length}
-                  rewatch={roster.filter((p) => rewatchFrom.has(p.id)).length}
-                  mine={myRoster.length ? { seen: myRoster.filter(isSeen).length, total: myRoster.length } : undefined}
-                  filter={cover}
-                  setFilter={setCover}
-                  g={eg}
-                />
-                {!bar && evaluate('btn-soft')}
-                {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
-                  <div className="flex items-center justify-end gap-3">
-                    {roster.length > 1 && !removing && <CompareToggle pick={pick} className="mr-auto" />}
-                    {manage && roster.length > 1 && removing && (
+                {!(offList.length || hidden.length) && (
+                  <Empty>
+                    {ew.AucunJoueur} dans la liste. {canAdd ? `Ajoute un groupe (club + année…) ou des ${ew.joueurs} ${ew.un} par ${ew.un}.` : ''}
+                  </Empty>
+                )}
+                {canAdd && addButton('btn-soft')}
+              </>
+            ) : (
+              <EventRosterBar eventId={ev.id} players={roster} own={ownFilters}>
+                {(inBar) => {
+                const displayed = inBar ? listed.filter((p) => inBar.has(p.id)) : listed
+                const sections = sectionsFor(displayed)
+                setAvisOrder(sections)
+                return (
+              <>
+                {/* Une ligne de chiffres sous la barre (les filtres « où j'en suis » sont dans « Filtres »). */}
+                <p className="text-xs text-muted" data-testid="bilan-evenement">
+                  {displayed.length < roster.length && (
+                    <>
+                      <b className="text-fg">{displayed.length}</b> sur{' '}
+                    </>
+                  )}
+                  <b className="text-fg">{roster.length}</b> {roster.length > 1 ? ew.joueurs : ew.joueur} · <b className="text-fg">{nSeen}</b> {accord('vu', eg, nSeen)} ·{' '}
+                  <b className="text-fg">{nNoted}</b> {accord('noté', eg, nNoted)} · <b className="text-fg">{nRewatch}</b> à revoir
+                </p>
+                {/* Tournoi réparti : le résumé de la répartition, qui l'ouvre ; rien sans équipe déclarée. */}
+                {split && (
+                  <button type="button" className="flex max-w-full items-baseline gap-1 self-start text-left text-[11px] text-muted hover:text-fg" onClick={() => setSplitOpen(true)}>
+                    <Icon name="users" className="h-3 w-3 shrink-0 translate-y-0.5" />
+                    <span className="min-w-0">
+                      Répartition : {split} <span aria-hidden>›</span>
+                    </span>
+                  </button>
+                )}
+                {/* Mode retrait ou comparaison (lancé depuis le ⋮) : de quoi en sortir, au-dessus de la liste. */}
+                {(removing || pick.on) && (
+                  <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 py-1 pr-1 pl-3 text-xs" data-testid="mode-liste">
+                    <b className="min-w-0 flex-1 leading-tight">{removing ? `Retirer des ${ew.joueurs}` : 'Comparer'}</b>
+                    {removing && manage && roster.length > 1 && (
                       <button
-                        className="text-[11px] font-bold text-muted underline"
+                        className="shrink-0 px-1 text-[11px] font-bold text-muted underline"
                         onClick={async () => (await ask(`Retirer les ${pluralG(roster.length, eg)} de la liste ? Les avis déjà donnés sont conservés.`, { ok: 'Vider la liste' })) && void setRoster(hidden)}
                       >
                         Vider la liste
                       </button>
                     )}
-                    {!pick.on && roster.some((p) => can.removeFromEvent(role, ev, p.id)) && (
-                      <button
-                        className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
-                        onClick={() => setRemoving((r) => !r)}
-                      >
-                        {removing ? 'Terminé' : `Retirer des ${ew.joueurs}`}
-                      </button>
-                    )}
+                    <button className="btn-primary shrink-0 px-3 py-1 text-xs" onClick={() => (removing ? setRemoving(false) : pick.setOn(false))}>
+                      {removing ? 'Terminé' : 'Annuler'}
+                    </button>
                   </div>
                 )}
                 {askFilter && <AskFilterBanner kind="evenement" id={ev.id} f={askFilter} shown={displayed.length} />}
-                {roster.length > 1 && (
-                  <RosterControls
-                    sort={sort}
-                    setSort={setSort}
-                    showSort={!byTeam}
-                    top={
-                      tTeams.length > 0 && (
-                        <div className={`${SEG_BOX} text-xs`}>
-                          {ROSTER_GROUPS.map(({ value: v, label }) => (
-                            <button
-                              key={v}
-                              onClick={() => setGroupBy(v)}
-                              aria-pressed={groupBy === v}
-                              className={`min-h-8 flex-1 px-1 py-1 leading-tight ${segItem(groupBy === v)}`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      )
-                    }
-                    chips={
-                      nNotedInRoster > 0 && (
-                        <RosterChip on={hideNoted} onClick={() => setHideNoted(!hideNoted)}>
-                          Masquer {ew.ceux} que j’ai {accord('noté', eg, 2)} ({nNotedInRoster})
-                        </RosterChip>
-                      )
-                    }
-                    note={`La notation (flèches, glisser) suit cet ordre${filtered ? ` et ne propose que les ${ew.joueurs} ${accord('affiché', eg, 2)}` : ''}.`}
-                  />
-                )}
                 {shownRoster.length === 0 && (
                   <Empty>{hideNoted ? `Tu as ${accord('noté', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} à ce poste.`}</Empty>
                 )}
                 {shownRoster.length > 0 && displayed.length === 0 && (
-                  <Empty>{cover === 'pasvus' ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
+                  <Empty>{cover === 'pasvus' && listed.length === 0 ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
                 {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
-                {/* Postes (filtre) dans la capsule des pictogrammes, collée en haut : à portée pendant le défilement. */}
                 <PlayerList
                   ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
-                  barLead={roster.length > 1 && rosterBarLead({ roster, pos: posFilter, setPos: setPosFilter })}
                   context={{ eventId: ev.id }}
                   select={!removing && !pick.on}
                   className="flex flex-col gap-2"
@@ -1265,6 +1333,9 @@ export function EventDetail() {
                 />
                 </PlayerList>
               </>
+                )
+                }}
+              </EventRosterBar>
             )}
           </div>
           {avisPlayer && (
@@ -1290,6 +1361,28 @@ export function EventDetail() {
       <CompareBar pick={pick} players={players} eventId={ev.id} />
     </div>
     </PlayerMenuScope.Provider>
+  )
+}
+
+/**
+ * Barre « Demander » de la liste d'un événement (31/10) : la même que la liste Joueurs (src/components/PlayersQuery.tsx :
+ * un nom, une phrase, « Filtres » dedans, pastilles dessous), sur les joueurs de l'événement seulement, avec son état de
+ * session à lui. Filtres de la page (`own` : où j'en suis, postes) en tête de la fenêtre. `children(inBar)` : la liste ;
+ * `inBar` : joueurs retenus par la barre (null tant qu'elle se prépare : tous).
+ */
+function EventRosterBar({ eventId, players, own, children }: { eventId: string; players: Player[]; own: OwnFilters; children: (inBar: Set<string> | null) => ReactNode }) {
+  // Mêmes fiches qu'au rendu d'avant : même tableau, l'index de la barre n'est pas refait.
+  const [kept, setKept] = useState(players)
+  const stable = kept.length === players.length && players.every((p, i) => p === kept[i]) ? kept : players
+  if (stable !== kept) setKept(stable)
+  const q = usePlayersQuery(stable, { scope: `evenement.${eventId}`, initial: EMPTY_QUERY, own })
+  const inBar = useMemo(() => (q.loading ? null : new Set(q.filtered.map((p) => p.id))), [q.loading, q.filtered])
+  return (
+    <>
+      <StickyQuery>{q.ui}</StickyQuery>
+      <div className="flex flex-col gap-2 empty:hidden">{q.top}</div>
+      {children(inBar)}
+    </>
   )
 }
 

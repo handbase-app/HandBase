@@ -9,7 +9,7 @@ import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
 import { useSwipeNav } from '../components/useSwipeNav'
-import { eventSections, filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort, type RosterGroup } from '../rosterOrder'
+import { eventSections, filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, type RosterGroup } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { BackButton } from '../backNav'
@@ -173,8 +173,7 @@ export default function Evaluate() {
   const swipeNav = useSwipeNav(playerId)
   const cardRef = swipeNav.cardRef
 
-  // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
-  const [rosterSort] = useRosterSort(eventId || undefined)
+  // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis par nom).
   const [rosterGroup] = useRosterGroup(eventId || undefined)
   // Filtres posés sur la page de l'événement (un poste, masquer ceux que j'ai notés) : on ne note que ces joueurs-là.
   const rosterFilter = useRosterFilter(eventId || undefined)
@@ -330,7 +329,7 @@ export default function Evaluate() {
   const fullRoster = groupRoster(
     sortRoster(
       (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
-      rosterSort,
+      'nom',
     ),
     event,
     rosterGroup,
