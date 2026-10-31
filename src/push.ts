@@ -51,7 +51,33 @@ export async function enablePush(): Promise<string | null> {
     p_auth: json.keys?.auth ?? '',
     p_user_agent: navigator.userAgent,
   })
-  return error ? `Enregistrement impossible : ${error.message}` : null
+  if (error) return `Enregistrement impossible : ${error.message}`
+  void registerPeriodicPrep()
+  return null
+}
+
+/*
+ * PUSH DE LA VEILLE (supabase/060_push_veille.sql, src/veilleSw.ts) : la veille de ses événements, vers 18 h, une notification
+ * fait télécharger au téléphone les joueurs, mesures, avis et la grille de notation. Abonnement : le même que les autres
+ * notifications (enablePush), demandé seulement après un geste clair (« Préparer mes détections la veille »,
+ * src/components/VeillePrep.tsx). Android, appli installée : en plus, une synchronisation périodique (periodicSync) quand le
+ * navigateur l'accorde, pour les événements des deux prochains jours.
+ */
+export const PERIODIC_TAG = 'hb-veille-jours'
+
+/** Synchronisation périodique (Android, appli installée, accordée par le navigateur) ; sans effet ailleurs. */
+export async function registerPeriodicPrep(): Promise<boolean> {
+  try {
+    if (!('serviceWorker' in navigator)) return false
+    const reg = (await registration()) as ServiceWorkerRegistration & { periodicSync?: { register(tag: string, o: { minInterval: number }): Promise<void> } }
+    if (!reg.periodicSync) return false
+    const perm = await navigator.permissions?.query({ name: 'periodic-background-sync' as PermissionName }).catch(() => null)
+    if (perm?.state !== 'granted') return false
+    await reg.periodicSync.register(PERIODIC_TAG, { minInterval: 12 * 3600 * 1000 })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -68,11 +94,20 @@ export async function syncSubscription() {
     p_auth: json.keys?.auth ?? '',
     p_user_agent: navigator.userAgent,
   })
+  if (!error) void registerPeriodicPrep()
   return !error
 }
 
-/** Désabonne cet appareil (le serveur l'oublie). */
+/** Désabonne cet appareil (le serveur l'oublie) ; plus de synchronisation périodique. */
 export async function disablePush() {
+  try {
+    const reg = (await Promise.race([registration(), new Promise<null>((r) => setTimeout(() => r(null), 2000))])) as
+      | (ServiceWorkerRegistration & { periodicSync?: { unregister(tag: string): Promise<void> } })
+      | null
+    await reg?.periodicSync?.unregister(PERIODIC_TAG)
+  } catch {
+    /* non pris en charge */
+  }
   const sub = await currentSubscription()
   if (!sub) return
   await supabase?.rpc('hb_push_unsubscribe', { p_endpoint: sub.endpoint })
@@ -83,7 +118,12 @@ export const NOTIF_KINDS = [
   { id: 'avis', label: 'Avis à valider', help: 'Avis hors liste sur tes événements, avis spontanés de ton secteur.' },
   { id: 'fiche', label: 'Fiches proposées', help: 'Fiches de joueurs proposées dans ton secteur.' },
   { id: 'participant', label: 'Participant', help: `On t’ajoute comme participant d’un événement ou d’un groupe, ou dans un ${STAFF.one} ; un administrateur te confie un groupe.` },
-  { id: 'rappel', label: 'Rappel la veille', help: 'La veille de tes événements (organisateur ou participant), vers 18 h.' },
+  // Push de la veille (supabase/060) : une notification pour tous les événements du lendemain, joueurs préparés hors ligne.
+  {
+    id: 'rappel',
+    label: 'La veille de mes événements',
+    help: 'Organisateur, participant ou membre du staff : vers 18 h, une notification pour tous tes événements du lendemain, et tes joueurs préparés hors ligne sur ce téléphone.',
+  },
   // supabase/033_notifications_suivis.sql
   {
     id: 'suivi',

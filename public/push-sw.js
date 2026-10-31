@@ -1,11 +1,20 @@
 // Nextar : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
 // Message envoyé par la fonction Supabase « notify » : { title, body, url, tag } ; sans titre : « Nextar ».
+// Message de la veille (fonction « veille », { type: "veille", … }) : confié à veille-sw.js (src/veilleSw.ts, chargé avant ce
+// fichier), qui affiche la notification et prépare les événements du lendemain hors ligne.
 self.addEventListener('push', (event) => {
   let d = {}
   try {
     d = event.data ? event.data.json() : {}
   } catch {
     d = { body: event.data ? event.data.text() : '' }
+  }
+  if (d && d.type === 'veille') {
+    const p = self.HBVeille && self.HBVeille.push(d)
+    if (p) return event.waitUntil(p)
+    // veille-sw.js absent (ancienne version en cache) : une notification simple, toujours visible.
+    d = { title: 'Nextar', body: 'Événements demain : ouvrez l’appli pour préparer vos joueurs hors ligne.', url: '/evenements', tag: 'veille' }
+    return event.waitUntil(self.registration.showNotification(d.title, { body: d.body, tag: d.tag, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url } }))
   }
   event.waitUntil(
     Promise.all([bumpBadge(), self.registration.showNotification(d.title || 'Nextar', {
