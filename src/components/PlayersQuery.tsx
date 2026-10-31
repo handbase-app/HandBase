@@ -389,7 +389,8 @@ export function usePlayersQuery(
     if (act) {
       setText('')
       recordAsk(askPage, said)
-      startAskAction(said, 'joueurs', act)
+      // « ajoute ceux-là au groupe X » : les joueurs affichés (seulement si la phrase le dit : plan.current).
+      startAskAction(said, 'joueurs', act, { ids: filtered.map((p) => p.id), label: 'la liste affichée' })
       return
     }
     // Simple nom : recherche locale (dite au micro ou tapée).

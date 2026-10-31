@@ -317,7 +317,8 @@ const NOT_NAME = new Set(
     'meilleur meilleurs meilleure meilleures note notes avis mesure mesures pole video videos suivis groupe groupes club clubs region regions ' +
     'departement departements et en dans montre affiche cherche trouve liste seulement uniquement recommence reinitialise mesurent mesure ' +
     'mesurant ont a sont est nombre annee annees trimestre poste postes lateralite generation generations sexe priorite prioritaires progression ' +
-    'evenement evenements tournoi stage saison depuis cm metre metres dis donne revoir revu revus revue revues repere reperes reperee reperees mois'
+    'evenement evenements tournoi stage saison depuis cm metre metres dis donne revoir revu revus revue revues repere reperes reperee reperees mois ' +
+    'prochain prochaine dernier derniere'
   ).split(' '),
 )
 // Postes d'un autre sport que le handball (selon le sport de l'installation) : des mots de critère aussi, pas des noms.

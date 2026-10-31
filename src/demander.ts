@@ -156,17 +156,20 @@ const MAX_NAMED = 3
 
 // Mots qui disent de quoi parle la phrase. Les mots de joueurs l'emportent (« les joueurs du tournoi de Cannes » : Joueurs).
 const PLAYER_WORDS =
-  /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demi|demis|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|n(?:e|es|ee|ees) en|licencies?|licenciees?|garcons?|filles?|taille|mesurent|suivis|cm|metre|metres|fiche|fiches)\b/
+  /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demi|demis|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|n(?:e|es|ee|ees) en|licencies?|licenciees?|garcons?|filles?|taille|mesurent|suivis|cm|metre|metres|fiche|fiches|(?:19|20)\d\d|revoir|grands?|grandes?|meilleurs?|meilleures?|rapides?|vus|vues|avis)\b/
 /** Postes d'un autre sport (selon l'installation) : des mots de joueurs aussi (« les passeuses du stage CRE » : Joueurs). */
 const PLAYER_WORDS_SPORT: Record<string, RegExp> = {
   volley: /\b(passeurs?|passeuses?|central|centraux|centrales?|pointus?|pointues?|opposes?|opposees?|liberos?|receptionneurs?|receptionneuses?|attaquants?|attaquantes?|r4)\b/,
 }
 const playerWords = (n: string) => PLAYER_WORDS.test(n) || !!PLAYER_WORDS_SPORT[currentSport().sport]?.test(n)
-const EVENT_WORDS = /\b(evenements?|tournois?|matchs?|matches|stages?|rassemblements?|entrainements?|observations?|a venir|passes)\b/
+const EVENT_WORDS = /\b(evenements?|tournois?|matchs?|matches|stages?|rassemblements?|entrainements?|observations?|intercomites?|interligues?|interpoles?|detections?|regroupements?|a venir|passes)\b/
 const GROUP_WORDS = /\b(groupes?|equipes?|selections?|collectifs?)\b/
 /** Début de phrase sans sujet (« les », « combien de », « quels sont les »…), retiré pour lire le sujet. */
 const LEAD_RE = /^(?:(?:montre|affiche|donne|liste|cherche|trouve)(?: moi)?\s+)?(?:tous |toutes |quels sont |quelles sont |quels |quelles |combien de |combien d'|le nombre de |le nombre d'|la liste des |la liste de )?(?:les |mes |des |ses |nos |ces |le |la |l')?/
-const CALC_WORDS = /\b(combien|quels?|quelles?|moyennes?|moyens?|nombre|par (club|departement|region|comite|ligue|poste|annee|generation|mois|sexe|coach|personne)|le plus|le moins|repartition|pourcentage|part des|carte)\b|\?/
+const CALC_WORDS = /\b(combien|quels?|quelles?|moyennes?|moyens?|nombre|par (club|departement|region|comite|ligue|poste|annee|generation|mois|sexe|coach|personne)|le plus|le moins|repartition|pourcentage|part des|part de|part d'|carte)\b|\?/
+/** Question qui demande une LISTE (« Quels sont les gauchers… ? », « Qui ai-je mis à revoir… ? ») : pas un calcul, sauf mot de calcul. */
+const LIST_Q = /^(?:qui sont|quels sont|quelles sont|qui ai je|qui j'ai|lesquels|lesquelles)\b/
+const STRONG_CALC = /\b(combien|moyennes?|moyens?|nombre|par (club|departement|region|comite|ligue|poste|annee|generation|mois|sexe|coach|personne)|le plus|le moins|repartition|pourcentage|part des|part de|part d'|carte)\b/
 
 /** « ouvre / va à / montre / affiche (la fiche de | l'événement | le groupe) X » : X et le genre dit, s'il est dit. */
 const OPEN_RE =
@@ -236,19 +239,28 @@ function actionRoute(phrase: string, d: Detected): AskRoute {
   const label =
     d.kind === 'interdite'
       ? 'Action non permise à l’assistant'
-      : !p
-        ? 'Préparer cette action'
-        : p.action === 'creer_groupe'
-          ? 'Préparer : créer un groupe avec le résultat'
-          : p.action === 'ajouter_groupe'
-            ? `Préparer : ajouter au groupe « ${p.target} »`
-            : p.action === 'ajouter_evenement'
-              ? `Préparer : ajouter à « ${p.target} »`
-              : `Ouvrir « ${p.target} » avec ce filtre`
+      : d.kind === 'inconnue'
+        ? 'Action pas encore prévue : comment faire'
+        : !p
+          ? 'Préparer cette action'
+          : p.action === 'creer_groupe'
+            ? p.then
+              ? `Préparer : créer un groupe, puis ajouter à « ${p.then.target} »`
+              : 'Préparer : créer un groupe avec le résultat'
+            : p.action === 'ajouter_groupe'
+              ? `Préparer : ajouter au groupe « ${p.target} »`
+              : p.action === 'ajouter_evenement'
+                ? `Préparer : ajouter à « ${p.target} »`
+                : `Ouvrir « ${p.target} » avec ce filtre`
   return {
     kind: 'action',
     label,
-    hint: d.kind === 'interdite' ? 'Supprimer, retirer, modifier : à faire soi-même, depuis la page' : `« ${phrase} » · rien n’est fait sans « Accepter »`,
+    hint:
+      d.kind === 'interdite'
+        ? 'Supprimer, retirer, modifier : à faire soi-même, depuis la page'
+        : d.kind === 'inconnue'
+          ? `« ${phrase} » · je dis comment le faire aujourd’hui`
+          : `« ${phrase} » · rien n’est fait sans « Accepter »`,
     to: '',
     action: { phrase, detected: d },
   }
@@ -307,7 +319,7 @@ function routePhrase(text: string, ctx: AskContext): AskRoute[] {
     return out
   }
 
-  const calc = CALC_WORDS.test(n)
+  const calc = CALC_WORDS.test(n) && !(LIST_Q.test(n.replace(/-/g, ' ')) && !STRONG_CALC.test(n))
   // Le sujet de la phrase : dit en tête (« les groupes de filles » : Groupes), sinon les mots de joueurs l'emportent.
   const head = n.replace(LEAD_RE, '')
   const events = EVENT_WORDS.test(head.split(' ')[0]) || (!playerWords(n) && EVENT_WORDS.test(n))

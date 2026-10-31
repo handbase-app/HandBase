@@ -10,11 +10,12 @@ import {
   buildCard,
   detectAction,
   groupNameFrom,
-  matchName,
+  matchTarget,
   newGroupFields,
   parsePlan,
   REFUSAL_TEXT,
   targetKind,
+  UNPLANNED_TEXT,
   WRITES,
   type ActionOutcome,
   type AskPlan,
@@ -49,21 +50,28 @@ import { useWait, WaitLine } from './Attente'
  *  1. « Je prépare… » : règles locales d'abord (sans IA) ; la partie « joueurs » part au mode « question » (contexte
  *     joueurs) ; une action que les règles ne lisent pas part au mode « action » (plan JSON relu par parsePlan). Seuls la
  *     phrase et le schéma de la recette partent, jamais de données ni de noms de l'appareil ;
- *  2. le groupe ou l'événement CITÉ est retrouvé ici, sur l'appareil (matchName) : approchant → « Tu voulais dire … ? »
+ *  2. le groupe ou l'événement CITÉ est retrouvé ici, sur l'appareil (matchTarget : « le prochain intercomité » → l'événement à
+ *     venir le plus proche de ce nom, à confirmer) : approchant → « Tu voulais dire … ? »
  *     (Oui / un autre / Annuler) ; trop éloigné → « Je ne trouve pas … » ;
  *  3. la carte : « Je vais : 1) chercher : gauchers · Var · taille ≥ 180 cm → 23 joueurs (voir la liste) ; 2) créer le groupe
  *     « … » avec ces 23 joueurs », nom modifiable, avertissement au-delà de 200 joueurs, droits (can.* de src/roles.ts : sans
  *     le droit, la carte le dit et ne propose pas « Accepter ») ; RIEN n'est écrit avant « Accepter » ;
  *  4. après « Accepter » : l'action est faite par les fonctions des boutons existants (création comme « Nouveau groupe »,
  *     addToGroup, addPlayersToEvent), message de réussite avec un lien, et « Défaire » quelques secondes. Ouvrir un
- *     événement ou un groupe filtré : la page s'ouvre avec le filtre (bandeau « Filtre de Demander », ✕ pour le retirer).
+ *     événement ou un groupe filtré : la page s'ouvre avec le filtre (bandeau « Filtre de Demander », ✕ pour le retirer) ;
+ *  5. enchaînement « crée un groupe … et ajoute-les à l'événement X » (plan.then) : une étape de plus dans la carte (« Puis
+ *     ajouter les mêmes à … », cible retrouvée et droits vérifiés de même), un seul « Accepter », « Défaire » défait tout ;
+ *     « ceux-là », « cette liste » (plan.current) : les joueurs de la liste Joueurs affichée, sans appel ; action pas encore
+ *     prévue (marquer vus, exporter, convoquer… : Detected « inconnue ») : la carte dit comment le faire aujourd'hui.
  * Jamais de suppression, de retrait, de modification de fiche ni d'action sur des comptes. Chaque demande est notée au
  * journal des questions (phrase anonymisée, recette, action proposée et ce qu'en a fait l'entraîneur ; jamais de nom).
  */
 
 // ---------- Demande en cours (une seule à la fois) ----------
 
-type Request = { id: number; phrase: string; page: AskPage; detected?: Detected | null }
+/** `current` : les joueurs de la liste affichée (liste Joueurs), pour « ajoute ceux-là au groupe X ». */
+type Current = { ids: string[]; label: string }
+type Request = { id: number; phrase: string; page: AskPage; detected?: Detected | null; current?: Current }
 let request: Request | null = null
 let seq = 0
 const listeners = new Set<() => void>()
@@ -75,9 +83,9 @@ const subscribe = (l: () => void) => {
   }
 }
 
-/** Ouvre la carte d'action pour cette phrase (`detected` : déjà lue par detectAction). */
-export function startAskAction(phrase: string, page: AskPage, detected?: Detected | null) {
-  request = { id: ++seq, phrase: phrase.replace(/\s+/g, ' ').trim(), page, detected }
+/** Ouvre la carte d'action pour cette phrase (`detected` : déjà lue par detectAction ; `current` : la liste affichée). */
+export function startAskAction(phrase: string, page: AskPage, detected?: Detected | null, current?: Current) {
+  request = { id: ++seq, phrase: phrase.replace(/\s+/g, ' ').trim(), page, detected, current }
   emit()
 }
 const closeRequest = () => {
@@ -156,13 +164,21 @@ export function AskFilterBanner({ kind, id, f, shown }: { kind: 'evenement' | 'g
 
 type Step =
   | { k: 'plan' }
-  | { k: 'name'; said: string; kind: 'groupe' | 'evenement'; choices: Named[] }
+  | { k: 'name'; said: string; kind: 'groupe' | 'evenement'; choices: Named[]; slot: 'cible' | 'suite' }
   | { k: 'ready' }
   | { k: 'doing' }
   | { k: 'done'; msg: string; link?: { to: string; label: string }; undo?: () => Promise<string> }
   | { k: 'error'; msg: string }
 
 const NO_AI = 'L’assistant en ligne n’est pas disponible ici : je ne peux pas lire les critères de joueurs. Utilise les filtres de la liste Joueurs, puis « → Groupe ».'
+/** Cible introuvable (« le prochain intercomité » : aucun à venir). */
+const notFound = (kind: 'groupe' | 'evenement', said: string) =>
+  /^\s*(?:le |la |l['’])?(?:prochain|prochaine)\b/i.test(said)
+    ? `Je ne trouve pas d’événement à venir qui corresponde à « ${said} » sur cet appareil. Vérifie dans Événements.`
+    : /^\s*(?:le |la |l['’])?(?:dernier|dernière)\b/i.test(said)
+      ? `Je ne trouve pas d’événement passé qui corresponde à « ${said} » sur cet appareil. Vérifie dans Événements.`
+      : `Je ne trouve pas ${kind === 'groupe' ? 'de groupe' : 'd’événement'} « ${said} » sur cet appareil. Vérifie son nom dans ${kind === 'groupe' ? 'Groupes' : 'Événements'}.`
+const NO_CURRENT = 'Je ne sais pas de quels joueurs tu parles. Dis-moi les critères (« les gauchers de 2011 »), ou fais la demande depuis la liste Joueurs filtrée.'
 const UNDO_MS = 10_000
 const LIST_MAX = 100
 const OUT_CHIPS = new Set(['out', 'value', 'keep', 'outPeriod', 'sort', 'limit', 'minMatch', 'noneYears'])
@@ -177,6 +193,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   const [plan, setPlan] = useState<AskPlan | null>(null)
   const [raw, setRaw] = useState<{ recette: unknown; nonGere: string[] } | null>(null)
   const [target, setTarget] = useState<Named | null>(null)
+  /** Cible de la deuxième étape (plan.then), retrouvée sur l'appareil. */
+  const [thenTarget, setThenTarget] = useState<Named | null>(null)
   const [groupName, setGroupName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
   const [showList, setShowList] = useState(false)
@@ -217,6 +235,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
     void (async () => {
       const d = req.detected ?? detectAction(req.phrase, req.page)
       if (d?.kind === 'interdite') return fail(REFUSAL_TEXT.interdite, 'interdite', 'refusee')
+      // Action pas encore prévue (marquer vus, exporter…) : dite tout de suite, avec la façon de faire aujourd'hui.
+      if (d?.kind === 'inconnue') return fail(UNPLANNED_TEXT[d.what], 'inconnue', 'impossible')
       const schema = buildQuestionSchema({ criteria, positions: POSITIONS, today: today(), regions: [], depts: [], clubs: [], groups: [], events: [] })
       const ctrl = new AbortController()
       abort.current = ctrl
@@ -227,7 +247,9 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
         if (d?.kind === 'plan') {
           p = d.plan
           if (p.action === 'filtrer_createur') return toList(p)
-          if (p.playersPhrase) {
+          // « ceux-là », « cette liste » : les joueurs de la liste affichée, sans appel.
+          if (p.current && !req.current?.ids.length) return fail(NO_CURRENT, p.action, 'impossible')
+          if (p.playersPhrase && !p.current) {
             if (!questionReady) return fail(NO_AI, p.action, 'impossible')
             const ans = await sendQuestionRequest(p.playersPhrase, schema, ctrl.signal, { contexte: 'joueurs', actuels: [] })
             recette = ans.recette
@@ -283,15 +305,32 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }, [kind, model.data])
   useEffect(() => {
     if (!plan || !kind || target || step.k !== 'plan' || !model.data) return
-    const m = matchName(plan.target ?? '', named)
+    const m = matchTarget(plan.target ?? '', named, today())
     if (m.kind === 'exact') setTarget(m.item)
-    else if (m.kind === 'approx') setStep({ k: 'name', said: plan.target ?? '', kind, choices: m.choices })
-    else fail(`Je ne trouve pas ${kind === 'groupe' ? 'de groupe' : 'd’événement'} « ${plan.target} » sur cet appareil. Vérifie son nom dans ${kind === 'groupe' ? 'Groupes' : 'Événements'}.`, plan.action, 'impossible')
+    else if (m.kind === 'approx') setStep({ k: 'name', said: plan.target ?? '', kind, choices: m.choices, slot: 'cible' })
+    else fail(notFound(kind, plan.target ?? ''), plan.action, 'impossible')
   }, [plan, kind, named, model.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deuxième étape (« … et ajoute-les à l'événement X ») : sa cible, retrouvée de même, après celle de la première.
+  const thenKind = plan?.then ? targetKind(plan.then.action) : undefined
+  useEffect(() => {
+    if (!plan?.then || !thenKind || thenTarget || step.k !== 'plan' || !model.data || (kind && !target)) return
+    const list: Named[] = thenKind === 'groupe' ? model.data.groups.map((g) => ({ id: g.id, name: g.name })) : model.data.events.map((e) => ({ id: e.id, name: e.name, date: e.date }))
+    const m = matchTarget(plan.then.target, list, today())
+    if (m.kind === 'exact') setThenTarget(m.item)
+    else if (m.kind === 'approx') setStep({ k: 'name', said: plan.then.target, kind: thenKind, choices: m.choices, slot: 'suite' })
+    else fail(notFound(thenKind, plan.then.target), plan.action, 'impossible')
+  }, [plan, thenKind, thenTarget, step.k, model.data, kind, target]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- 3. Les joueurs : recette relue avec les listes de l'appareil, calculée ici ----------
   const calc = useMemo(() => {
-    if (!plan || !raw || !model.ctx || !model.index || (kind && !target)) return null
+    if (!plan || !raw || !model.ctx || !model.index || (kind && !target) || (thenKind && !thenTarget)) return null
+    if (plan.current && req.current) {
+      // « ceux-là » : les joueurs de la liste affichée, dans son ordre.
+      const want = new Set(req.current.ids)
+      const players = model.index.players.filter((p) => want.has(p.id))
+      return { players, chips: [req.current.label], missing: [] as string[], noCriteria: false, recipe: 'complete' as RecipeStatus }
+    }
     const it = rescueInterpretation(interpretRecipe(raw.recette, raw.nonGere, model.ctx), plan.playersPhrase ?? req.phrase, model.ctx, { scope: 'liste' })
     const base = listRecipe(it.recipe)
     const noCriteria = !hasPopulation(base) && !hasConditions(base)
@@ -306,7 +345,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
     const missing = [...it.unsupported, ...it.notes]
     const recipe: RecipeStatus = noCriteria && (missing.length || WRITES.includes(plan.action)) ? 'pas_comprise' : missing.length ? 'partielle' : 'complete'
     return { players, chips, missing, noCriteria, recipe }
-  }, [plan, raw, model.ctx, model.index, model.names, kind, target, req.phrase])
+  }, [plan, raw, model.ctx, model.index, model.names, kind, target, thenKind, thenTarget, req.phrase, req.current])
   useEffect(() => {
     if (calc) statusRef.current = { recipe: calc.recipe, missing: calc.missing }
   }, [calc])
@@ -321,25 +360,32 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   // ---------- Droits (mêmes règles que les boutons : can.* de src/roles.ts) ----------
   const group: PlayerGroup | undefined = kind === 'groupe' && target ? model.data?.groups.find((g) => g.id === target.id) : undefined
   const event: HBEvent | undefined = kind === 'evenement' && target ? model.data?.events.find((e) => e.id === target.id) : undefined
+  const thenGroup: PlayerGroup | undefined = thenKind === 'groupe' && thenTarget ? model.data?.groups.find((g) => g.id === thenTarget.id) : undefined
+  const thenEvent: HBEvent | undefined = thenKind === 'evenement' && thenTarget ? model.data?.events.find((e) => e.id === thenTarget.id) : undefined
+  /** Droit d'ajouter des joueurs à ce groupe ou à cet événement. */
+  const addRights = (g: PlayerGroup | undefined, e: HBEvent | undefined, k: 'groupe' | 'evenement'): { ok: boolean; why?: string } => {
+    if (k === 'groupe') {
+      if (!g) return { ok: false }
+      if (g.poleUnitId) return { ok: false, why: 'Groupe Pôle : l’arrivée s’écrit sur la fiche ; ajoute ces joueurs depuis la page du groupe.' }
+      if (g.archived) return { ok: false, why: 'Ce groupe est archivé : désarchive-le d’abord.' }
+      return can.editGroup(role, g) || can.contributeGroup(role, g) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à ce groupe (ni créateur ni participant).' }
+    }
+    if (!e) return { ok: false }
+    if (e.archived) return { ok: false, why: 'Cet événement est archivé : désarchive-le d’abord.' }
+    return can.editEvent(role, e) || can.contributeEvent(role, e) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à cet événement (ni organisateur ni participant).' }
+  }
   const rights = ((): { ok: boolean; why?: string } => {
     if (!plan) return { ok: false }
     if (WRITES.includes(plan.action) && spyTarget()) return { ok: false, why: '« Voir comme… » : lecture seule, rien ne peut être écrit.' }
     if (plan.action === 'creer_groupe') return can.manageGroups(role) ? { ok: true } : { ok: false, why: 'Ton rôle ne permet pas de créer des groupes.' }
-    if (plan.action === 'ajouter_groupe') {
-      if (!group) return { ok: false }
-      if (group.poleUnitId) return { ok: false, why: 'Groupe Pôle : l’arrivée s’écrit sur la fiche ; ajoute ces joueurs depuis la page du groupe.' }
-      if (group.archived) return { ok: false, why: 'Ce groupe est archivé : désarchive-le d’abord.' }
-      return can.editGroup(role, group) || can.contributeGroup(role, group) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à ce groupe (ni créateur ni participant).' }
-    }
-    if (plan.action === 'ajouter_evenement') {
-      if (!event) return { ok: false }
-      if (event.archived) return { ok: false, why: 'Cet événement est archivé : désarchive-le d’abord.' }
-      return can.editEvent(role, event) || can.contributeEvent(role, event) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à cet événement (ni organisateur ni participant).' }
-    }
+    if (plan.action === 'ajouter_groupe') return addRights(group, undefined, 'groupe')
+    if (plan.action === 'ajouter_evenement') return addRights(undefined, event, 'evenement')
     return { ok: true }
   })()
+  const thenRights = thenKind ? addRights(thenGroup, thenEvent, thenKind) : undefined
   const ids = useMemo(() => calc?.players.map((p) => p.id) ?? [], [calc])
-  const already = plan?.action === 'ajouter_groupe' && group ? ids.filter((id) => group.playerIds.includes(id)).length : plan?.action === 'ajouter_evenement' && event ? ids.filter((id) => event.playerIds?.includes(id)).length : undefined
+  const inside = (g?: PlayerGroup, e?: HBEvent) => (g ? ids.filter((id) => g.playerIds.includes(id)).length : e ? ids.filter((id) => e.playerIds?.includes(id)).length : undefined)
+  const already = plan?.action === 'ajouter_groupe' ? inside(group) : plan?.action === 'ajouter_evenement' ? inside(undefined, event) : undefined
   const gender = calc ? genderOf(calc.players) : undefined
   const card =
     plan && calc
@@ -355,15 +401,60 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
           deniedWhy: rights.why,
           unsupported: calc.missing,
           noCriteria: calc.noCriteria,
+          ...(plan.then && thenRights ? { then: { target: thenTarget ?? undefined, already: inside(thenGroup, thenEvent), allowed: thenRights.ok, deniedWhy: thenRights.why } } : {}),
         })
       : null
 
   // ---------- 4. Accepter ----------
+  type Done = { msg: string; link?: { to: string; label: string }; undo?: () => Promise<string> }
+  /** Ajout au groupe (fonction du bouton « Ajouter à un groupe ») ; « Défaire » retire ceux qui viennent d'être ajoutés. */
+  async function addGroupStep(g: PlayerGroup): Promise<Done> {
+    const cur = (await db.groups.get(g.id)) ?? g
+    const added = [...new Set(ids)].filter((id) => !cur.playerIds.includes(id))
+    await addToGroup(cur, ids)
+    return {
+      msg: added.length ? `${pluralG(added.length, gender ?? null, 'joueur ajouté')} au groupe « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`,
+      link: { to: `/groupes/${cur.id}`, label: 'Ouvrir le groupe' },
+      undo: added.length
+        ? async () => {
+            const now = (await db.groups.get(cur.id)) ?? cur
+            await removeFromGroup(now, added)
+            return `C’est défait : le groupe « ${cur.name} » est comme avant.`
+          }
+        : undefined,
+    }
+  }
+  /** Ajout à l'événement (fonction de « Ajouter à un événement ») ; « Défaire » retire ceux qui viennent d'être ajoutés. */
+  async function addEventStep(e: HBEvent): Promise<Done> {
+    const { cur, added } = await addPlayersToEvent(e, ids)
+    return {
+      msg: added.length ? `${pluralG(added.length, gender ?? null, 'joueur ajouté')} à l’événement « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`,
+      link: { to: `/evenements/${cur.id}`, label: 'Ouvrir l’événement' },
+      undo: added.length
+        ? async () => {
+            const now = (await db.events.get(cur.id)) ?? cur
+            const drop = new Set(added)
+            await save<HBEvent>('events', { ...now, playerIds: (now.playerIds ?? []).filter((id) => !drop.has(id)) })
+            return `C’est défait : l’événement « ${cur.name} » est comme avant.`
+          }
+        : undefined,
+    }
+  }
   async function accept() {
     if (!plan || !calc || !card?.canAccept || step.k !== 'ready') return
     const n = calc.players.length
     setStep({ k: 'doing' })
     try {
+      if (plan.action === 'ouvrir_evenement' || plan.action === 'ouvrir_groupe') {
+        if (!target) return
+        const k = plan.action === 'ouvrir_groupe' ? 'groupe' : 'evenement'
+        setAskListFilter(k, target.id, { label: calc.chips.join(' · ') || 'tous les joueurs', ids, at: Date.now() })
+        log(plan.action, 'acceptee', n)
+        onClose()
+        nav(k === 'groupe' ? `/groupes/${target.id}` : `/evenements/${target.id}`)
+        return
+      }
+      const parts: Done[] = []
       if (plan.action === 'creer_groupe') {
         const fields = newGroupFields(
           calc.players.map((p: Player) => {
@@ -374,9 +465,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
         const name = groupName.trim()
         // Comme « Nouveau groupe » (src/pages/Groups.tsx, GroupForm) : privé (« Moi seul »), sans participant.
         const g = await save<PlayerGroup>('groups', { id: newId(), name, playerIds: [...new Set(ids)], ...fields, editors: [], private: true })
-        log(plan.action, 'acceptee', n)
-        setStep({
-          k: 'done',
+        parts.push({
           msg: `Groupe « ${name} » créé avec ${pluralG(n, gender ?? null)}.`,
           link: { to: `/groupes/${g.id}`, label: 'Ouvrir le groupe' },
           undo: async () => {
@@ -384,46 +473,26 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
             return `C’est défait : le groupe « ${name} » n’existe plus.`
           },
         })
-      } else if (plan.action === 'ajouter_groupe' && group) {
-        const cur = (await db.groups.get(group.id)) ?? group
-        const added = [...new Set(ids)].filter((id) => !cur.playerIds.includes(id))
-        await addToGroup(cur, ids)
-        log(plan.action, 'acceptee', n)
-        setStep({
-          k: 'done',
-          msg: added.length ? `${pluralG(added.length, gender ?? null, 'joueur ajouté')} au groupe « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`,
-          link: { to: `/groupes/${cur.id}`, label: 'Ouvrir le groupe' },
-          undo: added.length
-            ? async () => {
-                const now = (await db.groups.get(cur.id)) ?? cur
-                await removeFromGroup(now, added)
-                return `C’est défait : le groupe « ${cur.name} » est comme avant.`
-              }
-            : undefined,
-        })
-      } else if (plan.action === 'ajouter_evenement' && event) {
-        const { cur, added } = await addPlayersToEvent(event, ids)
-        log(plan.action, 'acceptee', n)
-        setStep({
-          k: 'done',
-          msg: added.length ? `${pluralG(added.length, gender ?? null, 'joueur ajouté')} à l’événement « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`,
-          link: { to: `/evenements/${cur.id}`, label: 'Ouvrir l’événement' },
-          undo: added.length
-            ? async () => {
-                const now = (await db.events.get(cur.id)) ?? cur
-                const drop = new Set(added)
-                await save<HBEvent>('events', { ...now, playerIds: (now.playerIds ?? []).filter((id) => !drop.has(id)) })
-                return `C’est défait : l’événement « ${cur.name} » est comme avant.`
-              }
-            : undefined,
-        })
-      } else if ((plan.action === 'ouvrir_evenement' || plan.action === 'ouvrir_groupe') && target) {
-        const k = plan.action === 'ouvrir_groupe' ? 'groupe' : 'evenement'
-        setAskListFilter(k, target.id, { label: calc.chips.join(' · ') || 'tous les joueurs', ids, at: Date.now() })
-        log(plan.action, 'acceptee', n)
-        onClose()
-        nav(k === 'groupe' ? `/groupes/${target.id}` : `/evenements/${target.id}`)
-      }
+      } else if (plan.action === 'ajouter_groupe' && group) parts.push(await addGroupStep(group))
+      else if (plan.action === 'ajouter_evenement' && event) parts.push(await addEventStep(event))
+      // Deuxième étape : les mêmes joueurs, ajoutés ensuite à l'autre groupe ou événement.
+      if (plan.then && thenGroup) parts.push(await addGroupStep(thenGroup))
+      else if (plan.then && thenEvent) parts.push(await addEventStep(thenEvent))
+      if (!parts.length) return
+      log(plan.action, 'acceptee', n, plan.then ? 'deux étapes' : undefined)
+      const undos = parts.map((p) => p.undo).filter((u): u is () => Promise<string> => !!u)
+      setStep({
+        k: 'done',
+        msg: parts.map((p) => p.msg).join(' '),
+        link: parts[parts.length - 1].link,
+        undo: undos.length
+          ? async () => {
+              const msgs: string[] = []
+              for (const u of [...undos].reverse()) msgs.push(await u())
+              return msgs.reverse().join(' ')
+            }
+          : undefined,
+      })
     } catch (e) {
       setStep({ k: 'error', msg: `L’action n’a pas pu être faite : ${(e as Error)?.message || 'erreur inconnue'}.` })
     }
@@ -487,9 +556,14 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
     const [best, ...others] = step.choices
     body = (
       <>
-        <p className="text-sm font-bold">Tu voulais dire « {best.name} » ?</p>
+        <p className="text-sm font-bold">Tu voulais dire « {best.name} »{best.date ? ` (${best.date.split('-').reverse().join('/')})` : ''} ?</p>
         <p className="text-[11px] text-muted">
-          J’ai compris « {step.said} », qui n’est pas le nom exact d’{step.kind === 'groupe' ? 'un groupe' : 'un événement'} de cet appareil.
+          {/^\s*(?:le |la |l['’])?(?:prochain|prochaine)\b/i.test(step.said)
+            ? `C’est le prochain événement à venir qui correspond à « ${step.said} ».`
+            : /^\s*(?:le |la |l['’])?(?:dernier|dernière)\b/i.test(step.said)
+              ? `C’est le dernier événement passé qui correspond à « ${step.said} ».`
+              : `J’ai compris « ${step.said} », qui n’est pas le nom exact d’${step.kind === 'groupe' ? 'un groupe' : 'un événement'} de cet appareil.`}
+          {step.slot === 'suite' ? ' (deuxième étape)' : ''}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -497,7 +571,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
             data-autofocus
             className="btn-primary min-h-10 px-4 text-xs"
             onClick={() => {
-              setTarget(best)
+              if (step.slot === 'suite') setThenTarget(best)
+              else setTarget(best)
               setStep({ k: 'plan' })
             }}
           >
@@ -516,7 +591,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
                 type="button"
                 className="flex min-h-10 items-center rounded-md border border-line bg-panel-2 px-3 py-2 text-left text-xs hover:border-accent"
                 onClick={() => {
-                  setTarget(c)
+                  if (step.slot === 'suite') setThenTarget(c)
+                  else setTarget(c)
                   setStep({ k: 'plan' })
                 }}
               >
