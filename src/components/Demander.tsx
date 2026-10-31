@@ -245,8 +245,11 @@ export function Demander(p: DemanderProps) {
   const cancelWait = p.wait ? p.wait.cancel : sending ? p.mic?.cancel : undefined
 
   // ---------- Ouverture / fermeture ----------
+  // Moment de la dernière ouverture : le clic qui suit le focus (même toucher) ne referme pas la liste qu'il vient d'ouvrir.
+  const openedAt = useRef(0)
   const openMenu = () => {
     if (open) return
+    openedAt.current = Date.now()
     const ph = !embedded && isPhone()
     setSheet(ph)
     setOpen(true)
@@ -582,12 +585,10 @@ export function Demander(p: DemanderProps) {
     <div className="mt-2 border-t border-line">{menuBody}</div>
   ) : !open ? null : sheet ? (
     createPortal(
-      <div className="fixed inset-0 z-40" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="scrim absolute inset-0" style={{ top }} onClick={() => close()} aria-hidden />
-        <div
-          className="absolute inset-x-0 bottom-0 flex flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-ai/40 bg-panel pb-[max(0.5rem,var(--nav-b))] shadow-2xl"
-          style={{ top }}
-        >
+      // Sous le champ seulement : le champ reste touchable (un deuxième toucher dessus referme la liste).
+      <div className="fixed inset-x-0 bottom-0 z-40" style={{ top }} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="scrim absolute inset-0" onClick={() => close()} aria-hidden />
+        <div className="absolute inset-0 flex flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-ai/40 bg-panel pb-[max(0.5rem,var(--nav-b))] shadow-2xl">
           {menuBody}
           <button type="button" className="mt-1 flex min-h-11 w-full items-center justify-center border-t border-line text-sm font-bold text-muted" onClick={() => close()}>
             Fermer
@@ -647,7 +648,9 @@ export function Demander(p: DemanderProps) {
               p.onFocus?.()
               openMenu()
             }}
-            onClick={openMenu}
+            // Un deuxième toucher sur le champ referme la liste des propositions (31/10, demande de Geoffroy) ; le premier
+            // l'ouvre (focus puis clic du même toucher : pas de fermeture juste après l'ouverture). Taper la rouvre.
+            onClick={() => (open && Date.now() - openedAt.current > 400 ? close() : openMenu())}
             onKeyDown={onKey}
           />
           {wait.on && (
