@@ -276,7 +276,7 @@ type AvisPick = { scores: Record<string, number | undefined>; strengths: boolean
  * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note de l'échelle
  * (1 à 5…) pour la changer ; la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter
  * (n) » pose ce qui est coché sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ;
- * ✕ ou Retour : plus tard. Pas d'explication. Aspect d'une proposition (liseré pointillé, note teintée : .sug-ring /
+ * ✕ ou Retour : plus tard. Pas d'explication. Mêmes tailles que la fiche derrière (libellé, échelle, phrase). Aspect d'une proposition (liseré pointillé, note teintée : .sug-ring /
  * .sug-fill, src/index.css) ; une fois acceptée, la note est pleine sur la fiche. Administrateurs seulement (phase de test) : propositions écartées,
  * « Ce que j'ai entendu » et l'appréciation « Cohérente · En partie · Pas cohérente ».
  */
@@ -304,7 +304,7 @@ function AvisReview({
   const [improvements, setImprovements] = useState(state.improvements)
   const total = sugs.length + (state.strengths ? 1 : 0) + (state.improvements ? 1 : 0)
   const count = sugs.filter((x) => on[x.criterionId]).length + (state.strengths && strengths ? 1 : 0) + (state.improvements && improvements ? 1 : 0)
-  const check = 'h-5 w-5 shrink-0 accent-[var(--color-fg)]'
+  const check = 'h-4 w-4 shrink-0 accent-[var(--color-fg)]'
   return (
     <FormWindow title={`${total} proposition${total > 1 ? 's' : ''}`} onClose={onClose} phoneFull={false} guard={false} width={520}>
       <div className="flex flex-col divide-y divide-line" data-noswipe>
@@ -314,7 +314,7 @@ function AvisReview({
           const steps = r && r.max - r.min <= 10 ? Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i) : [x.value]
           return (
             <div key={id} className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${on[id] ? '' : 'opacity-50'}`}>
-              <label className="flex min-h-8 items-center gap-2.5 text-sm font-bold">
+              <label className="flex min-h-8 items-center gap-2 text-xs font-bold">
                 <input type="checkbox" className={check} checked={on[id]} onChange={(e) => setOn((o) => ({ ...o, [id]: e.target.checked }))} />
                 {x.label}
               </label>
@@ -328,7 +328,7 @@ function AvisReview({
                       setVals((o) => ({ ...o, [id]: v }))
                       setOn((o) => ({ ...o, [id]: true }))
                     }}
-                    className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
+                    className={`flex h-10 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
                       vals[id] === v ? 'sug-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
                     }`}
                   >
@@ -336,7 +336,7 @@ function AvisReview({
                   </button>
                 ))}
               </div>
-              {x.quote && <div className="text-[11px] text-muted italic">« {x.quote} »</div>}
+              {x.quote && <div className="text-[10px] text-muted italic">« {x.quote} »</div>}
             </div>
           )
         })}
@@ -380,7 +380,7 @@ function AvisReview({
 function CommentPick({ label, text, checked, onChange, className }: { label: string; text: string; checked: boolean; onChange: (v: boolean) => void; className: string }) {
   return (
     <div className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${checked ? '' : 'opacity-50'}`}>
-      <label className="flex min-h-8 items-center gap-2.5 text-sm font-bold">
+      <label className="flex min-h-8 items-center gap-2 text-xs font-bold">
         <input type="checkbox" className={className} checked={checked} onChange={(e) => onChange(e.target.checked)} />
         {label}
       </label>
