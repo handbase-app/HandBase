@@ -77,7 +77,10 @@ t('mots du nom, sans accents ni majuscules', () => {
   assert.equal(palierFromWords('Stage régional U15'), 'ligue')
   assert.equal(palierFromWords('Interligues'), 'ligue')
   assert.equal(palierFromWords('Stage équipe de FRANCE'), 'france')
-  assert.equal(palierFromWords('Détection nationale'), 'france')
+  // « national » ne suffit pas (31/10) : un « Tournoi national » de club n'est pas l'équipe de France.
+  assert.equal(palierFromWords('Détection nationale'), undefined)
+  assert.equal(palierFromWords('Tournoi national de Pâques'), undefined)
+  assert.equal(palierFromWords('Stage EDF jeunes'), 'france')
   assert.equal(palierFromWords('Stage fédéral'), 'france')
   assert.equal(palierFromWords('Stage FFHB'), 'france')
   assert.equal(palierFromWords('Tournoi de printemps'), undefined)
@@ -104,7 +107,7 @@ const events: ParcoursEvent[] = [
   ev('c2', 'Stage intercomités 2', '2024-03-10', { organizerUnitId: 'cd' }),
   ev('c3', 'Intercomités', '2024-06-10', { type: 'tournoi' }),
   ...[1, 2, 3, 4, 5, 6, 7].map((i) => ev(`l${i}`, `Stage ligue n°${i}`, `${i < 4 ? 2024 : i < 7 ? 2025 : 2026}-${String(i + 2).padStart(2, '0')}-15`, { organizerUnitId: 'lig', playerIds: ['j1'] })),
-  ev('f1', 'Stage national', '2025-11-20'),
+  ev('f1', 'Stage EDF jeunes', '2025-11-20'),
   ev('f2', 'Stage équipe de France', '2026-10-05', { organizerUnitId: 'fed' }),
   // Événement où il n'a été ni vu ni mesuré : pas une étape.
   ev('x', 'Stage de ligue sans lui', '2025-05-05', { organizerUnitId: 'lig', playerIds: ['autre'] }),
@@ -186,9 +189,28 @@ t('pôle terminé : période en années ; libellés au singulier et au féminin'
   assert.equal(mixed[0].label, 'Repéré')
 })
 
+t('convocations : événement passé, hors match, sur la liste, compte même sans avis', () => {
+  const evs = [
+    ev('s1', 'Stage de ligue fictif', '2025-03-01', { organizerUnitId: 'lig', playerIds: ['j1'] }),
+    // À venir : pas encore une étape.
+    ev('s2', 'Stage de ligue à venir', '2026-12-01', { organizerUnitId: 'lig', playerIds: ['j1'] }),
+    // Match « ajouté à mes événements » : la liste, ce sont ceux qui devraient jouer.
+    ev('m1', 'Club A - Club B', '2025-04-01', { type: 'match', playerIds: ['j1'] }),
+    // Supprimé : rien.
+    ev('s3', 'Stage supprimé', '2025-05-01', { organizerUnitId: 'lig', playerIds: ['j1'], deleted: true }),
+  ]
+  const ps = parcours(base({ events: evs }))
+  assert.deepEqual(ps.map((p) => p.id), ['ligue'])
+  assert.deepEqual(ps[0].steps.map((s) => s.eventId), ['s1'])
+  assert.equal(ps[0].steps[0].listed, true)
+  // Vu en plus d'être sur la liste : plus « seulement convoqué ».
+  const seenToo = parcours(base({ events: evs, seen: [seen('s1', 'o1')] }))
+  assert.equal(seenToo[0].steps[0].listed, undefined)
+})
+
 t('joueur sans rien (ou seulement avis spontanés, tests sans événement) : pas de parcours', () => {
   assert.deepEqual(parcours(base()), [])
-  assert.deepEqual(parcours(base({ evaluations: [{ observer: 'X' }], measurements: [{ date: '2025-01-01' }], events })), [])
+  assert.deepEqual(parcours(base({ evaluations: [{ observer: 'X' }], measurements: [{ date: '2025-01-01' }], events: events.map((e) => ({ ...e, playerIds: undefined })) })), [])
   // Vu à un événement absent de l'appareil : rien non plus.
   assert.deepEqual(parcours(base({ seen: [seen('absent', 'o1')] })), [])
 })

@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useBackCloses } from '../backNav'
@@ -11,33 +11,11 @@ import { dotCount, foldSteps, monthYear, palierFacts, parcours, periodLabel, str
 /*
  * « Parcours » d'un joueur sur sa fiche (calcul : src/parcours.ts ; décidé avec Geoffroy et Stef le 31/10, d'après les
  * maquettes) : une ligne par palier atteint (Repéré → Comité → Ligue → Pôle → France), dépliable sur ses étapes.
- *  - Fiche étroite (téléphone, panneau de droite étroit) : frise fine sous le nom, visible quel que soit l'onglet ; un appui
- *    ouvre la fenêtre du bas avec le parcours complet (le retour du téléphone la ferme).
- *  - Fiche large (ordinateur, tablette) : colonne fixe à gauche, toujours visible, qui ne dépasse pas la hauteur de l'écran.
+ * Frise fine sous le nom, visible quel que soit l'onglet, sur téléphone comme sur ordinateur (31/10 : plus de colonne à
+ * gauche) ; un appui ouvre le parcours complet dans une bulle accrochée là où l'on a appuyé, le palier touché déjà déplié
+ * (31/10 : plutôt qu'une fenêtre du bas). Le retour du téléphone, Échap ou un toucher à côté la ferment.
  * Rien du tout si le joueur n'a aucune étape. Accent menthe (comme les maquettes) ; marques neutres ou positives seulement.
  */
-
-/** Largeur de la fiche à partir de laquelle la colonne remplace la frise (fiche, pas l'écran : le panneau compte). */
-export const PARCOURS_WIDE = 704
-
-/**
- * La fiche est-elle assez large pour la colonne ? `ref` se pose sur la fiche ; suivi au redimensionnement (panneau,
- * rotation). Mesure en JavaScript plutôt qu'une requête de conteneur CSS : un conteneur deviendrait le cadre des fenêtres
- * `fixed` ouvertes depuis la fiche.
- */
-export function useWideFiche(): [(el: HTMLElement | null) => void, boolean] {
-  const [el, setEl] = useState<HTMLElement | null>(null)
-  const [wide, setWide] = useState(false)
-  useLayoutEffect(() => {
-    if (!el) return
-    const measure = () => setWide(el.getBoundingClientRect().width >= PARCOURS_WIDE)
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [el])
-  return [setEl, wide]
-}
 
 /** Parcours du joueur, relu quand ses vus, avis, mesures ou périodes de pôle changent ; undefined pendant la lecture. */
 export function usePlayerParcours(p: Player | undefined | null): Palier[] | undefined {
@@ -53,9 +31,14 @@ export function usePlayerParcours(p: Player | undefined | null): Palier[] | unde
     const ids = [...new Set([...seen.map((s) => s.eventId), ...evaluations.map((e) => e.eventId).filter((x): x is string => !!x)])]
     const dates = [...new Set(measurements.map((m) => m.date))]
     // Événements où il a été vu (supprimés compris : l'étape a eu lieu), et ceux des jours de ses séances de mesures.
-    const [found, sameDay] = await Promise.all([db.events.bulkGet(ids), dates.length ? db.events.where('date').anyOf(dates).toArray() : []])
+    // Et ceux où il était sur la liste (convocations ; pas d'index sur la liste : parcours de la table, quelques centaines).
+    const [found, sameDay, onList] = await Promise.all([
+      db.events.bulkGet(ids),
+      dates.length ? db.events.where('date').anyOf(dates).toArray() : [],
+      db.events.filter((e) => !!e.playerIds?.includes(p.id)).toArray(),
+    ])
     const events = new Map<string, HBEvent>()
-    for (const e of [...found, ...sameDay]) if (e) events.set(e.id, e)
+    for (const e of [...found, ...sameDay, ...onList]) if (e) events.set(e.id, e)
     const orgIds = [...new Set([...events.values()].map((e) => e.organizerUnitId).filter((x): x is string => !!x))]
     const [units, levels] = await Promise.all([db.units.bulkGet(orgIds), db.levels.toArray()])
     return parcours({
@@ -79,25 +62,36 @@ const total = (ps: Palier[]) => ps.reduce((n, p) => n + p.steps.length, 0)
 /** Sigle du palier dans sa pastille (liste) ; le nom en entier est juste à côté. */
 const BADGE: Record<PalierId, string> = { repere: 'REP', comite: 'CD', ligue: 'LIG', pole: 'PÔLE', france: 'FRA' }
 
-// ---------- Frise (fiche étroite) ----------
+// ---------- Frise ----------
+
+/** Point d'ouverture de la bulle : abscisse de l'appui, haut et bas de la frise (coordonnées de l'écran). */
+type Anchor = { x: number; top: number; bottom: number; palier?: PalierId }
 
 /**
  * Frise fine sous le nom : un point par palier atteint, l'année d'entrée ou le nombre d'étapes (« ×7 ») et le nom court ;
- * le dernier palier atteint est plein. Un appui ouvre le parcours complet (fenêtre du bas).
+ * le dernier palier atteint est plein. Un appui ouvre le parcours complet dans une bulle, à l'endroit touché.
  */
 export function ParcoursStrip({ paliers }: { paliers: Palier[] }) {
-  const [open, setOpen] = useState(false)
+  const [anchor, setAnchor] = useState<Anchor | null>(null)
   if (!paliers.length) return null
   const n = paliers.length
   const last = n - 1
+  const open = (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    // Clavier (Entrée, Espace) : pas de point d'appui, la bulle part du milieu de la frise.
+    const x = e.detail > 0 ? e.clientX : r.left + r.width / 2
+    const hit = (e.target as Element).closest<HTMLElement>('[data-palier]')?.dataset.palier as PalierId | undefined
+    setAnchor({ x, top: r.top, bottom: r.bottom, palier: hit })
+  }
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={open}
         aria-haspopup="dialog"
+        aria-expanded={!!anchor}
         aria-label={`Parcours : ${paliers.map((p) => p.short).join(', ')}. Voir le détail`}
-        className="-mx-1 flex items-center gap-1 rounded-lg px-1 py-0.5 text-left transition hover:bg-panel-2"
+        className="-mx-1 flex max-w-xl items-center rounded-lg px-1 py-0.5 text-left transition hover:bg-panel-2"
         data-testid="parcours-frise"
       >
         <span className="relative flex min-w-0 flex-1">
@@ -105,7 +99,7 @@ export function ParcoursStrip({ paliers }: { paliers: Palier[] }) {
               Filet qui relie les points, du centre du premier au centre du dernier. */}
           {n > 1 && <span aria-hidden className="absolute top-[5px] left-[10%] h-px bg-emerald-400/50" style={{ width: `${(n - 1) * 20}%` }} />}
           {paliers.map((p, i) => (
-            <span key={p.id} className="relative flex w-1/5 min-w-0 flex-col items-center">
+            <span key={p.id} data-palier={p.id} className="relative flex w-1/5 min-w-0 flex-col items-center">
               <span
                 aria-hidden
                 className={`h-[11px] w-[11px] rounded-full border-2 border-emerald-400 ${i === last ? 'bg-emerald-400 shadow-[0_0_0_3px] shadow-emerald-400/25' : 'bg-bg'}`}
@@ -115,72 +109,93 @@ export function ParcoursStrip({ paliers }: { paliers: Palier[] }) {
             </span>
           ))}
         </span>
-        <span aria-hidden className="shrink-0 pl-1 text-base leading-none text-muted">
-          ›
-        </span>
       </button>
-      {open && <ParcoursSheet paliers={paliers} onClose={() => setOpen(false)} />}
+      {anchor && <ParcoursPopover paliers={paliers} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   )
 }
 
-/** Fenêtre du bas : le parcours complet, par palier. Retour du téléphone, ✕, Échap ou toucher à côté : fermée. */
-function ParcoursSheet({ paliers, onClose }: { paliers: Palier[]; onClose: () => void }) {
+/**
+ * Bulle du parcours complet, accrochée au point touché : sous la frise (au-dessus faute de place), dans l'écran, avec une
+ * petite pointe vers l'appui ; elle défile dedans si le parcours est long. Le palier touché est déjà déplié. Retour du
+ * téléphone, ✕, Échap, toucher à côté, défilement de la page ou changement de taille : fermée. Un seul palier : déplié aussi.
+ */
+function ParcoursPopover({ paliers, anchor, onClose }: { paliers: Palier[]; anchor: Anchor; onClose: () => void }) {
   useBackCloses(onClose)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => box.current?.focus(), [])
+  const [pos, setPos] = useState<{ left: number; top: number; maxH: number; caret: number; below: boolean } | null>(null)
+  const close = useRef(onClose)
+  useEffect(() => {
+    close.current = onClose
+  })
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const w = el.offsetWidth
+    const h = el.scrollHeight
+    const left = Math.max(8, Math.min(anchor.x - w / 2, vw - w - 8))
+    const roomBelow = vh - anchor.bottom - 16
+    const roomAbove = anchor.top - 16
+    // Sous la frise, sauf si la bulle n'y tient pas et qu'il y a plus de place au-dessus.
+    const below = h <= roomBelow || roomBelow >= roomAbove
+    const maxH = Math.max(160, below ? roomBelow : roomAbove)
+    const top = below ? anchor.bottom + 8 : Math.max(8, anchor.top - 8 - Math.min(h, maxH))
+    setPos({ left, top, maxH, caret: Math.max(16, Math.min(anchor.x - left, w - 16)), below })
+  }, [anchor])
+
+  useEffect(() => {
+    const before = document.activeElement
+    box.current?.focus({ preventScroll: true })
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && close.current()
+    // Défilement de la page (pas celui de la bulle) ou changement de taille : la bulle ne suit pas, on la ferme.
+    const scroll = (e: Event) => !box.current?.contains(e.target as Node) && close.current()
+    const resize = () => close.current()
+    window.addEventListener('keydown', key)
+    window.addEventListener('scroll', scroll, true)
+    window.addEventListener('resize', resize)
+    return () => {
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', scroll, true)
+      window.removeEventListener('resize', resize)
+      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
+    }
+  }, [])
+
   return createPortal(
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/55" onClick={onClose} aria-hidden />
+    <div className="fixed inset-0 z-50" onClick={onClose}>
       <div
         ref={box}
         tabIndex={-1}
         role="dialog"
-        aria-modal="true"
         aria-label="Parcours"
-        className="absolute inset-x-0 bottom-0 mx-auto flex max-h-[85dvh] max-w-2xl flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-line bg-panel pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl outline-none"
+        onClick={(e) => e.stopPropagation()}
+        className={`win absolute flex w-[min(24rem,calc(100vw-1rem))] flex-col shadow-2xl outline-none transition-opacity duration-100 ${pos ? 'opacity-100' : 'opacity-0'}`}
+        style={pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxH } : { left: 8, top: anchor.bottom + 8 }}
         data-testid="parcours-fenetre"
       >
-        <div className="mx-auto mt-2 mb-1 h-1 w-10 shrink-0 rounded-full bg-line" aria-hidden />
-        <div className="flex items-center justify-between gap-2 px-4 pt-1">
+        {/* Petite pointe vers l'endroit touché. */}
+        {pos && (
+          <span
+            aria-hidden
+            className={`absolute h-3 w-3 rotate-45 border-line bg-panel ${pos.below ? '-top-1.5 border-t border-l' : '-bottom-1.5 border-r border-b'}`}
+            style={{ left: pos.caret - 6 }}
+          />
+        )}
+        <div className="flex items-center justify-between gap-2 px-4 pt-3">
           <ParcoursTitle paliers={paliers} />
-          <button className="-mr-2 min-h-9 min-w-9 shrink-0 text-muted" aria-label="Fermer" onClick={onClose}>
+          <button className="-mr-2 -mt-1 min-h-9 min-w-9 shrink-0 text-muted" aria-label="Fermer" onClick={onClose}>
             ✕
           </button>
         </div>
-        <div className="px-4 pt-1">
-          <ParcoursList paliers={paliers} />
+        <div className="overflow-y-auto overscroll-contain px-4 pb-3">
+          <ParcoursList paliers={paliers} initial={anchor.palier ?? (paliers.length === 1 ? paliers[0].id : undefined)} />
         </div>
       </div>
     </div>,
     document.body,
-  )
-}
-
-// ---------- Colonne (fiche large) ----------
-
-/**
- * Colonne de gauche (fiche large) : le parcours par palier, collé sous l'en-tête (ou en haut du panneau de droite) et jamais
- * plus haut que l'écran : il défile dedans.
- */
-export function ParcoursColumn({ paliers, inPanel }: { paliers: Palier[]; inPanel: boolean }) {
-  if (!paliers.length) return null
-  return (
-    <aside
-      aria-label="Parcours"
-      className={`card sticky overflow-y-auto overscroll-contain p-3 ${
-        inPanel ? 'top-0 max-h-[calc(100dvh-var(--hdr)-4rem)]' : 'top-[calc(var(--hdr)+0.75rem)] max-h-[calc(100dvh-var(--hdr)-1.5rem-var(--nav-b))]'
-      }`}
-      data-testid="parcours-colonne"
-    >
-      <ParcoursTitle paliers={paliers} />
-      <ParcoursList paliers={paliers} />
-    </aside>
   )
 }
 
@@ -197,9 +212,9 @@ function ParcoursTitle({ paliers }: { paliers: Palier[] }) {
   )
 }
 
-/** Une ligne par palier ; un appui déplie ses étapes. */
-function ParcoursList({ paliers }: { paliers: Palier[] }) {
-  const [open, setOpen] = useState<PalierId | null>(null)
+/** Une ligne par palier ; un appui déplie ses étapes (`initial` : le palier touché sur la frise, déjà déplié). */
+function ParcoursList({ paliers, initial }: { paliers: Palier[]; initial?: PalierId }) {
+  const [open, setOpen] = useState<PalierId | null>(initial ?? null)
   const last = paliers[paliers.length - 1]?.id
   return (
     <ol className="flex flex-col divide-y divide-line">
@@ -281,7 +296,7 @@ function Steps({ p }: { p: Palier }) {
 function StepRow({ s }: { s: ParcoursStep }) {
   // Période de pôle : entrée → sortie ; événement : mois et année.
   const when = s.eventId ? monthYear(s.date) : s.current ? (s.date ? `depuis ${monthYear(s.date)}` : 'en cours') : [s.date && monthYear(s.date), s.end && monthYear(s.end)].filter(Boolean).join(' → ')
-  const extra = [s.observers > 0 && `${s.observers} obs.`, s.avis > 0 && `${s.avis} avis`, s.mesures > 0 && 'mesures'].filter(Boolean).join(' · ')
+  const extra = [s.observers > 0 && `${s.observers} obs.`, s.avis > 0 && `${s.avis} avis`, s.mesures > 0 && 'mesures', s.listed && 'sur la liste'].filter(Boolean).join(' · ')
   return (
     <li className="flex items-baseline justify-between gap-2 py-0.5">
       <span className="min-w-0">

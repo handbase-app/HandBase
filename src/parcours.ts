@@ -16,7 +16,8 @@
  *     pôle → Ligue (unité de la ligue), fédération → France. Unité absente de l'appareil : le nom gardé sur l'événement
  *     (organizerName) est lu comme ci-dessous ;
  *  3. les mots du nom, sans accents ni majuscules : « intercomité(s) » → Comité (même organisés par la ligue), « interligues »
- *     → Ligue, puis France / national / fédéral / FFHB / FFVB / EDF → France, ligue / régional / CRE → Ligue,
+ *     → Ligue, puis France / fédéral / FFHB / FFVB / EDF → France (pas « national » : un « Tournoi national » de club
+ *     n'est pas l'équipe de France, 31/10), ligue / régional / CRE → Ligue,
  *     comité / CD / départemental → Comité ;
  *  4. sinon (tournoi, entraînement, observation sans indice) : au palier du club, « Repéré ».
  *
@@ -94,6 +95,8 @@ export interface ParcoursStep {
   end?: string
   /** Période de pôle en cours. */
   current?: boolean
+  /** Sur la liste de l'événement (convoqué), sans y avoir été vu, noté ni mesuré. */
+  listed?: boolean
 }
 
 export interface Palier {
@@ -128,7 +131,7 @@ export const foldName = (s: string) =>
 const KEYWORDS: [RegExp, PalierId][] = [
   [/ inter ?comites? /, 'comite'],
   [/ inter ?ligues? /, 'ligue'],
-  [/ (france|national|nationale|nationaux|federal|federale|federaux|ffhb|ffvb|edf) /, 'france'],
+  [/ (france|federal|federale|federaux|ffhb|ffvb|edf) /, 'france'],
   [/ (ligues?|regional|regionale|regionaux|cre) /, 'ligue'],
   [/ (comites?|cd\d*|departemental|departementale|departementaux) /, 'comite'],
 ]
@@ -216,7 +219,11 @@ export function parcours(input: ParcoursInput): Palier[] {
 
   const steps = new Map<PalierId, ParcoursStep[]>()
   const push = (p: PalierId, s: ParcoursStep) => steps.set(p, [...(steps.get(p) ?? []), s])
-  const eventIds = new Set([...obs.keys(), ...mesures.keys()])
+  // Convocations (31/10) : un événement passé, hors match, où il était sur la liste compte aussi, même sans avis ni mesures
+  // (sept stages de ligue convoqué, c'est déjà le parcours). Pas les matchs : leur liste, ce sont les jeunes qui devraient y
+  // jouer (src/rencontreEvent.ts), pas une convocation.
+  const listed = input.events.filter((ev) => !ev.deleted && ev.type !== 'match' && ev.date <= input.today && ev.playerIds?.includes(input.playerId)).map((ev) => ev.id)
+  const eventIds = new Set([...obs.keys(), ...mesures.keys(), ...listed])
   const observersOf = new Map<PalierId, Set<string>>()
   for (const eid of eventIds) {
     const ev = byId.get(eid)
@@ -224,7 +231,7 @@ export function parcours(input: ParcoursInput): Palier[] {
     const p = palierOf(ev, input.units, input.levels)
     const who = obs.get(eid) ?? new Set<string>()
     observersOf.set(p, new Set([...(observersOf.get(p) ?? []), ...who]))
-    push(p, { key: `e${eid}`, eventId: eid, name: ev.name, date: ev.date, type: ev.type, gone: ev.deleted || undefined, avis: avis.get(eid) ?? 0, mesures: mesures.get(eid) ?? 0, observers: who.size })
+    push(p, { key: `e${eid}`, eventId: eid, name: ev.name, date: ev.date, type: ev.type, gone: ev.deleted || undefined, avis: avis.get(eid) ?? 0, mesures: mesures.get(eid) ?? 0, observers: who.size, listed: (!who.size && !mesures.has(eid)) || undefined })
   }
   // Pôle : une étape par période renseignée.
   for (const [i, x] of (input.poles ?? []).entries()) {
