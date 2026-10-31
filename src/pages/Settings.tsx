@@ -32,6 +32,7 @@ import { perimeterText } from '../perimeter'
 import { STAFF } from '../staffLabels'
 import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
+import { VEILLE_EXPLICATION } from '../components/VeillePrep'
 import { useDictation } from '../dictation/useDictation'
 import { useThemeVersion } from '../theme'
 import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
@@ -90,7 +91,7 @@ export default function Settings() {
         {supabase && <PasswordChange />}
       </Fold>
       {supabase && (
-        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, rappels, suivis">
+        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, la veille (détections préparées), suivis">
           <NotificationSettings />
         </Fold>
       )}
@@ -405,8 +406,9 @@ function NotificationSettings() {
   if (support === 'ios-install')
     return (
       <p className="text-xs">
-        Sur iPhone, les notifications marchent seulement dans l’appli <b>ajoutée à l’écran d’accueil</b> (Safari → Partager → « Sur l’écran
-        d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite {appName()} depuis l’écran d’accueil et reviens ici.
+        Sur iPhone, les notifications (et la préparation des détections la veille) marchent seulement dans l’appli <b>ajoutée à l’écran
+        d’accueil</b> (Safari → Partager → « Sur l’écran d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite {appName()} depuis l’écran
+        d’accueil et reviens ici.
       </p>
     )
   if (support === 'unsupported') return <p className="text-xs text-muted">Ce navigateur ne permet pas les notifications.</p>
@@ -444,6 +446,13 @@ function NotificationSettings() {
           {subscribed ? 'Désactiver' : 'Activer'}
         </button>
       </div>
+      {/* Push de la veille (supabase/060, src/components/VeillePrep.tsx) : l'abonnement de cet appareil sert aussi à préparer les
+          détections ; « Désactiver » le retire. */}
+      <p className="text-[11px] text-muted" data-testid="veille-reglages">
+        {subscribed
+          ? 'Détections préparées la veille sur ce téléphone : joueurs, mesures, avis et grille de notation, hors ligne.'
+          : `« Activer » prépare aussi tes détections la veille. ${VEILLE_EXPLICATION}`}
+      </p>
       <div className="flex flex-col gap-2">
         <span className="label mb-0">Ce que je reçois (sur tous mes appareils)</span>
         {NOTIF_KINDS.map((k) => (

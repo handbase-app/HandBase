@@ -437,7 +437,10 @@ t('avec protection, deux onglets au réveil (même stockage, même verrou) : un 
 t('src/sync.ts branche la protection dans le fetch de supabase-js (connexion comprise)', () => {
   const src = readFileSync(new URL('../src/sync.ts', import.meta.url), 'utf8')
   assert.match(src, /guardRefresh\(\{\s*fetch: restFetch/)
-  assert.match(src, /createClient\(url, key, \{ global: \{ fetch: authFetch \} \}\)/)
+  assert.match(src, /createClient\(url, key, \{ global: \{ fetch: authFetch \}, auth: \{ storage: authStorage, storageKey: authStorageKey \} \}\)/)
+  // Session partagée avec le service worker (src/sessionStore.ts) : jeton gardé relu dans ce stockage, repère recopié.
+  assert.match(src, /storedToken: async \(\) => refreshTokenOf\(await authStorage\.getItem\(authStorageKey\)\)/)
+  assert.match(src, /mirror: async/)
   assert.match(src, /lock: webLock\(\)/)
 })
 

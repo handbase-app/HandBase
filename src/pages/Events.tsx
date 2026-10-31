@@ -11,6 +11,7 @@ import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { type Role } from '../roles'
 import { HiddenPlayers } from '../components/HiddenPlayers'
+import { VeillePrep } from '../components/VeillePrep'
 import { alive, counts, db, fmtDate, POSITIONS, remove, save, type Criterion, type Evaluation, type HBEvent, type Player, type Position, type Rewatch } from '../db'
 import { EVENT_TYPES, NewEventForm } from './Evaluate'
 import { ask, inform } from '../components/Confirm'
@@ -914,6 +915,8 @@ export function EventDetail() {
             </div>
           )}
           <ProposalBar table="events" row={ev} />
+          {/* Push de la veille (src/components/VeillePrep.tsx) : pour l'organisateur, les participants et le staff, avant l'événement. */}
+          {!ev.archived && ev.date >= new Date().toLocaleDateString('sv') && (ev.createdBy === currentUserId() || isParticipant(ev)) && <VeillePrep compact />}
           {/* Infos secondaires repliées en une ligne : l'entrée de l'événement va droit aux onglets. */}
           <button
             type="button"

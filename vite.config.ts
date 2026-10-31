@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { defineConfig, loadEnv } from 'vite'
+import { build, defineConfig, loadEnv, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { SPORT_WORDS } from './src/sportWordmark.ts'
 
@@ -49,6 +49,54 @@ function sportPublicDir(root: string, sport: string) {
   return dir
 }
 
+/**
+ * Push de la veille (src/veilleSw.ts) : construit À PART en un seul fichier « veille-sw.js » (format IIFE, sans import) et
+ * ajouté à la construction ; le service worker de l'appli le charge (workbox importScripts, avant push-sw.js). Adresse du
+ * serveur, clé publique et nom de la base locale figés comme dans l'appli (rien de secret). En développement, le service
+ * worker n'est pas actif : rien à servir.
+ */
+function veilleSw(env: Record<string, string>, mode: string): Plugin {
+  const url = (env.VITE_SUPABASE_URL || '').trim()
+  let storageKey = ''
+  try {
+    storageKey = url ? `sb-${new URL(url).hostname.split('.')[0]}-auth-token` : ''
+  } catch {
+    storageKey = ''
+  }
+  const config = {
+    url,
+    anonKey: (env.VITE_SUPABASE_ANON_KEY || '').trim(),
+    // Même nom que src/db.ts (version d'essai : sa propre base).
+    dbName: env.VITE_TRIAL ? 'handbase-essai' : 'handbase',
+    storageKey,
+  }
+  return {
+    name: 'veille-sw',
+    apply: 'build',
+    async generateBundle() {
+      const out = await build({
+        configFile: false,
+        logLevel: 'warn',
+        mode,
+        publicDir: false,
+        define: { __HB_SW__: JSON.stringify(config) },
+        build: {
+          write: false,
+          emptyOutDir: false,
+          minify: true,
+          sourcemap: false,
+          target: 'es2020',
+          lib: { entry: resolve(process.cwd(), 'src/veilleSw.ts'), formats: ['iife'], name: 'HBVeilleSw', fileName: () => 'veille-sw.js' },
+        },
+      })
+      const outputs = (Array.isArray(out) ? out : [out]) as { output: { type: string; code?: string }[] }[]
+      const chunk = outputs.flatMap((o) => o.output).find((c) => c.type === 'chunk' && c.code)
+      if (!chunk?.code) throw new Error('veille-sw.js : construction vide')
+      this.emitFile({ type: 'asset', fileName: 'veille-sw.js', source: chunk.code })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   // VITE_SPORT=volley : installation de volley par défaut (src/sportConfig.ts) ; ici, les icônes et le nom de l'appli
   // installée, l'écran d'ouverture et la description.
@@ -77,6 +125,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      // Push de la veille : veille-sw.js (voir veilleSw).
+      veilleSw({ ...loadEnv(mode, process.cwd(), 'VITE_') }, mode),
       // Nom de l'appli dans index.html (<title>, apple-mobile-web-app-title, application-name) : %APP_NAME% ; sport :
       // %SPORT% ; nom du sport de l'écran d'ouverture : %SPORT_WORD_BOX% (viewBox), %SPORT_WORD_PATH% (tracé).
       {
@@ -128,8 +178,9 @@ export default defineConfig(({ mode }) => {
           navigateFallbackDenylist: [/\/essai-dictee(\/|$)/],
           // Première installation : la page ouverte passe tout de suite sous le service worker (hors ligne).
           clientsClaim: true,
-          // Réception des notifications (public/push-sw.js).
-          importScripts: ['push-sw.js'],
+          // Push de la veille (veille-sw.js, src/veilleSw.ts), puis réception des notifications (public/push-sw.js), qui lui
+          // confie les messages de type « veille ».
+          importScripts: ['veille-sw.js', 'push-sw.js'],
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
           // Lecteur de PDF (feuille de match, ~1,8 Mo avec son worker) : pas installé d'avance pour tout le monde,
           // gardé en cache au premier import (ensuite disponible hors ligne).

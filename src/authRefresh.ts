@@ -41,6 +41,17 @@
  *     rejouée par ce fichier : un envoi par passage dans le verrou, avec le jeton du stockage ; si la réponse s'est perdue
  *     alors que GoTrue avait renouvelé, l'envoi suivant porte le jeton qui précède immédiatement l'actif : accepté.
  * Fonctions pures et injectables (horloge, hasard, verrou, stockage, fetch) : testées par tools/test-renouvellement.ts.
+ *
+ * SERVICE WORKER (push de la veille, src/veilleSw.ts ; session dans IndexedDB : src/sessionStore.ts) : il renouvelle lui aussi
+ * la session quand le jeton d'accès a expiré (appli fermée, la veille à 18 h), avec les MÊMES règles (workerSession) :
+ *  - le MÊME verrou Web Locks (REFRESH_LOCK : commun aux onglets ET au service worker du site) : jamais deux renouvellements
+ *    en même temps ; dans le verrou, il relit la session (un onglet vient peut-être de la renouveler : rien à envoyer) ;
+ *  - le repère est recopié dans IndexedDB par l'appli (mirror, attendu DANS le verrou) : attente en cours, ou jeton gardé
+ *    déjà renouvelé par un onglet qui n'a pas encore enregistré la nouvelle session (empreinte « used ») : il n'envoie rien ;
+ *  - une seule tentative, jamais rejouée ; succès : la nouvelle session est écrite DANS le verrou (l'appli la relit à son
+ *    appel suivant ; son jeton périmé n'est jamais envoyé : « déjà renouvelé ») ; refus définitif : la session n'est pas
+ *    effacée par le service worker (l'appli, à son ouverture, reçoit le même refus et revient à la connexion) ; erreur
+ *    passagère : rien de plus, la notification invite à ouvrir l'appli.
  */
 
 /** Attentes après 1, 2, 3, 4, 5 échecs de suite ; ensuite REFRESH_STEADY_MS. */
@@ -202,9 +213,11 @@ export function webLock(name = REFRESH_LOCK): Lock {
 export interface RefreshGuardOptions {
   /** fetch sous-jacent (src/retry.ts : il laisse passer ce qui n'est pas /rest/v1/). */
   fetch: typeof fetch
-  /** Jeton de renouvellement actuellement gardé (stockage partagé par les onglets). */
-  storedToken: () => string | null
+  /** Jeton de renouvellement actuellement gardé (stockage partagé par les onglets et le service worker ; lu dans le verrou). */
+  storedToken: () => string | null | Promise<string | null>
   gate: { get: () => RefreshGate; set: (g: RefreshGate) => void }
+  /** Copie du repère pour le service worker (IndexedDB), attendue DANS le verrou après chaque changement. */
+  mirror?: (g: RefreshGate) => Promise<void>
   lock?: Lock
   now?: () => number
   rnd?: () => number
@@ -266,12 +279,25 @@ export function guardRefresh(opts: RefreshGuardOptions): typeof fetch {
       if (g.at > now()) return deferredResponse('attente')
       // Jeton périmé : renouvelé entre-temps par un autre onglet ou un autre appel (rotation) : surtout ne pas l'envoyer.
       const sent = tokenOf(init?.body)
-      const stored = opts.storedToken()
+      let stored: string | null = null
+      try {
+        stored = await opts.storedToken()
+      } catch {
+        stored = null
+      }
       if ((stored && sent && stored !== sent) || (sent && g.used === tokenMark(sent))) return deferredResponse('déjà renouvelé')
-      const fail = (retryAfter: string | null, cause: string) => {
+      const setGate = async (next: RefreshGate) => {
+        opts.gate.set(next)
+        try {
+          await opts.mirror?.(next)
+        } catch {
+          /* copie impossible : le service worker relit la session dans le verrou */
+        }
+      }
+      const fail = async (retryAfter: string | null, cause: string) => {
         const n = g.n + 1
         const until = now() + refreshDelay(n, retryAfter, rnd, now())
-        opts.gate.set({ n, at: until, ...(g.used ? { used: g.used } : {}) })
+        await setGate({ n, at: until, ...(g.used ? { used: g.used } : {}) })
         opts.onWait?.(until, cause)
         return deferredResponse(cause)
       }
@@ -290,9 +316,91 @@ export function guardRefresh(opts: RefreshGuardOptions): typeof fetch {
       }
       const verdict = classifyRefresh(res.status, text)
       if (verdict === 'transient') return fail(res.headers.get('Retry-After'), String(res.status))
-      opts.gate.set(verdict === 'ok' && sent ? { ...OPEN_GATE, used: tokenMark(sent) } : OPEN_GATE)
+      await setGate(verdict === 'ok' && sent ? { ...OPEN_GATE, used: tokenMark(sent) } : OPEN_GATE)
       if (g.n > 0) opts.onDone?.(verdict === 'ok')
       return new Response(NULL_BODY.includes(res.status) ? null : text, { status: res.status, statusText: res.statusText, headers: res.headers })
     })
   }
+}
+
+// ---------- Service worker ----------
+
+/** Marge : un jeton d'accès qui expire dans moins de cela est renouvelé avant usage. */
+export const WORKER_MARGIN_S = 120
+
+export type WorkerSession =
+  | { ok: true; accessToken: string; userId: string | null; renewed: boolean }
+  | { ok: false; why: 'aucune' | 'refusee' | 'plus-tard' }
+
+export interface WorkerSessionOptions {
+  fetch: typeof fetch
+  /** Adresse du projet Supabase et clé publique (anon). */
+  url: string
+  anonKey: string
+  /** Clé de la session (src/sessionStore.ts, sessionStorageKey) et du repère recopié. */
+  key: string
+  gateKey: string
+  kv: { get(k: string): Promise<string | null>; set(k: string, v: string): Promise<void> }
+  lock?: Lock
+  now?: () => number
+  timeoutMs?: number
+}
+
+type KeptSession = { access_token: string; refresh_token: string; expires_at?: number; expires_in?: number; user?: { id?: string } }
+
+const keptSession = (text: string | null): KeptSession | null => {
+  const s = parse(text ?? '') as Partial<KeptSession> | undefined
+  return s && typeof s === 'object' && typeof s.access_token === 'string' && typeof s.refresh_token === 'string' ? (s as KeptSession) : null
+}
+
+/**
+ * Session utilisable par le service worker (voir l'en-tête, « SERVICE WORKER ») : le jeton d'accès gardé s'il est encore
+ * valable ; sinon UN renouvellement, dans le verrou commun, selon les règles de l'appli. Jamais d'effacement de la session.
+ */
+export async function workerSession(o: WorkerSessionOptions): Promise<WorkerSession> {
+  const now = o.now ?? Date.now
+  const lock = o.lock ?? webLock()
+  const fresh = (s: KeptSession) => typeof s.expires_at === 'number' && s.expires_at - now() / 1000 > WORKER_MARGIN_S
+  const ok = (s: KeptSession, renewed: boolean): WorkerSession => ({ ok: true, accessToken: s.access_token, userId: s.user?.id ?? null, renewed })
+  const read = async () => keptSession(await o.kv.get(o.key))
+  let s = await read()
+  if (!s) return { ok: false, why: 'aucune' }
+  if (fresh(s)) return ok(s, false)
+  if (readGate(await o.kv.get(o.gateKey)).at > now()) return { ok: false, why: 'plus-tard' }
+  return lock(async () => {
+    s = await read()
+    if (!s) return { ok: false, why: 'aucune' } as WorkerSession
+    // Renouvelée entre-temps par un onglet : rien à envoyer.
+    if (fresh(s)) return ok(s, false)
+    const g = readGate(await o.kv.get(o.gateKey))
+    // Attente en cours, ou jeton gardé déjà renouvelé (nouvelle session pas encore enregistrée par l'onglet) : ne rien envoyer.
+    if (g.at > now() || g.used === tokenMark(s.refresh_token)) return { ok: false, why: 'plus-tard' } as WorkerSession
+    const sent = s.refresh_token
+    let res: Response
+    try {
+      res = await attempt(
+        o.fetch,
+        `${o.url.replace(/\/$/, '')}/auth/v1/token?grant_type=refresh_token`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: o.anonKey, Authorization: `Bearer ${o.anonKey}` }, body: JSON.stringify({ refresh_token: sent }) },
+        o.timeoutMs ?? REFRESH_TIMEOUT_MS,
+      )
+    } catch {
+      return { ok: false, why: 'plus-tard' } as WorkerSession
+    }
+    let text: string
+    try {
+      text = await res.text()
+    } catch {
+      return { ok: false, why: 'plus-tard' } as WorkerSession
+    }
+    const verdict = classifyRefresh(res.status, text)
+    if (verdict === 'definitive') return { ok: false, why: 'refusee' } as WorkerSession
+    if (verdict === 'transient') return { ok: false, why: 'plus-tard' } as WorkerSession
+    const next = keptSession(text)!
+    if (typeof next.expires_at !== 'number') next.expires_at = Math.round(now() / 1000) + (typeof next.expires_in === 'number' ? next.expires_in : 3600)
+    // DANS le verrou : la nouvelle session, puis l'empreinte du jeton remplacé (un onglet en retard ne l'enverra pas).
+    await o.kv.set(o.key, JSON.stringify(next))
+    await o.kv.set(o.gateKey, JSON.stringify({ ...OPEN_GATE, used: tokenMark(sent) }))
+    return ok(next, true)
+  })
 }

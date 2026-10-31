@@ -124,6 +124,16 @@ fonction (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `HB_NOTIFY_S
 vérification JWT, extensions pg_cron et pg_net, coffre (`hb_notify_url`, `hb_notify_secret`), puis le script 026 ;
 la clé publique va aussi dans la variable `VITE_VAPID_PUBLIC_KEY` (GitHub et `.env.local`).
 
+**La veille d'un événement** (`supabase/060_push_veille.sql`, fonction `supabase/functions/veille`) : chaque personne du
+staff de l'événement (créateur, participants, staffs choisis) reçoit, entre 18 h et 22 h, une seule notification pour
+tous ses événements du lendemain (« Demain : Détection U13 à 9 h 30 ») ; en la recevant, même appli fermée, le téléphone
+télécharge avec sa session les joueurs, mesures, avis et la grille de notation, et les range dans sa base : le jour J,
+tout est là sans réseau. Le message poussé ne contient que l'identifiant, le nom court et l'heure des événements (jamais
+un joueur). Envois étalés : un lot de personnes (`VEILLE_LOT`, 300) toutes les 5 minutes, l'événement le plus tôt
+d'abord ; chaque téléphone attend 0 à 20 s au hasard et abandonne si le serveur est occupé. Clés VAPID :
+`node tools/vapid-generer.mjs <nom> mailto:<adresse>` (clé privée seulement dans un fichier en 600). Activation : section
+« ACTIVATION » du script 060. Essai SQL : `bash tools/essai-sql-060/lancer.sh`.
+
 ### Alertes
 
 Une **alerte** est un filtre enregistré (sexe, années, trimestres, latéralité, postes, départements, taille, taille

@@ -1,7 +1,7 @@
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
 import { clearRole, isPlayerRole, myPlayerId, refreshRole, useRole } from '../roles'
-import { claimDevice, supabase, syncNow } from '../sync'
+import { claimDevice, keptSessionText, supabase, syncNow } from '../sync'
 import { TRIAL, TRIAL_LABEL } from '../db'
 import { useAppBrand } from '../appBrand'
 import { BRAND_FONT } from './Brand'
@@ -31,14 +31,14 @@ const loginError = (message: string) =>
     ? 'Ce mot de passe provisoire a expiré (24 h) : demande un nouvel accès à un administrateur.'
     : 'E-mail ou mot de passe incorrect.'
 
-/** Session enregistrée par Supabase sur l'appareil (clé sb-…-auth-token), même si son jeton a expiré. */
-function storedSession(): Session | null {
+/**
+ * Session enregistrée par Supabase sur l'appareil (clé sb-…-auth-token), même si son jeton a expiré. Gardée dans IndexedDB
+ * depuis le push de la veille (src/sessionStore.ts : lisible par le service worker), localStorage à défaut.
+ */
+async function storedSession(): Promise<Session | null> {
   try {
-    for (const k of Object.keys(localStorage)) {
-      if (!/^sb-.+-auth-token$/.test(k)) continue
-      const s = JSON.parse(localStorage.getItem(k) ?? 'null') as Session | null
-      if (s?.refresh_token && s.user?.id) return s
-    }
+    const s = JSON.parse((await keptSessionText()) ?? 'null') as Session | null
+    if (s?.refresh_token && s.user?.id) return s
   } catch {
     /* stockage illisible */
   }
@@ -52,7 +52,7 @@ function storedSession(): Session | null {
  * l'efface du stockage : on revient à la connexion.
  */
 async function loadSession(): Promise<{ session: Session | null; error?: unknown }> {
-  const kept = storedSession()
+  const kept = await storedSession()
   const expired = !!kept?.expires_at && kept.expires_at * 1000 < Date.now()
   // Hors ligne, inutile d'attendre Supabase : il réessaie le renouvellement pendant une trentaine de secondes.
   if (kept && expired && !navigator.onLine) return { session: kept, error: 'offline' }
@@ -71,7 +71,7 @@ async function loadSession(): Promise<{ session: Session | null; error?: unknown
   }
   const network = error === 'timeout' || isAuthRetryableFetchError(error) || error instanceof TypeError || !navigator.onLine
   // storedSession() relu : une session révoquée a été effacée du stockage entre-temps.
-  const still = storedSession()
+  const still = await storedSession()
   if (still && network) return { session: still, error }
   return { session: null }
 }

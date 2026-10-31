@@ -330,6 +330,8 @@ function updateEngineUi() {
 // La clé Mistral reste sur le serveur. La page reprend, en lecture seule, la session HandBase gardée par
 // l'application sur ce site (clé « sb-<projet>-auth-token ») ; elle ne la renouvelle jamais elle-même
 // (ce serait déconnecter l'application) : session expirée → ouvrir HandBase, puis revenir.
+// Depuis le push de la veille, l'application garde la session dans IndexedDB (base « hb-session », magasin « kv »,
+// src/sessionStore.ts : une seule copie, lisible par le service worker) ; localStorage pour les versions d'avant.
 const vx = { state: 'inconnu', url: '', token: '', restantMois: null, restantJour: null }
 const VX_TEXTE = {
   inconnu: 'Voxtral : vérification…',
@@ -341,13 +343,52 @@ const VX_TEXTE = {
   sans_cle: "Voxtral : la clé Mistral n'est pas encore configurée sur le serveur.",
   erreur: 'Voxtral : serveur injoignable.',
 }
-function readSession() {
+// Magasin de la session de l'application (mêmes noms que src/sessionStore.ts).
+function idbRun(mode, fn) {
+  return new Promise((resolve, reject) => {
+    if (!self.indexedDB) return reject(new Error('IndexedDB absent'))
+    const req = indexedDB.open('hb-session', 1)
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv') }
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => {
+      const db = req.result
+      const tx = db.transaction('kv', mode)
+      const r = fn(tx.objectStore('kv'))
+      tx.oncomplete = () => { db.close(); resolve(r ? r.result : null) }
+      tx.onerror = tx.onabort = () => { db.close(); reject(tx.error) }
+    }
+  })
+}
+// Stockage de la session pour supabase-js : IndexedDB (une seule copie, comme l'application) ; session d'une version
+// d'avant encore dans localStorage : la plus récente des deux est gardée dans IndexedDB, localStorage est vidé.
+const sessionStore = {
+  async getItem(k) {
+    let v = null
+    try { v = await idbRun('readonly', (s) => s.get(k)) } catch { return localStorage.getItem(k) }
+    const old = localStorage.getItem(k)
+    if (old == null) return typeof v === 'string' ? v : null
+    const exp = (t) => { try { return Number(JSON.parse(t)?.expires_at) || 0 } catch { return 0 } }
+    const chosen = typeof v === 'string' && exp(v) >= exp(old) ? v : old
+    try { await idbRun('readwrite', (s) => s.put(chosen, k)); localStorage.removeItem(k) } catch { return old }
+    return chosen
+  },
+  async setItem(k, v) {
+    try { await idbRun('readwrite', (s) => s.put(v, k)); localStorage.removeItem(k) } catch { localStorage.setItem(k, v) }
+  },
+  async removeItem(k) {
+    localStorage.removeItem(k)
+    try { await idbRun('readwrite', (s) => s.delete(k)) } catch { /* rien */ }
+  },
+}
+async function readSession() {
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
+    const keys = new Set()
+    for (let i = 0; i < localStorage.length; i++) keys.add(localStorage.key(i))
+    try { for (const k of (await idbRun('readonly', (s) => s.getAllKeys())) || []) keys.add(String(k)) } catch { /* IndexedDB absent */ }
+    for (const k of keys) {
       const m = k && k.match(/^sb-([a-z0-9]+)-auth-token$/)
       if (!m) continue
-      const v = JSON.parse(localStorage.getItem(k) || 'null')
+      const v = JSON.parse((await sessionStore.getItem(k)) || 'null')
       const sess = v?.currentSession ?? v
       if (sess?.access_token) return { ref: m[1], token: sess.access_token, expiresAt: Number(sess.expires_at) || 0 }
     }
@@ -366,7 +407,7 @@ async function client() {
   if (!cfg?.url || !cfg?.key) return null
   try {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.109.0/+esm')
-    sbClient = createClient(cfg.url, cfg.key)
+    sbClient = createClient(cfg.url, cfg.key, { auth: { storage: sessionStore } })
     sbUrl = String(cfg.url).replace(/\/$/, '')
   } catch { sbClient = null }
   return sbClient
@@ -388,11 +429,11 @@ async function detectVoxtral() {
   if (fresh) {
     vx.token = fresh
     if (!vx.url) {
-      const sess = readSession()
+      const sess = await readSession()
       if (sess) vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
     }
   } else {
-    const sess = readSession()
+    const sess = await readSession()
     if (!sess) return setVx('non_connecte')
     if (sess.expiresAt && sess.expiresAt * 1000 < Date.now() + 60000) return setVx('expire')
     vx.url = 'https://' + sess.ref + '.supabase.co/functions/v1/transcrire'
@@ -1465,7 +1506,7 @@ window.essaiDictee = {
   nettoyer,
   texte: () => resultsText(),
   // Essai de l'interface Voxtral contre un faux serveur local (console seulement).
-  voxtralLocal: async (url) => { const s = readSession(); vx.url = url; vx.token = s?.token || 'essai'; const r = await fetch(url, { headers: { Authorization: 'Bearer ' + vx.token } }); const d = await r.json(); vx.restantMois = d.restant_mois; vx.restantJour = d.restant_jour; setVx('ok') },
+  voxtralLocal: async (url) => { const s = await readSession(); vx.url = url; vx.token = s?.token || 'essai'; const r = await fetch(url, { headers: { Authorization: 'Bearer ' + vx.token } }); const d = await r.json(); vx.restantMois = d.restant_mois; vx.restantJour = d.restant_jour; setVx('ok') },
   voxtral: (samples, blob) => { lastAudio = samples; lastBlob = blob; return voxtralAndRecord(blob, samples.length / 16000, 'son de test') },
   // Texte de calibration : lecture fabriquée (texte « reconnu » donné), pour essayer l'alignement et les suggestions.
   calibration: (texte, para = calib.para) => { calib.para = para; addLecture(para, texte, { engine: 'essai', audioS: null, transS: null }) },
