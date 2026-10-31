@@ -37,6 +37,7 @@ const t = async (name: string, f: () => void | Promise<void>) => {
 }
 const volley = () => applySportConfig(resolveSportConfig([], 'volley'))
 const handball = () => applySportConfig(resolveSportConfig([], 'handball'))
+const withoutLibero = () => applySportConfig(resolveSportConfig([{ id: 'postes', key: 'postes', value: VOLLEYBALL.positions.filter((p) => p.code !== 'L') } as ConfigRow], 'volley'))
 const withLibero = () => applySportConfig(resolveSportConfig([{ id: 'postes', key: 'postes', value: [...VOLLEYBALL.positions, LIBERO] } as ConfigRow], 'volley'))
 
 const file = readFileSync(new URL('../public/demo/criteres-volley.json', import.meta.url), 'utf8')
@@ -116,8 +117,11 @@ await t('chaque poste a sa grille : Passeur (P), Joueur de champ (R4, C, PT), Li
   for (const p of ['R4', 'C', 'PT']) assert.deepEqual(gridOf(p), ['Joueur de champ', 'Mental et comportement'], p)
   assert.equal(countOf('P'), 9 + 6)
   assert.equal(countOf('R4'), 10 + 6)
-  // Libéro facultatif : pas ajouté, ses critères ne s'affichent pour personne, pas même un joueur sans poste.
+  // Libéro dans les postes par défaut (31/10) ; une installation qui l'a retiré : ses critères ne s'affichent pour personne,
+  // pas même un joueur sans poste.
   assert.equal(isKeeper('L'), true)
+  assert.equal(proposedOnly('L'), false)
+  withoutLibero()
   assert.equal(proposedOnly('L'), true)
   assert.deepEqual(gridOf(undefined), ['Joueur de champ', 'Passeur', 'Mental et comportement'])
   withLibero()

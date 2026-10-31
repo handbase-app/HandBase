@@ -439,7 +439,15 @@ export function readAvisTarget(v: unknown, ctx: QuestionContext, skip: (what: st
     const kind = categoryKind(n.replace(/eurs?\b|euses?\b/gi, 'e'))
     return kind !== 'autre' ? cats.find((c) => categoryKind(c) === kind) : undefined
   }
-  const criterion = (n: string) => bestMatch(n, crits, (c) => [c.label, c.id])
+  // Même nom dans plusieurs grilles (volley : « Défense » du joueur de champ, R4 C PT, et du libéro, L ; 31/10) : celui qui
+  // vaut pour le plus de postes l'emporte (sans postes = tous), s'il est seul en tête ; sinon la question reste ambiguë.
+  const criterion = (n: string) => {
+    const m = bestMatch(n, crits, (c) => [c.label, c.id])
+    if (!('ambiguous' in m)) return m
+    const reach = (c: QCriterion) => c.positions?.length || Infinity
+    const same = crits.filter((c) => normalize(c.label) === normalize(n)).sort((a, b) => reach(b) - reach(a))
+    return same.length > 1 && reach(same[0]) > reach(same[1]) ? { found: same[0] } : m
+  }
   if (on === 'zone') {
     const n = normalize(name)
     const cat = exactCategory(name) ?? kindCategory(name)

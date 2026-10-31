@@ -91,29 +91,30 @@ t('ligne « postes » : remplace les postes du sport', () => {
 
 // ---------- 2. Postes du volley ----------
 
-t('volley par défaut : 4 postes P, R4, C, PT (pas de libéro), libellés courts et complets', () => {
+t('volley par défaut : 5 postes P, R4, C, PT et L (libéro, depuis le 31/10), libellés courts et complets', () => {
   assert.equal(VOLLEYBALL.sportName, 'Volley')
-  assert.deepEqual(VOLLEYBALL.positions.map((p) => p.code), ['P', 'R4', 'C', 'PT'])
-  assert.deepEqual(VOLLEYBALL.positions.map((p) => p.label), ['Passeur', 'Réceptionneur-attaquant', 'Central', 'Pointu'])
-  assert.ok(VOLLEYBALL.positions.every((p) => p.family === 'champ'))
+  assert.deepEqual(VOLLEYBALL.positions.map((p) => p.code), ['P', 'R4', 'C', 'PT', 'L'])
+  assert.deepEqual(VOLLEYBALL.positions.map((p) => p.label), ['Passeur', 'Réceptionneur-attaquant', 'Central', 'Pointu', 'Libéro'])
+  assert.ok(VOLLEYBALL.positions.slice(0, 4).every((p) => p.family === 'champ'))
+  assert.equal(VOLLEYBALL.positions[4].family, 'gardien')
   assert.equal(LIBERO.code, 'L')
   assert.equal(LIBERO.family, 'gardien', 'le libéro : poste à part, comme le gardien')
   assert.deepEqual(sportProfile('volley').extraPositions, [LIBERO])
 })
 t('volley appliqué : POSITIONS, libellés, exports ; ancienne fiche de handball sans erreur', () => {
   assert.ok(applySportConfig(resolveSportConfig([], 'volley')))
-  assert.deepEqual(positionCodes(), ['P', 'R4', 'C', 'PT'])
-  assert.deepEqual(POSITIONS.map((p) => p.short), ['Passeur', 'R4', 'Central', 'Pointu'])
+  assert.deepEqual(positionCodes(), ['P', 'R4', 'C', 'PT', 'L'])
+  assert.deepEqual(POSITIONS.map((p) => p.short), ['Passeur', 'R4', 'Central', 'Pointu', 'Libéro'])
   assert.equal(positionLabel('R4'), 'R4')
   assert.equal(positionFull('R4'), 'Réceptionneur-attaquant')
   assert.equal(positionFull('PT'), 'Pointu (opposé)')
   assert.equal(positionLabel('GB'), 'GB')
   assert.equal(isKeeper('GB'), false)
-  assert.ok(!positionCodes().some(isKeeper))
+  assert.deepEqual(positionCodes().filter(isKeeper), ['L'], 'seul le libéro est un poste à part')
   assert.equal(isHandball(), false)
 })
-t('libéro ajouté par l’installation : famille « Libéro », règle des moyennes du volley', () => {
-  applySportConfig(resolveSportConfig([sportRow('volley'), postesRow([...VOLLEYBALL.positions, LIBERO])]))
+t('libéro (postes par défaut ou de l’installation) : famille « Libéro », règle des moyennes du volley', () => {
+  applySportConfig(resolveSportConfig([sportRow('volley'), postesRow(VOLLEYBALL.positions)]))
   assert.deepEqual(positionCodes(), ['P', 'R4', 'C', 'PT', 'L'])
   assert.equal(positionLabel('L'), 'Libéro')
   assert.equal(isKeeper('L'), true)
@@ -212,7 +213,7 @@ t('critères et tests : un fichier par sport ; volley rempli (phase 2), lu avec 
 })
 t('aide « postes » du classeur de critères : codes du sport en cours', () => {
   applySportConfig(resolveSportConfig([], 'volley'))
-  assert.match(positionsHelp(), /\(volley : P, R4, C, PT\)/)
+  assert.match(positionsHelp(), /\(volley : P, R4, C, PT, L\)/)
   applySportConfig(resolveSportConfig([], 'handball'))
   assert.match(positionsHelp(), /\(handball : GB, AG, ARG, DC, ARD, AD, PIV\)/)
 })

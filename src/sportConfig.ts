@@ -69,9 +69,13 @@ export const HANDBALL: SportConfig = {
   ],
 }
 
+/** Libéro : poste à part (famille « gardien » : ses propres critères, pas classé en attaque). */
+export const LIBERO: PositionDef = { code: 'L', label: 'Libéro', short: 'Libéro', full: 'Libéro', family: 'gardien', order: 5 }
+
 /**
- * Volley (salle) : 4 postes par défaut. Le libéro (LIBERO, plus bas) n'en fait pas partie : une installation l'ajoute dans
- * Réglages → « Structure et sport » si elle le souhaite. Codes courts = étiquettes du terrain (src/components/CourtPicker.tsx).
+ * Volley (salle) : 5 postes par défaut, libéro compris (31/10, demande de Stef ; avant, l'installation devait l'ajouter dans
+ * Réglages → « Structure et sport »). Une installation peut toujours retirer ou renommer des postes. Codes courts = étiquettes
+ * du terrain (src/components/CourtPicker.tsx).
  */
 export const VOLLEYBALL: SportConfig = {
   sport: 'volley',
@@ -81,11 +85,9 @@ export const VOLLEYBALL: SportConfig = {
     { code: 'R4', label: 'Réceptionneur-attaquant', short: 'R4', full: 'Réceptionneur-attaquant', family: 'champ', order: 2 },
     { code: 'C', label: 'Central', short: 'Central', full: 'Central', family: 'champ', order: 3 },
     { code: 'PT', label: 'Pointu', short: 'Pointu', full: 'Pointu (opposé)', family: 'champ', order: 4 },
+    { ...LIBERO },
   ],
 }
-
-/** Libéro : poste à part (famille « gardien » : ses propres critères), proposé à l'ajout, absent des postes par défaut. */
-export const LIBERO: PositionDef = { code: 'L', label: 'Libéro', short: 'Libéro', full: 'Libéro', family: 'gardien', order: 5 }
 
 /** Fonctions propres à un sport (masquées ailleurs). */
 export type SportFeature =
