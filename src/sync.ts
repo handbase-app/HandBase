@@ -7,7 +7,8 @@ import { aggregate, forward, startTable, type SyncProgress, type TableProgress }
 import { retryingFetch } from './retry'
 import { CHARGE_REGLES, delaiEnvoi, delaiFilet, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
 import { eventDayPlayers, planPriorite, PRIORITE_TABLES } from './priorite'
-import { guardRefresh, storedGate, storedRefreshToken, webLock } from './authRefresh'
+import { guardRefresh, storedGate, webLock } from './authRefresh'
+import { GATE_MIRROR_KEY, idbKv, refreshTokenOf, sessionStorageKey, sharedSessionStorage } from './sessionStore'
 import {
   ASK_AGAIN_MS,
   askWhatsNew,
@@ -186,22 +187,55 @@ const restFetch = retryingFetch({
  * peu de hasard, Retry-After respecté) ; seul un refus définitif (jeton invalide ou révoqué) ramène à la connexion. Un seul
  * renouvellement à la fois pour tous les onglets (verrou), et jamais avec un jeton déjà remplacé.
  */
+/*
+ * SESSION PARTAGÉE AVEC LE SERVICE WORKER (src/sessionStore.ts ; push de la veille, src/veilleSw.ts) : la session est gardée
+ * dans IndexedDB (une seule copie, migrée depuis localStorage à la première lecture), lisible par le service worker qui
+ * prépare les événements du lendemain appli fermée. IndexedDB indisponible : localStorage, comme avant.
+ */
+const sessionKv = (() => {
+  try {
+    return idbKv()
+  } catch {
+    return null
+  }
+})()
+const legacyStorage = (() => {
+  try {
+    return localStorage
+  } catch {
+    return null
+  }
+})()
+/** Stockage de la session (supabase-js, option auth.storage). */
+export const authStorage = sharedSessionStorage(sessionKv, legacyStorage)
+/** Clé de la session dans ce stockage (celle que supabase-js choisit par défaut). */
+export const authStorageKey = url ? sessionStorageKey(url) : ''
+
 const authFetch = guardRefresh({
   fetch: restFetch,
   lock: webLock(),
-  storedToken: () => {
-    try {
-      return storedRefreshToken(localStorage)
-    } catch {
-      return null
-    }
-  },
+  storedToken: async () => refreshTokenOf(await authStorage.getItem(authStorageKey)),
   // (store est défini plus bas : lu seulement à l'appel.)
   gate: storedGate({ get: (k) => store.get(k), set: (k, v) => store.set(k, v) }),
+  // Copie du repère pour le service worker (attendue dans le verrou de renouvellement).
+  mirror: async (g) => {
+    if (sessionKv && !authStorage.degraded) await sessionKv.set(GATE_MIRROR_KEY, JSON.stringify(g))
+  },
   onWait: (until) => setBusy(until),
   onDone: () => setBusy(0),
 })
-export const supabase: SupabaseClient | null = url && key ? createClient(url, key, { global: { fetch: authFetch } }) : null
+export const supabase: SupabaseClient | null =
+  url && key ? createClient(url, key, { global: { fetch: authFetch }, auth: { storage: authStorage, storageKey: authStorageKey } }) : null
+
+/** Session gardée sur l'appareil (même si son jeton d'accès a expiré) ; null : aucune. */
+export async function keptSessionText(): Promise<string | null> {
+  if (!authStorageKey) return null
+  try {
+    return await authStorage.getItem(authStorageKey)
+  } catch {
+    return null
+  }
+}
 // Adresse et clé publique du serveur, pour la page d'essai de dictée (public/essai-dictee/) servie sur le même site :
 // elle ouvre sa propre connexion (même session, renouvelée comme dans un 2e onglet). Rien de secret.
 if (url && key) {
@@ -288,12 +322,14 @@ export async function wipeDevice({ signOut = false } = {}) {
   await Promise.race([disablePush().catch(() => {}), new Promise((r) => setTimeout(r, 3000))])
   if (signOut && supabase) {
     await supabase.auth.signOut().catch(() => {})
-    // Hors ligne, signOut() échoue et garde la session : on l'oublie quand même sur l'appareil.
+    // Hors ligne, signOut() échoue et garde la session : on l'oublie quand même sur l'appareil (IndexedDB et localStorage).
     try {
       for (const k of Object.keys(localStorage)) if (/^sb-.+-auth-token/.test(k)) localStorage.removeItem(k)
     } catch {
       /* stockage indisponible */
     }
+    await authStorage.removeItem(authStorageKey).catch(() => {})
+    await sessionKv?.del(GATE_MIRROR_KEY).catch(() => {})
   }
   try {
     await db.delete({ disableAutoOpen: true })

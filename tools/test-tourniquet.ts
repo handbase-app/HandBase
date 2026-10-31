@@ -258,7 +258,8 @@ t('reprise au curseur : une page refusée (503) est redemandée au même curseur
   // Le source branche bien ce fetch sur le client de la base, et enregistre le curseur page après page.
   const sync = readFileSync(new URL('../src/sync.ts', import.meta.url), 'utf8')
   // (Le fetch du client encadre aussi le renouvellement du jeton, src/authRefresh.ts : restFetch en dessous.)
-  assert.ok(sync.includes('createClient(url, key, { global: { fetch: authFetch } })'))
+  // (Session gardée dans IndexedDB depuis le push de la veille, src/sessionStore.ts : option auth.storage.)
+  assert.ok(sync.includes('createClient(url, key, { global: { fetch: authFetch }, auth: { storage: authStorage, storageKey: authStorageKey } })'))
   assert.match(sync, /guardRefresh\(\{\s*fetch: restFetch/)
   assert.ok(sync.includes('localStorage.setItem(PULL_KEY(table), last.server_updated_at)'))
 })
