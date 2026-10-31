@@ -713,7 +713,6 @@ export function EventDetail() {
   // Accord au genre (src/gender.ts) : sexe déclaré de l'événement, sinon déduit de la liste (toutes des filles → féminin).
   const eg = setGender(ev.sex, roster)
   const ew = w(eg)
-  const filtered = shownRoster.length < roster.length
   // Couverture de l'équipe : vu (« vu » ou avis), noté, à revoir (repéré ici). Uniquement des marques positives.
   const sight = sightings(seen, evals)
   const notedSet = new Set(evals.map((e) => e.playerId))
@@ -733,9 +732,6 @@ export function EventDetail() {
   // Titres de poste, sauf si aucun joueur n'a de poste (un seul titre « Sans poste » n'apporterait rien).
   const withHeadings = roster.some((p) => p.position)
   const nNotedInRoster = roster.filter((p) => notedByMe.has(p.id)).length
-  // « Évaluer » ouvre le premier joueur que je n'ai pas encore noté, dans l'ordre choisi.
-  // Avec un filtre, seulement parmi les joueurs affichés.
-  const firstToRate = shownRoster.find((p) => !notedByMe.has(p.id)) ?? shownRoster[0]
   // Joueurs notés sur l'événement sans être dans la liste (ex. avis d'un observateur).
   const inRoster = new Set(ev.playerIds ?? [])
   const offList = players.filter((p) => !inRoster.has(p.id) && evals.some((e) => e.playerId === p.id))
@@ -766,16 +762,7 @@ export function EventDetail() {
     })
   }
 
-  // « Évaluer » ouvre le premier joueur à noter ; « + Ajouter des joueurs » devient le geste principal quand la liste est vide.
   const canAdd = manage || contribute
-  const addFirst = canAdd && roster.length === 0
-  const evaluate = (cls: string) => (
-    <Link to={`/evaluer?evenement=${ev.id}${firstToRate ? `&joueur=${firstToRate.id}` : ''}`} className={cls}>
-      {filtered
-        ? `Évaluer les ${pluralG(shownRoster.length, eg, 'joueur affiché')}`
-        : `Évaluer ${roster.length ? `les ${pluralG(roster.length, eg)}` : `des ${ew.joueurs}`}`}
-    </Link>
-  )
   const addButton = (cls: string, label = `+ Ajouter des ${ew.joueurs}`) => (
     <button className={cls} onClick={() => setAdding(true)}>
       {label}
@@ -1063,17 +1050,15 @@ export function EventDetail() {
         </Suspense>
       )}
 
-      {/* Ordinateur : une barre d'actions compacte (« Évaluer » et les onglets) ; les autres actions de la liste sont dans le ⋮. */}
-      {bar && (
+      {/* Les onglets (ordinateur : à droite) ; plus de bouton « Évaluer » (31/10) : toucher une ligne ouvre déjà la notation de
+          ce joueur ; les autres actions de la liste sont dans le ⋮. */}
+      {bar ? (
         <div className="flex flex-wrap items-center gap-2">
-          {tab !== 'video' && !(tab === 'joueurs' && adding) && evaluate(`${addFirst && tab === 'joueurs' ? 'btn-ghost' : 'btn-primary'} px-3 py-1.5 text-xs`)}
           {tabs('ml-auto min-w-64 max-w-80 flex-1')}
         </div>
+      ) : (
+        tabs()
       )}
-
-      {/* Téléphone : les onglets, puis « Évaluer » (l'action principale), au-dessus de la barre de la liste. */}
-      {!bar && tabs()}
-      {!bar && (tab === 'classement' || (tab === 'joueurs' && !adding)) && evaluate(addFirst && tab === 'joueurs' ? 'btn-ghost text-xs' : 'btn-soft')}
 
       {splitOpen && <TournamentWindow ev={ev} roster={roster} sight={sight} edit={manage || contribute} manage={manage} teams={teams} g={eg} onClose={() => setSplitOpen(false)} />}
 
