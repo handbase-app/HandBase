@@ -23,6 +23,9 @@ const STOP = new Set(['le', 'la', 'les', 'l', 'de', 'du', 'des', 'd', 'et', 'en'
 /** Mots qui distinguent (sans accents ni mots vides). */
 export const words = (s: string) => normalize(s).split(' ').filter((w) => w && !STOP.has(w))
 
+/** Mot sans la marque du pluriel (« stages » → « stage », « tournois » → « tournoi ») ; mots courts gardés. */
+export const sing = (w: string) => (w.length > 3 ? w.replace(/[sx]$/, '') : w)
+
 export type Match<T> = { found: T } | { ambiguous: T[] } | { none: true }
 
 /**
@@ -41,6 +44,8 @@ export function bestMatch<T>(input: string, items: T[], names: (t: T) => string[
     if (w.length && nw.join(' ') === w.join(' ')) return 90
     if (!w.length) return 0
     if (w.every((x) => nw.includes(x))) return 70
+    // Pluriel dit, singulier dans le nom (« les stages de test Pôle » → « Stage test Pôle … ») : journal des questions.
+    if (w.every((x) => nw.some((y) => sing(y) === sing(x)))) return 65
     if (w.every((x) => x.length >= 3 && nw.some((y) => y.startsWith(x)))) return 50
     if (n.length >= 4 && nn.replace(/ /g, '').includes(n.replace(/ /g, ''))) return 30
     return 0

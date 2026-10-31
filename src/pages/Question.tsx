@@ -42,7 +42,7 @@ import { useQuestionModel, type QuestionModel } from '../questionModel'
 import { AskQuestion, type AskState } from '../components/AskQuestion'
 import { AdvancedBusy, SqlAnswerView, SqlExplain, sqlPlayers, useAdvancedAsk, useSqlResult } from '../components/SqlAnswer'
 import { logQuestion } from '../questionLog'
-import { correctQuestionPhrase, incompletePhrase, lastRecipe, rememberRecipe, rescueInterpretation } from '../questionRescue'
+import { correctQuestionPhrase, incompletePhrase, lastRecipe, noRequest, rememberRecipe, rescueInterpretation } from '../questionRescue'
 import { AnswerFeedback } from '../components/AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { useDictation } from '../dictation/useDictation'
@@ -213,7 +213,8 @@ export default function Question() {
     const it = heard ? rescueInterpretation(read, heard, model.ctx, { prev: lastRecipe() }) : read
     rememberRecipe(it.recipe)
     const status: RecipeStatus = answersNothing(it.recipe, it.unsupported) ? 'pas_comprise' : it.notes.length || it.unsupported.length ? 'partielle' : 'complete'
-    const autoSql = status !== 'complete' && sqlReady && !!heard && !incompletePhrase(heard)
+    // Phrase coupée ou sans aucune demande (bruit du micro) : pas de mode avancé automatique (il répondrait à côté).
+    const autoSql = status !== 'complete' && sqlReady && !!heard && !incompletePhrase(heard) && !(status === 'pas_comprise' && noRequest(heard))
     const logId =
       !autoSql && heard ? logQuestion({ phrase: heard, recipe: status, recipeMissing: [...it.unsupported, ...it.notes], page: 'question' }, model.source?.() ?? null) : undefined
     // Réponse géographique, recette appliquée en entier : sur le bilan, ouvert sur le lieu de la question.
