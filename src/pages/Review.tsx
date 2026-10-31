@@ -122,16 +122,6 @@ export default function ReviewPage() {
           </Link>
         </div>
       </div>
-      <p className="text-[11px] text-muted">
-        Joueur vu hors des événements prévus (UNSS, entraînement de club…) : avis spontané, et fiche proposée s’il n’est pas dans la base.
-        Ceux des observateurs sont validés par un encadrant ; une fiche proposée sans décision au bout de 12 mois est effacée (RGPD).
-        Hors cadre, ils restent consultables pour mémoire (
-        <Link to="/rates" className="font-bold text-accent">
-          ratés
-        </Link>
-        ).
-      </p>
-
       {can.review(role) && (
         <p className="text-[11px] text-muted">
           Mon secteur :{' '}
@@ -198,7 +188,16 @@ export default function ReviewPage() {
 
       <section className="flex flex-col gap-2">
         <div className="section-title">Mes avis spontanés ({mine.length})</div>
-        {mine.length ? mine.map(card) : <Empty>Tu n’as pas encore donné d’avis spontané.</Empty>}
+        {/* Plus d'explication permanente sous le titre (31/10) : la règle utile (validation, effacement RGPD) est dans l'état vide. */}
+        {mine.length ? (
+          mine.map(card)
+        ) : (
+          <Empty>
+            Tu n’as pas encore donné d’avis spontané. Pour un joueur vu hors des événements prévus (UNSS, entraînement de club…) : «&nbsp;+&nbsp;Avis spontané&nbsp;», et
+            «&nbsp;+&nbsp;Fiche&nbsp;» s’il n’est pas dans la base. Ceux des observateurs sont validés par un encadrant ; une fiche proposée sans décision au bout de 12 mois
+            est effacée (RGPD).
+          </Empty>
+        )}
       </section>
 
       {can.review(role) && decided.length > 0 && (

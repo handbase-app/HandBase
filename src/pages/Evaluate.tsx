@@ -1048,7 +1048,7 @@ export function NewEventForm({
       <input className="field" autoFocus={!!playerIds?.length} aria-label="Nom de l’événement" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
       {/* 2 colonnes (téléphone, formulaire étroit), 4 de front dès que la place le permet (fenêtre d'ordinateur). */}
       <div className="@container">
-        <Segmented value={type} onChange={setType} options={EVENT_TYPES} className="grid grid-cols-2 gap-2 @lg:grid-cols-4" />
+        <Segmented value={type} onChange={setType} options={EVENT_TYPES} className="grid grid-cols-2 gap-[3px] @lg:grid-cols-4" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -1056,13 +1056,13 @@ export function NewEventForm({
       </div>
       <OrganizerField value={organizer} onChange={setOrganizer} auto={!event && !from} />
       <span className="label mt-1">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()}</span>
-      <div className="flex gap-1" role="radiogroup" aria-label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}>
-        {EVENT_SEXES.map((x) => (
-          <button key={x.value} type="button" role="radio" aria-checked={sex === x.value} className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(sex === x.value ? undefined : x.value)}>
-            {x.label}
-          </button>
-        ))}
-      </div>
+      {/* Style commun des choix (Segmented, 31/10) ; toucher le choix retenu le retire (facultatif). */}
+      <Segmented
+        label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}
+        value={sex}
+        onChange={(v) => setSex(sex === v ? undefined : v)}
+        options={EVENT_SEXES}
+      />
       {!sex && <p className="-mt-1 text-[11px] text-muted">Facultatif : sans choix, déduit des joueurs de la liste{auto ? ` (${EVENT_SEXES.find((x) => x.value === auto)?.label.toLowerCase()})` : ''}.</p>}
       {chosen && (
         <p className="text-[11px] text-muted">

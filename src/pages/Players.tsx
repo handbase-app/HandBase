@@ -2,7 +2,7 @@ import { StickyQuery } from '../components/StickyQuery'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { age, type Measurement, type Player } from '../db'
-import { Empty, fmtValue } from '../components/ui'
+import { Empty, fmtValue, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { BarActions, MoreActions } from '../components/PageHeader'
@@ -166,22 +166,18 @@ export default function Players() {
       <h1 className="sr-only">Joueurs</h1>
 
       {(nPending > 0 || nRefused > 0 || view !== 'base') && (
-        <div className="mb-3 flex gap-2">
-          {(
-            [
-              ['base', 'Base'],
-              ['pending', `Proposées (${nPending})`],
-              ['refused', `Hors cadre (${nRefused})`],
-            ] as const
-          ).map(([v, label]) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-bold ${view === v ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted'}`}
-            >
-              {label}
-            </button>
-          ))}
+        // Style commun des choix (Segmented, pastille teintée : 31/10).
+        <div className="mb-3">
+          <Segmented
+            label="Fiches"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'base', label: 'Base' },
+              { value: 'pending', label: `Proposées (${nPending})` },
+              { value: 'refused', label: `Hors cadre (${nRefused})` },
+            ]}
+          />
         </div>
       )}
       {view === 'refused' && (

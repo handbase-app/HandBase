@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
-import { Empty, Icon, QuarterBadge } from '../components/ui'
+import { Empty, Icon, QuarterBadge, SEG_BOX, Segmented, segItem } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
 import { PlayerMenuScope } from '../components/PlayerMenu'
@@ -243,24 +243,16 @@ export default function Events() {
       )}
       {territoryOn && allEvents.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
-          <div role="radiogroup" aria-label="Événements affichés" className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-            {(
-              [
-                ['mes', 'Mes territoires'],
-                ['tous', 'Tous'],
-              ] as const
-            ).map(([v, label]) => (
-              <button
-                key={v}
-                role="radio"
-                aria-checked={territory === v}
-                onClick={() => setTerritory(v)}
-                className={`min-h-9 px-3 ${territory === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted hover:text-fg'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* Style commun des choix (Segmented, pastille teintée : 31/10). */}
+          <Segmented
+            label="Événements affichés"
+            value={territory}
+            onChange={setTerritory}
+            options={[
+              { value: 'mes', label: 'Mes territoires' },
+              { value: 'tous', label: 'Tous' },
+            ]}
+          />
           {territory === 'mes' && hiddenByTerritory > 0 && (
             <span>
               {hiddenByTerritory > 1 ? `${hiddenByTerritory} autres événements` : '1 autre événement'} dans « Tous »
@@ -817,7 +809,7 @@ export function EventDetail() {
             <>
               {nVideos ? `Vidéo (${nVideos})` : 'Vidéo'}
               {!nVideos && ev.matchSheet && (
-                <span className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${tab === 'video' ? 'bg-white' : 'bg-accent'}`} title="Feuille de match importée" />
+                <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-accent align-middle" title="Feuille de match importée" />
               )}
             </>
           ),
@@ -988,7 +980,7 @@ export function EventDetail() {
 
       {/* Téléphone : les joueurs d'abord ; « Évaluer » vient juste au-dessus de la liste, après la couverture. */}
       {!bar && tabs()}
-      {!bar && tab === 'classement' && evaluate('btn-primary')}
+      {!bar && tab === 'classement' && evaluate('btn-soft')}
 
       {/* Joueurs : la répartition par équipe en haut (repliée), puis la liste. */}
       {tab === 'joueurs' && !adding && (ev.type === 'tournoi' || tTeams.length > 0 || !!ev.matchSheet) && (
@@ -1063,8 +1055,8 @@ export function EventDetail() {
             )}
             {!bar &&
               canAdd &&
-              (addFirst ? addButton('btn-primary') : addButton('btn-ghost text-xs', `+ Ajouter des ${ew.joueurs} (par groupe ou ${ew.un} par ${ew.un})`))}
-            {!bar && roster.length === 0 && evaluate(addFirst ? 'btn-ghost text-xs' : 'btn-primary')}
+              (addFirst ? addButton('btn-soft') : addButton('btn-ghost text-xs', `+ Ajouter des ${ew.joueurs} (par groupe ou ${ew.un} par ${ew.un})`))}
+            {!bar && roster.length === 0 && evaluate(addFirst ? 'btn-ghost text-xs' : 'btn-soft')}
             <RewatchInEvent
               ev={ev}
               rows={rewatch.filter((r) => r.events?.includes(ev.id))}
@@ -1134,7 +1126,7 @@ export function EventDetail() {
                   setFilter={setCover}
                   g={eg}
                 />
-                {!bar && evaluate('btn-primary')}
+                {!bar && evaluate('btn-soft')}
                 {(roster.length > 1 || roster.some((p) => can.removeFromEvent(role, ev, p.id))) && (
                   <div className="flex items-center justify-end gap-3">
                     {roster.length > 1 && !removing && <CompareToggle pick={pick} className="mr-auto" />}
@@ -1164,13 +1156,13 @@ export function EventDetail() {
                     showSort={!byTeam}
                     top={
                       tTeams.length > 0 && (
-                        <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
+                        <div className={`${SEG_BOX} text-xs`}>
                           {ROSTER_GROUPS.map(({ value: v, label }) => (
                             <button
                               key={v}
                               onClick={() => setGroupBy(v)}
                               aria-pressed={groupBy === v}
-                              className={`min-h-8 flex-1 px-1 py-1 leading-tight ${groupBy === v ? 'bg-accent text-white' : 'bg-panel text-muted'}`}
+                              className={`min-h-8 flex-1 px-1 py-1 leading-tight ${segItem(groupBy === v)}`}
                             >
                               {label}
                             </button>

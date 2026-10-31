@@ -199,8 +199,8 @@ export default function Groups() {
       compact={bar}
       className="w-full"
       items={[
-        { value: 'joueurs', label: `${STAFF.tabPlayers} (${groups.filter((g) => !g.archived).length})` },
-        { value: STAFF.tab, label: `${STAFF.tabWork} (${teams.length})` },
+        { value: 'joueurs', label: STAFF.tabPlayers, count: groups.filter((g) => !g.archived).length },
+        { value: STAFF.tab, label: STAFF.tabWork, count: teams.length },
       ]}
     />
   )
@@ -736,13 +736,8 @@ export function GroupForm({
       )}
 
       <span className="label mt-2">Portée *</span>
-      <div className="flex gap-1">
-        {GROUP_SCOPES.map((x) => (
-          <button key={x.value} type="button" className={`flex-1 ${chip(scope === x.value)}`} onClick={() => setScope(x.value)}>
-            {x.label}
-          </button>
-        ))}
-      </div>
+      {/* Choix segmentés au style commun (Segmented, pastille teintée : 31/10). */}
+      <Segmented<GroupScope> label="Portée" value={scope} onChange={setScope} options={GROUP_SCOPES} />
       {scope === 'federation' && <p className="-mt-1 text-[11px] text-muted">Groupe national (DTN, stages nationaux, équipes de France jeunes).</p>}
       {scope === 'ligue' && (
         <select className={`field ${region ? '' : 'border-amber-400'}`} value={region} onChange={(e) => setRegion(e.target.value)}>
@@ -766,13 +761,7 @@ export function GroupForm({
       )}
 
       <span className="label mt-2">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()} *</span>
-      <div className="flex gap-1">
-        {SEXES.map((x) => (
-          <button key={x.value} type="button" className={`flex-1 ${chip(sex === x.value)}`} onClick={() => setSex(x.value)}>
-            {x.label}
-          </button>
-        ))}
-      </div>
+      <Segmented label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`} value={sex} onChange={setSex} options={SEXES} />
 
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -1200,14 +1189,12 @@ function PlayerGroupDetail() {
         </div>
       )}
 
-      {/* Une seule action en bouton : « + Ajouter des joueurs » (téléphone : toute la largeur). « Changement de saison », « Créer
-          un événement », « Exporter » sont dans le ⋮ du titre (31/10). */}
+      {/* Une seule action en bouton : « + Ajouter des joueurs » (pastille teintée btn-soft, 31/10 : toute la largeur sur
+          téléphone). « Changement de saison », « Créer un événement », « Exporter » sont dans le ⋮ du titre (31/10). */}
       {(pole ? leads : manage || contribute) && (
-        <div className={bar ? 'flex' : 'grid'}>
-          <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : ''}`} onClick={() => setAdding(true)}>
-            + Ajouter des {gw.joueurs}
-          </button>
-        </div>
+        <button className="btn-soft" onClick={() => setAdding(true)}>
+          + Ajouter des {gw.joueurs}
+        </button>
       )}
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 

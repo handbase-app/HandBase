@@ -24,6 +24,7 @@ import { RosterChip, RosterSectionList } from '../components/PositionRoster'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon, type IconName } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
+import { CapsuleTabs } from '../components/CapsuleTabs'
 import { PlayerList } from '../components/Pictos'
 import { CHEVRON_CELL, FoldCard, LINE_LINK, PICTO_CELL, PictoMark as Mark } from '../components/FoldCard'
 import { TEAM_FOLLOW } from '../staffLabels'
@@ -482,10 +483,6 @@ export default function Follows() {
             <Icon name="star" filled className="h-4 w-4 text-accent" />
             Mes suivis
           </h1>
-          <p className="max-w-3xl text-[11px] text-muted">
-            Les nouvelles mesures et les nouveaux avis des joueurs que tu suis. Personne d’autre ne voit tes suivis ; un groupe « {TEAM_FOLLOW.label.toLowerCase()} » l’est par son
-            créateur et ses participants.
-          </p>
         </div>
         {!nothing && (
           <>
@@ -507,32 +504,25 @@ export default function Follows() {
                 ))}
               </div>
             )}
-            {/* Mêmes onglets, même style que ceux d'un événement ou des groupes. */}
-            <div role="tablist" aria-label="Contenu" className="flex overflow-hidden rounded-md border border-line text-xs font-bold">
-              {(
-                [
-                  ['nouveautes', fresh > 0 ? `Nouveautés (${fresh > 99 ? '99+' : fresh} nouvelles)` : 'Nouveautés'],
-                  ['joueurs', `${gw.Joueurs} ${gw.suivis} (${inView ? inView.size : all.length})`],
-                ] as const
-              ).map(([v, label]) => (
-                <button
-                  key={v}
-                  role="tab"
-                  aria-selected={tab === v}
-                  onClick={() => setTab(v)}
-                  className={`min-w-0 flex-1 truncate px-1 py-2 ${tab === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {/* Mêmes onglets que ceux d'un événement ou des groupes (CapsuleTabs). */}
+            <CapsuleTabs
+              label="Contenu"
+              value={tab}
+              onChange={setTab}
+              items={[
+                { value: 'nouveautes', label: fresh > 0 ? `Nouveautés (${fresh > 99 ? '99+' : fresh} nouvelles)` : 'Nouveautés' },
+                { value: 'joueurs', label: `${gw.Joueurs} ${gw.suivis}`, count: inView ? inView.size : all.length },
+              ]}
+            />
           </>
         )}
       </div>
 
       {nothing ? (
         <Empty>
-          Tu ne suis encore personne. Appuie sur <b>Suivre</b> sur la fiche d’un joueur ou sur un groupe : ses nouveautés arriveront ici.
+          {/* Règle de confidentialité ici seulement (31/10 : plus d'explication permanente sous le titre). */}
+          Tu ne suis encore personne. Appuie sur <b>Suivre</b> sur la fiche d’un joueur ou sur un groupe : ses nouveautés arriveront ici. Personne d’autre ne
+          voit tes suivis ; un groupe « {TEAM_FOLLOW.label.toLowerCase()} » l’est par son créateur et ses participants.
         </Empty>
       ) : tab === 'nouveautes' ? (
         <section className="flex flex-col gap-3">

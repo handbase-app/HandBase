@@ -6,7 +6,7 @@ import { ask } from './Confirm'
 import { department } from './PlayerFilter'
 import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
-import { Empty, Icon, playerName } from './ui'
+import { Empty, Icon, playerName, SEG_BOX, segItem } from './ui'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -237,9 +237,9 @@ export function Opinions({
             {evaluations.some((e) => !e.eventId) && <option value="none">Avis spontanés / hors événement</option>}
           </select>
         )}
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-line">
+        <div className={`${SEG_BOX} shrink-0`}>
           {(['table', 'radar'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-1' : ''} text-xs font-bold ${view === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
+            <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-0.5' : 'py-1'} text-xs ${segItem(view === v)}`}>
               {v === 'table' ? 'Tableau' : 'Radar'}
             </button>
           ))}

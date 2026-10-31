@@ -37,6 +37,7 @@ import { correctQuestionPhrase } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
 import { chipCount, CountText, FilterWindow, FiltersButton, useFilterWindow } from './FilterWindow'
 import { BarActionsSlot, BarBelowRow } from './PageHeader'
+import { SEG_BOX, segItem } from './ui'
 
 /*
  * Filtres des listes Événements et Groupes = ÉDITEUR DE RECETTE, même expérience que la liste Joueurs
@@ -609,7 +610,7 @@ export function SegRow<V extends string>({
   return (
     <div className="flex flex-col gap-1" data-filter={k}>
       <span className="text-[10px] font-bold tracking-wider text-muted uppercase">{label}</span>
-      <div className="flex overflow-hidden rounded-md border border-line text-xs font-bold" role="group" aria-label={label}>
+      <div className={`${SEG_BOX} text-xs`} role="group" aria-label={label}>
         {[{ value: '' as const, label: 'Tous', short: 'Tous' }, ...options].map((x) => {
           const n = counts ? (x.value ? (counts.get(x.value) ?? 0) : total) : undefined
           return (
@@ -619,7 +620,7 @@ export function SegRow<V extends string>({
               aria-pressed={value === x.value}
               onClick={() => onChange(x.value)}
               disabled={n === 0 && value !== x.value}
-              className={`min-h-11 min-w-0 flex-1 px-1 leading-tight disabled:opacity-40 ${value === x.value ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
+              className={`min-h-10 min-w-0 flex-1 px-1 leading-tight disabled:opacity-40 ${segItem(value === x.value)}`}
             >
               {x.short ?? x.label}
               {n !== undefined && <span className="ml-1 text-[10px] font-normal opacity-70">{n}</span>}

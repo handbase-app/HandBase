@@ -1,5 +1,6 @@
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useMedia } from '../layout'
+import { CapsuleTabs } from './CapsuleTabs'
 import { radarViewOf, withRadarView, type RadarView } from '../tabQuery'
 
 /**
@@ -14,27 +15,19 @@ export function useRadarView(): [RadarView, (v: RadarView) => void] {
   return [view, (v) => setParams(new URLSearchParams(withRadarView(search, v)), { replace: true, state })]
 }
 
-/** Onglets « Complet » | « Par famille » au-dessus d'un radar des avis : même style que ceux d'un événement (Events.tsx). */
+/** Onglets « Complet » | « Par famille » au-dessus d'un radar des avis : CapsuleTabs, comme ceux d'un événement (31/10). */
 export function RadarViewTabs({ view, onChange }: { view: RadarView; onChange: (v: RadarView) => void }) {
   return (
-    <div role="tablist" aria-label="Vue du radar" className="mb-2 flex overflow-hidden rounded-md border border-line text-xs font-bold">
-      {(
-        [
-          ['complet', 'Complet'],
-          ['familles', 'Par famille'],
-        ] as const
-      ).map(([v, label]) => (
-        <button
-          key={v}
-          role="tab"
-          aria-selected={view === v}
-          data-tab={v}
-          onClick={() => onChange(v)}
-          className={`min-w-0 flex-1 truncate px-1 py-2 ${view === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <CapsuleTabs
+      label="Vue du radar"
+      value={view}
+      onChange={onChange}
+      compact
+      className="mb-2"
+      items={[
+        { value: 'complet', label: 'Complet' },
+        { value: 'familles', label: 'Par famille' },
+      ]}
+    />
   )
 }

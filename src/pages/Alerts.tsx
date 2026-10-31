@@ -42,11 +42,13 @@ export default function Alerts() {
           + Profil
         </Link>
       </div>
-      <p className="text-[11px] text-muted">
-        Un profil recherché (ex. grand gaucher 2011) : l’appli te signale chaque joueur qui vient d’y entrer — nouvelle fiche, nouvelle mesure
-        ou nouvel avis.
-      </p>
-      {!data.alerts.length && <Empty>Aucun profil recherché pour l’instant. Crée le premier avec « + Profil ».</Empty>}
+      {/* Explication seulement dans l'état vide (31/10), plus sous le titre. */}
+      {!data.alerts.length && (
+        <Empty>
+          Aucun profil recherché pour l’instant. Crée le premier avec «&nbsp;+&nbsp;Profil&nbsp;» (ex. grand gaucher 2011) : l’appli te signalera chaque joueur qui y entre —
+          nouvelle fiche, nouvelle mesure ou nouvel avis.
+        </Empty>
+      )}
       {mine.length > 0 && (
         <>
           <div className="section-title mt-1 mb-0 flex items-center gap-1.5">

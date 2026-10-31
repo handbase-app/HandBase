@@ -104,6 +104,15 @@ export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositi
   )
 }
 
+/**
+ * Style commun des onglets et choix segmentés (31/10, comme les onglets de la fiche joueur et la barre du bas) : capsule
+ * fine (SEG_BOX) et pastilles (segItem) ; choix retenu en pastille teintée (bg-accent/15, texte accent), les autres en
+ * texte discret, survol léger. Pour les bascules faites à la main (sens du tri, filtres « Tous / … », vues Tableau / Radar…) ;
+ * sinon Segmented ou CapsuleTabs.
+ */
+export const SEG_BOX = 'flex gap-[3px] rounded-full border border-line bg-panel p-[3px]'
+export const segItem = (on: boolean) => `rounded-full font-bold transition ${on ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-fg/5 hover:text-fg'}`
+
 export function Segmented<T extends string>({
   value,
   options,
@@ -120,40 +129,38 @@ export function Segmented<T extends string>({
   columns?: number
   /** Grille posée par l'appelant (ex. 2 colonnes, 4 quand la place le permet : `grid grid-cols-2 @lg:grid-cols-4 gap-2`). */
   className?: string
-  /** « capsule » : segments arrondis dans une capsule (écran d'avis, comme les notes : CriterionInput) ; choix retenu en
-   *  plein blanc (couleur du texte du thème), sans néon. Par défaut, des boutons séparés. */
+  /** « capsule » : écran d'avis, comme les notes (CriterionInput) : choix retenu en plein blanc (couleur du texte du
+   *  thème), sans néon. Par défaut (« boutons ») : le style commun des onglets et choix de l'appli (31/10, comme les onglets
+   *  de la fiche joueur, la barre du bas et CapsuleTabs) : pastilles dans une capsule fine, choix retenu en pastille teintée
+   *  (bg-accent/15, texte accent), les autres en texte discret ; plus de rectangle plein coloré. */
   look?: 'boutons' | 'capsule'
-  /** Nom du groupe pour les lecteurs d'écran (capsule). */
+  /** Nom du groupe pour les lecteurs d'écran. */
   label?: string
 }) {
   const capsule = look === 'capsule'
   const grid = columns && !className
+  // Plusieurs rangées (grille de l'appelant, ou plus d'options que de colonnes) : coins moins ronds que la pilule.
+  const rows = !!className || (grid && columns! > 1 && options.length > columns!)
+  // Sur une ligne : grille de colonnes égales (auto-cols-fr) plutôt que flex-1 : dans une place à sa mesure (Carte /
+  // Générations du bilan), chaque option prend la largeur de la plus longue, sans qu'un nom déborde de sa pastille.
   return (
     <div
-      role={capsule ? 'group' : undefined}
-      aria-label={capsule ? label : undefined}
-      className={
-        capsule
-          ? `${grid ? 'grid gap-[3px]' : 'flex gap-[3px]'} border-[1.5px] border-line bg-panel-2/40 p-[3px] ${grid && columns! > 1 && options.length > columns! ? 'rounded-[20px]' : 'rounded-full'} ${className ?? ''}`
-          : (className ?? (columns ? 'grid gap-2' : 'flex gap-2'))
-      }
+      role="group"
+      aria-label={label}
+      className={`${className ?? (grid ? 'grid gap-[3px]' : 'grid auto-cols-fr grid-flow-col gap-[3px]')} p-[3px] ${rows ? 'rounded-[20px]' : 'rounded-full'} ${
+        capsule ? 'border-[1.5px] border-line bg-panel-2/40' : 'border border-line bg-panel'
+      }`}
       style={grid ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
     >
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
-          aria-pressed={capsule ? value === o.value : undefined}
+          aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={
-            capsule
-              ? `flex min-h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold transition ${
-                  value === o.value ? 'bg-fg text-panel' : 'text-muted hover:bg-fg/5 hover:text-fg'
-                }`
-              : `flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-bold transition ${
-                  value === o.value ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
-                }`
-          }
+          className={`flex min-h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-xs leading-tight font-bold transition ${
+            value === o.value ? (capsule ? 'bg-fg text-panel' : 'bg-accent/15 text-accent') : 'text-muted hover:bg-fg/5 hover:text-fg'
+          }`}
         >
           {o.icon && <Icon name={o.icon} className="h-3.5 w-3.5 shrink-0" />}
           {o.label}
