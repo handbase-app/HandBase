@@ -276,7 +276,8 @@ type AvisPick = { scores: Record<string, number | undefined>; strengths: boolean
  * la fiche. Chaque note proposée est cochée ; on décoche ce qu'on ne veut pas, on touche une autre note de l'échelle
  * (1 à 5…) pour la changer ; la phrase dite est rappelée dessous. Points forts / Axes proposés : cochés aussi. « Accepter
  * (n) » pose ce qui est coché sur la fiche (rien n'est enregistré avant « Enregistrer »), « Tout refuser » écarte tout ;
- * ✕ ou Retour : plus tard. Pas d'explication. Administrateurs seulement (phase de test) : propositions écartées,
+ * ✕ ou Retour : plus tard. Pas d'explication. Aspect d'une proposition (liseré pointillé, note teintée : .sug-ring /
+ * .sug-fill, src/index.css) ; une fois acceptée, la note est pleine sur la fiche. Administrateurs seulement (phase de test) : propositions écartées,
  * « Ce que j'ai entendu » et l'appréciation « Cohérente · En partie · Pas cohérente ».
  */
 function AvisReview({
@@ -317,7 +318,7 @@ function AvisReview({
                 <input type="checkbox" className={check} checked={on[id]} onChange={(e) => setOn((o) => ({ ...o, [id]: e.target.checked }))} />
                 {x.label}
               </label>
-              <div role="group" aria-label={`${x.label} : note`} className="flex gap-[3px] rounded-full border-[1.5px] border-line p-[3px]">
+              <div role="group" aria-label={`${x.label} : note`} className="sug-ring flex gap-[3px] rounded-full p-[3px]">
                 {steps.map((v) => (
                   <button
                     key={v}
@@ -328,7 +329,7 @@ function AvisReview({
                       setOn((o) => ({ ...o, [id]: true }))
                     }}
                     className={`flex h-9 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
-                      vals[id] === v ? 'bg-fg text-panel' : 'text-muted hover:bg-fg/5 hover:text-fg'
+                      vals[id] === v ? 'sug-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
                     }`}
                   >
                     {v}

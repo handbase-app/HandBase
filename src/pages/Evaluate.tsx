@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { Avatar, CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -22,7 +22,6 @@ import { AvisVocal } from '../components/AvisVocal'
 import { decide, mergeComment, type AvisState } from '../dictation/avis'
 import { withPoleMembers } from '../poleMembers'
 import { usePlayersByName } from '../playersCache'
-import { scoreLegend } from '../sportContent'
 import { FormActions } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
 import {
@@ -355,7 +354,7 @@ export default function Evaluate() {
       <div className={duo ? 'sticky top-[calc(var(--hdr)+1.25rem)] flex flex-col gap-4' : 'contents'}>
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
       {!listMode && (
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 empty:hidden">
         {/* Retour d'où l'on vient (événement, fiche dans l'événement, fiche, propositions…) ; sans historique : le parent. */}
         {event && !spontaneous ? (
           <BackButton fallback={`/evenements/${event.id}`} label={event.name.toUpperCase()} />
@@ -364,9 +363,6 @@ export default function Evaluate() {
         ) : (
           <BackButton fallback="/avis-spontanes" label="PROPOSITIONS" />
         )}
-        <span className="shrink-0 text-[11px] text-muted">
-          Avis de : <b className="text-fg">{me}</b>
-        </span>
       </div>
       )}
 
@@ -525,9 +521,9 @@ export default function Evaluate() {
           style={{ touchAction: 'pan-y' }}
           className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'}`}
         >
-          {/* Voir la fiche du joueur (mesures, avis, maturité…) ; le bouton retour ramène ici. Sans poste, les encadrants
-              et admins sont invités à la compléter directement. */}
-          {listMode ? null : !player.position && can.editPlayers(role) ? (
+          {/* Sans poste, les encadrants et admins sont invités à compléter la fiche directement. La fiche elle-même s'ouvre
+              d'un toucher sur le nom (plus de lien « Voir la fiche », 31/10). */}
+          {!listMode && !player.position && can.editPlayers(role) && (
             <button
               data-noswipe
               className="self-start text-[11px] font-bold text-amber-300"
@@ -538,38 +534,35 @@ export default function Evaluate() {
             >
               ✎ Pas de poste : compléter la fiche
             </button>
-          ) : (
-            <button
-              data-noswipe
-              className="flex items-center gap-1.5 self-start text-[11px] font-bold text-muted hover:text-fg"
-              onClick={async () => {
-                if (!(await confirmLeave())) return
-                navigate(`/joueurs/${player.id}`)
-              }}
-            >
-              <Icon name="user" className="h-3.5 w-3.5" />
-              Voir la fiche
-            </button>
           )}
           <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
             <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
-              {playerName(player)} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
-              {/* Liste à gauche : en-tête compact, « Voir la fiche » sur la ligne du nom. */}
-              {listMode && (
+              {/* Photo (ou initiales) et nom : un toucher ouvre la fiche (mesures, avis, maturité…) ; le retour ramène ici. */}
+              <button
+                data-noswipe
+                className="group flex min-w-0 items-center gap-2.5 text-left"
+                title={`Voir la fiche de ${playerName(player)}`}
+                onClick={async () => {
+                  if (!(await confirmLeave())) return
+                  navigate(`/joueurs/${player.id}`)
+                }}
+              >
+                <Avatar p={player} size={listMode ? 32 : 40} />
+                <span className="underline-offset-2 group-hover:underline">{playerName(player)}</span>
+              </button>{' '}
+              <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
+              {/* Liste à gauche, sans poste : « Compléter le poste » sur la ligne du nom. */}
+              {listMode && !player.position && can.editPlayers(role) && (
                 <button
                   data-noswipe
-                  className={`flex items-center gap-1 text-[11px] font-bold ${!player.position && can.editPlayers(role) ? 'text-amber-300' : 'text-muted hover:text-fg'}`}
+                  className="flex items-center gap-1 text-[11px] font-bold text-amber-300"
                   onClick={async () => {
                     if (!(await confirmLeave())) return
-                    navigate(
-                      !player.position && can.editPlayers(role)
-                        ? `/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`
-                        : `/joueurs/${player.id}`,
-                    )
+                    navigate(`/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`)
                   }}
                 >
                   <Icon name="user" className="h-3.5 w-3.5" />
-                  {!player.position && can.editPlayers(role) ? 'Compléter le poste' : 'Voir la fiche'}
+                  Compléter le poste
                 </button>
               )}
             </div>
@@ -621,8 +614,6 @@ export default function Evaluate() {
               )}
             </div>
           )}
-          {/* Repères de l'échelle du sport (src/sportContent.ts) ; handball : « 1 = très insuffisant · 3 = niveau attendu · 5 = remarquable ». */}
-          <div className="text-[11px] text-muted">{scoreLegend()}. Laisse vide ce que tu n'as pas vu.</div>
           <AvisVocal
             playerId={player.id}
             position={player.position}
@@ -719,7 +710,6 @@ export default function Evaluate() {
         <RosterList
           event={event}
           g={eg}
-          me={me}
           roster={roster}
           total={fullRoster.length}
           noted={fullRoster.filter((p) => evaluatedHere.has(p.id)).length}
@@ -758,7 +748,6 @@ export default function Evaluate() {
 function RosterList({
   event,
   g,
-  me,
   roster,
   total,
   noted,
@@ -774,7 +763,6 @@ function RosterList({
   event: HBEvent
   /** Genre de la liste (src/gender.ts). */
   g: Gender
-  me: string
   roster: Player[]
   total: number
   noted: number
@@ -825,7 +813,7 @@ function RosterList({
         <BackButton fallback={`/evenements/${event.id}`} label={event.name} className="block w-full hover:text-fg" />
         <div className="truncate text-[10px] text-muted rail:hidden">
           {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
-          {event.place ? ` · ${event.place}` : ''} · Avis de : <b className="text-fg">{me}</b>
+          {event.place ? ` · ${event.place}` : ''}
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 text-[11px]">

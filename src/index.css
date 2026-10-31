@@ -297,8 +297,7 @@ body {
 /* Propositions de l'avis vocal (écran d'avis) : sobres, dans la couleur du texte du thème (31/10 : le néon était criard).
    Proposé = pas encore validé : liseré pointillé autour des notes du critère, note proposée teintée et pointillée ; une
    fois validée, elle devient pleine comme toute note choisie. Ligne « n propositions en attente » : même teinte légère.
-   Depuis le 31/10, les propositions se valident dans une fenêtre (AvisVocal.tsx, AvisReview) ; .sug-ring / .sug-fill
-   restent pour CriterionInput (suggested). */
+   Depuis le 31/10, les propositions se valident dans une fenêtre (AvisVocal.tsx, AvisReview), qui garde cet aspect. */
 .sug-ring { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 40%, transparent); background: var(--color-panel); }
 .sug-fill { background: color-mix(in srgb, var(--color-fg) 12%, var(--color-panel)); color: var(--color-fg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-fg) 45%, transparent); }
 .sug-box { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 30%, transparent); background: color-mix(in srgb, var(--color-fg) 4%, transparent); }
