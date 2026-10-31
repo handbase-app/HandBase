@@ -49,6 +49,12 @@ export const IDEMPOTENT_RPC: readonly string[] = [
   'hb_mes_canaux',
   'hb_my_perimeter',
   'hb_ping',
+  // 061 : « quoi de neuf ? » du registre (lecture ; le signe de vie et les canaux gardés qu'elle écrit se refont à l'identique)
+  // et canaux du compte gardés pour le direct.
+  'hb_registre_depuis',
+  'hb_mes_canaux_memo',
+  // 059 : filet (lecture).
+  'hb_filet',
 ]
 
 /** Attente avant la tentative n° attempt + 1 (attempt = 0 pour la première nouvelle tentative), sans Retry-After. */

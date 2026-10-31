@@ -42,9 +42,10 @@ export const CONTENT_TABLES: readonly SyncTable[] = ['config', 'criteria', 'leve
 
 /**
  * Événements diffusés sur les canaux (realtime.send) : signal (table changée), ligne (signal + contenu), version (nouvelle
- * appli), charge (niveau de charge annoncé par le serveur, canal commun seulement : src/charge.ts).
+ * appli), charge (niveau de charge annoncé par le serveur, canal commun seulement : src/charge.ts), presence (« qui est là ? »
+ * d'un administrateur sur l'écran Membres, canal du staff seulement : src/presence.ts).
  */
-export const LIVE_EVENTS = ['signal', 'ligne', 'version', 'charge'] as const
+export const LIVE_EVENTS = ['signal', 'ligne', 'version', 'charge', 'presence'] as const
 
 /**
  * Canaux du compte, même règle que hb_mes_canaux() : le commun et le sien pour tous ; un joueur : sa fiche ; le staff : le

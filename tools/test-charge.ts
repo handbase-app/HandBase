@@ -339,7 +339,8 @@ t('câblage : mesure, annonce sur le canal commun, direct, file, filet, signe de
   assert.ok(sync.includes('delaiFilet(liveSignals, charge.niveau(), filetStep, filetHasard)'))
   assert.ok(sync.includes('if (liveSignals) filetCoupes = 0'))
   assert.ok(!sync.includes('dueForSync('), 'plus de filet fixe à 60 s')
-  assert.ok(presence.includes('delaiSigneDeVie(niveauCharge())'))
+  // (Avec 061 : 10 / 20 / 30 min, le signe de vie partant avec « quoi de neuf ? » : tools/test-presence.ts.)
+  assert.ok(presence.includes('delaiSigneDeVie(niveauCharge(), undefined, registreActif())'))
   assert.ok(!presence.includes('setInterval(() => void ping(), 30_000)'))
 })
 
