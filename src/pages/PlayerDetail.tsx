@@ -13,9 +13,9 @@ import { MergePlayers } from '../components/MergePlayers'
 import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
-import { CourtView } from '../components/CourtPicker'
-import { Avatar, fmtValue, groupBy, Icon, playerName, PosBadges, QuarterBadge, type IconName } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, today, type Criterion, type Measurement, type Player, dayOf } from '../db'
+import { CourtPicker, CourtView } from '../components/CourtPicker'
+import { Avatar, fmtValue, groupBy, Icon, playerName, PosBadges, QuarterBadge, Segmented, type IconName } from '../components/ui'
+import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, save, today, type Criterion, type Measurement, type Player, dayOf } from '../db'
 import { teamSummary } from '../rencontres'
 import { sportContent } from '../sportContent'
 import { latestByPlayer } from './Players'
@@ -225,7 +225,6 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     ['Naissance', p.birthDate && fmtDate(p.birthDate)],
     ['Taille', gauge('taille', 'cm')],
     ['Poids', gauge('poids', 'kg')],
-    ['Latéralité', lateralityLabel(p.laterality, p.sex)],
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm (${p.motherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
     ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm (${p.fatherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
   ]
@@ -392,12 +391,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
         <PoleCard player={p} />
 
-        {(p.position || (p.secondaryPositions ?? []).length > 0) && (
-          <div className="card p-4">
-            <div className="section-title">Postes</div>
-            <CourtView value={p.position} secondary={p.secondaryPositions} />
-          </div>
-        )}
+        <PosteCard player={p} canEdit={can.editPlayer(role, p)} />
         {p.gaps && (
           <div className="card p-4">
             <div className="section-title text-amber-300">Lacunes mobilité / souplesse</div>
@@ -493,6 +487,60 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {view === 'videos' && <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />}
 
       {view === 'compte' && <PlayerSpaceCard player={p} />}
+    </div>
+  )
+}
+
+/**
+ * Carte « Poste et latéralité » de l'onglet Profil, modifiable sur place (31/10, demande de Geoffroy et Stef : plus besoin de
+ * ⋮ → Modifier la fiche → Profil sportif) : le crayon ouvre le terrain du formulaire (CourtPicker) et Droitier / Gaucher /
+ * Ambidextre ; chaque toucher est enregistré tout de suite, « Terminé » referme. Sans poste ni latéralité : la carte ne
+ * paraît que pour qui peut les renseigner.
+ */
+function PosteCard({ player: p, canEdit }: { player: Player; canEdit: boolean }) {
+  const [editing, setEditing] = useState(false)
+  const hasPos = !!p.position || (p.secondaryPositions ?? []).length > 0
+  if (!hasPos && !p.laterality && !canEdit) return null
+  const put = (patch: Partial<Player>) => void save<Player>('players', { ...p, ...patch })
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="section-title mb-0">Poste et latéralité</div>
+        {canEdit &&
+          (editing ? (
+            <button className="text-xs font-bold text-accent" onClick={() => setEditing(false)}>
+              Terminé
+            </button>
+          ) : (
+            <button
+              className="-m-1.5 flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel-2 hover:text-fg"
+              aria-label="Modifier le poste et la latéralité"
+              title="Modifier le poste et la latéralité"
+              onClick={() => setEditing(true)}
+            >
+              <Icon name="pencil" className="h-4 w-4" />
+            </button>
+          ))}
+      </div>
+      {editing ? (
+        <div className="flex flex-col gap-3">
+          <CourtPicker value={p.position} secondary={p.secondaryPositions} onChange={(pos, sec) => put({ position: pos, secondaryPositions: sec.length ? sec : undefined })} />
+          <Segmented
+            value={p.laterality}
+            onChange={(v) => put({ laterality: v })}
+            options={[
+              { value: 'droitier', label: lateralityLabel('droitier', p.sex) },
+              { value: 'gaucher', label: lateralityLabel('gaucher', p.sex) },
+              { value: 'ambidextre', label: 'Ambidextre' },
+            ]}
+          />
+        </div>
+      ) : (
+        <>
+          {hasPos ? <CourtView value={p.position} secondary={p.secondaryPositions} /> : <p className="text-center text-xs text-muted">Pas encore de poste.</p>}
+          <p className="mt-1 text-center text-xs font-bold">{p.laterality ? lateralityLabel(p.laterality, p.sex) : <span className="font-normal text-muted">Latéralité à renseigner</span>}</p>
+        </>
+      )}
     </div>
   )
 }
