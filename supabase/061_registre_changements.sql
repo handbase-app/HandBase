@@ -98,6 +98,19 @@
 -- xid8 : 13+).
 -- Annulation : section « RETOUR ARRIÈRE » à la fin (commentée).
 
+-- ---------- 0. Prérequis ----------
+-- Sans 057 (hb_canaux_ligne, hb_mes_canaux), 051 (hb_profiles.player_id) ou 030 (hb_connections), ce script s'arrête ici : ses
+-- déclencheurs appelleraient des fonctions absentes à chaque écriture. (SQL Editor : rien n'est gardé. psql sans arrêt sur
+-- erreur : les déclencheurs du registre vérifient en plus la présence de hb_canaux_ligne et ne font rien sans elle.)
+do $$
+begin
+  if to_regprocedure('public.hb_canaux_ligne(text, jsonb)') is null or to_regprocedure('public.hb_mes_canaux()') is null
+     or to_regclass('public.hb_connections') is null
+     or not exists (select 1 from pg_attribute where attrelid = 'public.hb_profiles'::regclass and attname = 'player_id' and not attisdropped) then
+    raise exception '061 demande 030, 051 et 057 : passer d''abord 057_synchro_legere.sql (et les scripts d''avant).';
+  end if;
+end $$;
+
 -- ---------- 1. Version des droits ----------
 
 create table if not exists public.hb_droits_version (
@@ -325,8 +338,11 @@ declare
   v_rel text := TG_TABLE_NAME;
   v_t text := substr(TG_TABLE_NAME, 4);
   v_contenu boolean := substr(TG_TABLE_NAME, 4) in ('players', 'measurements', 'evaluations', 'seen');
-  v_x xid8 := pg_current_xact_id();
+  v_x xid8;
 begin
+  -- (Garde-fou : 057 retiré après coup. Une écriture ne doit jamais échouer à cause du registre.)
+  if to_regprocedure('public.hb_canaux_ligne(text, jsonb)') is null then return null; end if;
+  v_x := pg_current_xact_id();
   if TG_OP = 'INSERT' then
     insert into public.hb_registre (x, canal, tbl, ligne, us, h, perte)
     select v_x, c.canal, v_t, n.id, n.us,
