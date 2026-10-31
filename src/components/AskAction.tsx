@@ -651,7 +651,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-[3px] p-3 sm:items-center sm:p-4" onClick={cancel}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center scrim p-3 sm:items-center sm:p-4" onClick={cancel}>
       <div
         ref={box}
         role="dialog"

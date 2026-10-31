@@ -81,7 +81,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     }
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 backdrop-blur-[3px] sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center scrim sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"

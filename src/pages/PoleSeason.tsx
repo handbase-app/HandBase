@@ -501,7 +501,7 @@ function RecapDialog({
   }, [onClose])
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(exit) && /^\d{4}-\d{2}-\d{2}$/.test(entry)
   return createPortal(
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-[3px] p-4 sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-end justify-center scrim p-4 sm:items-center" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby={id} className="win flex max-h-[88dvh] w-full max-w-md flex-col gap-3 overflow-y-auto p-4" onClick={(e) => e.stopPropagation()}>
         <div id={id} className="text-sm font-extrabold">
           Enregistrer le changement de saison

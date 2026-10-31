@@ -583,7 +583,7 @@ export function Demander(p: DemanderProps) {
   ) : !open ? null : sheet ? (
     createPortal(
       <div className="fixed inset-0 z-40" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="absolute inset-0 bg-black/40" style={{ top }} onClick={() => close()} aria-hidden />
+        <div className="scrim absolute inset-0" style={{ top }} onClick={() => close()} aria-hidden />
         <div
           className="absolute inset-x-0 bottom-0 flex flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-ai/40 bg-panel pb-[max(0.5rem,var(--nav-b))] shadow-2xl"
           style={{ top }}
@@ -1012,7 +1012,7 @@ export function AskButton({ rail = false, bar = false }: { rail?: boolean; bar?:
           // légèrement voilé (un toucher dessus ferme, le geste Retour aussi). En haut de l'écran, le clavier ne la cache pas :
           // sa hauteur s'arrête au-dessus de lui.
           <div className="fixed inset-0 z-40">
-            <div className="absolute inset-0 bg-black/30 backdrop-blur-md" aria-hidden onClick={closePalette} />
+            <div className="scrim-light absolute inset-0" aria-hidden onClick={closePalette} />
             <div
               ref={dialog}
               role="dialog"
@@ -1029,7 +1029,10 @@ export function AskButton({ rail = false, bar = false }: { rail?: boolean; bar?:
             </div>
           </div>
         ) : (
-          // Ordinateur : accrochée sous la bulle, là où l'on vient de cliquer (pas de fond assombri).
+          // Ordinateur : accrochée sous la bulle, là où l'on vient de cliquer, sur un fond assombri et flouté qui laisse passer
+          // les clics (un clic à côté ferme, comme avant : écouteur pointerdown du document).
+          <>
+          <div className="scrim-light pointer-events-none fixed inset-0 z-40" aria-hidden />
           <div
             ref={dialog}
             role="dialog"
@@ -1039,6 +1042,7 @@ export function AskButton({ rail = false, bar = false }: { rail?: boolean; bar?:
           >
             {body}
           </div>
+          </>
         ),
         document.body,
       )

@@ -258,7 +258,8 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false 
       onKeyDown={stop}
       onContextMenu={(e) => (e.preventDefault(), stop(e))}
     >
-      <div className={`absolute inset-0 ${sheet ? 'bg-black/55' : phone ? 'bg-black/25' : ''}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
+      {/* Fond assombri et flouté, comme toutes les fenêtres et bulles (scrim, src/index.css). */}
+      <div className={`absolute inset-0 ${sheet ? 'scrim' : 'scrim-light'}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
       <div
         ref={box}
         role="menu"

@@ -172,6 +172,11 @@ body {
 @utility card { @apply rounded-xl border border-line bg-panel; }
 /* Fenêtre au look de carte (confirmations, fenêtres de choix…) : comme « card », avec les coins des fenêtres (--radius-win). */
 @utility win { @apply rounded-win border border-line bg-panel; }
+/* Fond des fenêtres et des bulles (31/10, « marque de fabrique » voulue par Geoffroy et Stef) : dès qu'une fenêtre, une bulle ou
+   un menu s'ouvre, l'arrière-plan est assombri et flouté. scrim : fenêtres (formulaires, filtres, confirmations, feuilles du
+   bas) ; scrim-light : bulles et menus accrochés à l'endroit touché (parcours, ⋮, choix multiples, Demander). */
+@utility scrim { @apply bg-black/40 backdrop-blur-[3px]; }
+@utility scrim-light { @apply bg-black/25 backdrop-blur-[2px]; }
 @utility btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-bold transition active:scale-[.98] disabled:opacity-40; }
 @utility btn-primary { @apply btn bg-accent text-white hover:brightness-110; }
 @utility btn-ghost { @apply btn border border-line bg-panel-2 text-fg hover:border-accent; }

@@ -345,7 +345,7 @@ function Win({ w, count, onClear, children, title, modal, footer, closeLabel = '
   if (modal)
     return (
       <div ref={backdrop} className={`fixed inset-0 z-40 flex justify-center ${full ? '' : 'items-center p-3 sm:p-6'}`}>
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-[3px]" aria-hidden />
+        <div className="absolute inset-0 scrim" aria-hidden />
         {card}
       </div>
     )
@@ -353,7 +353,7 @@ function Win({ w, count, onClear, children, title, modal, footer, closeLabel = '
   // Téléphone : fond légèrement voilé et flouté (comme la fenêtre ✦) ; un toucher dessus ferme.
   return (
     <div className="fixed inset-0 z-40">
-      <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" aria-hidden onClick={() => close(true)} />
+      <div className="absolute inset-0 scrim-light" aria-hidden onClick={() => close(true)} />
       {card}
     </div>
   )

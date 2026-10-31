@@ -354,7 +354,7 @@ export function InfoButton({ title, children }: { title?: string; children: Reac
       {open &&
         // Affichée à la racine de la page : elle n'hérite pas du style du titre où se trouve le ⓘ.
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-[3px] p-4 sm:items-center" onClick={() => setOpen(false)}>
+          <div className="fixed inset-0 z-50 flex items-end justify-center scrim p-4 sm:items-center" onClick={() => setOpen(false)}>
             <div role="dialog" aria-modal="true" className="win w-full max-w-sm p-5 text-sm leading-relaxed shadow-2xl" onClick={(e) => e.stopPropagation()}>
               {title && <div className="mb-2 font-extrabold">{title}</div>}
               <div className="flex flex-col gap-2 text-[13px] text-fg/90">{children}</div>

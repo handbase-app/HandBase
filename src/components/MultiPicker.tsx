@@ -231,7 +231,7 @@ export function ChoiceSheet({
   const count = (n?: number) => (n === undefined ? null : <span className="ml-auto pl-2 text-[11px] font-normal tabular-nums text-muted">({n.toLocaleString('fr-FR')})</span>)
   return createPortal(
     <div data-popup className="fixed inset-0 z-50" onClick={stop} onPointerDown={stop} onPointerUp={stop} onKeyDown={stop} onContextMenu={stop}>
-      <div className={`absolute inset-0 ${sheet ? 'bg-black/55' : ''}`} onClick={onClose} aria-hidden />
+      <div className={`absolute inset-0 ${sheet ? 'scrim' : 'scrim-light'}`} onClick={onClose} aria-hidden />
       <div
         ref={box}
         role="dialog"
