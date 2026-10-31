@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { MicStatus, useMicRecorder } from './MicButton'
 import { sendAvisRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
-import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, interpretAvis, mergeComment, type AvisRef, type AvisState } from '../dictation/avis'
+import { avisProposals, buildAvisPayload, decide, decideAll, droppedText, interpretAvis, mergeComment, parseAmbigu, type AvisRef, type AvisState } from '../dictation/avis'
 import { newId, type Criterion, type Position } from '../db'
 import { canLogQuestion, logAvisVocal, logAvisVocalVerdict } from '../questionLog'
 import { realRole } from '../roles'
@@ -161,6 +161,8 @@ export function AvisVocal({
       next = decide(next, id, v === undefined ? 'ignore' : { value: v })
       if (v !== undefined) scores[id] = v
     }
+    // Hésitations tranchées dans la fenêtre : critère choisi et note donnés par le coach.
+    for (const [id, v] of Object.entries(pick.extra)) scores[id] = v
     const strengths = m.strengths && pick.strengths ? m.result.pointsForts : undefined
     const improvements = m.improvements && pick.improvements ? m.result.axes : undefined
     onApply(scores, { strengths, improvements })
@@ -270,7 +272,7 @@ export function AvisVocal({
   )
 }
 
-type AvisPick = { scores: Record<string, number | undefined>; strengths: boolean; improvements: boolean }
+type AvisPick = { scores: Record<string, number | undefined>; extra: Record<string, number>; strengths: boolean; improvements: boolean }
 
 /**
  * Fenêtre des propositions de l'avis vocal (31/10) : tout ce qui est proposé, au même endroit, quelle que soit la ligne de
@@ -306,44 +308,79 @@ function AvisReview({
   const [on, setOn] = useState<Record<string, boolean>>(() => Object.fromEntries(sugs.map((x) => [x.criterionId, true])))
   const [strengths, setStrengths] = useState(state.strengths)
   const [improvements, setImprovements] = useState(state.improvements)
+  // Hésitations (« joue très personnel » : Jeu collectif ou Prise de décision) : le coach choisit le critère, puis la note.
+  const proposedIds = new Set(sugs.map((x) => x.criterionId))
+  const doubts = state.result.ambigus.map((text) => {
+    const p = parseAmbigu(text, Object.values(refs))
+    return { text, quote: p?.quote, ids: (p?.ids ?? []).filter((id) => !proposedIds.has(id)) }
+  })
+  const [chosen, setChosen] = useState<Record<number, string>>({})
+  const [extra, setExtra] = useState<Record<string, number>>({})
+  const extraIds = Object.values(chosen)
+  const extraCount = extraIds.filter((id) => extra[id] !== undefined).length
   const total = sugs.length + (state.strengths ? 1 : 0) + (state.improvements ? 1 : 0)
-  const count = sugs.filter((x) => on[x.criterionId]).length + (state.strengths && strengths ? 1 : 0) + (state.improvements && improvements ? 1 : 0)
+  const count = sugs.filter((x) => on[x.criterionId]).length + extraCount + (state.strengths && strengths ? 1 : 0) + (state.improvements && improvements ? 1 : 0)
   const check = 'h-4 w-4 shrink-0 accent-[var(--color-fg)]'
+  const stepsOf = (id: string, fallback?: number) => {
+    const r = refs[id]
+    return r && r.max - r.min <= 10 ? Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i) : fallback !== undefined ? [fallback] : []
+  }
+  const labelOf = (id: string) => refs[id]?.label ?? id
   return (
     <FormWindow title={`${total} proposition${total > 1 ? 's' : ''}`} onClose={onClose} phoneFull={false} guard={false} width={520}>
-      <div className="flex flex-col divide-y divide-line" data-noswipe>
-        {sugs.map((x) => {
+      {/* Une ligne par note (case et libellé à gauche, échelle à droite, alignées comme la fiche) ; pas de phrase pour
+          justifier : le coach sait ce qu'il a dit (31/10). */}
+      <div className="grid grid-cols-[fit-content(42%)_minmax(0,1fr)] gap-x-2" data-noswipe>
+        {sugs.map((x, i) => {
           const id = x.criterionId
-          const r = refs[id]
-          const steps = r && r.max - r.min <= 10 ? Array.from({ length: r.max - r.min + 1 }, (_, i) => r.min + i) : [x.value]
           return (
-            <div key={id} className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${on[id] ? '' : 'opacity-50'}`}>
-              <label className="flex min-h-8 items-center gap-2 text-xs font-bold">
+            <div key={id} className={`col-span-2 grid grid-cols-subgrid items-center py-1.5 transition-opacity ${i ? 'border-t border-line' : ''} ${on[id] ? '' : 'opacity-50'}`}>
+              <label className="flex min-w-0 items-center gap-2 text-xs leading-tight font-bold">
                 <input type="checkbox" className={check} checked={on[id]} onChange={(e) => setOn((o) => ({ ...o, [id]: e.target.checked }))} />
                 {x.label}
               </label>
-              <div role="group" aria-label={`${x.label} : note`} className="sug-ring flex gap-[3px] rounded-full p-[3px]">
-                {steps.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={on[id] && vals[id] === v}
-                    onClick={() => {
-                      setVals((o) => ({ ...o, [id]: v }))
-                      setOn((o) => ({ ...o, [id]: true }))
-                    }}
-                    className={`flex h-10 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
-                      vals[id] === v ? 'sug-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-              {x.quote && <div className="text-[10px] text-muted italic">« {x.quote} »</div>}
+              <PickScale
+                label={x.label}
+                steps={stepsOf(id, x.value)}
+                value={vals[id]}
+                active={on[id]}
+                onPick={(v) => {
+                  setVals((o) => ({ ...o, [id]: v }))
+                  setOn((o) => ({ ...o, [id]: true }))
+                }}
+              />
             </div>
           )
         })}
+        {doubts.map((d, i) =>
+          d.ids.length >= 2 ? (
+            <div key={d.text} className="col-span-2 flex flex-col gap-1.5 border-t border-line py-2">
+              <div className="text-xs">
+                <b>J’hésite</b> <span className="text-muted">· « {d.quote} »</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {d.ids.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={chosen[i] === id}
+                    onClick={() => setChosen((c) => ({ ...c, [i]: id }))}
+                    className={`min-h-9 rounded-full px-3 text-xs font-bold transition ${chosen[i] === id ? 'bg-fg text-panel' : 'sug-ring text-fg'}`}
+                  >
+                    {labelOf(id)}
+                  </button>
+                ))}
+              </div>
+              {chosen[i] && (
+                <PickScale label={labelOf(chosen[i])} steps={stepsOf(chosen[i])} value={extra[chosen[i]]} active onPick={(v) => setExtra((o) => ({ ...o, [chosen[i]]: v }))} />
+              )}
+            </div>
+          ) : admin ? (
+            <div key={d.text} className="col-span-2 border-t border-line py-2 text-[11px] text-muted">
+              Je n’ai pas su choisir : {d.text}
+            </div>
+          ) : null,
+        )}
         {state.strengths && (
           <CommentPick label="Points forts" before={written.strengths} text={state.result.pointsForts} checked={strengths} onChange={setStrengths} className={check} />
         )}
@@ -353,11 +390,6 @@ function AvisReview({
       </div>
       {admin && (
         <>
-          {state.result.ambigus.map((a) => (
-            <div key={a} className="text-[11px] text-muted">
-              Je n’ai pas su choisir : {a}
-            </div>
-          ))}
           {state.result.dropped.length > 0 && <div className="text-[11px] text-muted">{droppedText(state.result.dropped)}</div>}
           <details className="text-[11px] text-muted">
             <summary className="cursor-pointer py-1">Ce que j’ai entendu</summary>
@@ -372,7 +404,12 @@ function AvisReview({
           className="btn-save"
           disabled={count === 0}
           onClick={() =>
-            onApply({ scores: Object.fromEntries(sugs.map((x) => [x.criterionId, on[x.criterionId] ? vals[x.criterionId] : undefined])), strengths, improvements })
+            onApply({
+              scores: Object.fromEntries(sugs.map((x) => [x.criterionId, on[x.criterionId] ? vals[x.criterionId] : undefined])),
+              extra: Object.fromEntries(extraIds.filter((id) => extra[id] !== undefined).map((id) => [id, extra[id]])),
+              strengths,
+              improvements,
+            })
           }
         >
           ✓ Accepter ({count})
@@ -382,6 +419,27 @@ function AvisReview({
         </button>
       </FormActions>
     </FormWindow>
+  )
+}
+
+/** Échelle d'une proposition : liseré pointillé, note proposée teintée (aspect d'une proposition), mêmes tailles que la fiche. */
+function PickScale({ label, steps, value, active, onPick }: { label: string; steps: number[]; value?: number; active: boolean; onPick: (v: number) => void }) {
+  return (
+    <div role="group" aria-label={`${label} : note`} className="sug-ring flex gap-[3px] rounded-full p-[3px]">
+      {steps.map((v) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={active && value === v}
+          onClick={() => onPick(v)}
+          className={`flex h-10 min-w-0 flex-1 items-center justify-center rounded-full text-sm font-bold tabular-nums transition ${
+            value === v ? 'sug-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
+          }`}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -406,8 +464,8 @@ function CommentPick({
 }) {
   const kept = before?.trim()
   return (
-    <div className={`flex flex-col gap-1.5 py-2.5 transition-opacity ${checked ? '' : 'opacity-50'}`}>
-      <label className="flex min-h-8 items-center gap-2 text-xs font-bold">
+    <div className={`col-span-2 flex flex-col gap-1.5 border-t border-line py-2 transition-opacity ${checked ? '' : 'opacity-50'}`}>
+      <label className="flex min-h-7 items-center gap-2 text-xs font-bold">
         <input type="checkbox" className={className} checked={checked} onChange={(e) => onChange(e.target.checked)} />
         {label}
         {kept && <span className="font-normal text-muted">· ajouté à la suite</span>}

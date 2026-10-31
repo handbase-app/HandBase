@@ -286,6 +286,24 @@ export function avisProposals(s: AvisState): { criterionId: string; label: strin
 export const pendingSuggestion = (s: AvisState | null, playerId: string, criterionId: string): AvisSuggestion | undefined =>
   s && s.playerId === playerId && s.pending.includes(criterionId) ? s.result.suggestions.find((x) => x.criterionId === criterionId) : undefined
 
+/**
+ * Hésitation de l'analyse (« « joue très personnel » : Jeu collectif ou Prise de décision ») lue pour la fenêtre des
+ * propositions : le passage dit et les critères candidats reconnus par leur libellé (au moins deux, sinon null : la phrase
+ * reste un simple texte). Le coach choisit le critère, puis la note.
+ */
+export function parseAmbigu(text: string, refs: Iterable<Pick<AvisRef, 'criterionId' | 'label'>>): { quote: string; ids: string[] } | null {
+  const m = /^(.*?)\s*:\s*(.+)$/.exec(text.trim())
+  if (!m) return null
+  const quote = m[1].replace(/^[«"\s]+|[»"\s]+$/g, '').trim()
+  const byLabel = new Map<string, string>()
+  for (const r of refs) byLabel.set(fold(r.label).trim(), r.criterionId)
+  const ids = m[2]
+    .split(/\s+ou\s+|\s*,\s*|\s*\/\s*/i)
+    .map((x) => byLabel.get(fold(x.replace(/[.»"]+$/, '')).trim()))
+    .filter((x, i, a): x is string => !!x && a.indexOf(x) === i)
+  return quote && ids.length >= 2 ? { quote, ids } : null
+}
+
 /** Ajoute un commentaire proposé à celui déjà écrit : à la ligne, sans doublon (déjà présent : inchangé). */
 export function mergeComment(current: string | undefined, proposal: string): string {
   const cur = (current ?? '').trimEnd()
