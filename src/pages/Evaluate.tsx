@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { RowAvatar } from '../components/PlayerRow'
-import { Avatar, CriterionInput, groupBy, Icon, InfoButton, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { scoreLegend } from '../sportContent'
+import { Avatar, CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -132,6 +133,8 @@ export default function Evaluate() {
   const [micSlot, setMicSlot] = useState<HTMLSpanElement | null>(null)
   // Fenêtre « liste des joueurs de l'événement » (toucher le nom de l'événement).
   const [rosterOpen, setRosterOpen] = useState(false)
+  // Fenêtre « Explication des critères » (⋮ de l'avis).
+  const [helpOpen, setHelpOpen] = useState(false)
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
@@ -689,12 +692,36 @@ export default function Evaluate() {
                 mode === 'rapide'
                   ? { label: 'Afficher tous les critères', icon: 'list' as const, hint: 'Fiche complète', onSelect: () => setMode('complet') }
                   : { label: 'Critères essentiels seulement', icon: 'list' as const, hint: 'Fiche rapide', onSelect: () => setMode('rapide') },
+                { label: 'Explication des critères', icon: 'info' as const, onSelect: () => setHelpOpen(true) },
                 // « Annuler » n'est plus dans la barre du bas (Enregistrer + micro seulement, 31/10) : ici, avec « Retirer ».
                 ...(dirty ? [{ label: 'Annuler mes modifications', icon: 'undo' as const, onSelect: revert }] : []),
                 ...(existing ? [{ label: 'Retirer mon avis', icon: 'trash' as const, danger: true, onSelect: () => void withdraw() }] : []),
               ]}
               onClose={avisMenu.close}
             />
+          )}
+          {helpOpen && (
+            // Tous les critères de la fiche de ce joueur (selon son poste), rangés par famille, avec leur description et l'échelle.
+            <FormWindow title="Les critères" onClose={() => setHelpOpen(false)} phoneFull={false} guard={false} width={520}>
+              {groupBy(
+                criteria.filter((c) => criterionApplies(c, player.position)),
+                (c) => c.category,
+              ).map(([cat, cs]) => (
+                <div key={cat} className="flex flex-col gap-1.5">
+                  <div className="section-title mb-0">{cat}</div>
+                  {cs.map((c) => (
+                    <div key={c.id} className="text-xs">
+                      <b>{c.label}</b>
+                      {c.description && <div className="text-muted">{c.description}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="flex flex-col gap-1">
+                <div className="section-title mb-0">Échelle</div>
+                <div className="text-xs text-muted">{scoreLegend()}. Laisse vide ce que tu n’as pas vu.</div>
+              </div>
+            </FormWindow>
           )}
           {existing && !saved && (
             <div className="text-[11px] text-muted">
@@ -732,11 +759,8 @@ export default function Evaluate() {
                     // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
                     <div key={c.id} className="flex flex-col items-stretch gap-1.5">
                       <div className="min-w-0">
-                        {/* Description du critère derrière un ⓘ (31/10) : utile au début, ensuite elle prenait de la place. */}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold" data-noswipe>
-                          {c.label}
-                          {c.description && <InfoButton title={c.label}>{c.description}</InfoButton>}
-                        </div>
+                        {/* Descriptions des critères : « Explication des critères » dans le ⋮ (31/10), plus sous chaque critère. */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold">{c.label}</div>
                       </div>
                       <CriterionInput c={c} value={draft.scores?.[c.id]} wide onChange={(v) => setScore(c.id, v)} />
                     </div>
