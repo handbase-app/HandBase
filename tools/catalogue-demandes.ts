@@ -20,7 +20,7 @@ export const PERSONA_LABEL: Record<Persona, string> = {
   volley: 'Volley (passeuses, centraux, pointus, libéro, R4)',
 }
 export type Situation = 'avant' | 'pendant' | 'apres' | 'saison' | 'admin'
-export type Attendu = 'question' | 'ouvrir' | 'creer_groupe' | 'ajouter_groupe' | 'ajouter_evenement' | 'enchainement' | 'non_prevue' | 'refus'
+export type Attendu = 'question' | 'ouvrir' | 'creer_groupe' | 'ajouter_groupe' | 'ajouter_evenement' | 'enchainement' | 'mettre_a_revoir' | 'marquer_vus' | 'exporter' | 'non_prevue' | 'refus'
 export const ATTENDU_LABEL: Record<Attendu, string> = {
   question: 'question',
   ouvrir: 'ouvrir (filtré)',
@@ -28,6 +28,9 @@ export const ATTENDU_LABEL: Record<Attendu, string> = {
   ajouter_groupe: 'ajouter à un groupe',
   ajouter_evenement: 'ajouter à un événement',
   enchainement: 'enchaînement',
+  mettre_a_revoir: 'mettre à revoir',
+  marquer_vus: 'marquer vus (événement)',
+  exporter: 'exporter',
   non_prevue: 'action pas encore prévue',
   refus: 'à refuser',
 }
@@ -44,7 +47,10 @@ export type Lecture = {
   joueurs?: string
   /** Joueurs de la liste affichée (« ceux-là », « cette liste »). */
   courants?: true
-  puis?: { action: 'ajouter_groupe' | 'ajouter_evenement'; cible: string }
+  /** Deuxième étape : ajout à un groupe ou un événement (cible), ou mise « à revoir » (sans cible). */
+  puis?: { action: 'ajouter_groupe' | 'ajouter_evenement' | 'mettre_a_revoir'; cible?: string }
+  /** exporter : le format dit (comparé seulement s'il est donné). */
+  format?: 'pdf' | 'csv'
 }
 
 /**
@@ -98,6 +104,17 @@ const E = (cible: string, joueurs: string): Lecture => ({ action: 'ajouter_evene
 const C = (joueurs: string, nom?: string, puis?: Lecture['puis']): Lecture => ({ action: 'creer_groupe', joueurs, ...(nom ? { nom } : {}), ...(puis ? { puis } : {}) })
 const OE = (cible: string, joueurs: string): Lecture => ({ action: 'ouvrir_evenement', cible, joueurs })
 const OG = (cible: string, joueurs: string): Lecture => ({ action: 'ouvrir_groupe', cible, joueurs })
+/** Mettre à revoir : joueurs (ou la liste affichée), événement d'origine s'il est dit. */
+const RV = (joueurs: string | null, cible?: string): Lecture => ({ action: 'mettre_a_revoir', ...(joueurs === null ? { courants: true } : { joueurs }), ...(cible ? { cible } : {}) })
+/** Marquer vus à l'événement cité. */
+const VU = (cible: string, joueurs: string | null): Lecture => ({ action: 'marquer_vus', cible, ...(joueurs === null ? { courants: true } : { joueurs }) })
+/** Exporter : un groupe (cible), ou une liste (joueurs, ou la liste affichée). */
+const EX = (o: { cible?: string; joueurs?: string | null; format?: 'pdf' | 'csv' }): Lecture => ({
+  action: 'exporter',
+  ...(o.cible ? { cible: o.cible } : {}),
+  ...(o.joueurs === null ? { courants: true as const } : o.joueurs ? { joueurs: o.joueurs } : {}),
+  ...(o.format ? { format: o.format } : {}),
+})
 
 export const CATALOGUE: Demande[] = [
   // ======================= Conseiller technique de ligue =======================
@@ -145,9 +162,9 @@ export const CATALOGUE: Demande[] = [
     a('les gauchers dans l’événement Intercomité de décembre', OE('Intercomité de décembre', 'les gauchers'), 'Ouvrir l’événement filtré.', { page: 'evenements' }),
     q('Les gauchers dans l’événement Intercomité de décembre', 'joueurs', 'Liste Joueurs : reste un filtre (événement + gauchers).', { page: 'joueurs' }),
     a('Montre-moi les pivots de l’événement Intercomité de décembre avec leurs mesures', OE('Intercomité de décembre', 'les pivots avec leurs mesures'), 'Ouvrir l’événement filtré (cible sans « avec leurs… »).'),
-    np('Marque comme vus tous les joueurs de l’événement Intercomité de décembre', 'vus', 'Pas encore prévu ici : sélection → « Marquer vu à cet événement ».'),
-    np('Mets à revoir les gauchers vus aujourd’hui', 'a_revoir', 'Pas encore prévu ici : sélection → « Mettre à revoir ».'),
-    np('note-les tous comme vus', 'vus', 'Pas encore prévu ici.'),
+    a('Marque comme vus tous les joueurs de l’événement Intercomité de décembre', VU('Intercomité de décembre', 'tous les joueurs'), 'Carte : marquer vus à l’événement (tous ses joueurs, sans appel au modèle), K déjà vus ; Défaire.'),
+    a('Mets à revoir les gauchers vus aujourd’hui', RV('les gauchers vus aujourd’hui'), 'Carte : mettre à revoir pour moi (origine : la liste), K le sont déjà ; Défaire.'),
+    np('note-les tous comme vus', 'vus', 'Sans événement : le dire (un « vu » est toujours lié à un événement).'),
     a('Ajoute les meilleurs du match de ce matin au groupe Interligues 2011', G('Interligues 2011', 'les meilleurs du match de ce matin'), 'Carte : cible lue ; « meilleurs du match » : critère flou, la carte dira « pas pris en compte ».'),
   ]),
   ...bloc('ligue', 'apres', [
@@ -159,14 +176,14 @@ export const CATALOGUE: Demande[] = [
     a('Ajoute les 2011 vus à l’intercomité au groupe Repérés 2011', G('Repérés 2011', 'les 2011 vus à l’intercomité'), 'Carte : ajouter au groupe.'),
     a('Inscris les joueurs du groupe Interligues 2011 au stage de février', E('stage de février', 'les joueurs du groupe Interligues 2011'), 'Carte : ajouter à l’événement.'),
     a('Ajoute les joueurs de l’intercomité de décembre au dernier stage', E('dernier stage', 'les joueurs de l’intercomité de décembre'), 'Le stage passé le plus récent, à confirmer.'),
-    np('Exporte en PDF les joueurs du groupe Interligues 2011', 'export', 'Pas encore prévu ici : ⋮ du groupe → Exporter PDF.'),
-    np('Exporte la liste des 2011 du Var en Excel', 'export', 'Pas encore prévu ici : ⋮ → Exporter CSV.'),
-    np('Imprime le groupe Interligues 2011', 'export', 'Pas encore prévu ici : ⋮ du groupe → Exporter PDF.'),
+    a('Exporte en PDF les joueurs du groupe Interligues 2011', EX({ cible: 'Interligues 2011', format: 'pdf' }), 'Carte : joueurs du groupe → [PDF / liste à imprimer] [Tableur (CSV)].'),
+    a('Exporte la liste des 2011 du Var en Excel', EX({ joueurs: 'les 2011 du Var', format: 'csv' }), 'Carte : joueurs → [Tableur (CSV)].'),
+    a('Imprime le groupe Interligues 2011', EX({ cible: 'Interligues 2011', format: 'pdf' }), 'Carte : export du groupe, PDF en premier.'),
     np('Marque comme pas retenus ceux qui ne sont pas dans le groupe', 'negatif', 'Jamais de marqueur négatif : « je ne fais pas ça », proposer le groupe.'),
     r('Retire les 2012 du groupe Interligues 2011', 'Refus : retirer, à faire depuis la page.'),
     r('Supprime le groupe Intercomité 2010', 'Refus.'),
     r('Vide l’événement Intercomité de décembre', 'Refus.'),
-    np('Fais un bilan de l’intercomité pour le comité directeur', 'export', 'Rapport rédigé : pas prévu ; proposer l’export du groupe.'),
+    np('Fais un bilan de l’intercomité pour le comité directeur', 'export', 'Rapport rédigé : pas prévu ; dire que l’export d’un groupe ou d’une liste existe.'),
   ]),
   ...bloc('ligue', 'saison', [
     q('Les 2011 à revoir que personne n’a revus depuis trois mois', 'joueurs', 'Joueurs : à revoir, pas vus depuis 3 mois (modèle).'),
@@ -218,7 +235,7 @@ export const CATALOGUE: Demande[] = [
     q('Combien de joueurs du pôle sont gauchers ?', 'bilan', 'Bilan : nombre.'),
     np('Compare Hugo Exemple et Léo Fictif', 'comparer', 'Comparer : sélection → « Comparer ».'),
     np('Compare les deux demi-centres du pôle', 'comparer', 'Comparer : sélection → « Comparer ».'),
-    np('Mets à revoir tous ceux qui ont progressé', 'a_revoir', 'Pas encore prévu ici.'),
+    m('Mets à revoir tous ceux qui ont progressé', 'mettre_a_revoir', 'Le modèle (« ont progressé » : pas un critère connu ; la carte le dira, Accepter bloqué).'),
     a('Crée un groupe Suivi physique avec ceux qui ont moins de 45 centimètres de détente', C('ceux qui ont moins de 45 centimètres de détente', 'Suivi physique'), 'Carte : créer le groupe.'),
     r('Supprime les mesures de la séance d’hier', 'Refus.'),
     r('Modifie la taille de Hugo Exemple à 1m82', 'Refus : modifier une fiche.'),
@@ -268,10 +285,15 @@ export const CATALOGUE: Demande[] = [
     m('Ajoute-les au groupe Repérés tournoi', 'ajouter_groupe', 'Sans joueurs dits, hors liste : le modèle (« les » : qui ?).'),
     a('Ajoute ceux-là au tournoi de Fictiville', { action: 'ajouter_evenement', cible: 'tournoi de Fictiville', courants: true }, 'Liste Joueurs : les joueurs affichés.', { page: 'joueurs' }),
     a('Crée un groupe avec ceux-là', { action: 'creer_groupe', courants: true }, 'Liste Joueurs : groupe avec les joueurs affichés.', { page: 'joueurs' }),
-    np('Mets Hugo Exemple à revoir', 'a_revoir', 'Pas encore prévu ici : l’horloge sur sa ligne.'),
-    np('marque le 7 de Fictiville comme vu', 'vus', 'Pas encore prévu ici.'),
-    np('Mets-les tous à revoir pour le stage', 'a_revoir', 'Pas encore prévu ici.'),
-    np('Ajoute les gauchers vus aujourd’hui à mes à revoir', 'a_revoir', 'Pas encore prévu ici (ce n’est pas un groupe).'),
+    np('Mets Hugo Exemple à revoir', 'a_revoir', 'Un joueur précis : pas ici, l’horloge sur sa ligne.'),
+    np('marque le 7 de Fictiville comme vu', 'vus', 'Un joueur précis : pas ici.'),
+    m('Mets-les tous à revoir pour le stage', 'mettre_a_revoir', 'Pronom et « pour le stage » (vague) : le modèle, jamais une cible devinée.'),
+    a('Ajoute les gauchers vus aujourd’hui à mes à revoir', RV('les gauchers vus aujourd’hui'), 'Carte : mettre à revoir (ce n’est pas un groupe).'),
+    a('mets-les à revoir', RV(null), 'Liste Joueurs : les joueurs affichés, mis à revoir.', { page: 'joueurs' }),
+    a('Ajoute à mes à revoir les 2011 du tournoi de Fictiville', RV('les 2011 du tournoi de Fictiville'), 'Carte : mettre à revoir (origine : le tournoi, retrouvé dans la recette).'),
+    a('note-les comme vus au tournoi de Fictiville', VU('tournoi de Fictiville', null), 'Liste Joueurs : les joueurs affichés (de ce tournoi), marqués vus.', { page: 'joueurs' }),
+    a('Marque les gauchers vus à l’événement Tournoi de Fictiville', VU('Tournoi de Fictiville', 'les gauchers'), 'Carte : marquer vus les gauchers du tournoi.'),
+    a('Crée un groupe Repérés tournoi avec les gauchers vus aujourd’hui et mets-les à revoir', C('les gauchers vus aujourd’hui', 'Repérés tournoi', { action: 'mettre_a_revoir' }), 'Deux étapes : créer, puis mettre à revoir.'),
     np('Suis le numéro 9 de Fictiville', 'suivre', 'Pas encore prévu ici.'),
     np('Mets une note de 4 en vitesse à Hugo Exemple', 'evaluer', 'Évaluer : depuis la fiche.'),
     np('Note Hugo Exemple', 'evaluer', 'Évaluer : depuis la fiche.'),
@@ -294,8 +316,11 @@ export const CATALOGUE: Demande[] = [
     a('Prends les 2011 vus au tournoi de Fictiville et ajoute-les au groupe Repérés 2011', G('Repérés 2011', 'les 2011 vus au tournoi de Fictiville'), 'Carte : ajouter au groupe.'),
     a('Prends les 2011 vus au tournoi de Fictiville et mets-les dans l’événement Stage de Toussaint', E('Stage de Toussaint', 'les 2011 vus au tournoi de Fictiville'), 'Carte : ajouter à l’événement.'),
     a('Prends les 2011 vus au tournoi de Fictiville, crée un groupe Repérés Fictiville et ajoute-les au stage de Toussaint', C('les 2011 vus au tournoi de Fictiville', 'Repérés Fictiville', { action: 'ajouter_evenement', cible: 'stage de Toussaint' }), 'Deux étapes.'),
-    np('Exporte les joueurs vus au tournoi de Fictiville', 'export', 'Pas encore prévu ici.'),
-    np('Fais-moi un PDF du groupe Repérés 2011', 'export', 'Pas encore prévu ici : ⋮ → Exporter PDF.'),
+    a('Exporte les joueurs vus au tournoi de Fictiville', EX({ joueurs: 'les joueurs vus au tournoi de Fictiville' }), 'Carte : liste → tableur.'),
+    a('Fais-moi un PDF du groupe Repérés 2011', EX({ cible: 'Repérés 2011', format: 'pdf' }), 'Carte : export du groupe, PDF en premier.'),
+    a('sors-moi un tableau Excel des gauchers', EX({ joueurs: 'les gauchers', format: 'csv' }), 'Carte : liste → tableur.'),
+    a('imprime la liste des 2011 du Var', EX({ joueurs: 'les 2011 du Var', format: 'pdf' }), 'Carte : liste → tableur (la liste à imprimer : seulement pour un groupe, la carte le dit).'),
+    a('exporte-les', EX({ joueurs: null }), 'Liste Joueurs : les joueurs affichés → tableur.', { page: 'joueurs' }),
     np('Envoie le groupe Repérés 2011 à Paul', 'convoquer', 'Pas encore prévu.'),
     r('Retire Hugo Exemple du groupe Repérés 2011', 'Refus.'),
     r('Renomme le groupe Repérés 2011 en Repérés Fictiville', 'Refus.'),
@@ -337,7 +362,7 @@ export const CATALOGUE: Demande[] = [
     r('Supprime les événements de la saison dernière', 'Refus.'),
     r('Archive tous les groupes de l’an dernier', 'Refus.'),
     np('Passe à la saison suivante', 'saison', 'Changement de saison : depuis la page du groupe Pôle.'),
-    np('Exporte toutes les fiches en CSV', 'export', 'Pas encore prévu ici.'),
+    a('Exporte toutes les fiches en CSV', EX({ joueurs: 'toutes les fiches', format: 'csv' }), 'Carte : tous les joueurs → tableur.'),
     r('Invite Paul sur l’appli', 'Refus : comptes.'),
     q('Les questions posées cette semaine', 'joueurs', 'Journal des questions : pas une recherche de joueurs (le modèle dira « pas pris en compte »).'),
   ]),
@@ -426,7 +451,7 @@ export const CATALOGUE: Demande[] = [
     m('Trouve les gauchers puis mets-les dans le groupe Repérés 2011 et dans le stage de Toussaint', 'enchainement', 'Deux cibles : le modèle, jamais une cible « … et dans le stage … ».'),
     a('Crée un groupe Pôle de Fictiville avec les gauchers 2012', C('les gauchers 2012', 'Pôle de Fictiville'), 'Carte : nom « Pôle de Fictiville » (le « de » du nom n’est pas pris pour « avec »).'),
     a('Mets les 2011 à revoir dans le groupe Repérés 2011', G('Repérés 2011', 'les 2011 à revoir'), 'Carte : ajouter au groupe (« à revoir » : un critère).'),
-    np('Mets les 2011 à revoir au stage de Toussaint', 'a_revoir', 'Mettre à revoir (lieu : le stage) : pas encore prévu ici.'),
+    a('Mets les 2011 à revoir au stage de Toussaint', RV('les 2011', 'stage de Toussaint'), 'Carte : chercher dans l’événement, mettre à revoir depuis l’événement.'),
   ]),
 
   // ======================= Volley =======================
@@ -441,7 +466,7 @@ export const CATALOGUE: Demande[] = [
     a('Les libéros du groupe Pôle volley Fictiville', OG('Pôle volley Fictiville', 'les libéros'), 'Ouvrir le groupe filtré.'),
     a('Mets les pointues 2010 dans le groupe Sélection 2010 filles', G('Sélection 2010 filles', 'les pointues 2010'), 'Carte : ajouter au groupe.'),
     a('Trouve les R4 de plus d’1m85 et crée-moi un groupe Réceptionneurs grands', C('les R4 de plus d’1m85', 'Réceptionneurs grands'), 'Carte : créer le groupe.'),
-    np('Mets à revoir les passeuses vues au tournoi', 'a_revoir', 'Pas encore prévu ici.'),
+    a('Mets à revoir les passeuses vues au tournoi', RV('les passeuses vues au tournoi'), 'Carte : mettre à revoir (passeuses : mot de joueurs du volley).'),
     r('Supprime le groupe Sélection 2010 filles', 'Refus.'),
   ]),
 ]

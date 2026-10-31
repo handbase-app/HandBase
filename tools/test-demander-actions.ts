@@ -6,7 +6,9 @@
 //  4. carte : étapes, plus de 200 joueurs, aucun joueur, droits manquants, déjà dedans ; groupe créé ; journal sans nom ;
 //  5. parcours complet sur un jeu fictif (recette relue, joueurs calculés sur l'appareil) ;
 //  6. exemples des consignes du mode « action » (supabase/functions/transcrire/index.ts) acceptés par l'appli ;
-//  7. confidentialité : seuls la phrase, le schéma et la page partent au mode « action ».
+//  7. confidentialité : seuls la phrase, le schéma et la page partent au mode « action » ;
+//  8. mettre à revoir, marquer vus, exporter : règles locales, plan du modèle, textes des cartes, droits, « déjà », et
+//     « Défaire » qui ne retire que ce que l'action a posé (markWithUndo sur un jeu fictif).
 // Jeu fictif : aucun nom réel.
 //
 //   npx jiti tools/test-demander-actions.ts
@@ -18,10 +20,14 @@ import {
   buildCard,
   detectAction,
   groupNameFrom,
+  isAllPlayers,
+  markWithUndo,
   matchName,
   nameScore,
   newGroupFields,
   parsePlan,
+  PLAN_ACTIONS,
+  UNPLANNED_TEXT,
   type AskPlan,
   type CardInput,
 } from '../src/askAction'
@@ -252,13 +258,24 @@ const ctx: QuestionContext = {
   const src = readFileSync(new URL('../supabase/functions/transcrire/index.ts', import.meta.url), 'utf8')
   const block = src.slice(src.indexOf('const CONSIGNES_ACTION'), src.indexOf('async function planAction'))
   const examples = [...block.matchAll(/^« (.+?) » → (\{.*\})$/gm)]
-  assert.ok(examples.length >= 9, `exemples trouvés : ${examples.length}`)
+  assert.ok(examples.length >= 22, `exemples trouvés : ${examples.length}`)
+  // Tout ce que l'appli sait lire figure dans les exemples : actions, deuxième étape (ajout, à revoir), format, pas encore prévue.
+  for (const a of PLAN_ACTIONS) assert.ok(examples.some(([, , j]) => JSON.parse(j).action === a), `exemple manquant : ${a}`)
+  for (const k of ['"puis":{"action":"ajouter_evenement"', '"puis":{"action":"mettre_a_revoir"}', '"format":"pdf"', '"format":"csv"', '"action":"pas_prevue"', 'joueurs non précisés', '"cible":"prochain stage"', '"cible":"dernier tournoi"'])
+    assert.ok(block.includes(k), `consigne : ${k}`)
   for (const [, phrase, json] of examples) {
     const raw = JSON.parse(json)
     const c = parsePlan(raw)
     if (raw.action === 'interdite') assert.ok(!c.ok && c.reason === 'interdite', phrase)
     else if (raw.action === 'aucune') assert.ok(!c.ok && c.reason === 'aucune', phrase)
-    else {
+    else if (raw.action === 'pas_prevue') {
+      // Famille connue : le message qui dit comment faire aujourd'hui ; les règles locales disent la même famille.
+      assert.ok(Object.hasOwn(UNPLANNED_TEXT, raw.quoi), `${phrase} : famille ${raw.quoi}`)
+      assert.deepEqual(c, { ok: false, reason: 'inconnue', text: UNPLANNED_TEXT[raw.quoi as keyof typeof UNPLANNED_TEXT] }, phrase)
+      const d = detectAction(phrase, 'evenements')
+      if (d?.kind === 'inconnue') assert.equal(d.what, raw.quoi, phrase)
+      assert.notEqual(d?.kind, 'plan', `${phrase} : jamais une action locale`)
+    } else {
       assert.ok(c.ok, `${phrase} : ${JSON.stringify(c)}`)
       if (c.plan.players) {
         const it = interpretRecipe(c.plan.players, c.plan.nonGere, { ...ctx, positions: [...POSITIONS, { id: 'ARG' as const, label: 'Arrière gauche' }] })
@@ -270,6 +287,119 @@ const ctx: QuestionContext = {
     }
   }
 }
+
+// ---------- 8. Mettre à revoir, marquer vus, exporter ----------
+await (async () => {
+  // Règles locales.
+  let p = plan('Mets à revoir les gauchers vus aujourd’hui')
+  assert.deepEqual([p.action, p.target, p.playersPhrase], ['mettre_a_revoir', undefined, 'les gauchers vus aujourd’hui'])
+  p = plan('Mets les 2011 à revoir au stage de Toussaint')
+  assert.deepEqual([p.action, p.target, p.playersPhrase], ['mettre_a_revoir', 'stage de Toussaint', 'les 2011'])
+  p = plan('ajoute à mes à revoir les 2011 du tournoi de Fictiville')
+  assert.deepEqual([p.action, p.playersPhrase], ['mettre_a_revoir', 'les 2011 du tournoi de Fictiville'])
+  assert.ok(plan('mets-les à revoir', 'joueurs').current, 'liste Joueurs : les joueurs affichés')
+  p = plan('Marque comme vus tous les joueurs de l’événement Détection test var 2013')
+  assert.deepEqual([p.action, p.target, p.playersPhrase], ['marquer_vus', 'Détection test var 2013', 'tous les joueurs'])
+  p = plan('marque les gauchers vus à l’événement Stage de rentrée')
+  assert.deepEqual([p.action, p.target, p.playersPhrase], ['marquer_vus', 'Stage de rentrée', 'les gauchers'])
+  p = plan('Exporte en PDF les joueurs du groupe Pôle Fictif')
+  assert.deepEqual([p.action, p.target, p.playersPhrase, p.format], ['exporter', 'Pôle Fictif', undefined, 'pdf'])
+  p = plan('sors-moi un tableau Excel des gauchers')
+  assert.deepEqual([p.action, p.target, p.playersPhrase, p.format], ['exporter', undefined, 'les gauchers', 'csv'])
+  p = plan('Crée un groupe Repérés tournoi avec les gauchers vus aujourd’hui et mets-les à revoir')
+  assert.deepEqual([p.action, p.name, p.playersPhrase, p.then], ['creer_groupe', 'Repérés tournoi', 'les gauchers vus aujourd’hui', { action: 'mettre_a_revoir' }])
+  // Joueur précis, « vu » sans événement : pas encore prévu (dit en local) ; tournure floue : le modèle.
+  assert.deepEqual(detectAction('Mets Hugo Exemple à revoir'), { kind: 'inconnue', what: 'a_revoir' })
+  assert.deepEqual(detectAction('note-les tous comme vus'), { kind: 'inconnue', what: 'vus' })
+  assert.deepEqual(detectAction('Mets-les tous à revoir pour le stage'), { kind: 'modele' })
+  // Jamais de marque négative.
+  for (const t of ['Marque comme pas retenus les gauchers du Var', 'mets les 2012 en écartés', 'Note les joueurs de Club Beta comme éliminés'])
+    assert.deepEqual(detectAction(t), { kind: 'inconnue', what: 'negatif' }, t)
+  assert.ok(isAllPlayers('tous les joueurs') && isAllPlayers('toutes les fiches') && !isAllPlayers('les gauchers'))
+
+  // Plan du modèle.
+  const ok = (v: unknown) => {
+    const c = parsePlan(v)
+    assert.ok(c.ok, JSON.stringify(v))
+    return c.plan
+  }
+  assert.deepEqual(ok({ action: 'mettre_a_revoir', joueurs: { population: { annee: 2011 } }, nonGere: [] }), { action: 'mettre_a_revoir', players: { population: { annee: 2011 } }, nonGere: [] })
+  assert.equal(parsePlan({ action: 'marquer_vus', joueurs: {} }).ok, false, 'un « vu » sans événement : cible absente')
+  assert.deepEqual(ok({ action: 'exporter', cible: 'Pôle Fictif', joueurs: {}, format: 'Excel' }).format, 'csv')
+  assert.equal(ok({ action: 'exporter', joueurs: {}, format: 'imprimer' }).format, 'pdf')
+  assert.equal(ok({ action: 'mettre_a_revoir', joueurs: {}, format: 'pdf' }).format, undefined, 'format : export seulement')
+  assert.deepEqual(ok({ action: 'creer_groupe', joueurs: {}, puis: { action: 'mettre_a_revoir' } }).then, { action: 'mettre_a_revoir' })
+  assert.equal(ok({ action: 'marquer_vus', cible: 'X', joueurs: {}, puis: { action: 'ajouter_groupe', cible: 'Y' } }).then, undefined, 'pas de deuxième étape après un « vu »')
+
+  // Cartes : textes exacts.
+  const P = (action: AskPlan['action'], extra: Partial<AskPlan> = {}): AskPlan => ({ action, nonGere: [], ...extra })
+  let c = buildCard({ plan: P('mettre_a_revoir'), criteria: ['gauchers', 'vus aujourd’hui'], count: 7, already: 2, allowed: true, origin: 'depuis la liste « gauchers · vus aujourd’hui »' })
+  assert.deepEqual(c.steps, ['Chercher : gauchers · vus aujourd’hui → 7 joueurs', 'Les mettre à revoir pour toi (depuis la liste « gauchers · vus aujourd’hui »), 2 le sont déjà'])
+  assert.ok(c.canAccept && !c.exports)
+  c = buildCard({ plan: P('mettre_a_revoir', { target: 'stage de Toussaint' }), target: { name: 'Stage de Toussaint' }, criteria: ['2011'], count: 1, gender: 'F', allowed: true })
+  assert.deepEqual(c.steps, ['Chercher dans l’événement « Stage de Toussaint » : 2011 → 1 joueuse', 'La mettre à revoir pour toi (depuis l’événement « Stage de Toussaint »)'])
+  c = buildCard({ plan: P('marquer_vus', { target: 'X' }), target: { name: 'Détection test var 2013' }, criteria: [], noCriteria: true, count: 12, already: 3, allowed: true })
+  assert.deepEqual(c.steps, ['Dans l’événement « Détection test var 2013 » : tous les joueurs → 12 joueurs', 'Les marquer vus à cet événement (aujourd’hui, par toi), 3 déjà vus'])
+  assert.ok(c.canAccept, 'tous les joueurs de l’événement : permis (la phrase le dit)')
+  assert.equal(buildCard({ plan: P('marquer_vus', { target: 'X' }), target: { name: 'X' }, criteria: [], noCriteria: true, count: 12, allowed: true, unsupported: ['joueurs non précisés'] }).canAccept, false, 'rien compris : jamais tous d’office')
+  assert.equal(buildCard({ plan: P('mettre_a_revoir'), criteria: [], noCriteria: true, count: 900, allowed: true }).canAccept, false, 'à revoir sans critère ni événement : jamais toute la base')
+  c = buildCard({ plan: P('marquer_vus', { target: 'X' }), target: { name: 'X' }, criteria: ['gauchères'], count: 4, gender: 'F', already: 4, allowed: true })
+  assert.equal(c.blocked, 'Déjà toutes vues par toi à cet événement : rien à faire.')
+  assert.equal(buildCard({ plan: P('mettre_a_revoir'), criteria: ['2011'], count: 5, already: 5, allowed: true }).blocked, 'Déjà tous à revoir pour toi : rien à faire.')
+  c = buildCard({ plan: P('marquer_vus', { target: 'X' }), target: { name: 'X' }, criteria: ['2011'], count: 5, allowed: false, deniedWhy: 'Tu ne peux pas marquer de joueurs vus à cet événement (ni organisateur ni participant).' })
+  assert.ok(!c.canAccept && /ni organisateur ni participant/.test(c.blocked ?? ''))
+  assert.ok(buildCard({ plan: P('mettre_a_revoir'), criteria: ['2011'], count: BIG + 1, allowed: true }).warnings.some((w) => /Plus de 200 joueurs/.test(w)))
+  assert.equal(buildCard({ plan: P('marquer_vus', { target: 'X' }), target: { name: 'X' }, criteria: ['2011'], count: 0, allowed: true }).blocked, 'Aucun joueur ne correspond : rien à faire.')
+  // Export : rien d'écrit, des boutons à la place d'« Accepter ».
+  c = buildCard({ plan: P('exporter', { target: 'Pôle Fictif', format: 'pdf' }), target: { name: 'Pôle Fictif' }, criteria: [], noCriteria: true, count: 18, allowed: true })
+  assert.deepEqual([c.steps, c.exports, c.canAccept], [['Joueurs du groupe « Pôle Fictif » → 18 joueurs', 'Ouvrir l’export :'], ['pdf', 'csv'], true])
+  assert.deepEqual(buildCard({ plan: P('exporter', { target: 'X' }), target: { name: 'X' }, criteria: [], count: 18, allowed: true, pole: true }).exports, ['pdf'])
+  c = buildCard({ plan: P('exporter', { format: 'pdf' }), criteria: ['2011', 'Var (83)'], count: 40, allowed: true })
+  assert.deepEqual([c.steps[0], c.exports], ['Joueurs : 2011 · Var (83) → 40 joueurs', ['csv']])
+  assert.ok(c.warnings.some((w) => /seulement pour un groupe/.test(w)), 'liste à imprimer demandée pour une liste : la carte le dit')
+  assert.ok(!buildCard({ plan: P('exporter'), criteria: ['2011'], count: BIG + 50, allowed: true }).warnings.length, 'export : pas d’avertissement « plus de 200 » (rien n’est écrit)')
+  assert.equal(buildCard({ plan: P('exporter'), criteria: ['2011'], count: 0, allowed: true }).blocked, 'Aucun joueur ne correspond : rien à exporter.')
+  assert.equal(buildCard({ plan: P('exporter'), criteria: [], count: 0, allowed: false, deniedWhy: 'Ton rôle ne permet pas d’exporter.' }).blocked, 'Ton rôle ne permet pas d’exporter.')
+  // Deuxième étape « à revoir ».
+  c = buildCard({ plan: P('creer_groupe', { then: { action: 'mettre_a_revoir' } }), criteria: ['gauchers'], count: 6, groupName: 'Repérés tournoi', allowed: true, then: { already: 1, allowed: true } })
+  assert.equal(c.steps[2], 'Puis les mettre à revoir pour toi (1 l’est déjà)')
+  assert.equal(buildCard({ plan: P('creer_groupe', { then: { action: 'mettre_a_revoir' } }), criteria: ['gauchers'], count: 6, groupName: 'X', allowed: true, then: { allowed: false, deniedWhy: 'Connecte-toi d’abord.' } }).blocked, 'Connecte-toi d’abord.')
+  assert.equal(actionDetail('marquer_vus', 'acceptee', 12), 'Action proposée : marquer vus à un événement · 12 joueurs · acceptée')
+
+  // Faire puis défaire, sur un jeu fictif : « Défaire » retire SEULEMENT ce que l'action a posé.
+  const ME = 'moi'
+  type Row = { id: string; playerId: string; by: string; done?: boolean }
+  const rewatch: Row[] = [
+    { id: 'r1', playerId: '1', by: ME },
+    { id: 'r2', playerId: '2', by: 'paul' },
+    { id: 'r3', playerId: '3', by: ME, done: true },
+  ]
+  let next = 10
+  const mineOpen = (pid: string) => rewatch.find((r) => r.playerId === pid && r.by === ME && !r.done)
+  const rw = await markWithUndo(['1', '2', '3', '4', '4'], {
+    already: async (ids) => new Set(ids.filter((id) => mineOpen(id))),
+    // Comme addRewatchMany : mon « à revoir » encore ouvert est gardé tel quel, sinon un nouveau.
+    mark: async (ids) => ids.filter((id) => !mineOpen(id) && rewatch.push({ id: `r${next++}`, playerId: id, by: ME })).length,
+    created: async (pid) => mineOpen(pid)?.id,
+    unmark: async (id) => void rewatch.splice(rewatch.findIndex((r) => r.id === id), 1),
+  })
+  assert.deepEqual([rw.done, rw.total], [3, 4], '« 3 joueurs ajoutés (1 déjà) »')
+  assert.equal(rewatch.length, 6)
+  assert.equal(await rw.undo!(), 3)
+  assert.deepEqual(rewatch.map((r) => r.id), ['r1', 'r2', 'r3'], 'mon « à revoir » d’avant, celui de Paul et le revu restent')
+  const seen = new Set(['e1:1'])
+  const sv = await markWithUndo(['1', '2', '3'], {
+    already: async (ids) => new Set(ids.filter((id) => seen.has(`e1:${id}`))),
+    mark: async (ids) => ids.filter((id) => !seen.has(`e1:${id}`) && seen.add(`e1:${id}`)).length,
+    created: async (pid) => pid,
+    unmark: async (pid) => void seen.delete(`e1:${pid}`),
+  })
+  assert.equal(sv.done, 2)
+  await sv.undo!()
+  assert.deepEqual([...seen], ['e1:1'], 'le « vu » d’avant reste')
+  const none = await markWithUndo(['1'], { already: async () => new Set(['1']), mark: async () => 0, created: async () => 'x', unmark: async () => assert.fail('rien à défaire') })
+  assert.equal(none.undo, undefined, 'rien de nouveau : pas de « Défaire »')
+})()
 
 // ---------- 7. Confidentialité : ce qui part au mode « action » ----------
 await (async () => {

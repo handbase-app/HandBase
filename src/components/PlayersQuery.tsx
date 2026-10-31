@@ -390,7 +390,9 @@ export function usePlayersQuery(
       setText('')
       recordAsk(askPage, said)
       // « ajoute ceux-là au groupe X » : les joueurs affichés (seulement si la phrase le dit : plan.current).
-      startAskAction(said, 'joueurs', act, { ids: filtered.map((p) => p.id), label: 'la liste affichée' })
+      // Sans assistant, la phrase tapée filtre la liste comme un nom pendant la frappe : la liste affichée est celle d'avant.
+      const shown = !fromSql && index && qy.q.trim() && detectAction(qy.q, 'joueurs') ? selectPlayers(index, { ...qy, q: '' }, hayOf, tokensOf).list : filtered
+      startAskAction(said, 'joueurs', act, { ids: shown.map((p) => p.id), label: 'la liste affichée' })
       return
     }
     // Simple nom : recherche locale (dite au micro ou tapée).

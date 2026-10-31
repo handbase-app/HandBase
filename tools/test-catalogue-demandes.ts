@@ -77,7 +77,7 @@ function ecarts(d: Demande, det: Detected | null): string[] {
   const l = d.lecture
   if (!l || !det || det.kind !== 'plan') return ['pas de plan local']
   // Champs ajoutés par les corrections (étape suivante, joueurs affichés) : lus sans les exiger du type.
-  const p = det.plan as typeof det.plan & { then?: { action: string; target: string }; current?: boolean }
+  const p = det.plan as typeof det.plan & { then?: { action: string; target?: string }; current?: boolean }
   const out: string[] = []
   if (p.action !== l.action) out.push(`action ${p.action} (attendu ${l.action})`)
   if (l.action === 'filtrer_createur') return out
@@ -89,6 +89,7 @@ function ecarts(d: Demande, det: Detected | null): string[] {
   const pt = p.then ? `${p.then.action} ${normCat(p.then.target)}` : ''
   const lt = l.puis ? `${l.puis.action} ${normCat(l.puis.cible)}` : ''
   if (pt !== lt) out.push(`ensuite « ${pt} » (attendu « ${lt} »)`)
+  if (l.format && p.format !== l.format) out.push(`format ${p.format ?? '—'} (attendu ${l.format})`)
   return out
 }
 
@@ -226,7 +227,8 @@ if (RAPPORT) {
   assert.ok(!np3.ok && np3.reason === 'inconnue' && /Je ne sais pas encore faire cette action/.test(np3.text), 'famille inconnue : message général')
 
   // ---------- En-tête : libellés des nouvelles propositions ----------
-  assert.equal(routeAsk('Exporte le groupe Repérés 2011', ctx)[0].label, 'Action pas encore prévue : comment faire')
+  assert.equal(routeAsk('Exporte le groupe Repérés 2011', ctx)[0].label, 'Préparer : exporter le groupe « Repérés 2011 »')
+  assert.equal(routeAsk('Duplique le groupe Repérés 2011', ctx)[0].label, 'Action pas encore prévue : comment faire')
   assert.equal(routeAsk('Crée un groupe avec les 2011 du Var et ajoute-les au prochain intercomité', ctx)[0].label, 'Préparer : créer un groupe, puis ajouter à « prochain intercomité »')
   // « ceux-là » hors de la liste Joueurs : plan « liste affichée » (la carte dira « dis-moi quels joueurs ») ; « les » seul : le modèle.
   assert.ok((detectAction('Ajoute ceux-là au groupe Repérés 2011') as { plan: AskPlan }).plan.current)

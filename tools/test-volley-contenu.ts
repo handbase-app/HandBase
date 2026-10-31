@@ -470,7 +470,7 @@ await t('volley, actions et SQL : plans acceptés, requêtes en lecture seule', 
   for (const [, phrase, j] of examples) {
     const raw = JSON.parse(j)
     const c = parsePlan(raw)
-    if (raw.action === 'interdite' || raw.action === 'aucune') assert.ok(!c.ok, phrase)
+    if (raw.action === 'interdite' || raw.action === 'aucune' || raw.action === 'pas_prevue') assert.ok(!c.ok, phrase)
     else {
       assert.ok(c.ok, phrase)
       const pos = (c.plan.players?.population as { postes?: string[] } | undefined)?.postes ?? []

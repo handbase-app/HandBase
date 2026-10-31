@@ -244,14 +244,24 @@ function actionRoute(phrase: string, d: Detected): AskRoute {
         : !p
           ? 'Préparer cette action'
           : p.action === 'creer_groupe'
-            ? p.then
-              ? `Préparer : créer un groupe, puis ajouter à « ${p.then.target} »`
-              : 'Préparer : créer un groupe avec le résultat'
+            ? p.then?.action === 'mettre_a_revoir'
+              ? 'Préparer : créer un groupe, puis mettre à revoir'
+              : p.then
+                ? `Préparer : créer un groupe, puis ajouter à « ${p.then.target} »`
+                : 'Préparer : créer un groupe avec le résultat'
             : p.action === 'ajouter_groupe'
               ? `Préparer : ajouter au groupe « ${p.target} »`
               : p.action === 'ajouter_evenement'
                 ? `Préparer : ajouter à « ${p.target} »`
-                : `Ouvrir « ${p.target} » avec ce filtre`
+                : p.action === 'mettre_a_revoir'
+                  ? `Préparer : mettre à revoir${p.target ? ` (depuis « ${p.target} »)` : ''}`
+                  : p.action === 'marquer_vus'
+                    ? `Préparer : marquer vus à « ${p.target} »`
+                    : p.action === 'exporter'
+                      ? p.target
+                        ? `Préparer : exporter le groupe « ${p.target} »`
+                        : 'Préparer : exporter la liste'
+                      : `Ouvrir « ${p.target} » avec ce filtre`
   return {
     kind: 'action',
     label,
@@ -260,7 +270,9 @@ function actionRoute(phrase: string, d: Detected): AskRoute {
         ? 'Supprimer, retirer, modifier : à faire soi-même, depuis la page'
         : d.kind === 'inconnue'
           ? `« ${phrase} » · je dis comment le faire aujourd’hui`
-          : `« ${phrase} » · rien n’est fait sans « Accepter »`,
+          : p?.action === 'exporter'
+            ? `« ${phrase} » · rien n’est écrit, tu choisis le format`
+            : `« ${phrase} » · rien n’est fait sans « Accepter »`,
     to: '',
     action: { phrase, detected: d },
   }

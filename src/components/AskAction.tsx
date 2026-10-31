@@ -3,13 +3,15 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useBackCloses } from '../backNav'
-import { db, newId, POSITIONS, remove, save, today, type HBEvent, type Player, type PlayerGroup } from '../db'
+import { alive, db, newId, POSITIONS, remove, save, today, type HBEvent, type Player, type PlayerGroup } from '../db'
 import {
   ACTION_DISPLAY,
   actionDetail,
   buildCard,
   detectAction,
   groupNameFrom,
+  isAllPlayers,
+  markWithUndo,
   matchTarget,
   newGroupFields,
   parsePlan,
@@ -34,7 +36,10 @@ import { logQuestion } from '../questionLog'
 import type { RecipeStatus } from '../questionLogCore'
 import { rescueInterpretation } from '../questionRescue'
 import { buildQuestionSchema, hasConditions, hasPopulation, interpretRecipe, recipeChips } from '../recipe'
-import { can, useRole } from '../roles'
+import { can, isParticipant, isPlayerRole, useRole } from '../roles'
+import { listOrigin, type RewatchOrigin } from '../rewatchCore'
+import { addRewatchMany, isMyRewatch, markSeenMany, myOpenRewatch, scoutId, seenId, setSeen } from '../scouting'
+import { doneMessage } from '../selection'
 import { spyTarget } from '../spy'
 import { addPlayersToEvent } from './AddToEvent'
 import { postAsk } from './Demander'
@@ -61,8 +66,14 @@ import { useWait, WaitLine } from './Attente'
  *     événement ou un groupe filtré : la page s'ouvre avec le filtre (bandeau « Filtre de Demander », ✕ pour le retirer) ;
  *  5. enchaînement « crée un groupe … et ajoute-les à l'événement X » (plan.then) : une étape de plus dans la carte (« Puis
  *     ajouter les mêmes à … », cible retrouvée et droits vérifiés de même), un seul « Accepter », « Défaire » défait tout ;
+ *     « … et mets-les à revoir » : « Puis les mettre à revoir pour toi » ;
  *     « ceux-là », « cette liste » (plan.current) : les joueurs de la liste Joueurs affichée, sans appel ; action pas encore
- *     prévue (marquer vus, exporter, convoquer… : Detected « inconnue ») : la carte dit comment le faire aujourd'hui.
+ *     prévue (convoquer, suivre, comparer… : Detected « inconnue ») : la carte dit comment le faire aujourd'hui ;
+ *  6. mettre à revoir (addRewatchMany, comme « Mettre à revoir » de la sélection ; origine : l'événement dit, ou le seul
+ *     événement de la recette, sinon la liste et ses critères), marquer vus à un événement (markSeenMany ; droits : ceux de
+ *     contribuer à l'événement, observateur participant compris) : « K le sont déjà », et « Défaire » ne retire que ce que
+ *     l'action a posé (markWithUndo) ; exporter : rien n'est écrit, boutons [PDF / liste à imprimer] (page « Exporter en
+ *     PDF » du groupe) et [Tableur (CSV)] (exportCsv, comme « Exporter (tableur) » de la liste Joueurs).
  * Jamais de suppression, de retrait, de modification de fiche ni d'action sur des comptes. Chaque demande est notée au
  * journal des questions (phrase anonymisée, recette, action proposée et ce qu'en a fait l'entraîneur ; jamais de nom).
  */
@@ -167,6 +178,8 @@ type Step =
   | { k: 'name'; said: string; kind: 'groupe' | 'evenement'; choices: Named[]; slot: 'cible' | 'suite' }
   | { k: 'ready' }
   | { k: 'doing' }
+  /** « Défaire » en cours : « En cours… » (pas la carte, dont les nombres changent pendant ce temps). */
+  | { k: 'undoing' }
   | { k: 'done'; msg: string; link?: { to: string; label: string }; undo?: () => Promise<string> }
   | { k: 'error'; msg: string }
 
@@ -182,6 +195,20 @@ const NO_CURRENT = 'Je ne sais pas de quels joueurs tu parles. Dis-moi les crit�
 const UNDO_MS = 10_000
 const LIST_MAX = 100
 const OUT_CHIPS = new Set(['out', 'value', 'keep', 'outPeriod', 'sort', 'limit', 'minMatch', 'noneYears'])
+
+/** Joueurs que j'ai déjà mis à revoir (mon « à revoir » encore ouvert, même règle que myOpenRewatch). */
+async function openRewatchSet(ids: readonly string[]): Promise<Set<string>> {
+  if (!ids.length || !scoutId()) return new Set()
+  const rows = alive(await db.rewatch.where('playerId').anyOf([...ids]).toArray())
+  return new Set(rows.filter((r) => !r.done && isMyRewatch(r)).map((r) => r.playerId))
+}
+/** Joueurs que j'ai déjà marqués vus à cet événement. */
+async function seenSet(eventId: string, ids: readonly string[]): Promise<Set<string>> {
+  const me = scoutId()
+  if (!ids.length || !me) return new Set()
+  const rows = await db.seen.bulkGet(ids.map((id) => seenId(me, eventId, id)))
+  return new Set(rows.filter((r) => r && !r.deleted).map((r) => r!.playerId))
+}
 
 function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   const nav = useNavigate()
@@ -249,7 +276,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
           if (p.action === 'filtrer_createur') return toList(p)
           // « ceux-là », « cette liste » : les joueurs de la liste affichée, sans appel.
           if (p.current && !req.current?.ids.length) return fail(NO_CURRENT, p.action, 'impossible')
-          if (p.playersPhrase && !p.current) {
+          // « tous les joueurs (de l'événement X) » : aucun critère, rien à demander au modèle.
+          if (p.playersPhrase && !p.current && !isAllPlayers(p.playersPhrase)) {
             if (!questionReady) return fail(NO_AI, p.action, 'impossible')
             const ans = await sendQuestionRequest(p.playersPhrase, schema, ctrl.signal, { contexte: 'joueurs', actuels: [] })
             recette = ans.recette
@@ -298,7 +326,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }
 
   // ---------- 2. Le groupe ou l'événement cité, retrouvé sur l'appareil ----------
-  const kind = plan ? targetKind(plan.action) : undefined
+  // Cible facultative (mettre à revoir : l'événement s'il est dit ; exporter : le groupe s'il est dit).
+  const kind = plan?.target ? targetKind(plan.action) : undefined
   const named = useMemo((): Named[] => {
     if (!kind || !model.data) return []
     return kind === 'groupe' ? model.data.groups.map((g) => ({ id: g.id, name: g.name })) : model.data.events.map((e) => ({ id: e.id, name: e.name, date: e.date }))
@@ -312,31 +341,44 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }, [plan, kind, named, model.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deuxième étape (« … et ajoute-les à l'événement X ») : sa cible, retrouvée de même, après celle de la première.
-  const thenKind = plan?.then ? targetKind(plan.then.action) : undefined
+  // « … et mets-les à revoir » : pas de cible.
+  const thenKind = plan?.then?.target ? targetKind(plan.then.action) : undefined
   useEffect(() => {
-    if (!plan?.then || !thenKind || thenTarget || step.k !== 'plan' || !model.data || (kind && !target)) return
+    const said = plan?.then?.target
+    if (!plan || !said || !thenKind || thenTarget || step.k !== 'plan' || !model.data || (kind && !target)) return
     const list: Named[] = thenKind === 'groupe' ? model.data.groups.map((g) => ({ id: g.id, name: g.name })) : model.data.events.map((e) => ({ id: e.id, name: e.name, date: e.date }))
-    const m = matchTarget(plan.then.target, list, today())
+    const m = matchTarget(said, list, today())
     if (m.kind === 'exact') setThenTarget(m.item)
-    else if (m.kind === 'approx') setStep({ k: 'name', said: plan.then.target, kind: thenKind, choices: m.choices, slot: 'suite' })
-    else fail(notFound(thenKind, plan.then.target), plan.action, 'impossible')
+    else if (m.kind === 'approx') setStep({ k: 'name', said, kind: thenKind, choices: m.choices, slot: 'suite' })
+    else fail(notFound(thenKind, said), plan.action, 'impossible')
   }, [plan, thenKind, thenTarget, step.k, model.data, kind, target]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Groupe ou événement visé (et ceux de la deuxième étape), tels qu'ils sont sur l'appareil.
+  const group: PlayerGroup | undefined = kind === 'groupe' && target ? model.data?.groups.find((g) => g.id === target.id) : undefined
+  const event: HBEvent | undefined = kind === 'evenement' && target ? model.data?.events.find((e) => e.id === target.id) : undefined
+  const thenGroup: PlayerGroup | undefined = thenKind === 'groupe' && thenTarget ? model.data?.groups.find((g) => g.id === thenTarget.id) : undefined
+  const thenEvent: HBEvent | undefined = thenKind === 'evenement' && thenTarget ? model.data?.events.find((e) => e.id === thenTarget.id) : undefined
+  /** Chercher parmi les joueurs de l'événement visé (vus, à revoir depuis l'événement) ou du groupe exporté. */
+  const inEvent = !!event && (plan?.action === 'ouvrir_evenement' || plan?.action === 'marquer_vus' || plan?.action === 'mettre_a_revoir')
+  const inGroup = !!group && (plan?.action === 'ouvrir_groupe' || plan?.action === 'exporter')
 
   // ---------- 3. Les joueurs : recette relue avec les listes de l'appareil, calculée ici ----------
   const calc = useMemo(() => {
     if (!plan || !raw || !model.ctx || !model.index || (kind && !target) || (thenKind && !thenTarget)) return null
     if (plan.current && req.current) {
-      // « ceux-là » : les joueurs de la liste affichée, dans son ordre.
+      // « ceux-là » : les joueurs de la liste affichée, dans son ordre (« vus à l'événement X » : ceux de l'événement).
       const want = new Set(req.current.ids)
-      const players = model.index.players.filter((p) => want.has(p.id))
-      return { players, chips: [req.current.label], missing: [] as string[], noCriteria: false, recipe: 'complete' as RecipeStatus }
+      const evIds = inEvent && event ? new Set(event.playerIds ?? []) : null
+      const players = model.index.players.filter((p) => want.has(p.id) && (!evIds || evIds.has(p.id)))
+      return { players, chips: [req.current.label], missing: [] as string[], noCriteria: false, recipe: 'complete' as RecipeStatus, events: [] as string[] }
     }
-    const it = rescueInterpretation(interpretRecipe(raw.recette, raw.nonGere, model.ctx), plan.playersPhrase ?? req.phrase, model.ctx, { scope: 'liste' })
+    // Plan lu en local sans partie « joueurs » (« exporte le groupe X ») : rien à relire dans la phrase.
+    const it = rescueInterpretation(interpretRecipe(raw.recette, raw.nonGere, model.ctx), plan.playersPhrase ?? (plan.local ? '' : req.phrase), model.ctx, { scope: 'liste' })
     const base = listRecipe(it.recipe)
     const noCriteria = !hasPopulation(base) && !hasConditions(base)
     const r = structuredClone(base)
-    if (plan.action === 'ouvrir_evenement' && target) r.pop.events = [target.id]
-    if (plan.action === 'ouvrir_groupe' && target) r.pop.groups = [target.id]
+    if (inEvent && target) r.pop.events = [target.id]
+    if (inGroup && target) r.pop.groups = [target.id]
     const players = selectPlayers(model.index, { recipe: r, q: '' }, hayOf, tokensOf).list
     // Critères seulement (population, conditions) : pas les réglages d'affichage de la liste (« liste », tri, limite).
     const chips = recipeChips(base, model.names)
@@ -344,8 +386,9 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
       .map((c) => c.label)
     const missing = [...it.unsupported, ...it.notes]
     const recipe: RecipeStatus = noCriteria && (missing.length || WRITES.includes(plan.action)) ? 'pas_comprise' : missing.length ? 'partielle' : 'complete'
-    return { players, chips, missing, noCriteria, recipe }
-  }, [plan, raw, model.ctx, model.index, model.names, kind, target, thenKind, thenTarget, req.phrase, req.current])
+    // Événements de la recette (« les 2011 du tournoi X ») : un seul → l'origine d'un « à revoir ».
+    return { players, chips, missing, noCriteria, recipe, events: base.pop.events ?? [] }
+  }, [plan, raw, model.ctx, model.index, model.names, kind, target, thenKind, thenTarget, req.phrase, req.current, inEvent, inGroup, event])
   useEffect(() => {
     if (calc) statusRef.current = { recipe: calc.recipe, missing: calc.missing }
   }, [calc])
@@ -358,10 +401,6 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   }, [calc, plan, nameTouched])
 
   // ---------- Droits (mêmes règles que les boutons : can.* de src/roles.ts) ----------
-  const group: PlayerGroup | undefined = kind === 'groupe' && target ? model.data?.groups.find((g) => g.id === target.id) : undefined
-  const event: HBEvent | undefined = kind === 'evenement' && target ? model.data?.events.find((e) => e.id === target.id) : undefined
-  const thenGroup: PlayerGroup | undefined = thenKind === 'groupe' && thenTarget ? model.data?.groups.find((g) => g.id === thenTarget.id) : undefined
-  const thenEvent: HBEvent | undefined = thenKind === 'evenement' && thenTarget ? model.data?.events.find((e) => e.id === thenTarget.id) : undefined
   /** Droit d'ajouter des joueurs à ce groupe ou à cet événement. */
   const addRights = (g: PlayerGroup | undefined, e: HBEvent | undefined, k: 'groupe' | 'evenement'): { ok: boolean; why?: string } => {
     if (k === 'groupe') {
@@ -374,19 +413,58 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
     if (e.archived) return { ok: false, why: 'Cet événement est archivé : désarchive-le d’abord.' }
     return can.editEvent(role, e) || can.contributeEvent(role, e) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à cet événement (ni organisateur ni participant).' }
   }
+  const scoutRights: { ok: boolean; why?: string } = scoutId() ? { ok: true } : { ok: false, why: 'Connecte-toi d’abord : « à revoir » et « vu » sont posés à ton nom.' }
   const rights = ((): { ok: boolean; why?: string } => {
     if (!plan) return { ok: false }
     if (WRITES.includes(plan.action) && spyTarget()) return { ok: false, why: '« Voir comme… » : lecture seule, rien ne peut être écrit.' }
     if (plan.action === 'creer_groupe') return can.manageGroups(role) ? { ok: true } : { ok: false, why: 'Ton rôle ne permet pas de créer des groupes.' }
     if (plan.action === 'ajouter_groupe') return addRights(group, undefined, 'groupe')
     if (plan.action === 'ajouter_evenement') return addRights(undefined, event, 'evenement')
+    // « À revoir » : comme « Mettre à revoir » de la sélection (observateur identifié).
+    if (plan.action === 'mettre_a_revoir') return scoutRights
+    // « Vu » : mêmes droits que contribuer à l'événement (organisateur, administrateur, participant : observateur compris).
+    if (plan.action === 'marquer_vus') {
+      if (!scoutRights.ok) return scoutRights
+      if (!event) return { ok: false }
+      if (event.archived) return { ok: false, why: 'Cet événement est archivé : désarchive-le d’abord.' }
+      return can.editEvent(role, event) || isParticipant(event) ? { ok: true } : { ok: false, why: 'Tu ne peux pas marquer de joueurs vus à cet événement (ni organisateur ni participant).' }
+    }
+    // Export : comme les menus « Exporter » (liste Joueurs, groupe visible) ; jamais pour un compte joueur.
+    if (plan.action === 'exporter') {
+      if (isPlayerRole(role)) return { ok: false, why: 'Ton rôle ne permet pas d’exporter.' }
+      if (group && !can.seeGroup(group)) return { ok: false, why: 'Tu ne peux pas voir ce groupe.' }
+    }
     return { ok: true }
   })()
-  const thenRights = thenKind ? addRights(thenGroup, thenEvent, thenKind) : undefined
+  const thenRights = plan?.then?.action === 'mettre_a_revoir' ? scoutRights : thenKind ? addRights(thenGroup, thenEvent, thenKind) : undefined
   const ids = useMemo(() => calc?.players.map((p) => p.id) ?? [], [calc])
   const inside = (g?: PlayerGroup, e?: HBEvent) => (g ? ids.filter((id) => g.playerIds.includes(id)).length : e ? ids.filter((id) => e.playerIds?.includes(id)).length : undefined)
-  const already = plan?.action === 'ajouter_groupe' ? inside(group) : plan?.action === 'ajouter_evenement' ? inside(undefined, event) : undefined
+  // Déjà à revoir pour moi, déjà vus par moi à l'événement : relu en direct sur l'appareil.
+  const wantRewatch = plan?.action === 'mettre_a_revoir' || plan?.then?.action === 'mettre_a_revoir'
+  const seenEventId = plan?.action === 'marquer_vus' ? event?.id : undefined
+  const mine = useLiveQuery(
+    async () => ({ rewatch: wantRewatch ? (await openRewatchSet(ids)).size : undefined, seen: seenEventId ? (await seenSet(seenEventId, ids)).size : undefined }),
+    [ids, wantRewatch, seenEventId],
+  )
+  const already =
+    plan?.action === 'ajouter_groupe'
+      ? inside(group)
+      : plan?.action === 'ajouter_evenement'
+        ? inside(undefined, event)
+        : plan?.action === 'mettre_a_revoir'
+          ? mine?.rewatch
+          : plan?.action === 'marquer_vus'
+            ? mine?.seen
+            : undefined
   const gender = calc ? genderOf(calc.players) : undefined
+  // D'où l'« à revoir » est posé : l'événement visé, sinon le seul événement de la recette, sinon la liste (ses critères).
+  const oneEvent = !event && calc?.events.length === 1 ? model.data?.events.find((e) => e.id === calc.events[0]) : undefined
+  const fromEvent = plan?.action === 'mettre_a_revoir' ? (event ?? oneEvent) : oneEvent
+  const rewatchFrom: { originEventId?: string; origin?: RewatchOrigin; text: string } = fromEvent
+    ? { originEventId: fromEvent.id, text: `depuis l’événement « ${fromEvent.name} »` }
+    : plan?.current || !calc?.chips.length
+      ? { origin: listOrigin([]), text: plan?.current ? 'depuis la liste Joueurs affichée' : 'depuis la liste Joueurs' }
+      : { origin: listOrigin(calc.chips), text: `depuis la liste « ${calc.chips.join(' · ')} »` }
   const card =
     plan && calc
       ? buildCard({
@@ -401,7 +479,18 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
           deniedWhy: rights.why,
           unsupported: calc.missing,
           noCriteria: calc.noCriteria,
-          ...(plan.then && thenRights ? { then: { target: thenTarget ?? undefined, already: inside(thenGroup, thenEvent), allowed: thenRights.ok, deniedWhy: thenRights.why } } : {}),
+          origin: rewatchFrom.text,
+          pole: !!group?.poleUnitId,
+          ...(plan.then && thenRights
+            ? {
+                then: {
+                  target: thenTarget ?? undefined,
+                  already: plan.then.action === 'mettre_a_revoir' ? mine?.rewatch : inside(thenGroup, thenEvent),
+                  allowed: thenRights.ok,
+                  deniedWhy: thenRights.why,
+                },
+              }
+            : {}),
         })
       : null
 
@@ -440,6 +529,69 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
         : undefined,
     }
   }
+  /**
+   * « À revoir » pour moi (fonction du bouton « Mettre à revoir » de la sélection, addRewatchMany) : ceux déjà à revoir ne
+   * changent pas ; « Défaire » retire seulement les « à revoir » que l'action vient de créer.
+   */
+  async function rewatchStep(): Promise<Done> {
+    const from = rewatchFrom
+    const r = await markWithUndo(ids, {
+      already: openRewatchSet,
+      mark: (list) => addRewatchMany(list, { originEventId: from.originEventId, origin: from.origin }),
+      created: async (pid) => (await myOpenRewatch(pid))?.id,
+      unmark: (id) => remove('rewatch', id),
+    })
+    const undo = r.undo
+    return {
+      msg: doneMessage('rewatch', r.done, r.total, gender),
+      link: { to: '/a-revoir', label: 'Voir « À revoir »' },
+      undo: undo ? async () => `C’est défait : ${pluralG(await undo(), gender ?? null)} de moins dans « À revoir ».` : undefined,
+    }
+  }
+  /**
+   * « Vu » par moi à l'événement (fonction de « Marquer vu à cet événement », markSeenMany) ; « Défaire » retire seulement
+   * les « vu » que l'action vient de poser (setSeen, comme l'œil d'une ligne).
+   */
+  async function seenStep(e: HBEvent): Promise<Done> {
+    const r = await markWithUndo(ids, {
+      already: (list) => seenSet(e.id, list),
+      mark: (list) => markSeenMany(e.id, list),
+      created: async (pid) => pid,
+      unmark: (pid) => setSeen(e.id, pid, false),
+    })
+    const undo = r.undo
+    return {
+      msg: doneMessage('seen', r.done, r.total, gender),
+      link: { to: `/evenements/${e.id}`, label: 'Ouvrir l’événement' },
+      undo: undo
+        ? async () => {
+            const n = await undo()
+            return `C’est défait : ${n > 1 ? `les ${n} « vu » posés` : 'le « vu » posé'} à l’événement « ${e.name} » ${n > 1 ? 'sont retirés' : 'est retiré'}.`
+          }
+        : undefined,
+    }
+  }
+  /** Export (rien n'est écrit) : page « Exporter en PDF » du groupe, ou tableur CSV des joueurs trouvés (export existant). */
+  async function exportAs(f: 'pdf' | 'csv') {
+    if (!plan || !calc || !card?.canAccept || step.k !== 'ready') return
+    const n = calc.players.length
+    if (f === 'pdf') {
+      if (!group) return
+      log('exporter', 'acceptee', n, 'liste à imprimer (PDF)')
+      onClose()
+      nav(`/groupes/${group.id}/rapport`)
+      return
+    }
+    setStep({ k: 'doing' })
+    try {
+      const { exportCsv } = await import('../export')
+      await exportCsv(calc.players, gender)
+      log('exporter', 'acceptee', n, 'tableur (CSV)')
+      setStep({ k: 'done', msg: `Tableur prêt : ${pluralG(n, gender ?? null)}, fichier CSV enregistré sur l’appareil.`, ...(group ? { link: { to: `/groupes/${group.id}`, label: 'Ouvrir le groupe' } } : {}) })
+    } catch (e) {
+      setStep({ k: 'error', msg: `L’export n’a pas pu être fait : ${(e as Error)?.message || 'erreur inconnue'}.` })
+    }
+  }
   async function accept() {
     if (!plan || !calc || !card?.canAccept || step.k !== 'ready') return
     const n = calc.players.length
@@ -475,8 +627,11 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
         })
       } else if (plan.action === 'ajouter_groupe' && group) parts.push(await addGroupStep(group))
       else if (plan.action === 'ajouter_evenement' && event) parts.push(await addEventStep(event))
-      // Deuxième étape : les mêmes joueurs, ajoutés ensuite à l'autre groupe ou événement.
-      if (plan.then && thenGroup) parts.push(await addGroupStep(thenGroup))
+      else if (plan.action === 'mettre_a_revoir') parts.push(await rewatchStep())
+      else if (plan.action === 'marquer_vus' && event) parts.push(await seenStep(event))
+      // Deuxième étape : les mêmes joueurs, ajoutés ensuite à l'autre groupe ou événement, ou mis à revoir.
+      if (plan.then?.action === 'mettre_a_revoir') parts.push(await rewatchStep())
+      else if (plan.then && thenGroup) parts.push(await addGroupStep(thenGroup))
       else if (plan.then && thenEvent) parts.push(await addEventStep(thenEvent))
       if (!parts.length) return
       log(plan.action, 'acceptee', n, plan.then ? 'deux étapes' : undefined)
@@ -605,6 +760,8 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
       </>
     )
   } else if ((step.k === 'ready' || step.k === 'doing') && card && calc && plan) {
+    // Export : le format dit d'abord (en couleur, à droite), sinon le premier proposé.
+    const mainExport = plan.format && card.exports?.includes(plan.format) ? plan.format : card.exports?.[0]
     body = (
       <>
         <ol className="flex flex-col gap-2 text-sm">
@@ -656,11 +813,29 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
           </p>
         ))}
         {card.blocked && <p className="rounded-md border border-line bg-panel-2 px-2.5 py-1.5 text-[11px]">{card.blocked}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button type="button" className="btn-ghost min-h-10 px-4 text-xs" onClick={cancel} disabled={step.k === 'doing'} data-autofocus={card.canAccept ? undefined : true}>
             {card.canAccept ? 'Annuler' : 'Fermer'}
           </button>
-          {card.canAccept && (
+          {/* Export : un bouton par format (le format dit en premier, en couleur), à la place d'« Accepter ». */}
+          {card.canAccept &&
+            card.exports &&
+            [...card.exports].sort((a, b) => Number(a === mainExport) - Number(b === mainExport)).map((f) => {
+              const main = f === mainExport
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  data-autofocus={main ? true : undefined}
+                  className={`${main ? 'btn-primary' : 'btn-ghost'} min-h-10 px-4 text-xs`}
+                  onClick={() => void exportAs(f)}
+                  disabled={step.k === 'doing'}
+                >
+                  {f === 'pdf' ? 'PDF / liste à imprimer' : step.k === 'doing' ? 'En cours…' : 'Tableur (CSV)'}
+                </button>
+              )
+            })}
+          {card.canAccept && !card.exports && (
             <button type="button" data-autofocus className="btn-primary min-h-10 px-4 text-xs" onClick={() => void accept()} disabled={step.k === 'doing'}>
               {step.k === 'doing' ? 'En cours…' : 'Accepter'}
             </button>
@@ -681,7 +856,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
               className="btn-ghost min-h-10 px-4 text-xs"
               onClick={async () => {
                 const u = step.undo!
-                setStep({ k: 'doing' })
+                setStep({ k: 'undoing' })
                 try {
                   const msg = await u()
                   setStep({ k: 'done', msg })

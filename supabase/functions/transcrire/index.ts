@@ -1000,7 +1000,7 @@ async function requeteSql(
 const PAGES_ACTION = ['joueurs', 'evenements', 'groupes', 'bilan']
 
 const CONSIGNES_ACTION = `Tu traduis la demande d'un entraîneur de handball (détection de jeunes) en PLAN JSON pour son appli. L'appli retrouve les noms, calcule les joueurs et demande TOUJOURS l'accord de l'entraîneur avant d'agir : tu ne vois aucune donnée.
-Réponds seulement par ce JSON : {"action":"…","cible":"…","nom":"…","joueurs":{…},"createurs":[…],"liste":"…","nonGere":[…]}
+Réponds seulement par ce JSON : {"action":"…","cible":"…","nom":"…","joueurs":{…},"puis":{…},"format":"…","quoi":"…","createurs":[…],"liste":"…","nonGere":[…]} (omets les clés inutiles).
 
 ACTION (une seule)
 - "creer_groupe" : créer un NOUVEAU groupe avec les joueurs trouvés (« crée un groupe avec… », « fais-moi un groupe des… », « trouve… et crée-moi un groupe avec »). "nom" : le nom dit (« appelé … »), sinon un nom court d'après les critères (40 caractères au plus).
@@ -1009,13 +1009,21 @@ ACTION (une seule)
 - "ouvrir_evenement" : montrer certains joueurs D'UN événement (« les gauchers dans l'événement X », « la liste des gardiens du tournoi X ») ; "cible" : le nom de l'événement ; "joueurs" : le filtre, sans l'événement.
 - "ouvrir_groupe" : même chose pour un groupe (« les gardiennes du groupe X »).
 - "filtrer_createur" : les groupes ou les événements créés par quelqu'un ; "liste" : "groupes" ou "evenements" ; "createurs" : les noms tels que dits.
+- "mettre_a_revoir" : mettre les joueurs trouvés « à revoir » pour l'entraîneur (« mets à revoir les gauchers de 2011 », « ajoute à mes à revoir les filles du Var ») ; "cible" : seulement l'événement dit après « à revoir » (« mets les 2011 à revoir au stage X » → "stage X" : l'appli cherche parmi ses joueurs).
+- "marquer_vus" : marquer « vus » à un événement les joueurs trouvés (« marque comme vus tous les joueurs de l'événement X », « note les gauchers comme vus au tournoi X ») ; "cible" : l'événement (obligatoire) ; "joueurs" : le filtre, sans l'événement ({} : tous ses joueurs).
+- "exporter" : exporter ou imprimer, rien n'est écrit : un groupe (« exporte en PDF le groupe X », « imprime le groupe X » → "cible" : son nom, "joueurs":{}) ou une liste de joueurs (« sors-moi un tableau Excel des gauchers » → "joueurs") ; "format" : "pdf" (PDF, imprimer, liste à imprimer) ou "csv" (Excel, tableur, CSV), omis s'il n'est pas dit.
+- "pas_prevue" : une action que l'appli ne fait pas encore ; "quoi" : sa famille, un seul mot : suivre (suivre des joueurs), convoquer (convoquer, envoyer, prévenir, écrire), evaluer (noter, évaluer, donner un avis), comparer, creer_evenement (créer un stage, un tournoi…), creer_fiche (nouveau joueur), seance (séance de tests, saisir des mesures), dupliquer, saison (changement de saison), repartir (plusieurs groupes d'un coup), negatif (« pas retenu », « écarté », « éliminé », « refusé » : JAMAIS de marque négative sur un jeune), vus ou a_revoir (un joueur précis, cité par son nom ou son numéro), export (rédiger un bilan, un rapport, un compte rendu). Rien d'autre à remplir.
 - "interdite" : supprimer, retirer, enlever, vider, modifier, renommer, archiver, déplacer ; toucher aux comptes, aux rôles, aux mots de passe ; envoyer un message. Rien d'autre à remplir.
 - "aucune" : ce n'est pas une action (simple recherche, question de calcul).
 
 RÈGLES
 - "joueurs" est une RECETTE de joueurs d'après le SCHÉMA ci-dessous : {"population":{…},"vus":{…},"avis":[…],"nbAvis":{…},"mesures":[…]} ; jamais de "sortie". Omets ce qui n'est pas dit ; n'invente aucune valeur.
-- Recette : « nés en 2010 », « les 2010 » → annee 2010 ; « filles », « joueuses » → sexe F ; « garçons » → M ; « gauchers » → lateralite gaucher ; « 1 m 80 », « 1,80 m » → 180 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax ; « gardiens » → postes ["GB"] ; clubs, régions, départements : recopiés tels que dits (« Var », « 83 »).
+- Recette : « nés en 2010 », « les 2010 » → annee 2010 ; « filles », « joueuses » → sexe F ; « garçons » → M ; « gauchers » → lateralite gaucher ; « 1 m 80 », « 1,80 m » → 180 ; « plus de », « au moins » → tailleMin ; « moins de » → tailleMax ; « gardiens » → postes ["GB"] ; « qui n'ont pas d'avis » → nbAvis {"op":"=","n":0} ; clubs, régions, départements : recopiés tels que dits (« Var », « 83 »).
 - Noms de groupes, d'événements et de personnes : recopiés TELS QUE DITS, sans les corriger ; jamais dans "joueurs".
+- Références relatives (« le prochain stage », « le dernier tournoi ») : "cible" recopiée telle quelle, sans l'article (« prochain stage », « dernier tournoi ») ; l'appli retrouve l'événement à venir le plus proche ou le passé le plus récent, et le fait confirmer.
+- La cible s'arrête avant ce qui décrit les joueurs : « qui… », « que… », « triés par… », « avec leurs… », « nés en… », « sans… » vont dans "joueurs" (ou "nonGere"), jamais dans "cible".
+- Joueurs non dits (« ajoute-les au groupe X », « mets ceux-là à revoir », « cette liste ») : "joueurs":{} et "nonGere":["joueurs non précisés"].
+- Deuxième étape, seulement après "creer_groupe", "ajouter_groupe" ou "ajouter_evenement", avec les MÊMES joueurs : « … et ajoute-les / inscris-les au groupe ou à l'événement Y » → "puis":{"action":"ajouter_groupe" ou "ajouter_evenement","cible":"Y"} ; « … et mets-les à revoir » → "puis":{"action":"mettre_a_revoir"}. Une suite qui n'est pas cela (envoyer, exporter, convoquer…) : pas de "puis", la suite en quelques mots dans "nonGere".
 - Ce qui ne rentre nulle part : "nonGere" (quelques mots).
 
 EXEMPLES
@@ -1023,9 +1031,22 @@ EXEMPLES
 « fais-moi un groupe appelé Repérés 2012 avec les filles de 2012 vues au moins deux fois » → {"action":"creer_groupe","nom":"Repérés 2012","joueurs":{"population":{"sexe":"F","annee":2012},"vus":{"op":">=","n":2}},"nonGere":[]}
 « mets les gardiens de 2011 du Var dans le groupe Pôle Aix » → {"action":"ajouter_groupe","cible":"Pôle Aix","joueurs":{"population":{"postes":["GB"],"annee":2011,"departements":["Var"]}},"nonGere":[]}
 « ajoute les pivots gauchers au tournoi de Cannes » → {"action":"ajouter_evenement","cible":"tournoi de Cannes","joueurs":{"population":{"postes":["PIV"],"lateralite":"gaucher"}},"nonGere":[]}
+« ajoute les gauchers de 2011 qui n'ont pas d'avis au dernier tournoi » → {"action":"ajouter_evenement","cible":"dernier tournoi","joueurs":{"population":{"lateralite":"gaucher","annee":2011},"nbAvis":{"op":"=","n":0}},"nonGere":[]}
+« ajoute-les au groupe Pôle Aix » → {"action":"ajouter_groupe","cible":"Pôle Aix","joueurs":{},"nonGere":["joueurs non précisés"]}
+« crée un groupe Repérés 2012 avec les filles de 2012 et ajoute-les au prochain stage » → {"action":"creer_groupe","nom":"Repérés 2012","joueurs":{"population":{"sexe":"F","annee":2012}},"puis":{"action":"ajouter_evenement","cible":"prochain stage"},"nonGere":[]}
+« crée un groupe avec les 2011 du Var et mets-les à revoir » → {"action":"creer_groupe","nom":"2011 Var","joueurs":{"population":{"annee":2011,"departements":["Var"]}},"puis":{"action":"mettre_a_revoir"},"nonGere":[]}
+« crée un groupe avec les filles de 2012 et envoie-le à Paul » → {"action":"creer_groupe","nom":"Filles 2012","joueurs":{"population":{"sexe":"F","annee":2012}},"nonGere":["envoyer à Paul"]}
 « donne-moi la liste des gauchers dans l'événement Détection 2013 » → {"action":"ouvrir_evenement","cible":"Détection 2013","joueurs":{"population":{"lateralite":"gaucher"}},"nonGere":[]}
 « les gardiennes du groupe Pôle Aix » → {"action":"ouvrir_groupe","cible":"Pôle Aix","joueurs":{"population":{"sexe":"F","postes":["GB"]}},"nonGere":[]}
 « montre-moi les groupes que Paul a créés » → {"action":"filtrer_createur","liste":"groupes","createurs":["Paul"],"nonGere":[]}
+« mets à revoir les gauchères de 2012 » → {"action":"mettre_a_revoir","joueurs":{"population":{"sexe":"F","lateralite":"gaucher","annee":2012}},"nonGere":[]}
+« mets les 2011 à revoir au stage de Pâques » → {"action":"mettre_a_revoir","cible":"stage de Pâques","joueurs":{"population":{"annee":2011}},"nonGere":[]}
+« marque comme vus tous les joueurs de l'événement Détection 2013 » → {"action":"marquer_vus","cible":"Détection 2013","joueurs":{},"nonGere":[]}
+« exporte en PDF le groupe Pôle Aix » → {"action":"exporter","cible":"Pôle Aix","joueurs":{},"format":"pdf","nonGere":[]}
+« sors-moi un tableau Excel des gauchers du Var » → {"action":"exporter","joueurs":{"population":{"lateralite":"gaucher","departements":["Var"]}},"format":"csv","nonGere":[]}
+« suis tous les gauchers de 2011 du Var » → {"action":"pas_prevue","quoi":"suivre","nonGere":[]}
+« convoque les joueurs du groupe Pôle Aix pour samedi » → {"action":"pas_prevue","quoi":"convoquer","nonGere":[]}
+« marque comme pas retenus ceux qui ne sont pas dans le groupe » → {"action":"pas_prevue","quoi":"negatif","nonGere":[]}
 « supprime le groupe Pôle Aix » → {"action":"interdite","nonGere":[]}
 « retire les gauchers du groupe Intercomités » → {"action":"interdite","nonGere":[]}
 « combien de gauchers dans le Var ? » → {"action":"aucune","nonGere":[]}`

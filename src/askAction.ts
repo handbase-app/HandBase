@@ -1,4 +1,4 @@
-import { pluralG, type Gender } from './gender'
+import { accord, pluralG, w, type Gender } from './gender'
 import { levenshtein, nameKey, phonetic } from './nameMatch'
 import { currentSport } from './sportConfig'
 
@@ -10,9 +10,11 @@ import { currentSport } from './sportConfig'
  *    avec les gauchers de 2011 », « trouve-moi … et crée-moi un groupe avec », « ajoute les 2011 du Var au groupe Pôle Aix »,
  *    « les gauchers dans l'événement Détection 2013 », « les groupes que Paul a créés ») ; une action que les règles ne
  *    lisent pas entièrement part au modèle (mode « action » de la fonction « transcrire ») ; une action interdite est
- *    refusée tout de suite (jamais de suppression, de retrait, de modification de fiche ni d'action sur des comptes) ; une
- *    action PAS ENCORE PRÉVUE (marquer vus, mettre à revoir, exporter, convoquer… : UNPLANNED_TEXT) est dite tout de suite,
- *    avec la façon de faire aujourd'hui ; « crée un groupe … et ajoute-les à l'événement X » : deux étapes (plan.then) ;
+ *    refusée tout de suite (jamais de suppression, de retrait, de modification de fiche ni d'action sur des comptes) ;
+ *    « mets à revoir les gauchers vus aujourd'hui », « marque comme vus les joueurs de l'événement X », « exporte en PDF le
+ *    groupe X » : readRewatch, readSeen, readExport (un joueur précis cité par son nom reste « pas encore prévu ») ; une
+ *    action PAS ENCORE PRÉVUE (convoquer, suivre, comparer… : UNPLANNED_TEXT) est dite tout de suite, avec la façon de
+ *    faire aujourd'hui ; « crée un groupe … et ajoute-les à l'événement X » / « … et mets-les à revoir » : deux étapes (plan.then) ;
  *    « ceux-là », « cette liste » : la liste affichée (plan.current) ; bornes des noms lus (la cible s'arrête avant « qui… »,
  *    « triés… », « avec leurs… » ; « euh », « stp » retirés) ; morceau mal coupé (verbe dedans) : le modèle, jamais un nom
  *    absurde. Catalogue des demandes et filet : tools/catalogue-demandes.ts, tools/test-catalogue-demandes.ts ;
@@ -30,15 +32,27 @@ import { currentSport } from './sportConfig'
 
 // ---------- Plan ----------
 
-/** Actions permises en v1 (rien d'autre, jamais). */
-export const PLAN_ACTIONS = ['creer_groupe', 'ajouter_groupe', 'ajouter_evenement', 'ouvrir_evenement', 'ouvrir_groupe', 'filtrer_createur'] as const
+/**
+ * Actions permises (rien d'autre, jamais). « mettre_a_revoir » : mes « à revoir » (fonction du bouton « Mettre à revoir » de la
+ * sélection) ; « marquer_vus » : mes « vu » à un événement cité (fonction de « Marquer vu à cet événement ») ; « exporter » :
+ * rien d'écrit, ouvre l'export existant (page « Exporter en PDF » d'un groupe, tableur CSV d'une liste).
+ */
+export const PLAN_ACTIONS = ['creer_groupe', 'ajouter_groupe', 'ajouter_evenement', 'ouvrir_evenement', 'ouvrir_groupe', 'filtrer_createur', 'mettre_a_revoir', 'marquer_vus', 'exporter'] as const
 export type PlanAction = (typeof PLAN_ACTIONS)[number]
-/** Actions qui écrivent (les autres ouvrent ou filtrent seulement). */
-export const WRITES: readonly PlanAction[] = ['creer_groupe', 'ajouter_groupe', 'ajouter_evenement']
-/** Actions qui visent un groupe ou un événement existant, cité par son nom. */
-export const TARGETED: readonly PlanAction[] = ['ajouter_groupe', 'ajouter_evenement', 'ouvrir_evenement', 'ouvrir_groupe']
+/** Actions qui écrivent (les autres ouvrent, filtrent ou exportent seulement). */
+export const WRITES: readonly PlanAction[] = ['creer_groupe', 'ajouter_groupe', 'ajouter_evenement', 'mettre_a_revoir', 'marquer_vus']
+/** Actions qui visent FORCÉMENT un groupe ou un événement existant, cité par son nom. */
+export const TARGETED: readonly PlanAction[] = ['ajouter_groupe', 'ajouter_evenement', 'ouvrir_evenement', 'ouvrir_groupe', 'marquer_vus']
+/** Type de la cible (quand elle est dite : facultative pour « mettre_a_revoir », événement, et « exporter », groupe). */
 export const targetKind = (a: PlanAction): 'groupe' | 'evenement' | undefined =>
-  a === 'ajouter_groupe' || a === 'ouvrir_groupe' ? 'groupe' : a === 'ajouter_evenement' || a === 'ouvrir_evenement' ? 'evenement' : undefined
+  a === 'ajouter_groupe' || a === 'ouvrir_groupe' || a === 'exporter'
+    ? 'groupe'
+    : a === 'ajouter_evenement' || a === 'ouvrir_evenement' || a === 'marquer_vus' || a === 'mettre_a_revoir'
+      ? 'evenement'
+      : undefined
+/** Actions après lesquelles une deuxième étape (plan.then) est permise. */
+const THEN_FROM: readonly PlanAction[] = ['creer_groupe', 'ajouter_groupe', 'ajouter_evenement']
+export type ThenAction = 'ajouter_groupe' | 'ajouter_evenement' | 'mettre_a_revoir'
 
 export const ACTION_LABEL: Record<PlanAction, string> = {
   creer_groupe: 'créer un groupe',
@@ -47,6 +61,9 @@ export const ACTION_LABEL: Record<PlanAction, string> = {
   ouvrir_evenement: 'ouvrir un événement filtré',
   ouvrir_groupe: 'ouvrir un groupe filtré',
   filtrer_createur: 'filtrer par créateur',
+  mettre_a_revoir: 'mettre à revoir',
+  marquer_vus: 'marquer vus à un événement',
+  exporter: 'exporter',
 }
 
 export type AskPlan = {
@@ -63,10 +80,13 @@ export type AskPlan = {
   creators?: string[]
   list?: 'groupes' | 'evenements'
   /**
-   * Règles locales : deuxième étape (« crée un groupe … et ajoute-les à l'événement X ») : les MÊMES joueurs, ajoutés ensuite
-   * à ce groupe ou à cet événement (une seule carte, un seul « Accepter », « Défaire » défait les deux).
+   * Deuxième étape (« crée un groupe … et ajoute-les à l'événement X », « … et mets-les à revoir ») : les MÊMES joueurs,
+   * ajoutés ensuite à ce groupe ou à cet événement (target), ou mis à revoir (sans cible) ; une seule carte, un seul
+   * « Accepter », « Défaire » défait tout.
    */
-  then?: { action: 'ajouter_groupe' | 'ajouter_evenement'; target: string }
+  then?: { action: ThenAction; target?: string }
+  /** exporter : le format dit (« en PDF », « imprime » : pdf ; « Excel », « tableur », « CSV » : csv). */
+  format?: 'pdf' | 'csv'
   /** Règles locales : les joueurs de la liste affichée (« ceux-là », « cette liste ») au lieu d'une phrase. */
   current?: boolean
   nonGere: string[]
@@ -81,7 +101,8 @@ export const REFUSAL_TEXT: Record<PlanRefusal, string> = {
   illisible: 'Je n’ai pas compris la demande. Reformule-la, par exemple « crée un groupe avec les gauchers de 2011 ».',
   interdite:
     'Je ne fais pas cela : l’assistant ne supprime, ne retire et ne modifie rien, et ne touche pas aux comptes. Fais-le toi-même depuis la page concernée.',
-  inconnue: 'Je ne sais pas encore faire cette action. Je sais : créer un groupe, ajouter à un groupe ou à un événement, ouvrir un groupe ou un événement avec un filtre.',
+  inconnue:
+    'Je ne sais pas encore faire cette action. Je sais : créer un groupe, ajouter à un groupe ou à un événement, ouvrir un groupe ou un événement avec un filtre, mettre à revoir, marquer vus à un événement, exporter une liste ou un groupe.',
   aucune: 'Ce n’est pas une action : essaie-la comme une recherche dans la liste.',
   cible_absente: 'Dis-moi quel groupe ou quel événement (son nom).',
 }
@@ -147,11 +168,19 @@ export function parsePlan(raw: unknown): PlanCheck {
   const l = fold(clean(o.liste ?? o.list, 20))
   const list = l.startsWith('groupe') ? 'groupes' : l.startsWith('evenement') ? 'evenements' : undefined
   const nonGere = strings(o.nonGere, 10, 80)
-  // Deuxième étape (« … et ajoute-les à l'événement X ») : un ajout seulement, après une création ou un ajout.
+  // Deuxième étape (« … et ajoute-les à l'événement X », « … et mets-les à revoir ») : après une création ou un ajout.
   const pu = isObj(o.puis) ? o.puis : isObj(o.ensuite) ? o.ensuite : undefined
   const pa = pu ? fold(clean(pu.action, 40)).replace(/[\s-]+/g, '_') : ''
   const pt = pu ? clean(pu.cible ?? pu.target, MAX_TARGET) : ''
-  const then: AskPlan['then'] = WRITES.includes(action) && (pa === 'ajouter_groupe' || pa === 'ajouter_evenement') && pt ? { action: pa, target: pt } : undefined
+  const then: AskPlan['then'] = !THEN_FROM.includes(action)
+    ? undefined
+    : (pa === 'ajouter_groupe' || pa === 'ajouter_evenement') && pt
+      ? { action: pa, target: pt }
+      : pa === 'mettre_a_revoir'
+        ? { action: pa }
+        : undefined
+  const f = fold(clean(o.format, 20))
+  const format = action !== 'exporter' ? undefined : /^(?:pdf|impr|liste)/.test(f) ? 'pdf' : /^(?:csv|excel|tableu|xls)/.test(f) ? 'csv' : undefined
   if (TARGETED.includes(action) && !target) return no('cible_absente')
   if (action === 'filtrer_createur' && !creators.length) return no('cible_absente')
   return {
@@ -163,6 +192,7 @@ export function parsePlan(raw: unknown): PlanCheck {
       ...(players ? { players } : {}),
       ...(action === 'filtrer_createur' ? { creators, list: list ?? 'groupes' } : {}),
       ...(then ? { then } : {}),
+      ...(format ? { format } : {}),
       nonGere,
     },
   }
@@ -176,10 +206,10 @@ export function parsePlan(raw: unknown): PlanCheck {
  */
 export type Unplanned = 'vus' | 'a_revoir' | 'suivre' | 'export' | 'convoquer' | 'evaluer' | 'comparer' | 'creer_evenement' | 'creer_fiche' | 'seance' | 'negatif' | 'dupliquer' | 'saison' | 'repartir'
 export const UNPLANNED_TEXT: Record<Unplanned, string> = {
-  vus: 'Je ne sais pas encore marquer des joueurs « vus » d’ici. Aujourd’hui : dans l’événement, sélectionne-les (appui long sur une ligne), puis « Marquer vu à cet événement » dans la barre du bas.',
-  a_revoir: 'Je ne sais pas encore mettre des joueurs « à revoir » d’ici. Aujourd’hui : sélectionne-les (appui long sur une ligne), puis « Mettre à revoir » dans la barre du bas, ou l’horloge au bout de la ligne.',
+  vus: 'Je sais marquer « vus » les joueurs d’un événement que tu cites (« marque comme vus les gauchers de l’événement … »). Pour un joueur précis : dans l’événement, l’œil au bout de sa ligne.',
+  a_revoir: 'Je sais mettre « à revoir » des joueurs décrits par des critères (« mets à revoir les gauchers 2011 vus aujourd’hui »). Pour un joueur précis : l’horloge au bout de sa ligne, ou sa fiche.',
   suivre: 'Je ne sais pas encore suivre des joueurs d’ici. Aujourd’hui : sélectionne-les (appui long sur une ligne), puis « Suivre » dans la barre du bas, ou « Suivre » sur la fiche.',
-  export: 'Je ne sais pas encore exporter d’ici. Aujourd’hui : dans la liste Joueurs, menu « ⋯ » de la barre → « Exporter » ; dans un groupe, menu « ⋮ » → « Exporter CSV » ou « Exporter PDF ».',
+  export: 'Je ne rédige pas de bilan ni de rapport. Je sais exporter une liste ou un groupe : « exporte en PDF le groupe … », « sors-moi un tableur des 2011 du Var ».',
   convoquer: 'Je ne sais pas encore convoquer ni envoyer de message. Ouvre le groupe ou l’événement pour avoir la liste des joueurs.',
   evaluer: 'Je n’évalue pas à ta place : ouvre la fiche du joueur (ou l’événement), puis « Évaluer ».',
   comparer: 'Je ne sais pas encore comparer d’ici. Aujourd’hui : sélectionne les joueurs (appui long sur une ligne), puis « Comparer » dans la barre du bas.',
@@ -318,10 +348,13 @@ const UNPLANNED: [Unplanned, RegExp][] = [
   ['vus', new RegExp(String.raw`${L}(?:marque|marquer|marquez|coche|cocher)\s+.*\b(?:vus?|vues?|presents?|presentes?)\b`)],
   ['a_revoir', new RegExp(String.raw`${L}(?:mets|mettre|mettez|met|passe|passer|marque|marquer|place|placer|note|noter)\b(?!.*\b(?:dans|au|a|aux)\s+(?:le |la |l'|mon |ma )?(?:groupe|evenement)\b).*?(?<!\b(?:mis|mises|sont|les|des|aux|mes|ses|nos|deja))\s(?:en\s+)?a revoir\b`)],
   ['a_revoir', new RegExp(String.raw`${L}${ADD_V}\s+.*\b(?:a|aux|dans)\s+(?:mes |nos |les |ma liste des |ma liste d')?a revoir$`)],
+  // « mets-les (tous) à revoir » : le pronom seul (les joueurs affichés, depuis la liste Joueurs).
+  ['a_revoir', new RegExp(String.raw`${L}(?:mets|mettre|mettez|met|passe|passer|marque|marquer|place|placer)\s+(?:les|eux|elles|ceux la|celles la)(?:\s+(?:tous|toutes))?\s+(?:en\s+)?a revoir(?:\s+pour (?:moi|toi|nous))?$`)],
+  ['a_revoir', new RegExp(String.raw`${L}${ADD_V}\s+${ME}(?:a|aux|dans)\s+(?:mes |nos |les |ma liste des |ma liste d')?a revoir\s+\S`)],
   ['suivre', new RegExp(String.raw`${L}(?:suis|suivre|suivez)\b`)],
   ['suivre', new RegExp(String.raw`${L}${ADD_V}\s+.*\b(?:a|aux|dans|en)\s+(?:mes |nos |les )?(?:suivis|favoris|suivi)$`)],
   ['export', new RegExp(String.raw`${L}(?:exporte|exporter|exportez|imprime|imprimer|imprimez|telecharge|telecharger)\b`)],
-  ['export', new RegExp(String.raw`${L}(?:${CREATE_V}|sors|sortir)\s+(?:moi\s+)?(?:un|une)\s+(?:pdf|excel|csv|fichier|tableur|export|impression|bilan|rapport|compte rendu|synthese|resume)\b`)],
+  ['export', new RegExp(String.raw`${L}(?:${CREATE_V}|sors|sortir|donne|donner)\s+(?:moi\s+)?(?:un|une)\s+(?:pdf|excel|csv|fichier|tableur|tableau (?:excel|csv|tableur)|export|impression|bilan|rapport|compte rendu|synthese|resume)\b`)],
   ['convoquer', new RegExp(String.raw`${L}(?:convoque|convoquer|convoquez|envoie|envoyer|envoyez|ecris|ecrire|previens|prevenir|contacte|contacter|appelle|appeler|relance|relancer)\b`)],
   ['convoquer', new RegExp(String.raw`${L}(?:${CREATE_V}|redige|rediger)\s+(?:moi\s+)?(?:la |les |une |des )?(?:convocations?|mails?|courriels?|messages?|lettres?)\b`)],
   ['comparer', new RegExp(String.raw`${L}(?:compare|comparer|comparez)\b`)],
@@ -400,13 +433,146 @@ function targetOf(text: string, m: RegExpExecArray, base: number): { kind: 'grou
   return { kind: 'evenement', name: rel ? `${rel} ${s.name}` : s.name, extra: s.extra }
 }
 
-/** « … et ajoute-les au stage de Pâques » à la fin de `text` : ce qui précède, et la deuxième étape. */
+/** « … et ajoute-les au stage de Pâques » / « … et mets-les à revoir » à la fin de `text` : ce qui précède, et la deuxième étape. */
 function splitThen(text: string, n: string): { before: string; then: NonNullable<AskPlan['then']> } | null {
+  const r = THEN_REWATCH_RE.exec(n)
+  if (r) return { before: (piece(text, r, 1) ?? '').replace(/[\s.,;:]+$/, ''), then: { action: 'mettre_a_revoir' } }
   const m = THEN_RE.exec(n)
   if (!m) return null
   const t = targetOf(text, m, 2)
   if (!t || t.extra) return null
   return { before: (piece(text, m, 1) ?? '').replace(/[\s.,;:]+$/, ''), then: { action: t.kind === 'groupe' ? 'ajouter_groupe' : 'ajouter_evenement', target: t.name } }
+}
+
+// ---------- Mettre à revoir, marquer vus, exporter (règles locales) ----------
+
+type Read = Omit<AskPlan, 'nonGere' | 'local'> | 'modele' | null
+/** « tous les joueurs », « toutes les fiches », « tout le monde » : tous (la cible ou la liste entière), sans critère. */
+const ALL_PLAYERS = /^(?:(?:tous|toutes|les|des|mes)\s+)*(?:joueurs?|joueuses?|jeunes|licencies?|licenciees?|membres|fiches)$|^tout(?: le monde)?$/
+const foldWho = (s: string) => fold(s).replace(/[’`´]/g, "'").replace(/-/g, ' ').replace(/\s+/g, ' ').trim()
+/** Partie « joueurs » sans aucun critère (« tous les joueurs de l'événement X ») : rien à demander au modèle. */
+export const isAllPlayers = (s: string | undefined) => !!s && ALL_PLAYERS.test(foldWho(s))
+/**
+ * Partie « joueurs » d'une des trois actions : des critères ou un pronom (« ok », lus ensuite), un nom propre ou un numéro
+ * (null : un joueur précis, pas encore prévu ici), autre chose, « ceux qui… » compris (le modèle).
+ */
+function whoKind(who: string): 'ok' | 'modele' | null {
+  const w = foldWho(who)
+  if (!w) return null
+  if (CURRENT.test(w) || BARE.test(w) || ALL_PLAYERS.test(w) || playerWord(w)) return 'ok'
+  if (/^(?:le |la |l')?(?:\p{Lu}|\d)/u.test(who.trim()) || /\b(?:numero|n°|fiche)\b/.test(w)) return null
+  return 'modele'
+}
+const RW_V = String.raw`(?:mets|mettre|mettez|met|passe|passer|marque|marquer|place|placer|note|noter)`
+const RW_LIST = String.raw`(?:mes |nos |les |ma liste des |ma liste d'|ma liste |la liste des |la liste d')?a revoir`
+/** « Mets à revoir les gauchers vus aujourd'hui » : joueurs (1). */
+const REWATCH_FIRST = RE(String.raw`${L}${RW_V}\s+${ME}(?:en\s+)?a revoir\s+(.+)$`)
+/** « Mets les 2011 à revoir au stage de Toussaint » : joueurs (1), suite (2). */
+const REWATCH_AFTER = RE(String.raw`${L}${RW_V}\s+${ME}(.+?)\s+(?:en\s+)?a revoir(?:\s+(.+))?$`)
+/** « Ajoute les gauchers vus aujourd'hui à mes à revoir » / « ajoute à mes à revoir les 2011 du tournoi X » : joueurs (1). */
+const REWATCH_ADD = RE(String.raw`${L}${ADD_V}\s+${ME}(.+?)\s+(?:a|aux|dans)\s+${RW_LIST}$`)
+const REWATCH_ADD_FIRST = RE(String.raw`${L}${ADD_V}\s+${ME}(?:a|aux|dans)\s+${RW_LIST}\s+(.+)$`)
+/** Suite « au stage de Toussaint », « à l'événement X » : l'événement d'où ils sont mis à revoir (relatif (1)… nom (5)). */
+const AT_EVENT = RE(String.raw`^${INTO}\s*(?:l'\s*|le |la )?${INTO_TARGET}$`)
+/** « … et mets-les à revoir » à la fin d'une création ou d'un ajout : avant (1). */
+const THEN_REWATCH_RE = RE(
+  String.raw`^(.*?)(?:(?:^|\s*[,;.]?\s+)(?:et|puis|ensuite)(?:\s+(?:puis|ensuite|apres))?\s+|\s*[,;.]\s+)(?:tu\s+)?(?:(?:me|nous)\s+|m'\s*)?${RW_V}\s+(?:(?:les|leur|moi|nous|aussi|tous|toutes|ensuite)\s+)*(?:en\s+)?a revoir(?:\s+pour (?:moi|toi|nous))?$`,
+)
+
+/** Mettre à revoir (règles locales) ; l'événement dit (« au stage X ») : chercher parmi ses joueurs, et l'origine. */
+function readRewatch(text: string, n: string): Read {
+  let who: string | undefined
+  let tail: [number, number] | undefined
+  let m: RegExpExecArray | null
+  if ((m = REWATCH_FIRST.exec(n)) || (m = REWATCH_ADD_FIRST.exec(n)) || (m = REWATCH_ADD.exec(n))) who = piece(text, m, 1)
+  else if ((m = REWATCH_AFTER.exec(n))) {
+    who = piece(text, m, 1)
+    tail = m.indices?.[2]
+  }
+  if (!who) return 'modele'
+  const k = whoKind(who)
+  if (k !== 'ok') return k
+  if (!tail) return { action: 'mettre_a_revoir', playersPhrase: who }
+  const tt = text.slice(tail[0], tail[1])
+  const tn = n.slice(tail[0], tail[1])
+  if (/^pour (?:moi|toi|nous)$/.test(tn)) return { action: 'mettre_a_revoir', playersPhrase: who }
+  const a = AT_EVENT.exec(tn)
+  const t = a ? targetOf(tt, a, 1) : undefined
+  // « pour le stage », « au stage » (trop vague), « au groupe X » : le modèle, jamais une cible devinée.
+  if (!t || t.kind !== 'evenement') return 'modele'
+  return { action: 'mettre_a_revoir', target: t.name, playersPhrase: t.extra ? `${who} ${t.extra}` : who }
+}
+
+const SEEN_V = String.raw`(?:marque|marquer|marquez|coche|cocher|cochez|note|noter|notez|indique|indiquer|mets|mettre|met|passe|passer)`
+const VU = String.raw`(?:vus?|vues?|presents?|presentes?)`
+const OF_EVENT = String.raw`(?:de|du|des|dans|a|au|aux|pendant|lors de|lors du|sur)\s+(?:l'\s*|le |la |les )?`
+/** « Marque comme vus tous les joueurs de l'événement X » : joueurs (1), cible (2…6). */
+const SEEN_FIRST = RE(String.raw`${L}${SEEN_V}\s+${ME}(?:comme|en)\s+${VU}\s+(.+?)\s+${OF_EVENT}${INTO_TARGET}$`)
+/** « Note-les comme vus au tournoi X », « marque les gauchers vus à l'événement X » : joueurs (1), cible (2…6). */
+const SEEN_AFTER = RE(String.raw`${L}${SEEN_V}\s+${ME}(.+?)\s+(?:comme\s+|en\s+)?${VU}\s+${INTO}\s*(?:l'\s*|le |la )?${INTO_TARGET}$`)
+
+/** Marquer vus à un événement (règles locales) : l'événement est obligatoire (un « vu » y est toujours lié). */
+function readSeen(text: string, n: string): Read {
+  const m = SEEN_FIRST.exec(n) ?? SEEN_AFTER.exec(n)
+  if (!m) return null
+  const who = piece(text, m, 1)
+  const t = targetOf(text, m, 2)
+  if (!who || !t || t.kind !== 'evenement') return null
+  const k = whoKind(who)
+  if (k !== 'ok') return k
+  return { action: 'marquer_vus', target: t.name, playersPhrase: t.extra ? `${who} ${t.extra}` : who }
+}
+
+const EXPORT_V = String.raw`(?:exporte|exporter|exportez|imprime|imprimer|imprimez|telecharge|telecharger|telechargez)`
+/** « Exporte en PDF les joueurs du groupe X », « imprime la liste des 2011 du Var » : verbe (1), reste (2). */
+const EXPORT_RE = RE(String.raw`${L}(${EXPORT_V})\s+${ME}(.+)$`)
+/** « Fais-moi un PDF du groupe X », « sors-moi un tableau Excel des gauchers » : format (1), « de » (2), reste (3). */
+const EXPORT_MAKE_RE = RE(
+  String.raw`${L}(?:${CREATE_V}|sors|sortir|donne|donner)\s+${ME}(?:un |une |le |la )(pdf|fichier (?:excel|csv|pdf)|excel|csv|tableur|tableau (?:excel|csv|tableur)|export|impression|liste a imprimer)\s+(de la |de l'|du |des |de |d')(.+)$`,
+)
+const FORMAT_IN = /(?:^|\s+)(?:en|au format|sous forme de|format|dans un|dans une)\s+(?:fichier\s+)?(pdf|excel|csv|tableur|tableau)\b/
+/** « les joueurs du groupe X », « le groupe X », « la liste du groupe X » : le nom (1). */
+const GROUP_EXPORT = RE(
+  String.raw`^(?:(?:tous |toutes )?(?:les )?(?:joueurs|joueuses|membres|fiches) (?:du|de mon|de ma|de notre|de ce|de cette|de) |la liste (?:du|de mon|de ma|des joueurs du|des joueuses du|des membres du) |le |mon |ma |notre |ce |cette )?(?:groupe|selection|collectif)\s+(.+)$`,
+)
+const formatOf = (f: string): 'pdf' | 'csv' => (/pdf|impr/.test(f) ? 'pdf' : 'csv')
+
+/** Exporter (règles locales) : un groupe cité (tous ses joueurs), sinon une liste de joueurs ; rien n'est écrit. */
+function readExport(text: string, n: string): Read {
+  let tr: string
+  let nr: string
+  let format: 'pdf' | 'csv' | undefined
+  let m: RegExpExecArray | null
+  if ((m = EXPORT_RE.exec(n))) {
+    const at = m.indices?.[2] ?? [0, 0]
+    tr = text.slice(at[0], at[1])
+    nr = n.slice(at[0], at[1])
+    if (m[1].startsWith('impr')) format = 'pdf'
+  } else if ((m = EXPORT_MAKE_RE.exec(n))) {
+    const at = m.indices?.[3] ?? [0, 0]
+    format = formatOf(m[1])
+    const pre = m[2] === 'du ' ? 'le ' : m[2] === 'des ' ? 'les ' : m[2] === 'de la ' ? 'la ' : m[2] === "de l'" ? "l'" : ''
+    tr = pre + text.slice(at[0], at[1])
+    nr = pre + n.slice(at[0], at[1])
+  } else return null
+  // Format dit dans la phrase (« en PDF », « en Excel ») : retenu, puis retiré de la partie « joueurs ».
+  let f: RegExpExecArray | null
+  while ((f = FORMAT_IN.exec(nr))) {
+    format = formatOf(f[1])
+    tr = (tr.slice(0, f.index) + ' ' + tr.slice(f.index + f[0].length)).replace(/\s+/g, ' ').trim()
+    nr = (nr.slice(0, f.index) + ' ' + nr.slice(f.index + f[0].length)).replace(/\s+/g, ' ').trim()
+  }
+  const fmt = format ? { format } : {}
+  const g = GROUP_EXPORT.exec(nr)
+  if (g) {
+    const s = splitTarget(piece(tr, g, 1) ?? '')
+    if (!s.name || s.extra) return 'modele'
+    return { action: 'exporter', target: s.name, ...fmt }
+  }
+  const who = tr.replace(/^la liste (?:des|de la|de l'|du)\s*/i, (x) => (/des\s*$/i.test(x) ? 'les ' : /du\s*$/i.test(x) ? 'le ' : /de la\s*$/i.test(x) ? 'la ' : "l'")).trim()
+  const k = whoKind(who)
+  if (k !== 'ok') return k
+  return { action: 'exporter', playersPhrase: who, ...fmt }
 }
 
 /**
@@ -439,8 +605,6 @@ export function detectAction(phrase: string, page?: string): Detected | null {
   }
   if ((ACCOUNT.test(n) && ACCOUNT_V.test(n)) || INVITE.test(n)) return { kind: 'interdite' }
   if (HELP_Q.test(n)) return null
-  const what = unplannedOf(n)
-  if (what) return { kind: 'inconnue', what }
 
   /** Plan lu : relu avant d'être rendu (morceau mal coupé → le modèle ; « ceux-là » → la liste affichée). */
   const plan = (p: Omit<AskPlan, 'nonGere' | 'local'>): Detected => {
@@ -456,6 +620,15 @@ export function detectAction(phrase: string, page?: string): Detected | null {
     } else if (pp && BARE.test(pp)) return { kind: 'modele' }
     return { kind: 'plan', plan: { ...q, nonGere: [], local: true } }
   }
+  const what = unplannedOf(n)
+  // Mettre à revoir, marquer vus, exporter : lus ici ; un joueur précis (nom, numéro) reste « pas encore prévu » ; une
+  // tournure que les règles ne lisent pas part au modèle.
+  if (what === 'a_revoir' || what === 'vus' || what === 'export') {
+    const r = what === 'a_revoir' ? readRewatch(text, n) : what === 'vus' ? readSeen(text, n) : readExport(text, n)
+    if (r === 'modele') return { kind: 'modele' }
+    if (r) return plan(r)
+  }
+  if (what) return { kind: 'inconnue', what }
   /** Partie « joueurs » d'une création : la deuxième étape éventuelle (« … et ajoute-les au stage X ») mise à part. */
   const create = (rest: string | undefined, name: string | undefined): Detected | null => {
     if (!rest) return null
@@ -681,11 +854,19 @@ export type CardInput = {
   unsupported?: readonly string[]
   /** Aucun critère de joueurs compris. */
   noCriteria?: boolean
-  /** Deuxième étape (plan.then) : la cible retrouvée, les joueurs déjà dedans et les droits. */
+  /** Deuxième étape (plan.then) : la cible retrouvée, les joueurs déjà dedans (ou déjà à revoir) et les droits. */
   then?: { target?: { name: string }; already?: number; allowed: boolean; deniedWhy?: string }
+  /** mettre_a_revoir sans événement : d'où l'« à revoir » est posé, en mots (« depuis la liste « gauchers · 2011 » »). */
+  origin?: string
+  /** exporter : le groupe visé est un groupe Pôle (son tableur se fait depuis sa page, avec les colonnes du pôle). */
+  pole?: boolean
 }
 
-export type Card = { steps: string[]; warnings: string[]; canAccept: boolean; blocked?: string }
+/** exports : les boutons de l'export (exporter), à la place d'« Accepter ». */
+export type Card = { steps: string[]; warnings: string[]; canAccept: boolean; blocked?: string; exports?: ('pdf' | 'csv')[] }
+
+/** « Les » (plusieurs), « La » (une joueuse), « Le » (un joueur). */
+const them = (n: number, g?: Gender) => (n > 1 ? 'Les' : g === 'F' ? 'La' : 'Le')
 
 /** Récapitulatif « Je vais : 1) … 2) … », avertissements, et si « Accepter » est proposé. */
 export function buildCard(c: CardInput): Card {
@@ -695,7 +876,21 @@ export function buildCard(c: CardInput): Card {
   const steps: string[] = []
   const warnings: string[] = []
   const t = c.target?.name ? `« ${c.target.name} »` : ''
-  if (a === 'filtrer_createur') {
+  let exports: Card['exports']
+  if (a === 'marquer_vus') {
+    steps.push(`Dans l’événement ${t} : ${crit} → ${who}`)
+    steps.push(`${them(c.count, c.gender)} marquer ${accord('vu', c.gender ?? null, c.count)} à cet événement (aujourd’hui, par toi)${c.already ? `, ${c.already} déjà ${accord('vu', c.gender ?? null, c.already)}` : ''}`)
+  } else if (a === 'mettre_a_revoir') {
+    steps.push(t ? `Chercher dans l’événement ${t} : ${crit} → ${who}` : `Chercher : ${crit} → ${who}`)
+    const from = t ? `depuis l’événement ${t}` : (c.origin ?? '')
+    steps.push(`${them(c.count, c.gender)} mettre à revoir pour toi${from ? ` (${from})` : ''}${c.already ? `, ${c.already} ${c.already > 1 ? 'le sont' : 'l’est'} déjà` : ''}`)
+  } else if (a === 'exporter') {
+    steps.push(t ? `Joueurs du groupe ${t} → ${who}` : `Joueurs : ${crit} → ${who}`)
+    steps.push('Ouvrir l’export :')
+    exports = t ? (c.pole ? ['pdf'] : ['pdf', 'csv']) : ['csv']
+    if (!t && c.plan.format === 'pdf') warnings.push('Liste à imprimer (PDF) : seulement pour un groupe (crée d’abord un groupe avec ces joueurs, puis « Exporter PDF »). Ici : le tableur.')
+    if (t && c.pole) warnings.push('Tableur d’un groupe Pôle : depuis la page du groupe, menu « ⋮ » → « Exporter CSV » (avec les colonnes du pôle).')
+  } else if (a === 'filtrer_createur') {
     steps.push(`Afficher les ${c.plan.list === 'evenements' ? 'événements' : 'groupes'} créés par ${t || `« ${c.plan.creators?.[0] ?? ''} »`}`)
   } else if (a === 'ouvrir_evenement' || a === 'ouvrir_groupe') {
     steps.push(`Chercher dans ${a === 'ouvrir_groupe' ? 'le groupe' : 'l’événement'} ${t} : ${crit} → ${who}`)
@@ -705,22 +900,74 @@ export function buildCard(c: CardInput): Card {
     if (a === 'creer_groupe') steps.push(`Créer le groupe « ${(c.groupName ?? '').trim() || 'Nouveau groupe'} » avec ${c.count > 1 ? `ces ${who}` : who} (visible par moi seul, modifiable ensuite)`)
     else steps.push(`Ajouter ${c.count > 1 ? `ces ${who}` : who} ${a === 'ajouter_groupe' ? 'au groupe' : 'à l’événement'} ${t}${c.already ? ` (${c.already} déjà dedans)` : ''}`)
     const th = c.plan.then
-    if (th) {
-      const tt = c.then?.target?.name ?? th.target
+    if (th?.action === 'mettre_a_revoir') {
+      steps.push(`Puis ${them(c.count, c.gender).toLowerCase()} mettre à revoir pour toi${c.then?.already ? ` (${c.then.already} ${c.then.already > 1 ? 'le sont' : 'l’est'} déjà)` : ''}`)
+    } else if (th) {
+      const tt = c.then?.target?.name ?? th.target ?? ''
       steps.push(`Puis ajouter ${c.count > 1 ? 'les mêmes' : 'le même'} ${th.action === 'ajouter_groupe' ? 'au groupe' : 'à l’événement'} « ${tt} »${c.then?.already ? ` (${c.then.already} déjà dedans)` : ''}`)
     }
   }
   if (c.count > BIG && WRITES.includes(a)) warnings.push(`Plus de ${BIG} joueurs : vérifie les critères avant d’accepter.`)
   if (c.unsupported?.length) warnings.push(`Pas pris en compte : ${c.unsupported.join(' ; ')}`)
+  // Sans critère, tous les joueurs : permis seulement quand la phrase le dit d'un événement (« marque comme vus tous les
+  // joueurs de l'événement X ») ou pour un export, et que rien n'est resté incompris.
+  const allowAll = (a === 'marquer_vus' || (a === 'mettre_a_revoir' && !!c.target) || a === 'exporter') && !c.unsupported?.length
   let blocked: string | undefined
   if (!c.allowed) blocked = c.deniedWhy || 'Ton rôle ne permet pas cette action.'
-  else if (WRITES.includes(a) && c.noCriteria) blocked = 'Je n’ai compris aucun critère de joueurs : précise la demande (par exemple « les gauchers de 2011 »).'
+  else if ((WRITES.includes(a) || a === 'exporter') && c.noCriteria && !allowAll) blocked = 'Je n’ai compris aucun critère de joueurs : précise la demande (par exemple « les gauchers de 2011 »).'
+  else if (a === 'exporter' && !c.count) blocked = 'Aucun joueur ne correspond : rien à exporter.'
   else if (WRITES.includes(a) && !c.count) blocked = 'Aucun joueur ne correspond : rien à faire.'
-  else if (a !== 'creer_groupe' && WRITES.includes(a) && c.already === c.count) blocked = 'Ces joueurs y sont déjà tous : rien à faire.'
+  else if (a !== 'creer_groupe' && WRITES.includes(a) && c.already === c.count)
+    blocked =
+      a === 'mettre_a_revoir'
+        ? `Déjà ${c.count > 1 ? `${w(c.gender ?? null).tous} ` : ''}à revoir pour toi : rien à faire.`
+        : a === 'marquer_vus'
+          ? `Déjà ${c.count > 1 ? `${w(c.gender ?? null).tous} ` : ''}${accord('vu', c.gender ?? null, c.count)} par toi à cet événement : rien à faire.`
+          : 'Ces joueurs y sont déjà tous : rien à faire.'
   else if (a === 'creer_groupe' && !(c.groupName ?? '').trim()) blocked = 'Donne un nom au groupe.'
   else if (c.plan.then && WRITES.includes(a) && !c.then?.allowed) blocked = c.then?.deniedWhy || 'Ton rôle ne permet pas la deuxième étape.'
-  if (!WRITES.includes(a) && a !== 'filtrer_createur' && !c.count) warnings.push('Aucun joueur ne correspond : la liste sera vide.')
-  return { steps, warnings, canAccept: !blocked, ...(blocked ? { blocked } : {}) }
+  if (!WRITES.includes(a) && a !== 'filtrer_createur' && a !== 'exporter' && !c.count) warnings.push('Aucun joueur ne correspond : la liste sera vide.')
+  return { steps, warnings, canAccept: !blocked, ...(blocked ? { blocked } : {}), ...(exports ? { exports } : {}) }
+}
+
+// ---------- « À revoir », « vu » : faire, puis défaire seulement ce qui a été posé ----------
+
+/** Fonctions de l'appli (src/scouting.ts), passées par l'écran : cette partie reste sans base. */
+export type MarkDeps = {
+  /** Joueurs déjà marqués par moi (mon « à revoir » encore ouvert, mon « vu » à l'événement). */
+  already: (ids: string[]) => Promise<Set<string>>
+  /** La fonction du bouton de la sélection (addRewatchMany, markSeenMany) : nombre de joueurs changés. */
+  mark: (ids: string[]) => Promise<number>
+  /** Après coup : la marque que l'action vient de poser pour ce joueur (sa clé), pour pouvoir la retirer. */
+  created: (playerId: string) => Promise<string | undefined>
+  /** Retire une marque posée par l'action (remove('rewatch', id), setSeen(…, false)). */
+  unmark: (key: string) => Promise<void>
+}
+
+/**
+ * Marque les joueurs (une seule fois chacun) avec la fonction du bouton ; « Défaire » retire SEULEMENT les marques que
+ * l'action a posées (celles d'avant, à moi ou aux autres, restent). undo absent : rien de nouveau.
+ */
+export async function markWithUndo(ids: readonly string[], d: MarkDeps): Promise<{ done: number; total: number; undo?: () => Promise<number> }> {
+  const list = [...new Set(ids)]
+  const before = await d.already(list)
+  const done = await d.mark(list)
+  const keys: string[] = []
+  for (const pid of list) {
+    if (before.has(pid)) continue
+    const k = await d.created(pid)
+    if (k) keys.push(k)
+  }
+  return {
+    done,
+    total: list.length,
+    undo: keys.length
+      ? async () => {
+          for (const k of keys) await d.unmark(k)
+          return keys.length
+        }
+      : undefined,
+  }
 }
 
 // ---------- Journal des questions ----------
