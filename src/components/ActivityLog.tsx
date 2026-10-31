@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
 import { SectionTitle } from './ui'
+import { FormActions, FormWindow } from './FormWindow'
 import { STAFF } from '../staffLabels'
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -316,5 +317,33 @@ export function StampLine({ row }: { row: Stamped }) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Fenêtre « Infos » ouverte par le ⋮ d'une fiche joueur ou d'un groupe (30-31/10 : la signature n'est plus dans l'en-tête) :
+ * création et dernière modification.
+ */
+export function StampWindow({ stamp, title, onClose }: { stamp: NonNullable<ReturnType<typeof stampOf>>; title: string; onClose: () => void }) {
+  return (
+    <FormWindow title={title} onClose={onClose} width={400} phoneFull={false} guard={false}>
+      <div className="flex flex-col gap-2 text-xs">
+        {stamp.created && (
+          <p>
+            <span className="text-muted">Création :</span> <b>{stamp.created.by}</b>, le {stamp.created.at}
+          </p>
+        )}
+        {stamp.updated && (
+          <p>
+            <span className="text-muted">Dernière modification :</span> <b>{stamp.updated.by}</b>, le {stamp.updated.at}
+          </p>
+        )}
+      </div>
+      <FormActions>
+        <button className="btn-primary flex-1" onClick={onClose}>
+          OK
+        </button>
+      </FormActions>
+    </FormWindow>
   )
 }

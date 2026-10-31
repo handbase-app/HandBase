@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
-import { StampLine } from '../components/ActivityLog'
+import { stampOf, StampWindow } from '../components/ActivityLog'
 import { ask } from '../components/Confirm'
 import { addToGroup, removeFromGroup } from '../components/Groups'
 import { arrowNav, showGroupInPlayers, useSessionState } from '../components/PlayerFilter'
@@ -44,7 +44,7 @@ import { CompareBar, CompareToggle, PickBox, useComparePick } from '../component
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
-import { BarActions, BelowBar, MoreActions, PageHeader } from '../components/PageHeader'
+import { BarActions, BelowBar, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
@@ -886,15 +886,14 @@ function poleCells(p: Player, pole: { ref: PoleRef; m: PoleMembers; view: PoleVi
 }
 
 /**
- * « Exporter ▾ » de la page d'un groupe : tableur (CSV) ou liste à imprimer (PDF, identité seulement, ex. pour la ligue).
- * Groupe Pôle : la vue affichée, avec « Statut de saison », « Programme » et « Référence PSQS » ; avant l'export, les fiches
- * incomplètes (licence, date de naissance complète, sexe) sont listées : continuer, ou aller corriger la première.
+ * Export de la page d'un groupe, dans son ⋮ (31/10 : plus de bouton « Exporter ▾ ») : tableur (CSV) ou liste à imprimer
+ * (PDF, identité seulement, ex. pour la ligue). Groupe Pôle : la vue affichée, avec « Statut de saison », « Programme » et
+ * « Référence PSQS » ; avant l'export, les fiches incomplètes (licence, date de naissance complète, sexe) sont listées :
+ * continuer, ou aller corriger la première.
  * TODO (plus tard) : courriel préparé pour la ligue / le PSQS.
  */
-function GroupExport({ g, players, gender, pole, className = '' }: { g: PlayerGroup; players: Player[]; gender?: Gender; pole?: { ref: PoleRef; m: PoleMembers; view: PoleView }; className?: string }) {
-  const nav = useNavigate()
-  const menu = useRowMenu()
-  const n = players.length
+function groupExportItems({ g, players, gender, pole, nav }: { g: PlayerGroup; players: Player[]; gender?: Gender; pole?: { ref: PoleRef; m: PoleMembers; view: PoleView }; nav: ReturnType<typeof useNavigate> }): MenuItem[] {
+  if (!players.length) return []
   /** Contrôle des fiches incomplètes (groupe Pôle) : vrai pour continuer. */
   async function checked(): Promise<boolean> {
     if (!pole) return true
@@ -909,34 +908,10 @@ function GroupExport({ g, players, gender, pole, className = '' }: { g: PlayerGr
     return r === 'continuer'
   }
   const extra = pole ? { head: ['Statut de saison', 'Programme', 'Référence PSQS'], row: (p: Player) => poleCells(p, pole) } : undefined
-  return (
-    <>
-      <button
-        className={`btn-ghost text-xs ${className}`}
-        disabled={!n}
-        aria-haspopup="menu"
-        aria-expanded={!!menu.anchor}
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          menu.open({ x: r.left, y: r.bottom, top: r.top })
-        }}
-      >
-        Exporter ▾
-      </button>
-      {menu.anchor && (
-        <ItemMenu
-          anchor={menu.anchor}
-          title="Exporter"
-          subtitle={`${g.name} · ${pluralG(n, gender)}`}
-          items={[
-            { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: async () => (await checked()) && void exportCsv(players, gender, extra) },
-            { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: async () => (await checked()) && nav(`/groupes/${g.id}/rapport${pole ? withPoleView('', pole.view) : ''}`) },
-          ]}
-          onClose={menu.close}
-        />
-      )}
-    </>
-  )
+  return [
+    { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: async () => (await checked()) && void exportCsv(players, gender, extra) },
+    { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: async () => (await checked()) && nav(`/groupes/${g.id}/rapport${pole ? withPoleView('', pole.view) : ''}`) },
+  ]
 }
 
 /**
@@ -983,6 +958,8 @@ function PlayerGroupDetail() {
   const askFilter = useAskListFilter('groupe', id)
   // « Réattribuer… » (administrateurs, supabase/038) : panneau ouvert.
   const [transferring, setTransferring] = useState(false)
+  // Fenêtre « Infos du groupe » (créé par…, modifié par…), ouverte par le ⋮.
+  const [stampOpen, setStampOpen] = useState(false)
   useEffect(() => setTransferring(false), [id])
   // « Voir tous les groupes » (administrateurs, supabase/039) : un groupe absent de l'appareil se lit sur le serveur.
   const allGroups = useAllGroups(role).on
@@ -1030,7 +1007,11 @@ function PlayerGroupDetail() {
   const contribute = !pole && can.contributeGroup(role, g)
   const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
-  const info = pole ? [ref?.name ?? 'Unité Pôle introuvable', ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
+  // Groupe Pôle : le nom de l'unité seulement s'il ne redit pas celui du groupe (« Pôle Aix-en-Provence (garçons) » sous
+  // « Pôle Aix-en-Provence » : redondant, 31/10).
+  const unitName = !ref ? 'Unité Pôle introuvable' : ref.name.toLowerCase().startsWith(g.name.trim().toLowerCase()) ? '' : ref.name
+  const info = pole ? [unitName, ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
+  const stamp = stampOf(g)
   const view = positionRosterView(players, sort, posFilter)
   const askIds = askFilter ? new Set(askFilter.ids) : null
   const sections = askIds ? view.sections.map((sec) => ({ ...sec, players: sec.players.filter((p) => askIds.has(p.id)) })).filter((sec) => sec.players.length) : view.sections
@@ -1114,16 +1095,41 @@ function PlayerGroupDetail() {
   return (
     <PlayerMenuScope.Provider value={{ pick }}>
     <div className="flex flex-col gap-4">
-      {/* En-tête : retour, puis les actions du groupe dans le ⋮ (Supprimer en dernier, avec confirmation). */}
-      <PageHeader
-        back={panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />}
-        menu={
-          editing
-            ? undefined
-            : {
-                title: g.name,
-                subtitle: `${pluralG(players.length, gg)}${g.archived ? ' · archivé' : ''}`,
-                items: [
+      {/* Ordinateur : fermer le panneau ; sinon pas de rangée (le ⋮ est à côté de « Suivre », comme la fiche joueur, 31/10). */}
+      <PageHeader back={panel ? <PanelClose /> : <BackButton fallback="/groupes" label="GROUPES" />} />
+
+      {transferring && !editing && canTransferGroup(role) && (
+        <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={leave.exit} />
+      )}
+
+      {editing && (
+        <FormWindow title={pole ? 'Renommer le groupe' : 'Modifier le groupe'} onClose={() => doneEditing()}>
+          <GroupForm key={g.id} group={g} onDone={doneEditing} />
+        </FormWindow>
+      )}
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du groupe" onClose={() => setStampOpen(false)} />}
+        <div>
+          {/* Le nom, et au bout de la rangée « Suivre » puis le ⋮ (actions du groupe, Supprimer en dernier). */}
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="min-w-0 text-lg font-extrabold">
+              {g.private && (
+                <span title={GROUP_VIS.privateTitle}>
+                  <Icon name="lock" className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
+                </span>
+              )}
+              {g.name}
+              {pole && <PoleChip />}
+              {g.team && <TeamChip />}
+              {g.teamFollow && !g.private && <TeamFollowChip />}
+              {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
+            </h1>
+            <div className="flex shrink-0 items-center gap-1">
+              <FollowButton kind="group" id={g.id} />
+              {!editing && (
+                <HeaderMenu
+                  title={g.name}
+                  subtitle={`${pluralG(players.length, gg)}${g.archived ? ' · archivé' : ''}`}
+                  items={[
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
                   // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
                   !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
@@ -1140,7 +1146,12 @@ function PlayerGroupDetail() {
                       nav('/joueurs')
                     },
                   },
+                  // Plus de boutons « Créer un événement » / « Exporter ▾ » sous le titre (31/10) : ici.
+                  can.manageEvents(role) && players.length > 0 && { label: 'Créer un événement', icon: 'calendar', hint: `avec ces ${gw.joueurs}`, onSelect: () => nav(`/evenements?groupe=${g.id}`) },
+                  ...groupExportItems({ g, players: view.roster, gender: gg, pole: pole && ref && pm ? { ref, m: pm, view: poleView } : undefined, nav }),
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
+                  // Créé par…, modifié par… : plus sous le titre (31/10), comme la fiche joueur.
+                  stamp && { label: 'Infos du groupe', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
                   manage && {
                     label: 'Supprimer',
                     icon: 'trash',
@@ -1149,38 +1160,13 @@ function PlayerGroupDetail() {
                       if (await deleteGroup(g)) leave.exit()
                     },
                   },
-                ],
-              }
-        }
-      />
-
-      {transferring && !editing && canTransferGroup(role) && (
-        <TransferGroup g={g} onClose={() => setTransferring(false)} onHidden={leave.exit} />
-      )}
-
-      {editing && (
-        <FormWindow title={pole ? 'Renommer le groupe' : 'Modifier le groupe'} onClose={() => doneEditing()}>
-          <GroupForm key={g.id} group={g} onDone={doneEditing} />
-        </FormWindow>
-      )}
-        <div>
-          <h1 className="text-lg font-extrabold">
-            {g.private && (
-              <span title={GROUP_VIS.privateTitle}>
-                <Icon name="lock" className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-muted" />
-              </span>
-            )}
-            {g.name}
-            {pole && <PoleChip />}
-            {g.team && <TeamChip />}
-            {g.teamFollow && !g.private && <TeamFollowChip />}
-            {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
-          </h1>
-          <div className="my-1.5 flex flex-wrap items-center gap-2">
-            <FollowButton kind="group" id={g.id} />
-            {teamFollowed(g) && <span className="text-[10px] text-muted">{TEAM_FOLLOW.already}</span>}
+                  ]}
+                />
+              )}
+            </div>
           </div>
-          {info && <div className="text-xs font-bold text-accent">{info}</div>}
+          {teamFollowed(g) && <div className="text-[10px] text-muted">{TEAM_FOLLOW.already}</div>}
+          {info && <div className="mt-0.5 text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
           <Participants
             x={g}
@@ -1196,9 +1182,6 @@ function PlayerGroupDetail() {
                 : undefined
             }
           />
-          <div className="mt-1">
-            <StampLine row={g} />
-          </div>
         </div>
 
       {/* Groupe Pôle : vue « Saison en cours | Saison prochaine » dans l'adresse (?saison=prochaine), gardée au retour. */}
@@ -1209,11 +1192,6 @@ function PlayerGroupDetail() {
             onChange={(v) => nav(`${loc.pathname}${withPoleView(loc.search, v)}`, { replace: true, state: loc.state })}
             options={VIEW_OPTIONS(pm.s, !bar)}
           />
-          <p className="text-[11px] text-muted">
-            {poleView === 'prochaine'
-              ? `${gw.Joueurs} dont une période de pôle couvre le ${fmtDay(pm.s.refNext)} (entrées déjà enregistrées comprises).`
-              : `${gw.Joueurs} dont une période de pôle couvre aujourd’hui (fiche ${gw.duJoueur}, bloc « Pôle Espoirs »).`}
-          </p>
           {poleMsg && (
             <p role="status" className="text-[11px] text-emerald-300">
               {poleMsg}
@@ -1222,30 +1200,15 @@ function PlayerGroupDetail() {
         </div>
       )}
 
-      {/* Barre d'actions : « + Ajouter des joueurs » (principal), « Créer un événement », « Exporter ▾ » (CSV / PDF).
-          Téléphone : le bouton principal sur toute la largeur, les deux autres côte à côte dessous. */}
-      <div className={bar ? 'flex flex-wrap items-center gap-2' : 'grid grid-cols-2 gap-2'}>
-        {(pole ? leads : manage || contribute) && (
-          <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : 'col-span-2'}`} onClick={() => setAdding(true)}>
+      {/* Une seule action en bouton : « + Ajouter des joueurs » (téléphone : toute la largeur). « Changement de saison », « Créer
+          un événement », « Exporter » sont dans le ⋮ du titre (31/10). */}
+      {(pole ? leads : manage || contribute) && (
+        <div className={bar ? 'flex' : 'grid'}>
+          <button className={`btn-primary ${bar ? 'px-3 py-1.5 text-xs' : ''}`} onClick={() => setAdding(true)}>
             + Ajouter des {gw.joueurs}
           </button>
-        )}
-        {leads && (
-          <Link to={`/groupes/${g.id}/saison`} className={`btn-ghost text-center text-xs ${bar ? 'px-3 py-1.5' : 'col-span-2 px-2'}`}>
-            Changement de saison
-          </Link>
-        )}
-        {can.manageEvents(role) && (
-          <Link
-            to={`/evenements?groupe=${g.id}`}
-            aria-disabled={!players.length || undefined}
-            className={`btn-ghost text-center text-xs ${bar ? 'px-3 py-1.5' : 'px-2'} ${players.length ? '' : 'pointer-events-none opacity-50'}`}
-          >
-            Créer un événement
-          </Link>
-        )}
-        <GroupExport g={g} players={view.roster} gender={gg} pole={pole && ref && pm ? { ref, m: pm, view: poleView } : undefined} className={`${bar ? 'px-3 py-1.5' : `px-2 ${can.manageEvents(role) ? '' : 'col-span-2'}`}`} />
-      </div>
+        </div>
+      )}
       {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted">

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack } from '../backNav'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { stampOf } from '../components/ActivityLog'
+import { stampOf, StampWindow } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { PlayerGroups } from '../components/Groups'
 import { Opinions } from '../components/Opinions'
@@ -27,7 +27,6 @@ import { FollowButton, FollowedVia } from '../components/Follow'
 import { VideoSection } from '../components/Videos'
 import { PanelClose, usePanel } from '../components/MasterDetail'
 import { HeaderMenu, PageHeader } from '../components/PageHeader'
-import { FormActions, FormWindow } from '../components/FormWindow'
 import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, ScoutHistory, usePlayerRewatch } from '../components/Scouting'
 import { usePerimeter } from '../installation'
@@ -312,25 +311,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       </div>
 
       {stampOpen && stamp && (
-        <FormWindow title="Infos de la fiche" onClose={() => setStampOpen(false)} width={400} phoneFull={false} guard={false}>
-          <div className="flex flex-col gap-2 text-xs">
-            {stamp.created && (
-              <p>
-                <span className="text-muted">Création :</span> <b>{stamp.created.by}</b>, le {stamp.created.at}
-              </p>
-            )}
-            {stamp.updated && (
-              <p>
-                <span className="text-muted">Dernière modification :</span> <b>{stamp.updated.by}</b>, le {stamp.updated.at}
-              </p>
-            )}
-          </div>
-          <FormActions>
-            <button className="btn-primary flex-1" onClick={() => setStampOpen(false)}>
-              OK
-            </button>
-          </FormActions>
-        </FormWindow>
+        <StampWindow stamp={stamp} title="Infos de la fiche" onClose={() => setStampOpen(false)} />
       )}
 
       {p.review && p.review !== 'validated' && (
