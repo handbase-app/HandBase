@@ -136,17 +136,6 @@ export function AvisVocal({
     return id ? logAvisVocalVerdict({ vocalId: id, verdict, comment }) : false
   }
   const ignoreAll = () => state && setState(decideAll(state, 'ignore'))
-  // Commandes flottantes : on parle en faisant défiler les critères, les propositions du haut de la fiche sortent de l'écran.
-  // « Tout valider / Tout ignorer » en bas à droite (le micro, lui, reste dans la barre « Enregistrer »).
-  const root = useRef<HTMLDivElement>(null)
-  const [topVisible, setTopVisible] = useState(true)
-  useEffect(() => {
-    const el = root.current
-    if (!el || typeof IntersectionObserver === 'undefined') return
-    const io = new IntersectionObserver(([e]) => setTopVisible(e.isIntersecting))
-    io.observe(el)
-    return () => io.disconnect()
-  })
   const usable = criteria.length > 0 && buildAvisPayload(criteria, position).criteres.length > 0
   if (!avisReady || !usable) return null
 
@@ -157,7 +146,7 @@ export function AvisVocal({
   const n = mine?.result.suggestions.length ?? 0
 
   return (
-    <div ref={root} className="flex flex-col gap-2 empty:hidden" data-noswipe>
+    <div className="flex flex-col gap-2 empty:hidden" data-noswipe>
       {/* Micro rond dans la barre « Enregistrer », à droite (choix du 31/10 : plus de capsule néon en haut de la fiche ; sous
           le pouce même en bas de la fiche). Enregistrement : rouge qui pulse, carré blanc (arrêter) ; transcription et
           analyse : roue. Toucher pour commencer et pour finir, ou maintenir pour parler. */}
@@ -186,21 +175,6 @@ export function AvisVocal({
           </button>,
           slot,
         )}
-      {!topVisible &&
-        left > 0 &&
-        !rec &&
-        !working &&
-        createPortal(
-          <div data-noswipe className="fixed right-4 bottom-[calc(var(--nav-b)+4.5rem+var(--save-extra,0px))] z-40 flex items-center gap-2">
-            <button type="button" className="neon-fill min-h-12 rounded-full px-4 text-sm font-extrabold shadow-[var(--neon-glow)] hover:brightness-105" onClick={acceptAll}>
-              ✦ Tout valider
-            </button>
-            <button type="button" className="min-h-12 rounded-full border-[1.5px] border-line bg-bg px-4 text-sm font-bold shadow-lg" onClick={ignoreAll}>
-              Tout ignorer
-            </button>
-          </div>,
-          document.body,
-        )}
       {rec || mic.phase === 'sending' ? (
         <MicStatus mic={mic} dictated={false} />
       ) : busy ? (
@@ -212,12 +186,12 @@ export function AvisVocal({
       ) : null}
 
       {mine && !working && !rec && (
-        <div className="flex flex-col gap-1.5 rounded-xl border-[1.5px] border-suggest/50 bg-suggest-soft p-2.5 text-xs" role="status">
+        <div className="flex flex-col gap-1.5 rounded-xl sug-box p-2.5 text-xs" role="status">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               {n > 0 ? (
                 <b>
-                  <span className="text-suggest" aria-hidden>
+                  <span aria-hidden>
                     ✦{' '}
                   </span>
                   {n} note{n > 1 ? 's' : ''} proposée{n > 1 ? 's' : ''}
@@ -228,7 +202,7 @@ export function AvisVocal({
               )}
               {left > 0 && (
                 <div className="mt-0.5 text-[11px] text-muted">
-                  {mine.pending.length > 0 && 'Touchez la note en menthe pour la valider, ou choisissez-en une autre. '}
+                  {mine.pending.length > 0 && 'Touchez la note proposée pour la valider, ou choisissez-en une autre. '}
                   {(mine.strengths || mine.improvements) && 'Commentaires proposés plus bas. '}
                   Rien n’est enregistré avant « Enregistrer ».
                 </div>
@@ -246,7 +220,7 @@ export function AvisVocal({
           </div>
           {left > 0 && (
             <div className="flex gap-2">
-              <button type="button" className="neon-fill min-h-11 flex-1 rounded-full px-3 text-xs font-extrabold hover:brightness-105" onClick={acceptAll}>
+              <button type="button" className="min-h-11 flex-1 rounded-full bg-fg px-3 text-xs font-extrabold text-panel hover:opacity-90" onClick={acceptAll}>
                 Tout valider
               </button>
               <button type="button" className="min-h-11 flex-1 rounded-full border-[1.5px] border-line px-3 text-xs font-bold text-fg hover:border-muted" onClick={ignoreAll}>
@@ -276,7 +250,7 @@ export function SuggestionNote({ s, onDismiss }: { s: AvisSuggestion; onDismiss:
   return (
     <div className="flex w-full max-w-xl items-start gap-1" data-noswipe>
       <div className="min-w-0 flex-1 pt-1 text-[11px]">
-        <span className="font-bold text-suggest">✦ Proposé : {s.value}</span>
+        <span className="font-bold">✦ Proposé : {s.value}</span>
         <span className="italic text-muted"> · « {s.quote} »</span>
       </div>
       <button
@@ -295,12 +269,12 @@ export function SuggestionNote({ s, onDismiss }: { s: AvisSuggestion; onDismiss:
 /** Au-dessus d'un commentaire : le texte proposé, à ajouter d'un toucher (il reste modifiable dans le champ) ou à écarter. */
 export function CommentProposal({ text, onAdd, onDismiss }: { text: string; onAdd: () => void; onDismiss: () => void }) {
   return (
-    <div className="mb-1.5 flex items-start gap-1 rounded-xl border-[1.5px] border-suggest/50 bg-suggest-soft p-1.5 pl-2.5" data-noswipe>
+    <div className="mb-1.5 flex items-start gap-1 rounded-xl sug-box p-1.5 pl-2.5" data-noswipe>
       <div className="min-w-0 flex-1 py-1 text-xs">
-        <span className="font-bold text-suggest">✦ Proposé : </span>
+        <span className="font-bold">✦ Proposé : </span>
         <span className="italic">{text}</span>
       </div>
-      <button type="button" className="neon-fill min-h-11 shrink-0 rounded-full px-3.5 text-xs font-extrabold hover:brightness-105" onClick={onAdd}>
+      <button type="button" className="min-h-11 shrink-0 rounded-full bg-fg px-3.5 text-xs font-extrabold text-panel hover:opacity-90" onClick={onAdd}>
         Ajouter
       </button>
       <button

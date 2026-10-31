@@ -16,7 +16,6 @@ import { OrganizerField, type OrganizerValue } from '../components/OrganizerFiel
 import { supabase, useSyncState } from '../sync'
 import { MQ, useMedia } from '../layout'
 import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
-import { DictationTextarea } from '../components/MicButton'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { setRatingFocus } from '../focusMode'
 import { AvisVocal, CommentProposal, SuggestionNote } from '../components/AvisVocal'
@@ -82,7 +81,7 @@ export default function Evaluate() {
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
-  // Menu « ⋮ » de l'avis (« Retirer mon avis »), loin du bouton « Enregistrer / Suivant ».
+  // Menu « ⋮ » de l'avis (« Annuler mes modifications », « Retirer mon avis »), loin du bouton « Enregistrer / Suivant ».
   const avisMenu = useRowMenu()
 
   // Fiches par nom, gardées en mémoire (src/playersCache.ts).
@@ -595,18 +594,22 @@ export default function Evaluate() {
                   ]}
                 />
               </div>
-              {existing && (
+              {(existing || dirty) && (
                 <span data-noswipe className="contents">
                   <MenuButton label="Autres actions sur mon avis" open={!!avisMenu.anchor} className="-mr-2" onOpen={avisMenu.open} />
                 </span>
               )}
             </div>
           </div>
-          {existing && avisMenu.anchor && (
+          {(existing || dirty) && avisMenu.anchor && (
             <ItemMenu
               anchor={avisMenu.anchor}
               title={`Mon avis sur ${playerName(player)}`}
-              items={[{ label: 'Retirer mon avis', icon: 'trash', danger: true, onSelect: () => void withdraw() }]}
+              items={[
+                // « Annuler » n'est plus dans la barre du bas (Enregistrer + micro seulement, 31/10) : ici, avec « Retirer ».
+                ...(dirty ? [{ label: 'Annuler mes modifications', icon: 'undo' as const, onSelect: revert }] : []),
+                ...(existing ? [{ label: 'Retirer mon avis', icon: 'trash' as const, danger: true, onSelect: () => void withdraw() }] : []),
+              ]}
               onClose={avisMenu.close}
             />
           )}
@@ -691,7 +694,7 @@ export default function Evaluate() {
                   onDismiss={() => setAvis((a) => a && { ...a, strengths: false })}
                 />
               )}
-              <DictationTextarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(v) => setDraft((d) => ({ ...d, strengths: v }))} />
+              <textarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(e) => setDraft((d) => ({ ...d, strengths: e.target.value }))} />
             </div>
             <div>
               <span className="label">Axes de progression</span>
@@ -705,7 +708,7 @@ export default function Evaluate() {
                   onDismiss={() => setAvis((a) => a && { ...a, improvements: false })}
                 />
               )}
-              <DictationTextarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(v) => setDraft((d) => ({ ...d, improvements: v }))} />
+              <textarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(e) => setDraft((d) => ({ ...d, improvements: e.target.value }))} />
             </div>
           </div>
 
@@ -731,11 +734,6 @@ export default function Evaluate() {
               >
                 <span aria-hidden>✓</span>
                 {existing ? (dirty ? 'Mettre à jour' : 'Enregistré') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
-              </button>
-            )}
-            {dirty && (
-              <button className="btn-save-ghost shrink-0" onClick={revert} title="Oublier les modifications">
-                Annuler
               </button>
             )}
             {/* Micro de l'avis vocal (src/components/AvisVocal.tsx), à droite. */}

@@ -79,7 +79,7 @@ const states = (value: number | string | undefined, suggested: number | undefine
   assert.equal(segmentLabel(2, 3, 'retenu'), '2 sur 3, note retenue : toucher pour la retirer')
 }
 
-// ---------- Néon des propositions (plus de vert lime) partagé avec la capsule Nextar, accordé au thème ----------
+// ---------- Néon de la capsule Nextar, accordé au thème ; propositions de l'avis vocal sobres (31/10) ----------
 {
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
   assert.ok(!/#a3e635|#4d7c0f/i.test(css), 'plus de vert lime pour les propositions')
@@ -87,10 +87,14 @@ const states = (value: number | string | undefined, suggested: number | undefine
   assert.match(css, /--neon-grad: linear-gradient\(120deg, var\(--neon-a\), var\(--neon-b\)\);/)
   // Par défaut (avant le thème) : la menthe du logo.
   assert.match(css, /--neon-a: #89f7b3;/)
-  // La capsule de l'en-tête, la pastille micro et les propositions partagent le même dégradé.
-  for (const cls of ['.ask-capsule', '.ask-mic', '.neon-ring', '.neon-fill']) {
-    const rule = css.slice(css.indexOf(`${cls} {`), css.indexOf('}', css.indexOf(`${cls} {`)))
-    assert.match(rule, /var\(--neon-grad\)/, cls)
+  // La capsule de l'en-tête et sa pastille micro partagent le même dégradé.
+  const rule = (cls: string) => css.slice(css.indexOf(`${cls} {`), css.indexOf('}', css.indexOf(`${cls} {`)))
+  for (const cls of ['.ask-capsule', '.ask-mic']) assert.match(rule(cls), /var\(--neon-grad\)/, cls)
+  // Propositions de l'avis vocal : dans la couleur du texte du thème, sans dégradé ni halo (le néon était criard).
+  for (const cls of ['.sug-ring', '.sug-fill', '.sug-tag', '.sug-box']) {
+    assert.ok(css.includes(`${cls} {`), cls)
+    assert.match(rule(cls), /var\(--color-fg\)/, cls)
+    assert.doesNotMatch(rule(cls), /--neon-/, cls)
   }
 }
 

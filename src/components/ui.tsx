@@ -201,7 +201,7 @@ export function QuarterBadge({ birthDate }: { birthDate?: string }) {
 /**
  * Saisie d'une valeur selon l'échelle du critère. Notes (score5, score3, score2) : une capsule segmentée (src/scoreCapsule.ts),
  * la note retenue en plein blanc (couleur du texte du thème) ; une note proposée par l'« avis vocal » et pas encore validée :
- * capsule au liseré menthe + halo, segment proposé plein menthe (src/index.css, .neon-ring / .neon-fill). « choice » : même
+ * capsule au liseré pointillé, segment proposé teinté et pointillé (src/index.css, .sug-ring / .sug-fill). « choice » : même
  * langage (pastilles arrondies dans une capsule). Mesures et texte : un champ.
  */
 export function CriterionInput({
@@ -228,7 +228,7 @@ export function CriterionInput({
         role="group"
         aria-label={proposed ? `${c.label} : note proposée par l’avis vocal` : c.label}
         data-proposed={proposed || undefined}
-        className={`flex gap-[3px] rounded-full p-[3px] transition-shadow ${proposed ? 'neon-ring' : 'border-[1.5px] border-line bg-panel-2/40'} ${
+        className={`flex gap-[3px] rounded-full p-[3px] transition-shadow ${proposed ? 'sug-ring' : 'border-[1.5px] border-line bg-panel-2/40'} ${
           wide ? 'w-full max-w-xl' : 'w-fit max-w-full shrink-0'
         }`}
       >
@@ -243,7 +243,7 @@ export function CriterionInput({
               data-state={st}
               onClick={() => onChange(scoreAfterTap(n, value, suggested))}
               className={`flex h-10 items-center justify-center rounded-full font-bold tabular-nums transition ${wide ? 'min-w-0 flex-1 text-sm' : 'w-8 text-xs'} ${
-                st === 'retenu' ? 'bg-fg text-panel' : st === 'propose' ? 'neon-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
+                st === 'retenu' ? 'bg-fg text-panel' : st === 'propose' ? 'sug-fill' : 'text-muted hover:bg-fg/5 hover:text-fg'
               }`}
             >
               {n}
@@ -277,10 +277,10 @@ export function CriterionInput({
   return <NumberField value={value as number | undefined} unit={c.unit} onChange={onChange} />
 }
 
-/** Étiquette « proposé » (menthe, encre marine) à côté du nom d'un critère dont la note vient de l'avis vocal. */
+/** Étiquette « proposé » (teinte discrète de la couleur du texte) à côté du nom d'un critère dont la note vient de l'avis vocal. */
 export function ProposedTag() {
   return (
-    <span className="neon-fill inline-flex items-center rounded-full px-2 py-px text-[10px] leading-4 font-extrabold">
+    <span className="sug-tag inline-flex items-center rounded-full px-2 py-px text-[10px] leading-4 font-bold">
       <span aria-hidden>proposé</span>
       <span className="sr-only">proposé par l’avis vocal</span>
     </span>

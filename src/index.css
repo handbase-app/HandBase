@@ -294,15 +294,13 @@ body {
 .ask-mic { background: var(--neon-grad); color: var(--neon-ink); }
 .ask-mic.ask-mic-rec { background: #fff; color: #dc2626; }
 
-/* Propositions de l'avis vocal (écran d'avis) : capsule de notes au liseré menthe + halo (le fond reste celui de la carte),
-   aplat menthe à encre marine (note proposée, étiquette « proposé », « Tout valider »). */
-.neon-ring {
-  --neon-fill: var(--color-panel);
-  border: 1.5px solid transparent;
-  background: linear-gradient(var(--neon-fill), var(--neon-fill)) padding-box, var(--neon-grad) border-box;
-  box-shadow: var(--neon-ring-glow);
-}
-.neon-fill { background: var(--neon-grad); color: var(--neon-ink); }
+/* Propositions de l'avis vocal (écran d'avis) : sobres, dans la couleur du texte du thème (31/10 : le néon était criard).
+   Proposé = pas encore validé : liseré pointillé autour des notes du critère, note proposée teintée et pointillée ; une
+   fois validée, elle devient pleine comme toute note choisie. Encadré et étiquette « proposé » : même teinte légère. */
+.sug-ring { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 40%, transparent); background: var(--color-panel); }
+.sug-fill { background: color-mix(in srgb, var(--color-fg) 12%, var(--color-panel)); color: var(--color-fg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-fg) 45%, transparent); }
+.sug-tag { background: color-mix(in srgb, var(--color-fg) 10%, transparent); color: var(--color-fg); }
+.sug-box { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 30%, transparent); background: color-mix(in srgb, var(--color-fg) 4%, transparent); }
 
 /* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
    d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */
