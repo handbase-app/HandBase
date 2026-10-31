@@ -6,10 +6,10 @@ import { usePerimeter, useUnits } from '../installation'
 import { installationAppearance, useThemeVersion } from '../theme'
 import { appName } from '../appBrand'
 
-// Actions rapides, dans cet ordre (choix du 26/10) : Mes suivis, À revoir, Propositions, Profils recherchés. Pas de tuile
+// Actions rapides, dans cet ordre (choix du 26/10) : À revoir, Propositions, Profils recherchés. Pas de tuile
 // « Événements » : il est déjà dans la barre de navigation. « Propositions » n'a pas d'onglet : c'est ici qu'on la trouve.
+// Plus de tuile « Mes suivis » (31/10) : l'étoile de l'en-tête y mène déjà, avec le nombre de nouveautés.
 const ACTIONS = [
-  { to: '/suivis', title: 'Mes suivis', icon: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z' },
   // Section « À revoir » (src/pages/Rewatch.tsx) : qui, quand, d'où ; le nombre de joueurs pas encore revus en pastille.
   // Horloge bleu ciel, comme partout ailleurs pour « à revoir » (l'œil veut dire « vu »).
   { to: '/a-revoir', title: 'À revoir', icon: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z', tone: 'bg-sky-500/10 text-sky-300' },
@@ -19,10 +19,10 @@ const ACTIONS = [
 ]
 
 /**
- * `toReview` : propositions à valider ; `followNews` : nouveautés de mes suivis ; `alerts` : joueurs qui viennent d'entrer
- * dans mes profils recherchés (comptés une seule fois, dans App).
+ * `toReview` : propositions à valider ; `alerts` : joueurs qui viennent d'entrer dans mes profils recherchés (comptés une
+ * seule fois, dans App).
  */
-export default function Home({ toReview, followNews, alerts }: { toReview: number; followNews: number; alerts: number }) {
+export default function Home({ toReview, alerts }: { toReview: number; alerts: number }) {
   const rewatch = useThrottledQuery(countOpenRewatch, [], ['rewatch', 'seen', 'evaluations', 'teams'], undefined, 0)
   const actions: { to: string; title: string; icon: string; main?: boolean; tone?: string }[] = ACTIONS
   return (
@@ -33,21 +33,21 @@ export default function Home({ toReview, followNews, alerts }: { toReview: numbe
       <div className="flex flex-col gap-4 side:grid side:grid-cols-5 side:gap-x-4 side:gap-y-5">
       <OrgHeader />
 
-      <div
-        className={`grid gap-2 side:gap-4 ${actions.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : actions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} side:col-span-full`}
-      >
+      {/* Trois tuiles sur une rangée partout (31/10) ; sur téléphone, « Profils recherchés » passe sur deux lignes : pictos
+          alignés en haut (pas centrés), les libellés partent de la même hauteur. */}
+      <div className="grid grid-cols-3 gap-2 side:col-span-full side:gap-4">
         {actions.map((t) => (
           <Link
             key={t.to}
             to={t.to}
-            className={`card relative flex flex-col items-center justify-center gap-1.5 px-2 py-3 text-center side:py-4 transition hover:border-accent ${t.main ? 'border-accent/60' : ''}`}
+            className={`card relative flex flex-col items-center justify-start gap-1.5 px-2 py-3 text-center side:py-4 transition hover:border-accent ${t.main ? 'border-accent/60' : ''}`}
           >
             <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${t.main ? 'bg-accent text-white' : (t.tone ?? 'bg-panel-2 text-muted')}`}>
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d={t.icon} />
               </svg>
             </div>
-            <span className="text-xs font-bold">{t.title}</span>
+            <span className="text-xs leading-tight font-bold">{t.title}</span>
             {t.to === '/avis-spontanes' && toReview > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-black">{toReview}</span>
             )}
@@ -56,9 +56,6 @@ export default function Home({ toReview, followNews, alerts }: { toReview: numbe
             )}
             {t.to === '/alertes' && alerts > 0 && (
               <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{alerts > 99 ? '99+' : alerts}</span>
-            )}
-            {t.to === '/suivis' && followNews > 0 && (
-              <span className="absolute top-1.5 right-1.5 rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">{followNews > 99 ? '99+' : followNews}</span>
             )}
           </Link>
         ))}

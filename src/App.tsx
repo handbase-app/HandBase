@@ -345,7 +345,7 @@ export default function App() {
           </Routes>
         ) : (
         <Routes>
-          <Route path="/" element={<Home toReview={toReview} followNews={followNews} alerts={alerts} />} />
+          <Route path="/" element={<Home toReview={toReview} alerts={alerts} />} />
           {/* Aperçu de l'espace joueur (?joueur=<id>) : administrateurs, mode essai. */}
           <Route path="/moi" element={<Me />} />
           <Route path="/suivis" element={<Follows />} />
