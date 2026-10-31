@@ -155,7 +155,7 @@ export type Detected =
 
 const FILL = String.raw`(?:(?:alors|bon|ok|euh|stp|s'il te plait|s'il vous plait|peux tu|tu peux|pourrais tu|est ce que tu peux|je veux que tu|j'aimerais que tu|merci de)\s+)*`
 const ME = String.raw`(?:(?:moi|nous)\s+)?`
-const CREATE_V = String.raw`(?:cree|creer|creez|fais|faire|faites|fait|genere|generer|constitue|constituer|forme|former|prepare|preparer|monte|monter)`
+const CREATE_V = String.raw`(?:cree|creer|creez|crees|creeras|creera|creerez|fais|faire|faites|fait|feras|genere|generer|constitue|constituer|forme|former|prepare|preparer|monte|monter)`
 const ADD_V = String.raw`(?:ajoute|ajouter|ajoutez|rajoute|rajouter|mets|mettre|mettez|met|place|placer|inscris|inscrire)`
 const FIND_V = String.raw`(?:trouve|trouver|cherche|chercher|prends|prendre|selectionne|selectionner|recupere|recuperer|montre|affiche|donne|liste|isole|filtre|sors)`
 const GROUP_N = String.raw`(?:groupe|selection|collectif|equipe)`
@@ -168,13 +168,15 @@ const INTO = String.raw`(?:aux|au|a l'|a la|dans le|dans la|dans l'|dans|a|sur)`
 
 const RE = (src: string) => new RegExp(src, 'd')
 const CREATE_RE = RE(String.raw`^${FILL}${CREATE_V}\s+${ME}(?:un |une |le |la )?(?:nouveau |nouvelle )?${GROUP_N}${NAMED}\s+${WITH}\s+(.+)$`)
+// « … et crée-moi un groupe avec », « … et tu me crées un groupe tournoi IP », « …. Et tu me créeras un groupe préparation
+// aux Interpoles » : le nom dit après « groupe » (sans « appelé ») est le nom proposé (groupe 3).
 const FIND_CREATE_RE = RE(
-  String.raw`^${FILL}${FIND_V}\s+${ME}(.+?)(?:\s+et|\s+puis|,)\s+(?:${CREATE_V}|${ADD_V})\s+(?:(?:moi|nous|les|en|leur)\s+)*(?:(?:un|une|le|la|dans un|dans une|en)\s+)?(?:nouveau |nouvelle )?${GROUP_N}${NAMED}(?:\s+(?:avec|avec eux|avec elles|avec ca|avec ces joueurs|avec ces joueuses|de ces joueurs|de ces joueuses))?$`,
+  String.raw`^${FILL}${FIND_V}\s+${ME}(.+?)[.,;]?(?:\s+et|\s+puis|,)\s+(?:tu\s+)?(?:(?:me|nous)\s+|m'\s*)?(?:${CREATE_V}|${ADD_V})\s+(?:(?:moi|nous|les|en|leur)\s+)*(?:(?:un|une|le|la|dans un|dans une|en)\s+)?(?:nouveau |nouvelle )?${GROUP_N}(?:${NAMED}|[\s.,:;]+(?!(?:avec|de ces|pour eux|pour elles)\b)(.+?))?(?:\s+(?:avec|avec eux|avec elles|avec ca|avec ces joueurs|avec ces joueuses|de ces joueurs|de ces joueuses))?$`,
 )
 const FIND_ADD_RE = RE(String.raw`^${FILL}${FIND_V}\s+${ME}(.+?)(?:\s+et|\s+puis|,)\s+${ADD_V}\s+(?:(?:moi|nous|les|leur|en)\s+)*${INTO}\s*${INTO_TARGET}$`)
 const ADD_RE = RE(String.raw`^${FILL}${ADD_V}\s+${ME}(.+?)\s+${INTO}\s*${INTO_TARGET}$`)
 const OPEN_RE = RE(
-  String.raw`^${FILL}(?:(?:montre|affiche|donne|liste|ouvre|trouve|cherche|sors|isole|filtre|je veux|j'aimerais|il me faut)\s+${ME})?(?:moi\s+)?(?:la liste (?:des |de |d')|tous |toutes |uniquement |seulement )?(?:les |des |mes )?(.+?)\s+(?:dans|de|du|des|a|au|pendant|lors de|lors du|sur|parmi)\s+(?:l'|le |la |les |ce |cet |cette )?${INTO_TARGET}$`,
+  String.raw`^${FILL}(?:(?:montre|montrer|affiche|afficher|donne|donner|liste|lister|ouvre|ouvrir|trouve|trouver|cherche|chercher|recherche|rechercher|recherchez|sors|isole|isoler|filtre|filtrer|filtrez|selectionne|selectionner|je veux|j'aimerais|il me faut)\s+${ME})?(?:moi\s+)?(?:la liste (?:des |de |d')|tous |toutes |uniquement |seulement )?(?:les |des |mes )?(.+?)\s+(?:dans|de|du|des|a|au|pendant|lors de|lors du|sur|parmi)\s+(?:l'|le |la |les |ce |cet |cette )?${INTO_TARGET}$`,
 )
 const CREATOR_RE = RE(
   String.raw`^${FILL}(?:(?:montre|affiche|donne|liste|trouve|cherche)\s+${ME})?(?:moi\s+)?(?:tous |toutes )?(?:les |des )?(groupes?|evenements?|tournois?|stages?|matchs?|observations?)\s+(?:(?:que|qu')\s*(.+?)\s+(?:a|ont)\s+(?:crees?|creees?|cree|faits?|faites?|montes?|montees?|organises?|organisees?)|(?:crees?|creees?|faits?|faites?|montes?|montees?|organises?|organisees?)\s+par\s+(.+))$`,
@@ -272,8 +274,9 @@ export function detectAction(phrase: string, page?: string): Detected | null {
     if (rest) return plan({ action: 'creer_groupe', name: piece(text, m, 1), playersPhrase: rest })
   }
   if ((m = FIND_CREATE_RE.exec(n))) {
-    const rest = piece(text, m, 1)
-    if (rest) return plan({ action: 'creer_groupe', name: piece(text, m, 2), playersPhrase: rest })
+    const rest = piece(text, m, 1)?.replace(/[\s.,;:]+$/, '')
+    const name = (piece(text, m, 2) ?? piece(text, m, 3))?.replace(/[\s.,;:]+$/, '')
+    if (rest) return plan({ action: 'creer_groupe', ...(name ? { name } : {}), playersPhrase: rest })
   }
   if ((m = FIND_ADD_RE.exec(n))) {
     const rest = piece(text, m, 1)

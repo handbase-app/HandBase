@@ -61,7 +61,7 @@ import type { SavedQuestion } from '../recipe'
 import { sendQuestionRequest, useDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
 import { logQuestion } from '../questionLog'
-import { correctQuestionPhrase, rescueInterpretation } from '../questionRescue'
+import { correctQuestionPhrase, noRequest, rescueInterpretation } from '../questionRescue'
 import { AnswerFeedback } from './AnswerFeedback'
 import type { RecipeStatus } from '../questionLogCore'
 import { cleanSqlSpec, type SqlSpec } from '../sqlGuard'
@@ -450,7 +450,8 @@ export function usePlayersQuery(
     const nothing = action === 'ajouter' && !remove.length && answersNothing(it.recipe, it.unsupported) && sameQuery(merged, p.before)
     const status: RecipeStatus = nothing ? 'pas_comprise' : notes.length || unsupported.length ? 'partielle' : 'complete'
     const missing = [...unsupported, ...notes]
-    if (status !== 'complete' && sqlReady && full.source) {
+    // Phrase sans aucune demande (bruit du micro : « Parce qu'on peut le faire. ») : pas de mode avancé automatique.
+    if (status !== 'complete' && sqlReady && full.source && !(nothing && noRequest(p.phrase))) {
       void (async () => {
         const spec = await adv.ask(p.phrase, 'auto', { recipe: status, missing })
         const logId = adv.lastLogId()

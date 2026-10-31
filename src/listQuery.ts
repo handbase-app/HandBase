@@ -214,7 +214,8 @@ export function textMatch(hay: string, q: string): boolean {
   const words = foldText(q).split(/\s+/).filter(Boolean)
   if (!words.length) return true
   const h = foldText(hay)
-  return words.every((w) => h.includes(w))
+  // « stages » trouve aussi « Stage … » (pluriel dit, singulier dans le nom).
+  return words.every((w) => h.includes(w) || (w.length > 3 && /[sx]$/.test(w) && h.includes(w.slice(0, -1))))
 }
 
 /** Éléments qui passent tous les filtres, sauf `except` (nombres des menus) ; la recherche locale comprise sauf except 'q'. */

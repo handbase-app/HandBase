@@ -504,6 +504,9 @@ const SORT_WORDS: Record<string, SortBy> = {
   compte: 'count', nombre: 'count', effectif: 'count', effectifs: 'count', count: 'count', 'nombre de joueurs': 'count', joueurs: 'count', nb: 'count',
 }
 
+/** Tri vide de sens rendu par le modèle (« tri : tri », « aucun », « défaut ») : pas de tri, sans « pas pris en compte ». */
+const NO_SORT = /^(?:tri|trier|aucun|aucune|sans|non|none|null|defaut|par defaut|pas de tri|normal)$/
+
 /**
  * Relit la recette rendue par le modèle (`raw` : l'objet « recette », `nonGere` : ce qu'il n'a pas su traduire).
  * Tout champ inconnu, toute valeur hors bornes ou introuvable est écarté et signalé ; le reste devient une Recipe.
@@ -558,18 +561,27 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   if (positions.length) r.pop.positions = positions
   // Lieux : départements puis régions (une région qui ne contient aucun des départements dits est écartée).
   const depts: string[] = []
+  const misfiled: unknown[] = []
   if (present(p.pays) && !asList(p.pays).every(isWholeCountry)) skip(`pays ${quote(p.pays)}`, 'seulement la France')
   for (const v of [...asList(p.departements), ...asList(p.departement)]) {
     if (isWholeCountry(v)) continue
     const m = matchDept(v, ctx)
     if ('found' in m) {
       if (!depts.includes(m.found.code)) depts.push(m.found.code)
-    } else skip(`département ${quote(v)}`, 'ambiguous' in m ? `plusieurs possibles : ${m.ambiguous.slice(0, 3).map((d) => d.name).join(', ')}` : 'introuvable')
+    } else if ('none' in m && 'found' in matchRegion(v, ctx)) misfiled.push(v)
+    else skip(`département ${quote(v)}`, 'ambiguous' in m ? `plusieurs possibles : ${m.ambiguous.slice(0, 3).map((d) => d.name).join(', ')}` : 'introuvable')
+  }
+  // Un département rendu comme région (« région Alpes-Maritimes ») : le département ; l'inverse aussi (journal).
+  for (const v of [...asList(p.regions), ...asList(p.region)]) {
+    if (isWholeCountry(v) || !('none' in matchRegion(v, ctx))) continue
+    const m = matchDept(v, ctx)
+    if ('found' in m && !depts.includes(m.found.code)) depts.push(m.found.code)
   }
   const regions: string[] = []
-  for (const v of [...asList(p.regions), ...asList(p.region)]) {
+  for (const v of [...asList(p.regions), ...asList(p.region), ...misfiled]) {
     if (isWholeCountry(v)) continue
     const m = matchRegion(v, ctx)
+    if ('none' in m && 'found' in matchDept(v, ctx)) continue
     if ('found' in m) {
       if (depts.length && ctx.regionOfDept && !depts.some((d) => ctx.regionOfDept!(d) === m.found.id)) skip(`région ${quote(m.found.name)}`, 'ne contient pas le département choisi')
       else if (!regions.includes(m.found.id)) regions.push(m.found.id)
@@ -782,7 +794,7 @@ export function interpretRecipe(raw: unknown, nonGere: unknown, ctx: QuestionCon
   }
   // Tri inconnu : pas de tri par défaut à la place (jamais une liste triée par nom qui n'a rien à voir) ; dit à l'écran.
   let sortUnknown = false
-  if (present(s.tri)) {
+  if (present(s.tri) && !NO_SORT.test(normalize(asText(s.tri)))) {
     const by = SORT_WORDS[normalize(asText(s.tri))]
     if (by) r.out.sort = { by, dir: by === 'name' ? 'asc' : 'desc' }
     else {
