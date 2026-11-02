@@ -955,7 +955,9 @@ export function EventDetail() {
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-lg font-extrabold">{ev.name}</h1>
             <div className="flex shrink-0 items-center gap-1">
+              {/* Essai (02/11) : sur téléphone, le menu s'ouvre accroché au ⋮ plutôt qu'en feuille du bas. */}
               <HeaderMenu
+                anchored
                 title={ev.name}
                 subtitle={[typeLabel(ev.type), fmtDate(ev.date), ev.place].filter(Boolean).join(' · ')}
                 items={afterListActions([

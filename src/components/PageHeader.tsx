@@ -11,7 +11,20 @@ import { ItemMenu, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
  */
 
 /** Actions de la page : un menu « ⋮ » au bout de l'en-tête (feuille du bas sur téléphone, petite fenêtre sur ordinateur). */
-export function HeaderMenu({ title, subtitle, items, label = 'Plus d’actions' }: { title: ReactNode; subtitle?: ReactNode; items: (MenuItem | false | undefined | null)[]; label?: string }) {
+export function HeaderMenu({
+  title,
+  subtitle,
+  items,
+  label = 'Plus d’actions',
+  anchored = false,
+}: {
+  title: ReactNode
+  subtitle?: ReactNode
+  items: (MenuItem | false | undefined | null)[]
+  label?: string
+  /** Essai : petite fenêtre accrochée au ⋮ sur téléphone aussi (ItemMenu `anchored`). */
+  anchored?: boolean
+}) {
   const menu = useRowMenu()
   const list = items.filter((x): x is MenuItem => !!x)
   if (!list.length) return null
@@ -20,7 +33,7 @@ export function HeaderMenu({ title, subtitle, items, label = 'Plus d’actions' 
   return (
     <>
       <MenuButton onOpen={menu.open} open={!!menu.anchor} label={label} className="-mr-2" />
-      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={ordered} onClose={menu.close} />}
+      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={ordered} onClose={menu.close} anchored={anchored} />}
     </>
   )
 }

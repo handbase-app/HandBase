@@ -178,15 +178,47 @@ export const isPhone = () => {
 // Les événements du menu (rendu dans le document, hors de la ligne) ne remontent pas jusqu'aux gestionnaires de la liste.
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
+/** Marges sûres de l'écran (encoche, barre du bas), lues une fois par un élément de mesure. */
+function safeInsets() {
+  const el = document.createElement('div')
+  el.style.cssText = 'position:fixed;visibility:hidden;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0'
+  document.body.appendChild(el)
+  const cs = getComputedStyle(el)
+  const r = { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 }
+  el.remove()
+  return r
+}
+
 /**
  * Le menu : en-tête (nom de l'élément, précision), puis les actions. `pop` : petite fenêtre accrochée au bouton même sur
  * téléphone (pas de feuille du bas), avec des lignes à la taille du doigt — menu du profil (src/components/ProfileMenu.tsx).
+ * `anchored` (essai, ⋮ du titre d'un événement) : sur téléphone aussi, fenêtre accrochée au bouton, sans en-tête ni « Fermer »,
+ * bord droit sur le bouton, dessous s'il y a la place, sinon dessus ; hauteur limitée à la place, défilement dedans.
+ * Ordinateur inchangé.
  */
-export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false }: { anchor: MenuAnchor; title: ReactNode; subtitle?: ReactNode; items: MenuItem[]; onClose: () => void; pop?: boolean }) {
+export function ItemMenu({
+  anchor,
+  title,
+  subtitle,
+  items,
+  onClose,
+  pop = false,
+  anchored = false,
+}: {
+  anchor: MenuAnchor
+  title: ReactNode
+  subtitle?: ReactNode
+  items: MenuItem[]
+  onClose: () => void
+  pop?: boolean
+  anchored?: boolean
+}) {
   const [phone] = useState(isPhone)
-  const sheet = phone && !pop
+  const sheet = phone && !pop && !anchored
+  // Fenêtre accrochée sur téléphone, sans en-tête (essai).
+  const bare = phone && anchored
   const box = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight?: number } | null>(null)
   const openedAt = useRef(0)
   const close = useRef(onClose)
   useEffect(() => {
@@ -196,6 +228,38 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false 
   // Popover : dans l'écran, sous le point d'ouverture, ou au-dessus faute de place.
   useLayoutEffect(() => {
     if (sheet || !box.current) return
+    if (bare) {
+      const place = () => {
+        const el = box.current
+        if (!el) return
+        // offsetWidth : sans l'échelle de l'animation d'ouverture.
+        const w = el.offsetWidth
+        // Hauteur entière du contenu (même déjà limitée) ; clavier ouvert : la partie visible de l'écran.
+        const h = el.scrollHeight + 2
+        const vv = window.visualViewport
+        const vw = window.innerWidth
+        const vh = vv ? vv.height + vv.offsetTop : window.innerHeight
+        const safe = safeInsets()
+        const minTop = 8 + safe.top
+        const maxBottom = vh - 8 - safe.bottom
+        const left = Math.max(8, Math.min(anchor.x - w, vw - w - 8))
+        const below = maxBottom - (anchor.y + 4)
+        const above = (anchor.top ?? anchor.y) - 4 - minTop
+        if (h <= below || below >= above) setPos({ left, top: anchor.y + 4, maxHeight: Math.min(h, below) })
+        else {
+          const mh = Math.min(h, above)
+          setPos({ left, top: (anchor.top ?? anchor.y) - 4 - mh, maxHeight: mh })
+        }
+      }
+      place()
+      const vv = window.visualViewport
+      window.addEventListener('resize', place)
+      vv?.addEventListener('resize', place)
+      return () => {
+        window.removeEventListener('resize', place)
+        vv?.removeEventListener('resize', place)
+      }
+    }
     const { width: w, height: h } = box.current.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
@@ -205,7 +269,7 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false 
     if (top + h > vh - 8) top = (anchor.top ?? anchor.y) - h - 4
     top = Math.max(8, Math.min(top, vh - h - 8))
     setPos({ left, top })
-  }, [sheet, anchor])
+  }, [sheet, bare, anchor])
 
   // Focus sur la première action ; rendu à l'élément d'avant en fermant ; Échap ferme même si le focus est sorti.
   useEffect(() => {
@@ -259,25 +323,29 @@ export function ItemMenu({ anchor, title, subtitle, items, onClose, pop = false 
       onContextMenu={(e) => (e.preventDefault(), stop(e))}
     >
       {/* Fond assombri et flouté, comme toutes les fenêtres et bulles (scrim, src/index.css). */}
-      <div className={`absolute inset-0 ${sheet ? 'scrim' : 'scrim-light'}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
+      <div className={`absolute inset-0 ${sheet ? 'scrim' : 'scrim-light'} ${bare ? 'touch-none' : ''}`} onClick={outside} onContextMenu={() => onClose()} aria-hidden />
       <div
         ref={box}
         role="menu"
         aria-orientation="vertical"
         aria-label={typeof title === 'string' ? title : undefined}
         onKeyDown={keys}
-        style={sheet ? undefined : { left: pos?.left ?? -9999, top: pos?.top ?? 0 }}
+        style={sheet ? undefined : { left: pos?.left ?? -9999, top: pos?.top ?? 0, maxHeight: pos?.maxHeight }}
         className={
           sheet
             ? 'absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col overflow-y-auto overscroll-contain rounded-t-win border-t border-line bg-panel pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-2xl'
-            : 'ask-pop fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel py-1 shadow-2xl'
+            : bare
+              ? 'ask-pop fixed flex w-[min(280px,calc(100vw-32px))] flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel shadow-2xl'
+              : 'ask-pop fixed flex max-h-[min(80dvh,32rem)] w-64 flex-col overflow-y-auto overscroll-contain rounded-win border border-line bg-panel py-1 shadow-2xl'
         }
       >
         {sheet && <div className="mx-auto mt-2 mb-1 h-1 w-10 shrink-0 rounded-full bg-line" aria-hidden />}
-        <div role="presentation" className={`flex flex-col border-b border-line ${sheet ? 'px-4 pt-1 pb-2.5' : 'px-3 pt-1.5 pb-2'}`}>
-          <span className={`truncate font-extrabold ${sheet ? 'text-sm' : 'text-[13px]'}`}>{title}</span>
-          {subtitle && <span className="truncate text-[11px] text-muted">{subtitle}</span>}
-        </div>
+        {!bare && (
+          <div role="presentation" className={`flex flex-col border-b border-line ${sheet ? 'px-4 pt-1 pb-2.5' : 'px-3 pt-1.5 pb-2'}`}>
+            <span className={`truncate font-extrabold ${sheet ? 'text-sm' : 'text-[13px]'}`}>{title}</span>
+            {subtitle && <span className="truncate text-[11px] text-muted">{subtitle}</span>}
+          </div>
+        )}
         <div role="presentation" className="flex flex-col py-1">
           {items.map((it, k) => (
             <button
