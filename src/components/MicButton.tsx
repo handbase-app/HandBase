@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type TextareaHTMLAttributes } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import { Icon } from './ui'
-import { useDictation, sendDictation } from '../dictation/useDictation'
+import { sendDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_SECONDS, pickMimeType } from '../dictation/transcribe'
-import { insertDictation } from '../dictation/insert'
 import { useWait, WaitLine } from './Attente'
 
 /*
@@ -269,63 +268,3 @@ function SendingLine({ cancel }: { cancel: () => void }) {
   return <WaitLine wait={wait} label="J’écris ce que vous avez dit…" onCancel={cancel} />
 }
 
-type AreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & {
-  value: string
-  onChange: (value: string) => void
-}
-
-/**
- * Champ de commentaire avec dictée vocale : un <textarea> ordinaire quand la dictée n'est pas disponible
- * (autre rôle, appareil sans micro, serveur sans la fonction, réglage désactivé, mode local) ; sinon le micro à droite.
- */
-export function DictationTextarea({ value, onChange, maxLength, className = '', ...rest }: AreaProps) {
-  const { ready } = useDictation()
-  const area = useRef<HTMLTextAreaElement>(null)
-  const sel = useRef<{ start: number; end: number } | null>(null)
-  const caret = useRef<number | null>(null)
-  const [dictated, setDictated] = useState<string | null>(null)
-  const latest = useRef({ value, onChange })
-  useEffect(() => {
-    latest.current = { value, onChange }
-  })
-  const mic = useMicRecorder((text) => {
-    const r = insertDictation(latest.current.value, text, sel.current, maxLength)
-    if (r.value === latest.current.value) return
-    caret.current = sel.current ? r.caret : null
-    sel.current = null
-    setDictated(r.value)
-    latest.current.onChange(r.value)
-  })
-  // Curseur remis après le texte dicté (seulement si le champ avait le curseur : pas de clavier qui surgit sinon).
-  useEffect(() => {
-    const el = area.current
-    if (caret.current == null || !el) return
-    const c = caret.current
-    caret.current = null
-    if (document.activeElement === el) el.setSelectionRange(c, c)
-  })
-  const field = <textarea ref={area} className={className} value={value} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} {...rest} />
-  if (!ready) return field
-  const { onPointerDown, ...others } = mic.buttonProps
-  const withSel = {
-    ...mic,
-    buttonProps: {
-      ...others,
-      onPointerDown: (e: PointerEvent<HTMLButtonElement>) => {
-        // Position du curseur notée avant la dictée, si le champ l'avait ; sinon le texte va à la fin.
-        const el = area.current
-        if (mic.phase === 'idle') sel.current = el && document.activeElement === el ? { start: el.selectionStart, end: el.selectionEnd } : null
-        onPointerDown(e)
-      },
-    },
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 [&>textarea]:w-full">{field}</div>
-        <MicButton mic={withSel} />
-      </div>
-      <MicStatus mic={mic} dictated={dictated !== null && dictated === value} />
-    </div>
-  )
-}

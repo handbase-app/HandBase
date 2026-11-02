@@ -526,7 +526,7 @@ function DictationSetting() {
   const search = !!access?.filtres
   if (!available) return null
   return (
-    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : micro à côté des commentaires${search ? ' et des recherches (joueurs, bilan…)' : ''}` : 'Désactivée sur cet appareil'}>
+    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : avis vocal${search ? ', recherches (joueurs, bilan…)' : ''}` : 'Désactivée sur cet appareil'}>
       <section className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -546,8 +546,7 @@ function DictationSetting() {
           gratuite), évitez de dicter des noms.
         </p>
         <p className="text-[11px] text-muted">
-          Touchez le micro pour commencer et pour finir (ou maintenez-le pendant que vous parlez), 1 minute au plus. Le texte s'ajoute au
-          commentaire : relisez-le avant d'enregistrer.
+          Touchez le micro pour commencer et pour finir (ou maintenez-le pendant que vous parlez), 1 minute au plus.
           {access?.restantMois != null && ` Restant : ${access.restantMois} dictées ce mois-ci, ${access.restantJour ?? '?'} aujourd'hui pour vous.`}
         </p>
         {search && (
@@ -570,9 +569,9 @@ function DictationSetting() {
         )}
         {access?.avis && (
           <p className="text-[11px] text-muted">
-            Avis vocal : sur l’écran de notation, touchez « ✨ Avis vocal » et parlez librement du joueur. Les notes proposées sont
-            mises en évidence avec le passage dicté : touchez-les pour les accepter, choisissez-en une autre ou écartez-les ; les
-            commentaires proposés s’ajoutent d’un toucher. Rien n’est enregistré avant « Enregistrer », l’avis reste le vôtre. Seuls
+            Avis vocal : sur l’écran de notation, touchez le micro à droite de « Enregistrer » et parlez librement du joueur. Une
+            fenêtre propose les notes (« déduit » : tirée de votre description d’ensemble), un portrait en une phrase et les
+            commentaires : cochez, changez une note si besoin, puis « Accepter ». Rien n’est enregistré avant « Enregistrer », l’avis reste le vôtre. Seuls
             le texte dicté, la liste des critères et vos expressions (« Mes expressions ») sont envoyés ; deux dictées comptées par avis.
           </p>
         )}

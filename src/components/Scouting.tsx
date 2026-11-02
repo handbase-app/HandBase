@@ -35,7 +35,6 @@ import { addToGroup } from './Groups'
 import { inform } from './Confirm'
 import { getMe, GroupMark, Icon, SEG_BOX, segItem } from './ui'
 import { FormActions, FormWindow } from './FormWindow'
-import { DictationTextarea } from './MicButton'
 import { accord, pluralG, w, type Gender } from '../gender'
 import { pickOrigin } from '../rewatchCore'
 import { useRewatchOrigin } from '../rewatchPlace'
@@ -353,7 +352,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
           </div>
           <label className="flex flex-col gap-1">
             <span className="label">Commentaire (facultatif)</span>
-            <DictationTextarea className="field min-h-16 text-xs" maxLength={500} placeholder="Ex. à voir sur un match entier, en défense…" value={text} onChange={setNote} />
+            <textarea className="field min-h-16 text-xs" maxLength={500} placeholder="Ex. à voir sur un match entier, en défense…" value={text} onChange={(e) => setNote(e.target.value)} />
           </label>
           {!pickedEvents.length && !pickedGroups.length && !newGroup.trim() && (
             <p className="text-[11px] text-muted">Rien de coché : {gw.il} va dans la liste « À revoir » générale.</p>
