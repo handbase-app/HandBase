@@ -128,7 +128,7 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
   const all = usePlayersByName()
   const players = useMemo(() => (all ? basePlayers(all) : undefined), [all])
   // Qui : la barre de la liste Joueurs, état à part (« autour »).
-  const q = usePlayersQuery(players, { scope: 'autour', count: true })
+  const q = usePlayersQuery(players, { scope: 'autour', count: true, display: false })
   const cats = sportContent(useSportConfig().sport).youthCategories
   const [prefs, setPrefs] = usePrefs()
   const mine = useMyPlaces()

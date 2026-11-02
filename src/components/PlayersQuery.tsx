@@ -191,8 +191,9 @@ export type OwnFilters = { panel: ReactNode; chips: { key: string; label: string
  * `hosted` : barre posée sur un autre écran (le bilan), voir HostedBar.
  */
 /**
- * `display` : la liste règle ses pictogrammes dans la fenêtre « Filtres » sur téléphone (section « Affichage »,
- * src/components/PictoDisplay.tsx ; PlayerList `pictosInFilters`).
+ * `display` : section « Affichage » (pictogrammes au bout des lignes, src/components/PictoDisplay.tsx) dans la fenêtre
+ * « Filtres » : dans TOUTES les listes de joueurs (Joueurs, événement, groupe, À revoir, ajout de joueurs, bilan ; 02/11) ;
+ * `display: false` pour une barre dont la liste n'est pas faite de lignes de joueurs (Autour de moi : des rencontres).
  * `count` : le nombre de joueurs de la liste filtrée collé devant « Filtres », dans la barre (« 7 sur 40 001 · Filtres ▾ »).
  * Actions de la page (« ⋯ ») : BarActions (src/components/PageHeader.tsx) autour de `ui`, posées à droite de la pilule.
  */
@@ -1010,7 +1011,7 @@ export function usePlayersQuery(
       {own?.panel}
       {panel}
       {/* Téléphone : ce qu'on voit au bout des lignes (pictogrammes), à part des filtres. */}
-      {opts.display && pictosInFilters && <PictoDisplaySection />}
+      {opts.display !== false && pictosInFilters && <PictoDisplaySection />}
       {privacy}
     </FilterWindow>
   )
