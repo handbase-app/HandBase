@@ -202,6 +202,67 @@ export function periodRange(k: PeriodKey, now: Date): { from: Date; to: Date } {
   return { from: new Date(y, m, d), to: new Date(y, m, d + (k === '7j' ? 7 : 30)) }
 }
 
+/**
+ * Dates choisies (« Dates… ») : un jour (from = to) ou du … au …, jours locaux AAAA-MM-JJ, fin comprise. Le serveur rend
+ * au plus 62 jours d'un coup (supabase/056) : une période plus longue est coupée à MAX_SPAN_DAYS.
+ */
+export interface DateSpan {
+  from: string
+  to: string
+}
+export const MAX_SPAN_DAYS = 62
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+/** Jour local d'une date (AAAA-MM-JJ). */
+export const dayOf = (d: Date) => d.toLocaleDateString('sv')
+const dateOf = (day: string) => new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)))
+const addDays = (day: string, n: number) => {
+  const d = dateOf(day)
+  return dayOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n))
+}
+const validDay = (v: unknown): v is string => typeof v === 'string' && DAY_RE.test(v) && dayOf(dateOf(v)) === v
+
+/**
+ * Dates remises en ordre : début et fin inversés → échangés ; plus de MAX_SPAN_DAYS jours → fin ramenée (`cut` : vrai).
+ * undefined si une date manque ou n'existe pas.
+ */
+export function cleanSpan(from: unknown, to: unknown): (DateSpan & { cut: boolean }) | undefined {
+  if (!validDay(from)) return undefined
+  let a = from
+  let b = validDay(to) ? to : from
+  if (b < a) [a, b] = [b, a]
+  const last = addDays(a, MAX_SPAN_DAYS - 1)
+  return b > last ? { from: a, to: last, cut: true } : { from: a, to: b, cut: false }
+}
+
+/** Bornes de dates choisies, en heure locale : du début 0 h au lendemain de la fin 0 h. */
+export const spanRange = (s: DateSpan) => ({ from: dateOf(s.from), to: dateOf(addDays(s.to, 1)) })
+
+/** « Sam. 14/11 » (un jour) ; « Du 19/12 au 03/01 » ; l'année seulement si elle n'est pas celle de `now`. */
+export function spanLabel(s: DateSpan, now: Date): string {
+  const fmt = (day: string) => {
+    const [y, m, d] = day.split('-')
+    return `${d}/${m}${Number(y) !== now.getFullYear() ? `/${y.slice(2)}` : ''}`
+  }
+  if (s.from === s.to) {
+    const wd = dateOf(s.from).toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')
+    return `${wd[0].toUpperCase()}${wd.slice(1)}. ${fmt(s.from)}`
+  }
+  return `Du ${fmt(s.from)} au ${fmt(s.to)}`
+}
+
+/** Raccourcis de « Dates… » : le week-end d'après celui de « Ce week-end », et celui encore une semaine plus tard. */
+export function quickSpans(now: Date): { label: string; span: DateSpan }[] {
+  const sat = dayOf(periodRange('weekend', now).from)
+  const we = (n: number) => ({ from: addDays(sat, 7 * n), to: addDays(sat, 7 * n + 1) })
+  return [
+    { label: 'Week-end prochain', span: we(1) },
+    { label: 'Week-end dans 15 jours', span: we(2) },
+  ]
+}
+
+/** Période de la recherche : les dates choisies (« Dates… ») ou un des raccourcis. */
+export const aroundRange = (p: AroundPrefs, now: Date) => (p.period === 'dates' && p.dates ? spanRange(p.dates) : periodRange(p.period === 'dates' ? 'weekend' : p.period, now))
+
 /** Jour local (AAAA-MM-JJ) d'un horodatage ISO. */
 export const localDay = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString('sv')
 
@@ -544,22 +605,30 @@ export interface Place {
 export interface AroundPrefs {
   place?: Place
   km: Radius
-  period: PeriodKey
+  /** « dates » : celles de `dates` (« Dates… »). */
+  period: PeriodKey | 'dates'
+  dates?: DateSpan
 }
 export const DEFAULT_PREFS: AroundPrefs = { km: 25, period: 'weekend' }
 
-/** Choix relus (stockage de l'appareil) : seulement ce qui est bien formé ; le reste par défaut. */
-export function parsePrefs(raw: unknown): AroundPrefs {
+/**
+ * Choix relus (stockage de l'appareil) : seulement ce qui est bien formé ; le reste par défaut. Dates choisies déjà
+ * passées (fin avant `today`) : retour à « Ce week-end ».
+ */
+export function parsePrefs(raw: unknown, today: string = dayOf(new Date())): AroundPrefs {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const km = (RADII as readonly number[]).includes(o.km as number) ? (o.km as Radius) : DEFAULT_PREFS.km
-  const period = typeof o.period === 'string' && PERIOD_SET.has(o.period) ? (o.period as PeriodKey) : DEFAULT_PREFS.period
+  const d = o.dates && typeof o.dates === 'object' ? (o.dates as Record<string, unknown>) : null
+  const span = o.period === 'dates' && d ? cleanSpan(d.from, d.to) : undefined
+  const dates = span && span.to >= today ? { from: span.from, to: span.to } : undefined
+  const period = dates ? 'dates' : typeof o.period === 'string' && PERIOD_SET.has(o.period) ? (o.period as PeriodKey) : DEFAULT_PREFS.period
   const p = o.place && typeof o.place === 'object' ? (o.place as Record<string, unknown>) : null
   const kind = p && ['city', 'club', 'dept', 'pos'].includes(p.kind as string) ? (p.kind as PlaceKind) : undefined
   const lat = num(p?.lat)
   const lng = num(p?.lng)
   const label = str(p?.label, 80)
   const place = kind && label && lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { kind, label, lat, lng } : undefined
-  return { km, period, ...(place ? { place } : {}) }
+  return { km, period, ...(dates ? { dates } : {}), ...(place ? { place } : {}) }
 }
 
 // ---------- Demande au serveur ----------

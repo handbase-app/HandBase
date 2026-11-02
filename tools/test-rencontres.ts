@@ -24,8 +24,12 @@ import {
   itineraryUrl,
   matchPlayers,
   namesLine,
+  aroundRange,
+  cleanSpan,
   parsePrefs,
   periodRange,
+  quickSpans,
+  spanLabel,
   playerCategory,
   requestKey,
   safeUrl,
@@ -345,6 +349,36 @@ const players: P[] = [
   const d83 = deptCenter(units, '83', deptOf)!
   near(d83.lat, (43.1 + 43.14 + 43.4) / 3, 1e-9)
   assert.equal(deptCenter(units, '06', deptOf), undefined)
+}
+
+// ---------- Dates choisies (« Dates… ») ----------
+{
+  const at = (y: number, m: number, d: number, h = 0) => new Date(y, m - 1, d, h)
+  const show = (r: { from: Date; to: Date }) => [r.from, r.to].map((x) => `${x.toLocaleDateString('sv')} ${String(x.getHours()).padStart(2, '0')}h`)
+  // Un jour : de ce jour 0 h au lendemain 0 h ; du … au … : fin comprise.
+  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-14' } }, at(2026, 11, 2))), ['2026-11-14 00h', '2026-11-15 00h'])
+  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates', dates: { from: '2026-12-19', to: '2027-01-03' } }, at(2026, 11, 2))), ['2026-12-19 00h', '2027-01-04 00h'])
+  // « dates » sans dates : ce week-end.
+  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates' }, at(2026, 11, 2, 9))), ['2026-11-07 00h', '2026-11-09 00h'])
+  // Remise en ordre : inversées → échangées ; plus de 62 jours → coupé ; date impossible → rien.
+  assert.deepEqual(cleanSpan('2026-11-20', '2026-11-14'), { from: '2026-11-14', to: '2026-11-20', cut: false })
+  assert.deepEqual(cleanSpan('2026-11-01', '2027-03-01'), { from: '2026-11-01', to: '2027-01-01', cut: true })
+  assert.deepEqual(cleanSpan('2026-11-14', undefined), { from: '2026-11-14', to: '2026-11-14', cut: false })
+  assert.equal(cleanSpan('2026-02-30', '2026-03-02'), undefined)
+  assert.equal(cleanSpan('14/11/2026', '2026-11-20'), undefined)
+  // Libellés de la pastille (année seulement si ce n'est pas celle d'aujourd'hui).
+  assert.equal(spanLabel({ from: '2026-11-14', to: '2026-11-14' }, at(2026, 11, 2)), 'Sam. 14/11')
+  assert.equal(spanLabel({ from: '2026-12-19', to: '2027-01-03' }, at(2026, 11, 2)), 'Du 19/12 au 03/01/27')
+  // Raccourcis : le lundi 2/11, « Ce week-end » = 7-8/11 ; week-end prochain = 14-15/11 ; dans 15 jours = 21-22/11.
+  assert.deepEqual(quickSpans(at(2026, 11, 2)).map((q) => [q.label, q.span.from, q.span.to]), [
+    ['Week-end prochain', '2026-11-14', '2026-11-15'],
+    ['Week-end dans 15 jours', '2026-11-21', '2026-11-22'],
+  ])
+  // Gardées sur l'appareil : relues si elles ne sont pas passées ; passées → « Ce week-end ».
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } })
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-16'), { km: 25, period: 'weekend' })
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: 'x' } }, '2026-11-02'), { km: 25, period: 'weekend' })
+  assert.deepEqual(parsePrefs({ km: 25, period: '7j', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, period: '7j' })
 }
 
 // ---------- Choix gardés, demande ----------
