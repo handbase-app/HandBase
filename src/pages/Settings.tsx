@@ -597,6 +597,8 @@ function ApparenceFold() {
     <Fold id="apparence" icon="palette" title="Apparence" summary={appearanceSummary()}>
       <AppearanceSettings />
       <BackArrowToggle />
+      {/* Pictogrammes et « Sous le nom » des lignes : réglés depuis les listes (src/affichage.ts), gardés sur le compte. */}
+      <p className="text-[11px] text-muted">Affichage des listes : dans « Filtres » de n’importe quelle liste de joueurs.</p>
     </Fold>
   )
 }

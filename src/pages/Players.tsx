@@ -246,7 +246,7 @@ const Row = memo(function Row({ p, height, v, selected, tabQuery }: { p: Player;
       linkProps={{ 'data-player': true, 'data-md': p.id, 'aria-current': selected || undefined }}
       deletable
       badges={p.review !== 'validated' && <ReviewBadge e={p} kind="players" />}
-      // Année · trimestre · club · taille (l'âge en plus sur une ligne large) ; poids et latéralité restent sur la fiche.
+      // Sous le nom : ce que chacun choisit (« Affichage », src/sousNom.ts) ; l'âge en plus sur une ligne large s'il n'est pas choisi.
       age={age(p.birthDate)}
       height={height !== undefined ? fmtValue(undefined, height) : undefined}
       lines={v && <span className="truncate text-[10px] font-bold text-accent">{v}</span>}

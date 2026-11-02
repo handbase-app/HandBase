@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useHref, useNavigate } from 'react-router-dom'
 import { db, poleStatus, poleSummary, type Evaluation, type Player, type PlayerGroup, type Rewatch, type Seen } from '../db'
 import { regionLabel } from '../lists'
@@ -7,22 +7,19 @@ import { withPoleMembers } from '../poleMembers'
 import {
   buildFacts,
   ficheOnTab,
-  DEFAULT_PICTOS,
-  isDefaultPictos,
   NO_FACTS,
-  parsePictos,
   PICTO_KINDS,
   PICTO_LABELS,
-  PICTOS_KEY,
   pictoLines,
   recentSince,
-  serializePictos,
   togglePicto,
   type NameFit,
   type PictoFacts,
   type PictoKind,
 } from '../pictos'
 import { currentUserId, isParticipant } from '../roles'
+import { setPictos, usePictos, useSousNom } from '../affichage'
+import { latestSubMeasures, SOUS_NOM_MEASURES, type SousNomKind, type SousNomMeasure } from '../sousNom'
 import { scoutId, sightingNames, sightings, type Sighting } from '../scouting'
 import { PLAYER_TABS, playerTabParam } from '../tabQuery'
 import { accord, w } from '../gender'
@@ -41,46 +38,10 @@ import { SelectionBar, SelectionHeader, SelectionProvider, useListSelection, typ
  * Un seul réglage pour toutes les listes, changé depuis n'importe laquelle et appliqué partout en direct.
  */
 
-// ---------- Réglage (appareil) ----------
+// ---------- Réglage ----------
 
-function read(): PictoKind[] {
-  try {
-    return parsePictos(localStorage.getItem(PICTOS_KEY))
-  } catch {
-    return [...DEFAULT_PICTOS]
-  }
-}
-let current: PictoKind[] = read()
-const subs = new Set<() => void>()
-const emit = () => subs.forEach((f) => f())
-
-export function setPictos(on: PictoKind[]) {
-  current = on
-  try {
-    if (isDefaultPictos(on)) localStorage.removeItem(PICTOS_KEY)
-    else localStorage.setItem(PICTOS_KEY, serializePictos(on))
-  } catch {
-    /* stockage indisponible : le choix vaut jusqu'à la fermeture */
-  }
-  emit()
-}
-
-function subscribe(f: () => void) {
-  subs.add(f)
-  // Autre onglet : même réglage.
-  const onStorage = (e: StorageEvent) => {
-    if (e.key !== PICTOS_KEY && e.key !== null) return
-    current = read()
-    emit()
-  }
-  if (subs.size === 1) window.addEventListener('storage', onStorage)
-  return () => {
-    subs.delete(f)
-    if (!subs.size) window.removeEventListener('storage', onStorage)
-  }
-}
-
-export const usePictos = () => useSyncExternalStore(subscribe, () => current)
+// Appareil et compte : src/affichage.ts (un seul réglage, avec « Sous le nom »).
+export { setPictos, usePictos }
 
 // ---------- Barre « Afficher » ----------
 
@@ -184,7 +145,7 @@ export function PictoBar({ className = '', label, lead, pictos = true }: { class
             aria-pressed={pressed}
             aria-label={PICTO_LABELS[k]}
             title={`${PICTO_LABELS[k]} : ${pressed ? 'affiché — toucher pour masquer' : 'masqué — toucher pour afficher'}`}
-            onClick={() => setPictos(togglePicto(on, k))}
+            onClick={() => setPictos((cur) => togglePicto(cur, k))}
             className={`flex h-8 w-8 items-center justify-center rounded-full border transition max-[420px]:h-7 max-[420px]:w-7 @max-[30rem]/plb:h-7 @max-[30rem]/plb:w-7 ${
               pressed ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
             }`}
@@ -279,6 +240,9 @@ interface PictoData {
   facts: Map<string, PictoFacts>
   sight: Map<string, Sighting[]>
   rewatch: Map<string, Rewatch[]>
+  /** « Sous le nom » (src/sousNom.ts) : choix, et dernières mesures choisies (taille, poids, envergure) des joueurs affichés. */
+  sousNom: readonly SousNomKind[]
+  measures: Map<string, Partial<Record<SousNomMeasure, number | string>>>
 }
 const PictoCtx = createContext<PictoData | null>(null)
 
@@ -325,6 +289,37 @@ function usePictoData(ids: readonly string[], on: readonly PictoKind[]): Pick<Pi
   )
   return data ?? EMPTY
 }
+
+/**
+ * Dernières mesures montrées sous le nom (taille, poids, envergure, celles qui sont choisies), lues en lot pour les joueurs
+ * affichés : par l'index [joueur + critère] sur une liste courte, par critère au-delà (puis filtrées).
+ */
+function useSubMeasures(ids: readonly string[], on: readonly SousNomKind[]) {
+  const key = ids.join(',')
+  const crits = SOUS_NOM_MEASURES.filter((k) => on.includes(k))
+  const want = crits.join(',')
+  const data = useLiveQuery(
+    async () => {
+      if (!crits.length || !ids.length) return NO_MEASURES
+      const big = ids.length * crits.length > ANY_OF_MAX
+      const rows = big
+        ? await db.measurements.where('criterionId').anyOf(crits).toArray()
+        : await db.measurements.where('[playerId+criterionId]').anyOf(ids.flatMap((id) => crits.map((c) => [id, c]))).toArray()
+      const set = big ? new Set(ids) : null
+      return latestSubMeasures(set ? rows.filter((m) => set.has(m.playerId)) : rows)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, want],
+  )
+  return data ?? NO_MEASURES
+}
+const NO_MEASURES = new Map<string, Partial<Record<SousNomMeasure, number | string>>>()
+
+/** Ligne secondaire hors d'une PlayerList (ancienne liste) : le réglage seul, sans mesures lues. */
+export function useSubContext(): Pick<PictoData, 'measures' | 'today'> | null {
+  return useContext(PictoCtx)
+}
+
 const EMPTY = { facts: new Map<string, PictoFacts>(), sight: new Map<string, Sighting[]>(), rewatch: new Map<string, Rewatch[]>() }
 
 /**
@@ -369,12 +364,14 @@ export function PlayerList({
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
   const sel = useListSelection(all, ids, select)
   const data = usePictoData(ids, on)
+  const sousNom = useSousNom()
+  const measures = useSubMeasures(ids, sousNom)
   // Un lien de react-router par pictogramme coûte cher sur une longue liste : simples <a>, navigation commune.
   const navigate = useNavigate()
   const base = useHref('/').replace(/\/$/, '')
   const value = useMemo(
-    () => ({ on, ...data, href: (to: string) => base + to, go: (to: string, state?: unknown) => navigate(to, { state }), today: new Date().toLocaleDateString('sv') }),
-    [on, data, base, navigate],
+    () => ({ on, ...data, sousNom, measures, href: (to: string) => base + to, go: (to: string, state?: unknown) => navigate(to, { state }), today: new Date().toLocaleDateString('sv') }),
+    [on, data, sousNom, measures, base, navigate],
   )
   const ref = useRef<HTMLDivElement>(null)
   const measure = useRef(() => {})

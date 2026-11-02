@@ -5,9 +5,12 @@ import { courtTag } from '../courtSpots'
 import { hueBg, hueText, positionHue } from '../positionColors'
 import { MENU_ROW, MenuButton, useRowMenu } from './ItemMenu'
 import { PlayerMenu, type MenuExtra } from './PlayerMenu'
-import { RowPictos } from './Pictos'
+import { RowPictos, useSubContext } from './Pictos'
 import { RowCheck, useRowCheckId, useRowSelection } from './Selection'
-import { birthQuarter, photoSrc, quarterTitle } from './ui'
+import { birthQuarter, photoSrc } from './ui'
+import { useSousNom } from '../affichage'
+import { sousNomPieces } from '../sousNom'
+import { sportContent } from '../sportContent'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -20,9 +23,10 @@ import { birthQuarter, photoSrc, quarterTitle } from './ui'
  * - ligne 1 : NOM Prénom en gras, puis « ● DC » (étiquette du terrain, src/courtSpots.ts, dans la couleur du poste),
  *   les postes secondaires en gris (« +ARG »), « Pôle » en menthe pour un joueur au Pôle Espoirs, puis les pastilles
  *   propres à la liste ; le nom n'est jamais coupé avant les pastilles si on peut l'éviter (elles passent à la ligne) ;
- * - ligne 2 (grise, une ligne, coupée au bout) : (ce que la liste ajoute devant : numéro, équipe ·) année · trimestre
- *   (Q1…Q4) · club · taille connue · (ce que la liste ajoute derrière) ; l'âge, quand la liste le donne, seulement si la
- *   ligne est assez large (ordinateur). Poids et latéralité restent sur la fiche ;
+ * - ligne 2 (grise, une ligne, coupée au bout) : (ce que la liste ajoute devant : numéro, équipe ·) ce que chacun choisit
+ *   dans « Filtres » → « Affichage » → « Sous le nom » (par défaut année · trimestre (Q1…Q4) · club · taille connue ;
+ *   aussi âge, département, poids, latéralité, catégorie, envergure ; src/sousNom.ts) · (ce que la liste ajoute derrière) ;
+ *   l'âge non choisi, quand la liste le donne (Joueurs), seulement si la ligne est assez large (ordinateur) ;
  * - lignes en plus de la liste (vu par, avis, à revoir, « ajouté par »…) : dessous, même style gris ;
  * - pictogrammes sur la ligne du nom (components/Pictos.tsx : ceux choisis dans « Filtres » → « Affichage », un seul
  *   réglage pour toutes les listes), puis « ⋮ » (petit, discret) ; la ligne secondaire prend toute la largeur dessous. Si
@@ -126,28 +130,38 @@ export function PlayerNameLine({
 }
 
 /**
- * Ligne secondaire par défaut : (pre ·) année (· âge, ligne large) · trimestre · club · taille (· post). Chaque morceau
- * porte son « · » : l'âge masqué n'en laisse pas de trop.
+ * Ligne secondaire par défaut : (pre ·) ce qui est choisi dans « Affichage » → « Sous le nom » (src/sousNom.ts : par défaut
+ * année · trimestre · club · taille ; ordre fixe ; inconnu pour ce joueur : sauté) (· post). Club et trimestre : jamais si
+ * la liste les retire. Âge non choisi mais donné par la liste (Joueurs) : seulement sur une ligne large, comme avant.
+ * Mesures (taille, poids, envergure) : lues en lot par la PlayerList (src/components/Pictos.tsx) ; `height` de la liste
+ * (déjà en mémoire) passe devant. Chaque morceau porte son « · » : l'âge masqué n'en laisse pas de trop.
  */
 function SubLine({ p, pre, post, age, quarter, club, height }: { p: Player; pre?: SubBit[]; post?: SubBit[]; age?: number | null; quarter: boolean; club: boolean; height?: string }) {
-  const q = quarter ? birthQuarter(p.birthDate) : null
+  const on = useSousNom()
+  const ctx = useSubContext()
+  const m = ctx?.measures.get(p.id)
+  const pieces = sousNomPieces(p, on, {
+    today: ctx?.today ?? new Date().toLocaleDateString('sv'),
+    cats: sportContent().youthCategories,
+    measures: height ? { ...m, taille: height } : m,
+    club,
+    quarter,
+    wideAge: age != null,
+  })
   const parts: ReactNode[] = []
   const add = (node: ReactNode, key: string) => parts.push(<span key={key}>{parts.length ? ' · ' : ''}{node}</span>)
   pre?.forEach((b, i) => b && add(b, `pre${i}`))
-  const year = p.birthDate?.slice(0, 4)
-  if (year) add(year, 'y')
-  if (age != null && age >= 0) {
-    // Âge : seulement quand la ligne est large (ordinateur) ; sur téléphone, année et trimestre suffisent.
-    parts.push(
-      <span key="age" className="hidden @md/prow:inline">
-        {parts.length ? ' · ' : ''}
-        {age} ans
-      </span>,
-    )
+  for (const x of pieces) {
+    if (x.wide)
+      // Âge non choisi (liste Joueurs) : seulement quand la ligne est large (ordinateur).
+      parts.push(
+        <span key={x.key} className="hidden @md/prow:inline">
+          {parts.length ? ' · ' : ''}
+          {x.text}
+        </span>,
+      )
+    else add(x.title ? <span title={x.title}>{x.text}</span> : x.text, x.key)
   }
-  if (q) add(<span title={quarterTitle(q)}>Q{q}</span>, 'q')
-  if (club && p.club) add(p.club, 'c')
-  if (height) add(`${height} cm`, 'h')
   post?.forEach((b, i) => b && add(b, `post${i}`))
   return <>{parts}</>
 }
@@ -170,7 +184,7 @@ type RowProps = {
   badges?: ReactNode
   /** Trimestre de naissance sur la ligne secondaire (par défaut). */
   quarter?: boolean
-  /** Ligne secondaire entièrement donnée par la liste ('' : aucune) ; par défaut année · trimestre · club · taille. */
+  /** Ligne secondaire entièrement donnée par la liste ('' : aucune) ; par défaut ce qui est choisi « Sous le nom ». */
   sub?: ReactNode
   /** Ligne secondaire par défaut : morceaux ajoutés devant l'année (numéro, équipe…). */
   pre?: SubBit[]
@@ -178,9 +192,9 @@ type RowProps = {
   post?: SubBit[]
   /** Club sur la ligne secondaire (par défaut) ; faux dans la liste d'un club. */
   club?: boolean
-  /** Âge (liste Joueurs) : sur la ligne secondaire, seulement si elle est assez large (ordinateur). */
+  /** Âge (liste Joueurs) : sur la ligne secondaire même s'il n'est pas choisi, seulement si elle est assez large (ordinateur). */
   age?: number | null
-  /** Taille connue (en cm, déjà mise en forme) : au bout de la ligne secondaire. */
+  /** Taille connue (en cm, déjà mise en forme), déjà en mémoire dans la liste : à la place de celle lue en lot. */
   height?: string
   /** Lignes en plus sous la ligne secondaire (dans le lien). */
   lines?: ReactNode

@@ -3,6 +3,7 @@ import { supabase } from './sync'
 import { sportProfile } from './sportConfig'
 import { GROUP_VIS } from './staffLabels'
 import { clearSpy, spyTarget } from './spy'
+import { applyAccountAffichage, forgetAccountAffichage } from './affichage'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -114,14 +115,28 @@ export async function refreshRole() {
   const uid = s.session?.user.id ?? null
   if (!uid) return
   if (uid !== userId) set('observateur', uid) // autre compte : on repart du rôle minimal
-  const { data, error } = await supabase.from('hb_profiles').select('role, departments, player_id').eq('user_id', uid).maybeSingle()
-  // player_id : colonne de 051 ; avant ce script, la requête échoue (colonne inconnue) : on relit sans elle.
-  const row = error && /player_id/.test(error.message) ? (await supabase.from('hb_profiles').select('role, departments').eq('user_id', uid).maybeSingle()).data : error ? null : data
-  if (row?.role) set(row.role as Role, uid, (row.departments as string[] | null) ?? [], ((row as { player_id?: string | null }).player_id as string | null) ?? null)
+  // player_id : colonne de 051 ; affichage (pictogrammes et « Sous le nom » des listes, src/affichage.ts) : colonne de 063.
+  // Avant ces scripts, la requête échoue (colonne inconnue) : on relit sans la colonne en cause.
+  let cols = ['role', 'departments', 'player_id', 'affichage']
+  let row: Record<string, unknown> | null = null
+  for (;;) {
+    const { data, error } = await supabase.from('hb_profiles').select(cols.join(', ')).eq('user_id', uid).maybeSingle()
+    const missing = error ? cols.find((c) => c !== 'role' && c !== 'departments' && error.message.includes(c)) : undefined
+    if (missing) {
+      cols = cols.filter((c) => c !== missing)
+      continue
+    }
+    row = error ? null : (data as Record<string, unknown> | null)
+    break
+  }
+  if (!row?.role) return
+  set(row.role as Role, uid, (row.departments as string[] | null) ?? [], (row.player_id as string | null | undefined) ?? null)
+  applyAccountAffichage(uid, row.affichage, cols.includes('affichage'))
 }
 
 export function clearRole() {
   clearSpy()
+  forgetAccountAffichage()
   set('observateur', null)
 }
 

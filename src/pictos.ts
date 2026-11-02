@@ -3,7 +3,7 @@ import type { Evaluation, Measurement, PlayerGroup, Video } from './db'
 /*
  * Pictogrammes au bout des lignes de joueurs (barre « Afficher » au-dessus de chaque liste, src/components/Pictos.tsx),
  * comme les « Restriction Toggles » de Blender : chacun s'affiche ou se masque sur toutes les lignes. Un seul réglage
- * pour toutes les listes, gardé sur l'appareil (localStorage « handbase.pictos »). Partie pure : testée par
+ * pour toutes les listes, gardé sur l'appareil (localStorage « handbase.pictos ») et sur le compte (src/affichage.ts). Partie pure : testée par
  * tools/test-pictos.ts. Uniquement des marques positives ou neutres (gris = non, couleur = oui).
  */
 
