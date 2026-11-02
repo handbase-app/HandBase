@@ -1,7 +1,7 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
 import { Empty, Icon, QuarterBadge, Segmented } from '../components/ui'
@@ -20,7 +20,7 @@ import { usePerimeter, useSportHas, useUnits } from '../installation'
 import { DEFAULT_TERRITORY_FILTER, inMyTerritories, organizerLabel, seenThroughMyPlayers, type TerritoryFilter, type TerritoryPlayer } from '../eventOrganizer'
 import { arrowNav, department, useSessionState } from '../components/PlayerFilter'
 import { useEventsQuery, type EventStats } from '../components/EventsQuery'
-import { usePlayersQuery, type OwnFilters } from '../components/PlayersQuery'
+import { RosterQueryBar, usePlayersQuery, type OwnFilters } from '../components/PlayersQuery'
 import { usePlayersByName } from '../playersCache'
 import { AvisCard, DIVERGENCE, EventAvis } from '../components/Opinions'
 import { stampOf, StampWindow } from '../components/ActivityLog'
@@ -31,7 +31,6 @@ import { filterRoster, isMine, ROSTER_GROUPS, rosterPositions, rosterSections, s
 import { RosterSectionList } from '../components/PositionRoster'
 import { ChoicePills, FilterField, pillClass } from '../components/FilterWindow'
 import { courtTag } from '../courtSpots'
-import { EMPTY_QUERY } from '../playerQuery'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { BarActions, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { PlayerMarksCard, ProposalBar, ProposedBadge } from '../components/PlayerProposed'
@@ -722,7 +721,7 @@ export function EventDetail() {
   const coverOk = (p: Player) =>
     cover === 'pasvus' ? !isSeen(p) : cover === 'vus' ? isSeen(p) : cover === 'notes' ? notedSet.has(p.id) : cover === 'arevoir' ? rewatchFrom.has(p.id) : true
   const askIds = askFilter ? new Set(askFilter.ids) : null
-  // Avant la barre « Demander » (ses filtres : EventRosterBar, au rendu de la liste).
+  // Avant la barre « Demander » (ses filtres : RosterQueryBar, au rendu de la liste).
   const listed = shownRoster.filter((p) => coverOk(p) && (!askIds || askIds.has(p.id)))
   // Tournoi réparti : équipes, mes équipes et leur progression.
   const tTeams = tournamentTeams(ev)
@@ -1194,7 +1193,7 @@ export function EventDetail() {
                 {canAdd && addButton('btn-soft')}
               </>
             ) : (
-              <EventRosterBar eventId={ev.id} players={roster} own={ownFilters}>
+              <RosterQueryBar scope={`evenement.${ev.id}`} players={roster} own={ownFilters}>
                 {(inBar) => {
                 const displayed = inBar ? listed.filter((p) => inBar.has(p.id)) : listed
                 const sections = sectionsFor(displayed)
@@ -1320,7 +1319,7 @@ export function EventDetail() {
               </>
                 )
                 }}
-              </EventRosterBar>
+              </RosterQueryBar>
             )}
           </div>
           {avisPlayer && (
@@ -1346,28 +1345,6 @@ export function EventDetail() {
       <CompareBar pick={pick} players={players} eventId={ev.id} />
     </div>
     </PlayerMenuScope.Provider>
-  )
-}
-
-/**
- * Barre « Demander » de la liste d'un événement (31/10) : la même que la liste Joueurs (src/components/PlayersQuery.tsx :
- * un nom, une phrase, « Filtres » dedans, pastilles dessous), sur les joueurs de l'événement seulement, avec son état de
- * session à lui. Filtres de la page (`own` : où j'en suis, postes) en tête de la fenêtre. `children(inBar)` : la liste ;
- * `inBar` : joueurs retenus par la barre (null tant qu'elle se prépare : tous).
- */
-function EventRosterBar({ eventId, players, own, children }: { eventId: string; players: Player[]; own: OwnFilters; children: (inBar: Set<string> | null) => ReactNode }) {
-  // Mêmes fiches qu'au rendu d'avant : même tableau, l'index de la barre n'est pas refait.
-  const [kept, setKept] = useState(players)
-  const stable = kept.length === players.length && players.every((p, i) => p === kept[i]) ? kept : players
-  if (stable !== kept) setKept(stable)
-  const q = usePlayersQuery(stable, { scope: `evenement.${eventId}`, initial: EMPTY_QUERY, own })
-  const inBar = useMemo(() => (q.loading ? null : new Set(q.filtered.map((p) => p.id))), [q.loading, q.filtered])
-  return (
-    <>
-      <StickyQuery>{q.ui}</StickyQuery>
-      <div className="flex flex-col gap-2 empty:hidden">{q.top}</div>
-      {children(inBar)}
-    </>
   )
 }
 

@@ -13,7 +13,7 @@ export * from './positionOrder'
  * Ordre de la liste des joueurs d'un événement : toujours regroupée par poste (ordre du terrain), et par nom dans
  * chaque poste (31/10 : plus de choix du tri sur la page de l'événement).
  * Même rangement pour la page d'un groupe de joueurs et sa colonne de contexte (clé `groupe.<id>`, groupRosterKey), qui
- * garde l'ordre choisi sur l'appareil (useRosterSort, alphabétique par défaut).
+ * garde l'ordre choisi sur l'appareil (useRosterSort, alphabétique par défaut ; « Ranger la liste » de sa fenêtre « Filtres »).
  * Événement réparti en équipes : d'abord par équipe (voir RosterGroup plus bas).
  * La notation (flèches, glisser, « joueur suivant à noter ») suit le même ordre que la page de l'événement.
  */

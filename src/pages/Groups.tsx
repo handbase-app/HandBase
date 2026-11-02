@@ -11,7 +11,7 @@ import { FoldSection } from '../components/FoldSection'
 import { foldKey, startsOpen } from '../fold'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
-import { alive, db, GROUP_SCOPES, newId, remove, save, saveMany, type GroupScope, type Player, type PlayerGroup } from '../db'
+import { alive, db, GROUP_SCOPES, newId, remove, save, saveMany, type GroupScope, type Player, type PlayerGroup, type Position } from '../db'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
@@ -34,13 +34,16 @@ import { PlayerMenuScope, type MenuExtra } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import type { Role } from '../roles'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
-import { groupRosterKey, positionRosterView, useRosterFilter, useRosterSort } from '../rosterOrder'
+import { groupRosterKey, positionRosterView, rosterSections, ROSTER_SORTS, useRosterFilter, useRosterSort } from '../rosterOrder'
 import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
-import { RosterControls, RosterSectionList, rosterBarLead } from '../components/PositionRoster'
+import { RosterSectionList } from '../components/PositionRoster'
+import { RosterQueryBar, type OwnFilters } from '../components/PlayersQuery'
+import { ChoicePills, FilterField, pillClass } from '../components/FilterWindow'
+import { courtTag } from '../courtSpots'
 import { teamFollowed } from '../follows'
 import { PanelClose, selectedCls, usePanel, useSelected } from '../components/MasterDetail'
 import { MQ, useMedia } from '../layout'
-import { CompareBar, CompareToggle, PickBox, useComparePick } from '../components/ComparePick'
+import { CompareBar, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
 import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
@@ -954,8 +957,9 @@ function PlayerGroupDetail() {
   const allGroups = useAllGroups(role).on
   // « À revoir » qui visent ce groupe (supabase/041) : trace sur la ligne du joueur, « Revu » à la main.
   const rewatch = useGroupRewatch(id)
-  // Liste rangée comme celle d'un événement : par poste ; dans chaque poste, l'ordre choisi (gardé sur l'appareil pour
-  // ce groupe, repris par la colonne de gauche de la fiche) ; pastille d'un poste pour n'afficher que lui (session).
+  // Liste rangée comme celle d'un événement : par poste, par nom dans chaque poste ; autre ordre possible (« Ranger la
+  // liste » de la fenêtre « Filtres », gardé sur l'appareil pour ce groupe, repris par la colonne de gauche de la fiche) ;
+  // un poste pour n'afficher que lui (« Postes » de la fenêtre, session).
   const [sort, setSort] = useRosterSort(id ? groupRosterKey(id) : undefined)
   const { pos: posFilter, setPos: setPosFilter } = useRosterFilter(id ? groupRosterKey(id) : undefined)
   const data = useLiveQuery(async () => {
@@ -1003,8 +1007,9 @@ function PlayerGroupDetail() {
   const stamp = stampOf(g)
   const view = positionRosterView(players, sort, posFilter)
   const askIds = askFilter ? new Set(askFilter.ids) : null
-  const sections = askIds ? view.sections.map((sec) => ({ ...sec, players: sec.players.filter((p) => askIds.has(p.id)) })).filter((sec) => sec.players.length) : view.sections
-  const nAsk = askIds ? sections.reduce((n, sec) => n + sec.players.length, 0) : 0
+  // Avant la barre « Demander » (ses filtres : RosterQueryBar, au rendu de la liste).
+  const listed = askIds ? view.shown.filter((p) => askIds.has(p.id)) : view.shown
+  const withHeadings = view.roster.some((p) => p.position)
   // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte ; pôle : sexe de l'unité), sinon déduit de ses joueurs.
   const gg = setGender(ref?.sex ?? g.sex, players)
   const gw = w(gg)
@@ -1020,6 +1025,67 @@ function PlayerGroupDetail() {
     if (st.status === 'nouveau') return `${seasonStatusLabel(st, p.sex)} · entrée le ${fmtDay(x?.from)}${prog ? ` · ${prog}` : ''}`
     return prog || (x?.from ? `depuis le ${fmtDay(x.from)}` : null)
   }
+
+  // Actions de la liste, en tête du ⋮ du titre (02/11, comme l'événement) : mêmes droits qu'avant.
+  const canAdd = pole ? leads : manage || contribute
+  const canRemove = !pole && players.some((p) => can.removeFromGroup(role, g, p.id))
+  const listActions = ([
+    canAdd && { label: `Ajouter des ${gw.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${gw.un} par ${gw.un}`, onSelect: () => setAdding(true) },
+    players.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
+    canRemove && !pick.on && !removing && { label: `Retirer des ${gw.joueurs}`, icon: 'close', onSelect: () => setRemoving(true) },
+  ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
+  // Un trait entre ces actions et celles du groupe (Dupliquer, Modifier…).
+  const afterListActions = (items: (MenuItem | false | undefined | null | '')[]) => {
+    const rest = items.filter((x): x is MenuItem => !!x)
+    if (listActions.length && rest[0]) rest[0] = { ...rest[0], separated: true }
+    return [...listActions, ...rest]
+  }
+  // « À revoir » encore ouverts qui visent ce groupe (ligne de chiffres sous la barre).
+  const nRewatch = players.filter((p) => (rewatch.by.get(p.id) ?? []).some((r) => !r.done)).length
+  const posLabel = view.positions.find((x) => x.id === posFilter)?.label
+  // Filtres de la page en tête de la fenêtre « Filtres » de la barre : postes (un seul à la fois, posé : une pastille),
+  // ordre dans chaque poste (« Ranger la liste », pas de pastille : c'est un rangement).
+  const ownFilters: OwnFilters = {
+    panel: (
+      <>
+        {view.positions.length > 1 && (
+          <ChoicePills<Position>
+            k="grp-pos"
+            label="Postes"
+            total={players.length}
+            value={posFilter ? [posFilter] : []}
+            options={view.positions.map((x) => ({ value: x.id, label: x.label, short: courtTag(x.id) }))}
+            counts={Object.fromEntries(view.positions.map((x) => [x.id, x.n]))}
+            onChange={(vs) => setPosFilter(vs.find((v) => v !== posFilter) ?? '')}
+          />
+        )}
+        {players.length > 1 && (
+          <FilterField label="Ranger la liste" k="grp-sort">
+            <div role="radiogroup" aria-label="Ranger la liste" className="flex flex-wrap items-center gap-1.5">
+              {withHeadings && <span className="text-[11px] text-muted">Par poste, puis</span>}
+              {ROSTER_SORTS.map(({ value: v, label }) => (
+                <button key={v} type="button" role="radio" aria-checked={sort === v} className={pillClass(sort === v)} onClick={() => setSort(v)}>
+                  {withHeadings ? label.toLowerCase() : `Par ${label.toLowerCase()}`}
+                </button>
+              ))}
+            </div>
+          </FilterField>
+        )}
+      </>
+    ),
+    chips: posFilter ? [{ key: 'grp-pos', label: posLabel ?? courtTag(posFilter), onRemove: () => setPosFilter('') }] : [],
+    onReset: () => setPosFilter(''),
+    // Dans la fenêtre : les joueurs que la page affichera (son poste et les filtres de la barre).
+    count: (f) => {
+      const ids = new Set(f.map((p) => p.id))
+      return listed.filter((p) => ids.has(p.id)).length
+    },
+  }
+  const addButton = (
+    <button className="btn-soft" onClick={() => setAdding(true)}>
+      + Ajouter des {gw.joueurs}
+    </button>
+  )
 
   if (adding)
     return (
@@ -1118,7 +1184,7 @@ function PlayerGroupDetail() {
                 <HeaderMenu
                   title={g.name}
                   subtitle={`${pluralG(players.length, gg)}${g.archived ? ' · archivé' : ''}`}
-                  items={[
+                  items={afterListActions([
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
                   // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
                   !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
@@ -1149,7 +1215,7 @@ function PlayerGroupDetail() {
                       if (await deleteGroup(g)) leave.exit()
                     },
                   },
-                  ]}
+                  ])}
                 />
               )}
             </div>
@@ -1189,91 +1255,106 @@ function PlayerGroupDetail() {
         </div>
       )}
 
-      {/* Une seule action en bouton : « + Ajouter des joueurs » (pastille teintée btn-soft, 31/10 : toute la largeur sur
-          téléphone). « Changement de saison », « Créer un événement », « Exporter » sont dans le ⋮ du titre (31/10). */}
-      {(pole ? leads : manage || contribute) && (
-        <button className="btn-soft" onClick={() => setAdding(true)}>
-          + Ajouter des {gw.joueurs}
-        </button>
-      )}
-      {contribute && <p className="-mt-2 text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
+      {/* « + Ajouter des joueurs », « Comparer », « Retirer des joueurs » : en tête du ⋮ du titre (02/11) ; groupe vide :
+          « + Ajouter des joueurs » reste aussi sous le message. */}
+      {contribute && <p className="text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 
-      <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
-        <span>
-          {pluralG(players.length, gg)}
-        </span>
-        {players.length > 1 && !removing && <CompareToggle pick={pick} className="ml-auto" />}
-        {!pick.on && !pole && players.some((p) => can.removeFromGroup(role, g, p.id)) && (
-          <button
-            className={`rounded-md border px-2 py-1 text-[11px] font-bold transition ${removing ? 'border-accent bg-accent text-white' : 'border-line text-muted hover:text-fg'}`}
-            onClick={() => setRemoving((r) => !r)}
-          >
-            {removing ? 'Terminé' : `Retirer des ${gw.joueurs}`}
-          </button>
-        )}
-      </div>
-      {!players.length && !hidden && <Empty>{gw.AucunJoueur} dans ce groupe.</Empty>}
       <HiddenPlayers count={hidden} />
-      {players.length > 1 && <RosterControls sort={sort} setSort={setSort} />}
-      {players.length > 0 && view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
-      {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
-      {askFilter && <AskFilterBanner kind="groupe" id={g.id} f={askFilter} shown={nAsk} />}
-      {/* Postes (filtre) dans la capsule des pictogrammes, collée en haut : à portée pendant le défilement. */}
-      <PlayerList
-        ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
-        barLead={players.length > 1 && rosterBarLead({ roster: view.roster, pos: posFilter, setPos: setPosFilter })}
-        context={{ groupId: g.id }}
-        select={!removing && !pick.on}
-      >
-      <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
-        <RosterSectionList
-          sections={sections}
-          row={(p, i) => (
-          // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;
-          // le retour revient ici, à la même position.
-          <PlayerRow
-            key={p.id}
-            p={p}
-            marked={pick.picked.includes(p.id)}
-            lead={
+      {players.length === 0 ? (
+        <>
+          {!hidden && <Empty>{gw.AucunJoueur} dans ce groupe.</Empty>}
+          {canAdd && addButton}
+        </>
+      ) : (
+        <RosterQueryBar scope={`groupe.${g.id}`} players={view.roster} own={ownFilters}>
+          {(inBar) => {
+            const displayed = inBar ? listed.filter((p) => inBar.has(p.id)) : listed
+            const sections = rosterSections(displayed, withHeadings)
+            return (
               <>
-                <PickBox pick={pick} p={p} />
-                <span className="w-6 shrink-0 text-center text-[11px] text-muted">{i + 1}</span>
+                {/* Une ligne de chiffres sous la barre (« 3 sur 12 joueurs » avec un filtre). */}
+                <p className="text-xs text-muted" data-testid="bilan-groupe">
+                  {displayed.length < players.length && (
+                    <>
+                      <b className="text-fg">{displayed.length}</b> sur{' '}
+                    </>
+                  )}
+                  <b className="text-fg">{players.length}</b> {players.length > 1 ? gw.joueurs : gw.joueur}
+                  {nRewatch > 0 && (
+                    <>
+                      {' '}
+                      · <b className="text-fg">{nRewatch}</b> à revoir
+                    </>
+                  )}
+                </p>
+                {/* Mode retrait ou comparaison (lancé depuis le ⋮) : de quoi en sortir, au-dessus de la liste. */}
+                {(removing || pick.on) && (
+                  <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 py-1 pr-1 pl-3 text-xs" data-testid="mode-liste">
+                    <b className="min-w-0 flex-1 leading-tight">{removing ? `Retirer des ${gw.joueurs}` : 'Comparer'}</b>
+                    <button className="btn-primary shrink-0 px-3 py-1 text-xs" onClick={() => (removing ? setRemoving(false) : pick.setOn(false))}>
+                      {removing ? 'Terminé' : 'Annuler'}
+                    </button>
+                  </div>
+                )}
+                {askFilter && <AskFilterBanner kind="groupe" id={g.id} f={askFilter} shown={displayed.length} />}
+                {view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
+                {view.shown.length > 0 && displayed.length === 0 && <Empty>{gw.AucunJoueur} pour ce filtre.</Empty>}
+                {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
+                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
+                  <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
+                    <RosterSectionList
+                      sections={sections}
+                      row={(p, i) => (
+                        // Toute la ligne (photo comprise) ouvre la fiche dans le groupe : ses joueurs autour (GroupPlayers.tsx) ;
+                        // le retour revient ici, à la même position.
+                        <PlayerRow
+                          key={p.id}
+                          p={p}
+                          marked={pick.picked.includes(p.id)}
+                          lead={
+                            <>
+                              <PickBox pick={pick} p={p} />
+                              <span className="w-6 shrink-0 text-center text-[11px] text-muted">{i + 1}</span>
+                            </>
+                          }
+                          link={{ to: fiche(p), state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
+                          linkProps={{ 'data-player': true }}
+                          lines={
+                            <>
+                              {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
+                              {pole && poleLine(p) && <span className="truncate text-[10px] text-muted">{poleLine(p)}</span>}
+                              <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} sex={p.sex} />
+                            </>
+                          }
+                          menuExtras={
+                            pole
+                              ? leads
+                                ? [poleMenuItem(p)]
+                                : undefined
+                              : can.removeFromGroup(role, g, p.id)
+                                ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
+                                : undefined
+                          }
+                          pictos={!removing}
+                          rewatch={<RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
+                          actions={
+                            removing &&
+                            can.removeFromGroup(role, g, p.id) && (
+                              <button className="flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
+                                ✕
+                              </button>
+                            )
+                          }
+                        />
+                      )}
+                    />
+                  </div>
+                </PlayerList>
               </>
-            }
-            link={{ to: fiche(p), state: { md: true }, onClick: () => rememberScroll(`groupe.${g.id}`) }}
-            linkProps={{ 'data-player': true }}
-            lines={
-              <>
-                {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
-                {pole && poleLine(p) && <span className="truncate text-[10px] text-muted">{poleLine(p)}</span>}
-                <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} sex={p.sex} />
-              </>
-            }
-            menuExtras={
-              pole
-                ? leads
-                  ? [poleMenuItem(p)]
-                  : undefined
-                : can.removeFromGroup(role, g, p.id)
-                  ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
-                  : undefined
-            }
-            pictos={!removing}
-            rewatch={<RewatchToggle playerId={p.id} groupId={g.id} rows={rewatch.by.get(p.id)} />}
-            actions={
-              removing &&
-              can.removeFromGroup(role, g, p.id) && (
-                <button className="flex h-8 w-8 shrink-0 items-center justify-center text-muted hover:text-red-400" title="Retirer du groupe" onClick={() => void removeFromGroup(g, [p.id])}>
-                  ✕
-                </button>
-              )
-            }
-          />
-          )}
-        />
-      </div>
-      </PlayerList>
+            )
+          }}
+        </RosterQueryBar>
+      )}
       <CompareBar pick={pick} players={players} />
       {exiting && ref && pm && (
         <ExitReasonDialog

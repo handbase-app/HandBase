@@ -87,6 +87,7 @@ import { appName } from '../appBrand'
 import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gender'
 import { listOrigin, type RewatchOrigin } from '../rewatchCore'
 import { RewatchOptions } from './RewatchFilter'
+import { StickyQuery } from './StickyQuery'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -1443,5 +1444,27 @@ function CalcView({ recipe, answer, model, loading, gender, onClose }: { recipe:
       )}
       {(answer.table?.length ?? 0) > rows.length && <span className="text-[10px] text-muted">Les 30 premières lignes.</span>}
     </div>
+  )
+}
+
+/**
+ * Barre « Demander » de la liste d'un événement ou d'un groupe (31/10, 02/11) : la même que la liste Joueurs (un nom, une
+ * phrase, « Filtres » dedans, pastilles dessous), sur les joueurs de la page seulement, avec son état de session à elle
+ * (`scope` : `evenement.<id>`, `groupe.<id>`). Filtres de la page (`own` : où j'en suis, postes…) en tête de la fenêtre.
+ * `children(inBar)` : la liste ; `inBar` : joueurs retenus par la barre (null tant qu'elle se prépare : tous).
+ */
+export function RosterQueryBar({ scope, players, own, children }: { scope: string; players: Player[]; own: OwnFilters; children: (inBar: Set<string> | null) => ReactNode }) {
+  // Mêmes fiches qu'au rendu d'avant : même tableau, l'index de la barre n'est pas refait.
+  const [kept, setKept] = useState(players)
+  const stable = kept.length === players.length && players.every((p, i) => p === kept[i]) ? kept : players
+  if (stable !== kept) setKept(stable)
+  const q = usePlayersQuery(stable, { scope, initial: EMPTY_QUERY, own })
+  const inBar = useMemo(() => (q.loading ? null : new Set(q.filtered.map((p) => p.id))), [q.loading, q.filtered])
+  return (
+    <>
+      <StickyQuery>{q.ui}</StickyQuery>
+      <div className="flex flex-col gap-2 empty:hidden">{q.top}</div>
+      {children(inBar)}
+    </>
   )
 }
