@@ -1,5 +1,5 @@
 import { useCallback, useId, useMemo, useState, type RefCallback } from 'react'
-import { layoutRadar, polar, styleOf, wrapLabel, type CategoryStyle, type RadarAxis } from '../radarZones'
+import { layoutRadar, polar, smoothPath, styleOf, wrapLabel, type CategoryStyle, type RadarAxis } from '../radarZones'
 import { useMedia } from '../layout'
 
 /*
@@ -271,20 +271,21 @@ function FullRadar({
     if (typeof v !== 'number') return null
     return polar(cx, cy, (R * Math.max(0, Math.min(max, v))) / max, angle)
   }
-  /** Chemin du tracé (coupé là où une valeur manque ; fermé s'il ne manque rien). */
+  /**
+   * Chemin du tracé, arrondi (Bézier « moyenne », src/radarZones.ts smoothPath) : fermé s'il ne manque rien, sinon un
+   * morceau par suite de valeurs connues (coupé là où une valeur manque). Les points restent sur les notes.
+   */
   const pathOf = (s: RadarSeries) => {
     const pts = layout.axes.map((a) => pt(s.values[index.get(a.id)!], a.angle))
-    if (pts.every(Boolean)) return 'M' + pts.map((p) => p!.join(',')).join('L') + 'Z'
-    let d = ''
-    let pen = false
+    if (pts.every(Boolean)) return smoothPath(pts as [number, number][], true)
+    const runs: [number, number][][] = []
+    let run: [number, number][] = []
     pts.forEach((p) => {
-      if (!p) pen = false
-      else {
-        d += (pen ? 'L' : 'M') + p.join(',')
-        pen = true
-      }
+      if (p) run.push(p as [number, number])
+      else if (run.length) runs.push(run), (run = [])
     })
-    return d
+    if (run.length) runs.push(run)
+    return runs.map((r) => smoothPath(r, false)).join('')
   }
 
   const sectors = layout.sectors

@@ -5,7 +5,7 @@
 //   npx jiti tools/test-radar-zones.ts
 import assert from 'node:assert/strict'
 import { categoryKey, categoryList, resolveCategory } from '../src/criteriaFormat'
-import { categoryKind, categoryStyles, defaultColor, defaultZone, largestGapMiddle, layoutRadar, NEUTRAL, wrapLabel, type RadarZone } from '../src/radarZones'
+import { categoryKind, categoryStyles, defaultColor, defaultZone, largestGapMiddle, layoutRadar, NEUTRAL, smoothPath, wrapLabel, type RadarZone } from '../src/radarZones'
 
 let n = 0
 const ok = (name: string, fn: () => void) => {
@@ -200,6 +200,22 @@ ok('liste des catégories (Réglages → Critères) : ordre d’affichage, sans 
   assert.equal(resolveCategory(' mental &   attitude', list), 'Mental & attitude')
   assert.equal(resolveCategory('  Motricité   fine ', list), 'Motricité fine')
   assert.equal(defaultZone(resolveCategory('Motricité fine', list)), 'bas')
+})
+
+ok('forme arrondie : passe par chaque point, fermée ou en morceaux, droite sous 3 points', () => {
+  const sq: [number, number][] = [[0, -10], [10, 0], [0, 10], [-10, 0]]
+  const d = smoothPath(sq, true)
+  assert.ok(d.startsWith('M0,-10C') && d.endsWith('Z'))
+  assert.equal((d.match(/C/g) ?? []).length, 4, 'une courbe par côté')
+  for (const p of sq) assert.ok(d.includes(` ${p[0]},${p[1]}`) || d.startsWith(`M${p[0]},${p[1]}`), `passe par ${p}`)
+  // Tension 0 : les points de contrôle sont sur les sommets (lignes droites).
+  assert.equal(smoothPath(sq, true, 0), 'M0,-10L10,0L0,10L-10,0Z')
+  // Morceau ouvert : pas de Z, n − 1 courbes.
+  const open = smoothPath(sq.slice(0, 3), false)
+  assert.ok(!open.endsWith('Z'))
+  assert.equal((open.match(/C/g) ?? []).length, 2)
+  assert.equal(smoothPath([[1, 2], [3, 4]], false), 'M1,2L3,4')
+  assert.equal(smoothPath([], true), '')
 })
 
 console.log(`\n${n} tests réussis`)

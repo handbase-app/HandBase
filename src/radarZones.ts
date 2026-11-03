@@ -260,3 +260,33 @@ export function wrapLabel(s: string, max: number): string[] {
   }
   return best.map((l) => (l.length > max ? l.slice(0, max - 1).trimEnd() + '…' : l))
 }
+
+// ---------- Forme arrondie ----------
+
+/** Tension de la courbe du radar (Bézier « moyenne », choix du 03/11) : 0 = lignes droites, 1 = forme très ronde. */
+export const RADAR_TENSION = 0.6
+
+const n1 = (x: number) => Math.round(x * 10) / 10
+
+/**
+ * Chemin SVG arrondi passant par chaque point (courbe de Catmull-Rom changée en Bézier cubiques) : fermé pour un
+ * contour complet, ouvert pour un morceau (les extrémités gardent leur tangente). Moins de 3 points : lignes droites.
+ */
+export function smoothPath(pts: readonly (readonly [number, number])[], closed: boolean, t = RADAR_TENSION): string {
+  const n = pts.length
+  if (!n) return ''
+  const xy = (p: readonly [number, number]) => `${n1(p[0])},${n1(p[1])}`
+  if (n < 3 || t <= 0) return 'M' + pts.map(xy).join('L') + (closed && n > 2 ? 'Z' : '')
+  const at = (i: number) => (closed ? pts[(i + n) % n] : pts[Math.max(0, Math.min(n - 1, i))])
+  let d = 'M' + xy(pts[0])
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const p0 = at(i - 1)
+    const p1 = at(i)
+    const p2 = at(i + 1)
+    const p3 = at(i + 2)
+    const c1: [number, number] = [p1[0] + ((p2[0] - p0[0]) * t) / 3, p1[1] + ((p2[1] - p0[1]) * t) / 3]
+    const c2: [number, number] = [p2[0] - ((p3[0] - p1[0]) * t) / 3, p2[1] - ((p3[1] - p1[1]) * t) / 3]
+    d += `C${xy(c1)} ${xy(c2)} ${xy(p2)}`
+  }
+  return d + (closed ? 'Z' : '')
+}
