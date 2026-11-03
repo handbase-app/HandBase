@@ -15,6 +15,7 @@ import {
   parseAmbigu,
   sensFromValue,
   type AvisRef,
+  type AvisResult,
   type AvisState,
 } from '../dictation/avis'
 import { loadExpressions, saveExpressions } from '../expressions'
@@ -99,15 +100,19 @@ export function AvisVocal({
       if (ctrl.signal.aborted || latest.current.playerId !== pid) return
       const result = interpretAvis(ans.raw, payload, text)
       const cur = latest.current.current
+      const pending = result.suggestions.filter((s) => cur.scores?.[s.criterionId] !== s.value).map((s) => s.criterionId)
       latest.current.setState({
         id: newId(),
         playerId: pid,
         transcript: text,
         result,
-        pending: result.suggestions.filter((s) => cur.scores?.[s.criterionId] !== s.value).map((s) => s.criterionId),
+        pending,
         strengths: !!result.pointsForts && mergeComment(cur.strengths, result.pointsForts) !== (cur.strengths ?? ''),
         improvements: !!result.axes && mergeComment(cur.improvements, result.axes) !== (cur.improvements ?? ''),
         portrait: !!result.portrait && result.portrait !== (cur.portrait ?? '').trim(),
+        // « J'hésite » et « Pas relié » comptent aussi : même si les notes et les commentaires sont déjà sur la fiche (même
+        // phrase redite), la fenêtre s'ouvre pour les trancher au lieu de dire « aucun critère reconnu ».
+        doubts: remarksToSettle(result, Object.values(payload.refs), pending).length,
       })
     } catch (e) {
       if (!(e instanceof DictationError && e.code === 'annule')) setError(e instanceof DictationError ? e.message : ERROR_TEXT.mistral_erreur)
@@ -169,7 +174,7 @@ export function AvisVocal({
     const k = m.id ?? m.transcript
     if (opened.current === k) return
     opened.current = k
-    setOpen(m.pending.length > 0 || m.strengths || m.improvements || !!m.portrait)
+    setOpen(m.pending.length > 0 || m.strengths || m.improvements || !!m.portrait || (m.doubts ?? 0) > 0)
   }, [state, playerId])
   /** « Accepter » : notes cochées (proposées ou changées) posées, décochées écartées, commentaires cochés ajoutés. */
   function apply(pick: AvisPick) {
@@ -191,7 +196,7 @@ export function AvisVocal({
     // « Retenir pour la prochaine fois » : expressions créées ou mises à jour (même texte).
     if (pick.retain.length) void saveExpressions(pick.retain).catch((e) => console.error(e))
     const added = Object.keys(scores).length + (strengths ? 1 : 0) + (improvements ? 1 : 0) + (portrait ? 1 : 0)
-    setState({ ...next, strengths: false, improvements: false, portrait: false, added: (m.added ?? 0) + added })
+    setState({ ...next, strengths: false, improvements: false, portrait: false, doubts: 0, added: (m.added ?? 0) + added })
   }
   const payload = criteria.length > 0 ? buildAvisPayload(criteria, position) : null
   const usable = !!payload && payload.criteres.length > 0
@@ -207,7 +212,7 @@ export function AvisVocal({
   const rec = mic.phase === 'recording' || mic.phase === 'opening'
   const working = mic.phase === 'sending' || busy
   const mine = state?.playerId === playerId ? state : null
-  const left = mine ? mine.pending.length + (mine.strengths ? 1 : 0) + (mine.improvements ? 1 : 0) + (mine.portrait ? 1 : 0) : 0
+  const left = mine ? mine.pending.length + (mine.strengths ? 1 : 0) + (mine.improvements ? 1 : 0) + (mine.portrait ? 1 : 0) + (mine.doubts ?? 0) : 0
   const n = mine?.result.suggestions.length ?? 0
   const applied = mine?.added ?? 0
 
@@ -262,10 +267,12 @@ export function AvisVocal({
               <>
                 ✓ {applied} proposition{applied > 1 ? 's' : ''} ajoutée{applied > 1 ? 's' : ''} · relisez, puis enregistrez
               </>
-            ) : n === 0 && !mine.result.pointsForts && !mine.result.axes && !mine.result.portrait ? (
+            ) : mine.refused ? (
+              'Propositions refusées.'
+            ) : n === 0 && !mine.result.pointsForts && !mine.result.axes && !mine.result.portrait && !mine.result.ambigus.length && !mine.result.nonRelies.length ? (
               'Aucune note proposée : je n’ai reconnu aucun critère de la fiche.'
             ) : (
-              'Propositions refusées.'
+              'Rien de nouveau : ce que vous avez dit est déjà sur la fiche.'
             )}
           </span>
           {left > 0 && (
@@ -289,7 +296,7 @@ export function AvisVocal({
             setOpen(false)
           }}
           onRefuse={() => {
-            setState(decideAll(mine, 'ignore'))
+            setState({ ...decideAll(mine, 'ignore'), refused: true })
             setOpen(false)
           }}
           onClose={() => setOpen(false)}
@@ -316,6 +323,24 @@ type AvisPick = {
 type Pending = { key: string; kind: 'doute' | 'libre'; quote: string; ids: string[] }
 
 const MAX_CHOSEN = 3
+
+/**
+ * Remarques à trancher dans la fenêtre : hésitations (« J'hésite », au moins deux critères candidats, sans ceux déjà
+ * proposés) et remarques reliées à aucun critère (« Pas relié », sauf celles déjà dans une hésitation).
+ */
+function remarksToSettle(result: AvisResult, refs: AvisRef[], proposed: string[]): Pending[] {
+  const proposedIds = new Set(proposed)
+  const doubts = result.ambigus.map((text) => {
+    const p = parseAmbigu(text, refs)
+    return { quote: p?.quote ?? '', ids: (p?.ids ?? []).filter((id) => !proposedIds.has(id)) }
+  })
+  return [
+    ...doubts.flatMap((d, i) => (d.ids.length >= 2 ? [{ key: `d${i}`, kind: 'doute' as const, quote: d.quote, ids: d.ids }] : [])),
+    ...result.nonRelies
+      .filter((q) => !doubts.some((d) => d.quote && foldText(d.quote) === foldText(q)))
+      .map((q, i) => ({ key: `n${i}`, kind: 'libre' as const, quote: q, ids: [] })),
+  ]
+}
 
 const foldText = (s: string) =>
   s
@@ -370,16 +395,8 @@ function AvisReview({
   // Hésitations (« joue très personnel » : Jeu collectif ou Prise de décision) et remarques « pas reliées » : le coach choisit
   // le ou les critères, puis la note de chacun.
   const proposedIds = new Set(sugs.map((x) => x.criterionId))
-  const doubts = state.result.ambigus.map((text) => {
-    const p = parseAmbigu(text, Object.values(refs))
-    return { text, quote: p?.quote ?? '', ids: (p?.ids ?? []).filter((id) => !proposedIds.has(id)) }
-  })
-  const pendings: Pending[] = [
-    ...doubts.flatMap((d, i) => (d.ids.length >= 2 ? [{ key: `d${i}`, kind: 'doute' as const, quote: d.quote, ids: d.ids }] : [])),
-    ...state.result.nonRelies
-      .filter((q) => !doubts.some((d) => d.quote && foldText(d.quote) === foldText(q)))
-      .map((q, i) => ({ key: `n${i}`, kind: 'libre' as const, quote: q, ids: [] })),
-  ]
+  const doubts = state.result.ambigus.map((text) => ({ text, ids: (parseAmbigu(text, Object.values(refs))?.ids ?? []).filter((id) => !proposedIds.has(id)) }))
+  const pendings = (state.doubts ?? 0) > 0 ? remarksToSettle(state.result, Object.values(refs), state.pending) : []
   const [picked, setPicked] = useState<Record<string, string[]>>({})
   const [extra, setExtra] = useState<Record<string, number>>({})
   const [retain, setRetain] = useState<Record<string, boolean>>({})

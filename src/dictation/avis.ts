@@ -315,6 +315,10 @@ export type AvisState = {
   improvements: boolean
   /** Portrait proposé, pas encore accepté ni refusé. */
   portrait?: boolean
+  /** Remarques à trancher (« J'hésite », « Pas relié ») pas encore traitées par le coach : leur nombre. */
+  doubts?: number
+  /** « Tout refuser » touché : la ligne d'état le dit. */
+  refused?: boolean
   /** Identifiant de l'analyse (une évaluation vocale au journal, une appréciation par analyse). */
   id?: string
   /** Réponses du coach aux notes proposées (journal des évaluations vocales) : acceptée, modifiée (note mise), ignorée. */
@@ -343,7 +347,7 @@ export function decide(s: AvisState, criterionId: string, choice: { value: numbe
 export function decideAll(s: AvisState, kept: 'accepte' | 'ignore'): AvisState {
   const decisions = { ...s.decisions }
   for (const id of s.pending) decisions[id] = { kept }
-  return { ...s, pending: [], strengths: false, improvements: false, portrait: false, decisions }
+  return { ...s, pending: [], strengths: false, improvements: false, portrait: false, doubts: 0, decisions }
 }
 
 /**
