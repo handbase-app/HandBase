@@ -87,7 +87,8 @@ interface Row {
  * Seuls les avis validés comptent ; les avis spontanés en attente peuvent être inclus à la demande,
  * les avis hors cadre jamais (ils restent consultables à part).
  * `lockedEventId` : vue d'un seul événement (page de l'événement), sans sélecteur, radar d'abord, en compact ;
- * `scoreCriteria` : détaille alors les notes de chaque avis.
+ * `scoreCriteria` : critères détaillés dans chaque avis déplié (par défaut `criteria` : fiche joueur, 03/11 : la carte
+ *   dépliée ne montrait rien sans eux).
  * `wide` : colonne large (avis à côté de la liste, ordinateur) : radar plus grand, avis détaillés sur deux colonnes.
  * `focus` (?voir=avis:<id>, src/playerFocus.ts) : cet avis est listé (toute période) et sa carte dépliée ; la fiche le
  * fait venir à l'écran (data-voir).
@@ -358,7 +359,7 @@ export function Opinions({
               role={role}
               dept={department(player)}
               event={events.find((x) => x.id === e.eventId)}
-              criteria={scoreCriteria}
+              criteria={scoreCriteria ?? criteria}
               fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
               curve={curveOf(e)}
             />
@@ -382,7 +383,7 @@ export function Opinions({
                   role={role}
                   dept={department(player)}
                   event={events.find((x) => x.id === e.eventId)}
-                  criteria={scoreCriteria}
+                  criteria={scoreCriteria ?? criteria}
                   fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
                 />
               ))}
