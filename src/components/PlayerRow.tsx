@@ -11,8 +11,8 @@ import { birthQuarter, photoSrc } from './ui'
 import { useSousNom } from '../affichage'
 import { sousNomPieces } from '../sousNom'
 import { sportContent } from '../sportContent'
-import { ringLabel } from '../groupRings'
-import { RowStripes, STRIPE_W, useRowRings } from './GroupRings'
+import { levelLabel } from '../levels'
+import { LevelRing, usePlayerLevels } from './LevelRing'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -21,8 +21,8 @@ import { RowStripes, STRIPE_W, useRowRings } from './GroupRings'
  * filet fin ; plus de carte par joueur (src/index.css, [data-pitem]).
  * - photo : ronde, 38 px (ligne pleine), 30 px (colonne de contexte, fiche ouverte à droite) ; sans photo, les initiales
  *   dans la couleur du poste principal (src/positionColors.ts : fond teinté, texte plus foncé de la même teinte ; sans
- *   poste, gris neutre) ; joueur d'un groupe repéré (« Filtres » → « Repérer des groupes », src/groupRings.ts) : un anneau
- *   de la couleur du groupe autour (partagé entre 2 ou 3 groupes), hors de la boîte de la photo ; les noms lus avec la ligne ;
+ *   poste, gris neutre) ; autour, l'anneau des niveaux du joueur (src/levels.ts : France, Pôle, Ligue, Comité, calculés
+ *   seuls ; deux : moitié gauche le plus important), hors de la boîte de la photo ; les niveaux lus avec la ligne ;
  * - ligne 1 : NOM Prénom en gras, puis « ● DC » (étiquette du terrain, src/courtSpots.ts, dans la couleur du poste),
  *   les postes secondaires en gris (« +ARG »), « Pôle » en menthe pour un joueur au Pôle Espoirs, puis les pastilles
  *   propres à la liste ; le nom n'est jamais coupé avant les pastilles si on peut l'éviter (elles passent à la ligne) ;
@@ -59,9 +59,13 @@ export function playerSub(p: Pick<Player, 'birthDate' | 'club'>, ...before: SubB
   return [...before, p.birthDate?.slice(0, 4), q && `Q${q}`, p.club].filter(Boolean).join(' · ')
 }
 
-/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal. */
-export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'> & { id?: string }; size: number }) {
-  return <Face p={p} size={size} />
+/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal ; anneau des niveaux. */
+export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'> & Partial<Pick<Player, 'id' | 'poles'>>; size: number }) {
+  return (
+    <LevelRing levels={usePlayerLevels(p)} size={size}>
+      <Face p={p} size={size} />
+    </LevelRing>
+  )
 }
 
 function Face({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'>; size: number }) {
@@ -295,12 +299,12 @@ function Row({
   // Le lien (ou bouton) porte le nom ; son ::after couvre toute la zone de la ligne (un clic n'importe où l'ouvre).
   // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
   const hit = "col-start-1 row-start-1 min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
-  // Groupes repérés (liseré à gauche de la ligne) : lus avec le nom.
-  const rings = useRowRings(p.id)
+  // Niveaux (anneau de la photo) : lus avec le nom.
+  const levels = usePlayerLevels(p)
   const name = (
     <>
       <PlayerNameLine p={p} compact={compact} badges={badges} />
-      {rings && <span className="sr-only">{ringLabel(rings)}</span>}
+      {levels.length > 0 && <span className="sr-only">{levelLabel(levels)}</span>}
     </>
   )
   const main = sel ? (
@@ -374,10 +378,8 @@ function Row({
   )
   // Pas de carte : la ligne est un élément du cadre de la liste (src/index.css, [data-pitem]) ; survol, appui, ligne
   // ouverte ou cochée : fond légèrement teinté (prow-hit, prow-on).
-  const card = `prow @container/prow relative ${MENU_ROW} ${link || onClick || sel ? 'prow-hit' : ''} ${selected || marked || sel?.checked ? 'prow-on' : ''} ${className}`
+  const card = `prow @container/prow ${MENU_ROW} ${link || onClick || sel ? 'prow-hit' : ''} ${selected || marked || sel?.checked ? 'prow-on' : ''} ${className}`
   const pad = compact ? 'py-1 pr-1 pl-2' : 'px-3 py-2.5'
-  // Liseré des groupes repérés : le contenu se décale de sa largeur.
-  const stripes = rings?.length ? { paddingLeft: (compact ? 8 : 12) + rings.length * STRIPE_W } : undefined
   const line = compact ? 'flex items-center gap-1.5' : 'flex items-center gap-3'
   const opened = menu.anchor && (
     // Hors de la ligne ; les événements du menu et de ses fenêtres ne remontent pas jusqu'à la liste.
@@ -389,8 +391,7 @@ function Row({
   if (!below)
     return (
       <>
-        <div className={`${card} ${line} ${pad}`} style={stripes} {...attrs}>
-          <RowStripes rings={rings} />
+        <div className={`${card} ${line} ${pad}`} {...attrs}>
           {row}
         </div>
         {opened}
@@ -398,8 +399,7 @@ function Row({
     )
   return (
     <>
-      <div className={`${card} flex flex-col gap-1.5 ${pad}`} style={stripes} {...attrs}>
-        <RowStripes rings={rings} />
+      <div className={`${card} flex flex-col gap-1.5 ${pad}`} {...attrs}>
         <div className={line}>{row}</div>
         {below}
       </div>

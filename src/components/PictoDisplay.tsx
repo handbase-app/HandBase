@@ -30,7 +30,7 @@ const SHORT: Record<PictoKind, string> = {
 }
 
 /**
- * Partie repliable du bas de la fenêtre « Filtres » (« Affichage », « Repérer des groupes ») : repliée au départ, le titre
+ * Partie repliable du bas de la fenêtre « Filtres » (« Affichage ») : repliée au départ, le titre
  * et un court résumé ; ouverte ou fermée, retenue sur l'appareil (03/11 : pas d'explication, la place va aux réglages).
  */
 export function FilterFold({ id, title, summary, children }: { id: string; title: string; summary?: string; children: ReactNode }) {

@@ -80,7 +80,6 @@ import { MultiPicker } from './MultiPicker'
 import { ChoicePills, chipCount, CountText, FilterField, FilterWindow, FiltersButton, pillClass, useFilterWindow } from './FilterWindow'
 import { BarActionsSlot, BarBelowRow } from './PageHeader'
 import { PictoDisplaySection } from './PictoDisplay'
-import { GroupRingsSection } from './GroupRings'
 import { usePictosInFilters } from './Pictos'
 import { SegRow } from './ListQuery'
 import { putYears, yearsOf } from '../birthYears'
@@ -1017,8 +1016,6 @@ export function usePlayersQuery(
       {panel}
       {/* Téléphone : ce qu'on voit au bout des lignes (pictogrammes), à part des filtres. */}
       {opts.display !== false && pictosInFilters && <PictoDisplaySection />}
-      {/* Tout en bas : groupes repérés (anneau autour de la photo, src/groupRings.ts), avec leurs joueurs de la liste. */}
-      {opts.display !== false && <GroupRingsSection players={filtered} />}
       {privacy}
     </FilterWindow>
   )
