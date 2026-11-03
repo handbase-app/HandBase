@@ -391,7 +391,7 @@ export default function Evaluate() {
                   ▾
                 </span>
               </button>
-              {/* Options de l'avis : tous les critères / essentiels, annuler, retirer (le menu est rendu avec la fiche). */}
+              {/* Options de l'avis : explication des critères, expressions, annuler, retirer (le menu est rendu avec la fiche). */}
               <span data-noswipe className="contents">
                 <MenuButton label="Options de l’avis" open={!!avisMenu.anchor} className="-mr-2 shrink-0" onOpen={avisMenu.open} />
               </span>
@@ -693,10 +693,6 @@ export default function Evaluate() {
               anchor={avisMenu.anchor}
               title={`Mon avis sur ${playerName(player)}`}
               items={[
-                // Rapide / Complet (31/10) : plus de bascule à l'écran, une option du ⋮.
-                mode === 'rapide'
-                  ? { label: 'Afficher tous les critères', icon: 'list' as const, hint: 'Fiche complète', onSelect: () => setMode('complet') }
-                  : { label: 'Critères essentiels seulement', icon: 'list' as const, hint: 'Fiche rapide', onSelect: () => setMode('rapide') },
                 { label: 'Explication des critères', icon: 'info' as const, onSelect: () => setHelpOpen(true) },
                 // Vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx) ; Retour ramène ici, saisie gardée.
                 { label: 'Mes expressions', icon: 'chat' as const, onSelect: () => void confirmLeave().then((ok) => ok && navigate('/expressions')) },
@@ -757,6 +753,27 @@ export default function Evaluate() {
           />
 
           {noCriteria && <NoCriteria kind="subjective" />}
+          {/* Rapide / Complet (03/11) : de retour à l'écran, au-dessus des critères (le ⋮ obligeait à chercher). Rapide : critères
+              essentiels, plus ceux déjà notés ou proposés par l'avis vocal ; Complet : tous ceux du poste. Boutons de 40 px. */}
+          {!noCriteria && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted">
+                {shown.length} critère{shown.length > 1 ? 's' : ''}
+              </span>
+              <div data-noswipe className="w-48 shrink-0 [&_button]:min-h-10">
+                <Segmented
+                  look="capsule"
+                  label="Fiche rapide ou complète"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'rapide', label: 'Rapide' },
+                    { value: 'complet', label: 'Complet' },
+                  ]}
+                />
+              </div>
+            </div>
+          )}
           {/* Une carte par famille ; chaque critère sur une ligne : libellé à gauche, notes à droite (31/10, fiche plus compacte).
               Les cartes partagent la même grille (subgrid) : la colonne des libellés prend la largeur du plus long (au plus
               40 %, au-delà il passe à la ligne), un petit espace, puis toutes les échelles ont la même largeur et prennent toute la place restante.
