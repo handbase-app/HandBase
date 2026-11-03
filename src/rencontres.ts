@@ -177,13 +177,12 @@ export type Radius = (typeof RADII)[number]
 
 // ---------- Quand ----------
 
+/**
+ * Quand : seulement des dates (un jour ou du … au …, fenêtre « Dates… ») ; rien de choisi : ce week-end, montré en dates
+ * (« Du 07/11 au 08/11 »). Les anciens raccourcis (« Ce week-end », « 7 jours », « 30 jours », retirés le 03/11 : ils
+ * doublaient le choix des dates) ne servent plus qu'à relire un choix gardé sur l'appareil (parsePrefs).
+ */
 export type PeriodKey = 'weekend' | '7j' | '30j'
-export const PERIODS: readonly { value: PeriodKey; label: string }[] = [
-  { value: 'weekend', label: 'Ce week-end' },
-  { value: '7j', label: '7 jours' },
-  { value: '30j', label: '30 jours' },
-]
-const PERIOD_SET = new Set<string>(PERIODS.map((p) => p.value))
 
 /**
  * Bornes d'une période, en heure locale de l'appareil : [from, to[. « Ce week-end » : du samedi 0 h au lundi 0 h, celui qui
@@ -250,7 +249,7 @@ export function spanLabel(s: DateSpan, now: Date): string {
   return `Du ${fmt(s.from)} au ${fmt(s.to)}`
 }
 
-/** Raccourcis de « Dates… » : le week-end d'après celui de « Ce week-end », et celui encore une semaine plus tard. */
+/** Raccourcis de « Dates… » : le week-end d'après ce week-end (le défaut), et celui encore une semaine plus tard. */
 export function quickSpans(now: Date): { label: string; span: DateSpan }[] {
   const sat = dayOf(periodRange('weekend', now).from)
   const we = (n: number) => ({ from: addDays(sat, 7 * n), to: addDays(sat, 7 * n + 1) })
@@ -260,8 +259,17 @@ export function quickSpans(now: Date): { label: string; span: DateSpan }[] {
   ]
 }
 
-/** Période de la recherche : les dates choisies (« Dates… ») ou un des raccourcis. */
-export const aroundRange = (p: AroundPrefs, now: Date) => (p.period === 'dates' && p.dates ? spanRange(p.dates) : periodRange(p.period === 'dates' ? 'weekend' : p.period, now))
+/** Jours d'une période (fin comprise) : [from, to[ → du premier jour au veille de `to`. */
+const spanOf = (r: { from: Date; to: Date }): DateSpan => ({ from: dayOf(r.from), to: addDays(dayOf(r.to), -1) })
+
+/** Quand, rien de choisi : ce week-end (samedi et dimanche, celui qui vient ou celui en cours). */
+export const defaultSpan = (now: Date): DateSpan => spanOf(periodRange('weekend', now))
+
+/** Dates de la recherche : celles choisies, sinon ce week-end. */
+export const whenSpan = (p: AroundPrefs, now: Date): DateSpan => p.dates ?? defaultSpan(now)
+
+/** Période de la recherche, en heure locale : du premier jour 0 h au lendemain du dernier 0 h. */
+export const aroundRange = (p: AroundPrefs, now: Date) => spanRange(whenSpan(p, now))
 
 /** Jour local (AAAA-MM-JJ) d'un horodatage ISO. */
 export const localDay = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString('sv')
@@ -605,30 +613,36 @@ export interface Place {
 export interface AroundPrefs {
   place?: Place
   km: Radius
-  /** « dates » : celles de `dates` (« Dates… »). */
-  period: PeriodKey | 'dates'
+  /** Dates choisies (« Dates… ») ; absentes : ce week-end (defaultSpan). */
   dates?: DateSpan
 }
-export const DEFAULT_PREFS: AroundPrefs = { km: 25, period: 'weekend' }
+/** Où : « Mon club » (sinon « Mon département ») à 25 km ; Quand : ce week-end. */
+export const DEFAULT_PREFS: AroundPrefs = { km: 25 }
+
+/** Où et Quand tels qu'au départ (rien à effacer). */
+export const isDefaultPrefs = (p: AroundPrefs) => !p.place && !p.dates && p.km === DEFAULT_PREFS.km
 
 /**
  * Choix relus (stockage de l'appareil) : seulement ce qui est bien formé ; le reste par défaut. Dates choisies déjà
- * passées (fin avant `today`) : retour à « Ce week-end ».
+ * passées (fin avant `today`) : retour au défaut (ce week-end). Anciens choix d'avant le 03/11 : « Ce week-end » → le
+ * défaut ; « 7 jours », « 30 jours » → les dates correspondantes à partir de `today` (comme on les voyait).
  */
 export function parsePrefs(raw: unknown, today: string = dayOf(new Date())): AroundPrefs {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const km = (RADII as readonly number[]).includes(o.km as number) ? (o.km as Radius) : DEFAULT_PREFS.km
   const d = o.dates && typeof o.dates === 'object' ? (o.dates as Record<string, unknown>) : null
-  const span = o.period === 'dates' && d ? cleanSpan(d.from, d.to) : undefined
-  const dates = span && span.to >= today ? { from: span.from, to: span.to } : undefined
-  const period = dates ? 'dates' : typeof o.period === 'string' && PERIOD_SET.has(o.period) ? (o.period as PeriodKey) : DEFAULT_PREFS.period
+  // Dates gardées : format actuel (sans `period`) ou ancien (`period: 'dates'`) ; un ancien raccourci les emporte.
+  const span = (o.period === undefined || o.period === 'dates') && d ? cleanSpan(d.from, d.to) : undefined
+  const legacy = o.period === '7j' || o.period === '30j' ? spanOf(periodRange(o.period, dateOf(today))) : undefined
+  const kept = span ? { from: span.from, to: span.to } : legacy
+  const dates = kept && kept.to >= today ? kept : undefined
   const p = o.place && typeof o.place === 'object' ? (o.place as Record<string, unknown>) : null
   const kind = p && ['city', 'club', 'dept', 'pos'].includes(p.kind as string) ? (p.kind as PlaceKind) : undefined
   const lat = num(p?.lat)
   const lng = num(p?.lng)
   const label = str(p?.label, 80)
   const place = kind && label && lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { kind, label, lat, lng } : undefined
-  return { km, period, ...(dates ? { dates } : {}), ...(place ? { place } : {}) }
+  return { km, ...(dates ? { dates } : {}), ...(place ? { place } : {}) }
 }
 
 // ---------- Demande au serveur ----------

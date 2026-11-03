@@ -8,6 +8,7 @@ import {
   aroundRequest,
   citiesOf,
   DEFAULT_PREFS,
+  defaultSpan,
   deptCenter,
   distanceText,
   distinctYouths,
@@ -20,9 +21,9 @@ import {
   aroundRange,
   cleanSpan,
   dayOf,
+  isDefaultPrefs,
   MAX_SPAN_DAYS,
   parsePrefs,
-  PERIODS,
   quickSpans,
   RADII,
   requestKey,
@@ -33,6 +34,7 @@ import {
   venuesOf,
   youthsText,
   spanLabel,
+  whenSpan,
   type AroundPrefs,
   type DateSpan,
   type FixtureMatch,
@@ -61,7 +63,9 @@ import { Empty, Icon, playerName } from './ui'
  *    taille, poste, profils recherchés…), avec son propre état (« autour ») : la liste Joueurs n'en est pas changée.
  *    Les onglets de la page sont juste dessous, à la largeur de la barre (comme la page Groupes).
  *  - Où (une pastille → fenêtre : une ville où il y a des clubs, « Mon club », « Mon département », « Ma position » sur
- *    demande seulement ; rayon 10, 25, 50 ou 100 km) et Quand (Ce week-end, 7 jours, 30 jours, ou « Dates… » : un jour ou du … au …, 62 jours au plus) : gardés sur l’appareil.
+ *    demande seulement ; rayon 10, 25, 50 ou 100 km) et Quand (une pastille → fenêtre : un jour ou du … au …, 62 jours au
+ *    plus ; rien de choisi : ce week-end, dit en dates) : gardés sur l’appareil. « Tout effacer » au bout de la rangée
+ *    (dès qu'un choix n'est plus celui du départ) remet Où, Quand et Qui au départ et oublie ce qui était gardé.
  *  - La carte (contours des départements de l'appli, cercle du rayon, une épingle par salle, taille selon le nombre de
  *    jeunes), puis les rencontres (2 colonnes au plus) : date et heure, catégorie · niveau · compétition, les deux équipes,
  *    salle, ville et distance, « N jeunes » et leurs noms, « Regarder » s'il y a un lien de diffusion. Rencontres sans
@@ -78,8 +82,11 @@ import { Empty, Icon, playerName } from './ui'
 
 const PREFS_KEY = 'handbase.autour.choix'
 
-/** Où / rayon / Quand : gardés sur l'appareil (stockage indisponible : pour cette visite). */
-function usePrefs(): [AroundPrefs, (p: AroundPrefs) => void] {
+/**
+ * Où / rayon / Quand : gardés sur l'appareil (stockage indisponible : pour cette visite). `clear` : retour au départ, rien
+ * de gardé.
+ */
+function usePrefs(): [AroundPrefs, (p: AroundPrefs) => void, () => void] {
   const [p, setP] = useState<AroundPrefs>(() => {
     try {
       return parsePrefs(JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null'))
@@ -95,7 +102,15 @@ function usePrefs(): [AroundPrefs, (p: AroundPrefs) => void] {
       /* stockage indisponible : le choix vaut pour cette visite */
     }
   }
-  return [p, set]
+  const clear = () => {
+    setP(DEFAULT_PREFS)
+    try {
+      localStorage.removeItem(PREFS_KEY)
+    } catch {
+      /* stockage indisponible : rien n'y était gardé */
+    }
+  }
+  return [p, set, clear]
 }
 
 /** « Mon club » et « Mon département » du compte (ses affectations), quand on peut les placer. */
@@ -128,9 +143,10 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
   const all = usePlayersByName()
   const players = useMemo(() => (all ? basePlayers(all) : undefined), [all])
   // Qui : la barre de la liste Joueurs, état à part (« autour »).
-  const q = usePlayersQuery(players, { scope: 'autour', count: true, display: false })
+  // Son « Tout effacer » est celui de la rangée Où / Quand (efface les trois).
+  const q = usePlayersQuery(players, { scope: 'autour', count: true, display: false, clearElsewhere: true })
   const cats = sportContent(useSportConfig().sport).youthCategories
-  const [prefs, setPrefs] = usePrefs()
+  const [prefs, setPrefs, clearPrefs] = usePrefs()
   const mine = useMyPlaces()
   const place = prefs.place ?? mine.club ?? mine.dept
   const [now] = useState(() => new Date())
@@ -186,6 +202,14 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
 
   const where = useFilterWindow()
   const when = useFilterWindow()
+  // « Tout effacer » : Où, Quand et Qui au départ (sans question : on les rechoisit vite) ; salle touchée oubliée.
+  const clearable = !isDefaultPrefs(prefs) || q.clearable
+  const clearAll = () => {
+    clearPrefs()
+    q.reset()
+    setVenue(null)
+  }
+  const span = whenSpan(prefs, now)
   const actions = (
     <MoreActions
       title="Autour de moi"
@@ -206,7 +230,7 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
       </StickyQuery>
       <div className="flex flex-col gap-2 empty:hidden">{q.top}</div>
 
-      {/* Où et Quand : sous la barre, à sa largeur. */}
+      {/* Où, Quand et « Tout effacer » : sous la barre, à sa largeur. */}
       <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-1.5">
         <button
           ref={where.anchor}
@@ -214,33 +238,31 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
           aria-haspopup="dialog"
           aria-expanded={where.open}
           onClick={() => where.setOpen(!where.open)}
-          className={`flex min-h-9 max-w-full items-center gap-1.5 rounded-full border px-3 text-xs font-bold ${place ? 'border-accent bg-accent/10 text-fg' : 'border-line bg-panel-2 text-muted'}`}
+          className={`flex min-h-10 max-w-full items-center gap-1.5 rounded-full border px-3 text-xs font-bold sm:min-h-9 ${place ? 'border-accent bg-accent/10 text-fg' : 'border-line bg-panel-2 text-muted'}`}
         >
           <Icon name="map" className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{place ? `${place.label} · ${prefs.km} km` : 'Où ? Choisir un lieu'}</span>
           <span aria-hidden>{where.open ? '▴' : '▾'}</span>
         </button>
-        <div role="radiogroup" aria-label="Quand" className="flex flex-wrap gap-1.5">
-          {PERIODS.map((p) => (
-            <button key={p.value} type="button" role="radio" aria-checked={prefs.period === p.value} className={pillClass(prefs.period === p.value, true)} onClick={() => setPrefs({ ...prefs, period: p.value, dates: undefined })}>
-              {p.label}
-            </button>
-          ))}
-          {/* « Dates… » : un jour ou du … au … (« je vais à Montpellier samedi »), fenêtre accrochée au bouton. */}
-          <button
-            ref={when.anchor}
-            type="button"
-            role="radio"
-            aria-checked={prefs.period === 'dates'}
-            aria-haspopup="dialog"
-            aria-expanded={when.open}
-            onClick={() => when.setOpen(!when.open)}
-            className={`${pillClass(prefs.period === 'dates', true)} inline-flex items-center gap-1.5`}
-          >
-            <Icon name="calendar" className="h-3.5 w-3.5 shrink-0" />
-            {prefs.period === 'dates' && prefs.dates ? spanLabel(prefs.dates, now) : 'Dates…'}
+        {/* Quand : un jour ou du … au …, fenêtre accrochée au bouton ; rien de choisi : ce week-end, dit en dates. */}
+        <button
+          ref={when.anchor}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={when.open}
+          aria-label={`Quand : ${spanLabel(span, now)}${prefs.dates ? '' : ' (ce week-end)'}`}
+          onClick={() => when.setOpen(!when.open)}
+          className={`flex min-h-10 max-w-full items-center gap-1.5 rounded-full border px-3 text-xs font-bold sm:min-h-9 ${prefs.dates ? 'border-accent bg-accent/10 text-fg' : 'border-line bg-panel-2 text-fg'}`}
+        >
+          <Icon name="calendar" className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{spanLabel(span, now)}</span>
+          <span aria-hidden>{when.open ? '▴' : '▾'}</span>
+        </button>
+        {clearable && (
+          <button type="button" className="min-h-10 px-1 text-[11px] font-bold text-muted underline hover:text-fg sm:min-h-9" onClick={clearAll}>
+            Tout effacer
           </button>
-        </div>
+        )}
       </div>
       <WhereWindow w={where} prefs={prefs} setPrefs={setPrefs} place={place} mine={mine} count={visible.length} />
       <DatesWindow w={when} prefs={prefs} setPrefs={setPrefs} now={now} count={visible.length} />
@@ -429,20 +451,25 @@ function FixtureWindow({ f, m, ev, rs, onClose }: { f: Rencontre; m: FixtureMatc
 
 /** Fenêtre « Où » : une ville, mon club, mon département, ma position (sur demande) ; le rayon. */
 /**
- * « Dates… » : un jour ou plusieurs (du … au …), raccourcis « Week-end prochain », « Week-end dans 15 jours ». Chaque
- * choix s'applique tout de suite (comme les filtres) ; fin avant le début : échangées ; plus de MAX_SPAN_DAYS jours :
- * coupé (le serveur ne rend pas plus), et la fenêtre le dit.
+ * Quand : un jour ou plusieurs (du … au …), raccourcis « Week-end prochain », « Week-end dans 15 jours ». Rien de
+ * choisi : les champs montrent ce week-end (le défaut). Chaque choix s'applique tout de suite (comme les filtres) ; fin
+ * avant le début : échangées ; plus de MAX_SPAN_DAYS jours : coupé (le serveur ne rend pas plus), et la fenêtre le dit.
  */
 function DatesWindow({ w, prefs, setPrefs, now, count }: { w: ReturnType<typeof useFilterWindow>; prefs: AroundPrefs; setPrefs: (p: AroundPrefs) => void; now: Date; count: number }) {
   const today = dayOf(now)
-  const cur = prefs.period === 'dates' ? prefs.dates : undefined
-  const [several, setSeveral] = useState(() => !!cur && cur.from !== cur.to)
-  const [cut, setCut] = useState(false)
+  // Dates en cours (choisies, sinon ce week-end) : celles des champs ; plusieurs jours → « Du … au … » d'office (aussi
+  // après « Tout effacer »).
+  const chosen = prefs.dates
+  const cur = chosen ?? defaultSpan(now)
+  const [severalPick, setSeveral] = useState(cur.from !== cur.to)
+  const several = severalPick || cur.from !== cur.to
+  const [cutPick, setCut] = useState(false)
+  const cut = cutPick && !!chosen
   const apply = (from: string, to: string) => {
     const s = cleanSpan(from, to)
     if (!s) return
     setCut(s.cut)
-    setPrefs({ ...prefs, period: 'dates', dates: { from: s.from, to: s.to } })
+    setPrefs({ ...prefs, dates: { from: s.from, to: s.to } })
   }
   const pick = (span: DateSpan) => {
     setSeveral(span.from !== span.to)
@@ -453,13 +480,13 @@ function DatesWindow({ w, prefs, setPrefs, now, count }: { w: ReturnType<typeof 
     <FilterWindow w={w} title="Quand ?" count={`${count.toLocaleString('fr-FR')} rencontre${count > 1 ? 's' : ''}`}>
       <div className="flex flex-wrap gap-1.5">
         {quickSpans(now).map((q) => (
-          <button key={q.label} type="button" className={pillClass(same(cur, q.span))} aria-pressed={same(cur, q.span)} onClick={() => pick(q.span)}>
+          <button key={q.label} type="button" className={pillClass(same(chosen, q.span))} aria-pressed={same(chosen, q.span)} onClick={() => pick(q.span)}>
             {q.label}
           </button>
         ))}
       </div>
       <div role="radiogroup" aria-label="Un jour ou plusieurs" className="flex flex-wrap gap-1.5">
-        <button type="button" role="radio" aria-checked={!several} className={pillClass(!several)} onClick={() => { setSeveral(false); if (cur) apply(cur.from, cur.from) }}>
+        <button type="button" role="radio" aria-checked={!several} className={pillClass(!several)} onClick={() => { const d = cur.from < today ? today : cur.from; setSeveral(false); apply(d, d) }}>
           Un jour
         </button>
         <button type="button" role="radio" aria-checked={several} className={pillClass(several)} onClick={() => setSeveral(true)}>
@@ -473,18 +500,19 @@ function DatesWindow({ w, prefs, setPrefs, now, count }: { w: ReturnType<typeof 
             type="date"
             className="field min-h-11 w-full"
             min={today}
-            value={cur?.from ?? ''}
-            onChange={(e) => e.target.value && apply(e.target.value, several ? (cur?.to && cur.to >= e.target.value ? cur.to : e.target.value) : e.target.value)}
+            value={cur.from}
+            onChange={(e) => e.target.value && apply(e.target.value, several ? (cur.to >= e.target.value ? cur.to : e.target.value) : e.target.value)}
           />
         </label>
         {several && (
           <label>
             <span className="label">Au</span>
-            <input type="date" className="field min-h-11 w-full" min={cur?.from ?? today} value={cur?.to ?? ''} onChange={(e) => e.target.value && apply(cur?.from ?? e.target.value, e.target.value)} />
+            <input type="date" className="field min-h-11 w-full" min={cur.from < today ? today : cur.from} value={cur.to} onChange={(e) => e.target.value && apply(cur.from, e.target.value)} />
           </label>
         )}
       </div>
-      {cut && <p className="text-[11px] text-muted">{MAX_SPAN_DAYS} jours au plus d’un coup : la fin est ramenée au {cur ? spanLabel({ from: cur.to, to: cur.to }, now).toLowerCase() : ''}.</p>}
+      {cut && <p className="text-[11px] text-muted">{MAX_SPAN_DAYS} jours au plus d’un coup : la fin est ramenée au {spanLabel({ from: cur.to, to: cur.to }, now).toLowerCase()}.</p>}
+      {!chosen && <p className="text-[11px] text-muted">Rien de choisi : ce week-end.</p>}
     </FilterWindow>
   )
 }

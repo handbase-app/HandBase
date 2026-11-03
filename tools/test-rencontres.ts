@@ -26,10 +26,14 @@ import {
   namesLine,
   aroundRange,
   cleanSpan,
+  defaultSpan,
+  DEFAULT_PREFS,
+  isDefaultPrefs,
   parsePrefs,
   periodRange,
   quickSpans,
   spanLabel,
+  whenSpan,
   playerCategory,
   requestKey,
   safeUrl,
@@ -356,10 +360,16 @@ const players: P[] = [
   const at = (y: number, m: number, d: number, h = 0) => new Date(y, m - 1, d, h)
   const show = (r: { from: Date; to: Date }) => [r.from, r.to].map((x) => `${x.toLocaleDateString('sv')} ${String(x.getHours()).padStart(2, '0')}h`)
   // Un jour : de ce jour 0 h au lendemain 0 h ; du … au … : fin comprise.
-  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-14' } }, at(2026, 11, 2))), ['2026-11-14 00h', '2026-11-15 00h'])
-  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates', dates: { from: '2026-12-19', to: '2027-01-03' } }, at(2026, 11, 2))), ['2026-12-19 00h', '2027-01-04 00h'])
-  // « dates » sans dates : ce week-end.
-  assert.deepEqual(show(aroundRange({ km: 25, period: 'dates' }, at(2026, 11, 2, 9))), ['2026-11-07 00h', '2026-11-09 00h'])
+  assert.deepEqual(show(aroundRange({ km: 25, dates: { from: '2026-11-14', to: '2026-11-14' } }, at(2026, 11, 2))), ['2026-11-14 00h', '2026-11-15 00h'])
+  assert.deepEqual(show(aroundRange({ km: 25, dates: { from: '2026-12-19', to: '2027-01-03' } }, at(2026, 11, 2))), ['2026-12-19 00h', '2027-01-04 00h'])
+  // Rien de choisi : ce week-end (samedi et dimanche), dit en dates sur la pastille.
+  assert.deepEqual(show(aroundRange({ km: 25 }, at(2026, 11, 2, 9))), ['2026-11-07 00h', '2026-11-09 00h'])
+  assert.deepEqual(defaultSpan(at(2026, 11, 2, 9)), { from: '2026-11-07', to: '2026-11-08' })
+  assert.deepEqual(defaultSpan(at(2026, 11, 8, 20)), { from: '2026-11-07', to: '2026-11-08' }, 'dimanche : celui en cours')
+  assert.deepEqual(defaultSpan(at(2026, 12, 31, 12)), { from: '2027-01-02', to: '2027-01-03' }, 'passage d’année')
+  assert.deepEqual(whenSpan({ km: 25 }, at(2026, 11, 2)), { from: '2026-11-07', to: '2026-11-08' })
+  assert.deepEqual(whenSpan({ km: 25, dates: { from: '2026-11-14', to: '2026-11-14' } }, at(2026, 11, 2)), { from: '2026-11-14', to: '2026-11-14' })
+  assert.equal(spanLabel(defaultSpan(at(2026, 11, 2)), at(2026, 11, 2)), 'Du 07/11 au 08/11')
   // Remise en ordre : inversées → échangées ; plus de 62 jours → coupé ; date impossible → rien.
   assert.deepEqual(cleanSpan('2026-11-20', '2026-11-14'), { from: '2026-11-14', to: '2026-11-20', cut: false })
   assert.deepEqual(cleanSpan('2026-11-01', '2027-03-01'), { from: '2026-11-01', to: '2027-01-01', cut: true })
@@ -374,20 +384,40 @@ const players: P[] = [
     ['Week-end prochain', '2026-11-14', '2026-11-15'],
     ['Week-end dans 15 jours', '2026-11-21', '2026-11-22'],
   ])
-  // Gardées sur l'appareil : relues si elles ne sont pas passées ; passées → « Ce week-end ».
-  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } })
-  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-16'), { km: 25, period: 'weekend' })
-  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: 'x' } }, '2026-11-02'), { km: 25, period: 'weekend' })
-  assert.deepEqual(parsePrefs({ km: 25, period: '7j', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, period: '7j' })
+  // Gardées sur l'appareil : relues si elles ne sont pas passées ; passées → défaut (ce week-end).
+  assert.deepEqual(parsePrefs({ km: 25, dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, dates: { from: '2026-11-14', to: '2026-11-15' } })
+  assert.deepEqual(parsePrefs({ km: 25, dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-16'), { km: 25 })
+  assert.deepEqual(parsePrefs({ km: 25, dates: { from: 'x' } }, '2026-11-02'), { km: 25 })
+  // Anciens choix (avant le 03/11, `period`) : relus sans erreur. « dates » → ces dates ; « Ce week-end » → défaut ;
+  // « 7 jours », « 30 jours » → les dates à partir d'aujourd'hui (fin comprise) ; inconnu → défaut.
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, dates: { from: '2026-11-14', to: '2026-11-15' } })
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-16'), { km: 25 })
+  assert.deepEqual(parsePrefs({ km: 25, period: 'dates' }, '2026-11-02'), { km: 25 })
+  assert.deepEqual(parsePrefs({ km: 50, period: 'weekend' }, '2026-11-02'), { km: 50 })
+  assert.deepEqual(parsePrefs({ km: 25, period: '7j' }, '2026-11-02'), { km: 25, dates: { from: '2026-11-02', to: '2026-11-08' } })
+  assert.deepEqual(parsePrefs({ km: 25, period: '30j' }, '2026-11-02'), { km: 25, dates: { from: '2026-11-02', to: '2026-12-01' } })
+  assert.deepEqual(parsePrefs({ km: 25, period: '30j' }, '2026-12-20'), { km: 25, dates: { from: '2026-12-20', to: '2027-01-18' } }, 'passage d’année')
+  assert.deepEqual(parsePrefs({ km: 25, period: '7j', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25, dates: { from: '2026-11-02', to: '2026-11-08' } }, 'le raccourci l’emporte sur des dates restées')
+  assert.deepEqual(parsePrefs({ km: 25, period: 'demain', dates: { from: '2026-11-14', to: '2026-11-15' } }, '2026-11-02'), { km: 25 })
+  // Les dates relues se retrouvent dans la recherche.
+  assert.deepEqual(show(aroundRange(parsePrefs({ km: 25, period: '7j' }, '2026-11-02'), at(2026, 11, 2))), ['2026-11-02 00h', '2026-11-09 00h'])
+  // « Tout effacer » visible dès qu'un choix n'est plus celui du départ ; une fois effacé (rien de gardé), tout au départ.
+  assert.equal(isDefaultPrefs(DEFAULT_PREFS), true)
+  assert.equal(isDefaultPrefs(parsePrefs(null)), true)
+  assert.equal(isDefaultPrefs(parsePrefs({ km: 25, period: 'weekend' }, '2026-11-02')), true, 'ancien « Ce week-end » : rien à effacer')
+  assert.equal(isDefaultPrefs({ km: 50 }), false)
+  assert.equal(isDefaultPrefs({ km: 25, dates: { from: '2026-11-14', to: '2026-11-14' } }), false)
+  assert.equal(isDefaultPrefs({ km: 25, place: { kind: 'city', label: 'Villefictive', lat: 43.12, lng: 5.93 } }), false)
 }
 
 // ---------- Choix gardés, demande ----------
 {
-  assert.deepEqual(parsePrefs(null), { km: 25, period: 'weekend' })
-  assert.deepEqual(parsePrefs({ km: 33, period: 'demain', place: { kind: 'ville', label: 'x', lat: 1, lng: 2 } }), { km: 25, period: 'weekend' })
-  assert.deepEqual(parsePrefs({ km: 50, period: '30j', place: { kind: 'city', label: 'Villefictive', lat: 43.12, lng: 5.93, extra: 1 } }), {
+  assert.deepEqual(parsePrefs(null), { km: 25 })
+  assert.deepEqual(parsePrefs('pas du JSON attendu'), { km: 25 })
+  assert.deepEqual(parsePrefs({ km: 33, period: 'demain', place: { kind: 'ville', label: 'x', lat: 1, lng: 2 } }), { km: 25 })
+  assert.deepEqual(parsePrefs({ km: 50, period: '30j', place: { kind: 'city', label: 'Villefictive', lat: 43.12, lng: 5.93, extra: 1 } }, '2026-11-02'), {
     km: 50,
-    period: '30j',
+    dates: { from: '2026-11-02', to: '2026-12-01' },
     place: { kind: 'city', label: 'Villefictive', lat: 43.12, lng: 5.93 },
   })
   assert.equal(parsePrefs({ place: { kind: 'pos', label: 'Ma position', lat: 95, lng: 0 } }).place, undefined, 'coordonnées impossibles')
