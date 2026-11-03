@@ -11,6 +11,8 @@ import { birthQuarter, photoSrc } from './ui'
 import { useSousNom } from '../affichage'
 import { sousNomPieces } from '../sousNom'
 import { sportContent } from '../sportContent'
+import { ringLabel } from '../groupRings'
+import { RingFrame, useRowRings } from './GroupRings'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -19,7 +21,8 @@ import { sportContent } from '../sportContent'
  * filet fin ; plus de carte par joueur (src/index.css, [data-pitem]).
  * - photo : ronde, 38 px (ligne pleine), 30 px (colonne de contexte, fiche ouverte à droite) ; sans photo, les initiales
  *   dans la couleur du poste principal (src/positionColors.ts : fond teinté, texte plus foncé de la même teinte ; sans
- *   poste, gris neutre) ;
+ *   poste, gris neutre) ; joueur d'un groupe repéré (« Filtres » → « Repérer des groupes », src/groupRings.ts) : un anneau
+ *   de la couleur du groupe autour (partagé entre 2 ou 3 groupes), hors de la boîte de la photo ; les noms lus avec la ligne ;
  * - ligne 1 : NOM Prénom en gras, puis « ● DC » (étiquette du terrain, src/courtSpots.ts, dans la couleur du poste),
  *   les postes secondaires en gris (« +ARG »), « Pôle » en menthe pour un joueur au Pôle Espoirs, puis les pastilles
  *   propres à la liste ; le nom n'est jamais coupé avant les pastilles si on peut l'éviter (elles passent à la ligne) ;
@@ -56,8 +59,16 @@ export function playerSub(p: Pick<Player, 'birthDate' | 'club'>, ...before: SubB
   return [...before, p.birthDate?.slice(0, 4), q && `Q${q}`, p.club].filter(Boolean).join(' · ')
 }
 
-/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal. */
-export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'>; size: number }) {
+/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal ; anneau des groupes repérés. */
+export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'> & { id?: string }; size: number }) {
+  return (
+    <RingFrame rings={useRowRings(p.id)} size={size}>
+      <Face p={p} size={size} />
+    </RingFrame>
+  )
+}
+
+function Face({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'>; size: number }) {
   const src = photoSrc(p.photo)
   if (src) return <img src={src} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />
   const hue = positionHue(p.position)
@@ -288,7 +299,14 @@ function Row({
   // Le lien (ou bouton) porte le nom ; son ::after couvre toute la zone de la ligne (un clic n'importe où l'ouvre).
   // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
   const hit = "col-start-1 row-start-1 min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
-  const name = <PlayerNameLine p={p} compact={compact} badges={badges} />
+  // Groupes repérés (anneau de la photo) : lus avec le nom.
+  const rings = useRowRings(p.id)
+  const name = (
+    <>
+      <PlayerNameLine p={p} compact={compact} badges={badges} />
+      {rings && <span className="sr-only">{ringLabel(rings)}</span>}
+    </>
+  )
   const main = sel ? (
     <label htmlFor={checkId} className={`${hit} cursor-pointer`}>
       {name}

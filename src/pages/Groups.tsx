@@ -11,6 +11,8 @@ import { FoldSection } from '../components/FoldSection'
 import { foldKey, startsOpen } from '../fold'
 import { departmentChoices, departmentLabel } from '../lists'
 import { Empty, Icon, Segmented } from '../components/ui'
+import { GroupColorPicker } from '../components/GroupRings'
+import { autoGroupColor, fallbackGroupColor, groupColorOf, type GroupColor } from '../groupColors'
 import { alive, db, GROUP_SCOPES, newId, remove, save, saveMany, type GroupScope, type Player, type PlayerGroup, type Position } from '../db'
 import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
 import { regionOfDept, useRegionName, useRegions } from '../lists'
@@ -678,6 +680,11 @@ export function GroupForm({
   const creator = !group?.createdBy || group.createdBy === currentUserId()
   const [teamFollow, setTeamFollow] = useState(!!group?.teamFollow)
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
+  // Couleur (repère dans les listes, src/groupColors.ts) : la sienne ; sans couleur, celle qu'il montre déjà ; nouveau groupe :
+  // la moins prise parmi les groupes existants (choisie une fois les groupes lus, tant qu'on n'y a pas touché).
+  const [color, setColor] = useState<GroupColor | null>(group ? groupColorOf(group) : null)
+  const others = useLiveQuery(() => db.groups.toArray().then((gs) => alive(gs).filter((g) => !g.archived && g.id !== group?.id)), [group?.id])
+  const shownColor = color ?? (others ? autoGroupColor(others) : null)
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-white'}`
 
@@ -780,6 +787,9 @@ export function GroupForm({
         </div>
       </div>
 
+      <span className="label mt-2">Couleur (repère dans les listes)</span>
+      {shownColor && <GroupColorPicker value={shownColor} onChange={setColor} />}
+
       {!complete && <p className="mt-2 text-[11px] text-amber-300">À compléter : {missing.join(', ')}.</p>}
       <FormActions className="mt-2 flex gap-2">
         <button
@@ -795,6 +805,8 @@ export function GroupForm({
               department: scope === 'federation' || scope === 'ligue' ? undefined : department || undefined,
               regionId: scope === 'federation' ? undefined : scope === 'comite' ? regionOfDept(department) ?? (region || undefined) : region || undefined,
               years: years.length ? [...years].sort() : undefined,
+              // Couleur : gardée si elle est choisie (ou déjà enregistrée) ; celle tirée de l'identifiant reste implicite.
+              color: !group || group.color || (shownColor && shownColor !== fallbackGroupColor(group.id)) ? (shownColor ?? undefined) : undefined,
               // Participants : seulement sur un groupe partagé ; leurs noms pour l'affichage.
               editors: priv ? [] : editors,
               teams: priv || !teams.length ? undefined : teams,
@@ -815,7 +827,7 @@ export function GroupForm({
               // Moins visible (staff → mon staff ou privé, mon staff → privé) : nouveau groupe, et l'ancien est supprimé
               // chez tout le monde. Sinon, ceux qui ne le voient plus garderaient leur copie : le serveur ne leur
               // envoie plus rien de ce groupe, pas même sa suppression.
-              const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, ...flags, id: newId() })
+              const copy = await save<PlayerGroup>('groups', { ...stripStamps(current), ...fields, ...flags, color: shownColor ?? undefined, id: newId() })
               await remove('groups', current.id)
               return onDone(copy)
             }

@@ -397,6 +397,11 @@ export interface PlayerGroup extends Syncable {
    * fiches (Player.poles) qui correspondent à l'unité et couvrent la date de la vue (saison en cours / prochaine).
    */
   poleUnitId?: string
+  /**
+   * Couleur du groupe (clé de src/groupColors.ts) : anneau autour de la photo de ses joueurs quand on le repère
+   * (« Filtres » → « Repérer des groupes »). Même pour tout le monde ; absente : couleur tirée de l'identifiant.
+   */
+  color?: string
 }
 
 /**
