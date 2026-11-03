@@ -18,8 +18,10 @@ import {
   matchPlayer,
   periodStart,
   momentAction,
+  momentPlace,
   momentNote,
   planPlayerMoments,
+  sheetForMoments,
   sheetMoments,
   sheetPlayersOf,
   simultaneous,
@@ -362,6 +364,31 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   assert.equal(stepIn(goals, sorted[1].id, -1)?.id, sorted[0].id)
   assert.equal(stepIn(goals, sorted.at(-1)!.id, 1), undefined, 'au bout')
   assert.ok(stepIn(goals, sorted[0].id, 1)!.i !== undefined && ['but', 'but7'].includes(d.actions[stepIn(goals, sorted[0].id, 1)!.i].k))
+}
+
+// Moment calé (« C'est ici ! ») sur la fiche : « calé », même quand une autre feuille du même match (deuxième événement,
+// prise suivante d'un tutoriel) est calée sur la même adresse sans ce repère. Démo : 7 m à 01:55 calé à 2:11 de la vidéo.
+{
+  const i7 = d.actions.findIndex((a) => a.k === 'but7' && a.p === 1 && a.t === 115)
+  assert.ok(i7 >= 0 && d.actions[i7].pl !== undefined, '7 m de 01:55 dans la démo')
+  const pl = d.actions[i7].pl!
+  const ms = toStored(d, [])
+  const keys = actionKeys(ms.actions)
+  const url = 'https://exemple.fr/match.mp4'
+  const calee = { ...ms, sync: { url, marks: { s1: 20 }, fix: { [keys[i7]]: 131.3 } } }
+  const autre = { ...ms, sync: { url, marks: { s1: 20 } } }
+  const plan = planPlayerMoments(calee, pl)
+  const m7 = plan.moments.find((m) => m.note === momentNote(ms.actions[i7]))!
+  assert.equal(m7.at, 131 - CLIP_LEAD, 'moment à 2:03')
+  assert.deepEqual(momentPlace([{ ms: calee, pls: [pl] }], m7), { k: 0, i: i7, status: 'fixed' })
+  // L'autre feuille d'abord (plus récente) : le moment vient quand même de la feuille calée.
+  assert.deepEqual(momentPlace([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], m7), { k: 1, i: i7, status: 'fixed' })
+  assert.equal(sheetForMoments([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], plan.moments), 1)
+  // Les autres moments du joueur, non calés : « estimé ».
+  for (const m of plan.moments.filter((x) => x !== m7)) assert.equal(momentPlace([{ ms: calee, pls: [pl] }], m)?.status, 'estimated')
+  // Aucune feuille ne place le moment à son début (moment ancien) : la première qui a l'action, comme avant.
+  assert.equal(momentPlace([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], { ...m7, at: m7.at + 30 })?.k, 0)
+  assert.equal(momentPlace([{ ms: calee, pls: [pl] }], { at: 5, note: 'à revoir' }), undefined, 'moment ajouté à la main')
 }
 
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

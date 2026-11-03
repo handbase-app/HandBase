@@ -172,7 +172,9 @@ export function PlayerMatches({ p, canWrite }: { p: Player; canWrite: boolean })
       ) : matches.length === 0 ? (
         !loadError && <p className="text-xs text-muted">Pas encore de match ici. {canWrite ? 'Importe la feuille d’un match où tu as joué.' : ''}</p>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2">
+        // grid-cols-1 (minmax(0, 1fr)) et min-w-0 : une carte ne s'élargit jamais à la largeur de son texte d'une ligne (date et
+        // compétition, « ajouté par toi ») ; elle reste dans l'écran, le texte trop long est tronqué.
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {matches.map((m) => (
             <MatchItem key={m.eventId} m={m} ctx={ctx} canWrite={canWrite} onChanged={reload} onSeq={(video) => setSeq({ match: m, video })} />
           ))}
@@ -210,7 +212,7 @@ function MatchItem({ m, ctx, canWrite, onChanged, onSeq }: { m: PlayerMatch; ctx
   }
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-line bg-panel-2 p-3 text-xs">
+    <li className="flex min-w-0 flex-col gap-2 rounded-md border border-line bg-panel-2 p-3 text-xs">
       <div className="flex items-center gap-2 text-[11px] text-muted">
         <span className="min-w-0 flex-1 truncate">{[fmtDate(m.date), m.competition].filter(Boolean).join(' · ')}</span>
         {m.mine && m.proposed && <span className="shrink-0 rounded-full bg-panel px-1.5 py-px text-[9px] font-bold">ajouté par toi</span>}

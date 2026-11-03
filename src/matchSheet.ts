@@ -876,6 +876,46 @@ export function momentAction(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sy
   return cands.reduce((a, b) => (dist(b) < dist(a) ? b : a))
 }
 
+/** Feuille d'un lien de fiche joueur (pls : indices de la fiche dans players). */
+type SheetOfLink = { ms: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>; pls: number[] }
+
+/** Action d'un moment généré dans une feuille, et si cette feuille le place exactement à son début (moment venu d'elle). */
+function placeIn(s: SheetOfLink, m: VideoMoment) {
+  const tl = timelineOf(s.ms)
+  const i = momentAction(s.ms, s.pls, m, tl)
+  if (i === undefined) return undefined
+  const v = tl.at(i)
+  return { i, exact: v !== undefined && Math.max(0, Math.round(v - CLIP_LEAD)) === m.at, status: tl.status(i) }
+}
+
+/**
+ * Plusieurs feuilles calées sur la même adresse (même match importé dans deux événements, prises successives…) : le moment
+ * généré vient de celle qui le place exactement à son début (at), sinon de la première qui a son action (l'appelant les
+ * range, la plus récente d'abord). Rend la feuille (indice k dans sheets), l'action et son statut (calée ou estimée).
+ */
+export function momentPlace(sheets: SheetOfLink[], m: VideoMoment): { k: number; i: number; status?: PlaceStatus } | undefined {
+  let first: { k: number; i: number; status?: PlaceStatus } | undefined
+  for (const [k, s] of sheets.entries()) {
+    const p = placeIn(s, m)
+    if (!p) continue
+    if (p.exact) return { k, i: p.i, status: p.status }
+    first ??= { k, i: p.i, status: p.status }
+  }
+  return first
+}
+
+/** Feuille d'où viennent les moments générés d'un lien : celle qui en place le plus exactement, la première à égalité. */
+export function sheetForMoments(sheets: SheetOfLink[], moments: VideoMoment[]): number {
+  const gen = moments.filter(isGenerated)
+  let best = 0
+  let most = -1
+  for (const [k, s] of sheets.entries()) {
+    const n = gen.filter((m) => placeIn(s, m)?.exact).length
+    if (n > most) [best, most] = [k, n]
+  }
+  return best
+}
+
 /**
  * Lecture d'une vidéo d'événement (hors mode édition) : un moment par action du match placée sur cette vidéo (calée ou
  * estimée), comme les moments générés sur les fiches (CLIP_LEAD s avant, CLIP_DUR s), avec l'indice de son action. Rien si

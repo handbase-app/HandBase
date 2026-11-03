@@ -77,7 +77,9 @@ function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Vid
         for (let n = 0; into.has(id) && n < 5; n++) id = into.get(id)!
         return id
       }
+      // Le même match peut être calé sur cette adresse dans plusieurs événements : le plus récemment modifié d'abord.
       return evs
+        .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((e) => ({ eventId: e.id, url: e.matchSheet!.sync!.url!, ms: e.matchSheet!, pls: mod.sheetPlayersOf(e.matchSheet!, targetId, resolve) }))
         .filter((l) => l.pls.length > 0)
     },
@@ -180,16 +182,18 @@ export function VideoSection({
   const sheetWho = useSheetWho(sheet?.ms)
   // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
   const open = playing && videos ? (videos.find((x) => x.id === playing.v.id) ?? playing.v) : undefined
-  const sheetOf = (v: Video) => sheets.links.find((l) => l.url === v.url)
-  /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main). */
+  const linksOf = (v: Video) => sheets.links.filter((l) => l.url === v.url)
+  /** Feuille d'où viennent les moments générés de ce lien (plusieurs événements peuvent être calés sur la même adresse). */
+  const sheetOf = (v: Video) => {
+    const ls = linksOf(v)
+    return ls.length > 1 && sheets.mod ? ls[sheets.mod.sheetForMoments(ls, momentsOf(v))] : ls[0]
+  }
+  /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main), lu dans sa feuille. */
   const badgeOf = (v: Video) => {
-    const l = sheetOf(v)
+    const ls = linksOf(v)
     const mod = sheets.mod
-    if (!l || !mod) return undefined
-    return (m: VideoMoment) => {
-      const i = mod.momentAction(l.ms, l.pls, m)
-      return <PlaceMark status={i === undefined ? undefined : mod.timelineOf(l.ms).status(i)} />
-    }
+    if (!ls.length || !mod) return undefined
+    return (m: VideoMoment) => <PlaceMark status={mod.momentPlace(ls, m)?.status} />
   }
   const openSheet = open ? sheetOf(open) : undefined
   // Fiche joueur : séquençage de ses actions possible aussi, en mode édition (même règle de droits, joueur compris :
