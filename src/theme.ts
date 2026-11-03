@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_SCALE, scaleFloor } from './mapScale'
 import { BRAND_NEON, neonVars, type Neon } from './neon'
+import { groupColorVars } from './groupColors'
 import { positionVars } from './positionColors'
 import { DEFAULT_APPEARANCE, cleanAppearance, paletteOf, STYLE_ATTRS, styleById, styleLook, type Appearance, type StyleId } from './uiStyle'
 
@@ -188,6 +189,8 @@ export function applyTheme(choice = readThemeChoice()) {
   root.toggleAttribute('data-light', look.light)
   // Couleurs des postes des listes de joueurs (src/positionColors.ts) : version claire ou sombre.
   for (const [k, v] of Object.entries(positionVars(look.light))) root.style.setProperty(k, v)
+  // Couleurs des groupes repérés (anneau autour de la photo, src/groupColors.ts) : de même.
+  for (const [k, v] of Object.entries(groupColorVars(look.light))) root.style.setProperty(k, v)
   root.style.setProperty('--scale-floor', `${look.scaleFloor}%`)
   root.style.colorScheme = look.light ? 'light' : 'dark'
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', look.themeColor)
