@@ -398,7 +398,7 @@ export interface PlayerGroup extends Syncable {
    */
   poleUnitId?: string
   /**
-   * Couleur du groupe (clé de src/groupColors.ts) : anneau autour de la photo de ses joueurs quand on le repère
+   * Couleur du groupe (clé de src/groupColors.ts) : liseré à gauche de la ligne de ses joueurs quand on le repère
    * (« Filtres » → « Repérer des groupes »). Même pour tout le monde ; absente : couleur tirée de l'identifiant.
    */
   color?: string

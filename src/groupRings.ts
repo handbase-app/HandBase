@@ -1,9 +1,9 @@
-import { fallbackGroupColor, GROUP_COLORS, groupColorCss, isGroupColor, type GroupColor } from './groupColors'
+import { fallbackGroupColor, GROUP_COLORS, isGroupColor, type GroupColor } from './groupColors'
 
 /*
  * « Repérer des groupes » (Filtres → bas de la fenêtre, components/GroupRings.tsx) : jusqu'à 3 groupes choisis par chacun
- * (gardés sur le compte avec l'affichage, src/affichage.ts) ; leurs joueurs ont un anneau de la couleur du groupe autour de la
- * photo, dans toutes les listes (components/PlayerRow.tsx). Partie pure, testée par tools/test-reperer-groupes.ts.
+ * (gardés sur le compte avec l'affichage, src/affichage.ts) ; leurs joueurs ont un liseré de la couleur du groupe à
+ * gauche de la ligne, dans toutes les listes (components/PlayerRow.tsx ; choix du 03/11, à la place d'un anneau). Partie pure, testée par tools/test-reperer-groupes.ts.
  */
 
 export const MAX_REPERES = 3
@@ -37,12 +37,12 @@ export function toggleGroupe(on: readonly string[], id: string): string[] {
   return on.length >= MAX_REPERES ? [...on] : [...on, id]
 }
 
-/** Groupe repéré, tel que l'anneau le montre. */
+/** Groupe repéré, tel que le liseré le montre. */
 export type RingGroup = { id: string; name: string; color: GroupColor }
 
 /**
  * Couleurs des groupes repérés (dans l'ordre du choix) : la leur ; un groupe SANS couleur enregistrée prend celle tirée de
- * son identifiant, sauf si un autre groupe repéré l'a déjà : alors la suivante libre de la palette (deux anneaux ne se
+ * son identifiant, sauf si un autre groupe repéré l'a déjà : alors la suivante libre de la palette (deux liserés ne se
  * confondent pas). Même choix, mêmes couleurs, pour tout le monde.
  */
 export function resolveRingColors(gs: readonly { id: string; color?: string }[]): GroupColor[] {
@@ -83,14 +83,6 @@ export function countHere(playerIds: readonly string[], here: ReadonlySet<string
   let n = 0
   for (const id of new Set(playerIds)) if (here.has(id)) n++
   return n
-}
-
-/** Fond de l'anneau : une couleur, ou le tour partagé à parts égales (2 ou 3 groupes). */
-export function ringBackground(colors: readonly GroupColor[]): string {
-  if (colors.length <= 1) return colors[0] ? groupColorCss(colors[0]) : 'transparent'
-  const n = colors.length
-  const pct = (i: number) => `${Math.round((i * 10000) / n) / 100}%`
-  return `conic-gradient(${colors.map((c, i) => `${groupColorCss(c)} ${pct(i)} ${pct(i + 1)}`).join(', ')})`
 }
 
 /** « Groupes repérés : Comité 83, Interligue » (lecteur d'écran, bulle de la photo). */

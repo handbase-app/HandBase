@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { groupesReperes, onAffichage, setGroupesReperes, useGroupesReperes } from '../affichage'
 import { alive, db, type PlayerGroup } from '../db'
 import { GROUP_COLORS, GROUP_TONES, groupColorCss, groupColorOf, type GroupColor } from '../groupColors'
-import { countHere, MAX_REPERES, resolveRingColors, ringBackground, ringLabel, ringMembership, sameIds, toggleGroupe, type RingGroup } from '../groupRings'
+import { countHere, MAX_REPERES, resolveRingColors, ringLabel, ringMembership, sameIds, toggleGroupe, type RingGroup } from '../groupRings'
 import { sharedQuery, useShared } from '../live'
 import { POLE_MEMBER_TABLES, withPoleMembers } from '../poleMembers'
 import { can } from '../roles'
@@ -44,25 +44,23 @@ export function useRowRings(playerId?: string): RingGroup[] | undefined {
 }
 
 /**
- * Anneau autour de la photo (ou des initiales) : 3 px (2,5 px sous 36 px), 1,5 px d'écart, partagé à parts égales entre 2 ou
- * 3 groupes. Posé par-dessus, hors de la boîte de la photo : la ligne ne bouge pas.
+ * Liseré des groupes repérés (choix du 03/11, à la place de l'anneau autour de la photo) : un trait de 4 px de la couleur
+ * de chaque groupe, côte à côte, sur le bord gauche de la ligne (3 au plus). Posé par-dessus, la ligne garde sa place
+ * (PlayerRow ajoute la marge qu'il faut à gauche).
  */
-export function RingFrame({ rings, size, children }: { rings?: RingGroup[]; size: number; children: React.ReactNode }) {
-  if (!rings?.length) return <>{children}</>
-  const w = size >= 36 ? 3 : 2.5
-  const out = w + 1.5
-  const mask = `radial-gradient(farthest-side, transparent calc(100% - ${w + 0.5}px), #000 calc(100% - ${w}px))`
+export function RowStripes({ rings }: { rings?: RingGroup[] }) {
+  if (!rings?.length) return null
   return (
-    <span className="relative inline-flex shrink-0 rounded-full" style={{ width: size, height: size }} title={ringLabel(rings)} data-rings={rings.map((g) => g.color).join(' ')}>
-      {children}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute rounded-full"
-        style={{ inset: -out, background: ringBackground(rings.map((g) => g.color)), WebkitMask: mask, mask }}
-      />
+    <span aria-hidden title={ringLabel(rings)} data-rings={rings.map((g) => g.color).join(' ')} className="pointer-events-none absolute inset-y-0 left-0 flex">
+      {rings.map((g) => (
+        <span key={g.id} className="w-1" style={{ backgroundColor: groupColorCss(g.color) }} />
+      ))}
     </span>
   )
 }
+
+/** Largeur du liseré (px) : la ligne décale d'autant son contenu. */
+export const STRIPE_W = 4
 
 /** Rond de couleur (pastille du formulaire, de la section). */
 const dot = (c: GroupColor) => ({ backgroundColor: groupColorCss(c) })
@@ -140,7 +138,7 @@ export function GroupRingsSection({ players }: { players?: readonly { id: string
       <h3 id="reperer-titre" className="text-[11px] font-extrabold tracking-wider text-accent uppercase">
         Repérer des groupes
       </h3>
-      <p className="text-[10px] text-muted">Les joueurs de ces groupes ont un anneau de leur couleur autour de la photo, dans toutes les listes. 3 au plus.</p>
+      <p className="text-[10px] text-muted">Les joueurs de ces groupes ont un trait de leur couleur à gauche de la ligne, dans toutes les listes. 3 au plus.</p>
       {!rows.length && <p className="text-[11px] text-muted">Aucun groupe pour l’instant.</p>}
       {many && (
         <input className="field" type="search" placeholder="Chercher un groupe" aria-label="Chercher un groupe" value={q} onChange={(e) => setQ(e.target.value)} />

@@ -6,7 +6,7 @@
 //   npx jiti tools/test-reperer-groupes.ts
 import assert from 'node:assert/strict'
 import { autoGroupColor, fallbackGroupColor, GROUP_COLORS, GROUP_TONES, groupColorOf, groupColorVars, isGroupColor } from '../src/groupColors'
-import { countHere, MAX_REPERES, parseGroupes, resolveRingColors, parseGroupesRaw, ringBackground, ringLabel, ringMembership, sameIds, toggleGroupe, UUID_RE } from '../src/groupRings'
+import { countHere, MAX_REPERES, parseGroupes, resolveRingColors, parseGroupesRaw, ringLabel, ringMembership, sameIds, toggleGroupe, UUID_RE } from '../src/groupRings'
 import { THEMES } from '../src/theme'
 import { contrast, STYLES } from '../src/uiStyle'
 
@@ -158,10 +158,6 @@ const mc = ringMembership([G1, G2], [{ id: G1, name: 'A', color: fb, playerIds: 
 assert.deepEqual(mc.map.get('p1')?.map((g) => g.color), [fb, next])
 
 // ---------- Anneau ----------
-assert.equal(ringBackground([]), 'transparent')
-assert.equal(ringBackground(['bleu']), 'var(--grp-bleu)')
-assert.equal(ringBackground(['bleu', 'orange']), 'conic-gradient(var(--grp-bleu) 0% 50%, var(--grp-orange) 50% 100%)')
-assert.equal(ringBackground(['bleu', 'orange', 'vert']), 'conic-gradient(var(--grp-bleu) 0% 33.33%, var(--grp-orange) 33.33% 66.67%, var(--grp-vert) 66.67% 100%)')
 assert.equal(ringLabel([]), '')
 assert.equal(ringLabel([{ name: 'Comité 83' }]), 'Groupe repéré : Comité 83')
 assert.equal(ringLabel([{ name: 'Comité 83' }, { name: 'Interligue' }]), 'Groupes repérés : Comité 83, Interligue')

@@ -12,7 +12,7 @@ import { useSousNom } from '../affichage'
 import { sousNomPieces } from '../sousNom'
 import { sportContent } from '../sportContent'
 import { ringLabel } from '../groupRings'
-import { RingFrame, useRowRings } from './GroupRings'
+import { RowStripes, STRIPE_W, useRowRings } from './GroupRings'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -59,13 +59,9 @@ export function playerSub(p: Pick<Player, 'birthDate' | 'club'>, ...before: SubB
   return [...before, p.birthDate?.slice(0, 4), q && `Q${q}`, p.club].filter(Boolean).join(' · ')
 }
 
-/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal ; anneau des groupes repérés. */
+/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal. */
 export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'> & { id?: string }; size: number }) {
-  return (
-    <RingFrame rings={useRowRings(p.id)} size={size}>
-      <Face p={p} size={size} />
-    </RingFrame>
-  )
+  return <Face p={p} size={size} />
 }
 
 function Face({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'>; size: number }) {
@@ -299,7 +295,7 @@ function Row({
   // Le lien (ou bouton) porte le nom ; son ::after couvre toute la zone de la ligne (un clic n'importe où l'ouvre).
   // Ce qui doit rester touchable par-dessus (pictogrammes, « ⋮ », photo à part, boutons des lignes) passe au-dessus (z-[1]).
   const hit = "col-start-1 row-start-1 min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-['']"
-  // Groupes repérés (anneau de la photo) : lus avec le nom.
+  // Groupes repérés (liseré à gauche de la ligne) : lus avec le nom.
   const rings = useRowRings(p.id)
   const name = (
     <>
@@ -378,8 +374,10 @@ function Row({
   )
   // Pas de carte : la ligne est un élément du cadre de la liste (src/index.css, [data-pitem]) ; survol, appui, ligne
   // ouverte ou cochée : fond légèrement teinté (prow-hit, prow-on).
-  const card = `prow @container/prow ${MENU_ROW} ${link || onClick || sel ? 'prow-hit' : ''} ${selected || marked || sel?.checked ? 'prow-on' : ''} ${className}`
+  const card = `prow @container/prow relative ${MENU_ROW} ${link || onClick || sel ? 'prow-hit' : ''} ${selected || marked || sel?.checked ? 'prow-on' : ''} ${className}`
   const pad = compact ? 'py-1 pr-1 pl-2' : 'px-3 py-2.5'
+  // Liseré des groupes repérés : le contenu se décale de sa largeur.
+  const stripes = rings?.length ? { paddingLeft: (compact ? 8 : 12) + rings.length * STRIPE_W } : undefined
   const line = compact ? 'flex items-center gap-1.5' : 'flex items-center gap-3'
   const opened = menu.anchor && (
     // Hors de la ligne ; les événements du menu et de ses fenêtres ne remontent pas jusqu'à la liste.
@@ -391,7 +389,8 @@ function Row({
   if (!below)
     return (
       <>
-        <div className={`${card} ${line} ${pad}`} {...attrs}>
+        <div className={`${card} ${line} ${pad}`} style={stripes} {...attrs}>
+          <RowStripes rings={rings} />
           {row}
         </div>
         {opened}
@@ -399,7 +398,8 @@ function Row({
     )
   return (
     <>
-      <div className={`${card} flex flex-col gap-1.5 ${pad}`} {...attrs}>
+      <div className={`${card} flex flex-col gap-1.5 ${pad}`} style={stripes} {...attrs}>
+        <RowStripes rings={rings} />
         <div className={line}>{row}</div>
         {below}
       </div>
