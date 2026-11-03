@@ -14,12 +14,12 @@ export type Level = 'france' | 'pole' | 'ligue' | 'comite'
 export const LEVELS: readonly Level[] = ['france', 'pole', 'ligue', 'comite']
 export const MAX_LEVELS = 2
 
-/** Nom lu (bulle, lecteur d'écran) et teinte en thème clair / sombre (palette de Tailwind). */
+/** Nom lu (bulle, lecteur d'écran) et teinte en thème clair / sombre (choix du 03/11 : « franche » en sombre, « douce » en clair, foncée juste assez pour 3:1 sur toutes les cartes claires). */
 export const LEVEL_TONES: Record<Level, { label: string; light: string; dark: string }> = {
-  france: { label: 'France', light: '#1d4ed8', dark: '#60a5fa' },
-  pole: { label: 'Pôle', light: '#15803d', dark: '#4ade80' },
-  ligue: { label: 'Ligue', light: '#b91c1c', dark: '#ef4444' },
-  comite: { label: 'Comité', light: '#a37a00', dark: '#facc15' },
+  france: { label: 'France', light: '#3b6fd8', dark: '#4f8dff' },
+  pole: { label: 'Pôle', light: '#119670', dark: '#22d3a0' },
+  ligue: { label: 'Ligue', light: '#d8434b', dark: '#ff5a5f' },
+  comite: { label: 'Comité', light: '#c06c00', dark: '#ffb020' },
 }
 
 const SCOPE_LEVEL: Record<GroupScope, Level> = { federation: 'france', ligue: 'ligue', comite: 'comite' }
