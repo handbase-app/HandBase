@@ -10,21 +10,8 @@ import { ItemMenu, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
  * en rouge et en dernier, avec la confirmation de la page. Jamais de lien « Supprimer » à côté de « Modifier ».
  */
 
-/** Actions de la page : un menu « ⋮ » au bout de l'en-tête (feuille du bas sur téléphone, petite fenêtre sur ordinateur). */
-export function HeaderMenu({
-  title,
-  subtitle,
-  items,
-  label = 'Plus d’actions',
-  anchored = false,
-}: {
-  title: ReactNode
-  subtitle?: ReactNode
-  items: (MenuItem | false | undefined | null)[]
-  label?: string
-  /** Essai : petite fenêtre accrochée au ⋮ sur téléphone aussi (ItemMenu `anchored`). */
-  anchored?: boolean
-}) {
+/** Actions de la page : un menu « ⋮ » au bout de l'en-tête (petite fenêtre accrochée au bouton, sur téléphone aussi). */
+export function HeaderMenu({ title, subtitle, items, label = 'Plus d’actions' }: { title: ReactNode; subtitle?: ReactNode; items: (MenuItem | false | undefined | null)[]; label?: string }) {
   const menu = useRowMenu()
   const list = items.filter((x): x is MenuItem => !!x)
   if (!list.length) return null
@@ -33,7 +20,7 @@ export function HeaderMenu({
   return (
     <>
       <MenuButton onOpen={menu.open} open={!!menu.anchor} label={label} className="-mr-2" />
-      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={ordered} onClose={menu.close} anchored={anchored} />}
+      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={ordered} onClose={menu.close} />}
     </>
   )
 }
@@ -100,7 +87,7 @@ export function MoreActions({ title, subtitle, items, label = 'Plus d’actions'
           <circle cx="12" cy="19" r="1.7" />
         </svg>
       </button>
-      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={list} onClose={menu.close} pop />}
+      {menu.anchor && <ItemMenu anchor={menu.anchor} title={title} subtitle={subtitle} items={list} onClose={menu.close} />}
     </>
   )
 }

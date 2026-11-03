@@ -1,21 +1,20 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useBackCloses } from '../backNav'
 import { db } from '../db'
 import { confirmLogout } from '../logout'
 import { ROLE_LABEL, useRole } from '../roles'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { percent, showProgress } from '../syncProgress'
 import { canLeave } from './Confirm'
-import { flash, isPhone, ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
+import { flash, ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
 import { Icon, useMe } from './ui'
 
 /*
  * Bulle de profil, à droite de l'en-tête (après l'étoile des suivis et la cible) : initiales du compte, et un petit point
  * de couleur en bas à droite pour l'état de la synchronisation (vert en direct, ambre en attente ou hors ligne, rouge en
- * erreur, gris en local). Un toucher ouvre le menu du compte (ItemMenu : sous la bulle sur ordinateur, feuille du bas sur
- * téléphone, que le geste Retour referme sans quitter la page) : nom et rôle, état de la synchro (un toucher la relance),
+ * erreur, gris en local). Un toucher ouvre le menu du compte (ItemMenu : petite fenêtre sous la bulle, que le geste Retour
+ * referme sans quitter la page) : nom et rôle, état de la synchro (un toucher la relance),
  * Réglages, Confidentialité, Se déconnecter (src/logout.ts, comme dans Réglages ; pas sans serveur).
  */
 
@@ -59,19 +58,11 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
   const role = useRole()
   const sync = useSyncInfo()
   const nav = useNavigate()
+  // Petite fenêtre sous les initiales, comme tous les menus ; le geste Retour la referme sans quitter la page (ItemMenu).
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
-  // Téléphone aussi : petite fenêtre sous les initiales (pas de feuille du bas, jugée trop lente : Geoffroy, 25/10), que le
-  // geste Retour referme sans quitter la page (src/backNav.tsx, useBackCloses).
-  const [phone, setPhone] = useState(false)
-  useBackCloses(() => setAnchor(null), !!anchor && phone)
-
-  const open = (a: MenuAnchor) => {
-    setPhone(isPhone() || rail)
-    setAnchor(a)
-  }
   /**
-   * Ferme le menu, puis lance `then` (aller dans Réglages…) : l'écran ouvert prend la place de l'entrée d'historique de
-   * la feuille (le retour ramène à l'écran d'avant, en un geste).
+   * Ferme le menu, puis lance `then` (aller dans Réglages…) : l'écran ouvert prend la place de l'entrée d'historique du
+   * menu (le retour ramène à l'écran d'avant, en un geste).
    */
   const close = (then?: () => void) => {
     setAnchor(null)
@@ -117,7 +108,7 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
           if (anchor) return close()
           const r = e.currentTarget.getBoundingClientRect()
           // Menu de gauche (téléphone couché) : à droite de la bulle, au-dessus de son bas (pas de place dessous).
-          open(rail ? { x: r.right + 10, y: r.top, top: r.bottom } : { x: r.right, y: r.bottom, top: r.top, alignRight: true })
+          setAnchor(rail ? { x: r.right + 10, y: r.top, top: r.bottom } : { x: r.right, y: r.bottom, top: r.top, alignRight: true })
         }}
         // .sync-badge : clignote une fois si l'on entre avant la fin de la synchro (src/splashScreen.ts, index.css).
         className="sync-badge relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-panel-2 text-[11px] font-extrabold tracking-wide text-fg hover:border-accent"
@@ -130,7 +121,7 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
           </span>
         )}
       </button>
-      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} pop />}
+      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} />}
     </>
   )
 }
