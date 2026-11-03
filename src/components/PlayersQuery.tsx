@@ -201,10 +201,12 @@ export type OwnFilters = { panel: ReactNode; chips: { key: string; label: string
  * `initial` : requête de départ d'une liste à part (`scope`), avant tout choix de la session (page « À revoir » : pas encore
  * revus). `rewatchTop` : les réglages « À revoir » en tête de la fenêtre (page « À revoir »), plus sous « Seulement ».
  * `own` : filtres propres de l'écran (liste à part, page d'un événement), comme ceux d'une barre posée (HostedBar `own`).
+ * `clearElsewhere` : pas de « Tout effacer » au bout des pastilles, l'écran a le sien qui efface aussi ses propres choix
+ * (Autour de moi : Où, Quand et Qui) avec `reset` ; `clearable` : un filtre est posé. La fenêtre « Filtres » garde le sien.
  */
 export function usePlayersQuery(
   players: Player[] | undefined,
-  opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean; initial?: JoueursQuery; rewatchTop?: boolean; own?: OwnFilters },
+  opts: { scope?: string; hosted?: HostedBar; display?: boolean; count?: boolean; initial?: JoueursQuery; rewatchTop?: boolean; own?: OwnFilters; clearElsewhere?: boolean },
 ) {
   const hosted = opts.hosted
   const keys = opts.scope
@@ -976,9 +978,11 @@ export function usePlayersQuery(
       after={
         clearable ? (
           <>
-            <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
-              Tout effacer
-            </button>
+            {!opts.clearElsewhere && (
+              <button type="button" className="min-h-9 px-1 text-[11px] font-bold text-muted underline" onClick={reset}>
+                Tout effacer
+              </button>
+            )}
             {!saving && !hosted && hasQuery(qy) && (
               <button type="button" className="flex min-h-9 items-center gap-1 px-1 text-[11px] font-bold text-muted underline" onClick={() => setSaving(true)}>
                 <Icon name="star" className="h-3 w-3" />
@@ -1148,6 +1152,8 @@ export function usePlayersQuery(
     sex: qy.recipe.pop.sex,
     rewatchOrigin,
     query: qy,
+    clearable,
+    reset,
   }
 }
 
