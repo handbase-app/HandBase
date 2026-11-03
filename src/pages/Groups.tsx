@@ -1170,7 +1170,7 @@ function PlayerGroupDetail() {
       )}
 
       {editing && (
-        <FormWindow title={pole ? 'Renommer le groupe' : 'Modifier le groupe'} onClose={() => doneEditing()}>
+        <FormWindow title={pole ? 'Nom et couleur du groupe' : 'Modifier le groupe'} onClose={() => doneEditing()}>
           <GroupForm key={g.id} group={g} onDone={doneEditing} />
         </FormWindow>
       )}
@@ -1201,7 +1201,7 @@ function PlayerGroupDetail() {
                   // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
                   !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
                   leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
-                  manage && { label: pole ? 'Renommer' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  manage && { label: pole ? 'Nom et couleur' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
                   !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
                   !pole && canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
                   players.length > 0 && {
