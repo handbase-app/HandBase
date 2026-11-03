@@ -265,6 +265,19 @@ const spanOf = (r: { from: Date; to: Date }): DateSpan => ({ from: dayOf(r.from)
 /** Quand, rien de choisi : ce week-end (samedi et dimanche, celui qui vient ou celui en cours). */
 export const defaultSpan = (now: Date): DateSpan => spanOf(periodRange('weekend', now))
 
+/**
+ * Libellé de la pastille « Quand » (03/11, choix de Geoffroy) : un week-end connu dit son nom puis ses jours,
+ * « Ce week-end · 07–08/11 », « Week-end prochain · 14–15/11 » (mois différents : « 31/10–01/11 ») ; sinon spanLabel.
+ */
+export function whenLabel(s: DateSpan, now: Date): string {
+  const named = [{ label: 'Ce week-end', span: defaultSpan(now) }, ...quickSpans(now)].find((x) => x.span.from === s.from && x.span.to === s.to)
+  if (!named) return spanLabel(s, now)
+  const [, m1, d1] = s.from.split('-')
+  const [y2, m2, d2] = s.to.split('-')
+  const year = Number(y2) !== now.getFullYear() ? `/${y2.slice(2)}` : ''
+  return `${named.label} · ${m1 === m2 ? `${d1}–${d2}/${m2}` : `${d1}/${m1}–${d2}/${m2}`}${year}`
+}
+
 /** Dates de la recherche : celles choisies, sinon ce week-end. */
 export const whenSpan = (p: AroundPrefs, now: Date): DateSpan => p.dates ?? defaultSpan(now)
 

@@ -34,6 +34,7 @@ import {
   venuesOf,
   youthsText,
   spanLabel,
+  whenLabel,
   whenSpan,
   type AroundPrefs,
   type DateSpan,
@@ -244,18 +245,18 @@ export default function AroundMe({ tabs }: { tabs: ReactNode }) {
           <span className="truncate">{place ? `${place.label} · ${prefs.km} km` : 'Où ? Choisir un lieu'}</span>
           <span aria-hidden>{where.open ? '▴' : '▾'}</span>
         </button>
-        {/* Quand : un jour ou du … au …, fenêtre accrochée au bouton ; rien de choisi : ce week-end, dit en dates. */}
+        {/* Quand : un jour ou du … au …, fenêtre accrochée au bouton ; rien de choisi : « Ce week-end · 07–08/11 ». */}
         <button
           ref={when.anchor}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={when.open}
-          aria-label={`Quand : ${spanLabel(span, now)}${prefs.dates ? '' : ' (ce week-end)'}`}
+          aria-label={`Quand : ${whenLabel(span, now)}`}
           onClick={() => when.setOpen(!when.open)}
           className={`flex min-h-10 max-w-full items-center gap-1.5 rounded-full border px-3 text-xs font-bold sm:min-h-9 ${prefs.dates ? 'border-accent bg-accent/10 text-fg' : 'border-line bg-panel-2 text-fg'}`}
         >
           <Icon name="calendar" className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{spanLabel(span, now)}</span>
+          <span className="truncate">{whenLabel(span, now)}</span>
           <span aria-hidden>{when.open ? '▴' : '▾'}</span>
         </button>
         {clearable && (

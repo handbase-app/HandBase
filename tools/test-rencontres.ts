@@ -33,6 +33,7 @@ import {
   periodRange,
   quickSpans,
   spanLabel,
+  whenLabel,
   whenSpan,
   playerCategory,
   requestKey,
@@ -365,6 +366,16 @@ const players: P[] = [
   // Rien de choisi : ce week-end (samedi et dimanche), dit en dates sur la pastille.
   assert.deepEqual(show(aroundRange({ km: 25 }, at(2026, 11, 2, 9))), ['2026-11-07 00h', '2026-11-09 00h'])
   assert.deepEqual(defaultSpan(at(2026, 11, 2, 9)), { from: '2026-11-07', to: '2026-11-08' })
+  // Pastille « Quand » : week-ends nommés, sinon les dates.
+  const lundi = at(2026, 11, 2, 9)
+  assert.equal(whenLabel(defaultSpan(lundi), lundi), 'Ce week-end · 07–08/11')
+  assert.equal(whenLabel({ from: '2026-11-14', to: '2026-11-15' }, lundi), 'Week-end prochain · 14–15/11')
+  assert.equal(whenLabel({ from: '2026-11-21', to: '2026-11-22' }, lundi), 'Week-end dans 15 jours · 21–22/11')
+  assert.equal(whenLabel({ from: '2026-11-10', to: '2026-11-20' }, lundi), 'Du 10/11 au 20/11')
+  const fin = at(2026, 10, 28, 9)
+  assert.equal(whenLabel(defaultSpan(fin), fin), 'Ce week-end · 31/10–01/11')
+  const reveillon = at(2026, 12, 31, 12)
+  assert.equal(whenLabel(defaultSpan(reveillon), reveillon), 'Ce week-end · 02–03/01/27')
   assert.deepEqual(defaultSpan(at(2026, 11, 8, 20)), { from: '2026-11-07', to: '2026-11-08' }, 'dimanche : celui en cours')
   assert.deepEqual(defaultSpan(at(2026, 12, 31, 12)), { from: '2027-01-02', to: '2027-01-03' }, 'passage d’année')
   assert.deepEqual(whenSpan({ km: 25 }, at(2026, 11, 2)), { from: '2026-11-07', to: '2026-11-08' })
