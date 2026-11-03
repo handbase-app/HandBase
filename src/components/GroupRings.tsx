@@ -9,6 +9,7 @@ import { POLE_MEMBER_TABLES, withPoleMembers } from '../poleMembers'
 import { can } from '../roles'
 import { loadTeams } from '../teams'
 import { Icon } from './ui'
+import { FilterFold } from './PictoDisplay'
 
 /*
  * « Repérer des groupes » (src/groupRings.ts) : la table joueur → groupes repérés (une seule pour toute l'appli, relue quand
@@ -134,16 +135,12 @@ export function GroupRingsSection({ players }: { players?: readonly { id: string
   }
   shown = [...shown].sort(byName)
   return (
-    <section className="flex flex-col gap-1.5 border-t border-line pt-3" aria-labelledby="reperer-titre" data-filter="reperer">
-      <h3 id="reperer-titre" className="text-[11px] font-extrabold tracking-wider text-accent uppercase">
-        Repérer des groupes
-      </h3>
-      <p className="text-[10px] text-muted">Les joueurs de ces groupes ont un trait de leur couleur à gauche de la ligne, dans toutes les listes. 3 au plus.</p>
+    <FilterFold id="reperer" title="Repérer des groupes" summary={live.length ? rows.filter((r) => r.on).map((r) => r.g.name).join(' · ') : undefined}>
       {!rows.length && <p className="text-[11px] text-muted">Aucun groupe pour l’instant.</p>}
       {many && (
         <input className="field" type="search" placeholder="Chercher un groupe" aria-label="Chercher un groupe" value={q} onChange={(e) => setQ(e.target.value)} />
       )}
-      <div role="group" aria-labelledby="reperer-titre" className="flex flex-col gap-1">
+      <div role="group" aria-label="Groupes à repérer" className="flex flex-col gap-1">
         {shown.map(({ g, color, on: pressed, n }) => {
           const off = full && !pressed
           return (
@@ -172,6 +169,6 @@ export function GroupRingsSection({ players }: { players?: readonly { id: string
           {all ? 'Voir moins de groupes' : `Voir tous les groupes (${rows.length})`}
         </button>
       )}
-    </section>
+    </FilterFold>
   )
 }
