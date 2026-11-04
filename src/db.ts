@@ -173,6 +173,13 @@ export interface Player extends Syncable {
    * Sert à relier le joueur aux rencontres « Autour de moi ».
    */
   usualTeam?: UsualTeam
+  /**
+   * Objectifs de travail (vague 2 « Génération Bleue », src/objectives.ts) : 3 en cours au plus, « en cours » ou « atteint »
+   * (jamais « raté »), avec l'événement d'où ils viennent et une date, facultatifs. Fixés par un encadrant qui peut modifier la
+   * fiche (carte « Objectifs de travail », onglet Profil) ; lus par le jeune sur sa page et dans le bilan à imprimer. Champ
+   * libre de data (jsonb), gardé tel quel par le serveur (hb_upsert) : pas de SQL.
+   */
+  objectives?: import('./objectives').WorkObjective[]
 }
 
 /** Trace d'une fiche fondue dans une autre : qui l'avait proposée, si elle avait été mise hors cadre… */

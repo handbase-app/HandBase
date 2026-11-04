@@ -38,6 +38,8 @@ import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlay
 import { StaffJournal } from '../components/PlayerJournal'
 import { MeasureMedal, useReperes } from '../components/Medal'
 import { FamilyReport } from '../components/FamilyReport'
+import { ObjectivesCard } from '../components/Objectives'
+import { SelfEvalStaff, usePlayerSelfEvals } from '../components/SelfEval'
 import type { ReperesConfig } from '../reperes'
 import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
@@ -185,6 +187,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const reperes = useReperes()
   // « Bilan à imprimer » (menu ⋮) : fenêtre d'aperçu.
   const [printing, setPrinting] = useState(false)
+  // « Son regard » (auto-évaluations du jeune, supabase/064) : lu à la demande, en ligne, quand l'onglet Avis est ouvert.
+  const selfEvals = usePlayerSelfEvals(id!, tab === 'avis')
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data?.player.mergedInto)
@@ -411,6 +415,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         <PoleCard player={p} />
 
         <PosteCard player={p} canEdit={can.editPlayer(role, p)} />
+        {/* Objectifs de travail (vague 2 « Génération Bleue ») : un encadrant qui peut modifier la fiche les fixe ici ; le jeune
+            les voit sur sa page, le bilan à imprimer montre ceux en cours. */}
+        <ObjectivesCard player={p} canEdit={can.editPlayers(role) && can.editPlayer(role, p)} />
         {p.gaps && (
           <div className="card p-4">
             <div className="section-title text-amber-300">Lacunes mobilité / souplesse</div>
@@ -500,9 +507,11 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
           <div className="mb-3 flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
             <span className="text-accent">★</span> Avis du staff
           </div>
-          <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} focus={focus?.kind === 'avis' ? focus : undefined} />
+          <Opinions player={p} criteria={subjective} evaluations={evaluations} events={events} focus={focus?.kind === 'avis' ? focus : undefined} selfEvals={selfEvals ?? undefined} />
         </div>
       )}
+      {/* « Son regard » : ce que le jeune écrit après un événement (064), à part des avis, jamais compté dans les chiffres. */}
+      {view === 'avis' && <SelfEvalStaff player={p} list={selfEvals} events={events} />}
 
       {view === 'croissance' && <MaturityCard player={p} measurements={measurements} />}
 

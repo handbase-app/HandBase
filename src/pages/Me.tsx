@@ -31,10 +31,16 @@ import { inform, useUnsaved } from '../components/Confirm'
 import { JournalSection, TalkLink } from '../components/PlayerJournal'
 import { PlayerMatches } from '../components/PlayerMatches'
 import { MyTeamCard } from '../components/MyTeam'
+import { MyObjectives } from '../components/Objectives'
+import { SelfEvalSection } from '../components/SelfEval'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
  *  - En haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
+ *  - « Mes objectifs » (vague 2 « Génération Bleue ») : ses objectifs de travail, fixés avec son encadrant, en lecture seule
+ *    (src/components/Objectives.tsx ; rangés dans la fiche).
+ *  - « Comment ça s'est passé ? » (064) : après un match, un tournoi ou un stage où il était sur la liste, sa courte
+ *    auto-évaluation, modifiable 14 jours (src/components/SelfEval.tsx) ; le staff la lit à part des avis.
  *  - « Mon équipe » (056) : son équipe en championnat (1, 2 ou 3), le niveau, le surclassement ; enregistrée à part
  *    (src/components/MyTeam.tsx, hb_player_set_team), sans toucher au reste de la page.
  *  - « Mon journal du hand » (052) : notes datées, privées, partagées une par une (src/components/PlayerJournal.tsx).
@@ -275,6 +281,10 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         )}
         <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>
       </div>
+
+      {/* Mes objectifs (lecture seule) et « Comment ça s'est passé ? » (064) : en haut, comme « Mes objectifs à suivre ». */}
+      <MyObjectives player={p} />
+      <SelfEvalSection player={p} canWrite={canWrite} />
 
       {/* Mon équipe (056) : équipe 1, 2 ou 3, niveau, surclassement ; enregistrée à part (hb_player_set_team). */}
       <MyTeamCard p={p} canWrite={canWrite} />
