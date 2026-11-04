@@ -9,14 +9,19 @@ import type { Player } from '../src/db'
 import { buildProgressDemo } from '../src/demoProgress'
 import { GRID_CHAMP, GRID_MENTAL } from '../src/demoVolley'
 import {
+  bandColor,
   bySpread,
   familySpread,
   markShapeOf,
   sameNoteOffsets,
   SPREAD_BIG,
   SPREAD_GAP,
+  spreadColor,
+  spreadHeat,
   spreadLevel,
   spreadOf,
+  spreadOpacity,
+  spreadTextColor,
   spreadSummary,
   spreadWords,
   toDiscuss,
@@ -113,6 +118,29 @@ ok('libellés : radar, lignes, une seule note', () => {
   assert.equal(spreadWords(spreadOf([null, 3])).label, '3 · une note')
   assert.equal(spreadWords(spreadOf([null, 3])).stats, 'moy. 3,0 · une note')
   assert.equal(spreadWords(spreadOf([])).label, '')
+})
+
+ok('couleur : plus l’écart est grand, plus c’est rouge (dégradé continu de 1,5 à 4)', () => {
+  assert.equal(spreadHeat(1.4), null)
+  assert.equal(spreadColor(1), null)
+  assert.equal(spreadHeat(1.5), 0)
+  assert.equal(spreadHeat(2.75), 0.5)
+  assert.equal(spreadHeat(4), 1)
+  assert.equal(spreadHeat(6), 1)
+  // Arrondi : 3,7 − 2,2 compte comme 1,5.
+  assert.equal(spreadHeat(3.7 - 2.2), 0)
+  assert.equal(spreadColor(1.5), 'var(--color-spread-lo)')
+  assert.equal(spreadColor(4), 'var(--color-spread-hi)')
+  assert.equal(spreadColor(2.75), 'color-mix(in oklab, var(--color-spread-hi) 50%, var(--color-spread-lo))')
+  // Plus opaque avec l'écart.
+  assert.ok(spreadOpacity(1.5) < spreadOpacity(2.5) && spreadOpacity(2.5) < spreadOpacity(4))
+  assert.equal(spreadOpacity(4), 0.9)
+  // Bande du radar : sujets à discuter seulement ; texte : gris pour l'accord et une seule note.
+  assert.equal(bandColor(spreadOf([3, 4])), null)
+  assert.equal(bandColor(spreadOf([1, 3, 5])), 'var(--color-spread-hi)')
+  assert.equal(spreadTextColor(spreadOf([3, 4])), 'var(--color-muted)')
+  assert.equal(spreadTextColor(spreadOf([null, 3])), 'var(--color-muted)')
+  assert.equal(spreadTextColor(spreadOf([3, 4.5])), 'var(--color-spread-lo)')
 })
 
 ok('repères sur la même note : côte à côte, centrés', () => {

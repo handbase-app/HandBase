@@ -3,7 +3,8 @@
  * joueur sur la page de l'événement ; src/components/OpinionsSpread.tsx) : pour chaque critère, de la note la plus basse
  * à la plus haute des observateurs (chacun : la moyenne de ses avis sur l'événement), et la moyenne des observateurs.
  * Seuils décidés (04/11) sur l'écart (max − min) : moins de 1,5 : accord ; de 1,5 à moins de 2,5 : écart ; 2,5 et plus :
- * gros écart. Critères rangés du plus gros écart au plus petit (les sujets à discuter en staff d'abord). Pour le staff
+ * gros écart (mots du texte et du bandeau) ; couleur continue selon l'écart, de l'orange clair (1,5) au rouge franc (4).
+ * Critères rangés du plus gros écart au plus petit (les sujets à discuter en staff d'abord). Pour le staff
  * seulement : rien de tout cela côté jeune.
  * Fonctions pures (test : npx jiti tools/test-ecarts-avis.ts).
  */
@@ -15,14 +16,40 @@ export const SPREAD_BIG = 2.5
 
 export type SpreadLevel = 'accord' | 'ecart' | 'gros'
 export const SPREAD_WORD: Record<SpreadLevel, string> = { accord: 'accord', ecart: 'écart', gros: 'gros écart' }
-/** Couleurs des niveaux (jetons de src/index.css) : gris, orange d'avertissement, rouge. */
-export const SPREAD_COLOR: Record<SpreadLevel, string> = { accord: 'var(--color-muted)', ecart: 'var(--color-warn)', gros: 'var(--color-loss)' }
-/** Légende : les trois niveaux, avec leurs seuils. */
-export const SPREAD_LEGEND: { level: SpreadLevel; name: string }[] = [
-  { level: 'accord', name: 'Accord (écart < 1,5)' },
-  { level: 'ecart', name: 'Écart (1,5 à 2)' },
-  { level: 'gros', name: 'Gros écart (2,5 et plus)' },
-]
+/** Accord : gris discret (mot du niveau, bande des petites lignes). */
+export const SPREAD_ACCORD = 'var(--color-muted)'
+/** Écart maximal sur une échelle 1 à 5 : la teinte la plus rouge, la plus opaque. */
+export const SPREAD_MAX = 4
+
+/**
+ * « Plus l'écart est grand, plus c'est rouge » (05/11) : intensité de 0 (écart de 1,5) à 1 (écart de 4), continue ;
+ * null sous 1,5 (accord : pas de couleur).
+ */
+export function spreadHeat(gap: number): number | null {
+  const g = r2(gap)
+  if (g < SPREAD_GAP) return null
+  return Math.min(1, (g - SPREAD_GAP) / (SPREAD_MAX - SPREAD_GAP))
+}
+
+/**
+ * Couleur d'un écart (bande du radar, bande des lignes, mot du niveau) : de l'orange clair (--color-spread-lo) au rouge
+ * franc (--color-spread-hi, jetons de src/index.css, clairs et sombres) ; null sous 1,5.
+ */
+export function spreadColor(gap: number): string | null {
+  const h = spreadHeat(gap)
+  if (h === null) return null
+  const pct = Math.round(h * 100)
+  return pct <= 0 ? 'var(--color-spread-lo)' : pct >= 100 ? 'var(--color-spread-hi)' : `color-mix(in oklab, var(--color-spread-hi) ${pct}%, var(--color-spread-lo))`
+}
+
+/** Opacité d'une bande : de plus en plus opaque avec l'écart (0,45 à 1,5 → 0,9 à 4). */
+export const spreadOpacity = (gap: number) => 0.45 + 0.45 * (spreadHeat(gap) ?? 0)
+
+/** Couleur du texte d'un écart (accord, une seule note : gris). */
+export const spreadTextColor = (s: Spread) => (s.n > 1 && spreadColor(s.gap)) || SPREAD_ACCORD
+
+/** Petite légende en dégradé (« petit écart → gros écart »). */
+export const SPREAD_GRADIENT = 'linear-gradient(90deg, var(--color-spread-lo), var(--color-spread-hi))'
 
 export interface Spread {
   /** Note la plus basse et la plus haute des observateurs (null : personne n'a noté). */
@@ -66,6 +93,9 @@ export function familySpread(rows: readonly (readonly (number | null | undefined
   const n = Math.max(0, ...rows.map((r) => r.length))
   return spreadOf(Array.from({ length: n }, (_, o) => mean(rows.map((r) => r[o]).filter(isNum))))
 }
+
+/** Couleur d'une bande (radar) : sujet à discuter seulement, sinon rien. */
+export const bandColor = (s: Spread) => (toDiscuss(s) ? spreadColor(s.gap) : null)
 
 /** Sujet à discuter : au moins deux notes, et un écart (1,5 et plus). */
 export const toDiscuss = (s: Spread) => s.n > 1 && s.level !== 'accord'

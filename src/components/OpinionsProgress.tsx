@@ -27,7 +27,7 @@ import {
 } from '../opinionProgress'
 import { categoryStyles, styleOf } from '../radarZones'
 import { AnchoredBubble } from './AnchoredBubble'
-import { RadarViewTabs, useRadarView } from './RadarViewTabs'
+import type { AvisView } from '../tabQuery'
 import ZoneRadar, { type AxisAnchor, type LegendItem } from './ZoneRadar'
 import { Empty } from './ui'
 
@@ -41,15 +41,15 @@ import { Empty } from './ui'
  *    rouge ; sous chaque libellé « 1 → 4 ↗ ».
  *  - Petites lignes : une par critère, rangées par famille : note actuelle, petite courbe (la période en couleur), écart.
  *  - Toucher un critère (libellé du radar, ligne) : bulle accrochée là, courbe de toutes ses notes datées.
- * Colonne large : radar à gauche, lignes à droite ; fiche à côté de la liste : l'un sous l'autre ; téléphone : segment
- * « Radar | Lignes » (dans Opinions).
+ * Un seul volet à la fois, segment commun de l'onglet (fait par Opinions, `tabs`, posé sous la frise qui pilote les trois
+ * volets) : « Complet » (radar complet), « Par famille » (un radar par famille), « Tableau » (les petites lignes). Plus de
+ * 12 critères sur le radar complet : pas de mention sous les libellés (elles chargeaient trop ; la bulle les donne).
  * `young` : vue du jeune, sans rouge ni baisse (une baisse en gris neutre, sans flèche) ; pas encore montrée côté jeune.
  * Un seul cran : pas de frise ni de ▶, le radar de cet avis.
  */
 
-export type ProgressPane = 'radar' | 'lines'
-/** Radar et lignes : côte à côte, l'un sous l'autre, ou un seul à la fois (segment « Radar | Lignes »). */
-export type ProgressLayout = 'side' | 'stack' | 'tabs'
+/** Radar complet : au-delà, pas de mention « 1 → 4 ↗ » sous les libellés. */
+export const NOTES_MAX_AXES = 12
 
 export default function OpinionsProgress({
   playerId,
@@ -57,8 +57,8 @@ export default function OpinionsProgress({
   criteria,
   avisCount,
   observerCount,
-  pane,
-  layout,
+  view,
+  tabs,
   afterStats,
   young = false,
 }: {
@@ -68,9 +68,10 @@ export default function OpinionsProgress({
   criteria: Criterion[]
   avisCount: number
   observerCount: number
-  /** Téléphone : volet affiché (segment « Radar | Lignes »). */
-  pane: ProgressPane
-  layout: ProgressLayout
+  /** Volet affiché (segment « Complet | Par famille | Tableau », dans l'adresse). */
+  view: AvisView
+  /** Le segment, posé sous la frise. */
+  tabs?: ReactNode
   /** Sous les chiffres (case « inclure les avis en attente »). */
   afterStats?: ReactNode
   young?: boolean
@@ -140,7 +141,6 @@ export default function OpinionsProgress({
     setBubble({ i, at })
   }
 
-  const [radarView, setRadarView] = useRadarView()
   const tot = overall(deltas)
   const nums = countTones(deltas, young)
   const a = steps[s]
@@ -168,15 +168,14 @@ export default function OpinionsProgress({
       <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
     ) : (
       <div>
-        <RadarViewTabs view={radarView} onChange={setRadarView} />
         <ZoneRadar
           axes={crits.map((c) => ({ id: c.id, label: c.label, category: c.category }))}
           styles={styles}
           size="normal"
-          view={radarView === 'familles' ? 'split' : 'full'}
+          view={view === 'familles' ? 'split' : 'full'}
           series={single ? [{ key: 'avis', name: 'Notes de l’avis', values: hs.map((h) => h[0]), mode: 'zones' }] : []}
           progress={single ? undefined : { from: deltas.map((d) => d.a), to: deltas.map((d) => d.b), neutralLoss: young }}
-          notes={single ? undefined : words.map((w, i) => (w.short ? { text: w.short, tone: tones[i] } : null))}
+          notes={single || (view !== 'familles' && crits.length > NOTES_MAX_AXES) ? undefined : words.map((w, i) => (w.short ? { text: w.short, tone: tones[i] } : null))}
           groupNote={groupNote}
           onAxis={open}
           legend={legend}
@@ -264,12 +263,12 @@ export default function OpinionsProgress({
         </section>
       )}
 
-      <div className={layout === 'side' ? 'grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] items-start gap-4' : 'flex flex-col gap-4'}>
-        {(layout !== 'tabs' || pane === 'radar') && radar}
-        {(layout !== 'tabs' || pane === 'lines') && (
-          <Lines crits={crits} styles={styles} hs={hs} s={s} t={t} single={single} deltas={deltas} tones={tones} words={words} onOpen={open} />
-        )}
-      </div>
+      {tabs}
+      {view === 'tableau' ? (
+        <Lines crits={crits} styles={styles} hs={hs} s={s} t={t} single={single} deltas={deltas} tones={tones} words={words} onOpen={open} />
+      ) : (
+        radar
+      )}
 
       {bubble && (
         <CriterionBubble

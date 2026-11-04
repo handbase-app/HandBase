@@ -31,9 +31,10 @@
      jeune) ; un peu plus vifs sur les thèmes sombres, ceux de la maquette validée (#1D9E75, #E24B4A) sur les clairs. */
   --color-gain: #2fbf8c;
   --color-loss: #f0605e;
-  /* Écarts entre observateurs sur un événement (src/opinionSpread.ts, ZoneRadar) : « écart » en orange (« gros écart » :
-     --color-loss) ; l'orange de la maquette validée (#EF9F27) sur les thèmes sombres, un peu plus foncé sur les clairs. */
-  --color-warn: #ef9f27;
+  /* Écarts entre observateurs sur un événement (src/opinionSpread.ts spreadColor, ZoneRadar, petites lignes) : plus
+     l'écart est grand, plus c'est rouge ; orange clair à 1,5, rouge franc à 4 (un peu plus foncés sur les thèmes clairs). */
+  --color-spread-lo: #f6b04a;
+  --color-spread-hi: #ff3b3b;
   /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
   --color-ai: #7cacf8;
   --color-ai-soft: #7cacf826;
@@ -210,7 +211,8 @@ body {
   --color-ai-soft: #e8f0fe;
   --color-gain: #1d9e75;
   --color-loss: #e24b4a;
-  --color-warn: #d98a12;
+  --color-spread-lo: #b8730a;
+  --color-spread-hi: #c81e1e;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }

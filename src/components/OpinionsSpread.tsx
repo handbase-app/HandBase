@@ -1,41 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { scaleMax, scaleMin, type Criterion, type Evaluation } from '../db'
-import {
-  bySpread,
-  familySpread,
-  markShapeOf,
-  SPREAD_COLOR,
-  SPREAD_LEGEND,
-  spreadOf,
-  spreadWords,
-  toDiscuss,
-  type Spread,
-} from '../opinionSpread'
+import { bandColor, bySpread, markShapeOf, SPREAD_GRADIENT, spreadOf, spreadOpacity, spreadTextColor, spreadWords, type Spread } from '../opinionSpread'
 import { categoryStyles, styleOf } from '../radarZones'
+import type { AvisView } from '../tabQuery'
 import { AnchoredBubble } from './AnchoredBubble'
 import { MarkIcon, SpreadScale } from './SpreadMarks'
-import type { ProgressLayout } from './OpinionsProgress'
-import { RadarViewTabs, useRadarView } from './RadarViewTabs'
-import ZoneRadar, { type AxisAnchor, type RadarSpread } from './ZoneRadar'
+import ZoneRadar, { type AxisAnchor, type LegendItem, type RadarSpread } from './ZoneRadar'
 import { Empty } from './ui'
 
 /*
  * Vue « Écarts » de l'onglet Avis (fiche du joueur, un événement choisi dans le menu ; avis d'un joueur sur la page de
- * l'événement) quand au moins deux observateurs ont noté : où ils ne sont pas d'accord (logique pure :
- * src/opinionSpread.ts ; seuils 1,5 et 2,5).
- *  - Radar (ZoneRadar, Complet / Par famille) : la moyenne en trait plein, une bande de la note la plus basse à la plus
- *    haute le long de chaque branche (orange : écart, rouge : gros écart ; accord : pas de bande), le repère de chaque
- *    observateur ; sous le libellé « 1 à 5 · gros écart ». Par famille : l'écart des moyennes de la famille par observateur.
- *  - Petites lignes : une par critère, du plus gros écart au plus petit (les sujets à discuter en staff d'abord) : échelle
- *    1 à 5, repères, bande, trait de la moyenne, niveau et « moy. 3,0 · écart 4 ».
+ * l'événement) quand au moins deux observateurs ont noté (logique pure : src/opinionSpread.ts ; seuils 1,5 et 2,5).
+ * Segment commun de l'onglet (dans Opinions) « Complet | Par famille | Tableau », un seul volet à la fois (05/11) :
+ *  - Complet / Par famille : le radar NORMAL de l'événement (moyenne des observateurs en zones colorées par famille,
+ *    comme un avis seul) ; les écarts n'y sont qu'une surcouche discrète : une bande min → max le long des seules
+ *    branches où il y a un écart, plus rouge et plus opaque à mesure que l'écart grandit. Ni repère d'observateur ni
+ *    mention sous les libellés ; légende normale (familles, Moyenne) et petit dégradé « petit écart → gros écart ».
+ *  - Tableau : petites lignes, une par critère, du plus gros écart au plus petit (les sujets à discuter en staff
+ *    d'abord) : échelle 1 à 5, bande, trait de la moyenne, niveau et « moy. 3,0 · écart 4 » ; dessous, en plus compact,
+ *    le tableau par observateur (`table`, fait par Opinions).
  *  - Toucher un critère (libellé du radar, ligne) : bulle accrochée là, note (et commentaire de l'avis) de chacun.
- *  - Légende : les observateurs (repère et nom) et les trois niveaux.
- * Même disposition que la vue Progression : colonne large, radar et lignes côte à côte ; plus étroit, l'un sous l'autre ;
- * téléphone, segment « Radar | Lignes | Tableau » (dans Opinions). Le tableau par observateur reste dans Opinions.
  * Pour le staff seulement : jamais sur la page du jeune.
  */
-
-export type SpreadPane = 'radar' | 'lines'
 
 export default function OpinionsSpread({
   criteria,
@@ -43,9 +29,8 @@ export default function OpinionsSpread({
   colors,
   values,
   evs,
-  pane,
-  layout,
-  radarTabs = true,
+  view,
+  table,
   size = 'normal',
 }: {
   /** Critères chiffrés notés sur l'événement, dans l'ordre de la fiche. */
@@ -56,10 +41,9 @@ export default function OpinionsSpread({
   values: (number | null)[][]
   /** Avis comptés de l'événement (commentaires de la bulle). */
   evs: Evaluation[]
-  pane: SpreadPane
-  layout: ProgressLayout
-  /** Onglets Complet / Par famille au-dessus du radar (fiche du joueur ; page de l'événement : la vue de l'écran). */
-  radarTabs?: boolean
+  view: AvisView
+  /** Tableau par observateur, sous les lignes (volet « Tableau »). */
+  table?: ReactNode
   size?: 'compact' | 'normal' | 'large'
 }) {
   // Critères rangés par famille (ordre d'apparition des familles), comme la vue Progression.
@@ -70,41 +54,20 @@ export default function OpinionsSpread({
   const styles = useMemo(() => categoryStyles(crits.map((x) => x.c)), [crits])
   const sps = useMemo(() => crits.map((x) => spreadOf(x.v)), [crits])
   const marks = observers.map((name, i) => ({ name, color: colors[i], shape: markShapeOf(i) }))
-  const colorOf = (sp: Spread) => (sp.n > 1 ? SPREAD_COLOR[sp.level] : SPREAD_COLOR.accord)
-  const [radarView, setRadarView] = useRadarView()
   const [bubble, setBubble] = useState<{ i: number; at: AxisAnchor } | null>(null)
   const open = (i: number, at: AxisAnchor) => setBubble({ i, at })
 
   const spread: RadarSpread = {
-    marks,
     values: crits.map((x) => x.v),
-    mean: sps.map((s) => s.avg),
-    band: sps.map((s) => (toDiscuss(s) ? SPREAD_COLOR[s.level] : null)),
+    band: sps.map((s) => {
+      const color = bandColor(s)
+      return color ? { color, opacity: spreadOpacity(s.gap) } : null
+    }),
   }
-  const groupNote = (idx: number[]) => {
-    const sp = familySpread(idx.map((i) => crits[i].v))
-    return sp.n ? { text: spreadWords(sp).label, tone: 'flat' as const, color: colorOf(sp) } : null
-  }
-  const radar =
-    crits.length < 3 ? (
-      <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
-    ) : (
-      <div>
-        {radarTabs && <RadarViewTabs view={radarView} onChange={setRadarView} />}
-        <ZoneRadar
-          axes={crits.map(({ c }) => ({ id: c.id, label: c.label, category: c.category }))}
-          styles={styles}
-          size={size}
-          view={radarTabs ? (radarView === 'familles' ? 'split' : 'full') : undefined}
-          series={[]}
-          spread={spread}
-          notes={sps.map((s) => (s.n ? { text: spreadWords(s).label, short: spreadWords(s).range, tone: 'flat', color: colorOf(s) } : null))}
-          groupNote={groupNote}
-          onAxis={open}
-          legend={[{ name: 'Moyenne', color: 'var(--color-fg)', line: true }]}
-        />
-      </div>
-    )
+  const legend: LegendItem[] = [
+    { name: 'Moyenne', color: 'var(--color-fg)', line: true },
+    ...(spread.band.some(Boolean) ? [{ name: 'petit écart → gros écart', color: '', gradient: SPREAD_GRADIENT }] : []),
+  ]
   // Lignes : du plus gros écart au plus petit.
   const order = bySpread(
     crits.map((_, i) => i),
@@ -113,9 +76,23 @@ export default function OpinionsSpread({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={layout === 'side' ? 'grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] items-start gap-4' : 'flex flex-col gap-4'}>
-        {(layout !== 'tabs' || pane === 'radar') && radar}
-        {(layout !== 'tabs' || pane === 'lines') && (
+      {view !== 'tableau' ? (
+        crits.length < 3 ? (
+          <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
+        ) : (
+          <ZoneRadar
+            axes={crits.map(({ c }) => ({ id: c.id, label: c.label, category: c.category }))}
+            styles={styles}
+            size={size}
+            view={view === 'familles' ? 'split' : 'full'}
+            series={[{ key: 'moyenne', name: 'Moyenne', values: sps.map((s) => s.avg), mode: 'zones' }]}
+            spread={spread}
+            onAxis={open}
+            legend={legend}
+          />
+        )
+      ) : (
+        <>
           <div className="flex flex-col">
             {/* Une ligne par critère : nom et niveau, puis l'échelle 1 à 5 et « moy. 3,0 · écart 4 » (téléphone compris). */}
             <div className="flex items-end gap-2 border-b border-line px-1 pb-1 pl-5 text-[10px] text-muted" aria-hidden>
@@ -150,13 +127,13 @@ export default function OpinionsSpread({
                         <span className="min-w-0 flex-1 truncate text-xs font-semibold" title={c.label}>
                           {c.label}
                         </span>
-                        <span className="shrink-0 text-xs font-bold" style={{ color: colorOf(sp) }}>
+                        <span className="shrink-0 text-xs font-bold" style={{ color: spreadTextColor(sp) }}>
                           {w.word}
                         </span>
                       </span>
                       <span className="flex w-full items-center gap-2 pl-4">
                         <span className="min-w-0 flex-1">
-                          <SpreadScale vals={v} colors={colors} shapes={marks.map((m) => m.shape)} names={observers} sp={sp} lo={scaleMin(c.scale)} hi={scaleMax(c.scale) ?? 5} />
+                          <SpreadScale vals={v} sp={sp} lo={scaleMin(c.scale)} hi={scaleMax(c.scale) ?? 5} />
                         </span>
                         <span className="w-[7.5rem] shrink-0 text-right text-[10px] whitespace-nowrap text-muted tabular-nums">{w.stats}</span>
                       </span>
@@ -165,30 +142,16 @@ export default function OpinionsSpread({
                 )
               })}
             </ul>
-            <p className="mt-1.5 text-[10px] text-muted">Rangées du plus gros écart au plus petit. Touche un critère (ici ou sur le radar) pour voir la note de chacun.</p>
+            <p className="mt-1.5 text-[10px] text-muted">Rangées du plus gros écart au plus petit. Touche un critère pour voir la note et le commentaire de chacun.</p>
           </div>
-        )}
-      </div>
-
-      {/* Légende : les observateurs (repère et nom), la moyenne, les trois niveaux d'écart. */}
-      <ul className="flex flex-wrap justify-center gap-x-3.5 gap-y-1 text-[11px] text-muted" aria-label="Légende">
-        {marks.map((m) => (
-          <li key={m.name} className="flex items-center gap-1">
-            <MarkIcon shape={m.shape} color={m.color} />
-            <span className="font-bold text-fg">{m.name}</span>
-          </li>
-        ))}
-        <li className="flex items-center gap-1">
-          <span aria-hidden className="h-3.5 w-[2.5px] shrink-0 rounded bg-fg" />
-          Moyenne
-        </li>
-        {SPREAD_LEGEND.map((l) => (
-          <li key={l.level} className="flex items-center gap-1">
-            <span aria-hidden className="h-2.5 w-3.5 shrink-0 rounded-sm" style={{ background: SPREAD_COLOR[l.level], opacity: l.level === 'accord' ? 0.4 : 0.85 }} />
-            {l.name}
-          </li>
-        ))}
-      </ul>
+          {table && (
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] font-extrabold tracking-wider text-muted uppercase">Notes par observateur</div>
+              {table}
+            </div>
+          )}
+        </>
+      )}
 
       {bubble && (
         <SpreadBubble
@@ -257,7 +220,7 @@ function SpreadBubble({
       onClose={onClose}
       testId="bulle-ecart"
     >
-      <div className="mt-1 text-sm font-extrabold tabular-nums" style={{ color: sp.n > 1 ? SPREAD_COLOR[sp.level] : SPREAD_COLOR.accord }}>
+      <div className="mt-1 text-sm font-extrabold tabular-nums" style={{ color: spreadTextColor(sp) }}>
         {w.label}
         <span className="ml-2 text-[11px] font-normal text-muted">{w.stats}</span>
       </div>

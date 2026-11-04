@@ -1,10 +1,10 @@
-import { sameNoteOffsets, SPREAD_COLOR, type MarkShape, type Spread } from '../opinionSpread'
+import { sameNoteOffsets, SPREAD_ACCORD, spreadColor, spreadOpacity, type MarkShape, type Spread } from '../opinionSpread'
 
 /*
- * Repères des observateurs (vue « Écarts » de l'onglet Avis, src/components/OpinionsSpread.tsx, et ZoneRadar) : chacun
- * sa forme (rond, carré, losange, triangle…) et sa couleur (celle de sa colonne dans le tableau), liseré couleur du fond
- * pour rester lisible par-dessus les bandes. Échelle 1 à 5 d'un critère : bande de la note la plus basse à la plus haute
- * (couleur du niveau d'écart ; accord : gris discret), trait de la moyenne, un repère par observateur.
+ * Vue « Écarts » de l'onglet Avis (src/components/OpinionsSpread.tsx, et ZoneRadar). Échelle 1 à 5 d'un critère : bande
+ * de la note la plus basse à la plus haute (plus l'écart est grand, plus elle est rouge et opaque ; accord : gris
+ * discret), trait de la moyenne ; les repères des observateurs seulement dans la bulle d'un critère (le détail, 05/11) :
+ * chacun sa forme (rond, carré, losange, triangle…) et sa couleur, liseré couleur du fond pour rester lisible.
  */
 
 /** Repère d'un observateur, centré en (x, y), dans un SVG. */
@@ -61,7 +61,8 @@ export function MarkIcon({ shape, color, size = 12 }: { shape: MarkShape; color:
 
 /**
  * Échelle d'un critère (HTML, s'étire sur la largeur donnée) : piste fine, bande min → max colorée selon l'écart, trait de
- * la moyenne, un repère par observateur ; des repères sur la même note sont posés côte à côte, un peu décalés en hauteur.
+ * la moyenne ; avec `colors` et `shapes` (bulle), un repère par observateur, ceux d'une même note côte à côte, un peu
+ * décalés en hauteur.
  */
 export function SpreadScale({
   vals,
@@ -74,8 +75,8 @@ export function SpreadScale({
 }: {
   /** Note de chaque observateur (null : pas noté). */
   vals: readonly (number | null | undefined)[]
-  colors: readonly string[]
-  shapes: readonly MarkShape[]
+  colors?: readonly string[]
+  shapes?: readonly MarkShape[]
   sp: Spread
   lo?: number
   hi?: number
@@ -84,6 +85,7 @@ export function SpreadScale({
   const pct = (v: number) => `${((Math.max(lo, Math.min(hi, v)) - lo) / Math.max(1, hi - lo)) * 100}%`
   const off = sameNoteOffsets(vals)
   const band = sp.lo !== null && sp.hi !== null && sp.hi > sp.lo
+  const heat = sp.n > 1 ? spreadColor(sp.gap) : null
   return (
     <span className="relative mx-2 block h-6" aria-hidden>
       {/* Piste et graduations 1 à 5 */}
@@ -97,14 +99,14 @@ export function SpreadScale({
           style={{
             left: pct(sp.lo!),
             width: `calc(${pct(sp.hi!)} - ${pct(sp.lo!)})`,
-            background: sp.level === 'accord' ? 'var(--color-muted)' : SPREAD_COLOR[sp.level],
-            opacity: sp.level === 'accord' ? 0.4 : 0.85,
+            background: heat ?? SPREAD_ACCORD,
+            opacity: heat ? spreadOpacity(sp.gap) : 0.4,
           }}
         />
       )}
       {sp.avg !== null && <span className="absolute top-1/2 h-5 w-[2.5px] -translate-x-1/2 -translate-y-1/2 rounded bg-fg" style={{ left: pct(sp.avg) }} />}
       {vals.map((v, i) =>
-        typeof v === 'number' ? (
+        typeof v === 'number' && colors && shapes ? (
           <svg
             key={i}
             width={14}
