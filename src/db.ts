@@ -349,6 +349,13 @@ export interface Evaluation extends Syncable {
   improvements?: string
   /** Le type de joueur décrit, en une phrase (proposé par l'avis vocal, modifiable). */
   portrait?: string
+  /**
+   * « Super-pouvoir observé » (04/11) : une phrase courte et positive (« sa lecture du jeu »), facultative. Temps de jeu
+   * (minutes, entier) : avis d'un match ou d'un tournoi seulement. Champs libres de data (jsonb), gardés tels quels par le
+   * serveur (hb_upsert) : pas de SQL. Lecture : src/avisMatch.ts (superPowerOf, playingTimeOf).
+   */
+  superPower?: string
+  playingTime?: number
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */

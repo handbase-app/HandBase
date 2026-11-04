@@ -7,6 +7,7 @@ import { department } from './PlayerFilter'
 import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty, Icon, playerName, SEG_BOX, segItem } from './ui'
+import { fmtPlayingTime, playingTimeOf, superPowerOf } from '../avisMatch'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -470,6 +471,13 @@ export function AvisCard({
           {curve && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: curve.color }} aria-hidden="true" />}
           <b className="text-fg">{e.observer}</b>
           {where && <> · {where}</>} · {fmtDate(e.date)}
+          {/* Temps de jeu (avis d'un match ou d'un tournoi, src/avisMatch.ts), puis temps observé. */}
+          {playingTimeOf(e) !== undefined && (
+            <>
+              {' · '}
+              <b className="text-fg">{fmtPlayingTime(playingTimeOf(e)!)}</b> de jeu
+            </>
+          )}
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
           <br />
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
@@ -521,6 +529,8 @@ export function AvisCard({
       </div>
       {/* Portrait (le type de joueur, en une phrase) : en tête de l'avis, en italique. */}
       {e.portrait && <div className={`italic ${shut ? 'truncate' : ''}`}>{e.portrait}</div>}
+      {/* Super-pouvoir observé : mis en valeur discrètement (✦ menthe du logo, --neon-text : lisible sur les cartes). */}
+      {superPowerOf(e) && <SuperPower text={superPowerOf(e)!} className={shut ? 'truncate' : ''} />}
       {criteria && !shut && <ScoreChips e={e} criteria={criteria} />}
       {e.strengths && (
         <div className={shut ? 'truncate' : ''}>
@@ -538,6 +548,19 @@ export function AvisCard({
       {/* Les avis spontanés d'un validateur sont validés d'office : on ne se valide pas soi-même. */}
       {/* Décision : dans son secteur seulement (département du joueur). */}
       {e.review && !mine && can.reviewAvis(role, dept, event) && <ReviewActions e={e} compact={!player} />}
+    </div>
+  )
+}
+
+/** « ✦ Sa lecture du jeu » : super-pouvoir observé d'un avis (carte d'avis, vignette de la vue Mosaïque). */
+export function SuperPower({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <div className={`min-w-0 font-semibold ${className}`} title="Super-pouvoir observé">
+      <span aria-hidden className="mr-1 text-[1.15em] leading-none text-(--neon-text)">
+        ✦
+      </span>
+      <span className="sr-only">Super-pouvoir observé : </span>
+      {text}
     </div>
   )
 }

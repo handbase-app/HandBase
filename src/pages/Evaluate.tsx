@@ -26,6 +26,7 @@ import { withPoleMembers } from '../poleMembers'
 import { usePlayersByName } from '../playersCache'
 import { FormActions, FormWindow } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
+import { hasPlayingTime, parsePlayingTime, stepPlayingTime, SUPER_POWER_MAX } from '../avisMatch'
 import {
   alive,
   CONTEXT_TYPES,
@@ -232,6 +233,9 @@ export default function Evaluate() {
       observerId: currentUserId() ?? draft.observerId,
       date: draft.date ?? today(),
       scores,
+      // Super-pouvoir (une phrase, vide : rien) ; temps de jeu seulement sur un match ou un tournoi (src/avisMatch.ts).
+      superPower: draft.superPower?.replace(/\s+/g, ' ').trim() || undefined,
+      playingTime: playTime ? draft.playingTime : undefined,
     } as Evaluation)
     if (spontaneous) setAvisId(id)
     // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
@@ -346,6 +350,8 @@ export default function Evaluate() {
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
   const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
   const filled = Object.values(draft.scores ?? {}).filter(isFilled).length
+  // Temps de jeu : avis rattaché à un match ou à un tournoi (jamais un avis spontané).
+  const playTime = !spontaneous && !!event && hasPlayingTime(event.type)
   // Liste des joueurs à gauche (ordinateur, téléphone couché) : seulement pour un événement qui a une liste.
   const listMode = split && !spontaneous && !!event && fullRoster.length > 0
   listModeRef.current = listMode
@@ -803,6 +809,15 @@ export default function Evaluate() {
 
           <div className="card flex flex-col gap-3 p-3">
             <div className="grid grid-cols-2 gap-3">
+              {/* Temps de jeu : sur toute la ligne (− / minutes / +), Temps observé et Date en dessous. */}
+              {playTime && (
+                <div className="col-span-2">
+                  <span className="label" id="temps-de-jeu">
+                    Temps de jeu
+                  </span>
+                  <PlayingTimeField value={draft.playingTime} onChange={(v) => setDraft((d) => ({ ...d, playingTime: v }))} />
+                </div>
+              )}
               <div>
                 <span className="label">Temps observé</span>
                 <NumberField value={draft.minutesObserved} unit="min" onChange={(v) => setDraft((d) => ({ ...d, minutesObserved: v }))} />
@@ -813,6 +828,28 @@ export default function Evaluate() {
                   <input type="date" className="field" value={draft.date ?? today()} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
                 </div>
               )}
+            </div>
+            {/* Super-pouvoir observé (04/11) : une phrase courte, positive par construction ; ✦ menthe, comme sur la carte d'avis. */}
+            <div>
+              <label htmlFor="super-pouvoir" className="label flex items-center gap-1">
+                <span aria-hidden className="text-sm leading-none text-(--neon-text)">
+                  ✦
+                </span>
+                Super-pouvoir observé
+              </label>
+              <input
+                id="super-pouvoir"
+                className="field"
+                maxLength={SUPER_POWER_MAX}
+                enterKeyHint="done"
+                placeholder="Sa lecture du jeu, son premier pas…"
+                aria-describedby="super-pouvoir-aide"
+                value={draft.superPower ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, superPower: e.target.value }))}
+              />
+              <p id="super-pouvoir-aide" className="mt-1 text-[11px] text-muted">
+                Ce qu’{pw.il} fait de mieux, en quelques mots. Facultatif.
+              </p>
             </div>
             {draft.portrait?.trim() || portraitOpen ? (
               <div>
@@ -1421,7 +1458,48 @@ function fingerprint(d: Partial<Evaluation>) {
     .filter(([, v]) => isFilled(v))
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
-  return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace), txt(d.portrait)])
+  return JSON.stringify([
+    scores,
+    d.minutesObserved ?? null,
+    txt(d.strengths),
+    txt(d.improvements),
+    d.date ?? '',
+    d.contextType ?? '',
+    txt(d.contextPlace),
+    txt(d.portrait),
+    txt(d.superPower),
+    d.playingTime ?? null,
+  ])
+}
+
+/**
+ * Temps de jeu (minutes, entier) : − / pavé numérique / + (pas de 5 min, src/avisMatch.ts) ; vide = non renseigné.
+ * Boutons de 40 px ; le champ garde ce qui est tapé (chiffres seulement).
+ */
+function PlayingTimeField({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+  const btn = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-base font-bold text-muted hover:text-fg disabled:opacity-40'
+  return (
+    <div data-noswipe className="flex max-w-64 items-center gap-2" role="group" aria-labelledby="temps-de-jeu">
+      <button type="button" className={btn} aria-label="Moins 5 minutes" disabled={value === undefined || value <= 0} onClick={() => onChange(stepPlayingTime(value, -1))}>
+        −
+      </button>
+      <div className="relative min-w-0 flex-1">
+        <input
+          className="field px-2 pr-9 text-center tabular-nums"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label="Temps de jeu en minutes"
+          placeholder="–"
+          value={value === undefined ? '' : String(value)}
+          onChange={(e) => onChange(parsePlayingTime(e.target.value))}
+        />
+        <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted">min</span>
+      </div>
+      <button type="button" className={btn} aria-label="Plus 5 minutes" onClick={() => onChange(stepPlayingTime(value, 1))}>
+        +
+      </button>
+    </div>
+  )
 }
 
 /**

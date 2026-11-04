@@ -81,6 +81,16 @@ const GAPS = ['Chaîne P. G ++ / RE hanche', 'Dorsiflexion cheville D limitée',
 const STRENGTHS = ['Très bonne lecture du jeu', 'Puissant au tir de loin', 'Excellent sur le premier pas', 'Gros volume de course', 'Leader naturel, parle beaucoup', 'Bon jeu à deux avec le pivot', 'Solide en défense 1-1']
 const IMPROVE = ['Repli défensif trop lent', 'Choix de tir précipité', 'Disparaît en fin de match', 'Communication défensive', 'Gestion des émotions après une erreur', 'Jeu sans ballon à développer']
 
+// Super-pouvoirs observés (avis de match enrichi, src/avisMatch.ts) : quelques-uns, toujours positifs.
+const SUPER_POWERS = ['Sa lecture du jeu', 'Son premier pas', 'Sa vision', 'Son volume de course', 'Son sang-froid', 'Sa voix sur le terrain']
+const GB_SUPER_POWERS = ['Ses réflexes', 'Sa relance', 'Son placement']
+/** Petit nombre tiré de l'identifiant (0 à n − 1) : n'utilise pas rand(), la suite des autres données de la démo ne change pas. */
+const hashN = (s: string, n: number) => {
+  let h = 7
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return h % n
+}
+
 const GB_STRENGTHS = ['Réflexes impressionnants', 'Très bon placement sur les tirs à 9 m', 'Relance rapide et précise', 'Organise bien sa défense']
 const GB_IMPROVE = ['Relance trop lente', 'Sorties sur les ailiers', 'Lecture des tirs en appui', 'Communication avec la défense']
 
@@ -222,8 +232,10 @@ export async function loadDemo() {
         }
         const vals = Object.values(sc)
         if (!vals.length) continue
+        const id = `${PREFIX}e-${ev.id}-${p.id}-${o.name.split(' ')[0]}`
+        const sp = p.position === 'GB' ? GB_SUPER_POWERS : SUPER_POWERS
         evaluations.push({
-          id: `${PREFIX}e-${ev.id}-${p.id}-${o.name.split(' ')[0]}`,
+          id,
           playerId: p.id,
           eventId: ev.id,
           observer: o.name,
@@ -232,6 +244,9 @@ export async function loadDemo() {
           minutesObserved: ev.type === 'tournoi' ? Math.round(between(40, 120)) : Math.round(between(15, 60)),
           strengths: rand() < 0.5 ? pick(p.position === 'GB' ? GB_STRENGTHS : STRENGTHS) : undefined,
           improvements: rand() < 0.45 ? pick(p.position === 'GB' ? GB_IMPROVE : IMPROVE) : undefined,
+          // Un avis sur quatre environ : super-pouvoir ; match ou tournoi, un sur deux : temps de jeu (par pas de 5 min).
+          superPower: hashN(id, 4) === 0 ? sp[hashN(id + 's', sp.length)] : undefined,
+          playingTime: (ev.type === 'match' || ev.type === 'tournoi') && hashN(id + 't', 2) === 0 ? 10 + 5 * hashN(id + 'm', ev.type === 'tournoi' ? 15 : 9) : undefined,
           updatedAt: now,
         })
       }
