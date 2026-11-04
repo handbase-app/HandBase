@@ -22,23 +22,25 @@ import {
 import { useConfigRows } from '../installation'
 import { fetchChecksMany } from '../myGoalsApi'
 import { badVideoUrl, OBJ_TEXT_MAX } from '../objectives'
+import { nextEventFor, periodLabel } from '../period'
 import { can, useRole } from '../roles'
 import { ReadOnlyError } from '../spy'
 import { ask, inform } from './Confirm'
 import { FormActions, FormWindow } from './FormWindow'
 import { ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
 import { StepsEditor, VideoField, type StepDraft } from './Objectives'
+import { PeriodPicker, type PeriodValue } from './PeriodPicker'
 import { Icon } from './ui'
 
 /*
  * « Donner un objectif au groupe » et « Objectifs donnés » (04/11 ; partie pure : src/groupObjectives.ts), sur la page d'un
  * groupe et sur celle d'un événement (onglet Joueurs) :
  *  - l'action est dans le ⋮ du titre (useGiveObjective → `item`) ; elle ouvre une fenêtre (fond flouté ; ✕, Échap ou Retour
- *    du téléphone la ferment) : titre, lien vidéo, étapes, « Depuis un modèle » (bulle accrochée au bouton), « à faire avant
- *    le … », et les joueurs concernés, tous cochés (ou ceux de la sélection en cours), décochables ; ceux qu'on ne peut pas
+ *    du téléphone la ferment) : titre, lien vidéo, étapes, « Depuis un modèle » (bulle accrochée au bouton), la période
+ *    (PeriodPicker : « 2 semaines », « Jusqu'au prochain stage » commun aux joueurs cochés…), et les joueurs concernés, tous cochés (ou ceux de la sélection en cours), décochables ; ceux qu'on ne peut pas
  *    servir sont dits (« pas modifiable par toi », « déjà 3 objectifs en cours ») et passés. « Donner à N joueurs » écrit une
  *    copie dans chaque fiche (saveMany, par lots : synchronisation comme le reste), puis un résumé s'affiche sur la page.
- *  - « Objectifs donnés » : section repliée sous le titre, seulement s'il y en a ; l'avancement de chaque envoi et
+ *  - « Objectifs donnés » : section repliée sous le titre, seulement s'il y en a ; la période, l'avancement de chaque envoi et
  *    « Retirer à tous » (confirmation).
  * Clavier seulement : rien ne part vers une IA.
  */
@@ -132,7 +134,7 @@ function GiveObjectiveWindow({
   const [text, setText] = useState('')
   const [video, setVideo] = useState('')
   const [steps, setSteps] = useState<StepDraft[]>([])
-  const [due, setDue] = useState('')
+  const [period, setPeriod] = useState<PeriodValue>({})
   const [checked, setChecked] = useState<Set<string>>(() => new Set(initial))
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   // Modèle choisi : l'éditeur d'étapes repart de ses étapes.
@@ -146,9 +148,12 @@ function GiveObjectiveWindow({
   const willGet = ready.filter((p) => checked.has(p.id))
   const skipped = players.filter((p) => status.get(p.id) !== 'ok')
   const where = from.kind === 'groupe' ? `groupe ${from.name}` : from.name
+  // « Jusqu'au prochain stage » : le prochain événement à venir commun à tous les joueurs cochés (aucun : pastille cachée).
+  const allEvents = useLiveQuery(() => db.events.toArray(), [])
+  const nextEvent = nextEventFor(allEvents ?? [], willGet.map((p) => p.id), today())
 
   async function give() {
-    const c = checkGift({ text, video, steps, due: due || undefined })
+    const c = checkGift({ text, video, steps, ...period })
     if (!c.ok) return setErr(GIFT_ERRORS[c.error])
     if (!willGet.length) return setErr(GIFT_ERRORS.personne)
     setBusy(true)
@@ -217,11 +222,7 @@ function GiveObjectiveWindow({
         <span className="label mb-0">Étapes</span>
         <StepsEditor key={stepsKey} steps={steps} onChange={(s) => (setErr(''), setSteps(s))} />
       </div>
-      <label className="flex flex-wrap items-center gap-2">
-        <span className="label mb-0">À faire avant le</span>
-        <input type="date" className="field min-h-10 w-44 text-xs" aria-label="À faire avant le (facultatif)" value={due} onChange={(e) => setDue(e.target.value)} />
-        <span className="text-[10px] text-muted">facultatif (la rentrée, le prochain stage…)</span>
-      </label>
+      <PeriodPicker value={period} nextEvent={nextEvent} onChange={(v) => (setErr(''), setPeriod(v))} />
       {event && <p className="text-[11px] text-muted">Relié à « {event.name} » : c’est d’où il vient, sur chaque fiche.</p>}
 
       <div className="flex flex-col gap-1" data-testid="joueurs-objectif">
@@ -369,7 +370,7 @@ function GivenObjectives({ from, gender, msg, onMsg, canEdit }: { from: GiftFrom
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-bold break-words">{v.text}</span>
                         <span className="block text-[11px] text-muted">
-                          {[v.at && `donné le ${fmtDate(v.at)}`, v.due && `avant le ${fmtDate(v.due)}`, v.steps && `${v.steps} étape${v.steps > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
+                          {[v.at && `donné le ${fmtDate(v.at)}`, periodLabel({ from: v.from, due: v.due, date: v.at }, today()), v.steps && `${v.steps} étape${v.steps > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
                         </span>
                       </span>
                       {editable && (

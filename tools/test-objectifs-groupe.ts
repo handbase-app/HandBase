@@ -91,8 +91,8 @@ t('depuis un événement : relié d’office (nom, date), mention sans redite', 
   assert.equal(c.date, '2026-08-28')
   assert.equal(sourceLabel(c), 'Stage de rentrée')
   const fmt = (d: string) => d.split('-').reverse().join('/')
-  // Le nom de l'événement est déjà dans la mention : l'origine ne le redit pas.
-  assert.equal(objectiveOrigin(c, fmt), '28/08/2026 · avant le 31/08/2026')
+  // Le nom de l'événement est déjà dans la mention : l'origine ne le redit pas ; la période se dit à part (src/period.ts).
+  assert.equal(objectiveOrigin(c, fmt), '28/08/2026')
   assert.equal(sourceLabel({ source: { kind: 'groupe', id: 'g', name: 'Pôle', batch: 'b' } }), 'groupe Pôle')
   assert.equal(sourceLabel({}), '')
 })

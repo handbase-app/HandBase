@@ -15,11 +15,13 @@ import {
   type StepProgress,
   type WorkObjective,
 } from './objectives'
+import { cleanPeriod, PERIOD_ERROR, periodBad } from './period'
 
 /*
  * « Mes objectifs », côté du jeune (04/11, liste à cocher avec des étapes ; supabase/065_objectifs_etapes.sql) :
- *  - ses PROPRES objectifs (« à moi ») : 5 en cours au plus, avec leurs étapes et leurs liens vidéo, qu'il ajoute, modifie,
- *    retire et coche lui-même ;
+ *  - ses PROPRES objectifs (« à moi ») : 5 en cours au plus, avec leurs étapes, leurs liens vidéo et, si on veut, une
+ *    période (début repoussé `from`, fin `due` : src/period.ts, mêmes règles que le staff), qu'il ajoute, modifie, retire et
+ *    coche lui-même ;
  *  - ses COCHES sur les étapes des objectifs du staff (rangés dans la fiche, src/objectives.ts) : { identifiant d'étape →
  *    jour où il l'a cochée }. Il ne touche jamais au texte du staff, ni à l'état « atteint » d'un objectif du staff (le
  *    staff le coche : choix par défaut du 04/11).
@@ -67,6 +69,7 @@ function cleanOwn(raw: unknown): WorkObjective | null {
     ...(status === 'atteint' && typeof x.doneAt === 'string' && DAY.test(x.doneAt) ? { doneAt: x.doneAt } : {}),
     ...(video ? { video } : {}),
     ...(steps.length ? { steps } : {}),
+    ...cleanPeriod(x),
   }
 }
 
@@ -113,7 +116,7 @@ function trimOwn(list: WorkObjective[]): WorkObjective[] {
 
 // ---------- Ce que le jeune fait ----------
 
-export type MyGoalError = 'vide' | 'max' | 'lien' | 'etapes'
+export type MyGoalError = 'vide' | 'max' | 'lien' | 'etapes' | 'periode'
 export type MyGoalResult = { ok: true; goals: MyGoals } | { ok: false; error: MyGoalError }
 
 export const MY_GOAL_ERRORS: Record<MyGoalError, string> = {
@@ -121,38 +124,46 @@ export const MY_GOAL_ERRORS: Record<MyGoalError, string> = {
   max: `${OWN_MAX_ACTIVE} objectifs à toi en cours au plus : coche-en un « atteint » ou retire-le d’abord.`,
   lien: 'Ce lien n’est pas une adresse web (il doit commencer par http:// ou https://).',
   etapes: `${OBJ_STEPS_MAX} étapes au plus par objectif.`,
+  periode: PERIOD_ERROR,
 }
 
-/** Ce qu'on tape dans la fenêtre « Mon objectif » : un titre, un lien, des étapes (texte, lien, cochée ou pas). */
+/** Ce qu'on tape dans la fenêtre « Mon objectif » : un titre, un lien, des étapes (texte, lien, cochée ou pas), la période. */
 export interface OwnGoalInput {
   text: string
   video?: string
   steps: { id: string; text: string; video?: string; done?: string }[]
+  /** Début repoussé et fin (AAAA-MM-JJ), facultatifs (src/period.ts). */
+  from?: string
+  due?: string
 }
 
-/** Contrôle d'une saisie (titre, liens, nombre d'étapes) ; étapes vides retirées. */
-function checkInput(input: OwnGoalInput): { ok: true; text: string; video?: string; steps: ObjectiveStep[] } | { ok: false; error: MyGoalError } {
+type Checked = { ok: true; text: string; video?: string; steps: ObjectiveStep[]; period: { from?: string; due?: string } }
+
+/** Contrôle d'une saisie (titre, liens, nombre d'étapes, fin après le début) ; étapes vides retirées. `date` : jour où il a été fixé. */
+function checkInput(input: OwnGoalInput, date?: string): Checked | { ok: false; error: MyGoalError } {
   const text = cleanObjectiveText(input.text)
   if (!text) return { ok: false, error: 'vide' }
   const bad = (v?: string) => !!v?.trim() && !cleanVideoUrl(v)
   if (bad(input.video) || input.steps.some((s) => cleanShortText(s.text, OBJ_STEP_TEXT_MAX) && bad(s.video))) return { ok: false, error: 'lien' }
   const filled = input.steps.filter((s) => cleanShortText(s.text, OBJ_STEP_TEXT_MAX))
   if (filled.length > OBJ_STEPS_MAX) return { ok: false, error: 'etapes' }
-  return { ok: true, text, ...(cleanVideoUrl(input.video) ? { video: cleanVideoUrl(input.video) } : {}), steps: stepsOf(filled) }
+  const period = cleanPeriod(input)
+  if (periodBad({ ...period, date })) return { ok: false, error: 'periode' }
+  return { ok: true, text, ...(cleanVideoUrl(input.video) ? { video: cleanVideoUrl(input.video) } : {}), steps: stepsOf(filled), period }
 }
 
 /** Nouvel objectif à lui, « en cours » (à la fin). */
 export function addOwnGoal(g: MyGoals, input: OwnGoalInput, id: string, day: string): MyGoalResult {
-  const c = checkInput(input)
+  const c = checkInput(input, day)
   if (!c.ok) return c
   if (activeObjectives(g.own).length >= OWN_MAX_ACTIVE) return { ok: false, error: 'max' }
-  const o: WorkObjective = { id, text: c.text, status: 'en_cours', date: day, ...(c.video ? { video: c.video } : {}), ...(c.steps.length ? { steps: c.steps } : {}) }
+  const o: WorkObjective = { id, text: c.text, status: 'en_cours', date: day, ...(c.video ? { video: c.video } : {}), ...(c.steps.length ? { steps: c.steps } : {}), ...c.period }
   return { ok: true, goals: { ...g, own: trimOwn([...g.own, o]) } }
 }
 
-/** Un de ses objectifs modifié (titre, lien, étapes) ; son état ne change pas ici. */
+/** Un de ses objectifs modifié (titre, lien, étapes, période) ; son état ne change pas ici. */
 export function editOwnGoal(g: MyGoals, id: string, input: OwnGoalInput): MyGoalResult {
-  const c = checkInput(input)
+  const c = checkInput(input, g.own.find((o) => o.id === id)?.date)
   if (!c.ok) return c
   return {
     ok: true,
@@ -160,8 +171,8 @@ export function editOwnGoal(g: MyGoals, id: string, input: OwnGoalInput): MyGoal
       ...g,
       own: g.own.map((o) => {
         if (o.id !== id) return o
-        const { video: _v, steps: _s, ...rest } = o
-        return { ...rest, text: c.text, ...(c.video ? { video: c.video } : {}), ...(c.steps.length ? { steps: c.steps } : {}) }
+        const { video: _v, steps: _s, from: _f, due: _d, ...rest } = o
+        return { ...rest, text: c.text, ...(c.video ? { video: c.video } : {}), ...(c.steps.length ? { steps: c.steps } : {}), ...c.period }
       }),
     },
   }
