@@ -1,10 +1,11 @@
 import { StickyQuery } from '../components/StickyQuery'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { age, type Measurement, type Player } from '../db'
 import { Empty, fmtValue, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
+import { Windowed } from '../components/InfiniteList'
 import { BarActions, MoreActions } from '../components/PageHeader'
 import { ReviewBadge } from '../components/Review'
 import { arrowNav, fold, useSessionState } from '../components/PlayerFilter'
@@ -59,9 +60,9 @@ export default function Players() {
   const selected = useSelected('/joueurs')
   // Ordinateur, une fiche ouverte à droite : on passe à un autre joueur en gardant son onglet (Croissance…).
   const tabQuery = keepPlayerTab('', '/joueurs', useLocation().search)
-  const { filtered, ui, top, signature: filterSig, group, valueOf, loading, calculating, gender, plain, sex, rewatchOrigin } = usePlayersQuery(players, { display: true, count: true }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre), le nombre de joueurs collé devant
+  const { filtered, ui, top, group, valueOf, loading, calculating, gender, plain, sex, rewatchOrigin } = usePlayersQuery(players, { display: true, count: true }) // même disposition partout : barre « Demander » en haut, « Filtres » dedans (fenêtre), le nombre de joueurs collé devant
   // Premier passage (rien en mémoire) : les premières fiches tout de suite, lues par l'index, le temps que toute la base se lise
-  // (liste sans filtre seulement ; un filtre posé ou tapé s'applique dès que tout est lu). Ni « Afficher plus » ni sélection
+  // (liste sans filtre seulement ; un filtre posé ou tapé s'applique dès que tout est lu). Pas de sélection
   // pendant ce temps (« Tout » coche toute la liste filtrée).
   const preview = usePlainPreview(loading && view === 'base' && plain, sex, PAGE)
   // Premières fiches déjà montrées : la page reste en place (barre « Demander » comprise, champ en cours de frappe) même si
@@ -71,16 +72,11 @@ export default function Players() {
   const { nPending, nRefused } = all ? counted : (previewSeen.current ?? counted)
   const [grouping, setGrouping] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
-  const signature = `${view}|${filterSig}`
-  // Nombre de joueurs affichés et position dans la liste : retrouvés au retour d'une fiche.
-  const [limit, setLimit] = useSessionState('handbase.joueurs.limit', PAGE)
-  const [limitFor, setLimitFor] = useSessionState('handbase.joueurs.limitFor', signature)
-  useEffect(() => {
-    if (signature !== limitFor) {
-      setLimit(PAGE)
-      setLimitFor(signature)
-    }
-  }, [signature, limitFor, setLimit, setLimitFor])
+  // Liste qui défile d'un trait (plus de « Afficher plus ») : toutes les fiches filtrées sont dans la liste, seule une
+  // fenêtre d'une soixantaine de lignes autour de l'écran est dessinée (components/InfiniteList.tsx, Windowed). `win` :
+  // lignes dessinées ; les pictogrammes sont lus pour elles et un paquet autour (BLOCK), pas pour 40 000 fiches.
+  const [win, setWin] = useState<readonly [number, number]>([0, PAGE])
+  const onRange = useCallback((a: number, b: number) => setWin((w) => (w[0] === a && w[1] === b ? w : [a, b])), [])
   // Position retrouvée une fois la liste complète affichée (pas sur les premières fiches).
   const restored = useRef(false)
   useEffect(() => {
@@ -96,9 +92,11 @@ export default function Players() {
   }, [])
 
   const latest = (loading ? preview?.latest : measures?.latest) ?? NO_MEASURES
-  const shown = useMemo(() => (loading ? (preview?.rows ?? []) : filtered.slice(0, limit)), [loading, preview, filtered, limit])
-  const allIds = useMemo(() => (loading ? shown : filtered).map((p) => p.id), [loading, shown, filtered])
-  const shownIds = useMemo(() => shown.map((p) => p.id), [shown])
+  const shown = useMemo(() => (loading ? (preview?.rows ?? []) : filtered), [loading, preview, filtered])
+  const allIds = useMemo(() => shown.map((p) => p.id), [shown])
+  const from = Math.max(0, Math.floor(win[0] / BLOCK) * BLOCK - BLOCK)
+  const to = Math.ceil(win[1] / BLOCK) * BLOCK + BLOCK
+  const shownIds = useMemo(() => (shown.length <= to - from ? allIds : allIds.slice(from, to)), [allIds, shown.length, from, to])
   // Pictogrammes réglés dans la fenêtre « Filtres » (section « Affichage ») ; le nombre de joueurs est dans la barre
   // « Demander », collé devant « Filtres » (« 7 · Filtres ▾ », usePlayersQuery `count`).
   const countText = loading ? 'Chargement…' : pluralG(filtered.length, gender)
@@ -111,28 +109,32 @@ export default function Players() {
       <PlayerList
         ids={shownIds}
         all={allIds}
+        // Toute la liste est là (en défilant) : « Tout » ne parle pas de joueurs « pas encore affichés ».
+        selShown={allIds}
         select={!loading}
         pictosInFilters
       >
       {loading && !preview?.rows.length ? null : shown.length === 0 ? (
         <Empty>{w(gender).AucunJoueur} ne correspond.</Empty>
       ) : (
-        <div className="cols flex flex-col gap-2">
-          {shown.map((p) => {
+        <Windowed
+          items={shown}
+          keyOf={idOf}
+          className="cols flex flex-col gap-2"
+          cacheKey="joueurs"
+          onRange={onRange}
+          render={(p) => {
             const l = latest.get(p.id)
             // Liste triée (taille, note, priorité…) ou résultat du mode avancé : la valeur, en clair.
             return <Row key={p.id} p={p} height={l?.get('taille')?.value} v={valueOf(p)} selected={selected === p.id} tabQuery={tabQuery} />
-          })}
-          {!loading && filtered.length > shown.length && (
-            <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + PAGE)}>
-              Afficher plus ({(filtered.length - shown.length).toLocaleString('fr-FR')} {accord('restant', gender, 2)})
-            </button>
-          )}
-        </div>
+          }}
+        />
       )}
       </PlayerList>
     ),
-    [shownIds, allIds, loading, preview, filtered.length, gender, shown, latest, valueOf, selected, tabQuery, setLimit],
+    // `win` : la liste se remet en page (cadre des deux colonnes, place des pictogrammes) quand d'autres lignes sont dessinées.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shownIds, allIds, loading, preview, gender, shown, latest, valueOf, selected, tabQuery, onRange, win],
   )
 
   // Toutes les actions de la liste dans « ⋯ », au bout de la barre « Demander » : la création d'abord.
@@ -219,7 +221,7 @@ export default function Players() {
         </Empty>
       ) : (
         // Pictogrammes au bout des lignes (barre « Afficher », components/Pictos.tsx) : lus pour les joueurs affichés.
-        // Sélection multiple : « Tout » coche toute la liste filtrée (all), au-delà de « Afficher plus ». La liste reste
+        // Sélection multiple : « Tout » coche toute la liste filtrée (all), lignes pas encore dessinées comprises. La liste reste
         // en place pendant un calcul de filtre ou quand rien ne correspond : la sélection survit au changement de filtre.
         // Nombre de joueurs dans la barre « Afficher », collée en haut : visible pendant tout le défilement.
         // « À revoir » posé d'ici (horloge, menu, sélection) : il garde le filtre de la liste (src/rewatchPlace.tsx).
@@ -254,8 +256,11 @@ const Row = memo(function Row({ p, height, v, selected, tabQuery }: { p: Player;
   )
 })
 
-/** Nombre de joueurs affichés d'un coup (la base peut en contenir des milliers). */
+/** Premières fiches montrées pendant la lecture de la base. */
 const PAGE = 60
+/** Pictogrammes lus par paquets de fiches autour des lignes dessinées (un paquet de chaque côté en plus). */
+const BLOCK = 100
+const idOf = (p: Player) => p.id
 const SCROLL_KEY = 'handbase.joueurs.scroll'
 const NO_MEASURES = new Map<string, Map<string, Measurement>>()
 let lastView: { all: Player[]; view: string; players: Player[] } | null = null

@@ -326,12 +326,14 @@ const EMPTY = { facts: new Map<string, PictoFacts>(), sight: new Map<string, Sig
  * Liste de joueurs : barre « Afficher » (sauf `bar={false}`) et bouton « Sélectionner » (sélection multiple,
  * components/Selection.tsx ; sauf `select={false}`), puis les lignes (`children`, des PlayerRow, à n'importe quelle
  * profondeur). `ids` : joueurs affichés (données des pictogrammes lues pour eux seuls) ; `all` : toute la liste filtrée
- * quand elle est plus longue (« Afficher plus ») — c'est ce que coche « Tout » ; `context` : l'événement ou le groupe
- * de la liste (actions « vu », « à revoir » sur la sélection).
+ * quand elle est plus longue (lignes pas encore affichées, plus bas) — c'est ce que coche « Tout » ; `selShown` : ceux que
+ * la sélection compte comme affichés (`ids` par défaut ; toute la liste quand elle défile par fenêtre, components/InfiniteList.tsx) ;
+ * `context` : l'événement ou le groupe de la liste (actions « vu », « à revoir » sur la sélection).
  */
 export function PlayerList({
   ids,
   all = ids,
+  selShown = ids,
   countLabel,
   barLead,
   context,
@@ -344,6 +346,7 @@ export function PlayerList({
 }: {
   ids: readonly string[]
   all?: readonly string[]
+  selShown?: readonly string[]
   /** Nombre affiché dans la barre à la place de « Afficher » (liste Joueurs). */
   countLabel?: ReactNode
   /** Filtres posés dans la capsule, à gauche des pictogrammes (pastilles des postes : événement, groupe). */
@@ -365,7 +368,7 @@ export function PlayerList({
   // (liste Joueurs ; réglage commun à toutes les listes). La capsule ne reste que pour les pastilles des postes (`barLead`).
   if (!barLead) bar = false
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
-  const sel = useListSelection(all, ids, select)
+  const sel = useListSelection(all, selShown, select)
   const selStore = sel.store
   useEffect(() => {
     if (!selRef) return

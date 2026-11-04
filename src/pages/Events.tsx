@@ -7,6 +7,7 @@ import { BackButton, useBack, useOrigin } from '../backNav'
 import { Empty, Icon, QuarterBadge, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
 import { PlayerList } from '../components/Pictos'
+import { LoadMore, Windowed } from '../components/InfiniteList'
 import { PlayerMenuScope } from '../components/PlayerMenu'
 import { copyLink, ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
 import { type Role } from '../roles'
@@ -172,8 +173,8 @@ export default function Events() {
       ]}
     />
   )
-  // Tout afficher (passés) : retrouvé au retour (pendant la session), comme les filtres.
-  const [showAll, setShowAll] = useSessionState('handbase.evenements.all', false)
+  // Passés : les 10 plus récents, puis la suite en descendant (par 20) ; nombre montré retrouvé au retour (pendant la session).
+  const [pastShown, setPastShown] = useSessionState('handbase.evenements.passes', 10)
   // Filtres = recette « événements » (même expérience que la liste Joueurs) : champ « Filtrer ou poser une question… »,
   // micro ✨, pastilles, panneau Filtres, calcul sur la sélection ; gardés pendant la session (src/components/EventsQuery.tsx).
   const { filtered: results, active: searching, ui: filterUi, top: filterTop, loading: filterLoading } = useEventsQuery(events, stats)
@@ -318,15 +319,11 @@ export default function Events() {
           {past.length > 0 && (
             <FoldSection storeKey={foldKey('evenements', 'passes')} defaultOpen={startsOpen('past')} title="Passés" count={past.length} className="mt-2">
               <div className="cols flex flex-col gap-3">
-                {past.slice(0, showAll ? undefined : 10).map((ev) => (
+                {past.slice(0, pastShown).map((ev) => (
                   <EventRow key={ev.id} ev={ev} g={genderOfEvent(ev)} organizer={orgOf(ev)} stats={stats.get(ev.id)} />
                 ))}
+                <LoadMore more={past.length > pastShown} at={pastShown} onMore={() => setPastShown(pastShown + 20)} label={`Afficher les ${past.length - pastShown} plus anciens`} />
               </div>
-              {past.length > 10 && !showAll && (
-                <button className="btn-ghost text-xs" onClick={() => setShowAll(true)}>
-                  Afficher les {past.length - 10} plus anciens
-                </button>
-              )}
             </FoldSection>
           )}
           {archived.length > 0 && (
@@ -1412,7 +1409,6 @@ export function AddPlayers({
   // Dans le panneau de droite (ordinateur), la barre se colle en haut du panneau, qui défile seul.
   const inPanel = !!usePanel()
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [limit, setLimit] = useState(60)
   const inList = new Set(current)
   const available = filtered.filter((p) => !inList.has(p.id))
   const allPicked = available.length > 0 && available.every((p) => picked.has(p.id))
@@ -1457,8 +1453,14 @@ export function AddPlayers({
         </div>
       </div>
 
-      <div className="cols flex flex-col gap-1">
-        {filtered.slice(0, limit).map((p) => {
+      {/* Toute la base peut être là (40 000 fiches) : la liste défile d'un trait, seules les lignes autour de l'écran sont
+          dessinées (components/InfiniteList.tsx). */}
+      <Windowed
+        items={filtered}
+        keyOf={idOf}
+        className="cols flex flex-col gap-1"
+        estimate={44}
+        render={(p) => {
           const already = inList.has(p.id)
           const on = already || picked.has(p.id)
           return (
@@ -1481,17 +1483,14 @@ export function AddPlayers({
               {already && <span className="shrink-0 text-[10px] text-muted">déjà dans la liste</span>}
             </button>
           )
-        })}
-        {filtered.length > limit && (
-          <button className="btn-ghost col-span-full text-xs" onClick={() => setLimit((l) => l + 60)}>
-            Afficher plus ({(filtered.length - limit).toLocaleString('fr-FR')} restants)
-          </button>
-        )}
-        {!filtered.length && <Empty>{w(g).AucunJoueur} ne correspond aux filtres.</Empty>}
-      </div>
+        }}
+        tail={!filtered.length && <Empty>{w(g).AucunJoueur} ne correspond aux filtres.</Empty>}
+      />
     </div>
   )
 }
+
+const idOf = (p: Player) => p.id
 
 /** Bouton « N avis » : déplie ou replie les avis du joueur sous sa ligne. */
 function AvisToggle({ n, open, side = false, onClick }: { n: number; open: boolean; side?: boolean; onClick: () => void }) {

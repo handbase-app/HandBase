@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from 'react'
+import { LoadMore } from '../components/InfiniteList'
 import { setHeaderBack } from '../headerBack'
 import { appName } from '../appBrand'
 import { createPortal } from 'react-dom'
@@ -2156,7 +2157,7 @@ function QuestionWho({ club, players, text, what }: { club: ClubCoverage<Player>
 
 // ---------- Clubs ----------
 
-/** Nombre de clubs montrés d'abord (toute la France, toutes les années : des centaines). */
+/** Nombre de clubs montrés d'abord, puis ajoutés à l'approche du bas (toute la France, toutes les années : des centaines). */
 const CLUBS_STEP = 40
 
 /** Clubs dans l'ordre de l'onglet ; `inline` : la liste « Qui ? » s'ouvre sous le club touché. */
@@ -2229,11 +2230,8 @@ function ClubList({
           </div>
         )
       })}
-      {clubs.length > limit && (
-        <button className="btn-ghost min-h-8 py-1.5 text-xs" onClick={() => setMore(limit + CLUBS_STEP * 2)}>
-          Afficher plus de clubs ({fmt(clubs.length - limit)} autres)
-        </button>
-      )}
+      {/* La suite des clubs arrive en descendant (plus de bouton « Afficher plus ») ; dans la colonne qui défile seule, c'est elle qui compte. */}
+      <LoadMore more={clubs.length > limit} at={limit} onMore={() => setMore(limit + CLUBS_STEP)} label={`Afficher plus de clubs (${fmt(clubs.length - limit)} autres)`} />
     </div>
   )
 }

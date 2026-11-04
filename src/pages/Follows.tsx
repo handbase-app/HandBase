@@ -23,6 +23,8 @@ import { positionRosterView } from '../positionOrder'
 import { RosterChip, RosterSectionList } from '../components/PositionRoster'
 import { useThrottledQuery } from '../live'
 import { Empty, Icon, type IconName } from '../components/ui'
+import { LoadMore, useGrowth } from '../components/InfiniteList'
+import { olderDays } from '../listWindow'
 import { PlayerRow } from '../components/PlayerRow'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { PlayerList } from '../components/Pictos'
@@ -30,6 +32,9 @@ import { CHEVRON_CELL, FoldCard, LINE_LINK, PICTO_CELL, PictoMark as Mark } from
 import { TEAM_FOLLOW } from '../staffLabels'
 import { focusLabel, focusLink, focusOfNews } from '../playerFocus'
 import { daySummary, pictoLabel, ROW_KINDS, rowPictos, summaryLabel, summaryParts, type NewsKind } from '../followRows'
+
+/** Période la plus longue lue en descendant (le fil s'arrête là : trois ans). */
+const OLDEST_DAYS = 3 * 365
 
 function dayLabel(day: string) {
   const now = Date.now()
@@ -412,7 +417,14 @@ export default function Follows() {
     setParams(next, { replace: true, state: loc.state })
   }
   const follows = useFollows()
-  const news = useThrottledQuery(() => (follows ? buildFollowNews(days, follows) : Promise.resolve(undefined)), [days, follows], NEWS_TABLES.filter((t) => t !== 'follows' && t !== 'groups' && t !== 'teams'))
+  // Période lue avec son résultat : tant que la nouvelle n'est pas là, on n'en demande pas une autre (suite en descendant).
+  const read = useThrottledQuery(
+    async () => (follows ? { days, news: await buildFollowNews(days, follows) } : undefined),
+    [days, follows],
+    NEWS_TABLES.filter((t) => t !== 'follows' && t !== 'groups' && t !== 'teams'),
+  )
+  const news = read?.news
+  const grew = useGrowth()
   // Joueurs suivis (directement ou par un groupe), lus un par un : jamais toute la base.
   const ids = [...new Set([...(news ?? []).map((n) => n.playerId), ...(follows?.followed ?? [])])]
   const players = useLiveQuery(
@@ -551,9 +563,7 @@ export default function Follows() {
                     </NewsCard>
                   ))}
               {!shown.length && <p className="py-4 text-center text-xs text-muted">Rien de nouveau sur les {days} derniers jours.</p>}
-              <button className="btn-ghost text-xs" onClick={() => setDays((d) => d + 60)}>
-                Voir plus ancien
-              </button>
+              <LoadMore more={days < OLDEST_DAYS} busy={read?.days !== days} at={read?.days} onMore={() => setDays((d) => olderDays(d, grew(news?.length ?? 0), OLDEST_DAYS))} label="Voir plus ancien" />
             </>
           )}
         </section>

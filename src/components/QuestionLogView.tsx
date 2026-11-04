@@ -33,6 +33,7 @@ import {
 } from '../questionLogCore'
 import { ask } from './Confirm'
 import { Icon, Segmented } from './ui'
+import { LoadMore } from './InfiniteList'
 import { appName } from '../appBrand'
 
 /*
@@ -343,11 +344,7 @@ export function QuestionLogView() {
               ))}
             </ul>
           )}
-          {vocal.length > limit && (
-            <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => setLimit(limit + PAGE)}>
-              Voir plus
-            </button>
-          )}
+          <LoadMore more={vocal.length > limit} at={limit} onMore={() => setLimit(limit + PAGE)} label="Voir plus" />
         </>
       ) : (
       <>
@@ -436,11 +433,8 @@ export function QuestionLogView() {
           <AvisList avis={orphans} />
         </details>
       )}
-      {(grouped ? groups.length : shown.length) > limit && (
-        <button type="button" className="btn-ghost min-h-11 self-start px-3 text-xs" onClick={() => setLimit(limit + PAGE)}>
-          Voir plus
-        </button>
-      )}
+      {/* La suite arrive en descendant (plus de bouton « Voir plus »). */}
+      <LoadMore more={(grouped ? groups.length : shown.length) > limit} at={limit} onMore={() => setLimit(limit + PAGE)} label="Voir plus" />
       </>
       )}
     </section>

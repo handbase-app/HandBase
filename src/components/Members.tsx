@@ -7,6 +7,7 @@ import { fold } from './PlayerFilter'
 import { Icon, SectionTitle, Segmented } from './ui'
 import { ZonePicker } from './ZonePicker'
 import { appName } from '../appBrand'
+import { LoadMore } from './InfiniteList'
 
 /*
  * Membres du staff (administrateurs) : créer, modifier, supprimer des observateurs et des encadrants,
@@ -80,14 +81,17 @@ function ConnectionLog({ userId }: { userId: string }) {
   const [rows, setRows] = useState<Connection[]>([])
   const [more, setMore] = useState(false)
   const [state, setState] = useState<'…' | 'ok' | 'err'>('…')
+  const [busy, setBusy] = useState(false)
 
   async function load(from: number) {
+    setBusy(true)
     const { data, error } = await supabase!
       .from('hb_connections')
       .select('session_id, device, started_at, last_seen_at')
       .eq('user_id', userId)
       .order('started_at', { ascending: false })
       .range(from, from + PAGE) // une ligne de plus : y en a-t-il encore ?
+    setBusy(false)
     if (error) return setState('err')
     setRows((r) => [...r.slice(0, from), ...(data as Connection[]).slice(0, PAGE)])
     setMore(data.length > PAGE)
@@ -114,11 +118,8 @@ function ConnectionLog({ userId }: { userId: string }) {
           </div>
         )
       })}
-      {more && (
-        <button type="button" className="self-start text-accent" onClick={() => void load(rows.length)}>
-          voir plus
-        </button>
-      )}
+      {/* Les connexions plus anciennes arrivent en descendant. */}
+      <LoadMore more={more && state === 'ok'} busy={busy} at={rows.length} onMore={() => void load(rows.length)} label="voir plus" />
     </div>
   )
 }

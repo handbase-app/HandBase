@@ -4,6 +4,7 @@ import { alive, db } from '../db'
 import { defaultOrganizer, organizerChoices } from '../eventOrganizer'
 import { currentUserId, useRole } from '../roles'
 import { fold } from './PlayerFilter'
+import { LoadMore } from './InfiniteList'
 
 /*
  * Champ « Organisé par » d'un événement (src/eventOrganizer.ts, supabase/048_evenements_organisateur.sql).
@@ -179,10 +180,6 @@ function UnitSearch({
             id={listId}
             role="listbox"
             className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-win border border-line bg-panel shadow-lg"
-            onScroll={(e) => {
-              const el = e.currentTarget
-              if (limit < found.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 120) setLimit((n) => n + STEP)
-            }}
           >
             {shown.map((u, i) => (
               <div
@@ -203,7 +200,10 @@ function UnitSearch({
               </div>
             ))}
             {!found.length && <p className="p-2 text-[11px] text-muted">{choices.length ? 'Aucune unité ne correspond.' : 'Aucune unité dans la structure (Réglages > Structure et sport).'}</p>}
-            {limit < found.length && <p className="p-2 text-center text-[11px] text-muted">Chargement de la suite…</p>}
+            {/* La suite arrive à l'approche du bas de la liste déroulante (repère commun, components/InfiniteList.tsx). */}
+            <LoadMore more={limit < found.length} at={limit} ahead={300} onMore={() => setLimit((n) => n + STEP)} className="p-2 text-center text-[11px] text-muted">
+              Chargement de la suite…
+            </LoadMore>
           </div>
         )}
       </div>
