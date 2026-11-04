@@ -138,7 +138,7 @@ export const STYLES: UiStyle[] = [
       href: `${GF}family=Public+Sans:wght@400;500;600;700;800&display=swap`,
       names: 'Public Sans',
     },
-    radius: { sm: '2px', md: '3px', lg: '4px', xl: '4px', '2xl': '4px' },
+    radius: { sm: '4px', md: '8px', lg: '12px', xl: '14px', '2xl': '16px' },
     light: {
       bg: '#f4f5f8',
       panel: '#ffffff',
