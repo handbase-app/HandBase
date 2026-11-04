@@ -1,6 +1,7 @@
 import { loadDemoCriteria } from './criteriaImport'
 import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
-import { buildVolleyDemo } from './demoVolley'
+import { buildProgressDemo } from './demoProgress'
+import { buildVolleyDemo, GRID_CHAMP, GRID_MENTAL, GRID_PASSEUR } from './demoVolley'
 import { DEMO_TEMPLATES, GOAL_TEMPLATES_KEY, isDemoTemplatesValue } from './goalTemplates'
 import type { MyGoals } from './myGoals'
 import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
@@ -21,8 +22,8 @@ import { currentSport, type HandballPosition } from './sportConfig'
 /** Ce que contient la démonstration du sport de l'installation (Réglages → Données de démonstration). */
 export const demoInfo = () =>
   currentSport().sport === 'volley'
-    ? '40 joueuses et joueurs fictifs (M13 à M18), 5 observateurs, 6 événements de la filière (détection, stages CDE et CRE, Volleyades, Interpôles), un pôle espoirs fictif et leurs avis, pour tester l’app. Elles restent sur cet appareil et s’effacent sans toucher à tes vraies données.'
-    : "24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données."
+    ? '40 joueuses et joueurs fictifs (M13 à M18), 5 observateurs, 6 événements de la filière (détection, stages CDE et CRE, Volleyades, Interpôles), un pôle espoirs fictif et leurs avis (et, pour 4 d’entre eux, une saison passée d’avis : onglet Avis, vue Progression), pour tester l’app. Elles restent sur cet appareil et s’effacent sans toucher à tes vraies données.'
+    : "24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis (et, pour 4 d'entre eux, une saison passée d'avis : onglet Avis, vue Progression), pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données."
 
 const PREFIX = 'demo-'
 
@@ -284,6 +285,10 @@ export async function loadDemo() {
   const scout = buildScouting(players, now)
   evaluations.push(...scout.evaluations)
 
+  // ----- Saison passée d'avis pour 4 joueurs de champ (vue « Progression » de l'onglet Avis, src/demoProgress.ts) -----
+  const prog = buildProgressDemo(players, evaluations, (p) => (p.position === 'GB' ? SUBJ_GB : SUBJ_FIELD), ['Coach Paul', 'Sophie (CTF)'], now, (p) => p.position === 'GB')
+  evaluations.push(...prog.evaluations)
+
   // ----- Objectifs de travail et auto-évaluations (vague 2 « Génération Bleue ») : quelques joueurs choisis par leur rang,
   // sans rand() (la suite des autres données de la démo ne change pas). -----
   const demoGoals = buildDemoGoals(now)
@@ -301,6 +306,7 @@ export async function loadDemo() {
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
+    await db.events.bulkPut(prog.events)
     await db.evaluations.bulkPut(evaluations)
     await db.videos.bulkPut(videos)
   })
@@ -309,7 +315,7 @@ export async function loadDemo() {
   // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
   seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
   await seedDemoTemplates()
-  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length + prog.events.length, evaluations: evaluations.length, videos: videos.length }
 }
 
 /** Copie, pour une fiche, de l'objectif donné à la liste du tournoi de la démo : étapes cochées par le staff selon l'identifiant. */
@@ -445,6 +451,10 @@ async function loadVolleyDemo() {
   await clearDemo()
   const criteria = await loadDemoCriteria()
   const d = buildVolleyDemo(Date.now(), scoutId() ?? 'local', localDay)
+  // Saison passée d'avis pour 4 joueuses / joueurs (vue « Progression » de l'onglet Avis, src/demoProgress.ts).
+  const prog = buildProgressDemo(d.players, d.evaluations, (p) => [...(p.position === 'P' ? GRID_PASSEUR : GRID_CHAMP), ...GRID_MENTAL], ['Coach Paul', 'Sophie (CTS)'], Date.now(), (p) => p.position === 'L')
+  d.events.push(...prog.events)
+  d.evaluations.push(...prog.evaluations)
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
     await db.teams.bulkPut(d.teams)
     await db.groups.bulkPut(d.groups)

@@ -8,14 +8,23 @@ import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty, Icon, playerName, SEG_BOX, segItem } from './ui'
 import { fmtPlayingTime, playingTimeOf, superPowerOf } from '../avisMatch'
+import { useWidth } from '../layout'
+import { progressSteps } from '../opinionProgress'
 import type { SelfEval } from '../selfEval'
+import type { ProgressLayout, ProgressPane } from './OpinionsProgress'
 import { SelfEvalBeside } from './SelfEval'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
 const COLORS_LIGHT = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#c2410c', '#be185d', '#0e7490', '#4d7c0f']
-// Radar par zones, chargé à la demande.
+// Radar par zones et vue « Progression », chargés à la demande.
 const OpinionsRadar = lazy(() => import('./OpinionsRadar'))
+const OpinionsProgress = lazy(() => import('./OpinionsProgress'))
+/**
+ * Vue Progression : radar et petites lignes côte à côte à partir de 680 px de large (grande colonne) ; l'un sous l'autre à
+ * partir de 520 px (fiche à côté de la liste, ordinateur) ; en dessous (téléphone), segment « Radar | Lignes ».
+ */
+const progressLayout = (w: number): ProgressLayout => (w >= 680 ? 'side' : w >= 520 ? 'stack' : 'tabs')
 const obsColor = (i: number) => {
   const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
   return list[i % list.length]
@@ -85,6 +94,10 @@ interface Row {
 
 /**
  * Compare et cumule les avis subjectifs sur un joueur.
+ * Vue par défaut de la fiche (04/11) : « Progression » (src/components/OpinionsProgress.tsx), le chemin parcouru d'un avis
+ * à l'autre sur une frise ; la moyenne de tous les avis dans le temps (« Moyenne de tous les avis », en dernier dans le
+ * menu) ne veut rien dire pour un jeune qui progresse. Un événement seul, les avis spontanés : tableau par observateur
+ * et radar, comme avant.
  * Si un observateur a donné plusieurs avis dans la période, on prend sa moyenne
  * pour qu'il ne pèse pas plus que les autres.
  * Seuls les avis validés comptent ; les avis spontanés en attente peuvent être inclus à la demande,
@@ -119,15 +132,28 @@ export function Opinions({
   selfEvals?: SelfEval[]
 }) {
   const locked = lockedEventId !== undefined
-  const [chosenEventId, setEventId] = useState<string>('all')
-  const eventId = lockedEventId ?? chosenEventId
+  // Vue choisie dans le menu (null : celle par défaut, « Progression » dès qu'il y a un avis noté).
+  const [chosenEventId, setEventId] = useState<string | null>(null)
   const [chosenView, setView] = useState<'table' | 'radar'>(locked ? 'radar' : 'table')
   const [withPending, setWithPending] = useState(false)
+  // Progression : avis comptés (validés, et en attente si la case est cochée), toute période ; un cran par événement.
+  const steps = useMemo(
+    () => (locked ? [] : progressSteps(evaluations.filter((e) => counts(e) || (withPending && reviewOf(e) === 'pending')), events)),
+    [locked, evaluations, events, withPending],
+  )
+  const canProgress = steps.length > 0
+  const picked = chosenEventId === 'progress' && !canProgress ? null : chosenEventId
+  const eventId = lockedEventId ?? picked ?? (canProgress ? 'progress' : 'all')
+  const progress = eventId === 'progress'
+  // Téléphone : « Radar | Lignes » ; colonne large : les deux côte à côte.
+  const [pane, setPane] = useState<ProgressPane>('radar')
+  const [boxRef, boxW] = useWidth<HTMLDivElement>()
+  const layout = progressLayout(boxW)
   // Fiche du joueur : onglets Complet / Par famille au-dessus du radar, vue dans l'adresse (?radar=…, gardée d'un joueur
   // à l'autre avec l'onglet de la fiche). Page de l'événement : la vue de l'écran, sans onglets.
   const [radarView, setRadarView] = useRadarView()
 
-  const inPeriod = (e: Evaluation) => eventId === 'all' || (e.eventId ?? 'none') === eventId
+  const inPeriod = (e: Evaluation) => eventId === 'all' || progress || (e.eventId ?? 'none') === eventId
   const pending = evaluations.filter((e) => reviewOf(e) === 'pending')
   const refused = evaluations.filter((e) => reviewOf(e) === 'refused')
   // Avis pris en compte dans les chiffres, et avis listés dans le détail (validés + en attente).
@@ -137,7 +163,8 @@ export function Opinions({
   const fold = useAvisFold(listed.map((e) => e.id))
   useEffect(() => {
     if (!focus) return
-    setEventId('all')
+    // Toute période : Progression ou Moyenne de tous les avis (sinon l'avis visé pourrait ne pas être listé).
+    if (chosenEventId !== 'all') setEventId(null)
     fold.show(focus.id)
   }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
@@ -188,7 +215,7 @@ export function Opinions({
   // Sur l'événement, radar d'abord… s'il y a de quoi le tracer.
   const view = locked && chosenView === 'radar' && numericRows.length < 3 ? 'table' : chosenView
   // L'œil n'a de sens que radar affiché et au moins deux observateurs (un seul : la moyenne est son avis).
-  const radarShown = view === 'radar' && numericRows.length >= 3
+  const radarShown = !progress && view === 'radar' && numericRows.length >= 3
   const curveOf = (e: Evaluation) => {
     const i = observers.indexOf(e.observer)
     if (!radarShown || observers.length < 2 || i < 0) return undefined
@@ -203,7 +230,13 @@ export function Opinions({
   )
 
   // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
-  const evaluateLink = eventId !== 'all' && eventId !== 'none' ? `/evaluer?joueur=${player.id}&evenement=${eventId}` : `/evaluer?contexte=libre&joueur=${player.id}`
+  const oneEvent = eventId !== 'all' && eventId !== 'none' && !progress
+  const evaluateLink = oneEvent ? `/evaluer?joueur=${player.id}&evenement=${eventId}` : `/evaluer?contexte=libre&joueur=${player.id}`
+  // Progression : critères chiffrés notés au moins une fois (le radar et les lignes n'ont rien à dire des choix et des textes).
+  const progressCriteria = useMemo(
+    () => (progress ? criteria.filter((c) => c.scale !== 'choice' && c.scale !== 'text' && steps.some((st) => c.id in st.scores)) : []),
+    [progress, criteria, steps],
+  )
 
   if (!evaluations.length)
     return (
@@ -216,10 +249,21 @@ export function Opinions({
       </Empty>
     )
 
-  const divergent = rows.filter((r) => r.divergent)
+  // Avis divergents : entre observateurs d'une même période (pas dans la Progression, où l'écart vient aussi du temps).
+  const divergent = progress ? [] : rows.filter((r) => r.divergent)
+
+  const pendingBox = pending.length > 0 && (
+    <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+      <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
+      <span>
+        {pending.length} avis spontané{pending.length > 1 ? 's' : ''} en attente de validation
+        {withPending ? ' : inclus dans les chiffres ci-dessous.' : ' : ne compte' + (pending.length > 1 ? 'nt' : '') + ' pas dans les chiffres. Cocher pour les inclure.'}
+      </span>
+    </label>
+  )
 
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={boxRef} className="flex flex-col gap-3">
       <div className={`flex gap-2 ${locked ? 'items-center justify-between' : ''}`}>
         {/* Sur l'événement, la synthèse tient sur une ligne. */}
         {locked && (
@@ -234,26 +278,40 @@ export function Opinions({
           </div>
         )}
         {!locked && (
-          <select className="field flex-1" value={eventId} onChange={(e) => setEventId(e.target.value)}>
-            <option value="all">Tous les avis (cumul)</option>
+          <select className="field min-w-0 flex-1" value={eventId} onChange={(e) => setEventId(e.target.value)} aria-label="Avis montrés">
+            {canProgress && <option value="progress">Progression</option>}
             {usedEvents.map((ev) => (
               <option key={ev.id} value={ev.id}>
                 {ev.deleted ? `(supprimé) ${ev.name}` : ev.name} · {fmtDate(ev.date)}
               </option>
             ))}
             {evaluations.some((e) => !e.eventId) && <option value="none">Avis spontanés / hors événement</option>}
+            <option value="all">Moyenne de tous les avis</option>
           </select>
         )}
-        <div className={`${SEG_BOX} shrink-0`}>
-          {(['table', 'radar'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-0.5' : 'py-1'} text-xs ${segItem(view === v)}`}>
-              {v === 'table' ? 'Tableau' : 'Radar'}
-            </button>
-          ))}
-        </div>
+        {/* Progression : « Radar | Lignes » sur téléphone (les deux à la fois dès qu'il y a la place) ; sinon « Tableau | Radar ». */}
+        {progress ? (
+          layout === 'tabs' && (
+            <div className={`${SEG_BOX} shrink-0`}>
+              {(['radar', 'lines'] as const).map((v) => (
+                <button key={v} onClick={() => setPane(v)} aria-pressed={pane === v} className={`px-3 py-1 text-xs ${segItem(pane === v)}`}>
+                  {v === 'radar' ? 'Radar' : 'Lignes'}
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
+          <div className={`${SEG_BOX} shrink-0`}>
+            {(['table', 'radar'] as const).map((v) => (
+              <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-0.5' : 'py-1'} text-xs ${segItem(view === v)}`}>
+                {v === 'table' ? 'Tableau' : 'Radar'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {!locked && (
+      {!locked && !progress && (
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="Avis" value={String(evs.length)} />
           <Stat label={observers.length > 1 ? 'Personnes' : 'Personne'} value={String(observers.length)} />
@@ -261,15 +319,7 @@ export function Opinions({
         </div>
       )}
 
-      {pending.length > 0 && (
-        <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-          <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
-          <span>
-            {pending.length} avis spontané{pending.length > 1 ? 's' : ''} en attente de validation
-            {withPending ? ' : inclus dans les chiffres ci-dessous.' : ' : ne compte' + (pending.length > 1 ? 'nt' : '') + ' pas dans les chiffres. Cocher pour les inclure.'}
-          </span>
-        </label>
-      )}
+      {!progress && pendingBox}
 
       {divergent.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
@@ -277,7 +327,21 @@ export function Opinions({
         </div>
       )}
 
-      {view === 'table' ? (
+      {progress ? (
+        <Suspense fallback={<div className="h-80 py-10 text-center text-xs text-muted">Chargement de la progression…</div>}>
+          <OpinionsProgress
+            key={player.id}
+            playerId={player.id}
+            steps={steps}
+            criteria={progressCriteria}
+            avisCount={evs.length}
+            observerCount={observers.length}
+            pane={pane}
+            layout={layout}
+            afterStats={pendingBox}
+          />
+        </Suspense>
+      ) : view === 'table' ? (
         <div className="-mx-1 overflow-x-auto">
           <table className="w-full border-separate border-spacing-0 text-xs">
             <thead>
@@ -341,7 +405,7 @@ export function Opinions({
       )}
 
       {/* Son regard sur l'événement choisi (auto-évaluation du jeune) : à côté des avis, hors des moyennes et du radar. */}
-      {!locked && eventId !== 'all' && eventId !== 'none' && <SelfEvalBeside eventId={eventId} list={selfEvals} sex={player.sex} />}
+      {!locked && oneEvent && <SelfEvalBeside eventId={eventId} list={selfEvals} sex={player.sex} />}
 
       {/* Détail des avis (avec commentaires) */}
       <div className="flex flex-col gap-2">
