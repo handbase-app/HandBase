@@ -6,6 +6,8 @@ import { TRIAL, TRIAL_LABEL } from '../db'
 import { useAppBrand } from '../appBrand'
 import { BRAND_FONT } from './Brand'
 import { useMe } from './ui'
+import { AccountWindows, LoginAccounts } from './TestAccounts'
+import { ConfirmHost } from './Confirm'
 import { CHARTER_VERSION, CharterText, PLAYER_CHARTER_VERSION, PlayerCharterText, PrivacyText } from '../pages/Privacy'
 import { claimErrorText, formatInviteCode, INVITE_LENGTH, isInviteCode, normalizeInviteCode } from '../playerSpace'
 
@@ -366,6 +368,10 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
         </button>
         <p className="text-[11px] text-muted">Pas de compte ? Demande à un administrateur. Une fois connecté, l'app fonctionne aussi hors ligne.</p>
       </form>
+      {/* Compte de test dont la session ne vaut plus (« Changer de compte ») : retour sur l'administrateur gardé. */}
+      <LoginAccounts />
+      <AccountWindows />
+      <ConfirmHost />
       <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => setPrivacy(true)}>
         Confidentialité
       </button>

@@ -16,6 +16,7 @@
  */
 import { workerSession, webLock, type WorkerSession } from './authRefresh'
 import { GATE_MIRROR_KEY, idbKv } from './sessionStore'
+import { activeDbOf, BASE_KEY, HOME_DB } from './comptesCore'
 import { addDays } from './priorite'
 import type { ServerRow } from './syncLive'
 import {
@@ -123,11 +124,25 @@ async function lirePages(table: string, filter: string, token: string, deadline:
 
 // ---------- Base locale (Dexie de l'appli, IndexedDB brute) ----------
 
-function ouvrirBase(): Promise<IDBDatabase | null> {
+/**
+ * Base du compte actif : celle de l'appli, ou celle d'un compte de test actif (« Changer de compte », src/comptesCore.ts :
+ * nom recopié dans « hb-session ») : jamais la base d'un autre compte que celui de la session.
+ */
+async function nomBase(): Promise<string> {
+  if (CFG.dbName !== HOME_DB) return CFG.dbName
+  try {
+    return activeDbOf(await idbKv()?.get(BASE_KEY))
+  } catch {
+    return CFG.dbName
+  }
+}
+
+async function ouvrirBase(): Promise<IDBDatabase | null> {
+  const name = await nomBase()
   return new Promise((resolve) => {
     let req: IDBOpenDBRequest
     try {
-      req = indexedDB.open(CFG.dbName)
+      req = indexedDB.open(name)
     } catch {
       return resolve(null)
     }

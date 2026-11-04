@@ -21,6 +21,8 @@ import { warmCoverage } from './coverageCache'
 import { useFollowNewsCount } from './follows'
 import { Icon, ICONS } from './components/ui'
 import { ProfileButton } from './components/ProfileMenu'
+import { AccountBanner, AccountWindows } from './components/TestAccounts'
+import { onTestAccount } from './comptes'
 import { can, useRole } from './roles'
 import { useThemeVersion } from './theme'
 import { appName } from './appBrand'
@@ -273,7 +275,8 @@ export default function App() {
   const player = isPlayerRole(useRole())
   // Notifications : l'abonnement de ce téléphone est réenregistré sur le serveur à chaque ouverture.
   useEffect(() => {
-    if (pushSupport() === 'ok' && !player) void syncSubscription()
+    // Compte de test actif (« Changer de compte ») : l'abonnement reste au compte administrateur de l'appareil.
+    if (pushSupport() === 'ok' && !player && !onTestAccount()) void syncSubscription()
   }, [player])
   // Changement de thème : tout se redessine (les graphiques relisent les couleurs).
   useThemeVersion()
@@ -364,6 +367,8 @@ export default function App() {
         </div>
         )}
         {!rail && <SyncProgressBar />}
+        {/* Compte de test actif (« Changer de compte ») : lequel, et « Revenir sur … » (src/components/TestAccounts.tsx). */}
+        {!rail && <AccountBanner />}
         {/* « Voir comme… » (outil administrateur) : bandeau sous l'en-tête. */}
         {!rail && <SpyBanner />}
       </header>
@@ -372,6 +377,7 @@ export default function App() {
         <div className="no-print fixed top-0 right-0 left-[var(--nav-l)] z-20">
           <div className="relative">
             <SyncProgressBar />
+            <AccountBanner />
             <SpyBanner />
           </div>
         </div>
@@ -532,6 +538,7 @@ export default function App() {
       {!player && <VideoDock />}
       {!player && <GlobalCompareBar />}
       <ConfirmHost />
+      <AccountWindows />
       <AskActionHost />
     </div>
   )

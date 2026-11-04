@@ -9,13 +9,16 @@ import { percent, showProgress } from '../syncProgress'
 import { canLeave } from './Confirm'
 import { flash, ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
 import { Icon, useMe } from './ui'
+import { accountMenuItems } from './TestAccounts'
+import { useAccountsView } from '../comptes'
 
 /*
  * Bulle de profil, à droite de l'en-tête (après l'étoile des suivis et la cible) : initiales du compte, et un petit point
  * de couleur en bas à droite pour l'état de la synchronisation (vert en direct, ambre en attente ou hors ligne, rouge en
  * erreur, gris en local). Un toucher ouvre le menu du compte (ItemMenu : petite fenêtre sous la bulle, que le geste Retour
  * referme sans quitter la page) : nom et rôle, état de la synchro (un toucher la relance),
- * Réglages, Confidentialité, Se déconnecter (src/logout.ts, comme dans Réglages ; pas sans serveur).
+ * Réglages, Confidentialité, comptes de test (administrateur : « Changer de compte », src/components/TestAccounts.tsx),
+ * Se déconnecter (src/logout.ts, comme dans Réglages ; pas sans serveur).
  */
 
 /** État de la synchronisation, en clair (couleur du point, texte, envois en attente, précision). */
@@ -58,6 +61,7 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
   const role = useRole()
   const sync = useSyncInfo()
   const nav = useNavigate()
+  const accounts = useAccountsView()
   // Petite fenêtre sous les initiales, comme tous les menus ; le geste Retour la referme sans quitter la page (ItemMenu).
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
   /**
@@ -86,6 +90,8 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
     { label: 'Réglages', icon: 'settings', onSelect: () => go('/parametres'), stay: true, separated: true },
     { label: 'Confidentialité', icon: 'lock', onSelect: () => go('/confidentialite'), stay: true },
   ]
+  // Changer de compte en un toucher (administrateur, ou appareil qui garde un compte administrateur) : rien sinon.
+  items.push(...accountMenuItems(accounts).map((it) => ({ ...it, onSelect: () => close(it.onSelect), stay: true })))
   // Sans serveur (mode local, essai sans base) : pas de compte, pas de déconnexion (comme Réglages → Mon compte).
   if (supabase)
     items.push({
@@ -121,7 +127,7 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
           </span>
         )}
       </button>
-      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={ROLE_LABEL[role]} items={items} onClose={() => close()} />}
+      {anchor && <ItemMenu anchor={anchor} title={name || 'Mon compte'} subtitle={accounts.onTest ? `Compte de test · ${ROLE_LABEL[role]}` : ROLE_LABEL[role]} items={items} onClose={() => close()} />}
     </>
   )
 }

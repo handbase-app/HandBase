@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { guardWrite, spyTarget } from './spy'
+import { activeDbOf, BASE_KEY, HOME_DB } from './comptesCore'
 import { viewAsMiddleware } from './viewAsFilter'
 import type { MatchSheet } from './matchSheet'
 import type { QuestionLogFields } from './questionLogCore'
@@ -607,7 +608,19 @@ export const TRIAL = !!import.meta.env.VITE_TRIAL
 export const DEMO = !!import.meta.env.VITE_DEMO
 export const TRIAL_LABEL = DEMO ? 'DÉMONSTRATION · DONNÉES FICTIVES' : 'VERSION D’ESSAI'
 
-export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
+/**
+ * Base de l'espace du compte actif (« Changer de compte », src/comptesCore.ts) : « handbase » sauf quand un compte de test
+ * est actif (sa base à lui, « handbase-compte-<id> ») ; lu ici, avant toute ouverture.
+ */
+const accountDb = (() => {
+  try {
+    return activeDbOf(localStorage.getItem(BASE_KEY))
+  } catch {
+    return HOME_DB
+  }
+})()
+
+export const db = new Dexie(TRIAL ? 'handbase-essai' : accountDb) as Dexie & {
   players: EntityTable<Player, 'id'>
   criteria: EntityTable<Criterion, 'id'>
   measurements: EntityTable<Measurement, 'id'>

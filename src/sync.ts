@@ -209,7 +209,8 @@ const restFetch = retryingFetch({
  * dans IndexedDB (une seule copie, migrée depuis localStorage à la première lecture), lisible par le service worker qui
  * prépare les événements du lendemain appli fermée. IndexedDB indisponible : localStorage, comme avant.
  */
-const sessionKv = (() => {
+/** Magasin IndexedDB « hb-session » (session, repère de renouvellement, comptes gardés : src/comptes.ts) ; null sans IndexedDB. */
+export const sessionKv = (() => {
   try {
     return idbKv()
   } catch {
@@ -263,6 +264,13 @@ if (url && key) {
   }
 }
 export const syncEnabled = !!supabase
+/** Adresse et clé publique du serveur (rien de secret) : client de connexion à part pour ajouter un compte (src/comptes.ts). */
+export const serverConfig = url && key ? { url, key } : null
+/**
+ * Branchement de src/comptes.ts (qui importe ce fichier) : à l'effacement de l'appareil, les comptes de test gardés et leurs
+ * espaces partent aussi (sessions fermées au serveur si possible).
+ */
+export const accountHooks: { forgetAll: () => Promise<void> } = { forgetAll: async () => {} }
 
 export type SyncState = 'local' | 'login' | 'offline' | 'syncing' | 'synced' | 'error'
 
@@ -336,6 +344,18 @@ export function claimDevice(uid: string): boolean {
 }
 
 let wiping = false
+/** Changement de compte en cours (src/comptes.ts) : plus rien n'est lu ni envoyé dans cet onglet, qui va se recharger. */
+let frozen = false
+
+/**
+ * Avant de changer de compte : plus de synchronisation ni de canaux en direct ; la synchronisation en cours (envoi compris)
+ * se termine d'abord (au plus quelques secondes), avec la session du compte qu'on quitte.
+ */
+export async function freezeSync() {
+  frozen = true
+  stopRealtime()
+  if (running) await Promise.race([running.catch(() => {}), new Promise((r) => setTimeout(r, 8000))])
+}
 
 /**
  * Efface HandBase de cet appareil (déconnexion, ou données d'un autre compte) : notifications désabonnées,
@@ -358,6 +378,8 @@ export async function wipeDevice({ signOut = false } = {}) {
     await authStorage.removeItem(authStorageKey).catch(() => {})
     await sessionKv?.del(GATE_MIRROR_KEY).catch(() => {})
   }
+  // Comptes de test gardés sur l'appareil (« Changer de compte ») : sessions fermées, espaces effacés (au plus quelques secondes).
+  await Promise.race([accountHooks.forgetAll().catch(() => {}), new Promise((r) => setTimeout(r, 6000))])
   try {
     await db.delete({ disableAutoOpen: true })
   } catch {
@@ -406,7 +428,7 @@ let filetHasard = Math.random()
  * complète (envoi, « quoi de neuf ? », relecture des tables signalées, vérifications).
  */
 export async function syncNow({ retry = false, tables }: { retry?: boolean; tables?: Iterable<SyncTable> } = {}): Promise<void> {
-  if (!supabase || wiping) return
+  if (!supabase || wiping || frozen) return
   if (retry) {
     setAside.clear()
     failures.clear()
