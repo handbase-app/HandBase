@@ -17,6 +17,7 @@ import { regionOfDept, useRegionName, useRegions } from '../lists'
 import { exportCsv } from '../export'
 import { can, currentUserId, groupVisibility, useRole, type GroupVisibility } from '../roles'
 import { loadTeams } from '../teams'
+import { useSyncState } from '../sync'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
 import { Participants } from '../components/Participants'
 import { GROUP_VIS, STAFF, TEAM_FOLLOW } from '../staffLabels'
@@ -145,6 +146,9 @@ export default function Groups() {
   const leader = usePoleLeader()
   const refs = usePoleRefs()
   const poleGroups = usePoleGroups()
+  // Premier chargement en cours : les groupes ne sont peut-être pas encore arrivés, on ne dit pas « Aucun groupe ».
+  const { state: syncState, progress } = useSyncState()
+  const firstLoading = syncState === 'syncing' && !!progress?.first
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const pinned = shown.filter((g) => !!g.poleUnitId && !g.archived)
   const active = shown.filter((g) => !g.archived && !g.poleUnitId)
@@ -208,9 +212,10 @@ export default function Groups() {
       ]}
     />
   )
-  // Groupes de joueurs, liste vide : le bouton de création à côté du titre, en plus du « ⋯ ».
+  // Groupes de joueurs, liste vide : le bouton de création dans le message « Aucun groupe », en plus du « ⋯ » (05/11 : seul en
+  // haut de la page, il passait sous la barre du premier chargement et s'affichait avant que les groupes arrivent).
   const addButton = !work && can.manageGroups(role) && !groups.length && (
-    <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
+    <button className="btn-primary mt-3 px-3 py-1.5 text-xs" onClick={() => setNewGroup({ playerIds: [], fromUrl: false })}>
       + Groupe
     </button>
   )
@@ -244,9 +249,8 @@ export default function Groups() {
   return (
     <div className="flex flex-col gap-3">
       {/* Titre pour les lecteurs d'écran seulement : l'onglet du menu, en surbrillance, dit déjà où l'on est (30/10). Aucun
-          groupe : le bouton de création, seul en haut. */}
+          groupe : le bouton de création est dans le message « Aucun groupe ». */}
       <h1 className="sr-only">Groupes</h1>
-      {addButton && <div className="self-start">{addButton}</div>}
       {newGroup && (
         <NewGroupWindow
           playerIds={newGroup.playerIds}
@@ -306,7 +310,16 @@ export default function Groups() {
         <Empty>{archived.length ? `Aucun groupe en cours ne correspond ; ${archived.length > 1 ? `${archived.length} dans « Archivés »` : '1 dans « Archivés »'}.` : 'Aucun groupe ne correspond.'}</Empty>
       )}
       {!groups.length && !toCreate.length && (
-        <Empty>{can.manageGroups(role) ? 'Aucun groupe pour l’instant. Crée le premier avec « + Groupe ».' : 'Aucun groupe pour l’instant.'}</Empty>
+        <Empty>
+          {firstLoading ? (
+            'Chargement des groupes…'
+          ) : (
+            <>
+              Aucun groupe pour l’instant.
+              {addButton && <div>{addButton}</div>}
+            </>
+          )}
+        </Empty>
       )}
       {/* Groupes de groupes repliables (src/components/FoldSection.tsx) : dépliés au départ, sauf « Archivés » ; le choix
           est gardé pendant la session. Filtre actif : le titre compte les groupes de la section qui répondent. */}
