@@ -45,6 +45,7 @@ import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
 import { numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 import { FoldSection } from '../components/FoldSection'
 import { afterWindow, FormWindow } from '../components/FormWindow'
+import { useGiveObjective } from '../components/GroupObjectives'
 import { DuplicateEvent } from '../components/DuplicateEvent'
 import { foldKey, startsOpen } from '../fold'
 import { eventToAgenda } from '../agendaFile'
@@ -634,6 +635,21 @@ export function EventDetail() {
 
   // Retour d'une fiche ouverte depuis la liste : même position qu'avant.
   useRestoreScroll(`evenement.${id}`, !!data)
+  // « Donner un objectif au groupe » (⋮ du titre ; src/components/GroupObjectives.tsx) : les joueurs de la liste (par nom),
+  // ou la sélection en cours ; l'événement est relié d'office à chaque copie. « Objectifs donnés » : onglet Joueurs.
+  const selRef = useRef<(() => readonly string[]) | null>(null)
+  const giftPlayers = useMemo(() => {
+    if (!data?.ev) return []
+    const m = new Map(data.players.map((p) => [p.id, p]))
+    return sortRoster((data.ev.playerIds ?? []).map((pid) => m.get(pid)).filter((p): p is Player => !!p), 'nom')
+  }, [data])
+  const give = useGiveObjective({
+    players: giftPlayers,
+    from: { kind: 'evenement', id: id ?? '', name: data?.ev?.name ?? '' },
+    event: data?.ev ? { id: data.ev.id, name: data.ev.name, date: data.ev.date } : undefined,
+    gender: setGender(data?.ev?.sex, giftPlayers),
+    selected: () => selRef.current?.() ?? [],
+  })
 
   // Avis affichés à côté de la liste des joueurs : le panneau prend toute la largeur (liste des événements masquée),
   // joueurs sur un tiers, avis sur deux tiers. Échap ferme les avis (la liste revient) ; ↑ ↓ changent de joueur.
@@ -781,6 +797,7 @@ export function EventDetail() {
     roster.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
     canRemove && !pick.on && !removing && { label: `Retirer des ${ew.joueurs}`, icon: 'close', onSelect: () => (toPlayers(), setAdding(false), setRemoving(true)) },
     showSplit && { label: 'Répartir par équipe', icon: 'users', hint: 'observateurs par équipe (tournoi)', onSelect: () => setSplitOpen(true) },
+    !removing && !pick.on && give.item && { ...give.item, onSelect: () => (toPlayers(), setAdding(false), (give.item as MenuItem).onSelect()) },
   ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
   // Un trait entre ces actions et celles de l'événement (Modifier, Dupliquer…).
   const afterListActions = (items: (MenuItem | false | undefined | null)[]) => {
@@ -1127,6 +1144,7 @@ export function EventDetail() {
             style={avisPlayer ? { gridTemplateColumns: panel ? 'clamp(19rem, 33%, 34rem) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)' } : undefined}
           >
           <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
+            {give.ui}
             {duo && !avisPlayer && !mosaic && (
               <p className="text-[11px] text-muted">
                 {evals.length ? `Choisis « avis » sur la ligne d’${ew.unJoueur} : ses avis et son radar s’affichent à droite.` : 'Aucun avis pour l’instant sur cet événement.'}
@@ -1267,6 +1285,7 @@ export function EventDetail() {
                   ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
                   context={{ eventId: ev.id }}
                   select={!removing && !pick.on}
+                  selRef={selRef}
                   className="flex flex-col gap-2"
                 >
                 <RosterSectionList

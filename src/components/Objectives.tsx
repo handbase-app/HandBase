@@ -41,6 +41,7 @@ import {
   sameObjectives,
   setObjectiveStatus,
   setStepDone,
+  sourceLabel,
   type ObjectiveStep,
   type WorkObjective,
 } from '../objectives'
@@ -176,6 +177,7 @@ function GoalItem({ v, expanded, onExpand, viewer, sex, opts, onCheckGoal, onChe
   const atteint = o.status === 'atteint'
   const progress = progressLabel(v.progress)
   const from = objectiveOrigin(o, fmtDate)
+  const source = v.owner === 'staff' ? sourceLabel(o) : ''
   const g = w(sex)
   const stepsId = `etapes-${v.owner}-${o.id}`
   // Case de l'objectif : qui ne peut pas le cocher le voit sans pouvoir y toucher (le jeune, pour un objectif du staff).
@@ -193,12 +195,19 @@ function GoalItem({ v, expanded, onExpand, viewer, sex, opts, onCheckGoal, onChe
         >
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold break-words">{o.text}</span>
-            {(progress || from || (atteint && o.doneAt)) && (
+            {(progress || from || source || (atteint && o.doneAt)) && (
               <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
                 {progress && (
                   <span className="inline-flex items-center gap-1.5">
                     {progress}
                     <Dots steps={v.steps} />
+                  </span>
+                )}
+                {/* Donné à tout un groupe (src/groupObjectives.ts) : « groupe Pôle », discrètement (sous la pastille « du staff »). */}
+                {source && (
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <Icon name="users" className="h-3 w-3 shrink-0" />
+                    {source}
                   </span>
                 )}
                 {from && <span>{from}</span>}
