@@ -28,6 +28,7 @@ import { useOnline } from './TransferGroup'
 import { SectionTitle } from './ui'
 import { isPoleUnit } from '../poleSeason'
 import { POLE_PROGRAMMES } from '../db'
+import { LoadMore } from './InfiniteList'
 
 /*
  * Réglages > « Structure et sport » (supabase/044_structure.sql) : postes du sport, niveaux, arbre des unités et
@@ -875,10 +876,6 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                 id={listId}
                 role="listbox"
                 className="absolute inset-x-0 top-full z-30 mt-1 flex max-h-80 flex-col overflow-y-auto rounded-win border border-line bg-panel shadow-lg"
-                onScroll={(e) => {
-                  const el = e.currentTarget
-                  if (limit < found.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 120) setLimit((n) => n + STEP)
-                }}
               >
                 {shown.map((m, i) => (
                   <div
@@ -899,7 +896,10 @@ function AssignmentsEditor({ unit, people, members }: { unit: Unit; people: Assi
                   </div>
                 ))}
                 {!found.length && <p className="p-2 text-[11px] text-muted">{free.length ? 'Aucun compte ne correspond.' : 'Tous les comptes sont déjà affectés ou choisis.'}</p>}
-                {limit < found.length && <p className="p-2 text-center text-[11px] text-muted">Chargement de la suite…</p>}
+                {/* La suite arrive à l'approche du bas de la liste déroulante (repère commun, components/InfiniteList.tsx). */}
+                <LoadMore more={limit < found.length} at={limit} ahead={300} onMore={() => setLimit((n) => n + STEP)} className="p-2 text-center text-[11px] text-muted">
+                  Chargement de la suite…
+                </LoadMore>
               </div>
             )}
           </div>

@@ -34,7 +34,7 @@ import { Icon, type IconName } from './ui'
  * src/selection.ts (tools/test-selection.ts).
  * - « Sélectionner », à côté de la barre « Afficher » : une case à cocher sur chaque ligne (PlayerRow) ; toucher la
  *   ligne coche / décoche au lieu d'ouvrir la fiche.
- * - En haut (SelectionHeader) : compteur, « Tout » (toute la liste filtrée, y compris au-delà de « Afficher plus »),
+ * - En haut (SelectionHeader) : compteur, « Tout » (toute la liste filtrée, y compris les lignes pas encore affichées),
  *   « Aucun », « Garder seulement ceux affichés » (si des cochés sont sortis du filtre), « Annuler ».
  * - En bas, collée au-dessus de la barre de navigation (SelectionBar) : les actions permises par le rôle.
  * Un état par liste (store ci-dessous) : il survit aux filtres et au tri de la liste, pas au changement de page.
@@ -52,7 +52,7 @@ type Msg = { text: string; to?: string; link?: string }
 class SelStore {
   on = false
   ids: string[] = []
-  /** Toute la liste filtrée (au-delà de « Afficher plus »), et ce qui est affiché. Posés à chaque rendu de la liste. */
+  /** Toute la liste filtrée (lignes pas encore affichées comprises), et ce qui est affiché. Posés à chaque rendu de la liste. */
   all: readonly string[] = []
   shown: readonly string[] = []
   /** Sélection permise sur cette liste (pas en mode « retirer » ni « comparer »). */
@@ -202,7 +202,7 @@ export function SelectionHeader({ store }: { store: SelStore }) {
       <b className="min-w-0 basis-full text-fg sm:mr-auto sm:basis-auto" aria-live="polite">
         {selectionLabel(n, outside, g, below)}
       </b>
-      <button type="button" className={btn} disabled={allIn} onClick={() => store.update({ ids: selectAll(store.ids, store.all) })} title={`Cocher toute la liste filtrée (${total}), y compris ${w(g).ceux} pas encore ${total > store.shown.length ? 'affichés (« Afficher plus »)' : 'visibles'}`}>
+      <button type="button" className={btn} disabled={allIn} onClick={() => store.update({ ids: selectAll(store.ids, store.all) })} title={`Cocher toute la liste filtrée (${total}), y compris ${w(g).ceux} pas encore ${total > store.shown.length ? 'affichés (plus bas dans la liste)' : 'visibles'}`}>
         Tout ({total.toLocaleString('fr-FR')})
       </button>
       <button type="button" className={btn} disabled={!n} onClick={() => store.update({ ids: [] })}>

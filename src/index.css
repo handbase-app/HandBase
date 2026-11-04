@@ -84,7 +84,7 @@ html { scrollbar-gutter: stable; }
 
 /* Listes de cartes : une colonne sur téléphone tenu droit ; 2 colonnes AU PLUS en paysage et sur ordinateur, quelle que
    soit la largeur (à trois, les cartes deviennent étroites et illisibles : décidé le 20/10/2026).
-   Les éléments qui doivent prendre toute la ligne (« Afficher plus »…) portent col-span-full. */
+   Les éléments qui doivent prendre toute la ligne (repère de fin de liste, message…) portent col-span-full. */
 @media (orientation: landscape) and (max-height: 520px) and (min-width: 640px), (min-width: 1024px) and (min-height: 521px) {
   .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -131,7 +131,7 @@ html { scrollbar-gutter: stable; }
    (data-pitem : une ligne, ou une ligne et ce qui s'ouvre dessous) forment UN cadre de la couleur des cartes, aux coins
    des fenêtres, séparées par un filet fin ; plus de carte par joueur. Une suite de lignes = un cadre : une section (poste,
    équipe) ou une colonne a le sien. Pas d'écart entre les lignes ; un écart avant et après le cadre (barre de la liste,
-   « Afficher plus »…). Le menu d'une ligne (div.contents) ne compte pas. Deux colonnes (.cols) : chaque colonne a son
+   message…). Le menu d'une ligne (div.contents) ne compte pas. Deux colonnes (.cols) : chaque colonne a son
    cadre ; la 1re et la dernière ligne de la 2e colonne sont marquées par la liste (data-pedge, components/Pictos.tsx). */
 :has(> [data-pitem]) { row-gap: 0; }
 [data-pitem] + :not([data-pitem], .contents),

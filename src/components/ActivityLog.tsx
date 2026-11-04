@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
 import { SectionTitle } from './ui'
+import { LoadMore } from './InfiniteList'
 import { FormActions, FormWindow } from './FormWindow'
 import { STAFF } from '../staffLabels'
 
@@ -232,10 +233,6 @@ export function ActivityLog() {
       <div
         ref={listRef}
         className="max-h-[26rem] divide-y divide-line overflow-y-auto overscroll-contain rounded-lg border border-line"
-        onScroll={(e) => {
-          const el = e.currentTarget
-          if (more && !loading && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) void load(rows.length)
-        }}
       >
         {rows.map((r) => {
           // Consultation d'un groupe d'un autre (supabase/039) : pas de lien (le groupe n'est pas sur l'appareil).
@@ -275,12 +272,8 @@ export function ActivityLog() {
         })}
         {!rows.length && !loading && !err && <div className="p-3 text-center text-xs text-muted">Aucune activité.</div>}
         {loading && <div className="p-2 text-center text-[11px] text-muted">Chargement…</div>}
-        {/* Si la liste est trop courte pour défiler, ou pour qui préfère cliquer. */}
-        {more && !loading && (
-          <button className="w-full p-2 text-center text-[11px] font-bold text-accent" onClick={() => void load(rows.length)}>
-            Plus ancien
-          </button>
-        )}
+        {/* Repère au bout de la liste : la suite arrive avant d'y être (aussi quand la liste est trop courte pour défiler). */}
+        <LoadMore more={more && !err} busy={loading} at={rows.length} ahead={300} onMore={() => void load(rows.length)} label="Plus ancien" className="h-px border-0!" />
         {!more && rows.length > FIRST && <div className="p-2 text-center text-[10px] text-muted">Début du journal.</div>}
       </div>
     </section>

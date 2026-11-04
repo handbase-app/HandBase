@@ -30,7 +30,7 @@ export function setIds(sel: readonly string[], ids: readonly string[], on: boole
   return out
 }
 
-/** « Tout » : toute la liste filtrée (`all`, y compris au-delà de « Afficher plus »), en plus de ce qui était coché. */
+/** « Tout » : toute la liste filtrée (`all`, y compris les lignes pas encore affichées), en plus de ce qui était coché. */
 export const selectAll = (sel: readonly string[], all: readonly string[]) => setIds(sel, all, true)
 
 /** « Garder seulement ceux affichés » : ceux de la sélection encore dans la liste filtrée. */
@@ -41,7 +41,7 @@ export function keepOnly(sel: readonly string[], all: readonly string[]): string
 
 /**
  * Combien sont cochés ; parmi eux, combien sont hors de la liste filtrée (`all`) et combien sont dans la liste filtrée
- * mais pas encore affichés (`shown` : la page en cours, avant « Afficher plus ») ; `allIn` : toute la liste est cochée.
+ * mais pas encore affichés (`shown` : ce qui est déjà affiché, la suite arrive en descendant) ; `allIn` : toute la liste est cochée.
  */
 export function selectionStats(
   sel: readonly string[],

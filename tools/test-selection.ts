@@ -1,5 +1,5 @@
 // Test de la sélection multiple des listes de joueurs (src/selection.ts) : cocher, Tout / Aucun, garder ceux affichés,
-// compteur (au-delà de « Afficher plus », hors du filtre), accords au féminin, confirmation, comparer, suivre,
+// compteur (lignes pas encore affichées, hors du filtre), accords au féminin, confirmation, comparer, suivre,
 // actions selon les droits, messages.
 //
 //   npx jiti tools/test-selection.ts
