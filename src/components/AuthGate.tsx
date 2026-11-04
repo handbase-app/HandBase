@@ -240,6 +240,9 @@ function ClaimCode() {
           Se déconnecter
         </button>
       </form>
+      {/* Compte de test pas encore relié (« Changer de compte », administrateur) : retour sur le compte gardé. */}
+      <LoginAccounts />
+      <AccountWindows />
     </Shell>
   )
 }
