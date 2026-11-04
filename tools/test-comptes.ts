@@ -19,6 +19,7 @@ import {
   firstName,
   HOME_DB,
   isAccountKey,
+  realDbName,
   isTestDb,
   MAX_TEST,
   park,
@@ -165,6 +166,12 @@ t('réglages par compte : clés handbase.* seulement, thème et clés des compte
   ])
   assert.deepEqual(Object.keys(b).sort(), ['handbase.lastPull.players', 'handbase.owner', 'handbase.role'])
   assert.ok(!isAccountKey('handbase.theme'))
+  // Version d'essai (serveur de test) : ses réglages « handbase-essai. » suivent le compte aussi ; base maison renommée.
+  assert.ok(isAccountKey('handbase-essai.lastPull.players'))
+  assert.ok(!isAccountKey('handbase-essai.theme'))
+  assert.equal(realDbName(HOME_DB, true), 'handbase-essai')
+  assert.equal(realDbName(HOME_DB, false), 'handbase')
+  assert.equal(realDbName(testDbName('11111111-2222-3333-4444-555555555555'), true), 'handbase-compte-11111111-2222-3333-4444-555555555555')
   assert.deepEqual(parseBundle(JSON.stringify({ ...b, 'sb-x-auth-token': 'jeton', 'handbase.n': 3 })), b)
   assert.deepEqual(parseBundle('cassé'), {})
 })
@@ -263,7 +270,7 @@ t('client à part (persistSession false) : connexion et renouvellement sans rien
 t('branchements : base Dexie et service worker sur la base active, effacement complet, notifications, menu', () => {
   const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
   assert.match(src('src/db.ts'), /activeDbOf\(localStorage\.getItem\(BASE_KEY\)\)/)
-  assert.match(src('src/db.ts'), /new Dexie\(TRIAL \? 'handbase-essai' : accountDb\)/)
+  assert.match(src('src/db.ts'), /new Dexie\(realDbName\(accountDb, TRIAL\)\)/)
   assert.match(src('src/veilleSw.ts'), /activeDbOf\(await idbKv\(\)\?\.get\(BASE_KEY\)\)/)
   const sync = src('src/sync.ts')
   assert.match(sync, /accountHooks\.forgetAll\(\)/)

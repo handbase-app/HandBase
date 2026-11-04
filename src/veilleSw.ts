@@ -129,9 +129,11 @@ async function lirePages(table: string, filter: string, token: string, deadline:
  * nom recopié dans « hb-session ») : jamais la base d'un autre compte que celui de la session.
  */
 async function nomBase(): Promise<string> {
-  if (CFG.dbName !== HOME_DB) return CFG.dbName
+  // Base « maison » de cette appli (« handbase », ou « handbase-essai » en version d'essai) : celle du compte actif à la place.
+  if (CFG.dbName !== HOME_DB && CFG.dbName !== 'handbase-essai') return CFG.dbName
   try {
-    return activeDbOf(await idbKv()?.get(BASE_KEY))
+    const active = activeDbOf(await idbKv()?.get(BASE_KEY))
+    return active === HOME_DB ? CFG.dbName : active
   } catch {
     return CFG.dbName
   }

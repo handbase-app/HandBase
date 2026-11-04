@@ -2,7 +2,7 @@ import { createClient, isAuthApiError, isAuthRetryableFetchError, type Session }
 import Dexie from 'dexie'
 import { useEffect, useState } from 'react'
 import { REFRESH_GATE_KEY, readGate, tokenMark, webLock } from './authRefresh'
-import { db } from './db'
+import { db, TRIAL } from './db'
 import { realRole, realUserId, useRole } from './roles'
 import { GATE_MIRROR_KEY, parseSession } from './sessionStore'
 import { accountHooks, authStorage, authStorageKey, freezeSync, serverConfig, sessionKv, supabase } from './sync'
@@ -16,6 +16,7 @@ import {
   CHANNEL,
   firstName,
   HOME_DB,
+  realDbName,
   isAccountKey,
   isTestDb,
   LIST_KEY,
@@ -354,7 +355,7 @@ async function forgetAll() {
   }
   list = []
   for (const a of all) await kv.del(bundleKey(a.uid)).catch(() => {})
-  const dbs = new Set([HOME_DB, ...all.map((a) => a.db)])
+  const dbs = new Set([realDbName(HOME_DB, TRIAL), ...all.map((a) => realDbName(a.db, TRIAL))])
   dbs.delete(db.name)
   for (const name of dbs) await deleteDb(name)
   await Promise.race([Promise.all(all.map((a) => revoke(a.session).catch(() => {}))), sleep(3000)])

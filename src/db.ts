@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { guardWrite, spyTarget } from './spy'
-import { activeDbOf, BASE_KEY, HOME_DB } from './comptesCore'
+import { activeDbOf, BASE_KEY, HOME_DB, realDbName } from './comptesCore'
 import { viewAsMiddleware } from './viewAsFilter'
 import type { MatchSheet } from './matchSheet'
 import type { QuestionLogFields } from './questionLogCore'
@@ -620,7 +620,8 @@ const accountDb = (() => {
   }
 })()
 
-export const db = new Dexie(TRIAL ? 'handbase-essai' : accountDb) as Dexie & {
+// Version d'essai : « handbase-essai » pour la maison, la base à part d'un compte de test sinon (jamais la même pour deux comptes).
+export const db = new Dexie(realDbName(accountDb, TRIAL)) as Dexie & {
   players: EntityTable<Player, 'id'>
   criteria: EntityTable<Criterion, 'id'>
   measurements: EntityTable<Measurement, 'id'>

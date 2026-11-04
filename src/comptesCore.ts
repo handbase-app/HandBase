@@ -33,6 +33,8 @@ export const isTestDb = (name: string | null | undefined) => !!name && /^handbas
 
 /** Base à ouvrir (valeur gardée, si elle est valable ; sinon la maison). */
 export const activeDbOf = (stored: string | null | undefined) => (isTestDb(stored) ? stored! : HOME_DB)
+/** Nom réel d'une base : la maison s'appelle « handbase-essai » en version d'essai (VITE_TRIAL, serveur de test compris). */
+export const realDbName = (name: string, trial: boolean) => (name === HOME_DB && trial ? 'handbase-essai' : name)
 
 export interface SavedAccount {
   uid: string
@@ -128,7 +130,8 @@ export function addTest(list: SavedAccount[], acc: Identity, session: string, ac
 export const removeTest = (list: SavedAccount[], uid: string) => list.filter((a) => a.home || a.uid !== uid)
 
 /** Clés du stockage local qui appartiennent au compte (comme l'effacement de src/sync.ts, wipeDevice : thème exclu). */
-export const isAccountKey = (k: string) => /^handbase\./.test(k) && k !== 'handbase.theme'
+// Version d'essai : mêmes réglages sous « handbase-essai. » (curseurs de synchro, périmètre…), rangés de même.
+export const isAccountKey = (k: string) => /^handbase(-essai)?\./.test(k) && !/^handbase(-essai)?\.theme$/.test(k)
 
 /** Réglages du compte (clés handbase.* du stockage local), à ranger quand on le quitte. */
 export function bundleOf(entries: Iterable<[string, string]>): Record<string, string> {
