@@ -1,14 +1,15 @@
 // Test de « Tous les tests » (src/allTests.ts : onglet Tests de la fiche, « Mes tests » de la page du jeune) : tests passés par
 // famille (ordre des critères), dernière valeur, record, gain depuis la première mesure dans le bon sens (sprint : plus bas est
 // mieux, « −0,09 s ↗ » ; sens inconnu : écart positif en neutre ; un recul : rien), « plus beaux progrès » (3 au plus, progrès
-// relatif), points de la petite courbe, en-tête, lignes du tableur (CSV). Données FICTIVES seulement.
+// relatif), points de la petite courbe, famille → picto et couleur du bloc, en-tête, lignes du tableur (CSV). Données FICTIVES seulement.
 //
 //   npx jiti tools/test-tous-les-tests.ts
 import assert from 'node:assert/strict'
 import type { Criterion, Measurement } from '../src/db'
 import { measureDirection } from '../src/compare'
 import { repereDirection } from '../src/reperes'
-import { csvRows, families, fileSlug, gainKind, gainText, sparkPoints, summaryText, testLines, toCsv, topProgress, type Dir } from '../src/allTests'
+import { csvRows, families, familyKey, fileSlug, gainKind, gainText, sparkPoints, sparkXY, summaryText, testLines, toCsv, topProgress, type Dir } from '../src/allTests'
+import { readFileSync } from 'node:fs'
 
 let n = 0
 const t = (name: string, f: () => void) => {
@@ -159,6 +160,46 @@ t('petite courbe : points dans la boîte, haut = plus grand, valeurs égales au 
   assert.equal(sparkPoints([], 50, 20), '')
   assert.equal(sparkPoints([10, 20, 15], 50, 20, 2), '2,18 25,2 48,10')
   assert.equal(sparkPoints([5, 5], 50, 20, 2), '2,10 48,10')
+})
+
+t('petite courbe lissée : mêmes points que la polyline, en paires', () => {
+  assert.deepEqual(sparkXY([10, 20, 15], 50, 20, 2), [[2, 18], [25, 2], [48, 10]])
+  assert.deepEqual(sparkXY([3], 64, 24, 3), [])
+})
+
+t('famille → picto et couleur : mots-clés sans majuscules ni accents, inconnue neutre', () => {
+  const cases: [string, string][] = [
+    ['Gabarit', 'gabarit'],
+    ['Mensurations', 'mensurations'],
+    ['MENSURATION', 'mensurations'],
+    ['Vitesse & endurance', 'vitesse'],
+    ['Vitesse et puissance', 'vitesse'],
+    ['Sprint', 'vitesse'],
+    ['Puissance & détente', 'puissance'],
+    ['Force (6 RM)', 'puissance'],
+    ['Mobilité', 'mobilite'],
+    ['mobilite', 'mobilite'],
+    ['Stabilité & adducteurs', 'stabilite'],
+    ['Gainage', 'stabilite'],
+    ['Sauts (plateforme)', 'sauts'],
+    ['Détente', 'sauts'],
+    ['Critères physiologiques', 'autre'],
+    ['Autres tests', 'autre'],
+    ['', 'autre'],
+  ]
+  for (const [name, key] of cases) assert.equal(familyKey(name), key, name)
+  // Chaque famille a ses couleurs claires et sombres (src/index.css).
+  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+  for (const key of ['gabarit', 'mensurations', 'vitesse', 'puissance', 'mobilite', 'stabilite', 'sauts', 'autre']) {
+    assert.ok(css.includes(`--fam-${key}:`), key)
+  }
+  // Familles de la démo (hand et volley) : toutes reconnues, sauf « Critères physiologiques ».
+  for (const f of ['criteres-demo.json', 'criteres-volley.json']) {
+    const raw = JSON.parse(readFileSync(new URL(`../public/demo/${f}`, import.meta.url), 'utf8'))
+    const list: { category?: string; kind?: string }[] = Array.isArray(raw) ? raw : raw.criteria
+    const unknown = [...new Set(list.filter((c) => c.kind === 'factual').map((c) => c.category ?? ''))].filter((c) => familyKey(c) === 'autre')
+    assert.deepEqual(unknown, f === 'criteres-demo.json' ? ['Critères physiologiques'] : [], f)
+  }
 })
 
 t('en-tête : nombre de tests passés et date de la dernière mesure', () => {

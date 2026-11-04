@@ -127,23 +127,49 @@ export function topProgress(lines: TestLine[], n = 3): TestLine[] {
 }
 
 /**
- * Points d'une petite courbe (attribut `points` d'une polyline SVG) dans une boîte w × h, marge `pad` : abscisses à pas
- * réguliers (une mesure, un pas), ordonnées de la plus petite à la plus grande valeur (haut = plus grand, comme la courbe du
- * test ouvert : un sprint qui progresse descend). Moins de 2 valeurs : ''.
+ * Points d'une petite courbe dans une boîte w × h, marge `pad` : abscisses à pas réguliers (une mesure, un pas), ordonnées
+ * de la plus petite à la plus grande valeur (haut = plus grand, comme la courbe du test ouvert : un sprint qui progresse
+ * descend) ; toutes égales : au milieu. Moins de 2 valeurs : [].
  */
-export function sparkPoints(values: number[], w: number, h: number, pad = 2): string {
-  if (values.length < 2) return ''
+export function sparkXY(values: number[], w: number, h: number, pad = 2): [number, number][] {
+  if (values.length < 2) return []
   const lo = Math.min(...values)
   const hi = Math.max(...values)
   const span = hi - lo
   const stepX = (w - 2 * pad) / (values.length - 1)
-  return values
-    .map((v, i) => {
-      const t = span ? (v - lo) / span : 0.5
-      const y = pad + (1 - t) * (h - 2 * pad)
-      return `${round(pad + i * stepX)},${round(y)}`
-    })
+  return values.map((v, i) => {
+    const t = span ? (v - lo) / span : 0.5
+    return [round(pad + i * stepX), round(pad + (1 - t) * (h - 2 * pad))]
+  })
+}
+
+/** Les mêmes points en attribut `points` d'une polyline SVG (« Ses tests en PDF ») ; moins de 2 valeurs : ''. */
+export function sparkPoints(values: number[], w: number, h: number, pad = 2): string {
+  return sparkXY(values, w, h, pad)
+    .map(([x, y]) => `${x},${y}`)
     .join(' ')
+}
+
+/**
+ * Famille de tests → picto et couleur du bloc (src/components/AllTests.tsx ; couleurs claires et sombres : --fam-* de
+ * src/index.css), d'après le nom de la catégorie, sans tenir compte des majuscules ni des accents. « Détente » seule (volley)
+ * va avec les sauts ; « Puissance & détente », « Force (6 RM) » avec la puissance. Inconnue : 'autre' (picto et teinte neutres).
+ */
+export type FamilyKey = 'gabarit' | 'mensurations' | 'vitesse' | 'puissance' | 'mobilite' | 'stabilite' | 'sauts' | 'autre'
+
+export function familyKey(name: string): FamilyKey {
+  const n = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  if (/gabarit/.test(n)) return 'gabarit'
+  if (/mensur/.test(n)) return 'mensurations'
+  if (/vitesse|endurance|sprint/.test(n)) return 'vitesse'
+  if (/puissance|force/.test(n)) return 'puissance'
+  if (/mobilit/.test(n)) return 'mobilite'
+  if (/stabilit|gainage|adduct/.test(n)) return 'stabilite'
+  if (/saut|detente/.test(n)) return 'sauts'
+  return 'autre'
 }
 
 /** « 12/10/2026 » depuis « 2026-10-12 ». */

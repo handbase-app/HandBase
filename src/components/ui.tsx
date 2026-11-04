@@ -457,6 +457,17 @@ export const ICONS = {
   medal: 'M8 3h8l-2.5 6h-3zM12 21a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12 13.5v4',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
+  /** Familles de tests (blocs de « Tous les tests », src/components/AllTests.tsx) : gabarit (double flèche verticale), mensurations
+   *  (mètre ruban), vitesse (éclair), puissance (haltère), mobilité (flèche en cercle), stabilité (balance), sauts (flèche au-dessus du sol). */
+  famHeight: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4',
+  famTape: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM7 7v4M11 7v3M15 7v4M19 7v3',
+  famBolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+  famDumbbell: 'M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12',
+  famMobility: 'M21 12a9 9 0 1 1-3-6.7M21 4v5h-5',
+  famBalance: 'M12 3v18M5 21h14M5 8h14M5 8l-3 6h6zM19 8l-3 6h6z',
+  famJump: 'M12 4v11M7 9l5-5 5 5M5 20h14',
+  /** Coupe : record d'un test (sa meilleure mesure). */
+  trophy: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4',
   /** Croissance (courbe qui monte ; onglet de la fiche d'un joueur). */
   growth: 'M3 17l6-6 4 4 8-8M15 7h6v6',
   /** Tests (chronomètre ; onglet de la fiche d'un joueur). */
@@ -514,9 +525,9 @@ export const ICONS = {
 export type IconName = keyof typeof ICONS
 
 /** `filled` : forme pleine (étoile d'un joueur ou groupe suivi, œil « vu ») ; une forme intérieure reste évidée (pupille). */
-export function Icon({ name, className = 'h-4 w-4', filled = false }: { name: IconName; className?: string; filled?: boolean }) {
+export function Icon({ name, className = 'h-4 w-4', filled = false, strokeWidth = 1.8 }: { name: IconName; className?: string; filled?: boolean; strokeWidth?: number }) {
   return (
-    <svg viewBox="0 0 24 24" className={className} fill={filled ? 'currentColor' : 'none'} fillRule="evenodd" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className={className} fill={filled ? 'currentColor' : 'none'} fillRule="evenodd" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
       <path d={ICONS[name]} />
     </svg>
   )

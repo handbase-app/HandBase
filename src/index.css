@@ -66,6 +66,30 @@ html { scrollbar-gutter: stable; }
 /* Teinte de l'échelle de la carte du bilan (src/pages/Coverage.tsx) ; les styles de l'installation la changent. */
 :root { --color-scale: #14b8a6; }
 
+/* Familles de tests (« Tous les tests », src/components/AllTests.tsx ; famille d'une catégorie : src/allTests.ts familyKey) :
+   couleur du picto, du fond teinté du carré (color-mix, même formule partout) et du dernier point des petites courbes.
+   Plus claires sur les thèmes sombres, celles de la maquette validée (variante A, 05/11) sur les clairs. Inconnue : neutre. */
+:root {
+  --fam-gabarit: #8fa1ff;
+  --fam-mensurations: #b69cff;
+  --fam-vitesse: #ff9a5c;
+  --fam-puissance: #ff7eab;
+  --fam-mobilite: #3fd4a2;
+  --fam-stabilite: #62b0ff;
+  --fam-sauts: #ffc247;
+  --fam-autre: var(--color-muted);
+}
+:root[data-light] {
+  --fam-gabarit: #4f6bed;
+  --fam-mensurations: #7c4ddb;
+  --fam-vitesse: #e8590c;
+  --fam-puissance: #d6336c;
+  --fam-mobilite: #0a9a6f;
+  --fam-stabilite: #1c7ed6;
+  --fam-sauts: #d98e00;
+}
+.fam-ic { color: var(--fam); background-color: color-mix(in srgb, var(--fam) 15%, transparent); }
+
 /* Place prise par la navigation : en bas (capsule d'onglets de 52 px posée à 10 px du bord) ou à gauche (colonne). Les
    barres d'action collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
 :root {

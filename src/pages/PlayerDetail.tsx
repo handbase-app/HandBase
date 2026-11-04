@@ -631,10 +631,10 @@ function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
   if (typeof a !== 'number' || typeof b !== 'number' || !b) return null
   const r = a / b
   return (
-    // Ligne du bas de la carte de la famille du Sorensen (onglet Tests), staff seulement.
-    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5" title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
+    // Pied du bloc de la famille du Sorensen (onglet Tests, trait pointillé au-dessus), staff seulement.
+    <div className="flex items-center justify-between gap-3 border-t border-dashed border-line px-3.5 py-2" title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
       <span className="text-xs text-muted">Ratio Shirado / Sorensen</span>
-      <span className={`text-sm font-extrabold ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span>
+      <span className={`text-[13px] font-extrabold tabular-nums ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span>
     </div>
   )
 }
