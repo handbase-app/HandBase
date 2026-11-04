@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { appName } from '../appBrand'
 import { fmtDate, today, type Criterion, type Measurement, type Player } from '../db'
-import { accord } from '../gender'
-import { activeObjectives, objectiveOrigin, objectivesOf } from '../objectives'
+import { accord, w } from '../gender'
+import { goalViews } from '../myGoals'
+import { objectiveOrigin, objectivesOf, progressLabel } from '../objectives'
+import { usePlayerGoals } from './Objectives'
 import { foldSteps, monthYear, periodLabel, type Palier, type ParcoursStep } from '../parcours'
 import { hasReperes, medalFor, MEDALS, type ReperesConfig } from '../reperes'
 import { seasonCategory } from '../rencontres'
@@ -20,7 +22,8 @@ import { fmtValue, groupBy } from './ui'
  * l'appareil : rien n'est envoyé à aucun service.
  *
  * Dedans : nom, année de naissance, club, poste ; le parcours par palier (src/parcours.ts) ; les objectifs de travail en cours
- * (src/objectives.ts, vague 2) ; les dernières mesures avec leurs médailles (repères de l'installation, src/reperes.ts) ; « Le mot du staff », tapé juste avant d'imprimer (gardé sur cet
+ * (src/objectives.ts, vague 2), ceux du staff puis ceux du jeune (« à lui / à elle », 065, quand ils sont lisibles), avec
+ * leurs étapes cochées ou pas et l'avancement (jamais les liens vidéo) ; les dernières mesures avec leurs médailles (repères de l'installation, src/reperes.ts) ; « Le mot du staff », tapé juste avant d'imprimer (gardé sur cet
  * appareil le temps de la session, jamais enregistré dans la base) ; la date et la signature de l'appli.
  * Jamais : les avis des observateurs ni leurs notes (pas écrits pour les familles), les commentaires des mesures, les
  * données d'autres joueurs, rien de négatif. Les données sont celles que la fiche montre (« Voir comme… » compris).
@@ -83,8 +86,9 @@ export function FamilyReport({
     return medalFor(reperes, c, m.value, p, m.date)
   }
   const anyMedal = hasReperes(reperes) && tests.some(([, cs]) => cs.some((c) => !!medalOf(c)))
-  // Objectifs de travail EN COURS (les atteints sont dans la fiche, pas dans le bilan).
-  const goals = activeObjectives(objectivesOf(p))
+  // Objectifs de travail EN COURS (les atteints sont dans la fiche, pas dans le bilan) : ceux du staff, puis ceux du jeune,
+  // avec ses coches (065 ; pas lisibles : ceux du staff avec les coches du staff).
+  const goals = goalViews(objectivesOf(p), usePlayerGoals(p.id)).active
 
   const org = installationAppearance().name
   const brand = [appName(), org && org.toLowerCase() !== appName().toLowerCase() ? org : ''].filter(Boolean).join(' · ')
@@ -154,10 +158,27 @@ export function FamilyReport({
           <section className="keep mb-4">
             <h3 className="mb-1.5 text-[11px] font-extrabold tracking-wider uppercase">Objectifs de travail</h3>
             <ul className="flex flex-col gap-1.5">
-              {goals.map((o) => (
-                <li key={o.id} className="rounded border border-neutral-300 px-3 py-1.5">
-                  <span className="font-bold">{o.text}</span>
-                  {objectiveOrigin(o, fmtDate) && <span className="text-[11px] text-neutral-600"> · {objectiveOrigin(o, fmtDate)}</span>}
+              {goals.map((v) => (
+                <li key={`${v.owner}:${v.goal.id}`} className="keep rounded border border-neutral-300 px-3 py-1.5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span>
+                      <span className="font-bold">{v.goal.text}</span>
+                      {v.owner === 'moi' && <span className="text-[11px] text-neutral-600"> · son objectif à {w(p.sex).lui}</span>}
+                      {objectiveOrigin(v.goal, fmtDate) && <span className="text-[11px] text-neutral-600"> · {objectiveOrigin(v.goal, fmtDate)}</span>}
+                    </span>
+                    {v.progress.total > 0 && <span className="text-[11px] font-bold text-neutral-700 tabular-nums">{progressLabel(v.progress)}</span>}
+                  </div>
+                  {v.steps.length > 0 && (
+                    <ul className="mt-0.5 text-[11px] text-neutral-700">
+                      {/* Cases dessinées en texte : lisibles en noir et blanc. */}
+                      {v.steps.map((s) => (
+                        <li key={s.id}>
+                          <span aria-hidden>{s.checked ? '☑' : '☐'}</span> {s.text}
+                          <span className="sr-only">{s.checked ? ' (faite)' : ' (à faire)'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ul>

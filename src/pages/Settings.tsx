@@ -20,6 +20,7 @@ import { canUseQuestionLog } from '../questionLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
 import { ReperesSettings } from '../components/ReperesSettings'
+import { GoalTemplatesSettings } from '../components/GoalTemplatesSettings'
 import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
@@ -157,6 +158,11 @@ export default function Settings() {
               partagée (hb_config, clé « reperes »), administrateurs. */}
           <Fold id="reperes" icon="medal" title="Repères des tests" summary="Médailles Bronze, Argent, Or par test, sexe et âge">
             <ReperesSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Modèles d'objectifs (src/goalTemplates.ts) : objectifs types avec leurs étapes, repris sur la fiche par « Depuis un
+              modèle » ; configuration partagée (hb_config, clé « modeles_objectifs »), administrateurs. */}
+          <Fold id="modeles-objectifs" icon="target" title="Modèles d’objectifs" summary="Objectifs types et leurs étapes, à reprendre sur la fiche">
+            <GoalTemplatesSettings editable={can.editStructure(role)} />
           </Fold>
           <Fold id="imports" icon="download" title="Imports et sauvegarde" summary={gestHand ? 'Gest’Hand, sauvegarde, démo' : 'Sauvegarde, démo'}>
             {/* Import des licences Gest'Hand : handball seulement (src/sportConfig.ts, sportHas). */}

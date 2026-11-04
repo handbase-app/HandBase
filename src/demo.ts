@@ -1,7 +1,10 @@
 import { loadDemoCriteria } from './criteriaImport'
 import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
 import { buildVolleyDemo } from './demoVolley'
-import type { WorkObjective } from './objectives'
+import { DEMO_TEMPLATES, GOAL_TEMPLATES_KEY, isDemoTemplatesValue } from './goalTemplates'
+import type { MyGoals } from './myGoals'
+import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
+import type { ObjectiveStep, WorkObjective } from './objectives'
 import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
 import { scoutId } from './scouting'
 import { currentSport, type HandballPosition } from './sportConfig'
@@ -300,6 +303,9 @@ export async function loadDemo() {
   })
   // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
   seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
+  // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
+  seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
+  await seedDemoTemplates()
   return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
 }
 
@@ -314,12 +320,36 @@ function buildDemoGoals(now: number) {
   const T = PREFIX + 'ev-espenon'
   const TN = 'Tournoi de l’Espenon'
   const o = (id: string, text: string, more: Partial<WorkObjective> = {}): WorkObjective => ({ id: `${PREFIX}obj-${id}`, text, status: 'en_cours', ...more })
+  // Étapes (04/11) : identifiants « demo-obj-<objectif>-<lettre> » ; lien vidéo générique (le même que les vidéos de la démo).
+  const st = (id: string, text: string, more: Partial<ObjectiveStep> = {}): ObjectiveStep => ({ id: `${PREFIX}obj-${id}`, text, ...more })
+  const VIDEO = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
   const objectives: Record<number, WorkObjective[]> = {
-    // Gardien (rang 0).
-    0: [o('1-1', 'Relancer vite après un arrêt', { eventId: T, eventName: TN, date: day(-3) }), o('1-2', 'Parler à sa défense sur chaque attaque')],
-    // Ailier gauche (rang 4) : un objectif déjà atteint.
+    // Gardien (rang 0) : étapes, une cochée par le staff.
+    0: [
+      o('1-1', 'Relancer vite après un arrêt', {
+        eventId: T,
+        eventName: TN,
+        date: day(-3),
+        steps: [
+          st('1-1-a', 'Relances à la main sur 20 m : 10 par séance', { done: day(-1) }),
+          st('1-1-b', 'Lever la tête avant de relancer'),
+          st('1-1-c', 'Revoir les relances du tournoi', { video: VIDEO }),
+        ],
+      }),
+      o('1-2', 'Parler à sa défense sur chaque attaque'),
+    ],
+    // Ailier gauche (rang 4) : un objectif déjà atteint ; ses objectifs à lui plus bas (mine).
     4: [
-      o('5-1', 'Gagner en vitesse sur le premier pas', { eventId: T, eventName: TN, date: day(-3) }),
+      o('5-1', 'Gagner en vitesse sur le premier pas', {
+        eventId: T,
+        eventName: TN,
+        date: day(-3),
+        steps: [
+          st('5-1-a', 'Échelle de rythme 10 min avant chaque entraînement'),
+          st('5-1-b', 'Départs arrêtés sur 10 m : 6 répétitions, 2 fois par semaine'),
+          st('5-1-c', 'Refaire le sprint 10 m dans un mois'),
+        ],
+      }),
       o('5-2', 'Prendre la parole en défense', { eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28' }),
       o('5-3', 'Enchaîner repli et contre-attaque', { status: 'atteint', eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28', doneAt: day(-10) }),
     ],
@@ -342,7 +372,33 @@ function buildDemoGoals(now: number) {
     ],
     1: [{ eventId: T, eventType: 'tournoi', eventDate: day(-3), eventName: TN, scores: { engagement: 4, plaisir: 5, collectif: 5 }, good: 'Mon placement sur les tirs de loin.', at: at(-40) }],
   }
-  return { objectives, selfEvals }
+  // Objectifs « à moi » et coches du jeune (supabase/065, src/myGoals.ts) : l'ailier gauche (rang 4) a coché une étape du
+  // staff et posé deux objectifs à lui, l'un avec ses étapes et une vidéo, l'autre déjà atteint.
+  const mine: Record<number, MyGoals> = {
+    4: {
+      own: [
+        o('5-m1', 'Le tir en suspension', {
+          date: day(-6),
+          video: VIDEO,
+          steps: [st('5-m1-a', 'Regarder la vidéo du geste', { video: VIDEO, done: day(-5) }), st('5-m1-b', 'Trois appuis et lever le bras haut'), st('5-m1-c', '20 tirs après l’entraînement')],
+        }),
+        o('5-m2', 'Courir 20 minutes deux fois par semaine', { status: 'atteint', date: day(-30), doneAt: day(-8) }),
+      ],
+      checks: { [`${PREFIX}obj-5-1-a`]: day(-2) },
+    },
+  }
+  return { objectives, selfEvals, mine }
+}
+
+/**
+ * Modèles d'objectifs de la démonstration (src/goalTemplates.ts) : posés sur l'appareil, sans file d'envoi, seulement s'il
+ * n'y a pas déjà des modèles ; marqués `demo` pour partir avec la démo (ceux qu'un administrateur enregistre deviennent les
+ * siens).
+ */
+async function seedDemoTemplates() {
+  const row = await db.config.get(GOAL_TEMPLATES_KEY)
+  if (row && !row.deleted) return
+  await db.config.put({ id: GOAL_TEMPLATES_KEY, key: GOAL_TEMPLATES_KEY, value: { demo: true, templates: DEMO_TEMPLATES }, updatedAt: Date.now() })
 }
 
 /** Démonstration du volley (src/demoVolley.ts) : joueurs, mesures, événements, avis, groupes, vidéos, repérage. */
@@ -361,6 +417,7 @@ async function loadVolleyDemo() {
     await db.evaluations.bulkPut(d.evaluations)
     await db.videos.bulkPut(d.videos)
   })
+  await seedDemoTemplates()
   return { criteria, players: d.players.length, measurements: d.measurements.length, events: d.events.length, evaluations: d.evaluations.length, videos: d.videos.length }
 }
 
@@ -459,6 +516,10 @@ function buildScouting(players: Player[], now: number) {
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
   clearDemoSelfEvals()
+  clearDemoGoals()
+  // Modèles d'objectifs de la démo (jamais ceux qu'un administrateur a enregistrés).
+  const tpl = await db.config.get(GOAL_TEMPLATES_KEY)
+  if (tpl && isDemoTemplatesValue(tpl.value)) await db.config.delete(GOAL_TEMPLATES_KEY)
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups, db.seen, db.outbox], async () => {
     for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)

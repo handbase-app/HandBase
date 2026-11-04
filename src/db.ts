@@ -175,9 +175,11 @@ export interface Player extends Syncable {
   usualTeam?: UsualTeam
   /**
    * Objectifs de travail (vague 2 « Génération Bleue », src/objectives.ts) : 3 en cours au plus, « en cours » ou « atteint »
-   * (jamais « raté »), avec l'événement d'où ils viennent et une date, facultatifs. Fixés par un encadrant qui peut modifier la
-   * fiche (carte « Objectifs de travail », onglet Profil) ; lus par le jeune sur sa page et dans le bilan à imprimer. Champ
-   * libre de data (jsonb), gardé tel quel par le serveur (hb_upsert) : pas de SQL.
+   * (jamais « raté »), avec l'événement d'où ils viennent et une date, facultatifs ; depuis le 04/11, des étapes à cocher
+   * (8 au plus) et des liens vidéo facultatifs. Fixés par un encadrant qui peut modifier la fiche (carte « Objectifs de
+   * travail », onglet Profil) ; lus par le jeune sur sa page et dans le bilan à imprimer. Champ libre de data (jsonb), gardé
+   * tel quel par le serveur (hb_upsert) : pas de SQL pour eux. Les coches du jeune et ses objectifs « à moi » sont à part
+   * (supabase/065, src/myGoals.ts).
    */
   objectives?: import('./objectives').WorkObjective[]
 }

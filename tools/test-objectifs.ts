@@ -149,7 +149,8 @@ t('origine proposée : événements où le joueur était sur la liste, déjà co
 
 t('bilan à imprimer : les objectifs en cours seulement', () => {
   const src = readFileSync(new URL('../src/components/FamilyReport.tsx', import.meta.url), 'utf8')
-  assert.match(src, /activeObjectives\(objectivesOf\(p\)\)/)
+  // Depuis les étapes (04/11) : goalViews(…).active (ceux du staff puis ceux du jeune, en cours seulement).
+  assert.match(src, /goalViews\(objectivesOf\(p\), usePlayerGoals\(p\.id\)\)\.active/)
   const l: WorkObjective[] = [
     { id: 'a', text: 'A', status: 'en_cours' },
     { id: 'b', text: 'B', status: 'atteint', doneAt: '2026-10-01' },

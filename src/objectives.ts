@@ -7,12 +7,31 @@
  * Rangés DANS la fiche (clé `objectives` de hb_players.data) : ils voyagent avec elle (synchronisation, hors ligne, mode
  * essai), s'écrivent comme elle (mêmes droits : périmètre, hb_scope_row ; « la plus récente gagne »), et le jeune les lit sur
  * sa page puisqu'il lit sa fiche (051 : sa ligne, et elle seule). Aucun script SQL pour eux.
- * Le jeune les voit en lecture seule (« Mes objectifs », src/pages/Me.tsx) ; le bilan à imprimer montre ceux en cours.
+ * Le bilan à imprimer montre ceux en cours, avec leurs étapes et l'avancement.
  *
- * Fichier pur (ni Dexie ni React) : testé par tools/test-objectifs.ts.
+ * ÉTAPES (04/11, « liste à cocher ») : chaque objectif peut avoir jusqu'à 8 étapes courtes (« Corde à sauter 10 min par
+ * jour »), chacune avec sa case et, si on veut, un lien vidéo (le modèle à imiter, la démonstration de l'exercice) ; l'objectif
+ * aussi peut avoir son lien. Une étape se coche une fois (date gardée), pas de suivi jour par jour. Les étapes des objectifs
+ * du staff sont dans la fiche (comme l'objectif) ; le staff les coche sur la fiche (`done`), le jeune les coche depuis sa page
+ * par sa propre fonction (supabase/065_objectifs_etapes.sql, src/myGoals.ts) : il ne touche jamais au texte du staff.
+ * Liens : http(s) seulement, 500 caractères au plus ; jamais intégrés (rien ne se charge à l'affichage : on ouvre le lien).
+ * Objectifs déjà enregistrés sans étapes : inchangés (`steps` absent).
+ *
+ * Fichier pur (ni Dexie ni React) : testé par tools/test-objectifs.ts et tools/test-objectifs-etapes.ts.
  */
 
 export type ObjectiveStatus = 'en_cours' | 'atteint'
+
+/** Une étape d'un objectif : une ligne courte, une case cochée une fois, un lien vidéo facultatif. */
+export interface ObjectiveStep {
+  id: string
+  /** Texte court (100 caractères au plus). */
+  text: string
+  /** Lien vidéo (http ou https), facultatif. */
+  video?: string
+  /** Cochée le (AAAA-MM-JJ) : par le staff pour ses objectifs, par le jeune pour les siens. */
+  done?: string
+}
 
 export interface WorkObjective {
   id: string
@@ -27,6 +46,10 @@ export interface WorkObjective {
   date?: string
   /** Quand il a été atteint (AAAA-MM-JJ). */
   doneAt?: string
+  /** Lien vidéo de l'objectif (http ou https), facultatif. */
+  video?: string
+  /** Étapes (8 au plus) ; absentes sur les objectifs enregistrés avant les étapes. */
+  steps?: ObjectiveStep[]
 }
 
 /** Objectifs en cours en même temps, au plus. */
@@ -35,14 +58,63 @@ export const OBJ_MAX_ACTIVE = 3
 export const OBJ_TEXT_MAX = 120
 /** Objectifs gardés sur la fiche (en cours + atteints) : au-delà, les plus anciens atteints tombent. */
 export const OBJ_KEEP = 12
+/** Étapes par objectif, au plus. */
+export const OBJ_STEPS_MAX = 8
+/** Longueur d'une étape. */
+export const OBJ_STEP_TEXT_MAX = 100
+/** Longueur d'un lien vidéo. */
+export const OBJ_URL_MAX = 500
 
 export const OBJ_STATUS_LABEL: Record<ObjectiveStatus, string> = { en_cours: 'En cours', atteint: 'Atteint ✓' }
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/
+export const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+/** Texte court : espaces et caractères de contrôle repliés, bords coupés, `max` caractères au plus (re-coupé après). */
+export const cleanShortText = (s: unknown, max: number): string =>
+  typeof s === 'string' ? s.replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max).trim() : ''
 
 /** Texte d'un objectif : espaces repliés, bords coupés, 120 caractères au plus. */
-export const cleanObjectiveText = (s: unknown): string =>
-  typeof s === 'string' ? s.replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, OBJ_TEXT_MAX) : ''
+export const cleanObjectiveText = (s: unknown): string => cleanShortText(s, OBJ_TEXT_MAX)
+
+/**
+ * Lien vidéo gardé : http ou https seulement (ni javascript:, ni data:, ni fichier), sans espace ni guillemet, 500 caractères
+ * au plus ; sinon undefined. Même règle que le serveur (065, hb_go_url).
+ */
+export function cleanVideoUrl(s: unknown): string | undefined {
+  if (typeof s !== 'string') return undefined
+  const v = s.trim()
+  if (!v || v.length > OBJ_URL_MAX || !/^https?:\/\/[^\s<>"'\\/][^\s<>"'\\]*$/i.test(v)) return undefined
+  try {
+    const u = new URL(v)
+    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Un lien tapé est-il refusé ? (vide : non, rien à refuser.) */
+export const badVideoUrl = (s: string | undefined) => !!s?.trim() && !cleanVideoUrl(s)
+
+/** Étapes lues ou écrites : formes inconnues et textes vides écartés, identifiants en double écartés, 8 au plus. */
+export function stepsOf(raw: unknown): ObjectiveStep[] {
+  if (!Array.isArray(raw)) return []
+  const out: ObjectiveStep[] = []
+  const seen = new Set<string>()
+  for (const s of raw) {
+    if (out.length >= OBJ_STEPS_MAX) break
+    if (!s || typeof s !== 'object') continue
+    const x = s as Record<string, unknown>
+    const text = cleanShortText(x.text, OBJ_STEP_TEXT_MAX)
+    if (typeof x.id !== 'string' || !ID.test(x.id) || !text || seen.has(x.id)) continue
+    seen.add(x.id)
+    const video = cleanVideoUrl(x.video)
+    out.push({ id: x.id, text, ...(video ? { video } : {}), ...(typeof x.done === 'string' && DAY.test(x.done) ? { done: x.done } : {}) })
+  }
+  return out
+}
+
+/** Identifiant d'un objectif ou d'une étape (celui de newId, ou « demo-… ») : court, sans caractère spécial. */
+const ID = /^[A-Za-z0-9_-]{1,40}$/
 
 /** Liste lue sur la fiche : formes inconnues écartées (fiche ancienne, valeur abîmée), jamais d'erreur. */
 export function objectivesOf(p: { objectives?: unknown } | null | undefined): WorkObjective[] {
@@ -62,9 +134,17 @@ export function objectivesOf(p: { objectives?: unknown } | null | undefined): Wo
       ...(typeof x.eventName === 'string' && x.eventName.trim() ? { eventName: x.eventName.trim().slice(0, 120) } : {}),
       ...(typeof x.date === 'string' && DAY.test(x.date) ? { date: x.date } : {}),
       ...(typeof x.doneAt === 'string' && DAY.test(x.doneAt) ? { doneAt: x.doneAt } : {}),
+      ...withVideoAndSteps(x),
     })
   }
   return out
+}
+
+/** Lien et étapes d'un objectif lu (clés absentes quand il n'y en a pas : ancienne forme gardée telle quelle). */
+function withVideoAndSteps(x: Record<string, unknown>): Pick<WorkObjective, 'video' | 'steps'> {
+  const video = cleanVideoUrl(x.video)
+  const steps = stepsOf(x.steps)
+  return { ...(video ? { video } : {}), ...(steps.length ? { steps } : {}) }
 }
 
 /** En cours, dans l'ordre où ils ont été fixés. */
@@ -126,6 +206,7 @@ export function addObjective(
 
 /** Texte, origine ou date corrigés (l'état ne change pas ici). */
 export function editObjective(list: readonly WorkObjective[], id: string, input: { text: string; eventId?: string; eventName?: string; date?: string }): ObjectiveResult {
+  // Les étapes et le lien ne changent pas ici (ils passent par la modification de la carte : finalizeObjectives).
   const text = cleanObjectiveText(input.text)
   if (!text) return { ok: false, error: 'vide' }
   return {
@@ -186,3 +267,37 @@ export function shiftDay(day: string, n: number): string {
   const t = Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) + n * 86400000
   return new Date(t).toISOString().slice(0, 10)
 }
+
+// ---------- Étapes ----------
+
+/** Étapes cochées sur le total : « 1 étape sur 3 ». */
+export interface StepProgress {
+  done: number
+  total: number
+}
+
+/** « 1 étape sur 3 », « 3 étapes sur 3 ✓ » ; sans étape : rien. Jamais de mot négatif (« 0 étape sur 3 » reste neutre). */
+export function progressLabel(p: StepProgress): string {
+  if (!p.total) return ''
+  const all = p.done >= p.total
+  return `${p.done} étape${p.done > 1 ? 's' : ''} sur ${p.total}${all ? ' ✓' : ''}`
+}
+
+/** Étape cochée ou décochée (date du jour) dans une liste d'objectifs (ceux de la fiche, ou ceux du jeune). */
+export function setStepDone(list: readonly WorkObjective[], objectiveId: string, stepId: string, done: boolean, day: string): WorkObjective[] {
+  return list.map((o) => {
+    if (o.id !== objectiveId || !o.steps?.some((s) => s.id === stepId)) return o
+    return {
+      ...o,
+      steps: o.steps.map((s) => {
+        if (s.id !== stepId) return s
+        if (done) return s.done ? s : { ...s, done: day }
+        const { done: _d, ...rest } = s
+        return rest
+      }),
+    }
+  })
+}
+
+/** Identifiants des étapes des objectifs de la fiche (ceux que le jeune peut cocher). */
+export const staffStepIds = (list: readonly WorkObjective[]) => new Set(list.flatMap((o) => (o.steps ?? []).map((s) => s.id)))

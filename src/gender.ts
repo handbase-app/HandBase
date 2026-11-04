@@ -89,6 +89,8 @@ const MASC = {
   NouveauJoueur: 'Nouveau joueur',
   il: 'il',
   Il: 'Il',
+  /** Pronom tonique : « à lui » / « à elle ». */
+  lui: 'lui',
   ils: 'ils',
   Ils: 'Ils',
   /** Accord simple au singulier (« vu » / « vue »). */
@@ -169,6 +171,7 @@ const FEM: GenderWords = {
   NouveauJoueur: 'Nouvelle joueuse',
   il: 'elle',
   Il: 'Elle',
+  lui: 'elle',
   ils: 'elles',
   Ils: 'Elles',
   e: 'e',
