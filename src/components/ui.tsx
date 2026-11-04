@@ -451,6 +451,10 @@ export const ICONS = {
   // Vue Mosaïque (page d'un événement) : quatre vignettes.
   grid: 'M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z',
   download: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  /** Imprimer (bilan à imprimer de la fiche). */
+  printer: 'M7 8V3h10v5M7 17H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-3M7 14h10v7H7z',
+  /** Médaille (repères des tests, Réglages). */
+  medal: 'M8 3h8l-2.5 6h-3zM12 21a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12 13.5v4',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
   /** Croissance (courbe qui monte ; onglet de la fiche d'un joueur). */

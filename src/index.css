@@ -360,6 +360,28 @@ main[tabindex='-1']:focus { outline: none; }
   .bilan-report :is(h3, h4) { break-after: avoid; }
   .bilan-report .keep { break-inside: avoid; }
   .bilan-report .page-break { break-before: page; }
+  /* Bilan à imprimer de la fiche (src/components/FamilyReport.tsx), dans sa fenêtre d'aperçu : seule la feuille sort. Tout ce
+     qui n'est ni la feuille, ni dedans, ni autour d'elle est caché (l'appli dessous, le voile, le titre et les boutons de la
+     fenêtre, le mot du staff en cours de saisie) ; les cadres autour d'elle (fenêtre fixe qui défile) redeviennent de simples
+     blocs, pour que la feuille coule sur plusieurs pages. */
+  body:has(.family-report) :not(:has(.family-report)):not(.family-report, .family-report *) { display: none !important; }
+  body:has(.family-report) :has(.family-report) {
+    position: static !important; display: block !important; overflow: visible !important;
+    width: auto !important; max-width: none !important; height: auto !important; max-height: none !important;
+    margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important;
+    background: none !important; backdrop-filter: none !important; transform: none !important; animation: none !important;
+  }
+  .family-report { page: family-report; font-size: 10pt; }
+  .family-report .keep { break-inside: avoid; }
+  .family-report h3 { break-after: avoid; }
+  .family-report thead { display: table-header-group; }
+}
+
+/* Pages du bilan à imprimer de la fiche : A4 portrait, numéro de page en bas à droite. */
+@page family-report {
+  size: A4 portrait;
+  margin: 14mm 14mm 16mm;
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
 }
 
 /* Rapport de la vue du bilan (src/pages/Coverage.tsx, CoverageReport) : feuille blanche à l'écran comme à l'impression ;

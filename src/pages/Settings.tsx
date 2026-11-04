@@ -19,6 +19,7 @@ import { QuestionLogView } from '../components/QuestionLogView'
 import { canUseQuestionLog } from '../questionLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
+import { ReperesSettings } from '../components/ReperesSettings'
 import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
@@ -151,6 +152,11 @@ export default function Settings() {
             <CriteriaEditor />
             <ListEditor kind="department" />
             <ListEditor kind="region" />
+          </Fold>
+          {/* Repères des tests (src/reperes.ts) : médailles Bronze / Argent / Or quand un résultat atteint un repère ; configuration
+              partagée (hb_config, clé « reperes »), administrateurs. */}
+          <Fold id="reperes" icon="medal" title="Repères des tests" summary="Médailles Bronze, Argent, Or par test, sexe et âge">
+            <ReperesSettings editable={can.editStructure(role)} />
           </Fold>
           <Fold id="imports" icon="download" title="Imports et sauvegarde" summary={gestHand ? 'Gest’Hand, sauvegarde, démo' : 'Sauvegarde, démo'}>
             {/* Import des licences Gest'Hand : handball seulement (src/sportConfig.ts, sportHas). */}

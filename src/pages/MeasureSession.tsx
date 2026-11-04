@@ -7,6 +7,7 @@ import { CriterionInput, fmtValue, getMe, groupBy, NoCriteria, QuarterBadge } fr
 import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
+import { MeasureMedal, useReperes } from '../components/Medal'
 
 const OPEN_KEY = 'handbase.mesures.open'
 const readOpen = (): string[] => {
@@ -38,6 +39,8 @@ export default function MeasureSession() {
   const [date, setDate] = useState(today())
   const [open, setOpenState] = useState<string[]>(readOpen)
   const [busy, setBusy] = useState(false)
+  // Repères des tests (src/reperes.ts) : médaille dès que la valeur saisie atteint un repère.
+  const reperes = useReperes()
   // Saisie en cours : on prévient avant de quitter l'écran (menu du bas) ou l'onglet.
   const pending = busy ? 0 : Object.values(values).filter((v) => v !== undefined && v !== '').length
   const leaveRef = useRef<() => Promise<boolean>>(async () => true)
@@ -138,6 +141,8 @@ export default function MeasureSession() {
                       <div className="min-w-0">
                         <span className={c.scale === 'number' ? 'label mb-0' : 'text-xs font-bold'} title={c.description}>
                           {c.label}
+                          {/* Valeur saisie qui atteint un repère : sa médaille, tout de suite (rien sinon). */}
+                          <MeasureMedal cfg={reperes} c={c} value={values[c.id]} who={p} day={date || today()} size={14} className="ml-1" />
                         </span>
                         {/* Dernière valeur : repère pour éviter une faute de frappe (ligne de hauteur fixe : les champs restent alignés). */}
                         <div className="mb-1 h-4 truncate text-[10px] leading-4 text-muted">

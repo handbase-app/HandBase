@@ -36,6 +36,9 @@ import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
 import { StaffJournal } from '../components/PlayerJournal'
+import { MeasureMedal, useReperes } from '../components/Medal'
+import { FamilyReport } from '../components/FamilyReport'
+import type { ReperesConfig } from '../reperes'
 import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
@@ -178,6 +181,10 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   }, [id])
   // Parcours par palier (src/parcours.ts) : frise sous le nom, sur téléphone comme sur ordinateur (choix du 31/10).
   const paliers = usePlayerParcours(data?.player) ?? []
+  // Repères des tests (src/reperes.ts) : médailles dans l'onglet Tests et le bilan à imprimer.
+  const reperes = useReperes()
+  // « Bilan à imprimer » (menu ⋮) : fenêtre d'aperçu.
+  const [printing, setPrinting] = useState(false)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data?.player.mergedInto)
@@ -274,6 +281,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
                     hint: `copie de toutes ses données (demande ${g.duJoueur} ou de ses parents)`,
                     onSelect: () => void exportPlayer(p.id),
                   },
+                  // Bilan pour la famille ou l'école (04/11) : page imprimable, faite sur l'appareil (rien n'est envoyé). Pour qui
+                  // voit la fiche, « Voir comme… » compris (lecture seule n'empêche pas d'imprimer).
+                  { label: 'Bilan à imprimer', icon: 'printer', hint: 'pour la famille ou l’école, en PDF', onSelect: () => setPrinting(true) },
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
                   // Créée par…, modifiée par… : plus dans l'en-tête (30/10), ici seulement s'il y a quelque chose à dire.
                   stamp && { label: 'Infos de la fiche', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
@@ -314,6 +324,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
       {/* Frise du parcours sous le nom, au-dessus des onglets ; un appui ouvre le détail là où l'on a appuyé. */}
       <ParcoursStrip paliers={paliers} />
+
+      {printing && <FamilyReport player={p} criteria={factual} measurements={measurements} paliers={paliers} reperes={reperes} onClose={() => setPrinting(false)} />}
 
       {stampOpen && stamp && (
         <StampWindow stamp={stamp} title="Infos de la fiche" onClose={() => setStampOpen(false)} />
@@ -462,14 +474,18 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
                 // Mesure sans courbe (texte, choix) : visée ici par ?voir=mesure:… ; avec courbe, c'est « Suivi des mesures ».
                 <div key={c.id} data-voir={hasCurve(c) ? undefined : `mesure:${c.id}`} className="rounded-md">
                   <div className="text-[10px] text-muted">{c.label}</div>
-                  <div className="text-sm font-extrabold">{fmtValue(c, latest.get(c.id)!.value)}</div>
+                  {/* Médaille quand le résultat atteint un repère de l'installation (src/reperes.ts) ; sinon rien. */}
+                  <div className="flex items-center gap-1.5 text-sm font-extrabold">
+                    {fmtValue(c, latest.get(c.id)!.value)}
+                    <MeasureMedal cfg={reperes} c={c} value={latest.get(c.id)!.value} who={p} day={latest.get(c.id)!.date} />
+                  </div>
                 </div>
               ))}
               {cs.some((c) => c.id === 'sorensen') && <ShiradoRatio latest={latest} />}
             </div>
           </div>
         ))}
-        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} focus={focus?.kind === 'mesure' ? focus : undefined} />
+        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} focus={focus?.kind === 'mesure' ? focus : undefined} player={p} reperes={reperes} />
         </>
       )}
 
@@ -620,11 +636,15 @@ function Tracking({
   measurements,
   editable,
   focus,
+  player,
+  reperes,
 }: {
   criteria: Criterion[]
   measurements: Measurement[]
   editable: boolean
   focus?: { id: string; row?: string; n: number }
+  player: Player
+  reperes: ReperesConfig
 }) {
   const withData = criteria.filter((c) => hasCurve(c) && measurements.some((m) => m.criterionId === c.id))
   const [cid, setCid] = useState<string>('')
@@ -689,7 +709,10 @@ function Tracking({
                   {m.note && <span className="ml-2 text-[11px] text-amber-200">« {m.note} »</span>}
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
-                  <span>{fmtValue(current, m.value)}</span>
+                  <span className="flex items-center gap-1">
+                    {fmtValue(current, m.value)}
+                    <MeasureMedal cfg={reperes} c={current} value={m.value} who={player} day={m.date} size={14} />
+                  </span>
                   {m.author && <span className="text-[10px] text-muted">{m.author}</span>}
                   {editable && (
                     <button
