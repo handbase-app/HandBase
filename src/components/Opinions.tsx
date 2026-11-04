@@ -4,16 +4,13 @@ import { contextLabel, counts, criterionApplies, fmtDate, remove, reviewOf, scal
 import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
 import { department } from './PlayerFilter'
-import { RadarViewTabs, useRadarView } from './RadarViewTabs'
+import { AvisViewTabs, useAvisView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
-import { Empty, Icon, playerName, SEG_BOX, segItem } from './ui'
+import { Empty, Icon, playerName } from './ui'
 import { fmtPlayingTime, playingTimeOf, superPowerOf } from '../avisMatch'
-import { useWidth } from '../layout'
 import { progressSteps } from '../opinionProgress'
-import { bySpread, SPREAD_COLOR, spreadOf, spreadSummary, toDiscuss, type Spread } from '../opinionSpread'
+import { bySpread, spreadColor, spreadOf, spreadSummary, spreadTextColor, toDiscuss, type Spread } from '../opinionSpread'
 import type { SelfEval } from '../selfEval'
-import type { ProgressLayout, ProgressPane } from './OpinionsProgress'
-import type { SpreadPane } from './OpinionsSpread'
 import { SelfEvalBeside } from './SelfEval'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
@@ -23,11 +20,6 @@ const COLORS_LIGHT = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#c2410c', '#b
 const OpinionsRadar = lazy(() => import('./OpinionsRadar'))
 const OpinionsProgress = lazy(() => import('./OpinionsProgress'))
 const OpinionsSpread = lazy(() => import('./OpinionsSpread'))
-/**
- * Vue Progression : radar et petites lignes côte à côte à partir de 680 px de large (grande colonne) ; l'un sous l'autre à
- * partir de 520 px (fiche à côté de la liste, ordinateur) ; en dessous (téléphone), segment « Radar | Lignes ».
- */
-const progressLayout = (w: number): ProgressLayout => (w >= 680 ? 'side' : w >= 520 ? 'stack' : 'tabs')
 const obsColor = (i: number) => {
   const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
   return list[i % list.length]
@@ -107,8 +99,12 @@ interface Row {
  * Vue par défaut de la fiche (04/11) : « Progression » (src/components/OpinionsProgress.tsx), le chemin parcouru d'un avis
  * à l'autre sur une frise ; la moyenne de tous les avis dans le temps (« Moyenne de tous les avis », en dernier dans le
  * menu) ne veut rien dire pour un jeune qui progresse. Un événement seul noté par au moins deux observateurs : vue
- * « Écarts » (src/components/OpinionsSpread.tsx : où ils ne sont pas d'accord ; radar et lignes, tableau à côté), aussi
- * sur la page de l'événement ; un seul observateur, les avis spontanés : tableau par observateur et radar, comme avant.
+ * « Écarts » (src/components/OpinionsSpread.tsx : le radar normal, les écarts en surcouche discrète ; lignes triées et
+ * tableau), aussi sur la page de l'événement ; un seul observateur, les avis spontanés : tableau par observateur et radar.
+ * Toujours le même segment (05/11), quelle que soit la vue et la largeur : « Complet | Par famille | Tableau », un seul
+ * volet à la fois, dans l'adresse (?radar=…, src/components/RadarViewTabs.tsx : Retour revient au même onglet).
+ * « Tableau » : Progression, ses petites lignes ; écarts, les lignes triées puis le tableau par observateur, compact ;
+ * sinon le tableau par observateur.
  * Si un observateur a donné plusieurs avis dans la période, on prend sa moyenne
  * pour qu'il ne pèse pas plus que les autres.
  * Seuls les avis validés comptent ; les avis spontanés en attente peuvent être inclus à la demande,
@@ -145,7 +141,6 @@ export function Opinions({
   const locked = lockedEventId !== undefined
   // Vue choisie dans le menu (null : celle par défaut, « Progression » dès qu'il y a un avis noté).
   const [chosenEventId, setEventId] = useState<string | null>(null)
-  const [chosenView, setView] = useState<'table' | 'radar'>(locked ? 'radar' : 'table')
   const [withPending, setWithPending] = useState(false)
   // Progression : avis comptés (validés, et en attente si la case est cochée), toute période ; un cran par événement.
   const steps = useMemo(
@@ -156,15 +151,9 @@ export function Opinions({
   const picked = chosenEventId === 'progress' && !canProgress ? null : chosenEventId
   const eventId = lockedEventId ?? picked ?? (canProgress ? 'progress' : 'all')
   const progress = eventId === 'progress'
-  // Téléphone : « Radar | Lignes » ; colonne large : les deux côte à côte.
-  const [pane, setPane] = useState<ProgressPane>('radar')
-  // Écarts (un événement, au moins deux observateurs) : téléphone « Radar | Lignes | Tableau », sinon « Écarts | Tableau ».
-  const [spreadPane, setSpreadPane] = useState<SpreadPane | 'table'>('radar')
-  const [boxRef, boxW] = useWidth<HTMLDivElement>()
-  const layout = progressLayout(boxW)
-  // Fiche du joueur : onglets Complet / Par famille au-dessus du radar, vue dans l'adresse (?radar=…, gardée d'un joueur
-  // à l'autre avec l'onglet de la fiche). Page de l'événement : la vue de l'écran, sans onglets.
-  const [radarView, setRadarView] = useRadarView()
+  // Segment « Complet | Par famille | Tableau », dans l'adresse (?radar=…, gardé d'un joueur à l'autre avec l'onglet de
+  // la fiche) ; sans paramètre : complet sur écran large, par famille sur téléphone.
+  const [avisView, setAvisView] = useAvisView()
 
   const inPeriod = (e: Evaluation) => eventId === 'all' || progress || (e.eventId ?? 'none') === eventId
   const pending = evaluations.filter((e) => reviewOf(e) === 'pending')
@@ -225,15 +214,13 @@ export function Opinions({
   const numericRows = rows.filter((r) => r.nums)
   // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
   const oneEvent = eventId !== 'all' && eventId !== 'none' && !progress
-  // Un événement, au moins deux observateurs : vue « Écarts » (radar à bandes, lignes triées, tableau à côté).
+  // Un événement, au moins deux observateurs : vue « Écarts » (radar normal à bandes, lignes triées, tableau).
   const spreadOn = oneEvent && observers.length >= 2 && numericRows.length > 0
-  // Moins de 3 critères : pas de radar, les lignes d'abord (téléphone).
-  const sPane = spreadPane === 'radar' && numericRows.length < 3 && layout === 'tabs' ? 'lines' : spreadPane
-  // Sur l'événement, radar d'abord… s'il y a de quoi le tracer.
-  const view = locked && chosenView === 'radar' && numericRows.length < 3 ? 'table' : chosenView
+  // Sur l'événement, moins de 3 critères chiffrés : le tableau (pas de radar à tracer). Progression : ses propres critères.
+  const view = !progress && locked && avisView !== 'tableau' && numericRows.length < 3 ? 'tableau' : avisView
   // L'œil n'a de sens que radar affiché et au moins deux observateurs (un seul : la moyenne est son avis) ; vue
-  // « Écarts » : chaque observateur a déjà son repère.
-  const radarShown = !progress && !spreadOn && view === 'radar' && numericRows.length >= 3
+  // « Écarts » : le détail de chacun est dans la bulle d'un critère.
+  const radarShown = !progress && !spreadOn && view !== 'tableau' && numericRows.length >= 3
   const curveOf = (e: Evaluation) => {
     const i = observers.indexOf(e.observer)
     if (!radarShown || observers.length < 2 || i < 0) return undefined
@@ -278,6 +265,64 @@ export function Opinions({
       ]
   const discuss = spreadSummary(divergent.map((r) => r.c.label))
 
+  // Segment commun, quelle que soit la vue (Progression : posé sous la frise, qui pilote les trois volets).
+  const tabs = <AvisViewTabs view={view} onChange={setAvisView} />
+  // Tableau par observateur ; `compact` : sous les lignes des écarts.
+  const obsTable = (compact: boolean) => {
+    const cell = compact ? 'py-1' : 'py-1.5'
+    return (
+      <div className="-mx-1 overflow-x-auto">
+        <table className={`w-full border-separate border-spacing-0 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+          <thead>
+            <tr className="text-[10px] text-muted">
+              <th className={`sticky left-0 bg-panel px-1 ${cell} text-left font-bold`}>Critère</th>
+              <th className={`px-1.5 ${cell} font-bold text-accent`}>Moy.</th>
+              {observers.map((o, i) => (
+                <th key={o} className={`px-1.5 ${cell} font-bold whitespace-nowrap`} style={{ color: obsColor(i) }}>
+                  {o}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => {
+              const showCat = idx === 0 || rows[idx - 1].c.category !== r.c.category
+              // Écart chiffré : teinte du dégradé (plus rouge quand l'écart grandit) ; réponses différentes à un choix : ambre.
+              const heat = r.sp && toDiscuss(r.sp) ? spreadColor(r.sp.gap) : null
+              return (
+                <Fragment key={r.c.id}>
+                  {showCat && (
+                    <tr>
+                      <td colSpan={observers.length + 2} className={`px-1 ${compact ? 'pt-2' : 'pt-3'} pb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase`}>
+                        {r.c.category}
+                      </td>
+                    </tr>
+                  )}
+                  <tr className={!heat && r.divergent ? 'bg-amber-500/10' : ''} style={heat ? { background: `color-mix(in srgb, ${heat} 12%, transparent)` } : undefined}>
+                    <td className={`sticky left-0 border-t border-line bg-panel px-1 ${cell}`} title={r.c.description}>
+                      {r.c.label}
+                      {r.divergent && (
+                        <span style={r.sp ? { color: spreadTextColor(r.sp) } : undefined} className={r.sp ? '' : 'text-amber-300'}>
+                          <Icon name="alert" className="ml-1 inline h-3.5 w-3.5 -translate-y-px" />
+                        </span>
+                      )}
+                    </td>
+                    <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
+                    {r.perObs.map((v, i) => (
+                      <td key={i} className={`border-t border-line px-1.5 text-center ${r.c.scale === 'text' ? 'min-w-32 text-left text-[11px]' : ''}`}>
+                        {v ?? '—'}
+                      </td>
+                    ))}
+                  </tr>
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
   const pendingBox = pending.length > 0 && (
     <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
       <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
@@ -289,9 +334,8 @@ export function Opinions({
   )
 
   return (
-    <div ref={boxRef} className="flex flex-col gap-3">
-      {/* Écarts sur téléphone : le menu sur toute la largeur, « Radar | Lignes | Tableau » dessous. */}
-      <div className={`flex gap-2 ${locked ? 'items-center justify-between' : ''} ${spreadOn && layout === 'tabs' ? 'flex-wrap' : ''}`}>
+    <div className="flex flex-col gap-3">
+      <div className={`flex gap-2 ${locked ? 'items-center justify-between' : ''}`}>
         {/* Sur l'événement, la synthèse tient sur une ligne. */}
         {locked && (
           <div className="text-[11px] text-muted">
@@ -305,7 +349,7 @@ export function Opinions({
           </div>
         )}
         {!locked && (
-          <select className={`field min-w-0 flex-1 ${spreadOn && layout === 'tabs' ? 'basis-full' : ''}`} value={eventId} onChange={(e) => setEventId(e.target.value)} aria-label="Avis montrés">
+          <select className="field min-w-0 flex-1" value={eventId} onChange={(e) => setEventId(e.target.value)} aria-label="Avis montrés">
             {canProgress && <option value="progress">Progression</option>}
             {usedEvents.map((ev) => (
               <option key={ev.id} value={ev.id}>
@@ -315,38 +359,6 @@ export function Opinions({
             {evaluations.some((e) => !e.eventId) && <option value="none">Avis spontanés / hors événement</option>}
             <option value="all">Moyenne de tous les avis</option>
           </select>
-        )}
-        {/* Progression : « Radar | Lignes » sur téléphone (les deux à la fois dès qu'il y a la place) ; écarts : « Radar | Lignes |
-            Tableau » sur téléphone, « Écarts | Tableau » dès qu'il y a la place ; sinon « Tableau | Radar ». */}
-        {spreadOn ? (
-          <div className={`${SEG_BOX} shrink-0 ${layout === 'tabs' && !locked ? 'flex-1' : ''}`}>
-            {(layout === 'tabs' ? (['radar', 'lines', 'table'] as const) : (['radar', 'table'] as const)).map((v) => {
-              const on = layout === 'tabs' ? sPane === v : v === 'table' ? sPane === 'table' : sPane !== 'table'
-              return (
-                <button key={v} onClick={() => setSpreadPane(v)} aria-pressed={on} className={`px-3 ${locked ? 'py-0.5' : 'py-1'} text-xs ${layout === 'tabs' && !locked ? 'flex-1' : ''} ${segItem(on)}`}>
-                  {v === 'table' ? 'Tableau' : layout !== 'tabs' ? 'Écarts' : v === 'radar' ? 'Radar' : 'Lignes'}
-                </button>
-              )
-            })}
-          </div>
-        ) : progress ? (
-          layout === 'tabs' && (
-            <div className={`${SEG_BOX} shrink-0`}>
-              {(['radar', 'lines'] as const).map((v) => (
-                <button key={v} onClick={() => setPane(v)} aria-pressed={pane === v} className={`px-3 py-1 text-xs ${segItem(pane === v)}`}>
-                  {v === 'radar' ? 'Radar' : 'Lignes'}
-                </button>
-              ))}
-            </div>
-          )
-        ) : (
-          <div className={`${SEG_BOX} shrink-0`}>
-            {(['table', 'radar'] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-0.5' : 'py-1'} text-xs ${segItem(view === v)}`}>
-                {v === 'table' ? 'Tableau' : 'Radar'}
-              </button>
-            ))}
-          </div>
         )}
       </div>
 
@@ -378,12 +390,15 @@ export function Opinions({
             criteria={progressCriteria}
             avisCount={evs.length}
             observerCount={observers.length}
-            pane={pane}
-            layout={layout}
+            view={view}
+            tabs={tabs}
             afterStats={pendingBox}
           />
         </Suspense>
-      ) : spreadOn && sPane !== 'table' ? (
+      ) : (
+        tabs
+      )}
+      {progress ? null : spreadOn ? (
         <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement des écarts…</div>}>
           <OpinionsSpread
             key={`${player.id}:${eventId}`}
@@ -392,77 +407,27 @@ export function Opinions({
             colors={observers.map((_, i) => obsColor(i))}
             values={numericRows.map((r) => r.nums!)}
             evs={evs}
-            pane={sPane}
-            layout={layout}
-            radarTabs={!locked}
+            view={view}
+            table={obsTable(true)}
             size={wide ? 'large' : locked ? 'compact' : 'normal'}
           />
         </Suspense>
-      ) : view === 'table' || spreadOn ? (
-        <div className="-mx-1 overflow-x-auto">
-          <table className="w-full border-separate border-spacing-0 text-xs">
-            <thead>
-              <tr className="text-[10px] text-muted">
-                <th className="sticky left-0 bg-panel px-1 py-1.5 text-left font-bold">Critère</th>
-                <th className="px-1.5 py-1.5 font-bold text-accent">Moy.</th>
-                {observers.map((o, i) => (
-                  <th key={o} className="px-1.5 py-1.5 font-bold whitespace-nowrap" style={{ color: obsColor(i) }}>
-                    {o}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx) => {
-                const showCat = idx === 0 || rows[idx - 1].c.category !== r.c.category
-                return (
-                  <Fragment key={r.c.id}>
-                    {showCat && (
-                      <tr>
-                        <td colSpan={observers.length + 2} className="px-1 pt-3 pb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">
-                          {r.c.category}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className={r.sp?.level === 'gros' ? 'bg-red-500/10' : r.divergent ? 'bg-amber-500/10' : ''}>
-                      <td className="sticky left-0 border-t border-line bg-panel px-1 py-1.5" title={r.c.description}>
-                        {r.c.label}
-                        {r.divergent && (
-                          <span style={r.sp ? { color: SPREAD_COLOR[r.sp.level] } : undefined} className={r.sp ? '' : 'text-amber-300'}>
-                            <Icon name="alert" className="ml-1 inline h-3.5 w-3.5 -translate-y-px" />
-                          </span>
-                        )}
-                      </td>
-                      <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
-                      {r.perObs.map((v, i) => (
-                        <td key={i} className={`border-t border-line px-1.5 text-center ${r.c.scale === 'text' ? 'min-w-32 text-left text-[11px]' : ''}`}>
-                          {v ?? '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+      ) : view === 'tableau' ? (
+        obsTable(false)
       ) : numericRows.length < 3 ? (
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
-        <div>
-          {!locked && <RadarViewTabs view={radarView} onChange={setRadarView} />}
-          <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-            <OpinionsRadar
-              rows={numericRows}
-              observers={observers}
-              colors={observers.map((_, i) => obsColor(i))}
-              shown={shown}
-              compact={locked && !wide}
-              large={wide}
-              view={locked ? undefined : radarView === 'familles' ? 'split' : 'full'}
-            />
-          </Suspense>
-        </div>
+        <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
+          <OpinionsRadar
+            rows={numericRows}
+            observers={observers}
+            colors={observers.map((_, i) => obsColor(i))}
+            shown={shown}
+            compact={locked && !wide}
+            large={wide}
+            view={view === 'familles' ? 'split' : 'full'}
+          />
+        </Suspense>
       )}
 
       {/* Son regard sur l'événement choisi (auto-évaluation du jeune) : à côté des avis, hors des moyennes et du radar. */}

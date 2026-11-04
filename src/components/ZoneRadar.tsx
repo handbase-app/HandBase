@@ -1,9 +1,9 @@
 import { useCallback, useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type RefCallback } from 'react'
 import { layoutRadar, polar, smoothPath, styleOf, wrapLabel, type CategoryStyle, type RadarAxis } from '../radarZones'
 import { TONE_COLOR, type Tone } from '../opinionProgress'
-import { sameNoteOffsets, spreadOf, type MarkShape } from '../opinionSpread'
+import { spreadOf } from '../opinionSpread'
 import { useMedia } from '../layout'
-import { ObsMark, SpreadScale } from './SpreadMarks'
+import { SpreadScale } from './SpreadMarks'
 
 /*
  * Radar « par zones » (src/radarZones.ts), dessiné en SVG : chaque catégorie occupe son secteur (fond à peine teinté
@@ -22,9 +22,10 @@ import { ObsMark, SpreadScale } from './SpreadMarks'
  * d'arrivée en trait plein, entre les deux la zone gagnée en vert (arrivée moins départ, par masque) et la zone perdue en
  * rouge (départ moins arrivée ; gris neutre côté jeune) ; sous chaque libellé, une ligne colorée (`notes` : « 1 → 4 ↗ ») ;
  * un toucher sur un libellé (`onAxis`) ouvre la bulle du critère. Secteurs teintés et points de couleur de famille gardés.
- * Écarts entre observateurs sur un événement (`spread`, src/components/OpinionsSpread.tsx) : moyenne en trait plein ; le
- * long de chaque branche, une bande de la note la plus basse à la plus haute, couleur du niveau d'écart (accord : pas de
- * bande) ; le repère de chaque observateur (forme et couleur) à sa note ; sous le libellé, « 1 à 5 · gros écart » coloré.
+ * Écarts entre observateurs sur un événement (`spread`, src/components/OpinionsSpread.tsx, 05/11) : le radar normal (la
+ * moyenne en « zones », donnée dans `series`) et, en surcouche discrète entre le remplissage et le contour, une bande de
+ * la note la plus basse à la plus haute le long des seules branches où il y a un écart (plus l'écart est grand, plus elle
+ * est rouge et opaque ; accord : rien). Ni repère d'observateur ni mention sous les libellés.
  */
 
 export interface RadarSeries {
@@ -55,14 +56,10 @@ const noteColor = (n: NonNullable<AxisNote>) => n.color ?? TONE_COLOR[n.tone]
 
 /** Écarts entre observateurs (un événement) : par branche, dans l'ordre de `axes`. */
 export interface RadarSpread {
-  /** Repère de chaque observateur. */
-  marks: { name: string; color: string; shape: MarkShape }[]
-  /** Par branche : la note de chaque observateur (ordre de `marks`). */
+  /** Par branche : la note de chaque observateur. */
   values: (number | null | undefined)[][]
-  /** Par branche : la moyenne des observateurs (trait plein). */
-  mean: (number | null | undefined)[]
-  /** Par branche : couleur de la bande min → max (null : accord, pas de bande). */
-  band: (string | null)[]
+  /** Par branche : couleur et opacité de la bande min → max (null : accord, pas de bande). */
+  band: ({ color: string; opacity: number } | null)[]
 }
 /** Hauteur au plus (px) : comme avant (h-64, h-80, colonne large : entre 22 et 34rem, 58 % de l'écran). */
 const maxHeight = (size: Size) =>
@@ -152,6 +149,8 @@ export interface LegendItem {
   line?: boolean
   dashed?: boolean
   mark?: string
+  /** Petite barre en dégradé (écarts : « petit écart → gros écart »). */
+  gradient?: string
 }
 
 interface RadarProps {
@@ -216,7 +215,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
     const gSeries = series.map((s) => ({ ...s, values: g.idx.map((i) => s.values[i]) }))
     const gProgress = progress && { ...progress, from: g.idx.map((i) => progress.from[i]), to: g.idx.map((i) => progress.to[i]) }
     const gNotes = notes && g.idx.map((i) => notes[i])
-    const gSpread = spread && { ...spread, values: g.idx.map((i) => spread.values[i]), mean: g.idx.map((i) => spread.mean[i]), band: g.idx.map((i) => spread.band[i]) }
+    const gSpread = spread && { values: g.idx.map((i) => spread.values[i]), band: g.idx.map((i) => spread.band[i]) }
     const gNote = groupNote?.(g.idx)
     return (
       <section
@@ -249,7 +248,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
             onAxis={onAxis && ((j, at) => onAxis(g.idx[j], at))}
           />
         ) : gSpread ? (
-          // Moins de 3 branches, écarts : l'échelle 1 à 5 de chaque critère (repères, bande, moyenne), niveau dessous.
+          // Moins de 3 branches, écarts : l'échelle 1 à 5 de chaque critère (bande, trait de la moyenne), sans repère.
           <ul className="mt-1.5 flex flex-col gap-1.5">
             {gAxes.map((a, j) => {
               const note = gNotes?.[j]
@@ -269,14 +268,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
                         </b>
                       )}
                     </span>
-                    <SpreadScale
-                      vals={gSpread.values[j]}
-                      colors={gSpread.marks.map((m) => m.color)}
-                      shapes={gSpread.marks.map((m) => m.shape)}
-                      names={gSpread.marks.map((m) => m.name)}
-                      sp={spreadOf(gSpread.values[j])}
-                      hi={max}
-                    />
+                    <SpreadScale vals={gSpread.values[j]} sp={spreadOf(gSpread.values[j])} hi={max} />
                   </button>
                 </li>
               )
@@ -368,8 +360,9 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
   )
 }
 
-/** Repère d'une entrée de légende : trait (plein ou pointillé), pastille, ou signe (« ↕ »). */
+/** Repère d'une entrée de légende : trait (plein ou pointillé), pastille, dégradé, ou signe (« ↕ »). */
 function LegendMark({ l, big = false }: { l: LegendItem; big?: boolean }) {
+  if (l.gradient) return <span aria-hidden className="h-2 w-7 shrink-0 rounded-full" style={{ background: l.gradient }} />
   if (l.mark) return <span aria-hidden className="font-bold">{l.mark}</span>
   if (l.dashed) return <span aria-hidden className="w-3.5 shrink-0 border-t-2 border-dashed" style={{ borderColor: l.color }} />
   return <span aria-hidden className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : `${big ? 'h-3 w-3' : 'h-2.5 w-2.5'} shrink-0 rounded-full`} style={{ background: l.color }} />
@@ -524,9 +517,9 @@ function FullRadar({
   }
   /**
    * Écarts entre observateurs : bandes min → max (secteur d'anneau centré sur la branche, un tiers de l'angle jusqu'aux
-   * voisines de chaque côté), moyenne en trait plein, repères des observateurs (côte à côte sur une même note).
+   * voisines de chaque côté), seulement là où il y a un écart ; posées sur le remplissage de la moyenne, sous son contour.
    */
-  const spreadShapes = (sp: RadarSpread) => {
+  const spreadBands = (sp: RadarSpread) => {
     const n = layout.axes.length
     const gapTo = (i: number, j: number) => {
       const d = Math.abs(layout.axes[i].angle - layout.axes[j].angle) % 360
@@ -541,48 +534,22 @@ function FullRadar({
       return `M${x0},${y0}A${r0},${r0} 0 0,1 ${x1},${y1}L${x2},${y2}A${r1},${r1} 0 0,0 ${x3},${y3}Z`
     }
     const rOf = (v: number) => (R * Math.max(0, Math.min(max, v))) / max
-    const mr = size === 'compact' ? 3 : font ? 3.2 : 3.7
-    const mean = layout.axes.map((a) => sp.mean[index.get(a.id)!])
-    const dMean = pathFor(mean)
     return (
       <g>
         {layout.axes.map((a, i) => {
           const k = index.get(a.id)!
-          const col = sp.band[k]
+          const band = sp.band[k]
           const vs = sp.values[k].filter((v): v is number => typeof v === 'number')
-          if (!col || vs.length < 2) return null
+          if (!band || vs.length < 2) return null
           const lo = Math.min(...vs)
           const hi = Math.max(...vs)
           const w = half(i)
           return (
-            <path key={a.id} d={ring(rOf(lo), rOf(hi), a.angle - w, a.angle + w)} style={{ fill: col, stroke: col }} fillOpacity={0.4} strokeWidth={1}>
+            <path key={a.id} d={ring(rOf(lo), rOf(hi), a.angle - w, a.angle + w)} style={{ fill: band.color }} fillOpacity={band.opacity} stroke="none">
               <title>
                 {a.label} : {fmt(lo)} à {fmt(hi)}
               </title>
             </path>
-          )
-        })}
-        <path d={dMean} style={{ fill: 'var(--color-fg)', stroke: 'var(--color-fg)' }} fillOpacity={0.04} strokeWidth={1.9} strokeLinejoin="round">
-          <title>Moyenne</title>
-        </path>
-        {layout.axes.map((a) => {
-          const k = index.get(a.id)!
-          const vals = sp.values[k]
-          const off = sameNoteOffsets(vals)
-          const rad = (a.angle * Math.PI) / 180
-          // Décalage le long de la tangente (perpendiculaire à la branche).
-          const tx = Math.cos(rad)
-          const ty = Math.sin(rad)
-          return (
-            <g key={a.id}>
-              {vals.map((v, o) => {
-                const q = pt(v, a.angle)
-                const m = sp.marks[o]
-                if (!q || !m) return null
-                const d = off[o] * mr * 2.1
-                return <ObsMark key={o} x={q[0] + tx * d} y={q[1] + ty * d} r={mr} shape={m.shape} color={m.color} title={`${m.name} · ${a.label} : ${fmt(v)}`} />
-              })}
-            </g>
           )
         })}
       </g>
@@ -620,8 +587,8 @@ function FullRadar({
             })}
             {/* Progression : arrivée (fond léger), gagné (vert), perdu (rouge ou gris), départ en pointillés, arrivée en trait plein. */}
             {progress && progressShapes(progress)}
-            {/* Écarts entre observateurs : bandes, moyenne, repères. */}
-            {spread && spreadShapes(spread)}
+            {/* Écarts entre observateurs sans tracé « zones » : bandes seules. */}
+            {spread && !series.some((s) => s.mode === 'zones') && spreadBands(spread)}
             {/* Tracés */}
             {series.map((s) => {
               const d = pathOf(s)
@@ -631,6 +598,8 @@ function FullRadar({
                     {sectors.map((sec, i) => (
                       <path key={i} d={d} clipPath={`url(#${uid}-s${i})`} fill={sec.color} fillOpacity={s.fillOpacity ?? 0.5} stroke="none" />
                     ))}
+                    {/* Écarts : bandes sur le remplissage, sous le contour et les points. */}
+                    {spread && s === series.find((x) => x.mode === 'zones') && spreadBands(spread)}
                     <path d={d} fill="none" style={{ stroke: 'var(--color-fg)' }} strokeWidth={s.strokeWidth ?? 1.8} strokeLinejoin="round" />
                     {layout.axes.map((a, i) => {
                       const v = values(s)[i]

@@ -4,7 +4,7 @@
 //
 //   npx jiti tools/test-onglets.ts
 import assert from 'node:assert/strict'
-import { keepPlayerTab, keepTab, playerTabParam, PLAYER_TABS, radarViewOf, tabOf, withRadarView, withTab } from '../src/tabQuery'
+import { avisViewOf, keepPlayerTab, keepTab, playerTabParam, PLAYER_TABS, radarViewOf, tabOf, withAvisView, withRadarView, withTab } from '../src/tabQuery'
 
 // Lecture
 assert.equal(tabOf('?onglet=croissance', PLAYER_TABS, 'profil'), 'croissance')
@@ -48,5 +48,12 @@ assert.equal(keepPlayerTab('', '/joueurs', '?onglet=avis&radar=familles'), '?ong
 assert.equal(keepPlayerTab('?onglet=licencies&club=x', '/bilan/joueurs', '?onglet=licencies&club=x&fiche=avis&radar=complet'), '?onglet=licencies&club=x&fiche=avis&radar=complet')
 assert.equal(keepPlayerTab('?r=xyz', '/bilan/question/joueurs', '?r=xyz&onglet=avis&radar=zzz'), '?r=xyz&onglet=avis')
 assert.equal(keepPlayerTab('', '/joueurs', '?radar=familles'), '?radar=familles')
+// Onglet Avis : un seul segment « Complet | Par famille | Tableau » (même ?radar=…) ; la comparaison ignore « tableau »
+assert.equal(avisViewOf('?onglet=avis', false), 'complet')
+assert.equal(avisViewOf('?onglet=avis', true), 'familles')
+assert.equal(avisViewOf('?onglet=avis&radar=tableau', true), 'tableau')
+assert.equal(withAvisView('?onglet=avis&radar=familles', 'tableau'), '?onglet=avis&radar=tableau')
+assert.equal(radarViewOf('?radar=tableau', true), 'familles')
+assert.equal(keepPlayerTab('', '/joueurs', '?onglet=avis&radar=tableau'), '?onglet=avis&radar=tableau')
 
 console.log('onglets : ok')
