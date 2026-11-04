@@ -1,7 +1,9 @@
 import { useCallback, useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type RefCallback } from 'react'
 import { layoutRadar, polar, smoothPath, styleOf, wrapLabel, type CategoryStyle, type RadarAxis } from '../radarZones'
 import { TONE_COLOR, type Tone } from '../opinionProgress'
+import { sameNoteOffsets, spreadOf, type MarkShape } from '../opinionSpread'
 import { useMedia } from '../layout'
+import { ObsMark, SpreadScale } from './SpreadMarks'
 
 /*
  * Radar « par zones » (src/radarZones.ts), dessiné en SVG : chaque catégorie occupe son secteur (fond à peine teinté
@@ -20,6 +22,9 @@ import { useMedia } from '../layout'
  * d'arrivée en trait plein, entre les deux la zone gagnée en vert (arrivée moins départ, par masque) et la zone perdue en
  * rouge (départ moins arrivée ; gris neutre côté jeune) ; sous chaque libellé, une ligne colorée (`notes` : « 1 → 4 ↗ ») ;
  * un toucher sur un libellé (`onAxis`) ouvre la bulle du critère. Secteurs teintés et points de couleur de famille gardés.
+ * Écarts entre observateurs sur un événement (`spread`, src/components/OpinionsSpread.tsx) : moyenne en trait plein ; le
+ * long de chaque branche, une bande de la note la plus basse à la plus haute, couleur du niveau d'écart (accord : pas de
+ * bande) ; le repère de chaque observateur (forme et couleur) à sa note ; sous le libellé, « 1 à 5 · gros écart » coloré.
  */
 
 export interface RadarSeries {
@@ -41,7 +46,24 @@ export interface AxisAnchor {
   top: number
   bottom: number
 }
-type AxisNote = { text: string; tone: Tone } | null | undefined
+/**
+ * Ligne sous un libellé : couleur du ton (progression), ou `color` imposée (écarts) ; `short` : à la place de `text` sur
+ * les petits radars d'une famille (« 1 à 5 » plutôt que « 1 à 5 · gros écart » : la couleur dit le niveau).
+ */
+type AxisNote = { text: string; tone: Tone; color?: string; short?: string } | null | undefined
+const noteColor = (n: NonNullable<AxisNote>) => n.color ?? TONE_COLOR[n.tone]
+
+/** Écarts entre observateurs (un événement) : par branche, dans l'ordre de `axes`. */
+export interface RadarSpread {
+  /** Repère de chaque observateur. */
+  marks: { name: string; color: string; shape: MarkShape }[]
+  /** Par branche : la note de chaque observateur (ordre de `marks`). */
+  values: (number | null | undefined)[][]
+  /** Par branche : la moyenne des observateurs (trait plein). */
+  mean: (number | null | undefined)[]
+  /** Par branche : couleur de la bande min → max (null : accord, pas de bande). */
+  band: (string | null)[]
+}
 /** Hauteur au plus (px) : comme avant (h-64, h-80, colonne large : entre 22 et 34rem, 58 % de l'écran). */
 const maxHeight = (size: Size) =>
   size === 'compact' ? 256 : size === 'normal' ? 320 : Math.max(352, Math.min(544, Math.round((typeof window === 'undefined' ? 800 : window.innerHeight) * 0.58)))
@@ -69,7 +91,7 @@ interface Label {
 }
 
 /** Écarte verticalement les libellés qui se chevauchent (sans sortir du cadre). */
-function spread(labels: Label[], top: number, bottom: number, mid: number) {
+function spreadLabels(labels: Label[], top: number, bottom: number, mid: number) {
   const box = (l: Label) => {
     const x0 = l.anchor === 'start' ? l.x : l.anchor === 'end' ? l.x - l.w : l.x - l.w / 2
     return { x0, x1: x0 + l.w, y0: l.y - l.h / 2, y1: l.y + l.h / 2 }
@@ -150,6 +172,8 @@ interface RadarProps {
   onAxis?: (i: number, at: AxisAnchor) => void
   /** Vue par famille : note sous le titre de chaque famille (indices de ses branches dans `axes`). */
   groupNote?: (idx: number[]) => AxisNote
+  /** Écarts entre observateurs sur un événement (moyenne, bandes min → max, repères). */
+  spread?: RadarSpread
 }
 
 /** Point touché d'un libellé : au doigt (souris, toucher), sinon (clavier) sous le libellé. */
@@ -172,7 +196,7 @@ export default function ZoneRadar(props: RadarProps) {
  * Téléphone : une carte par catégorie (dans l'ordre d'apparition des critères), avec son petit radar (libellés 11 px)
  * ou, à moins de 3 branches, une barre par critère et par tracé. Légende des tracés une fois, dessous.
  */
-function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, progress, notes, onAxis, groupNote }: RadarProps & { grid?: boolean }) {
+function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, progress, notes, onAxis, groupNote, spread }: RadarProps & { grid?: boolean }) {
   const groups = useMemo(() => {
     const gs: { category: string; color: string; idx: number[] }[] = []
     axes.forEach((a, i) => {
@@ -183,13 +207,16 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
     return gs
   }, [axes, styles])
   const fmt = (v: number | null | undefined) => (typeof v === 'number' ? (Math.round(v * 10) / 10).toString().replace('.', ',') : '—')
+  // Petits radars : la forme courte des lignes sous les libellés, s'il y en a une.
+  const small = notes?.map((n) => (n?.short ? { ...n, text: n.short } : n))
   // Grille (vue imposée) : même place des libellés pour tous les radars (le plus long de tous), donc même taille.
-  const labelChars = grid ? Math.max(...axes.map((a, i) => Math.max(twoLines(a.label), notes?.[i]?.text.length ?? 0))) : undefined
+  const labelChars = grid ? Math.max(...axes.map((a, i) => Math.max(twoLines(a.label), small?.[i]?.text.length ?? 0))) : undefined
   const cards = groups.map((g) => {
     const gAxes = g.idx.map((i) => axes[i])
     const gSeries = series.map((s) => ({ ...s, values: g.idx.map((i) => s.values[i]) }))
     const gProgress = progress && { ...progress, from: g.idx.map((i) => progress.from[i]), to: g.idx.map((i) => progress.to[i]) }
     const gNotes = notes && g.idx.map((i) => notes[i])
+    const gSpread = spread && { ...spread, values: g.idx.map((i) => spread.values[i]), mean: g.idx.map((i) => spread.mean[i]), band: g.idx.map((i) => spread.band[i]) }
     const gNote = groupNote?.(g.idx)
     return (
       <section
@@ -202,7 +229,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
           {g.category || 'Autres critères'}
           {/* Progression : moyenne des critères de la famille, du départ à l'arrivée. */}
           {gNote && (
-            <span className="ml-auto text-[11px] font-extrabold whitespace-nowrap tabular-nums" style={{ color: TONE_COLOR[gNote.tone] }}>
+            <span className="ml-auto text-[11px] font-extrabold whitespace-nowrap tabular-nums" style={{ color: noteColor(gNote) }}>
               {gNote.text}
             </span>
           )}
@@ -217,9 +244,44 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
             labelChars={labelChars}
             bare
             progress={gProgress}
-            notes={gNotes}
+            notes={small && g.idx.map((i) => small[i])}
+            spread={gSpread}
             onAxis={onAxis && ((j, at) => onAxis(g.idx[j], at))}
           />
+        ) : gSpread ? (
+          // Moins de 3 branches, écarts : l'échelle 1 à 5 de chaque critère (repères, bande, moyenne), niveau dessous.
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {gAxes.map((a, j) => {
+              const note = gNotes?.[j]
+              return (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    className="flex w-full flex-col gap-0.5 text-left"
+                    onClick={onAxis && ((ev) => onAxis(g.idx[j], anchorOf(ev)))}
+                    disabled={!onAxis}
+                  >
+                    <span className="flex items-baseline justify-between gap-2 text-xs">
+                      {a.label}
+                      {note && (
+                        <b className="text-[11px] whitespace-nowrap tabular-nums" style={{ color: noteColor(note) }}>
+                          {note.text}
+                        </b>
+                      )}
+                    </span>
+                    <SpreadScale
+                      vals={gSpread.values[j]}
+                      colors={gSpread.marks.map((m) => m.color)}
+                      shapes={gSpread.marks.map((m) => m.shape)}
+                      names={gSpread.marks.map((m) => m.name)}
+                      sp={spreadOf(gSpread.values[j])}
+                      hi={max}
+                    />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         ) : gProgress ? (
           // Moins de 3 branches, en progression : barre de l'arrivée, trait au départ, écart dessous.
           <ul className="mt-1.5 flex flex-col gap-2">
@@ -239,7 +301,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, 
                     <span className="flex items-baseline justify-between gap-2 text-xs">
                       {a.label}
                       {note && (
-                        <b className="text-[11px] whitespace-nowrap tabular-nums" style={{ color: TONE_COLOR[note.tone] }}>
+                        <b className="text-[11px] whitespace-nowrap tabular-nums" style={{ color: noteColor(note) }}>
                           {note.text}
                         </b>
                       )}
@@ -332,8 +394,9 @@ function FullRadar({
   labelChars,
   bare = false,
   progress,
-  notes,
+  notes: allNotes,
   onAxis,
+  spread,
 }: RadarProps & {
   /** Place des libellés (caractères de la plus longue ligne) imposée : radars d'une grille de même taille. */
   labelChars?: number
@@ -344,6 +407,9 @@ function FullRadar({
 }) {
   const uid = 'zr' + useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const [ref, { w: W }] = useBox<HTMLDivElement>()
+  // Petit radar (famille, téléphone) : forme courte des lignes sous les libellés, s'il y en a une (plus de place au cercle).
+  const shortNotes = !!font || (W > 0 && W < 480)
+  const notes = useMemo(() => (shortNotes ? allNotes?.map((n) => (n?.short ? { ...n, text: n.short } : n)) : allNotes), [allNotes, shortNotes])
   const layout = useMemo(() => layoutRadar(axes, styles), [axes, styles])
   const index = useMemo(() => new Map(axes.map((a, i) => [a.id, i])), [axes])
 
@@ -382,7 +448,7 @@ function FullRadar({
       const dy = c > 0.8 ? -h / 2 + 2 : c < -0.8 ? h / 2 - 2 : 0
       return { text, full: a.label, note, x, y: y + dy, anchor, w: Math.max(...text.map((t) => t.length), note?.text.length ?? 0) * charW, h }
     })
-    spread(ls, 1, H - 1, cy)
+    spreadLabels(ls, 1, H - 1, cy)
     return ls
   }, [layout, index, notes, W, H, cx, cy, R, maxChars, lineH, charW])
 
@@ -456,6 +522,72 @@ function FullRadar({
       </g>
     )
   }
+  /**
+   * Écarts entre observateurs : bandes min → max (secteur d'anneau centré sur la branche, un tiers de l'angle jusqu'aux
+   * voisines de chaque côté), moyenne en trait plein, repères des observateurs (côte à côte sur une même note).
+   */
+  const spreadShapes = (sp: RadarSpread) => {
+    const n = layout.axes.length
+    const gapTo = (i: number, j: number) => {
+      const d = Math.abs(layout.axes[i].angle - layout.axes[j].angle) % 360
+      return Math.min(d, 360 - d)
+    }
+    const half = (i: number) => Math.min(10, 0.31 * Math.min(gapTo(i, (i + n - 1) % n), gapTo(i, (i + 1) % n)))
+    const ring = (r0: number, r1: number, a0: number, a1: number) => {
+      const [x0, y0] = polar(cx, cy, r0, a0)
+      const [x1, y1] = polar(cx, cy, r0, a1)
+      const [x2, y2] = polar(cx, cy, r1, a1)
+      const [x3, y3] = polar(cx, cy, r1, a0)
+      return `M${x0},${y0}A${r0},${r0} 0 0,1 ${x1},${y1}L${x2},${y2}A${r1},${r1} 0 0,0 ${x3},${y3}Z`
+    }
+    const rOf = (v: number) => (R * Math.max(0, Math.min(max, v))) / max
+    const mr = size === 'compact' ? 3 : font ? 3.2 : 3.7
+    const mean = layout.axes.map((a) => sp.mean[index.get(a.id)!])
+    const dMean = pathFor(mean)
+    return (
+      <g>
+        {layout.axes.map((a, i) => {
+          const k = index.get(a.id)!
+          const col = sp.band[k]
+          const vs = sp.values[k].filter((v): v is number => typeof v === 'number')
+          if (!col || vs.length < 2) return null
+          const lo = Math.min(...vs)
+          const hi = Math.max(...vs)
+          const w = half(i)
+          return (
+            <path key={a.id} d={ring(rOf(lo), rOf(hi), a.angle - w, a.angle + w)} style={{ fill: col, stroke: col }} fillOpacity={0.4} strokeWidth={1}>
+              <title>
+                {a.label} : {fmt(lo)} à {fmt(hi)}
+              </title>
+            </path>
+          )
+        })}
+        <path d={dMean} style={{ fill: 'var(--color-fg)', stroke: 'var(--color-fg)' }} fillOpacity={0.04} strokeWidth={1.9} strokeLinejoin="round">
+          <title>Moyenne</title>
+        </path>
+        {layout.axes.map((a) => {
+          const k = index.get(a.id)!
+          const vals = sp.values[k]
+          const off = sameNoteOffsets(vals)
+          const rad = (a.angle * Math.PI) / 180
+          // Décalage le long de la tangente (perpendiculaire à la branche).
+          const tx = Math.cos(rad)
+          const ty = Math.sin(rad)
+          return (
+            <g key={a.id}>
+              {vals.map((v, o) => {
+                const q = pt(v, a.angle)
+                const m = sp.marks[o]
+                if (!q || !m) return null
+                const d = off[o] * mr * 2.1
+                return <ObsMark key={o} x={q[0] + tx * d} y={q[1] + ty * d} r={mr} shape={m.shape} color={m.color} title={`${m.name} · ${a.label} : ${fmt(v)}`} />
+              })}
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
   // Légende dans l'ordre du cadran, en partant du haut.
   const turn = (a: { start: number; end: number }) => ((a.start + a.end) / 2 + 45 + 720) % 360
   const sectorLegend = [...sectors].sort((a, b) => turn(a) - turn(b))
@@ -488,6 +620,8 @@ function FullRadar({
             })}
             {/* Progression : arrivée (fond léger), gagné (vert), perdu (rouge ou gris), départ en pointillés, arrivée en trait plein. */}
             {progress && progressShapes(progress)}
+            {/* Écarts entre observateurs : bandes, moyenne, repères. */}
+            {spread && spreadShapes(spread)}
             {/* Tracés */}
             {series.map((s) => {
               const d = pathOf(s)
@@ -560,7 +694,7 @@ function FullRadar({
                     </tspan>
                   ))}
                   {l.note?.text && (
-                    <tspan x={l.x} dy={lineH} fontWeight={700} style={{ fill: TONE_COLOR[l.note.tone] }}>
+                    <tspan x={l.x} dy={lineH} fontWeight={700} style={{ fill: noteColor(l.note) }}>
                       {l.note.text}
                     </tspan>
                   )}

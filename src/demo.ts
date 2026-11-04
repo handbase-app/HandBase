@@ -286,7 +286,7 @@ export async function loadDemo() {
   evaluations.push(...scout.evaluations)
 
   // ----- Saison passée d'avis pour 4 joueurs de champ (vue « Progression » de l'onglet Avis, src/demoProgress.ts) -----
-  const prog = buildProgressDemo(players, evaluations, (p) => (p.position === 'GB' ? SUBJ_GB : SUBJ_FIELD), ['Coach Paul', 'Sophie (CTF)'], now, (p) => p.position === 'GB')
+  const prog = buildProgressDemo(players, evaluations, (p) => (p.position === 'GB' ? SUBJ_GB : SUBJ_FIELD), ['Coach Paul', 'Sophie (CTF)'], now, (p) => p.position === 'GB', 'Julie (adjointe)')
   evaluations.push(...prog.evaluations)
 
   // ----- Objectifs de travail et auto-évaluations (vague 2 « Génération Bleue ») : quelques joueurs choisis par leur rang,
@@ -452,7 +452,7 @@ async function loadVolleyDemo() {
   const criteria = await loadDemoCriteria()
   const d = buildVolleyDemo(Date.now(), scoutId() ?? 'local', localDay)
   // Saison passée d'avis pour 4 joueuses / joueurs (vue « Progression » de l'onglet Avis, src/demoProgress.ts).
-  const prog = buildProgressDemo(d.players, d.evaluations, (p) => [...(p.position === 'P' ? GRID_PASSEUR : GRID_CHAMP), ...GRID_MENTAL], ['Coach Paul', 'Sophie (CTS)'], Date.now(), (p) => p.position === 'L')
+  const prog = buildProgressDemo(d.players, d.evaluations, (p) => [...(p.position === 'P' ? GRID_PASSEUR : GRID_CHAMP), ...GRID_MENTAL], ['Coach Paul', 'Sophie (CTS)'], Date.now(), (p) => p.position === 'L', 'Julie (adjointe)')
   d.events.push(...prog.events)
   d.evaluations.push(...prog.evaluations)
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {

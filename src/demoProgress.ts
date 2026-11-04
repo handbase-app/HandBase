@@ -8,6 +8,9 @@ import type { Evaluation, HBEvent, Player } from './db'
  * autres (« nouveau » au départ). Les notes finissent près de celles des avis existants du joueur (la saison en cours
  * continue sans à-coup). Calcul pur et déterministe, sans le tirage au hasard du reste de la démo (sa suite ne change pas).
  * Identifiants « demo-prog-… » : effacés avec la démo (clearDemo).
+ * Écarts entre observateurs (vue « Écarts » de l'onglet Avis, src/components/OpinionsSpread.tsx) : au « Tournoi de fin de
+ * saison », un troisième observateur (`third`) note aussi le premier joueur choisi ; trois critères en désaccord net (un
+ * 1 / 3 / 5 : gros écart ; un autre gros écart ; un écart), les autres d'accord, et un commentaire de chacun.
  */
 
 const P = 'demo-prog-'
@@ -34,6 +37,13 @@ const MIX: Shape[][] = [
 ]
 const YOYO = [0, 1.5, -1, 1, -1.2, 1, -0.5, 0.3]
 const PIC = [1, 2, 3, 4, 5, 5, 5, 4]
+
+/** Commentaires génériques des trois observateurs du dernier cran (ils ne voient pas le même match). */
+const TRIO_NOTES: Pick<Evaluation, 'strengths' | 'improvements'>[] = [
+  { improvements: 'Peu de réussite aujourd’hui, choix précipités en fin de match' },
+  { strengths: 'Très présent, a porté l’équipe dans les moments chauds' },
+  { strengths: 'Bonne volonté', improvements: 'À revoir sur un match plus long avant de conclure' },
+]
 
 const clamp = (v: number) => Math.max(1, Math.min(5, v))
 const hashN = (s: string, n: number) => {
@@ -63,6 +73,7 @@ export function buildProgressDemo(
   observers: [string, string],
   now: number,
   skip: (p: Player) => boolean = () => false,
+  third?: string,
 ): { events: HBEvent[]; evaluations: Evaluation[] } {
   const avisOf = (id: string) => existing.filter((e) => e.playerId === id)
   const chosen = players
@@ -84,17 +95,34 @@ export function buildProgressDemo(
     // Un critère noté seulement à partir du 3e cran.
     const late = crits[hashN(p.id + 'tard', crits.length)]
     SEASON.forEach((_, j) => {
-      const notes = [{} as Record<string, number>, {} as Record<string, number>]
+      // Dernier cran du premier joueur : trois observateurs, en désaccord net sur trois critères.
+      const trio = !!third && k === 0 && j === SEASON.length - 1
+      const who = trio ? [...observers, third] : observers
+      const notes = who.map(() => ({}) as Record<string, number>)
+      const real: Record<string, number> = {}
       crits.forEach((c, ci) => {
         if (c === late && j < 2) return
         // Pas observé ce jour-là (jamais au premier ni au dernier cran).
         if (j > 0 && j < SEASON.length - 1 && hashN(`${p.id}:${c}:${j}`, 6) === 0) return
         const v = noteAt(MIX[k][ci % MIX[k].length], endOf(c), j)
-        // Deux observateurs : leurs notes entières encadrent la note « réelle » (moyenne au demi-point).
+        real[c] = v
+        // Deux observateurs : leurs notes entières encadrent la note « réelle » (moyenne au demi-point) ; le troisième
+        // donne la note arrondie.
         notes[0][c] = clamp(Math.floor(v + 0.25))
         notes[1][c] = clamp(Math.ceil(v - 0.25))
+        if (trio) notes[2][c] = clamp(Math.round(v))
       })
-      observers.forEach((o, oi) =>
+      if (trio) {
+        // Le critère le plus près de 3 : 1 / 3 / 5 ; le suivant (ordre de la grille) : 2 / 4 / 5 ; puis 3 / 3 / 5 (écart 2).
+        const rated = crits.filter((c) => c in real)
+        const big = [...rated].sort((a, b) => Math.abs(real[a] - 3) - Math.abs(real[b] - 3))[0]
+        const rest = rated.filter((c) => c !== big)
+        const set = (c: string | undefined, vs: number[]) => c && vs.forEach((v, oi) => (notes[oi][c] = v))
+        set(big, [1, 5, 3])
+        set(rest[0], [2, 5, 4])
+        set(rest[1], [3, 3, 5])
+      }
+      who.forEach((o, oi) =>
         evaluations.push({
           id: `${P}e-${j + 1}-${p.id}-${oi + 1}`,
           playerId: p.id,
@@ -103,6 +131,8 @@ export function buildProgressDemo(
           date: events[j].date,
           scores: notes[oi],
           minutesObserved: 30 + 10 * hashN(`${p.id}${j}${oi}`, 6),
+          // Écarts : le commentaire de chacun (bulle d'un critère).
+          ...(trio ? TRIO_NOTES[oi] : {}),
           updatedAt: now,
         }),
       )

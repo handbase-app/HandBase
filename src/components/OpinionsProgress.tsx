@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { useBackCloses, useEntryState } from '../backNav'
+import { useEntryState } from '../backNav'
 import { scaleMax, scaleMin, type Criterion } from '../db'
 import { useMedia, useWidth } from '../layout'
 import {
@@ -27,6 +26,7 @@ import {
   TONE_COLOR,
 } from '../opinionProgress'
 import { categoryStyles, styleOf } from '../radarZones'
+import { AnchoredBubble } from './AnchoredBubble'
 import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import ZoneRadar, { type AxisAnchor, type LegendItem } from './ZoneRadar'
 import { Empty } from './ui'
@@ -528,9 +528,8 @@ function Spark({ h, s, t, tone, lo, hi }: { h: (number | null)[]; s: number; t: 
 }
 
 /**
- * Bulle d'un critère, accrochée à l'endroit touché (dessous s'il y a la place, sinon dessus ; pointe vers le doigt), fond
- * légèrement flouté (scrim-light) : nom, « 3 → 4,5 ↗ », courbe de toutes ses notes datées (période Départ → Arrivée
- * teintée). ✕, Échap, toucher à côté, Retour du téléphone, défilement de la page ou changement de taille : fermée.
+ * Bulle d'un critère (AnchoredBubble : accrochée à l'endroit touché, fond légèrement flouté) : nom, « 3 → 4,5 ↗ », courbe
+ * de toutes ses notes datées (période Départ → Arrivée teintée).
  */
 function CriterionBubble({
   c,
@@ -555,42 +554,6 @@ function CriterionBubble({
   at: AxisAnchor
   onClose: () => void
 }) {
-  useBackCloses(onClose)
-  const box = useRef<HTMLDivElement>(null)
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-  const [pos, setPos] = useState<{ left: number; top: number; caret: number; below: boolean } | null>(null)
-  useLayoutEffect(() => {
-    const el = box.current
-    if (!el) return
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const w = el.offsetWidth
-    const h = el.offsetHeight
-    const left = Math.max(8, Math.min(at.x - w / 2, vw - w - 8))
-    const below = at.bottom + 12 + h <= vh - 8 || vh - at.bottom >= at.top
-    const top = below ? Math.min(at.bottom + 12, vh - h - 8) : Math.max(8, at.top - 12 - h)
-    setPos({ left, top, caret: Math.max(16, Math.min(at.x - left, w - 16)), below })
-  }, [at])
-  useEffect(() => {
-    const before = document.activeElement
-    box.current?.focus({ preventScroll: true })
-    const key = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && close.current()
-    const scroll = (e: Event) => !box.current?.contains(e.target as Node) && close.current()
-    const resize = () => close.current()
-    window.addEventListener('keydown', key)
-    window.addEventListener('scroll', scroll, true)
-    window.addEventListener('resize', resize)
-    return () => {
-      window.removeEventListener('keydown', key)
-      window.removeEventListener('scroll', scroll, true)
-      window.removeEventListener('resize', resize)
-      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
-    }
-  }, [])
-
   // Courbe : les notes vraiment données (pas le report), placées à leur cran.
   const L = Math.max(1, steps.length - 1)
   const pts = steps.map((st, j) => ({ j, v: st.scores[c.id], d: st.date })).filter((p): p is { j: number; v: number; d: string } => typeof p.v === 'number')
@@ -606,86 +569,66 @@ function CriterionBubble({
   const y = (v: number) => pt + ((hi - v) / Math.max(1, hi - lo)) * (H - pt - pb)
   // Dates sous les points : une sur k si elles sont serrées.
   const kd = Math.max(1, Math.ceil(pts.length / 7))
-  return createPortal(
-    <div className="fixed inset-0 z-50" onClick={onClose}>
-      <div className="absolute inset-0 scrim-light" aria-hidden />
-      <div
-        ref={box}
-        tabIndex={-1}
-        role="dialog"
-        aria-label={c.label}
-        onClick={(e) => e.stopPropagation()}
-        className={`win absolute w-[min(22rem,calc(100vw-1rem))] p-3.5 pb-2.5 shadow-2xl outline-none transition-opacity duration-100 ${pos ? 'opacity-100' : 'opacity-0'}`}
-        style={pos ? { left: pos.left, top: pos.top } : { left: 8, top: at.bottom + 12 }}
-        data-testid="bulle-critere"
-      >
-        {pos && (
-          <span
-            aria-hidden
-            className={`absolute h-3 w-3 rotate-45 border-line bg-panel ${pos.below ? '-top-1.5 border-t border-l' : '-bottom-1.5 border-r border-b'}`}
-            style={{ left: pos.caret - 6 }}
-          />
-        )}
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-[15px] leading-tight font-extrabold">{c.label}</div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
-              {c.category} · {pts.length} note{pts.length > 1 ? 's' : ''}
-            </div>
-          </div>
-          <button className="-mt-1.5 -mr-2 min-h-9 min-w-9 shrink-0 text-muted" aria-label="Fermer" onClick={onClose}>
-            ✕
-          </button>
+  return (
+    <AnchoredBubble
+      at={at}
+      label={c.label}
+      title={c.label}
+      sub={
+        <>
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
+          {c.category} · {pts.length} note{pts.length > 1 ? 's' : ''}
+        </>
+      }
+      onClose={onClose}
+      testId="bulle-critere"
+    >
+      {!single && range && (
+        <div className="mt-1 text-sm font-extrabold tabular-nums" style={{ color: TONE_COLOR[tone] }}>
+          {range}
         </div>
-        {!single && range && (
-          <div className="mt-1 text-sm font-extrabold tabular-nums" style={{ color: TONE_COLOR[tone] }}>
-            {range}
-          </div>
+      )}
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Courbe de ${c.label} : ${pts.map((p) => `${fmtNote(p.v)} le ${dayLong(p.d)}`).join(', ')}`} className="mt-1 block">
+        {Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).map((v) => (
+          <g key={v}>
+            <line x1={pl} x2={W - pr} y1={y(v)} y2={y(v)} style={{ stroke: 'var(--color-line)' }} strokeWidth={0.8} />
+            <text x={pl - 7} y={y(v) + 3.5} textAnchor="end" fontSize={10} style={{ fill: 'var(--color-muted)' }}>
+              {v}
+            </text>
+          </g>
+        ))}
+        {!single && <rect x={x(s)} y={pt} width={Math.max(0, x(t) - x(s))} height={H - pt - pb} style={{ fill: 'var(--color-fg)' }} fillOpacity={0.06} />}
+        {pts.length > 1 && (
+          <polyline points={pts.map((p) => `${x(p.j).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')} fill="none" style={{ stroke: 'var(--color-fg)' }} strokeWidth={2} strokeLinejoin="round" />
         )}
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Courbe de ${c.label} : ${pts.map((p) => `${fmtNote(p.v)} le ${dayLong(p.d)}`).join(', ')}`} className="mt-1 block">
-          {Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).map((v) => (
-            <g key={v}>
-              <line x1={pl} x2={W - pr} y1={y(v)} y2={y(v)} style={{ stroke: 'var(--color-line)' }} strokeWidth={0.8} />
-              <text x={pl - 7} y={y(v) + 3.5} textAnchor="end" fontSize={10} style={{ fill: 'var(--color-muted)' }}>
-                {v}
-              </text>
+        {pts.map((p, i) => {
+          const inR = single || (p.j >= s && p.j <= t)
+          return (
+            <g key={p.j}>
+              <circle cx={x(p.j)} cy={y(p.v)} r={inR ? 4 : 3} style={{ fill: inR ? 'var(--color-fg)' : 'var(--color-panel)', stroke: 'var(--color-fg)' }} strokeWidth={1.5}>
+                <title>
+                  {fmtNote(p.v)} · {steps[p.j].name} · {dayLong(p.d)}
+                </title>
+              </circle>
+              {(i % kd === 0 || i === pts.length - 1) && (
+                <text x={x(p.j)} y={H - pb + 15} textAnchor="middle" fontSize={10} style={{ fill: 'var(--color-muted)' }}>
+                  {dayShort(p.d)}
+                </text>
+              )}
             </g>
-          ))}
-          {!single && <rect x={x(s)} y={pt} width={Math.max(0, x(t) - x(s))} height={H - pt - pb} style={{ fill: 'var(--color-fg)' }} fillOpacity={0.06} />}
-          {pts.length > 1 && (
-            <polyline points={pts.map((p) => `${x(p.j).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')} fill="none" style={{ stroke: 'var(--color-fg)' }} strokeWidth={2} strokeLinejoin="round" />
-          )}
-          {pts.map((p, i) => {
-            const inR = single || (p.j >= s && p.j <= t)
-            return (
-              <g key={p.j}>
-                <circle cx={x(p.j)} cy={y(p.v)} r={inR ? 4 : 3} style={{ fill: inR ? 'var(--color-fg)' : 'var(--color-panel)', stroke: 'var(--color-fg)' }} strokeWidth={1.5}>
-                  <title>
-                    {fmtNote(p.v)} · {steps[p.j].name} · {dayLong(p.d)}
-                  </title>
-                </circle>
-                {(i % kd === 0 || i === pts.length - 1) && (
-                  <text x={x(p.j)} y={H - pb + 15} textAnchor="middle" fontSize={10} style={{ fill: 'var(--color-muted)' }}>
-                    {dayShort(p.d)}
-                  </text>
-                )}
-              </g>
-            )
-          })}
-          {!single && (
-            <>
-              <text x={x(s)} y={H - 3} textAnchor="start" fontSize={10} fontWeight={700} style={{ fill: 'var(--color-muted)' }}>
-                départ
-              </text>
-              <text x={x(t)} y={H - 3} textAnchor="end" fontSize={10} fontWeight={700} style={{ fill: 'var(--color-fg)' }}>
-                arrivée
-              </text>
-            </>
-          )}
-        </svg>
-      </div>
-    </div>,
-    document.body,
+          )
+        })}
+        {!single && (
+          <>
+            <text x={x(s)} y={H - 3} textAnchor="start" fontSize={10} fontWeight={700} style={{ fill: 'var(--color-muted)' }}>
+              départ
+            </text>
+            <text x={x(t)} y={H - 3} textAnchor="end" fontSize={10} fontWeight={700} style={{ fill: 'var(--color-fg)' }}>
+              arrivée
+            </text>
+          </>
+        )}
+      </svg>
+    </AnchoredBubble>
   )
 }
