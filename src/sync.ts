@@ -33,6 +33,7 @@ import { curseurApres, curseurTrop, diffCanaux, filetRareDu, lireEtatRegistre, l
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
+import { isTestDb } from './comptesCore'
 import { playerReadsTable } from './playerSpace'
 import { unitTerritory } from './eventOrganizer'
 import {
@@ -368,7 +369,8 @@ export async function wipeDevice({ signOut = false } = {}) {
   // Le serveur oublie l'abonnement de l'appareil (il faut encore la session). Sans service worker prêt, on n'attend pas.
   await Promise.race([disablePush().catch(() => {}), new Promise((r) => setTimeout(r, 3000))])
   if (signOut && supabase) {
-    await supabase.auth.signOut().catch(() => {})
+    // Compte de test actif (« Changer de compte ») : seulement cette session ; ses autres appareils restent connectés.
+    await supabase.auth.signOut(isTestDb(db.name) ? { scope: 'local' } : undefined).catch(() => {})
     // Hors ligne, signOut() échoue et garde la session : on l'oublie quand même sur l'appareil (IndexedDB et localStorage).
     try {
       for (const k of Object.keys(localStorage)) if (/^sb-.+-auth-token/.test(k)) localStorage.removeItem(k)

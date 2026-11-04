@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { accountLabel, firstName, type AccountsView, type SavedAccount } from '../comptesCore'
 import { addAccount, removeAccount, switchTo, useAccountsView } from '../comptes'
 import { ask } from './Confirm'
-import { FormActions, FormWindow } from './FormWindow'
+import { afterWindow, FormActions, FormWindow } from './FormWindow'
 import { flash, type MenuItem } from './ItemMenu'
 import { Icon } from './ui'
 
@@ -27,6 +27,8 @@ export async function goToAccount(a: SavedAccount) {
 }
 
 async function removeActive(a: SavedAccount, home: SavedAccount | null) {
+  // Le menu se referme (son entrée d'historique part) : la question vient après, sinon le même retour la fermerait.
+  await new Promise<void>((r) => afterWindow(r))
   const ok = await ask(
     `Retirer le compte de ${firstName(a)} de cet appareil ? Sa session est fermée ici et ses données locales sont effacées${home ? ` ; retour sur ${firstName(home)}` : ''}. Le compte lui-même n’est pas touché.`,
     { ok: 'Retirer' },
@@ -48,7 +50,7 @@ export function accountMenuItems(v: AccountsView): MenuItem[] {
   if (v.canAdd) items.push({ label: 'Ajouter un compte de test…', icon: 'userPlus', onSelect: () => openWindow({ kind: 'ajouter' }) })
   if (v.onTest && v.active) {
     const me = v.active
-    items.push({ label: 'Retirer ce compte de l’appareil', icon: 'trash', onSelect: () => void removeActive(me, v.home) })
+    items.push({ label: 'Retirer ce compte', hint: 'De cet appareil', icon: 'trash', onSelect: () => void removeActive(me, v.home) })
   } else if (v.others.length) items.push({ label: 'Retirer un compte de test…', icon: 'trash', onSelect: () => openWindow({ kind: 'retirer' }) })
   if (items.length) items[0] = { ...items[0], separated: true }
   return items
@@ -64,7 +66,9 @@ export function AccountBanner() {
       <div className="mx-auto flex max-w-2xl items-center justify-between gap-2">
         <span className="min-w-0 truncate">
           <Icon name="user" className="mr-1 inline h-3.5 w-3.5" />
-          Compte de test : <b>{accountLabel(v.active)}</b>
+          {/* Téléphone étroit : « Test : Léo (joueur) » tient sur une ligne avec le bouton. */}
+          <span className="sm:hidden">Test</span>
+          <span className="hidden sm:inline">Compte de test</span> : <b>{accountLabel(v.active)}</b>
         </span>
         {home && (
           <button type="button" className="shrink-0 rounded-full bg-accent px-2.5 py-1 font-bold text-white" onClick={() => void goToAccount(home)}>
@@ -119,6 +123,7 @@ function AddWindow({ email: initial = '', note, onClose }: { email?: string; not
   return (
     <FormWindow title={initial ? 'Reconnecter un compte' : 'Ajouter un compte de test'} onClose={onClose} width={440} phoneFull={false}>
       <form
+        id="hb-compte-ajout"
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault()
@@ -140,8 +145,9 @@ function AddWindow({ email: initial = '', note, onClose }: { email?: string; not
         </div>
         {err && <p className="text-[11px] text-red-300">{err}</p>}
         <FormActions>
-          <button type="button" className="btn-primary" disabled={busy || !email.trim() || !password} onClick={() => void submit()}>
-            {busy ? 'Connexion…' : 'Se connecter et passer sur ce compte'}
+          {/* Hors du formulaire (pied de la fenêtre) : relié par form=, Entrée envoie aussi. */}
+          <button type="submit" form="hb-compte-ajout" className="btn-primary" disabled={busy || !email.trim() || !password}>
+            {busy ? 'Connexion…' : 'Se connecter'}
           </button>
           <button type="button" className="btn-ghost" onClick={onClose}>
             Annuler

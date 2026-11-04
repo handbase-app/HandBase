@@ -16,7 +16,7 @@ export async function confirmLogout(onBusy?: (busy: boolean) => void) {
   const pending = new Set((await db.outbox.toArray()).map((i) => `${i.table}:${i.rowId}`)).size
   onBusy?.(false)
   // Comptes de test gardés (« Changer de compte », src/comptes.ts) : ils partent aussi.
-  const kept = keptAccounts() ? ' Les autres comptes gardés sur cet appareil (comptes de test) seront aussi déconnectés.' : ''
+  const kept = keptAccounts() ? ' Les autres comptes gardés sur cet appareil (« Changer de compte ») seront aussi déconnectés.' : ''
   const ok = await ask(
     pending
       ? `${pending} modification(s) pas encore envoyée(s) au serveur (hors ligne, ou refusée(s)) seront PERDUES. Pour les garder, reste connecté et synchronise une fois en ligne (voir l’état de la synchronisation).${kept} Se déconnecter quand même ?`
