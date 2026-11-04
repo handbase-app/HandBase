@@ -37,6 +37,7 @@ import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type P
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
 import { StaffJournal } from '../components/PlayerJournal'
 import { MeasureMedal, useReperes } from '../components/Medal'
+import { FamilyReport } from '../components/FamilyReport'
 import type { ReperesConfig } from '../reperes'
 import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
@@ -180,8 +181,10 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   }, [id])
   // Parcours par palier (src/parcours.ts) : frise sous le nom, sur téléphone comme sur ordinateur (choix du 31/10).
   const paliers = usePlayerParcours(data?.player) ?? []
-  // Repères des tests (src/reperes.ts) : médailles dans l'onglet Tests.
+  // Repères des tests (src/reperes.ts) : médailles dans l'onglet Tests et le bilan à imprimer.
   const reperes = useReperes()
+  // « Bilan à imprimer » (menu ⋮) : fenêtre d'aperçu.
+  const [printing, setPrinting] = useState(false)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data?.player.mergedInto)
@@ -278,6 +281,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
                     hint: `copie de toutes ses données (demande ${g.duJoueur} ou de ses parents)`,
                     onSelect: () => void exportPlayer(p.id),
                   },
+                  // Bilan pour la famille ou l'école (04/11) : page imprimable, faite sur l'appareil (rien n'est envoyé). Pour qui
+                  // voit la fiche, « Voir comme… » compris (lecture seule n'empêche pas d'imprimer).
+                  { label: 'Bilan à imprimer', icon: 'printer', hint: 'pour la famille ou l’école, en PDF', onSelect: () => setPrinting(true) },
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/joueurs/${p.id}`) },
                   // Créée par…, modifiée par… : plus dans l'en-tête (30/10), ici seulement s'il y a quelque chose à dire.
                   stamp && { label: 'Infos de la fiche', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
@@ -318,6 +324,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
 
       {/* Frise du parcours sous le nom, au-dessus des onglets ; un appui ouvre le détail là où l'on a appuyé. */}
       <ParcoursStrip paliers={paliers} />
+
+      {printing && <FamilyReport player={p} criteria={factual} measurements={measurements} paliers={paliers} reperes={reperes} onClose={() => setPrinting(false)} />}
 
       {stampOpen && stamp && (
         <StampWindow stamp={stamp} title="Infos de la fiche" onClose={() => setStampOpen(false)} />

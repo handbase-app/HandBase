@@ -449,6 +449,8 @@ export const ICONS = {
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01',
   rows: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
   download: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
+  /** Imprimer (bilan à imprimer de la fiche). */
+  printer: 'M7 8V3h10v5M7 17H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-3M7 14h10v7H7z',
   /** Médaille (repères des tests, Réglages). */
   medal: 'M8 3h8l-2.5 6h-3zM12 21a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12 13.5v4',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
