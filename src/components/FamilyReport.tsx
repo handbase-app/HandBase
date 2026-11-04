@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { appName } from '../appBrand'
 import { fmtDate, today, type Criterion, type Measurement, type Player } from '../db'
 import { accord } from '../gender'
+import { activeObjectives, objectiveOrigin, objectivesOf } from '../objectives'
 import { foldSteps, monthYear, periodLabel, type Palier, type ParcoursStep } from '../parcours'
 import { hasReperes, medalFor, MEDALS, type ReperesConfig } from '../reperes'
 import { seasonCategory } from '../rencontres'
@@ -18,8 +19,8 @@ import { fmtValue, groupBy } from './ui'
  * famille ou l'école, imprimée ou « Enregistrer au format PDF » par l'impression du navigateur. Tout est fait sur
  * l'appareil : rien n'est envoyé à aucun service.
  *
- * Dedans : nom, année de naissance, club, poste ; le parcours par palier (src/parcours.ts) ; les dernières mesures avec leurs
- * médailles (repères de l'installation, src/reperes.ts) ; « Le mot du staff », tapé juste avant d'imprimer (gardé sur cet
+ * Dedans : nom, année de naissance, club, poste ; le parcours par palier (src/parcours.ts) ; les objectifs de travail en cours
+ * (src/objectives.ts, vague 2) ; les dernières mesures avec leurs médailles (repères de l'installation, src/reperes.ts) ; « Le mot du staff », tapé juste avant d'imprimer (gardé sur cet
  * appareil le temps de la session, jamais enregistré dans la base) ; la date et la signature de l'appli.
  * Jamais : les avis des observateurs ni leurs notes (pas écrits pour les familles), les commentaires des mesures, les
  * données d'autres joueurs, rien de négatif. Les données sont celles que la fiche montre (« Voir comme… » compris).
@@ -82,6 +83,8 @@ export function FamilyReport({
     return medalFor(reperes, c, m.value, p, m.date)
   }
   const anyMedal = hasReperes(reperes) && tests.some(([, cs]) => cs.some((c) => !!medalOf(c)))
+  // Objectifs de travail EN COURS (les atteints sont dans la fiche, pas dans le bilan).
+  const goals = activeObjectives(objectivesOf(p))
 
   const org = installationAppearance().name
   const brand = [appName(), org && org.toLowerCase() !== appName().toLowerCase() ? org : ''].filter(Boolean).join(' · ')
@@ -147,6 +150,20 @@ export function FamilyReport({
           </section>
         )}
 
+        {goals.length > 0 && (
+          <section className="keep mb-4">
+            <h3 className="mb-1.5 text-[11px] font-extrabold tracking-wider uppercase">Objectifs de travail</h3>
+            <ul className="flex flex-col gap-1.5">
+              {goals.map((o) => (
+                <li key={o.id} className="rounded border border-neutral-300 px-3 py-1.5">
+                  <span className="font-bold">{o.text}</span>
+                  {objectiveOrigin(o, fmtDate) && <span className="text-[11px] text-neutral-600"> · {objectiveOrigin(o, fmtDate)}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {tests.length > 0 && (
           <section className="mb-4">
             <h3 className="mb-1.5 text-[11px] font-extrabold tracking-wider uppercase">Tests physiques</h3>
@@ -196,7 +213,7 @@ export function FamilyReport({
           </section>
         )}
 
-        {!paliers.length && !tests.length && !note.trim() && (
+        {!paliers.length && !goals.length && !tests.length && !note.trim() && (
           <p className="mb-4 text-neutral-600">Le parcours commence : les prochaines étapes et les tests viendront s’ajouter ici.</p>
         )}
 

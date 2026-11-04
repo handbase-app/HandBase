@@ -8,6 +8,8 @@ import { RadarViewTabs, useRadarView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty, Icon, playerName, SEG_BOX, segItem } from './ui'
 import { fmtPlayingTime, playingTimeOf, superPowerOf } from '../avisMatch'
+import type { SelfEval } from '../selfEval'
+import { SelfEvalBeside } from './SelfEval'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
@@ -103,6 +105,7 @@ export function Opinions({
   scoreCriteria,
   wide = false,
   focus,
+  selfEvals,
 }: {
   player: Player
   criteria: Criterion[]
@@ -112,6 +115,8 @@ export function Opinions({
   scoreCriteria?: Criterion[]
   wide?: boolean
   focus?: { id: string; n: number }
+  /** Auto-évaluations du jeune (supabase/064) : celle de l'événement choisi s'affiche à côté, jamais dans les chiffres. */
+  selfEvals?: SelfEval[]
 }) {
   const locked = lockedEventId !== undefined
   const [chosenEventId, setEventId] = useState<string>('all')
@@ -334,6 +339,9 @@ export function Opinions({
           </Suspense>
         </div>
       )}
+
+      {/* Son regard sur l'événement choisi (auto-évaluation du jeune) : à côté des avis, hors des moyennes et du radar. */}
+      {!locked && eventId !== 'all' && eventId !== 'none' && <SelfEvalBeside eventId={eventId} list={selfEvals} sex={player.sex} />}
 
       {/* Détail des avis (avec commentaires) */}
       <div className="flex flex-col gap-2">

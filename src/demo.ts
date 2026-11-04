@@ -1,6 +1,8 @@
 import { loadDemoCriteria } from './criteriaImport'
 import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
 import { buildVolleyDemo } from './demoVolley'
+import type { WorkObjective } from './objectives'
+import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
 import { scoutId } from './scouting'
 import { currentSport, type HandballPosition } from './sportConfig'
 
@@ -279,6 +281,11 @@ export async function loadDemo() {
   const scout = buildScouting(players, now)
   evaluations.push(...scout.evaluations)
 
+  // ----- Objectifs de travail et auto-évaluations (vague 2 « Génération Bleue ») : quelques joueurs choisis par leur rang,
+  // sans rand() (la suite des autres données de la démo ne change pas). -----
+  const demoGoals = buildDemoGoals(now)
+  for (const [i, list] of Object.entries(demoGoals.objectives)) players[Number(i)].objectives = list
+
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
     await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
     await db.events.bulkPut(scout.events)
@@ -291,7 +298,51 @@ export async function loadDemo() {
     await db.evaluations.bulkPut(evaluations)
     await db.videos.bulkPut(videos)
   })
+  // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
+  seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
   return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+}
+
+/**
+ * Objectifs de travail (src/objectives.ts) et auto-évaluations du jeune (src/selfEval.ts) de la démonstration, par rang de
+ * joueur : textes fictifs, toujours positifs. Le « Tournoi de l'Espenon » (il y a 3 jours, tout le monde sur la liste) sert
+ * d'origine et d'événement à évaluer : la page du jeune montre « Comment ça s'est passé ? » (remplie pour deux joueurs,
+ * à remplir pour les autres).
+ */
+function buildDemoGoals(now: number) {
+  const day = (n: number) => localDay(now + n * 24 * 3600 * 1000)
+  const T = PREFIX + 'ev-espenon'
+  const TN = 'Tournoi de l’Espenon'
+  const o = (id: string, text: string, more: Partial<WorkObjective> = {}): WorkObjective => ({ id: `${PREFIX}obj-${id}`, text, status: 'en_cours', ...more })
+  const objectives: Record<number, WorkObjective[]> = {
+    // Gardien (rang 0).
+    0: [o('1-1', 'Relancer vite après un arrêt', { eventId: T, eventName: TN, date: day(-3) }), o('1-2', 'Parler à sa défense sur chaque attaque')],
+    // Ailier gauche (rang 4) : un objectif déjà atteint.
+    4: [
+      o('5-1', 'Gagner en vitesse sur le premier pas', { eventId: T, eventName: TN, date: day(-3) }),
+      o('5-2', 'Prendre la parole en défense', { eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28' }),
+      o('5-3', 'Enchaîner repli et contre-attaque', { status: 'atteint', eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28', doneAt: day(-10) }),
+    ],
+    // Arrière gauche (rang 9).
+    9: [o('10-1', 'Oser le tir à 9 mètres', { date: day(-20) })],
+  }
+  const at = (n: number) => new Date(now + n * 3600 * 1000).toISOString()
+  const selfEvals: Record<number, import('./selfEval').SelfEval[]> = {
+    4: [
+      {
+        eventId: T,
+        eventType: 'tournoi',
+        eventDate: day(-3),
+        eventName: TN,
+        scores: { engagement: 5, plaisir: 4, concentration: 3, collectif: 4, progres: 4 },
+        good: 'Mes courses en contre-attaque, j’ai marqué deux fois en début de match.',
+        work: 'Ma communication en défense.',
+        at: at(-50),
+      },
+    ],
+    1: [{ eventId: T, eventType: 'tournoi', eventDate: day(-3), eventName: TN, scores: { engagement: 4, plaisir: 5, collectif: 5 }, good: 'Mon placement sur les tirs de loin.', at: at(-40) }],
+  }
+  return { objectives, selfEvals }
 }
 
 /** Démonstration du volley (src/demoVolley.ts) : joueurs, mesures, événements, avis, groupes, vidéos, repérage. */
@@ -407,6 +458,7 @@ function buildScouting(players: Player[], now: number) {
 
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
+  clearDemoSelfEvals()
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups, db.seen, db.outbox], async () => {
     for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)
