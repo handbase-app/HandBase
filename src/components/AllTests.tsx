@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { appName, appSlug } from '../appBrand'
 import { useBackCloses } from '../backNav'
-import { csvRows, families, fileSlug, fmtNum, frDate, gainKind, gainText, sparkPoints, summaryText, testLines, toCsv, topProgress, type TestLine } from '../allTests'
+import { csvRows, families, familyKey, fileSlug, fmtNum, frDate, gainKind, gainText, sparkXY, summaryText, testLines, toCsv, topProgress, type FamilyKey, type TestLine } from '../allTests'
 import { criterionApplies, fmtDate, remove, save, today, type Criterion, type Measurement, type Player } from '../db'
+import { smoothPath } from '../radarZones'
 import { repereDirection, type ReperesConfig } from '../reperes'
 import { installationAppearance, themeColor } from '../theme'
 import { ask } from './Confirm'
 import { FormActions, FormWindow } from './FormWindow'
 import { ItemMenu, type MenuAnchor } from './ItemMenu'
 import { MeasureMedal } from './Medal'
-import { CriterionInput, fmtValue, Icon, playerName } from './ui'
+import { CriterionInput, fmtValue, Icon, playerName, type IconName } from './ui'
 
 /*
  * « Tous les tests » d'un joueur, la même vue pour le staff (fiche, onglet Tests) et pour le jeune (« Mes tests » de sa page
  * /moi, aperçu « Voir sa page » compris). Calculs : src/allTests.ts.
  *  - En haut : « N tests passés · dernier le … » et « Exporter » (menu accroché au bouton : PDF à imprimer, tableur CSV) ;
  *  - « Ses plus beaux progrès » (« Mes … » pour le jeune) : les 3 tests au plus grand progrès relatif, s'il y en a ;
- *  - pastilles des familles, puis une carte par famille, une ligne par test passé (dernière valeur, nombre de mesures, petite
- *    courbe, gain depuis la première mesure, « record ») ; jamais un recul, jamais les autres joueurs ;
+ *  - un bloc par famille (picto et couleur de la famille, nombre de tests), rangés en 2 colonnes sans trou quand il y a la
+ *    place (CSS columns), 1 sur téléphone ; une ligne par test passé, colonnes alignées dans le bloc : nom, « date · N
+ *    mesures », petite courbe lissée (grise, dernier point dans la couleur de la famille), coupe du record devant la dernière
+ *    valeur, gain depuis la première mesure en pastille (verte ↗ dans le bon sens, grise si le sens est inconnu) ; jamais un
+ *    recul, jamais les autres joueurs ;
  *  - un toucher ouvre le test : courbe, « dernière / record / depuis le début », mesures datées ; « ‹ » (ou Retour) revient
  *    à la liste, sur la ligne ouverte. Staff qui peut saisir : modifier ou supprimer une mesure ; commentaires et auteurs des
  *    mesures pour le staff seulement (jamais au jeune ni dans ses exports).
@@ -65,7 +69,6 @@ export function AllTests({
   const lines = useMemo(() => testLines(criteria, measurements, dirOf, player.id), [criteria, measurements, dirOf, player.id])
   const fams = useMemo(() => families(lines), [lines])
   const top = useMemo(() => topProgress(lines), [lines])
-  const [fam, setFam] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const [printing, setPrinting] = useState(false)
@@ -90,7 +93,6 @@ export function AllTests({
   }
 
   const summary = summaryText(lines)
-  const shown = fam ? fams.filter(([f]) => f === fam) : fams
   const notYet = staff
     ? criteria.filter((c) => c.kind === 'factual' && !c.deleted && c.active !== false && criterionApplies(c, player.position) && !lines.some((l) => l.c.id === c.id))
     : []
@@ -138,13 +140,18 @@ export function AllTests({
           {top.length > 0 && (
             <section>
               <div className="mb-1.5 text-[11px] font-extrabold tracking-wider text-muted uppercase">{mine ? 'Mes plus beaux progrès' : 'Ses plus beaux progrès'}</div>
-              <div className="grid gap-2 @md:grid-cols-3">
+              <div className="grid gap-2 @xl:grid-cols-3">
                 {top.map((l) => (
-                  <button key={l.c.id} type="button" onClick={() => show(l.c.id)} className="card flex items-center justify-between gap-2 px-3 py-2 text-left hover:border-accent @md:flex-col @md:items-start">
-                    <span className="min-w-0 truncate text-[11px] font-bold text-muted">{l.c.label}</span>
-                    <span className="flex shrink-0 items-baseline gap-2 @md:flex-col @md:gap-0">
-                      <span className="text-base font-extrabold">{fmtValue(l.c, l.last.value)}</span>
-                      <span className="text-[11px] font-bold text-emerald-300">{gainText(l)} ↗</span>
+                  <button key={l.c.id} type="button" onClick={() => show(l.c.id)} className="card flex min-w-0 items-center gap-2.5 px-3 py-2.5 text-left transition hover:border-muted" style={famStyle(l.family)}>
+                    <FamIcon family={l.family} size={34} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-semibold text-muted" title={l.c.label}>
+                        {l.c.label}
+                      </span>
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-[17px] leading-tight font-extrabold whitespace-nowrap tabular-nums">{fmtValue(l.c, l.last.value)}</span>
+                        <GainPill line={l} />
+                      </span>
                     </span>
                   </button>
                 ))}
@@ -152,40 +159,29 @@ export function AllTests({
             </section>
           )}
 
-          {fams.length > 1 && (
-            // Une seule rangée qui défile sous le doigt (téléphone : pas de page qui s'allonge de quatre rangées de pastilles).
-            <div className="-my-1 flex gap-1.5 overflow-x-auto py-1 [scrollbar-width:none]" role="group" aria-label="Familles de tests" data-noswipe>
-              {[['', 'Tous'] as const, ...fams.map(([f]) => [f, f] as const)].map(([v, label]) => (
-                <button
-                  key={v || 'tous'}
-                  type="button"
-                  aria-pressed={fam === v}
-                  onClick={() => setFam(v)}
-                  className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold whitespace-nowrap transition ${fam === v ? 'border-fg bg-fg text-bg' : 'border-line bg-panel text-fg hover:border-muted'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {shown.length > 0 && (
-            <div className="grid items-start gap-3 @2xl:grid-cols-2">
-              {shown.map(([f, ls]) => (
-                <section key={f} className="min-w-0">
-                  <div className="mb-1 flex items-center justify-between px-1 text-[11px] font-extrabold tracking-wider text-muted uppercase">
-                    <span>{f}</span>
-                    <span>{ls.length}</span>
-                  </div>
-                  <div className="card divide-y divide-line overflow-hidden">
-                    {ls.map((l) => (
-                      <TestRow key={l.c.id} line={l} player={player} reperes={reperes} onOpen={() => show(l.c.id)} />
-                    ))}
+          {fams.length > 0 && (
+            <section>
+              {top.length > 0 && <div className="mb-1.5 text-[11px] font-extrabold tracking-wider text-muted uppercase">{mine ? 'Tous mes tests' : 'Tous ses tests'}</div>}
+              {/* Blocs empilés en colonnes (pas de trou à côté d’un petit bloc) : 2 à partir de 768 px de large (noms lisibles en entier), 1 en dessous (téléphone, page du jeune). */}
+              <div className="-mb-3 @3xl:columns-2 @3xl:gap-x-3">
+                {fams.map(([f, ls]) => (
+                  <section key={f} aria-label={f} className="card mb-3 break-inside-avoid overflow-hidden" style={famStyle(f)}>
+                    <div className="flex items-center gap-2.5 px-3.5 pt-3 pb-2">
+                      <FamIcon family={f} size={28} />
+                      <h3 className="min-w-0 flex-1 truncate text-[13.5px] leading-tight font-extrabold">{f}</h3>
+                      <span className="shrink-0 text-[11.5px] font-bold text-muted tabular-nums">{ls.length}</span>
+                    </div>
+                    {/* Une grille pour tout le bloc (lignes en sous-grille) : nom, courbe et valeur aux mêmes places. */}
+                    <div className="grid grid-cols-[minmax(0,1fr)_4rem_minmax(5.75rem,auto)] gap-x-2.5">
+                      {ls.map((l) => (
+                        <TestRow key={l.c.id} line={l} player={player} reperes={reperes} onOpen={() => show(l.c.id)} />
+                      ))}
+                    </div>
                     {familyExtra?.(f, ls)}
-                  </div>
-                </section>
-              ))}
-            </div>
+                  </section>
+                ))}
+              </div>
+            </section>
           )}
 
           {notYet.length > 0 && (
@@ -230,13 +226,74 @@ function toTop(el: HTMLElement | null) {
   else window.scrollTo({ top: window.scrollY + above })
 }
 
-/** Petite courbe d'un test (ses dernières mesures). */
-function Spark({ line, w = 56, h = 20, color }: { line: TestLine; w?: number; h?: number; color?: string }) {
-  const pts = sparkPoints(line.points.slice(-MAX_SPARK).map((p) => p.value), w, h)
-  if (!pts) return null
+/** Couleur de la famille (--fam, lue par .fam-ic, le dernier point des courbes) : --fam-* de src/index.css. */
+const famStyle = (family: string) => ({ '--fam': `var(--fam-${familyKey(family)})` }) as CSSProperties
+
+const FAM_ICON: Record<FamilyKey, IconName> = {
+  gabarit: 'famHeight',
+  mensurations: 'famTape',
+  vitesse: 'famBolt',
+  puissance: 'famDumbbell',
+  mobilite: 'famMobility',
+  stabilite: 'famBalance',
+  sauts: 'famJump',
+  autre: 'ruler',
+}
+
+/** Picto d'une famille dans un carré teinté de sa couleur (28 px : en-tête d'un bloc ; 34 px : plus beaux progrès). */
+function FamIcon({ family, size }: { family: string; size: 28 | 34 }) {
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="shrink-0">
-      <polyline points={pts} fill="none" stroke={color ?? themeColor('accent')} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    <span aria-hidden className="fam-ic flex shrink-0 items-center justify-center rounded-lg" style={{ ...famStyle(family), width: size, height: size }}>
+      <Icon name={FAM_ICON[familyKey(family)]} strokeWidth={2} className={size === 34 ? 'h-[19px] w-[19px]' : 'h-4 w-4'} />
+    </span>
+  )
+}
+
+/** Gain depuis la première mesure : pastille verte « +0,38 m ↗ » (bon sens), grise sans flèche (sens inconnu) ; rien sinon. */
+function GainPill({ line }: { line: TestLine }) {
+  const g = gainText(line)
+  if (!g) return null
+  const up = gainKind(line) === 'up'
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-[11px] font-extrabold whitespace-nowrap tabular-nums ${up ? 'bg-gain/15 text-gain' : 'bg-panel-2 text-muted'}`}>
+      {g}
+      {up && ' ↗'}
+    </span>
+  )
+}
+
+/** Coupe du record (la dernière mesure est sa meilleure). */
+function Trophy({ size = 'h-3.5 w-3.5' }: { size?: string }) {
+  return (
+    <span role="img" aria-label="Record" title="Record" className="inline-flex shrink-0 text-amber-300">
+      <Icon name="trophy" strokeWidth={2.2} className={size} />
+    </span>
+  )
+}
+
+const SPARK_W = 64
+const SPARK_H = 24
+
+/** Petite courbe lissée d'un test (ses dernières mesures) : trait gris, dernier point dans la couleur de la famille (--fam). */
+function Spark({ line }: { line: TestLine }) {
+  const pts = sparkXY(line.points.slice(-MAX_SPARK).map((p) => p.value), SPARK_W, SPARK_H, 3)
+  if (!pts.length) return <span aria-hidden />
+  const [x, y] = pts[pts.length - 1]
+  return (
+    <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden className="block overflow-visible">
+      <path d={smoothPath(pts, false, 0.5)} fill="none" style={{ stroke: 'color-mix(in srgb, var(--color-muted) 60%, transparent)' }} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={x} cy={y} r="3" style={{ fill: 'var(--fam)' }} />
+    </svg>
+  )
+}
+
+/** Courbe de « Ses tests en PDF » (noire, lissée). */
+function PrintSpark({ line }: { line: TestLine }) {
+  const pts = sparkXY(line.points.slice(-MAX_SPARK).map((p) => p.value), 64, 16, 2)
+  if (!pts.length) return null
+  return (
+    <svg width={64} height={16} viewBox="0 0 64 16" aria-hidden className="shrink-0 overflow-visible">
+      <path d={smoothPath(pts, false, 0.5)} fill="none" stroke="#111111" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -245,30 +302,35 @@ function plural(n: number, word: string) {
   return `${n} ${word}${n > 1 ? 's' : ''}`
 }
 
+/** Une ligne d'un bloc (sous-grille du bloc) : nom et « date · N mesures » | courbe | coupe, valeur, médaille, gain. */
 function TestRow({ line: l, player, reperes, onOpen }: { line: TestLine; player: Player; reperes: ReperesConfig; onOpen: () => void }) {
-  const g = gainText(l)
-  const kind = gainKind(l)
+  const text = l.c.scale === 'text' || l.c.scale === 'choice'
   return (
-    <button type="button" data-test-line={l.c.id} data-voir={`mesure:${l.c.id}`} onClick={onOpen} className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition hover:bg-fg/5">
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-sm font-bold">
-          <span className="truncate">{l.c.label}</span>
-          {l.record && <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9px] font-bold text-amber-300">record</span>}
+    <button
+      type="button"
+      data-test-line={l.c.id}
+      data-voir={`mesure:${l.c.id}`}
+      onClick={onOpen}
+      className="col-span-3 grid grid-cols-subgrid items-center border-t border-line/60 px-3.5 py-2 text-left transition hover:bg-fg/5"
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-bold" title={l.c.label}>
+          {l.c.label}
         </span>
-        <span className="block text-[11px] text-muted">
+        <span className="block truncate text-[11px] text-muted">
           {frDate(l.last.date)} · {plural(l.all.length, 'mesure')}
         </span>
       </span>
       <Spark line={l} />
-      <span className="flex shrink-0 flex-col items-end">
-        <span className="flex items-center gap-1 text-sm font-extrabold whitespace-nowrap">
-          {fmtValue(l.c, l.last.value)}
+      <span className={`flex min-w-0 flex-col items-end ${text ? 'max-w-[9rem]' : ''}`}>
+        <span className="flex max-w-full items-center gap-1 text-sm font-extrabold whitespace-nowrap tabular-nums">
+          {l.record && <Trophy />}
+          <span className="truncate">{fmtValue(l.c, l.last.value)}</span>
           <MeasureMedal cfg={reperes} c={l.c} value={l.last.value} who={player} day={l.last.date} size={14} />
         </span>
-        {g && (
-          <span className={`text-[11px] font-bold whitespace-nowrap ${kind === 'up' ? 'text-emerald-300' : 'text-muted'}`}>
-            {g}
-            {kind === 'up' && ' ↗'}
+        {gainText(l) && (
+          <span className="mt-0.5">
+            <GainPill line={l} />
           </span>
         )}
       </span>
@@ -342,7 +404,7 @@ function TestDetail({
           <div className={`grid gap-2 ${kpis.length === 3 ? 'grid-cols-3' : kpis.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {kpis.map(([v, label, up]) => (
               <div key={label} className="rounded-lg bg-panel-2 px-2 py-2 text-center">
-                <div className={`text-base font-extrabold whitespace-nowrap ${up ? 'text-emerald-300' : ''}`}>{v}</div>
+                <div className={`text-base font-extrabold whitespace-nowrap ${up ? 'text-gain' : ''}`}>{v}</div>
                 <div className="text-[10px] text-muted">{label}</div>
               </div>
             ))}
@@ -486,7 +548,7 @@ function TestsReport({ player: p, lines, mine, reperes, onClose }: { player: Pla
                     <td className="hidden py-1 pr-2 tabular-nums sm:table-cell print:table-cell">{l.all.length}</td>
                     <td className="py-1 pr-2 whitespace-nowrap tabular-nums">{gainText(l) ?? ''}</td>
                     <td className="hidden py-1 sm:table-cell print:table-cell">
-                      <Spark line={l} w={64} h={16} color="#111111" />
+                      <PrintSpark line={l} />
                     </td>
                   </tr>
                 ))}
