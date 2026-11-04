@@ -17,10 +17,28 @@
  * Liens : http(s) seulement, 500 caractères au plus ; jamais intégrés (rien ne se charge à l'affichage : on ouvre le lien).
  * Objectifs déjà enregistrés sans étapes : inchangés (`steps` absent).
  *
+ * DONNÉS À TOUT UN GROUPE (04/11, src/groupObjectives.ts) : depuis la page d'un groupe ou d'un événement, une COPIE de
+ * l'objectif est écrite dans la fiche de chaque joueur (identifiants propres à chaque copie : chaque jeune coche ses étapes),
+ * avec sa source (`source` : groupe ou événement, son nom recopié, le lot qui réunit les copies d'un même envoi) et, si on
+ * veut, une date « à faire avant le … » (`due`). Pour le reste, un objectif du staff ordinaire.
+ *
  * Fichier pur (ni Dexie ni React) : testé par tools/test-objectifs.ts et tools/test-objectifs-etapes.ts.
  */
 
 export type ObjectiveStatus = 'en_cours' | 'atteint'
+
+/** D'où vient un objectif donné à plusieurs (src/groupObjectives.ts) : le groupe ou l'événement, et l'envoi (lot). */
+export interface ObjectiveSource {
+  kind: 'groupe' | 'evenement'
+  /** Identifiant du groupe ou de l'événement. */
+  id: string
+  /** Son nom au moment de l'envoi (le jeune ne lit ni les groupes ni les événements : il voit ce nom-là). */
+  name: string
+  /** Même valeur pour toutes les copies d'un même envoi (« Objectifs donnés », « Retirer à tous »). */
+  batch: string
+  /** Jour de l'envoi (AAAA-MM-JJ). */
+  at?: string
+}
 
 /** Une étape d'un objectif : une ligne courte, une case cochée une fois, un lien vidéo facultatif. */
 export interface ObjectiveStep {
@@ -50,6 +68,10 @@ export interface WorkObjective {
   video?: string
   /** Étapes (8 au plus) ; absentes sur les objectifs enregistrés avant les étapes. */
   steps?: ObjectiveStep[]
+  /** « À faire avant le … » (AAAA-MM-JJ), facultatif (objectifs donnés à un groupe : la rentrée…). */
+  due?: string
+  /** Donné à tout un groupe ou à la liste d'un événement (copie dans chaque fiche). */
+  source?: ObjectiveSource
 }
 
 /** Objectifs en cours en même temps, au plus. */
@@ -135,9 +157,20 @@ export function objectivesOf(p: { objectives?: unknown } | null | undefined): Wo
       ...(typeof x.date === 'string' && DAY.test(x.date) ? { date: x.date } : {}),
       ...(typeof x.doneAt === 'string' && DAY.test(x.doneAt) ? { doneAt: x.doneAt } : {}),
       ...withVideoAndSteps(x),
+      ...(typeof x.due === 'string' && DAY.test(x.due) ? { due: x.due } : {}),
+      ...withSource(x.source),
     })
   }
   return out
+}
+
+/** Source lue (objectif donné à un groupe) : forme complète seulement, sinon rien (l'objectif reste un objectif ordinaire). */
+function withSource(raw: unknown): Pick<WorkObjective, 'source'> {
+  if (!raw || typeof raw !== 'object') return {}
+  const x = raw as Record<string, unknown>
+  const name = cleanShortText(x.name, 120)
+  if ((x.kind !== 'groupe' && x.kind !== 'evenement') || typeof x.id !== 'string' || !x.id || typeof x.batch !== 'string' || !ID.test(x.batch) || !name) return {}
+  return { source: { kind: x.kind, id: x.id, name, batch: x.batch, ...(typeof x.at === 'string' && DAY.test(x.at) ? { at: x.at } : {}) } }
 }
 
 /** Lien et étapes d'un objectif lu (clés absentes quand il n'y en a pas : ancienne forme gardée telle quelle). */
@@ -241,10 +274,17 @@ export const removeObjective = (list: readonly WorkObjective[], id: string) => l
 /** Même liste (pour n'écrire la fiche que si quelque chose a changé). */
 export const sameObjectives = (a: readonly WorkObjective[], b: readonly WorkObjective[]) => JSON.stringify(a) === JSON.stringify(b)
 
-/** « Stage de rentrée · 28/08/2026 », « 28/08/2026 », ou rien. */
-export function objectiveOrigin(o: Pick<WorkObjective, 'eventName' | 'date'>, fmt: (d: string) => string): string {
-  return [o.eventName, o.date && fmt(o.date)].filter(Boolean).join(' · ')
+/**
+ * « Stage de rentrée · 28/08/2026 », « 28/08/2026 », ou rien ; « avant le 01/09/2026 » quand il y a une date à tenir.
+ * Donné depuis un événement : son nom est déjà dans la mention de source (sourceLabel), il n'est pas redit ici.
+ */
+export function objectiveOrigin(o: Pick<WorkObjective, 'eventName' | 'date' | 'due' | 'source'>, fmt: (d: string) => string): string {
+  const event = o.source?.kind === 'evenement' && o.eventName === o.source.name ? undefined : o.eventName
+  return [event, o.date && fmt(o.date), o.due && `avant le ${fmt(o.due)}`].filter(Boolean).join(' · ')
 }
+
+/** Mention discrète d'un objectif donné à plusieurs : « groupe Pôle », « Stage de rentrée » ; sinon rien. */
+export const sourceLabel = (o: Pick<WorkObjective, 'source'>) => (!o.source ? '' : o.source.kind === 'groupe' ? `groupe ${o.source.name}` : o.source.name)
 
 /**
  * Événements proposés comme origine d'un objectif : ceux où le joueur était sur la liste, déjà commencés (date du jour ou

@@ -1,6 +1,6 @@
 import { StickyQuery } from '../components/StickyQuery'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack, useOrigin } from '../backNav'
 import { stampOf, StampWindow } from '../components/ActivityLog'
@@ -49,6 +49,7 @@ import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../component
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { BarActions, BelowBar, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
+import { useGiveObjective } from '../components/GroupObjectives'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { Demander, postAsk } from '../components/Demander'
@@ -984,6 +985,16 @@ function PlayerGroupDetail() {
 
   // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
   useRestoreScroll(`groupe.${id}`, !!data && data.g?.id === id)
+  // « Donner un objectif au groupe » (⋮ du titre) et « Objectifs donnés » (src/components/GroupObjectives.tsx) : les joueurs
+  // de la page (groupe Pôle : ceux de la vue), ou la sélection en cours de la liste.
+  const selRef = useRef<(() => readonly string[]) | null>(null)
+  const giftPlayers = (data?.g?.poleUnitId ? pm?.shown : data?.players) ?? []
+  const give = useGiveObjective({
+    players: giftPlayers,
+    from: { kind: 'groupe', id: id ?? '', name: data?.g?.name ?? '' },
+    gender: setGender(ref?.sex ?? data?.g?.sex, giftPlayers),
+    selected: () => selRef.current?.() ?? [],
+  })
 
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
   if (!data || (data.g && data.g.id !== id) || (pole && !pm)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -1033,6 +1044,7 @@ function PlayerGroupDetail() {
     canAdd && { label: `Ajouter des ${gw.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${gw.un} par ${gw.un}`, onSelect: () => setAdding(true) },
     players.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
     canRemove && !pick.on && !removing && { label: `Retirer des ${gw.joueurs}`, icon: 'close', onSelect: () => setRemoving(true) },
+    !removing && !pick.on && give.item,
   ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
   // Un trait entre ces actions et celles du groupe (Dupliquer, Modifier…).
   const afterListActions = (items: (MenuItem | false | undefined | null | '')[]) => {
@@ -1259,6 +1271,7 @@ function PlayerGroupDetail() {
           « + Ajouter des joueurs » reste aussi sous le message. */}
       {contribute && <p className="text-[11px] text-muted">Tu es participant : tu peux ajouter des {gw.joueurs} et retirer {gw.ceux} que tu as {accord('ajouté', gg, 2)}.</p>}
 
+      {give.ui}
       <HiddenPlayers count={hidden} />
       {players.length === 0 ? (
         <>
@@ -1300,7 +1313,7 @@ function PlayerGroupDetail() {
                 {view.shown.length === 0 && <Empty>{gw.AucunJoueur} à ce poste.</Empty>}
                 {view.shown.length > 0 && displayed.length === 0 && <Empty>{gw.AucunJoueur} pour ce filtre.</Empty>}
                 {/* Un titre à chaque nouveau poste ; sous chaque titre, les joueurs (en colonnes sur grand écran), numérotés à la suite. */}
-                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on}>
+                <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={{ groupId: g.id }} select={!removing && !pick.on} selRef={selRef}>
                   <div className="flex flex-col gap-2" onKeyDown={(e) => arrowNav(e, 'a[data-player]')}>
                     <RosterSectionList
                       sections={sections}

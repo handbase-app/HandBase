@@ -340,6 +340,7 @@ export function PlayerList({
   bar = true,
   select = true,
   sticky = true,
+  selRef,
 }: {
   ids: readonly string[]
   all?: readonly string[]
@@ -356,6 +357,8 @@ export function PlayerList({
   select?: boolean
   /** Barre collée en haut au défilement (faux : colonne de contexte, déjà collée). */
   sticky?: boolean
+  /** Lecture de la sélection en cours par la page (« Donner un objectif au groupe » : les cochés d'office) ; vide hors sélection. */
+  selRef?: { current: (() => readonly string[]) | null }
 }) {
   const on = usePictos()
   // Plus de barre des pictogrammes au-dessus des listes (Geoffroy, 25/10/2026) : ils se règlent dans « Filtres » → « Affichage »
@@ -363,6 +366,14 @@ export function PlayerList({
   if (!barLead) bar = false
   // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
   const sel = useListSelection(all, ids, select)
+  const selStore = sel.store
+  useEffect(() => {
+    if (!selRef) return
+    selRef.current = () => (selStore.on && selStore.enabled ? [...selStore.ids] : [])
+    return () => {
+      selRef.current = null
+    }
+  }, [selRef, selStore])
   const data = usePictoData(ids, on)
   const sousNom = useSousNom()
   const measures = useSubMeasures(ids, sousNom)

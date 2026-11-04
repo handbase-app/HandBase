@@ -288,6 +288,9 @@ export async function loadDemo() {
   // sans rand() (la suite des autres données de la démo ne change pas). -----
   const demoGoals = buildDemoGoals(now)
   for (const [i, list] of Object.entries(demoGoals.objectives)) players[Number(i)].objectives = list
+  // Objectif donné à toute la liste du « Tournoi de l'Espenon » (src/groupObjectives.ts) : une copie par fiche, identifiants
+  // « demo-don-… », avancement tiré de l'identifiant (hashN, pas rand()) ; section « Objectifs donnés » de l'événement.
+  for (const p of players) p.objectives = [...(p.objectives ?? []), demoGift(p.id, now)]
 
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
     await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
@@ -307,6 +310,30 @@ export async function loadDemo() {
   seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
   await seedDemoTemplates()
   return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+}
+
+/** Copie, pour une fiche, de l'objectif donné à la liste du tournoi de la démo : étapes cochées par le staff selon l'identifiant. */
+function demoGift(playerId: string, now: number): WorkObjective {
+  const day = (n: number) => localDay(now + n * 24 * 3600 * 1000)
+  const k = hashN(playerId, 4)
+  const id = `${PREFIX}don-${playerId.replace(/[^A-Za-z0-9_-]/g, '').slice(-16)}`
+  const steps: ObjectiveStep[] = [
+    { id: `${id}-a`, text: 'Gainage 5 min chaque matin', ...(k >= 1 ? { done: day(-2) } : {}) },
+    { id: `${id}-b`, text: 'Footing 20 min deux fois par semaine', ...(k >= 2 ? { done: day(-1) } : {}) },
+    { id: `${id}-c`, text: 'Noter ses séances dans un carnet', ...(k >= 3 ? { done: day(-1) } : {}) },
+  ]
+  return {
+    id,
+    text: 'Garder la forme jusqu’au prochain stage',
+    status: k >= 3 ? 'atteint' : 'en_cours',
+    ...(k >= 3 ? { doneAt: day(-1) } : {}),
+    eventId: PREFIX + 'ev-espenon',
+    eventName: 'Tournoi de l’Espenon',
+    date: day(-3),
+    due: day(14),
+    steps,
+    source: { kind: 'evenement', id: PREFIX + 'ev-espenon', name: 'Tournoi de l’Espenon', batch: `${PREFIX}don-espenon`, at: day(-2) },
+  }
 }
 
 /**

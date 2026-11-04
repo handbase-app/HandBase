@@ -70,6 +70,32 @@ export async function fetchPlayerGoals(playerId: string): Promise<Res<MyGoals>> 
 }
 
 /**
+ * Coches du jeune pour plusieurs fiches à la fois (« Objectifs donnés » d'un groupe : l'avancement de chacun) : identifiant
+ * de fiche → { étape → jour }. Lecture seule, par paquets de 100 ; hors ligne, script 065 pas passé ou refus : ce qui a pu
+ * être lu (l'avancement montre alors les coches du staff seulement).
+ */
+export async function fetchChecksMany(playerIds: readonly string[]): Promise<Record<string, Record<string, string>>> {
+  const out: Record<string, Record<string, string>> = {}
+  const remote: string[] = []
+  for (const id of new Set(playerIds)) {
+    if (goalsAreLocal(id)) {
+      const c = readLocal(id).checks
+      if (Object.keys(c).length) out[id] = c
+    } else remote.push(id)
+  }
+  if (!remote.length || !navigator.onLine) return out
+  for (let i = 0; i < remote.length; i += 100) {
+    const { data, error } = await supabase!.from('hb_player_goals').select('player_id, checks').in('player_id', remote.slice(i, i + 100))
+    if (error) break
+    for (const r of (data ?? []) as { player_id: string; checks: unknown }[]) {
+      const c = cleanMyGoals({ checks: r.checks }).checks
+      if (Object.keys(c).length) out[r.player_id] = c
+    }
+  }
+  return out
+}
+
+/**
  * Enregistre tout ce qui est à lui (ses objectifs, ses coches) ; renvoie ce qui est gardé. Les coches d'étapes qui ne sont
  * plus sur la fiche tombent (le serveur fait de même, et pose lui-même le jour des nouvelles coches).
  */
