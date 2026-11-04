@@ -330,6 +330,7 @@ function demoGift(playerId: string, now: number): WorkObjective {
     eventId: PREFIX + 'ev-espenon',
     eventName: 'Tournoi de l’Espenon',
     date: day(-3),
+    // Période : jusqu'au prochain stage (le « Stage de Toussaint », dans 14 jours : buildScouting).
     due: day(14),
     steps,
     source: { kind: 'evenement', id: PREFIX + 'ev-espenon', name: 'Tournoi de l’Espenon', batch: `${PREFIX}don-espenon`, at: day(-2) },
@@ -351,19 +352,21 @@ function buildDemoGoals(now: number) {
   const st = (id: string, text: string, more: Partial<ObjectiveStep> = {}): ObjectiveStep => ({ id: `${PREFIX}obj-${id}`, text, ...more })
   const VIDEO = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
   const objectives: Record<number, WorkObjective[]> = {
-    // Gardien (rang 0) : étapes, une cochée par le staff.
+    // Gardien (rang 0) : étapes, une cochée par le staff ; période en cours (« encore 12 jours »), et une période terminée
+    // (neutre : l'objectif reste, le staff le passe « atteint » ou le prolonge).
     0: [
       o('1-1', 'Relancer vite après un arrêt', {
         eventId: T,
         eventName: TN,
         date: day(-3),
+        due: day(12),
         steps: [
           st('1-1-a', 'Relances à la main sur 20 m : 10 par séance', { done: day(-1) }),
           st('1-1-b', 'Lever la tête avant de relancer'),
           st('1-1-c', 'Revoir les relances du tournoi', { video: VIDEO }),
         ],
       }),
-      o('1-2', 'Parler à sa défense sur chaque attaque'),
+      o('1-2', 'Parler à sa défense sur chaque attaque', { date: day(-30), due: day(-2) }),
     ],
     // Ailier gauche (rang 4) : un objectif déjà atteint ; ses objectifs à lui plus bas (mine).
     4: [
@@ -380,8 +383,16 @@ function buildDemoGoals(now: number) {
       o('5-2', 'Prendre la parole en défense', { eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28' }),
       o('5-3', 'Enchaîner repli et contre-attaque', { status: 'atteint', eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28', doneAt: day(-10) }),
     ],
-    // Arrière gauche (rang 9).
-    9: [o('10-1', 'Oser le tir à 9 mètres', { date: day(-20) })],
+    // Arrière gauche (rang 9) : un objectif qui commence plus tard (les vacances).
+    9: [
+      o('10-1', 'Oser le tir à 9 mètres', { date: day(-20) }),
+      o('10-2', 'Entretenir ses appuis pendant les vacances', {
+        date: day(-1),
+        from: day(46),
+        due: day(60),
+        steps: [st('10-2-a', 'Corde à sauter 10 min, un jour sur deux'), st('10-2-b', 'Gainage 5 min chaque matin')],
+      }),
+    ],
   }
   const at = (n: number) => new Date(now + n * 3600 * 1000).toISOString()
   const selfEvals: Record<number, import('./selfEval').SelfEval[]> = {
@@ -406,6 +417,7 @@ function buildDemoGoals(now: number) {
       own: [
         o('5-m1', 'Le tir en suspension', {
           date: day(-6),
+          due: day(25),
           video: VIDEO,
           steps: [st('5-m1-a', 'Regarder la vidéo du geste', { video: VIDEO, done: day(-5) }), st('5-m1-b', 'Trois appuis et lever le bras haut'), st('5-m1-c', '20 tirs après l’entraînement')],
         }),
@@ -481,7 +493,8 @@ function buildScouting(players: Player[], now: number) {
       tournament: { teams, players: tPlayers, assign: { [me]: ['ta', 'tb'], [staffId(0)]: ['tc'], [staffId(1)]: ['td'], [staffId(2)]: ['tb'] } },
       updatedAt: now,
     },
-    { id: STAGE, name: 'Stage de Toussaint', type: 'entrainement', date: day(14), place: 'Valence', playerIds: [], names, updatedAt: now },
+    // Stage à venir, toute la liste du tournoi convoquée : « Jusqu'au prochain stage » (période d'un objectif, src/period.ts).
+    { id: STAGE, name: 'Stage de Toussaint', type: 'entrainement', date: day(14), place: 'Valence', playerIds: players.map((p) => p.id), names, updatedAt: now },
   ]
   // « Vu » : chaque observateur du staff voit surtout ses équipes, un peu les autres ; moi, quelques joueurs.
   const ago = (h: number) => new Date(now - h * 3600 * 1000).toISOString()

@@ -20,10 +20,16 @@
  * DONNÉS À TOUT UN GROUPE (04/11, src/groupObjectives.ts) : depuis la page d'un groupe ou d'un événement, une COPIE de
  * l'objectif est écrite dans la fiche de chaque joueur (identifiants propres à chaque copie : chaque jeune coche ses étapes),
  * avec sa source (`source` : groupe ou événement, son nom recopié, le lot qui réunit les copies d'un même envoi) et, si on
- * veut, une date « à faire avant le … » (`due`). Pour le reste, un objectif du staff ordinaire.
+ * veut, une fin (`due`). Pour le reste, un objectif du staff ordinaire.
+ *
+ * PÉRIODE (04/11, src/period.ts) : début (`date`, ou `from` repoussé : « à partir du 05/07 ») et fin facultative (`due`),
+ * saisis en un toucher (« 1 semaine », « Jusqu'à la rentrée »…) ; « Jusqu'au 31/08 · encore 12 jours », « Commence le … »,
+ * « Période terminée » (neutre : l'objectif reste, le staff le passe « atteint » ou le prolonge).
  *
  * Fichier pur (ni Dexie ni React) : testé par tools/test-objectifs.ts et tools/test-objectifs-etapes.ts.
  */
+
+import { cleanPeriod, periodRange, shortDay } from './period'
 
 export type ObjectiveStatus = 'en_cours' | 'atteint'
 
@@ -60,15 +66,17 @@ export interface WorkObjective {
    *  (le jeune ne lit pas les événements : il voit ce nom-là). */
   eventId?: string
   eventName?: string
-  /** Date de l'objectif (AAAA-MM-JJ), facultative. */
+  /** Date de l'objectif (AAAA-MM-JJ), facultative : le jour où il a été fixé (début de sa période, src/period.ts). */
   date?: string
+  /** Début repoussé (« à partir du 05/07 », les vacances), facultatif ; sans lui, la période commence à `date`. */
+  from?: string
   /** Quand il a été atteint (AAAA-MM-JJ). */
   doneAt?: string
   /** Lien vidéo de l'objectif (http ou https), facultatif. */
   video?: string
   /** Étapes (8 au plus) ; absentes sur les objectifs enregistrés avant les étapes. */
   steps?: ObjectiveStep[]
-  /** « À faire avant le … » (AAAA-MM-JJ), facultatif (objectifs donnés à un groupe : la rentrée…). */
+  /** Fin de la période (AAAA-MM-JJ, comprise), facultative : « Jusqu'au 31/08 » (src/period.ts). */
   due?: string
   /** Donné à tout un groupe ou à la liste d'un événement (copie dans chaque fiche). */
   source?: ObjectiveSource
@@ -157,7 +165,7 @@ export function objectivesOf(p: { objectives?: unknown } | null | undefined): Wo
       ...(typeof x.date === 'string' && DAY.test(x.date) ? { date: x.date } : {}),
       ...(typeof x.doneAt === 'string' && DAY.test(x.doneAt) ? { doneAt: x.doneAt } : {}),
       ...withVideoAndSteps(x),
-      ...(typeof x.due === 'string' && DAY.test(x.due) ? { due: x.due } : {}),
+      ...cleanPeriod(x),
       ...withSource(x.source),
     })
   }
@@ -275,12 +283,20 @@ export const removeObjective = (list: readonly WorkObjective[], id: string) => l
 export const sameObjectives = (a: readonly WorkObjective[], b: readonly WorkObjective[]) => JSON.stringify(a) === JSON.stringify(b)
 
 /**
- * « Stage de rentrée · 28/08/2026 », « 28/08/2026 », ou rien ; « avant le 01/09/2026 » quand il y a une date à tenir.
- * Donné depuis un événement : son nom est déjà dans la mention de source (sourceLabel), il n'est pas redit ici.
+ * « Stage de rentrée · 28/08/2026 », « 28/08/2026 », ou rien. La période se dit à part (periodLabel, src/period.ts : « Jusqu'au
+ * 31/08 · encore 12 jours ») ; au bilan à imprimer, objectivePrintOrigin. Donné depuis un événement : son nom est déjà dans
+ * la mention de source (sourceLabel), il n'est pas redit ici.
  */
-export function objectiveOrigin(o: Pick<WorkObjective, 'eventName' | 'date' | 'due' | 'source'>, fmt: (d: string) => string): string {
+export function objectiveOrigin(o: Pick<WorkObjective, 'eventName' | 'date' | 'source'>, fmt: (d: string) => string): string {
   const event = o.source?.kind === 'evenement' && o.eventName === o.source.name ? undefined : o.eventName
-  return [event, o.date && fmt(o.date), o.due && `avant le ${fmt(o.due)}`].filter(Boolean).join(' · ')
+  return [event, o.date && fmt(o.date)].filter(Boolean).join(' · ')
+}
+
+/** Bilan à imprimer : « Stage de rentrée · du 05/07 au 31/08 » (la période remplace la date quand il y en a une). */
+export function objectivePrintOrigin(o: Pick<WorkObjective, 'eventName' | 'date' | 'from' | 'due' | 'source'>, day: string, fmt?: (d: string) => string): string {
+  const range = periodRange(o, day, fmt)
+  if (!range) return objectiveOrigin(o, fmt ?? ((d) => shortDay(d, day)))
+  return [objectiveOrigin({ ...o, date: undefined }, (d) => d), range].filter(Boolean).join(' · ')
 }
 
 /** Mention discrète d'un objectif donné à plusieurs : « groupe Pôle », « Stage de rentrée » ; sinon rien. */

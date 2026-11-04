@@ -1,7 +1,8 @@
 -- Essais de supabase/065_objectifs_etapes.sql (lancer.sh) : comptes, fiches et objectifs FICTIFS. Toute erreur arrête.
 -- Le jeune : écrit seulement pour SA fiche (jamais un autre player_id), ne touche jamais à la fiche (texte du staff, état
 -- « atteint » d'un objectif du staff), ne coche que les étapes des objectifs de SA fiche (le jour est posé par le serveur et
--- gardé), limites (12 objectifs, 5 en cours, 8 étapes, longueurs), liens http(s) seulement ; aucune écriture directe (jeune,
+-- gardé), limites (12 objectifs, 5 en cours, 8 étapes, longueurs), liens http(s) seulement, période (from, due : jours
+-- valables seulement) ; aucune écriture directe (jeune,
 -- staff, administrateur) ; lecture : lui, et le staff selon le périmètre de la fiche ; anon : rien ; tout vide : ligne
 -- retirée ; fusion de fiches : elle suit la fiche gardée (et se joint à la sienne) ; effacement RGPD et suppression
 -- définitive : elle part ; la table refuse une forme abîmée.
@@ -124,12 +125,13 @@ begin
   -- ---------- Enregistrer : ses objectifs, ses coches ----------
   lu := essai.vu(e1, format(save,
     '[{"id":"g-1","text":"  Le tir en\u0007 suspension  ","status":"en_cours","video":" https://exemple.test/modele ","date":"2026-11-04",
+       "from":"2026-12-20","due":"2027-01-03",
        "steps":[{"id":"t-1","text":"Regarder la vidéo du modèle","video":"https://exemple.test/demo"},{"id":"t-2","text":"   "},{"id":"t-1","text":"doublon"},{"id":"t-3","text":"Dix sauts","done":"2026-11-03"}]},
-      {"id":"g-2","text":"Courir 2 fois par semaine","status":"atteint","doneAt":"2026-11-02","bidule":1}]',
+      {"id":"g-2","text":"Courir 2 fois par semaine","status":"atteint","doneAt":"2026-11-02","bidule":1,"from":"2026-02-30","due":"31/12/2026"}]',
     '["e-s1","e-s9","o-s1","inconnue",12]'));
-  perform essai.attendu('jeune 1 : objectifs nettoyés, coche d''une étape de SA fiche seulement (ni d''un autre, ni d''un objectif)',
+  perform essai.attendu('jeune 1 : objectifs nettoyés (période gardée : jours valables seulement), coche d''une étape de SA fiche seulement (ni d''un autre, ni d''un objectif)',
     lu, (jsonb_build_object(
-      'own', '[{"id":"g-1","text":"Le tir en suspension","status":"en_cours","video":"https://exemple.test/modele","date":"2026-11-04",
+      'own', '[{"id":"g-1","text":"Le tir en suspension","status":"en_cours","video":"https://exemple.test/modele","date":"2026-11-04","from":"2026-12-20","due":"2027-01-03",
                 "steps":[{"id":"t-1","text":"Regarder la vidéo du modèle","video":"https://exemple.test/demo"},{"id":"t-3","text":"Dix sauts","done":"2026-11-03"}]},
                {"id":"g-2","text":"Courir 2 fois par semaine","status":"atteint","doneAt":"2026-11-02"}]'::jsonb,
       'checks', jsonb_build_object('e-s1', v_auj), 'at', public.hb_self_iso(now())))::text);

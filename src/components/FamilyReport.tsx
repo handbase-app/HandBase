@@ -3,7 +3,7 @@ import { appName } from '../appBrand'
 import { fmtDate, today, type Criterion, type Measurement, type Player } from '../db'
 import { accord, w } from '../gender'
 import { goalViews } from '../myGoals'
-import { objectiveOrigin, objectivesOf, progressLabel } from '../objectives'
+import { objectivePrintOrigin, objectivesOf, progressLabel } from '../objectives'
 import { usePlayerGoals } from './Objectives'
 import { foldSteps, monthYear, periodLabel, type Palier, type ParcoursStep } from '../parcours'
 import { hasReperes, medalFor, MEDALS, type ReperesConfig } from '../reperes'
@@ -164,7 +164,8 @@ export function FamilyReport({
                     <span>
                       <span className="font-bold">{v.goal.text}</span>
                       {v.owner === 'moi' && <span className="text-[11px] text-neutral-600"> · son objectif à {w(p.sex).lui}</span>}
-                      {objectiveOrigin(v.goal, fmtDate) && <span className="text-[11px] text-neutral-600"> · {objectiveOrigin(v.goal, fmtDate)}</span>}
+                      {/* Période : « du 05/07 au 31/08 », « depuis le … » (src/period.ts) ; sinon la date de l'objectif. */}
+                      {objectivePrintOrigin(v.goal, today()) && <span className="text-[11px] text-neutral-600"> · {objectivePrintOrigin(v.goal, today())}</span>}
                     </span>
                     {v.progress.total > 0 && <span className="text-[11px] font-bold text-neutral-700 tabular-nums">{progressLabel(v.progress)}</span>}
                   </div>

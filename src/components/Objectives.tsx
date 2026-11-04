@@ -45,9 +45,11 @@ import {
   type ObjectiveStep,
   type WorkObjective,
 } from '../objectives'
+import { nextEventFor, PERIOD_ERROR, periodBad, periodLabel } from '../period'
 import { ask, inform } from './Confirm'
 import { FormActions, FormWindow } from './FormWindow'
 import { ItemMenu, type MenuAnchor } from './ItemMenu'
+import { PeriodNote, PeriodPicker, type PeriodValue } from './PeriodPicker'
 import { Icon, SectionTitle } from './ui'
 
 /*
@@ -56,9 +58,11 @@ import { Icon, SectionTitle } from './ui'
  *    petite flèche ›) déplie ses étapes. Deux cibles séparées, 44 px de haut chacune.
  *  - Déplié : les étapes, chacune avec sa case et son « ▶ vidéo » (lien ouvert dans un nouvel onglet ; jamais intégré : rien
  *    ne se charge à l'affichage), le lien de l'objectif, « + Ajouter une étape » pour qui peut le modifier.
+ *  - Période (src/period.ts, PeriodPicker) : sous le texte, « Jusqu'au 31/08 · encore 12 jours » et sa petite barre,
+ *    « Commence le 05/07 », « Période terminée » (neutre) ; saisie en un toucher dans chaque modification.
  *  - ObjectivesCard : carte de la fiche (onglet Profil). Le staff qui peut modifier la fiche coche ses objectifs et leurs
- *    étapes sur place ; le crayon ouvre la modification (texte, lien, étapes, « Atteint ✓ », d'où il vient, date, retirer,
- *    ajouter, « + Depuis un modèle ») ; « Terminé » écrit la fiche une fois. Il voit aussi les objectifs du jeune (« à
+ *    étapes sur place ; le crayon ouvre la modification (texte, lien, étapes, « Atteint ✓ », d'où il vient, date, période,
+ *    retirer, ajouter, « + Depuis un modèle ») ; « Terminé » écrit la fiche une fois. Il voit aussi les objectifs du jeune (« à
  *    lui / à elle ») et ses coches, sans y toucher.
  *  - MyObjectives : « Mes objectifs » sur la page du jeune. Il coche les étapes (celles du staff comprises) et ses propres
  *    objectifs, en ajoute (5 en cours au plus), les modifie ou les retire (fenêtre « Mon objectif ») ; ceux du staff restent
@@ -177,6 +181,7 @@ function GoalItem({ v, expanded, onExpand, viewer, sex, opts, onCheckGoal, onChe
   const atteint = o.status === 'atteint'
   const progress = progressLabel(v.progress)
   const from = objectiveOrigin(o, fmtDate)
+  const period = periodLabel(o, today())
   const source = v.owner === 'staff' ? sourceLabel(o) : ''
   const g = w(sex)
   const stepsId = `etapes-${v.owner}-${o.id}`
@@ -195,7 +200,7 @@ function GoalItem({ v, expanded, onExpand, viewer, sex, opts, onCheckGoal, onChe
         >
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold break-words">{o.text}</span>
-            {(progress || from || source || (atteint && o.doneAt)) && (
+            {(progress || from || period || source || (atteint && o.doneAt)) && (
               <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
                 {progress && (
                   <span className="inline-flex items-center gap-1.5">
@@ -211,6 +216,7 @@ function GoalItem({ v, expanded, onExpand, viewer, sex, opts, onCheckGoal, onChe
                   </span>
                 )}
                 {from && <span>{from}</span>}
+                {period && <PeriodNote o={o} />}
                 {atteint && o.doneAt && <span>atteint le {fmtDate(o.doneAt)}</span>}
               </span>
             )}
@@ -428,6 +434,8 @@ export function ObjectivesCard({ player: p, canEdit }: { player: Player; canEdit
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   // Événements proposés comme origine : ceux où le joueur était sur la liste (6 derniers mois).
   const events = useLiveQuery(async () => (draft ? originEvents(await db.events.toArray(), p.id, today()) : []), [p.id, !!draft]) ?? []
+  // « Jusqu'au prochain stage » : le prochain événement à venir où il est sur la liste.
+  const nextEvent = useLiveQuery(async () => (draft ? (nextEventFor(await db.events.toArray(), [p.id], today()) ?? null) : null), [p.id, !!draft]) ?? undefined
   const views = goalViews(saved, mine)
   if (!saved.length && !mine?.own.length && !canEdit) return null
 
@@ -445,6 +453,7 @@ export function ObjectivesCard({ player: p, canEdit }: { player: Player; canEdit
     if (!draft) return
     if (draft.some((o) => badVideoUrl(o.video) || o.steps.some((s) => s.text.trim() && badVideoUrl(s.video))))
       return void inform('Un lien n’est pas une adresse web : il doit commencer par http:// ou https://. Corrige-le ou efface-le.')
+    if (draft.some((o) => o.text.trim() && periodBad(o))) return void inform(PERIOD_ERROR)
     // Lignes vides retirées, textes nettoyés, étapes vides retirées ; l'ordre est gardé.
     writeFiche(finalizeObjectives(draft.map(({ isNew: _n, focusStep: _f, ...o }) => o)))
     setDraft(null)
@@ -563,6 +572,13 @@ export function ObjectivesCard({ player: p, canEdit }: { player: Player; canEdit
                   onChange={(e) => patch(o.id, { date: e.target.value || undefined })}
                 />
               </div>
+              {/* Période : une période choisie sur un objectif sans date le date du jour (début de la période). */}
+              <PeriodPicker
+                value={{ from: o.from, due: o.due }}
+                date={o.date}
+                nextEvent={nextEvent ?? undefined}
+                onChange={(v: PeriodValue) => patch(o.id, { from: v.from, due: v.due, ...(!o.date && (v.from || v.due) ? { date: today() } : {}) })}
+              />
               <VideoField value={o.video ?? ''} onChange={(v) => patch(o.id, { video: v || undefined })} label={`Lien vidéo de l’objectif ${i + 1}`} />
               <div className="flex flex-col gap-1">
                 <span className="label mb-0">Étapes</span>
@@ -732,6 +748,7 @@ export function MyObjectives({ player: p, canWrite }: { player: Player; canWrite
         ))}
       {form && mine && (
         <OwnGoalForm
+          playerId={p.id}
           goal={form.goal}
           focusStep={form.focusStep}
           onClose={() => setForm(null)}
@@ -759,12 +776,14 @@ export function MyObjectives({ player: p, canWrite }: { player: Player; canWrite
 
 /** Fenêtre « Mon objectif » : titre, lien vidéo, étapes ; « Retirer » s'il existe déjà. Clavier seulement. */
 function OwnGoalForm({
+  playerId,
   goal,
   focusStep,
   onSave,
   onRemove,
   onClose,
 }: {
+  playerId: string
   goal?: WorkObjective
   focusStep?: string
   /** Renvoie un message si c'est refusé, sinon null (fenêtre fermée par l'appelant). */
@@ -775,7 +794,11 @@ function OwnGoalForm({
   const [text, setText] = useState(goal?.text ?? '')
   const [video, setVideo] = useState(goal?.video ?? '')
   const [steps, setSteps] = useState<StepDraft[]>(() => [...toStepDrafts(goal?.steps), ...(focusStep ? [{ id: focusStep, text: '' }] : [])])
+  const [period, setPeriod] = useState<PeriodValue>({ from: goal?.from, due: goal?.due })
   const [err, setErr] = useState('')
+  // « Jusqu'au prochain stage » : seulement si les événements sont sur l'appareil (essai) ; le jeune ne lit pas les événements
+  // du serveur, la pastille est alors cachée.
+  const nextEvent = useLiveQuery(async () => nextEventFor(await db.events.toArray(), [playerId], today()) ?? null, [playerId]) ?? undefined
   return (
     <FormWindow title={goal ? 'Mon objectif' : 'Nouvel objectif à moi'} onClose={onClose} width={560}>
       <p className="text-[11px] text-muted">Court et dit en positif (« Le tir en suspension », « Gagner en détente »). Ton encadrant le voit. Rien n’est noté.</p>
@@ -799,6 +822,7 @@ function OwnGoalForm({
         <p className="text-[10px] text-muted">De petites étapes, une case chacune ; un lien vidéo si tu veux (le geste à imiter, l’exercice).</p>
         <StepsEditor steps={steps} focusId={focusStep} onChange={(s) => (setErr(''), setSteps(s))} />
       </div>
+      <PeriodPicker label="Ma période" value={period} date={goal?.date ?? today()} nextEvent={nextEvent ?? undefined} onChange={(v) => (setErr(''), setPeriod(v))} />
       {err && <p className="text-[11px] text-red-500">{err}</p>}
       <FormActions>
         <button
@@ -806,7 +830,7 @@ function OwnGoalForm({
           className="btn-primary min-h-10 px-4 text-xs"
           disabled={!text.trim()}
           onClick={() => {
-            const e = onSave({ text, video, steps })
+            const e = onSave({ text, video, steps, ...period })
             if (e) setErr(e)
           }}
         >

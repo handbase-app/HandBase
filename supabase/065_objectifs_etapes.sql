@@ -23,8 +23,10 @@
 -- CE QUE LE SCRIPT FAIT
 -- 1) Table hb_player_goals : UNE ligne par jeune (clé player_id).
 --    own = ses objectifs : tableau de 12 au plus, 5 « en cours » au plus : { id, text (120 car.), status (en_cours | atteint),
---    date?, doneAt?, video?, steps? } ; steps : 8 au plus, { id, text (100 car.), video?, done? } ; video : lien http(s)
---    seulement, 500 caractères au plus ; jours au format AAAA-MM-JJ. checks = ses coches sur les étapes du staff :
+--    date?, doneAt?, video?, steps?, from?, due? } ; steps : 8 au plus, { id, text (100 car.), video?, done? } ; video : lien
+--    http(s) seulement, 500 caractères au plus ; jours au format AAAA-MM-JJ. Période (src/period.ts) : date = jour où il a été
+--    fixé, from = début repoussé (« à partir du … »), due = fin (comprise), tous deux facultatifs et gardés tels quels (jours
+--    valables seulement ; l'ordre début / fin est contrôlé par l'appli, la période ne change pas les limites). checks = ses coches sur les étapes du staff :
 --    { identifiant d'étape → jour } ; user_id = le compte qui a écrit ; created_at, updated_at. La table vérifie la forme
 --    (contrainte hb_player_goals_forme : une valeur toujours nettoyée).
 --    - LECTURE (règles RLS) : le jeune lit SA ligne (player_id = hb_my_player_id()) ; le staff (hb_has_role()) lit celle des
@@ -118,8 +120,8 @@ begin
 end $$;
 
 -- Ses objectifs : 12 au plus, 5 en cours au plus (les suivants écartés), identifiants sans doublon, texte obligatoire ;
--- doneAt seulement s'il est atteint ; étapes nettoyées (clé absente s'il n'y en a pas). Même règle que l'appli
--- (cleanMyGoals, src/myGoals.ts).
+-- doneAt seulement s'il est atteint ; étapes nettoyées (clé absente s'il n'y en a pas) ; période (from, due) : jours
+-- valables seulement. Même règle que l'appli (cleanMyGoals, src/myGoals.ts ; cleanPeriod, src/period.ts).
 create or replace function public.hb_go_clean_own(p jsonb) returns jsonb
 language plpgsql immutable as $$
 declare
@@ -150,7 +152,9 @@ begin
            'date', public.hb_go_day(public.hb_go_str(o, 'date')),
            'doneAt', case when v_status = 'atteint' then public.hb_go_day(public.hb_go_str(o, 'doneAt')) end,
            'video', public.hb_go_url(public.hb_go_str(o, 'video')),
-           'steps', case when jsonb_array_length(v_steps) > 0 then v_steps end)));
+           'steps', case when jsonb_array_length(v_steps) > 0 then v_steps end,
+           'from', public.hb_go_day(public.hb_go_str(o, 'from')),
+           'due', public.hb_go_day(public.hb_go_str(o, 'due')))));
   end loop;
   return r;
 end $$;

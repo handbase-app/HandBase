@@ -13,6 +13,7 @@ import {
   type ObjectiveSource,
   type WorkObjective,
 } from './objectives'
+import { cleanPeriod, PERIOD_ERROR, periodBad } from './period'
 
 /*
  * Objectifs de travail DONNÉS À TOUT UN GROUPE (04/11 : « le groupe Pôle, avant de revenir de vacances, doit aller courir
@@ -35,7 +36,8 @@ export interface GiftInput {
   text: string
   video?: string
   steps: { text: string; video?: string }[]
-  /** « À faire avant le … » (AAAA-MM-JJ), facultatif. */
+  /** Période (src/period.ts) : début repoussé et fin (AAAA-MM-JJ), facultatifs. */
+  from?: string
   due?: string
 }
 
@@ -44,18 +46,20 @@ export interface Gift {
   text: string
   video?: string
   steps: { text: string; video?: string }[]
+  from?: string
   due?: string
 }
 
-export type GiftError = 'vide' | 'lien' | 'etapes' | 'personne'
+export type GiftError = 'vide' | 'lien' | 'etapes' | 'periode' | 'personne'
 export const GIFT_ERRORS: Record<GiftError, string> = {
   vide: 'Écris l’objectif en quelques mots.',
   lien: 'Un lien n’est pas une adresse web : il doit commencer par http:// ou https://. Corrige-le ou efface-le.',
   etapes: `${OBJ_STEPS_MAX} étapes au plus par objectif.`,
+  periode: PERIOD_ERROR,
   personne: 'Coche au moins un joueur à qui le donner.',
 }
 
-/** Contrôle de la saisie : titre obligatoire, liens http(s) seulement, 8 étapes au plus (étapes vides retirées). */
+/** Contrôle de la saisie : titre obligatoire, liens http(s) seulement, 8 étapes au plus (étapes vides retirées), fin après le début. */
 export function checkGift(input: GiftInput): { ok: true; gift: Gift } | { ok: false; error: GiftError } {
   const text = cleanObjectiveText(input.text)
   if (!text) return { ok: false, error: 'vide' }
@@ -65,6 +69,8 @@ export function checkGift(input: GiftInput): { ok: true; gift: Gift } | { ok: fa
     .filter((s) => s.text)
   if (bad(input.video) || filled.some((s) => bad(s.video))) return { ok: false, error: 'lien' }
   if (filled.length > OBJ_STEPS_MAX) return { ok: false, error: 'etapes' }
+  const period = cleanPeriod(input)
+  if (periodBad(period)) return { ok: false, error: 'periode' }
   const video = cleanVideoUrl(input.video)
   return {
     ok: true,
@@ -75,7 +81,7 @@ export function checkGift(input: GiftInput): { ok: true; gift: Gift } | { ok: fa
         const v = cleanVideoUrl(s.video)
         return { text: s.text, ...(v ? { video: v } : {}) }
       }),
-      ...(input.due && DAY.test(input.due) ? { due: input.due } : {}),
+      ...period,
     },
   }
 }
@@ -119,6 +125,7 @@ export function copyGift(gift: Gift, source: ObjectiveSource, newId: () => strin
     ...(event ? { eventId: event.id, eventName: event.name.trim().slice(0, 120), ...(event.date && DAY.test(event.date) ? { date: event.date } : {}) } : {}),
     ...(gift.video ? { video: gift.video } : {}),
     ...(gift.steps.length ? { steps: gift.steps.map((s) => ({ id: newId(), text: s.text, ...(s.video ? { video: s.video } : {}) })) } : {}),
+    ...(gift.from ? { from: gift.from } : {}),
     ...(gift.due ? { due: gift.due } : {}),
     source,
   }
@@ -177,6 +184,8 @@ export function giftSummary(r: { given: readonly string[]; skipped: readonly { w
 export interface GiftView {
   batch: string
   text: string
+  /** Période (la même pour toutes les copies d'un envoi). */
+  from?: string
   due?: string
   /** Jour de l'envoi. */
   at?: string
@@ -205,7 +214,7 @@ export function giftsFrom<P extends GiftTarget>(players: readonly P[], from: Pic
       if (!s || s.kind !== from.kind || s.id !== from.id) continue
       let v = by.get(s.batch)
       if (!v) {
-        v = { batch: s.batch, text: o.text, ...(o.due ? { due: o.due } : {}), ...(s.at ? { at: s.at } : {}), steps: o.steps?.length ?? 0, total: 0, reached: 0, stepsDone: 0, stepsTotal: 0, players: [] }
+        v = { batch: s.batch, text: o.text, ...(o.from ? { from: o.from } : {}), ...(o.due ? { due: o.due } : {}), ...(s.at ? { at: s.at } : {}), steps: o.steps?.length ?? 0, total: 0, reached: 0, stepsDone: 0, stepsTotal: 0, players: [] }
         by.set(s.batch, v)
       }
       const mine = checks[p.id] ?? {}
