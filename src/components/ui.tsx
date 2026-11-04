@@ -486,6 +486,8 @@ export const ICONS = {
   chat: 'M4 5h16v11H9l-5 4z',
   play: 'M9 6.5v11l9-5.5z',
   close: 'M6 6l12 12M18 6L6 18',
+  /** Petite flèche « › » (déplier les étapes d'un objectif). */
+  chevron: 'M9 6l6 6-6 6',
   /** « ⋮ » : menu d'une ligne (à dessiner plein). */
   more: 'M12 6.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM12 13.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2zM12 20.6a1.6 1.6 0 1 0 0-3.2 1.6 1.6 0 0 0 0 3.2z',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
