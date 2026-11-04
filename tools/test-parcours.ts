@@ -208,6 +208,11 @@ t('convocations : événement passé, hors match, sur la liste, compte même san
   assert.equal(seenToo[0].steps[0].listed, undefined)
 })
 
+t('événement à venir : pas une étape, même vu ou noté', () => {
+  const ps = parcours(base({ events: [ev('fut', 'Stage de ligue à venir', '2026-12-05', { organizerUnitId: 'lig' })], seen: [seen('fut', 'o1')] }))
+  assert.deepEqual(ps, [])
+})
+
 t('joueur sans rien (ou seulement avis spontanés, tests sans événement) : pas de parcours', () => {
   assert.deepEqual(parcours(base()), [])
   assert.deepEqual(parcours(base({ evaluations: [{ observer: 'X' }], measurements: [{ date: '2025-01-01' }], events: events.map((e) => ({ ...e, playerIds: undefined })) })), [])

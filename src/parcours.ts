@@ -227,7 +227,8 @@ export function parcours(input: ParcoursInput): Palier[] {
   const observersOf = new Map<PalierId, Set<string>>()
   for (const eid of eventIds) {
     const ev = byId.get(eid)
-    if (!ev) continue
+    // Événement à venir (04/11) : pas encore une étape du parcours, même s'il porte déjà un vu ou un avis.
+    if (!ev || ev.date > input.today) continue
     const p = palierOf(ev, input.units, input.levels)
     const who = obs.get(eid) ?? new Set<string>()
     observersOf.set(p, new Set([...(observersOf.get(p) ?? []), ...who]))
