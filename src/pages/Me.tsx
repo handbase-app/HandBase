@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Avatar, playerName, SectionTitle } from '../components/ui'
-import { db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
+import { alive, db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
 import { w } from '../gender'
 import { regionLabel } from '../lists'
 import { appSlug } from '../appBrand'
@@ -33,6 +33,8 @@ import { PlayerMatches } from '../components/PlayerMatches'
 import { MyTeamCard } from '../components/MyTeam'
 import { MyObjectives } from '../components/Objectives'
 import { SelfEvalSection } from '../components/SelfEval'
+import { AllTests } from '../components/AllTests'
+import { useReperes } from '../components/Medal'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
@@ -41,6 +43,8 @@ import { SelfEvalSection } from '../components/SelfEval'
  *    dans la fiche : il coche leurs étapes) et les siens (« à moi », 5 en cours au plus, 065) ; src/components/Objectives.tsx.
  *  - « Comment ça s'est passé ? » (064) : après un match, un tournoi ou un stage où il était sur la liste, sa courte
  *    auto-évaluation, modifiable 14 jours (src/components/SelfEval.tsx) ; le staff la lit à part des avis.
+ *  - « Mes tests » (066) : ses tests physiques par famille, ses plus beaux progrès, ses mesures datées, en PDF ou tableur
+ *    (lecture seule, src/components/AllTests.tsx) ; compte joueur : ses seules mesures, envoyées par le serveur.
  *  - « Mon équipe » (056) : son équipe en championnat (1, 2 ou 3), le niveau, le surclassement ; enregistrée à part
  *    (src/components/MyTeam.tsx, hb_player_set_team), sans toucher au reste de la page.
  *  - « Mon journal du hand » (052) : notes datées, privées, partagées une par une (src/components/PlayerJournal.tsx).
@@ -287,6 +291,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
       <MyObjectives player={p} canWrite={canWrite} />
       <SelfEvalSection player={p} canWrite={canWrite} />
 
+      {/* Mes tests (066) : ses tests physiques, lecture seule ; même vue que l'onglet Tests de la fiche. */}
+      <MyTests p={p} />
+
       {/* Mon équipe (056) : équipe 1, 2 ou 3, niveau, surclassement ; enregistrée à part (hb_player_set_team). */}
       <MyTeamCard p={p} canWrite={canWrite} />
 
@@ -440,5 +447,34 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * « Mes tests » : ses mesures (compte joueur : les seules que le serveur lui envoie, 066 ; aperçu d'un administrateur : celles
+ * de cette fiche sur l'appareil). Avant 066, rien n'arrive : une ligne d'attente.
+ */
+function MyTests({ p }: { p: Player }) {
+  const reperes = useReperes()
+  const data = useLiveQuery(async () => {
+    const [criteria, measurements] = await Promise.all([
+      db.criteria.where('kind').equals('factual').toArray().then(alive),
+      db.measurements.where('playerId').equals(p.id).toArray().then(alive),
+    ])
+    return { criteria, measurements }
+  }, [p.id])
+  if (!data) return null
+  return (
+    <section className="flex flex-col gap-2" data-testid="mes-tests">
+      <AllTests
+        player={p}
+        criteria={data.criteria}
+        measurements={data.measurements}
+        reperes={reperes}
+        mine
+        title="Mes tests"
+        empty={<p className="card p-4 text-xs text-muted">Tes tests apparaîtront ici après ta première séance de tests.</p>}
+      />
+    </section>
   )
 }

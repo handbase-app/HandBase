@@ -545,8 +545,8 @@ let rejectedCount = 0
 const ADMIN_READ: SyncTable[] = ['question_log']
 const ROLE_KEY = 'handbase.role'
 /**
- * Compte joueur (espace joueur, supabase/051_espace_joueur.sql) : il ne reçoit que sa fiche, la configuration et les listes
- * (src/playerSpace.ts, PLAYER_TABLES) ; le serveur ne lui enverrait rien d'autre de toute façon (règles de lecture), mais on
+ * Compte joueur (espace joueur, supabase/051_espace_joueur.sql) : il ne reçoit que sa fiche, la configuration, les listes, les
+ * tests et ses mesures (066 ; src/playerSpace.ts, PLAYER_TABLES) ; le serveur ne lui enverrait rien d'autre de toute façon (règles de lecture), mais on
  * ne le demande même pas : aucune requête sur les tables du staff, aucune erreur en console. Il n'ENVOIE rien non plus : sa
  * seule écriture passe par hb_player_self_update (src/pages/Me.tsx), jamais par la file d'envoi. Rôle lu comme ci-dessus.
  */

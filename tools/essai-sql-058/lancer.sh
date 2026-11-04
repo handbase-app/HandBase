@@ -21,7 +21,12 @@ P="docker exec -i $C psql -U postgres -d hb -v ON_ERROR_STOP=1 -q"
 $P < "$REPO/tools/essai-sql-057/bouchons.sql" 2>/dev/null
 apply() { sed -E 's/create extension if not exists (pg_cron|pg_net)[^;]*;/select 1;/I' | $P >/dev/null 2>"$D/.erreur.txt" || { echo "ÉCHEC $1"; cat "$D/.erreur.txt"; exit 1; }; }
 apply schema.sql < "$REPO/supabase/schema.sql"
-for f in "$REPO"/supabase/0[0-9][0-9]_*.sql; do case "$f" in *058_*) ;; *) apply "$(basename "$f")" < "$f";; esac; done
+# Les scripts d'avant 058 seulement (les suivants, 066 compris, reprennent hb_lire_perimetre : essayés par leurs propres essais,
+# 059 et 061 rejouent ceux-ci avec tous les scripts).
+for f in "$REPO"/supabase/0[0-9][0-9]_*.sql; do
+  n=$(basename "$f" | cut -c1-3)
+  if [ $((10#$n)) -lt 58 ]; then apply "$(basename "$f")" < "$f"; fi
+done
 if [ "$1" = "--mesure" ]; then
   # Même base, même jeu : lectures d'une page AVANT 058, puis 058 (colonne, index : temps affiché), puis APRÈS.
   echo "--- jeu fictif (500 000 joueurs, 3 M de mesures, 600 000 avis, 1 M de « vu ») ---"

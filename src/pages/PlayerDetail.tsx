@@ -1,8 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack } from '../backNav'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { stampOf, StampWindow } from '../components/ActivityLog'
 import { MaturityCard } from '../components/MaturityCard'
 import { PlayerGroups } from '../components/Groups'
@@ -14,13 +13,12 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtPicker, CourtView } from '../components/CourtPicker'
-import { Avatar, fmtValue, groupBy, Icon, playerName, PosBadges, QuarterBadge, Segmented, type IconName } from '../components/ui'
-import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, save, today, type Criterion, type Measurement, type Player, dayOf } from '../db'
+import { Avatar, fmtValue, Icon, playerName, PosBadges, QuarterBadge, Segmented, type IconName } from '../components/ui'
+import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, save, today, type Measurement, type Player, dayOf } from '../db'
 import { teamSummary } from '../rencontres'
 import { sportContent } from '../sportContent'
 import { latestByPlayer } from './Players'
 import { ask } from '../components/Confirm'
-import { themeColor } from '../theme'
 import { exportPlayer } from '../export'
 import { can, useRole } from '../roles'
 import { FollowButton, FollowedVia } from '../components/Follow'
@@ -36,11 +34,11 @@ import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
 import { canInvite, canPreviewPlayerPage, PlayerAccessCard, SelfSection, usePlayerAccess } from '../components/PlayerSpace'
 import { StaffJournal } from '../components/PlayerJournal'
-import { MeasureMedal, useReperes } from '../components/Medal'
+import { useReperes } from '../components/Medal'
 import { FamilyReport } from '../components/FamilyReport'
+import { AllTests } from '../components/AllTests'
 import { ObjectivesCard } from '../components/Objectives'
 import { SelfEvalStaff, usePlayerSelfEvals } from '../components/SelfEval'
-import type { ReperesConfig } from '../reperes'
 import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
@@ -242,11 +240,6 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
     ['Taille de la mère', p.motherHeight !== undefined ? `${p.motherHeight} cm (${p.motherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
     ['Taille du père', p.fatherHeight !== undefined ? `${p.fatherHeight} cm (${p.fatherHeightSource === 'mesuree' ? 'mesurée' : 'déclarée'})` : undefined],
   ]
-
-  const testGroups = groupBy(
-    factual.filter((c) => c.category !== 'Gabarit' && latest.has(c.id)),
-    (c) => c.category,
-  )
 
   async function del() {
     if (!(await ask(`Supprimer la fiche de ${playerName(p)} ?`, { ok: 'Supprimer' }))) return
@@ -472,27 +465,25 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
               + Nouvelle séance de tests
             </Link>
           )}
-        {/* Données factuelles */}
-        {testGroups.map(([cat, cs]) => (
-          <div key={cat} className="card p-4">
-            <div className="section-title">{cat}</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              {cs.map((c) => (
-                // Mesure sans courbe (texte, choix) : visée ici par ?voir=mesure:… ; avec courbe, c'est « Suivi des mesures ».
-                <div key={c.id} data-voir={hasCurve(c) ? undefined : `mesure:${c.id}`} className="rounded-md">
-                  <div className="text-[10px] text-muted">{c.label}</div>
-                  {/* Médaille quand le résultat atteint un repère de l'installation (src/reperes.ts) ; sinon rien. */}
-                  <div className="flex items-center gap-1.5 text-sm font-extrabold">
-                    {fmtValue(c, latest.get(c.id)!.value)}
-                    <MeasureMedal cfg={reperes} c={c} value={latest.get(c.id)!.value} who={p} day={latest.get(c.id)!.date} />
-                  </div>
-                </div>
-              ))}
-              {cs.some((c) => c.id === 'sorensen') && <ShiradoRatio latest={latest} />}
-            </div>
-          </div>
-        ))}
-        <Tracking criteria={factual} measurements={measurements} editable={can.editMeasurements(role)} focus={focus?.kind === 'mesure' ? focus : undefined} player={p} reperes={reperes} />
+          {/* Tous ses tests (src/components/AllTests.tsx, la même vue que « Mes tests » de sa page) : par famille, courbe et
+              mesures datées d'un test ouvert (modifier, supprimer : qui peut saisir). */}
+          <AllTests
+            player={p}
+            criteria={factual}
+            measurements={measurements}
+            reperes={reperes}
+            staff
+            editable={can.editMeasurements(role)}
+            focus={focus?.kind === 'mesure' ? focus : undefined}
+            familyExtra={(_, ls) => (ls.some((l) => l.c.id === 'sorensen') ? <ShiradoRatio latest={latest} /> : null)}
+            empty={
+              <div className="card p-4 text-center text-xs text-muted">
+                {measurements.some((m) => !m.deleted && !criteria.some((c) => c.id === m.criterionId))
+                  ? 'Mesures enregistrées, mais leurs critères ne sont pas dans la base : un administrateur doit les importer.'
+                  : 'Aucune mesure enregistrée.'}
+              </div>
+            }
+          />
         </>
       )}
 
@@ -598,9 +589,6 @@ function PlayerSpaceCard({ player }: { player: Player }) {
   return <PlayerAccessCard player={player} access={access} />
 }
 
-/** Critère tracé dans « Suivi des mesures » (pas les textes ni les choix). */
-const hasCurve = (c: Criterion) => c.scale !== 'text' && c.scale !== 'choice'
-
 /**
  * Élément de la fiche visé par ?voir=… (`data-voir`) : dès qu'il est là (données lues, onglet ouvert, carte dépliée),
  * il vient à l'écran sous les onglets collés, puis est un instant mis en évidence.
@@ -636,112 +624,6 @@ function useFocusScroll(focus: (PlayerFocus & { n: number }) | null) {
   }, [focus])
 }
 
-/**
- * « Suivi des mesures » : courbe d'évolution d'un critère factuel et historique (saisie : page Séance de tests).
- * `focus` (?voir=mesure:<critère>) : ce critère est choisi dans la liste.
- */
-function Tracking({
-  criteria,
-  measurements,
-  editable,
-  focus,
-  player,
-  reperes,
-}: {
-  criteria: Criterion[]
-  measurements: Measurement[]
-  editable: boolean
-  focus?: { id: string; row?: string; n: number }
-  player: Player
-  reperes: ReperesConfig
-}) {
-  const withData = criteria.filter((c) => hasCurve(c) && measurements.some((m) => m.criterionId === c.id))
-  const [cid, setCid] = useState<string>('')
-  useEffect(() => {
-    if (focus) setCid(focus.id)
-  }, [focus])
-  const current = withData.find((c) => c.id === cid) ?? withData[0]
-  const series = useMemo(
-    () =>
-      measurements
-        .filter((m) => m.criterionId === current?.id && typeof m.value === 'number')
-        .sort((a, b) => a.date.localeCompare(b.date) || a.updatedAt - b.updatedAt),
-    [measurements, current],
-  )
-
-  return (
-    <div className="card p-4" data-voir={current ? `mesure:${current.id}` : undefined}>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider uppercase">
-          <span className="text-accent">↗</span> Suivi des mesures
-        </div>
-      </div>
-
-      {!current ? (
-        <div className="text-center text-xs text-muted">
-          {measurements.some((m) => !criteria.some((c) => c.id === m.criterionId))
-            ? 'Mesures enregistrées, mais leurs critères ne sont pas dans la base : un administrateur doit les importer.'
-            : 'Aucune mesure enregistrée.'}
-        </div>
-      ) : (
-        <>
-          <select className="field mb-3" value={current.id} onChange={(e) => setCid(e.target.value)}>
-            {withData.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-                {c.unit ? ` (${c.unit})` : ''}
-              </option>
-            ))}
-          </select>
-          {series.length > 1 ? (
-            // Le doigt promène l'infobulle de la courbe : pas de glisser vers un autre joueur ici (useSwipeNav).
-            <div className="h-48" data-noswipe>
-              <ResponsiveContainer>
-                <LineChart data={series.map((m) => ({ date: fmtDate(m.date).slice(0, 5) + '/' + m.date.slice(2, 4), v: m.value }))} margin={{ left: -18, right: 8, top: 8 }}>
-                  <CartesianGrid stroke={themeColor('line')} strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fill: themeColor('muted'), fontSize: 9 }} />
-                  <YAxis domain={['auto', 'auto']} tick={{ fill: themeColor('muted'), fontSize: 9 }} />
-                  <Tooltip contentStyle={{ background: themeColor('panel'), border: `1px solid ${themeColor('line')}`, fontSize: 11 }} formatter={(v) => [fmtValue(current, v as number), current.label]} />
-                  <Line type="monotone" dataKey="v" stroke={themeColor('accent')} strokeWidth={2} dot={{ r: 3, fill: themeColor('accent') }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="py-3 text-center text-[11px] text-muted">Une seule mesure : la courbe apparaîtra à la prochaine.</div>
-          )}
-          <div className="mt-2 divide-y divide-line">
-            {[...series].reverse().map((m) => (
-              // Mesure visée (?voir=mesure:<critère>:<mesure>, nouveauté de « Mes suivis ») : sa ligne reste marquée.
-              <div key={m.id} className={`flex items-center justify-between py-1.5 text-xs ${focus?.row === m.id && current.id === focus.id ? '-mx-2 rounded-md bg-accent/10 px-2' : ''}`}>
-                <span className="min-w-0">
-                  <span className="font-bold">{fmtDate(m.date)}</span>
-                  {m.note && <span className="ml-2 text-[11px] text-amber-200">« {m.note} »</span>}
-                </span>
-                <span className="flex shrink-0 items-center gap-3">
-                  <span className="flex items-center gap-1">
-                    {fmtValue(current, m.value)}
-                    <MeasureMedal cfg={reperes} c={current} value={m.value} who={player} day={m.date} size={14} />
-                  </span>
-                  {m.author && <span className="text-[10px] text-muted">{m.author}</span>}
-                  {editable && (
-                    <button
-                      className="text-muted hover:text-red-400"
-                      title="Supprimer cette mesure"
-                      onClick={async () => (await ask('Supprimer cette mesure ?', { ok: 'Supprimer' })) && void remove('measurements', m.id)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 /** Ratio Shirado / Sorensen, calculé à partir des dernières valeurs (norme 0,7–0,8 ; > 1 = déséquilibre). */
 function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
   const a = latest.get('shirado')?.value
@@ -749,9 +631,10 @@ function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
   if (typeof a !== 'number' || typeof b !== 'number' || !b) return null
   const r = a / b
   return (
-    <div title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
-      <div className="text-[10px] text-muted">Ratio Shirado / Sorensen</div>
-      <div className={`text-sm font-extrabold ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</div>
+    // Ligne du bas de la carte de la famille du Sorensen (onglet Tests), staff seulement.
+    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5" title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
+      <span className="text-xs text-muted">Ratio Shirado / Sorensen</span>
+      <span className={`text-sm font-extrabold ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span>
     </div>
   )
 }

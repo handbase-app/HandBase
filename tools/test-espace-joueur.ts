@@ -425,11 +425,11 @@ t('compte joueur sans fiche reliée : rien (« Entre ton code ») ; avec fiche :
   assert.equal(playerAccess('admin', null), 'staff')
   assert.equal(playerAccess(null, null), 'staff')
 })
-t('synchronisation d’un compte joueur : sa fiche, la configuration et les listes, rien d’autre', () => {
-  assert.deepEqual([...PLAYER_TABLES], ['players', 'config', 'lists'])
-  for (const x of ['evaluations', 'measurements', 'events', 'groups', 'seen', 'rewatch', 'videos', 'follows', 'teams', 'alerts', 'criteria', 'question_log', 'levels', 'units', 'assignments'])
+t('synchronisation d’un compte joueur : sa fiche, la configuration, les listes, les tests et ses mesures (066), rien d’autre', () => {
+  assert.deepEqual([...PLAYER_TABLES], ['players', 'config', 'lists', 'criteria', 'measurements'])
+  for (const x of ['evaluations', 'events', 'groups', 'seen', 'rewatch', 'videos', 'follows', 'teams', 'alerts', 'question_log', 'levels', 'units', 'assignments'])
     assert.equal(playerReadsTable(x), false, x)
-  assert.equal(playerReadsTable('players'), true)
+  for (const x of ['players', 'criteria', 'measurements']) assert.equal(playerReadsTable(x), true, x)
 })
 
 console.log(`\n${n} tests ok`)

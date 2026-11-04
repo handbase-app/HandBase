@@ -251,7 +251,15 @@ begin
   assert (vus ->> 'a1')::int = 3000, 'administrateur : tout';
   assert (vus ->> 'b2')::int > (vus ->> 'c1')::int and (vus ->> 'c1')::int > (vus ->> 'd1')::int and (vus ->> 'd1')::int > (vus ->> 'd2')::int
      and (vus ->> 'd2')::int > 0, 'ligue > comité > club > observateur (ses lignes) > 0';
-  assert (vus ->> 'e1')::int = 0 and (vus ->> 'f1')::int = 0, 'joueur et sans rôle : aucune mesure';
+  assert (vus ->> 'f1')::int = 0, 'sans rôle : aucune mesure';
+  -- Joueur : aucune mesure avant 066 ; avec 066 (« Mes tests »), celles de SA fiche (j-0007), et elles seules.
+  perform set_config('test.uid', '00000000-0000-0000-0000-0000000000e1', true);
+  set local role authenticated;
+  select count(*) into n from public.hb_measurements where data ->> 'playerId' is distinct from 'j-0007';
+  reset role;
+  assert n = 0, 'joueur : jamais la mesure d''une autre fiche';
+  assert (vus ->> 'e1')::int = case when exists (select 1 from pg_policies where policyname = 'player_measurements_read') then
+    (select count(*) from public.hb_measurements where data ->> 'playerId' = 'j-0007') else 0 end, 'joueur : ses mesures (066) ou aucune';
   perform set_config('test.uid', '00000000-0000-0000-0000-0000000000e1', true);
   set local role authenticated;
   select count(*) into n from public.hb_lire_perimetre('players', '-infinity', 1000);

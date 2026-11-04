@@ -634,6 +634,8 @@ export function playerAccess(role: string | null | undefined, playerId: string |
 }
 
 /** Tables que la synchronisation d'un compte joueur reçoit : sa fiche, et la configuration de l'installation (sport, postes,
- *  apparence) et les listes (noms des régions, pour ses passages en pôle) : aucune donnée personnelle dedans. */
-export const PLAYER_TABLES = ['players', 'config', 'lists'] as const
+ *  apparence) et les listes (noms des régions, pour ses passages en pôle) : aucune donnée personnelle dedans ; « Mes tests »
+ *  (supabase/066_mes_tests.sql) : les critères factuels (les tests) et SES mesures, rien d'autre (le serveur filtre ; avant
+ *  066 il ne rend rien de ces deux tables : « Mes tests » reste vide, sans erreur). */
+export const PLAYER_TABLES = ['players', 'config', 'lists', 'criteria', 'measurements'] as const
 export const playerReadsTable = (table: string) => (PLAYER_TABLES as readonly string[]).includes(table)
