@@ -448,6 +448,8 @@ export const ICONS = {
   list: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01',
   rows: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  // Vue Mosaïque (page d'un événement) : quatre vignettes.
+  grid: 'M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z',
   download: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',

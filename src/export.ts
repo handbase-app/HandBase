@@ -13,6 +13,7 @@ import { appName, appSlug } from './appBrand'
 import { clubYears, journalDay, letterQuestions, markFields, moodLabel } from './playerSpace'
 import { fetchNotes } from './playerJournal'
 import { withPoleMembers } from './poleMembers'
+import { fmtPlayingTime, playingTimeOf, superPowerOf } from './avisMatch'
 
 const esc = (v: unknown) => {
   let s = v === undefined || v === null ? '' : String(v)
@@ -202,7 +203,8 @@ export async function exportPlayer(id: string) {
         .join('')
       const where = e.eventId ? (ev.get(e.eventId)?.name ?? 'Événement') : contextLabel(e)
       return `<div class="avis"><b>${h(fmtDate(e.date))} · ${h(where)}</b> — par ${h(e.observer)}${state(e.review) ? ` <i>(${h(state(e.review))})</i>` : ''}
-        ${e.portrait ? `<div><i>${h(e.portrait)}</i></div>` : ''}${e.minutesObserved ? `<div>Temps observé : ${h(e.minutesObserved)} min</div>` : ''}
+        ${e.portrait ? `<div><i>${h(e.portrait)}</i></div>` : ''}${superPowerOf(e) ? `<div>Super-pouvoir observé : ${h(superPowerOf(e))}</div>` : ''}
+        ${playingTimeOf(e) !== undefined ? `<div>Temps de jeu : ${h(fmtPlayingTime(playingTimeOf(e)!))}</div>` : ''}${e.minutesObserved ? `<div>Temps observé : ${h(e.minutesObserved)} min</div>` : ''}
         ${scores ? `<ul>${scores}</ul>` : ''}${e.strengths ? `<div>Points forts : ${h(e.strengths)}</div>` : ''}${e.improvements ? `<div>À travailler : ${h(e.improvements)}</div>` : ''}
         ${e.reviewNote ? `<div class="m">Commentaire de validation : ${h(e.reviewNote)}</div>` : ''}</div>`
     })

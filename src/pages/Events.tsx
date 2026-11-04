@@ -40,6 +40,7 @@ import { CompareBar, CompareToggle, PickBox, useComparePick, type ComparePick } 
 import { AskFilterBanner, useAskListFilter } from '../components/AskAction'
 import { rememberScroll, useRestoreScroll } from '../components/ContextRoster'
 import { coverageLabels, RewatchButton, RewatchInEvent, RewatchToggle, SeenBy, SeenEye, tournamentSummary, TournamentWindow, type CoverageFilter } from '../components/Scouting'
+import { EventMosaic, useEventView, ViewSwitch } from '../components/EventMosaic'
 import { accord, genderOf, pluralG, setGender, w, type Gender } from '../gender'
 import { numOf, personName, saveTournament, sheetPlayersWithoutTeam, sightings, teamObservers, teamOf, teamsFromSheet, tournamentTeams, type Sighting } from '../scouting'
 import { FoldSection } from '../components/FoldSection'
@@ -605,6 +606,8 @@ export function EventDetail() {
   const toggleAvis = (pid: string) => showAvis(openAvis === pid ? null : pid)
   // « Comparer » : cases à cocher sur les joueurs (liste et classement), deux à comparer.
   const pick = useComparePick()
+  // Joueurs en Liste (lignes) ou en Mosaïque (vignettes, src/components/EventMosaic.tsx), retenu sur l'appareil.
+  const [view, setView] = useEventView()
   // « Les gauchers de l'événement X » (Demander, src/components/AskAction.tsx) : la liste ne montre que ces joueurs.
   const askFilter = useAskListFilter('evenement', id)
   const data = useLiveQuery(async () => {
@@ -786,6 +789,8 @@ export function EventDetail() {
     return [...listActions, ...rest]
   }
   const split = showSplit ? tournamentSummary(ev, roster, sight, eg) : null
+  // Mosaïque choisie : pas pendant un retrait ou une comparaison (cases et croix sont sur les lignes de la liste).
+  const mosaic = view === 'mosaique' && !removing && !pick.on
 
   // Couverture de l'équipe (ligne de chiffres sous la barre, pastilles « Où j'en suis » de la fenêtre « Filtres »).
   const nSeen = roster.filter(isSeen).length
@@ -1122,7 +1127,7 @@ export function EventDetail() {
             style={avisPlayer ? { gridTemplateColumns: panel ? 'clamp(19rem, 33%, 34rem) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)' } : undefined}
           >
           <div className={`flex flex-col gap-2 ${duo ? 'md-box' : ''}`}>
-            {duo && !avisPlayer && (
+            {duo && !avisPlayer && !mosaic && (
               <p className="text-[11px] text-muted">
                 {evals.length ? `Choisis « avis » sur la ligne d’${ew.unJoueur} : ses avis et son radar s’affichent à droite.` : 'Aucun avis pour l’instant sur cet événement.'}
               </p>
@@ -1200,8 +1205,10 @@ export function EventDetail() {
                 setAvisOrder(sections)
                 return (
               <>
-                {/* Une ligne de chiffres sous la barre (les filtres « où j'en suis » sont dans « Filtres »). */}
-                <p className="text-xs text-muted" data-testid="bilan-evenement">
+                {/* Une ligne de chiffres sous la barre (les filtres « où j'en suis » sont dans « Filtres ») ; à son bout, la bascule
+                    Liste / Mosaïque (pas de seconde barre ; cachée en mode retrait ou comparaison, qui se font sur la liste). */}
+                <div className="flex items-center justify-between gap-2">
+                <p className="min-w-0 text-xs text-muted" data-testid="bilan-evenement">
                   {displayed.length < roster.length && (
                     <>
                       <b className="text-fg">{displayed.length}</b> sur{' '}
@@ -1210,6 +1217,8 @@ export function EventDetail() {
                   <b className="text-fg">{roster.length}</b> {roster.length > 1 ? ew.joueurs : ew.joueur} · <b className="text-fg">{nSeen}</b> {accord('vu', eg, nSeen)} ·{' '}
                   <b className="text-fg">{nNoted}</b> {accord('noté', eg, nNoted)} · <b className="text-fg">{nRewatch}</b> à revoir
                 </p>
+                {!removing && !pick.on && <ViewSwitch value={view} onChange={setView} />}
+                </div>
                 {/* Tournoi réparti : le résumé de la répartition, qui l'ouvre ; rien sans équipe déclarée. */}
                 {split && (
                   <button type="button" className="flex max-w-full items-baseline gap-1 self-start text-left text-[11px] text-muted hover:text-fg" onClick={() => setSplitOpen(true)}>
@@ -1243,7 +1252,17 @@ export function EventDetail() {
                 {shownRoster.length > 0 && displayed.length === 0 && (
                   <Empty>{cover === 'pasvus' && listed.length === 0 ? `L’équipe a ${accord('vu', eg, 2)} ${ew.tousLesJoueurs} ${accord('affiché', eg, 2)}.` : `${ew.AucunJoueur} pour ce filtre.`}</Empty>
                 )}
-                {/* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */}
+                {/* Mosaïque : tous les joueurs affichés en vignettes, dans le même ordre, sans titres (un seul écran). */}
+                {mosaic ? (
+                  <EventMosaic
+                    ev={ev}
+                    players={sections.flatMap((sec) => sec.players)}
+                    evals={evals}
+                    number={byTeam ? (p) => numOf(ev, p.id) : undefined}
+                    notedByMe={notedByMe}
+                  />
+                ) : (
+                /* Un titre à chaque nouveau poste (ou équipe) ; sous chaque titre, les joueurs (en colonnes sur grand écran). */
                 <PlayerList
                   ids={sections.flatMap((sec) => sec.players.map((p) => p.id))}
                   context={{ eventId: ev.id }}
@@ -1316,6 +1335,7 @@ export function EventDetail() {
                   }}
                 />
                 </PlayerList>
+                )}
               </>
                 )
                 }}
