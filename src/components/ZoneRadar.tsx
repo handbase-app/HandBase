@@ -1,5 +1,6 @@
-import { useCallback, useId, useMemo, useState, type RefCallback } from 'react'
+import { useCallback, useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type RefCallback } from 'react'
 import { layoutRadar, polar, smoothPath, styleOf, wrapLabel, type CategoryStyle, type RadarAxis } from '../radarZones'
+import { TONE_COLOR, type Tone } from '../opinionProgress'
 import { useMedia } from '../layout'
 
 /*
@@ -15,6 +16,10 @@ import { useMedia } from '../layout'
  * branches devient une liste de barres. Ordinateur : le radar complet. `view` impose l'une ou l'autre vue (onglets
  * « Complet » / « Par famille » de la comparaison) ; « par famille » sur un écran large : grille de radars de même
  * taille, autant de colonnes (240 px au moins, 3 au plus) que la largeur disponible en donne.
+ * Progression des avis (`progress`, src/components/OpinionsProgress.tsx) : forme de départ en pointillés gris, forme
+ * d'arrivée en trait plein, entre les deux la zone gagnée en vert (arrivée moins départ, par masque) et la zone perdue en
+ * rouge (départ moins arrivée ; gris neutre côté jeune) ; sous chaque libellé, une ligne colorée (`notes` : « 1 → 4 ↗ ») ;
+ * un toucher sur un libellé (`onAxis`) ouvre la bulle du critère. Secteurs teintés et points de couleur de famille gardés.
  */
 
 export interface RadarSeries {
@@ -30,6 +35,13 @@ export interface RadarSeries {
 }
 
 type Size = 'compact' | 'normal' | 'large'
+/** Point touché (bulle ancrée là, pointe vers le doigt) : abscisse, haut et bas de la zone touchée, à l'écran. */
+export interface AxisAnchor {
+  x: number
+  top: number
+  bottom: number
+}
+type AxisNote = { text: string; tone: Tone } | null | undefined
 /** Hauteur au plus (px) : comme avant (h-64, h-80, colonne large : entre 22 et 34rem, 58 % de l'écran). */
 const maxHeight = (size: Size) =>
   size === 'compact' ? 256 : size === 'normal' ? 320 : Math.max(352, Math.min(544, Math.round((typeof window === 'undefined' ? 800 : window.innerHeight) * 0.58)))
@@ -48,6 +60,7 @@ function useBox<T extends HTMLElement>(): [RefCallback<T>, { w: number; h: numbe
 interface Label {
   text: string[]
   full: string
+  note?: AxisNote
   x: number
   y: number
   anchor: 'start' | 'middle' | 'end'
@@ -85,7 +98,21 @@ function spread(labels: Label[], top: number, bottom: number, mid: number) {
         moved = true
       }
     for (const l of labels) l.y = Math.min(bottom - l.h / 2, Math.max(top + l.h / 2, l.y))
-    if (!moved) break
+    if (!moved) return
+  }
+  // Toujours des chevauchements (beaucoup de branches, libellés sur trois lignes avec la progression) : balayage de haut
+  // en bas (chaque libellé sous ceux qui le recouvrent), puis de bas en haut s'il déborde du cadre.
+  const ord = [...labels].sort((a, b) => a.y - b.y)
+  const hit = (a: Label, b: Label) => {
+    const p = box(a)
+    const q = box(b)
+    return !(p.x1 + 2 <= q.x0 || q.x1 + 2 <= p.x0)
+  }
+  for (let j = 0; j < ord.length; j++)
+    for (let i = 0; i < j; i++) if (hit(ord[i], ord[j])) ord[j].y = Math.max(ord[j].y, ord[i].y + (ord[i].h + ord[j].h) / 2 + 1)
+  for (let j = ord.length - 1; j >= 0; j--) {
+    ord[j].y = Math.min(ord[j].y, bottom - ord[j].h / 2)
+    for (let i = ord.length - 1; i > j; i--) if (hit(ord[i], ord[j])) ord[j].y = Math.min(ord[j].y, ord[i].y - (ord[i].h + ord[j].h) / 2 - 1)
   }
 }
 
@@ -96,6 +123,15 @@ const wedge = (cx: number, cy: number, r: number, a0: number, a1: number) => {
   return `M${cx},${cy}L${x0},${y0}A${r},${r} 0 ${a1 - a0 > 180 ? 1 : 0},1 ${x1},${y1}Z`
 }
 
+/** Entrée de légende : trait (`line`, `dashed`), pastille, ou un signe à la place (`mark`). */
+export interface LegendItem {
+  name: string
+  color: string
+  line?: boolean
+  dashed?: boolean
+  mark?: string
+}
+
 interface RadarProps {
   axes: RadarAxis[]
   styles: Map<string, CategoryStyle>
@@ -103,9 +139,24 @@ interface RadarProps {
   size?: Size
   max?: number
   /** Entrées de légende en plus des catégories (tracés : moyenne, observateurs…). */
-  legend?: { name: string; color: string; line?: boolean }[]
+  legend?: LegendItem[]
   /** Vue imposée : radar complet ou un radar par catégorie ; sans valeur, selon l'écran (par catégorie sur téléphone). */
   view?: 'full' | 'split'
+  /** Progression : notes au départ et à l'arrivée (ordre de `axes`) ; `neutralLoss` : zone perdue en gris (côté jeune). */
+  progress?: { from: (number | null | undefined)[]; to: (number | null | undefined)[]; neutralLoss?: boolean }
+  /** Ligne colorée sous chaque libellé (ordre de `axes`). */
+  notes?: AxisNote[]
+  /** Toucher le libellé d'une branche (indice dans `axes`). */
+  onAxis?: (i: number, at: AxisAnchor) => void
+  /** Vue par famille : note sous le titre de chaque famille (indices de ses branches dans `axes`). */
+  groupNote?: (idx: number[]) => AxisNote
+}
+
+/** Point touché d'un libellé : au doigt (souris, toucher), sinon (clavier) sous le libellé. */
+const anchorOf = (ev: MouseEvent | KeyboardEvent): AxisAnchor => {
+  const r = (ev.currentTarget as Element).getBoundingClientRect()
+  if ('clientX' in ev && (ev.clientX || ev.clientY)) return { x: ev.clientX, top: ev.clientY - 4, bottom: ev.clientY + 4 }
+  return { x: r.left + r.width / 2, top: r.top, bottom: r.bottom }
 }
 
 /** Téléphone tenu droit : radar découpé par catégorie. */
@@ -121,7 +172,7 @@ export default function ZoneRadar(props: RadarProps) {
  * Téléphone : une carte par catégorie (dans l'ordre d'apparition des critères), avec son petit radar (libellés 11 px)
  * ou, à moins de 3 branches, une barre par critère et par tracé. Légende des tracés une fois, dessous.
  */
-function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }: RadarProps & { grid?: boolean }) {
+function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false, progress, notes, onAxis, groupNote }: RadarProps & { grid?: boolean }) {
   const groups = useMemo(() => {
     const gs: { category: string; color: string; idx: number[] }[] = []
     axes.forEach((a, i) => {
@@ -133,10 +184,13 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }
   }, [axes, styles])
   const fmt = (v: number | null | undefined) => (typeof v === 'number' ? (Math.round(v * 10) / 10).toString().replace('.', ',') : '—')
   // Grille (vue imposée) : même place des libellés pour tous les radars (le plus long de tous), donc même taille.
-  const labelChars = grid ? Math.max(...axes.map((a) => twoLines(a.label))) : undefined
+  const labelChars = grid ? Math.max(...axes.map((a, i) => Math.max(twoLines(a.label), notes?.[i]?.text.length ?? 0))) : undefined
   const cards = groups.map((g) => {
     const gAxes = g.idx.map((i) => axes[i])
     const gSeries = series.map((s) => ({ ...s, values: g.idx.map((i) => s.values[i]) }))
+    const gProgress = progress && { ...progress, from: g.idx.map((i) => progress.from[i]), to: g.idx.map((i) => progress.to[i]) }
+    const gNotes = notes && g.idx.map((i) => notes[i])
+    const gNote = groupNote?.(g.idx)
     return (
       <section
         key={g.category}
@@ -146,9 +200,59 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }
         <h4 className="flex items-center gap-1.5 text-xs font-bold">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: g.color }} />
           {g.category || 'Autres critères'}
+          {/* Progression : moyenne des critères de la famille, du départ à l'arrivée. */}
+          {gNote && (
+            <span className="ml-auto text-[11px] font-extrabold whitespace-nowrap tabular-nums" style={{ color: TONE_COLOR[gNote.tone] }}>
+              {gNote.text}
+            </span>
+          )}
         </h4>
         {gAxes.length >= 3 ? (
-          <FullRadar axes={gAxes} styles={styles} series={gSeries} max={max} font={11} labelChars={labelChars} bare />
+          <FullRadar
+            axes={gAxes}
+            styles={styles}
+            series={gSeries}
+            max={max}
+            font={11}
+            labelChars={labelChars}
+            bare
+            progress={gProgress}
+            notes={gNotes}
+            onAxis={onAxis && ((j, at) => onAxis(g.idx[j], at))}
+          />
+        ) : gProgress ? (
+          // Moins de 3 branches, en progression : barre de l'arrivée, trait au départ, écart dessous.
+          <ul className="mt-1.5 flex flex-col gap-2">
+            {gAxes.map((a, j) => {
+              const to = gProgress.to[j]
+              const from = gProgress.from[j]
+              const note = gNotes?.[j]
+              const pct = (v: number) => `${(Math.max(0, Math.min(max, v)) / max) * 100}%`
+              return (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    className="flex w-full flex-col gap-0.5 text-left"
+                    onClick={onAxis && ((ev) => onAxis(g.idx[j], anchorOf(ev)))}
+                    disabled={!onAxis}
+                  >
+                    <span className="flex items-baseline justify-between gap-2 text-xs">
+                      {a.label}
+                      {note && (
+                        <b className="text-[11px] whitespace-nowrap tabular-nums" style={{ color: TONE_COLOR[note.tone] }}>
+                          {note.text}
+                        </b>
+                      )}
+                    </span>
+                    <span className="relative h-2 w-full rounded-full bg-panel-2">
+                      {typeof to === 'number' && <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: pct(to), background: g.color }} />}
+                      {typeof from === 'number' && <span aria-hidden className="absolute -inset-y-0.5 w-0.5 rounded bg-muted" style={{ left: pct(from) }} />}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         ) : (
           <ul className="mt-1.5 flex flex-col gap-2">
             {gAxes.map((a, j) => (
@@ -192,7 +296,7 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }
         <ul className={`flex flex-wrap justify-center gap-x-3 gap-y-1 ${grid ? 'gap-x-4 text-xs font-bold' : 'text-[11px] text-muted'}`}>
           {legend.map((l) => (
             <li key={l.name} className="flex items-center gap-1">
-              <span className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : `${grid ? 'h-3 w-3' : 'h-2.5 w-2.5'} shrink-0 rounded-full`} style={{ background: l.color }} />
+              <LegendMark l={l} big={grid} />
               {l.name}
             </li>
           ))}
@@ -200,6 +304,13 @@ function SplitRadar({ axes, styles, series, max = 5, legend = [], grid = false }
       )}
     </div>
   )
+}
+
+/** Repère d'une entrée de légende : trait (plein ou pointillé), pastille, ou signe (« ↕ »). */
+function LegendMark({ l, big = false }: { l: LegendItem; big?: boolean }) {
+  if (l.mark) return <span aria-hidden className="font-bold">{l.mark}</span>
+  if (l.dashed) return <span aria-hidden className="w-3.5 shrink-0 border-t-2 border-dashed" style={{ borderColor: l.color }} />
+  return <span aria-hidden className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : `${big ? 'h-3 w-3' : 'h-2.5 w-2.5'} shrink-0 rounded-full`} style={{ background: l.color }} />
 }
 
 /** Longueur (caractères) de la plus longue ligne d'un libellé coupé en deux lignes équilibrées. */
@@ -220,6 +331,9 @@ function FullRadar({
   font,
   labelChars,
   bare = false,
+  progress,
+  notes,
+  onAxis,
 }: RadarProps & {
   /** Place des libellés (caractères de la plus longue ligne) imposée : radars d'une grille de même taille. */
   labelChars?: number
@@ -240,13 +354,17 @@ function FullRadar({
   const charW = f * 0.6
   // Petit radar d'une catégorie (téléphone) : place des libellés au plus juste (le plus long, coupé en deux lignes
   // équilibrées), pour garder le plus grand rayon possible.
-  const needW = font ? (labelChars ?? Math.max(...axes.map((a) => twoLines(a.label)))) * charW + 2 : 0
+  const needW = font ? (labelChars ?? Math.max(...axes.map((a, i) => Math.max(twoLines(a.label), notes?.[i]?.text.length ?? 0)))) * charW + 2 : 0
   const labelW = font ? Math.max(40, Math.min(W * 0.34, needW)) : Math.max(60, Math.min(size === 'large' ? 140 : 120, W * 0.24))
   const maxChars = Math.max(6, Math.floor(labelW / charW))
   const maxH = maxHeight(size)
-  // Rayon limité par la largeur (téléphone) ou la hauteur ; hauteur réduite à ce qu'il faut (pas de vide).
-  const R = Math.max(30, Math.min(W / 2 - labelW - 10, maxH / 2 - 3 * lineH - 6))
-  const H = W ? Math.min(maxH, Math.round(2 * R + (font ? 4 * lineH + 20 : 6 * lineH + 16))) : 0
+  // Rayon limité par la largeur (téléphone) ou la hauteur ; hauteur réduite à ce qu'il faut (pas de vide). Ligne de
+  // progression sous les libellés : une ligne de plus en haut et en bas.
+  const extra = notes ? 1 : 0
+  const R = Math.max(30, Math.min(W / 2 - labelW - 10, maxH / 2 - (3 + extra) * lineH - 6))
+  // Avec la ligne de progression, de la place en plus en haut et en bas pour écarter les libellés serrés (beaucoup de branches).
+  const room = notes ? (font ? 2 : 4) * lineH : 0
+  const H = W ? Math.min(maxH + 2 * extra * lineH + room, Math.round(2 * R + (font ? (4 + 2 * extra) * lineH + 20 : (6 + 2 * extra) * lineH + 16) + room)) : 0
   const cx = W / 2
   const cy = H / 2
 
@@ -254,18 +372,19 @@ function FullRadar({
     if (!W || !H) return []
     const ls = layout.axes.map((a): Label => {
       const text = wrapLabel(a.label, maxChars)
+      const note = notes?.[index.get(a.id)!]
       const s = Math.sin((a.angle * Math.PI) / 180)
       const c = Math.cos((a.angle * Math.PI) / 180)
       const [x, y] = polar(cx, cy, R + 7, a.angle)
-      const h = text.length * lineH
+      const h = (text.length + (note?.text ? 1 : 0)) * lineH
       const anchor = Math.abs(s) < 0.08 ? 'middle' : s > 0 ? 'start' : 'end'
       // Près du haut / du bas : le bloc de texte posé au-dessus / au-dessous de la pointe.
       const dy = c > 0.8 ? -h / 2 + 2 : c < -0.8 ? h / 2 - 2 : 0
-      return { text, full: a.label, x, y: y + dy, anchor, w: Math.max(...text.map((t) => t.length)) * charW, h }
+      return { text, full: a.label, note, x, y: y + dy, anchor, w: Math.max(...text.map((t) => t.length), note?.text.length ?? 0) * charW, h }
     })
     spread(ls, 1, H - 1, cy)
     return ls
-  }, [layout, W, H, cx, cy, R, maxChars, lineH, charW])
+  }, [layout, index, notes, W, H, cx, cy, R, maxChars, lineH, charW])
 
   const pt = (v: number | null | undefined, angle: number) => {
     if (typeof v !== 'number') return null
@@ -275,8 +394,10 @@ function FullRadar({
    * Chemin du tracé, arrondi (Bézier « moyenne », src/radarZones.ts smoothPath) : fermé s'il ne manque rien, sinon un
    * morceau par suite de valeurs connues (coupé là où une valeur manque). Les points restent sur les notes.
    */
-  const pathOf = (s: RadarSeries) => {
-    const pts = layout.axes.map((a) => pt(s.values[index.get(a.id)!], a.angle))
+  const pathOf = (s: RadarSeries) => pathFor(values(s))
+  /** Même chemin, d'après des valeurs dans l'ordre du cadran (`layout.axes`). */
+  const pathFor = (vals: (number | null | undefined)[]) => {
+    const pts = layout.axes.map((a, i) => pt(vals[i], a.angle))
     if (pts.every(Boolean)) return smoothPath(pts as [number, number][], true)
     const runs: [number, number][][] = []
     let run: [number, number][] = []
@@ -289,6 +410,52 @@ function FullRadar({
   }
 
   const sectors = layout.sectors
+  /**
+   * Formes de la progression. Zones par masques : gagné = arrivée privée du départ, perdu = départ privé de l'arrivée.
+   * Critère pas encore noté au départ : sa note d'arrivée tient lieu de départ pour les zones (ni gagné ni perdu), le
+   * pointillé du départ est coupé à cet endroit.
+   */
+  const progressShapes = (p: NonNullable<RadarProps['progress']>) => {
+    const from = layout.axes.map((a) => p.from[index.get(a.id)!])
+    const to = layout.axes.map((a) => p.to[index.get(a.id)!])
+    const dTo = pathFor(to)
+    const dFromZ = pathFor(from.map((v, i) => (typeof v === 'number' ? v : to[i])))
+    return (
+      <g>
+        <defs>
+          <mask id={`${uid}-gain`} maskUnits="userSpaceOnUse" x={0} y={0} width={W} height={H}>
+            <rect x={0} y={0} width={W} height={H} fill="white" />
+            <path d={dFromZ} fill="black" />
+          </mask>
+          <mask id={`${uid}-loss`} maskUnits="userSpaceOnUse" x={0} y={0} width={W} height={H}>
+            <rect x={0} y={0} width={W} height={H} fill="white" />
+            <path d={dTo} fill="black" />
+          </mask>
+        </defs>
+        <path d={dTo} style={{ fill: 'var(--color-fg)' }} fillOpacity={0.05} />
+        <path d={dTo} style={{ fill: TONE_COLOR.up }} fillOpacity={0.5} mask={`url(#${uid}-gain)`} />
+        <path d={dFromZ} style={{ fill: p.neutralLoss ? TONE_COLOR.flat : TONE_COLOR.down }} fillOpacity={p.neutralLoss ? 0.22 : 0.42} mask={`url(#${uid}-loss)`} />
+        <path d={pathFor(from)} fill="none" style={{ stroke: 'var(--color-muted)' }} strokeWidth={1.5} strokeDasharray="5 4" strokeLinejoin="round">
+          <title>Départ</title>
+        </path>
+        <path d={dTo} fill="none" style={{ stroke: 'var(--color-fg)' }} strokeWidth={1.8} strokeLinejoin="round">
+          <title>Arrivée</title>
+        </path>
+        {layout.axes.map((a, i) => {
+          const q = pt(to[i], a.angle)
+          return (
+            q && (
+              <circle key={a.id} cx={q[0]} cy={q[1]} r={size === 'compact' ? 2.6 : 3.2} fill={sectors[a.sector].color} style={{ stroke: 'var(--color-panel)' }} strokeWidth={1}>
+                <title>
+                  {a.label} : {fmt(from[i])} → {fmt(to[i])}
+                </title>
+              </circle>
+            )
+          )
+        })}
+      </g>
+    )
+  }
   // Légende dans l'ordre du cadran, en partant du haut.
   const turn = (a: { start: number; end: number }) => ((a.start + a.end) / 2 + 45 + 720) % 360
   const sectorLegend = [...sectors].sort((a, b) => turn(a) - turn(b))
@@ -319,6 +486,8 @@ function FullRadar({
               const [x, y] = polar(cx, cy, R, a.angle)
               return <line key={a.id} x1={cx} y1={cy} x2={x} y2={y} style={{ stroke: 'var(--color-line)' }} strokeWidth={0.7} />
             })}
+            {/* Progression : arrivée (fond léger), gagné (vert), perdu (rouge ou gris), départ en pointillés, arrivée en trait plein. */}
+            {progress && progressShapes(progress)}
             {/* Tracés */}
             {series.map((s) => {
               const d = pathOf(s)
@@ -381,17 +550,52 @@ function FullRadar({
                 </path>
               )
             })}
-            {/* Libellés des branches */}
-            {labels.map((l, i) => (
-              <text key={i} x={l.x} y={l.y - l.h / 2 + lineH / 2} textAnchor={l.anchor} dominantBaseline="central" fontSize={f} style={{ fill: 'var(--color-muted)' }}>
-                {l.text.map((t, j) => (
-                  <tspan key={j} x={l.x} dy={j ? lineH : 0}>
-                    {t}
-                  </tspan>
-                ))}
-                {l.full !== l.text.join(' ') && <title>{l.full}</title>}
-              </text>
-            ))}
+            {/* Libellés des branches (progression : écart dessous, en couleur ; un toucher ouvre la bulle du critère) */}
+            {labels.map((l, i) => {
+              const text = (
+                <text x={l.x} y={l.y - l.h / 2 + lineH / 2} textAnchor={l.anchor} dominantBaseline="central" fontSize={f} style={{ fill: 'var(--color-muted)' }}>
+                  {l.text.map((t, j) => (
+                    <tspan key={j} x={l.x} dy={j ? lineH : 0}>
+                      {t}
+                    </tspan>
+                  ))}
+                  {l.note?.text && (
+                    <tspan x={l.x} dy={lineH} fontWeight={700} style={{ fill: TONE_COLOR[l.note.tone] }}>
+                      {l.note.text}
+                    </tspan>
+                  )}
+                  {l.full !== l.text.join(' ') && <title>{l.full}</title>}
+                </text>
+              )
+              if (!onAxis) return <g key={i}>{text}</g>
+              const k = index.get(layout.axes[i].id)!
+              return (
+                <g
+                  key={i}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${l.full}${l.note?.text ? ' : ' + l.note.text : ''}`}
+                  className="cursor-pointer outline-none [&:focus-visible_text]:underline [&:hover_text]:underline"
+                  data-axe={layout.axes[i].id}
+                  onClick={(ev) => onAxis(k, anchorOf(ev))}
+                  onKeyDown={(ev) => {
+                    if (ev.key !== 'Enter' && ev.key !== ' ') return
+                    ev.preventDefault()
+                    onAxis(k, anchorOf(ev))
+                  }}
+                >
+                  {/* Zone de toucher un peu plus large que le texte. */}
+                  <rect
+                    x={(l.anchor === 'start' ? l.x : l.anchor === 'end' ? l.x - l.w : l.x - l.w / 2) - 4}
+                    y={l.y - l.h / 2 - 3}
+                    width={l.w + 8}
+                    height={l.h + 6}
+                    fill="transparent"
+                  />
+                  {text}
+                </g>
+              )
+            })}
           </svg>
         )}
       </div>
@@ -405,7 +609,7 @@ function FullRadar({
         ))}
         {legend.map((l) => (
           <li key={l.name} className="flex items-center gap-1">
-            <span className={l.line ? 'h-0.5 w-3.5 shrink-0 rounded' : 'h-2.5 w-2.5 shrink-0 rounded-full'} style={{ background: l.color }} />
+            <LegendMark l={l} />
             {l.name}
           </li>
         ))}

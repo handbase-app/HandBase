@@ -27,6 +27,10 @@
   --color-suggest-soft: color-mix(in srgb, var(--neon-b) 12%, transparent);
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
+  /* Progression des avis (src/components/OpinionsProgress.tsx, ZoneRadar) : gagné en vert, perdu en rouge (jamais côté
+     jeune) ; un peu plus vifs sur les thèmes sombres, ceux de la maquette validée (#1D9E75, #E24B4A) sur les clairs. */
+  --color-gain: #2fbf8c;
+  --color-loss: #f0605e;
   /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
   --color-ai: #7cacf8;
   --color-ai-soft: #7cacf826;
@@ -201,6 +205,8 @@ body {
   color-scheme: light;
   --color-ai: #1f6feb;
   --color-ai-soft: #e8f0fe;
+  --color-gain: #1d9e75;
+  --color-loss: #e24b4a;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }
