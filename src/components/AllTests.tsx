@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { appName, appSlug } from '../appBrand'
 import { useBackCloses } from '../backNav'
-import { csvRows, families, familyKey, fileSlug, fmtNum, frDate, gainKind, gainText, sparkXY, summaryText, testLines, toCsv, topProgress, type FamilyKey, type TestLine } from '../allTests'
+import { csvRows, families, fileSlug, fmtNum, frDate, gainKind, gainText, sparkXY, summaryText, testLines, toCsv, topProgress, type TestLine } from '../allTests'
 import { criterionApplies, fmtDate, remove, save, today, type Criterion, type Measurement, type Player } from '../db'
 import { smoothPath } from '../radarZones'
 import { repereDirection, type ReperesConfig } from '../reperes'
@@ -11,7 +11,8 @@ import { ask } from './Confirm'
 import { FormActions, FormWindow } from './FormWindow'
 import { ItemMenu, type MenuAnchor } from './ItemMenu'
 import { MeasureMedal } from './Medal'
-import { CriterionInput, fmtValue, Icon, playerName, type IconName } from './ui'
+import { CriterionInput, fmtValue, Icon, playerName } from './ui'
+import { FamIcon, famStyle } from './FamIcon'
 
 /*
  * « Tous les tests » d'un joueur, la même vue pour le staff (fiche, onglet Tests) et pour le jeune (« Mes tests » de sa page
@@ -224,29 +225,6 @@ function toTop(el: HTMLElement | null) {
   if (above >= 0) return
   if (box) box.scrollTo({ top: box.scrollTop + above })
   else window.scrollTo({ top: window.scrollY + above })
-}
-
-/** Couleur de la famille (--fam, lue par .fam-ic, le dernier point des courbes) : --fam-* de src/index.css. */
-const famStyle = (family: string) => ({ '--fam': `var(--fam-${familyKey(family)})` }) as CSSProperties
-
-const FAM_ICON: Record<FamilyKey, IconName> = {
-  gabarit: 'famHeight',
-  mensurations: 'famTape',
-  vitesse: 'famBolt',
-  puissance: 'famDumbbell',
-  mobilite: 'famMobility',
-  stabilite: 'famBalance',
-  sauts: 'famJump',
-  autre: 'ruler',
-}
-
-/** Picto d'une famille dans un carré teinté de sa couleur (28 px : en-tête d'un bloc ; 34 px : plus beaux progrès). */
-function FamIcon({ family, size }: { family: string; size: 28 | 34 }) {
-  return (
-    <span aria-hidden className="fam-ic flex shrink-0 items-center justify-center rounded-lg" style={{ ...famStyle(family), width: size, height: size }}>
-      <Icon name={FAM_ICON[familyKey(family)]} strokeWidth={2} className={size === 34 ? 'h-[19px] w-[19px]' : 'h-4 w-4'} />
-    </span>
-  )
 }
 
 /** Gain depuis la première mesure : pastille verte « +0,38 m ↗ » (bon sens), grise sans flèche (sens inconnu) ; rien sinon. */

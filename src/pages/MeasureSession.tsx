@@ -8,6 +8,7 @@ import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, t
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
 import { MeasureMedal, useReperes } from '../components/Medal'
+import { FamIcon } from '../components/FamIcon'
 
 const OPEN_KEY = 'handbase.mesures.open'
 const readOpen = (): string[] => {
@@ -125,6 +126,7 @@ export default function MeasureSession() {
         return (
           <div key={cat} className={`card overflow-hidden ${isOpen ? 'border-accent/50' : ''}`}>
             <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => toggle(cat)}>
+              <FamIcon family={cat} size={28} />
               <span className="flex-1 text-sm font-bold">{cat}</span>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${n ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
                 {n}/{cs.length}
