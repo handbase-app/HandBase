@@ -7,16 +7,20 @@
 //  - nextar_lire : id, année tirée de la date de naissance (la date reste ici), sexe, poste, département (scope_dept) ;
 //    mesures (joueur, test, valeur, date), avis (joueur, date, notes chiffrées ; ni points forts, ni axes, ni portrait), vus ;
 //  - nextar_proposer : prénom, nom et date de naissance des joueurs du contexte, pour le rapprochement fait ici ; rien de
-//    cela ne sort (outils.ts, verifierSortie).
+//    cela ne sort (outils.ts, verifierSortie) ;
+//  - nextar_connexions (administrateurs) : hb_is_admin() d'abord ; puis hb_connections (compte, type d'appareil, début et
+//    dernier signe de vie ; la table n'a ni adresse IP ni navigateur ; lisible par les administrateurs seulement, 030),
+//    hb_profiles (user_id, full_name, role, departments : JAMAIS email ni phone, que la base ne donne d'ailleurs pas en
+//    lecture directe, 029), affectations et unités (nom, départements, n° de club, niveau ; ni adresse ni ville).
 // Fichier sans import Deno (testable avec npx jiti et un faux client, tools/test-mcp.ts).
 
 import { eventNumbers } from './partage/importMesures.ts'
 import type { ConfigRow } from './partage/sportConfig.ts'
-import type { AvisSrv, CritereSrv, EvenementSrv, FiltreJoueurs, GroupeSrv, JoueurLire, JoueurNom, MesureSrv, PropositionSrv, Source, VuSrv } from './outils.ts'
+import type { AvisSrv, CompteSrv, CritereSrv, EvenementSrv, FiltreJoueurs, GroupeSrv, JoueurLire, JoueurNom, MesureSrv, PropositionSrv, SessionSrv, Source, VuSrv } from './outils.ts'
 
 /** Ce dont on se sert du client supabase-js (requêtes PostgREST). */
 // deno-lint-ignore no-explicit-any
-export type ClientSupabase = { from(table: string): any }
+export type ClientSupabase = { from(table: string): any; rpc(fn: string, args?: Record<string, unknown>): any }
 
 const PAGE = 1000
 const PAR = 150 // identifiants par requête « in » (longueur de l'adresse)
@@ -225,6 +229,72 @@ export function sourceSupabase(sb: ClientSupabase): Source {
       if (absente(error)) return { erreur: 'les rapports ne sont pas encore installés sur le serveur (script 068).' }
       if (error || !data) return { erreur: error?.message ?? 'refus du serveur' }
       return { id: data.id as string, expires_at: data.expires_at as string }
+    },
+
+    async estAdmin() {
+      const { data, error } = await sb.rpc('hb_is_admin')
+      return !error && data === true
+    },
+
+    async connexions(depuis, max) {
+      type Row = { u: string; d: string | null; s: string; l: string }
+      const r = await pages<Row>(
+        (a, b) => sb.from('hb_connections').select('u:user_id, d:device, s:started_at, l:last_seen_at').gte('last_seen_at', depuis).order('last_seen_at', { ascending: false }).range(a, b),
+        max,
+      )
+      const sessions: SessionSrv[] = r.rows.filter((x) => x.u && x.l).map((x) => ({ userId: x.u, device: x.d, startedAt: x.s, lastSeenAt: x.l }))
+      return { sessions, tronque: r.tronque }
+    },
+
+    async comptes(ids): Promise<CompteSrv[]> {
+      // Profils : colonnes nommées une à une ; ni email ni phone (que la base réserve d'ailleurs à hb_members, 029).
+      type Prof = { user_id: string; full_name: string | null; role: string | null; departments: string[] | null }
+      const profils = await parPaquets(ids, async (paquet) => {
+        const { data, error } = await sb.from('hb_profiles').select('user_id, full_name, role, departments').in('user_id', paquet)
+        if (error) throw new Error(error.message)
+        return (data ?? []) as Prof[]
+      })
+      // Structure (044) : facultative ; absente ou illisible, pas de périmètre (le secteur du profil reste).
+      type Aff = { u: string | null; unite: string | null }
+      type Unite = { id: string; n: string | null; l: string | null; d: unknown; c: string | null }
+      let affs: Aff[] = []
+      let unites: Unite[] = []
+      let niveaux: { id: string; n: string | null }[] = []
+      try {
+        affs = await parPaquets(ids, async (paquet) => {
+          const { data, error } = await sb.from('hb_assignments').select('u:data->>userId, unite:data->>unitId').eq('deleted', false).in('data->>userId', paquet)
+          if (error) throw new Error(error.message)
+          return (data ?? []) as Aff[]
+        })
+        const uids = [...new Set(affs.map((a) => a.unite).filter((x): x is string => !!x))]
+        unites = await parPaquets(uids, async (paquet) => {
+          const { data, error } = await sb.from('hb_units').select('id, n:data->>name, l:data->>levelId, d:data->departments, c:data->>clubNumber').eq('deleted', false).in('id', paquet)
+          if (error) throw new Error(error.message)
+          return (data ?? []) as Unite[]
+        })
+        if (unites.length) {
+          const { data } = await sb.from('hb_levels').select('id, n:data->>name').eq('deleted', false).limit(200)
+          niveaux = (data ?? []) as { id: string; n: string | null }[]
+        }
+      } catch {
+        affs = []
+        unites = []
+      }
+      const fold = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      const federation = (levelId: string | null) => levelId === 'niveau-federation' || niveaux.some((n) => n.id === levelId && fold(n.n ?? '').startsWith('federation'))
+      const parId = new Map(unites.map((u) => [u.id, u]))
+      return profils.map((p) => {
+        const mes = [...new Set(affs.filter((a) => a.u === p.user_id).map((a) => a.unite))].map((id) => (id ? parId.get(id) : undefined)).filter((u): u is Unite => !!u)
+        return {
+          userId: p.user_id,
+          fullName: p.full_name,
+          role: p.role,
+          departments: Array.isArray(p.departments) ? p.departments : null,
+          ...(mes.length
+            ? { unites: mes.map((u) => ({ name: u.n ?? 'Unité', depts: arr(u.d) ?? [], ...(u.c?.trim() ? { club: u.c.trim() } : {}), ...(federation(u.l) ? { federation: true } : {}) })) }
+            : {}),
+        }
+      })
     },
   }
 }

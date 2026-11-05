@@ -9,6 +9,12 @@ des rapports en codes, **avec les droits du coach** (RLS, périmètre, rôle).
 postes, années, sexe, département, mesures, moyennes d'avis et nombres de « vus » (liste blanche : `outils.ts`,
 `verifierSortie` ; essais : `tools/test-mcp.ts`, `tools/essai-mcp/lancer.sh`).
 
+Seule exception, **pour les administrateurs** : `nextar_connexions` rend le nom affiché et le rôle des **comptes du staff**
+connectés récemment (jamais d'adresse mail, de téléphone, d'identifiant brut, d'adresse IP ni de donnée de joueur ; liste
+blanche à part, où « nom_affiche » est la seule clé de nom permise, et aucun texte avec « @ » ou une adresse IP). Un compte qui
+n'est pas administrateur reçoit un refus, sans rien lire. Aucun SQL nouveau : `hb_is_admin()` (043), `hb_connections` (030,
+lecture administrateurs), `hb_profiles` (colonnes publiques de 029), affectations et unités (044).
+
 | Outil | Entrée | Sortie |
 |---|---|---|
 | `nextar_contexte` | `archives?` | tests et unités, critères d'avis par poste, postes, événements et groupes (id, nom, date, type, nombre de joueurs) |
@@ -16,6 +22,7 @@ postes, années, sexe, département, mesures, moyennes d'avis et nombres de « v
 | `nextar_suivi` | `id?` | état (en attente, validée, validée en partie, rejetée) ; sans id : les 20 dernières |
 | `nextar_lire` | années, sexe, postes, départements, événement, groupe, mesures min/max, vus min, avis min, tri, limite ≤ 200 | lignes en codes |
 | `nextar_rapport` | `markdown` (avec les codes), `titre?` | lien `/rapport/<id>` (gardé 30 jours, auteur seul), codes mal recopiés |
+| `nextar_connexions` (administrateurs) | `minutes?` (défaut 10, de 1 à 10 080), `limite?` (défaut 50, ≤ 200) | par compte, du plus récent : code `C-…`, nom affiché, rôle, périmètre, dernière activité (ISO + « il y a N min »), appareil (téléphone / tablette / ordinateur), ouvertures de l'appli sur la période ; total |
 
 Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/server` 2.4.0, `@supabase/server` 1.9.2,
 `@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `source.ts` (requêtes aux droits du coach),
@@ -48,5 +55,6 @@ Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/se
 
 - `npx jiti tools/test-mcp.ts` : outils sur un jeu fictif (aucun nom dans les réponses, codes, rapprochement, rapport).
 - `bash tools/essai-mcp/lancer.sh` : la pile réelle dans le runtime des fonctions Supabase (Docker
-  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les cinq outils.
+  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les six outils
+  (`nextar_connexions` : refus pour le coach, liste pour un administrateur fictif).
 - `bash tools/essai-sql-068/lancer.sh` : `068_rapports.sql` sur un Postgres jetable.

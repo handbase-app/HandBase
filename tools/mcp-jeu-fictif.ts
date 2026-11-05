@@ -3,7 +3,7 @@
 // propositions et rapports gardés). Noms, clubs et licences inventés. Importable par Node (jiti) et par Deno (imports en .ts,
 // aucun module Node).
 
-import type { AvisSrv, CritereSrv, EvenementSrv, GroupeSrv, JoueurNom, MesureSrv, PropositionSrv, Source, VuSrv } from '../supabase/functions/mcp/outils.ts'
+import type { AvisSrv, CompteSrv, CritereSrv, EvenementSrv, GroupeSrv, JoueurNom, MesureSrv, PropositionSrv, SessionSrv, Source, VuSrv } from '../supabase/functions/mcp/outils.ts'
 
 export interface JoueurFictif {
   id: string
@@ -79,6 +79,46 @@ export const VUS: VuSrv[] = [
 ]
 
 /** Textes qui ne doivent JAMAIS apparaître dans une réponse d'outil (noms, prénoms rares, dates, clubs, licences, commentaires). */
+// ---------- Comptes du staff et connexions (nextar_connexions) : noms, adresses et téléphones INVENTÉS ----------
+
+/** « Maintenant » du jeu fictif (les connexions sont placées par rapport à lui). */
+export const MAINTENANT_FICTIF = Date.parse('2026-11-05T10:00:00.000Z')
+const ilYaMin = (m: number) => new Date(MAINTENANT_FICTIF - m * 60_000).toISOString()
+
+/** Comptes fictifs, AVEC adresse mail et téléphone (comme hb_profiles) : ni l'une ni l'autre ne doit jamais sortir. */
+export const COMPTES: (CompteSrv & { email: string; phone?: string })[] = [
+  { userId: '00000000-0000-4000-8000-0000000000a1', fullName: 'Alice Administratrice-Fictive', role: 'admin', email: 'alice.admin@exemple.test', phone: '06 11 22 33 44' },
+  { userId: '00000000-0000-4000-8000-0000000000c1', fullName: 'Bruno Encadrant-Fictif', role: 'preparateur', departments: ['83'], unites: [{ name: 'Comité Fictif du Var', depts: ['83'] }], email: 'bruno.encadrant@exemple.test', phone: '+33 6 55 44 33 22' },
+  // Le nom du profil est une adresse mail (compte jamais renommé) : elle ne doit pas sortir non plus.
+  { userId: '00000000-0000-4000-8000-0000000000b2', fullName: 'camille.observatrice@exemple.test', role: 'observateur', unites: [{ name: 'Club Rêvé', club: '6383999' }], email: 'camille.observatrice@exemple.test' },
+  { userId: '00000000-0000-4000-8000-0000000000b3', fullName: 'Denis Fédéral-Fictif', role: 'observateur', unites: [{ name: 'Fédération Fictive', federation: true }], email: 'denis@exemple.test' },
+  { userId: '00000000-0000-4000-8000-0000000000b4', fullName: 'Élise Ancienne-Fictive', role: 'observateur', departments: ['13', '84'], email: 'elise@exemple.test', phone: '0611223344' },
+  { userId: '00000000-0000-4000-8000-0000000000b5', fullName: null, role: null, email: 'sans.role@exemple.test' },
+]
+
+/** Ouvertures de l'appli (comme hb_connections) ; un type d'appareil farfelu (adresse IP, mail) ne doit pas sortir tel quel. */
+export const SESSIONS: SessionSrv[] = [
+  { userId: COMPTES[0].userId, device: 'Ordinateur', startedAt: ilYaMin(40), lastSeenAt: ilYaMin(1) },
+  { userId: COMPTES[0].userId, device: 'Ordinateur', startedAt: ilYaMin(3000), lastSeenAt: ilYaMin(2900) },
+  { userId: COMPTES[1].userId, device: 'iPhone (appli installée)', startedAt: ilYaMin(20), lastSeenAt: ilYaMin(3) },
+  { userId: COMPTES[1].userId, device: 'Ordinateur', startedAt: ilYaMin(60), lastSeenAt: ilYaMin(8) },
+  { userId: COMPTES[2].userId, device: 'Android', startedAt: ilYaMin(15), lastSeenAt: ilYaMin(9) },
+  { userId: COMPTES[3].userId, device: 'iPad', startedAt: ilYaMin(30), lastSeenAt: ilYaMin(12) },
+  { userId: COMPTES[4].userId, device: 'Ordinateur', startedAt: ilYaMin(200), lastSeenAt: ilYaMin(180) },
+  { userId: COMPTES[5].userId, device: 'Mozilla/5.0 (X11; Linux) 192.168.1.20 test@exemple.test', startedAt: ilYaMin(6), lastSeenAt: ilYaMin(5) },
+]
+
+/** Textes des comptes qui ne doivent jamais sortir de nextar_connexions (adresses, téléphones, identifiants bruts). */
+export function textesInterditsComptes(): string[] {
+  const out = new Set<string>(['@', '192.168.1.20', 'Mozilla', 'exemple.test'])
+  for (const c of COMPTES) {
+    out.add(c.email)
+    if (c.phone) out.add(c.phone)
+    out.add(c.userId)
+  }
+  return [...out]
+}
+
 export function textesInterdits(js: readonly JoueurFictif[] = JOUEURS): string[] {
   const out = new Set<string>()
   for (const p of js) {
@@ -101,10 +141,12 @@ export interface SourceFictive extends Source {
   rapportsDeposes: { id: string; titre: string; contenu: string }[]
   /** Appels faits à joueursNoms (pour vérifier que nextar_lire n'en fait aucun). */
   appelsNoms: number
+  /** Appels faits à connexions et comptes (un compte qui n'est pas administrateur : aucun). */
+  appelsConnexions: number
 }
 
 /** Une Source en mémoire sur ces données (ou d'autres joueurs : grande base fictive). */
-export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: string } = {}): SourceFictive {
+export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: string; admin?: boolean; sessions?: SessionSrv[] } = {}): SourceFictive {
   const joueurs = o.joueurs ?? JOUEURS
   const vivants = () => joueurs.filter((p) => !p.mergedInto && p.review !== 'refused')
   let n = 0
@@ -115,6 +157,7 @@ export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: strin
     propositionsDeposees: props,
     rapportsDeposes: raps,
     appelsNoms: 0,
+    appelsConnexions: 0,
     async criteres() {
       return CRITERES.filter((c) => !c.deleted).map((c) => ({ ...c }))
     },
@@ -176,6 +219,21 @@ export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: strin
       const id = uuid()
       raps.push({ id, ...r })
       return { id, expires_at: '2026-12-05T10:00:00Z' }
+    },
+    async estAdmin() {
+      return o.admin === true
+    },
+    // Comme la base (030 : lecture réservée aux administrateurs) : rien pour un autre compte.
+    async connexions(depuis, max) {
+      src.appelsConnexions++
+      if (!o.admin) return { sessions: [], tronque: false }
+      const ss = (o.sessions ?? SESSIONS).filter((x) => x.lastSeenAt >= depuis).sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+      return { sessions: ss.slice(0, max).map((x) => ({ ...x })), tronque: ss.length > max }
+    },
+    // Comme source.ts : ni email ni phone demandés.
+    async comptes(ids) {
+      src.appelsConnexions++
+      return COMPTES.filter((c) => ids.includes(c.userId)).map(({ email: _e, phone: _p, ...c }) => ({ ...c }))
     },
   }
   return src

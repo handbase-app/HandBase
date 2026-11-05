@@ -1,4 +1,4 @@
-// Nextar : les CINQ OUTILS du serveur MCP, en fonctions PURES (ni Deno, ni réseau, ni base) : elles reçoivent une `Source`
+// Nextar : les SIX OUTILS du serveur MCP, en fonctions PURES (ni Deno, ni réseau, ni base) : elles reçoivent une `Source`
 // (accès aux données AUX DROITS DU COACH : source.ts avec le client Supabase de son jeton ; un jeu fictif dans
 // tools/test-mcp.ts) et rendent un objet JSON. serveur.ts les branche dans le SDK MCP.
 //
@@ -16,6 +16,10 @@
 // codes et un état par ligne, sans répéter ce qu'il a reçu (ni noms, ni en-têtes de colonnes).
 // Rien n'est écrit dans les fiches : nextar_proposer dépose dans la boîte « À valider » (hb_propositions, source « mcp »),
 // nextar_rapport garde un texte en codes pour son auteur seul (hb_rapports, supabase/068_rapports.sql).
+// Exception voulue, et la seule : nextar_connexions (administrateurs seulement) rend le NOM AFFICHÉ et le rôle des COMPTES
+// du staff connectés (jamais une adresse mail, un téléphone, un identifiant brut, une adresse IP ni un appareil détaillé ;
+// aucune donnée de joueur). Sa réponse passe par sa propre liste blanche (CLES_CONNEXIONS : « nom_affiche » n'est permis
+// que là) et par un contrôle des textes (aucun « @ », aucune adresse IP).
 
 import { codeJoueur, codesDuTexte, indexCodes } from './partage/codesJoueurs.ts'
 import {
@@ -139,6 +143,35 @@ export interface Source {
   proposition(id: string): Promise<PropositionSrv | null>
   propositions(limite: number): Promise<PropositionSrv[]>
   deposerRapport(r: { titre: string; contenu: string }): Promise<{ id: string; expires_at: string } | { erreur: string }>
+  /** Le compte du jeton est-il administrateur ? (hb_is_admin, supabase/043 ; erreur ou fonction absente : non). */
+  estAdmin(): Promise<boolean>
+  /**
+   * Ouvertures de l'appli vues depuis `depuis` (ISO), la plus récente d'abord, au plus `max` (supabase/030 : lisibles par les
+   * administrateurs seulement ; type d'appareil tel qu'envoyé par l'appli, ni adresse IP ni navigateur).
+   */
+  connexions(depuis: string, max: number): Promise<{ sessions: SessionSrv[]; tronque: boolean }>
+  /** Nom, rôle, secteur et unités d'affectation de ces comptes (hb_profiles, hb_assignments, hb_units) ; JAMAIS l'adresse mail. */
+  comptes(userIds: string[]): Promise<CompteSrv[]>
+}
+
+/** Une ouverture de l'appli (hb_connections). */
+export interface SessionSrv {
+  userId: string
+  /** Texte de l'appli (« iPhone (appli installée) », « Ordinateur »…) : jamais rendu tel quel. */
+  device?: string | null
+  startedAt: string
+  lastSeenAt: string
+}
+
+/** Compte du staff, pour nextar_connexions : ni adresse mail, ni téléphone. */
+export interface CompteSrv {
+  userId: string
+  fullName?: string | null
+  role?: string | null
+  /** Secteur du profil (hb_profiles.departments). */
+  departments?: string[] | null
+  /** Unités où le compte est affecté (supabase/044), sans adresse. */
+  unites?: { name: string; depts?: string[]; club?: string; federation?: boolean }[]
 }
 
 export interface Reglages {
@@ -148,6 +181,8 @@ export interface Reglages {
   sport?: string
   /** Aujourd'hui (AAAA-MM-JJ, heure de Paris). */
   today: string
+  /** Maintenant (ms depuis 1970) ; absent : l'horloge du serveur. */
+  maintenant?: number
 }
 
 // ---------- Bornes ----------
@@ -178,6 +213,12 @@ export const BORNES = {
   rapport: 100_000,
   titreRapport: 120,
   titreProposition: 80,
+  /** nextar_connexions : fenêtre en minutes (défaut, bornes : 1 min à 7 jours), personnes rendues, ouvertures lues. */
+  connexionsMinutes: 10,
+  connexionsMinutesMax: 10_080,
+  connexionsDefaut: 50,
+  connexionsMax: 200,
+  connexionsSessions: 5_000,
 } as const
 
 // ---------- Vérification des réponses (liste blanche) ----------
@@ -201,31 +242,53 @@ const CLES = new Set([
 ])
 /** Objets dont les clés sont libres (identifiants de tests ou de critères) ; leurs valeurs restent vérifiées. */
 const DICTS = new Set(['mesures', 'criteres', 'legende'])
-/** Jamais dans une réponse, même dans un dictionnaire. */
+/**
+ * nextar_connexions (administrateurs) : SA liste blanche, la seule où un nom (celui d'un COMPTE du staff) peut sortir, sous
+ * la clé « nom_affiche ». Aucune clé des outils de joueurs n'y est permise, et inversement.
+ */
+const CLES_CONNEXIONS = new Set([
+  'erreur', 'message', 'avertissements', 'total', 'tronque', 'fenetre_minutes', 'depuis', 'maintenant', 'connexions',
+  'compte', 'nom_affiche', 'role', 'perimetre', 'derniere_activite', 'il_y_a', 'appareil', 'appli_installee', 'sessions',
+])
+/** Jamais dans une réponse, même dans un dictionnaire (comparé aussi après retrait des signes : « e-mail », « userAgent »). */
 const INTERDITES =
-  /^(nom|noms|prenom|prenoms|firstname|lastname|name|fullname|birthdate|naissance|date_naissance|ddn|club|clubs|clubcode|licence|license|licences|previouslicenses|email|telephone|phone|commentaire|commentaires|comment|strengths|improvements|portrait|notes|note|gaps|photo|adresse|fiche|cellules|cells)$/i
+  /^(nom|noms|prenom|prenoms|firstname|lastname|name|fullname|full_name|birthdate|naissance|date_naissance|ddn|club|clubs|clubcode|licence|license|licences|previouslicenses|email|emails|e_mail|mail|mails|courriel|telephone|phone|phones|adresse_ip|ip_address|ipaddress|user_agent|useragent|user_id|userid|token|tokens|jeton|jetons|access_token|refresh_token|session_id|sessionid|password|mot_de_passe|commentaire|commentaires|comment|strengths|improvements|portrait|notes|note|gaps|photo|adresse|fiche|cellules|cells)$/i
+/** En plus pour nextar_connexions (mots courts, qui pourraient être des identifiants de tests ailleurs). */
+const INTERDITES_CONNEXIONS = /^(ip|ips|ua|tel|mobile|portable|navigateur|uid|sub|device)$/i
+/** nextar_connexions : textes refusés (une adresse mail, une adresse IP). */
+const TEXTE_INTERDIT_CONNEXIONS = /@|\b\d{1,3}(\.\d{1,3}){3}\b|[0-9a-f]{1,4}(:[0-9a-f]{1,4}){4,}/i
 
 const MAX_TEXTE = 2000
 
-/** Vérifie une réponse d'outil ; lève une erreur au premier écart (l'outil répond alors par une erreur, sans données). */
-export function verifierSortie(x: unknown, chemin = 'réponse', dict = false): void {
+/**
+ * Vérifie une réponse d'outil ; lève une erreur au premier écart (l'outil répond alors par une erreur, sans données).
+ * `outil` : nom de l'outil (« nextar_connexions » a sa propre liste blanche et son contrôle des textes).
+ */
+export function verifierSortie(x: unknown, outil?: string): void {
+  const connexions = outil === 'nextar_connexions'
+  verifier(x, 'réponse', false, connexions ? CLES_CONNEXIONS : CLES, connexions)
+}
+
+function verifier(x: unknown, chemin: string, dict: boolean, cles: Set<string>, textes: boolean): void {
   if (x === null || typeof x === 'number' || typeof x === 'boolean') return
   if (typeof x === 'string') {
     if (x.length > MAX_TEXTE && chemin !== 'réponse.regles') throw new Error(`Réponse refusée : texte trop long en ${chemin}`)
+    if (textes && TEXTE_INTERDIT_CONNEXIONS.test(x)) throw new Error(`Réponse refusée : adresse mail ou IP en ${chemin}`)
     return
   }
   if (Array.isArray(x)) {
-    x.forEach((v, i) => verifierSortie(v, `${chemin}[${i}]`))
+    x.forEach((v, i) => verifier(v, `${chemin}[${i}]`, false, cles, textes))
     return
   }
   if (typeof x === 'object') {
     for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
       const norm = k.toLowerCase().replace(/[^a-z_]/g, '')
-      if (INTERDITES.test(norm) || INTERDITES.test(k)) throw new Error(`Réponse refusée : clé interdite « ${k} » en ${chemin}`)
+      const interdite = (re: RegExp) => re.test(norm) || re.test(k) || re.test(norm.replace(/_/g, ''))
+      if (interdite(INTERDITES) || (textes && interdite(INTERDITES_CONNEXIONS))) throw new Error(`Réponse refusée : clé interdite « ${k} » en ${chemin}`)
       if (dict) {
         if (!/^[\w.-]{1,80}$/.test(k)) throw new Error(`Réponse refusée : clé « ${k} » en ${chemin}`)
-      } else if (!CLES.has(k)) throw new Error(`Réponse refusée : clé inconnue « ${k} » en ${chemin}`)
-      verifierSortie(v, `${chemin}.${k}`, !dict && DICTS.has(k))
+      } else if (!cles.has(k)) throw new Error(`Réponse refusée : clé inconnue « ${k} » en ${chemin}`)
+      verifier(v, `${chemin}.${k}`, !dict && cles === CLES && DICTS.has(k), cles, textes)
     }
     return
   }
@@ -849,6 +912,131 @@ export async function outilRapport(src: Source, reg: Reglages, input: { titre?: 
       'Rapport gardé 30 jours pour le coach seul. En ouvrant le lien dans Nextar (connecté), son appareil remplace chaque code par le nom du joueur ; ' +
       'les noms ne passent jamais par ce serveur. « Imprimer / PDF » sur la page.' +
       (codes.invalides.length ? ' Certains codes sont mal recopiés (signe de contrôle faux) : ils resteront des codes.' : ''),
+  }
+}
+
+// ---------- 6. nextar_connexions (administrateurs seulement) ----------
+
+/** Libellés des rôles : les mêmes que l'appli (src/roles.ts, ROLE_LABEL ; tools/test-mcp.ts vérifie qu'ils restent égaux). */
+export const ROLE_LIBELLE: Record<string, string> = { admin: 'Administrateur', preparateur: 'Encadrant', observateur: 'Observateur', joueur: 'Joueur' }
+const SANS_ROLE = 'En attente (aucun rôle)'
+const SANS_NOM = '(nom pas encore choisi)'
+
+/** Retire d'un texte écrit par quelqu'un ce qui ressemble à une adresse mail, un téléphone ou une adresse IP. */
+export function sansCoordonnees(s: unknown, n: number): string {
+  return clip(
+    String(s ?? '')
+      .replace(/\S*@\S*/g, ' ')
+      .replace(/(?:\+|\b00)\d[\d .-]{7,}\d|\b0[1-9](?:[ .-]?\d{2}){4}\b/g, ' ')
+      .replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, ' ')
+      .replace(/[(<[]\s*[)>\]]/g, ' '),
+    n,
+  )
+}
+
+/** Type d'appareil (texte envoyé par l'appli, src/presence.ts) → vocabulaire fixe ; inconnu : rien. Jamais le texte tel quel. */
+export function typeAppareil(device: string | null | undefined): { appareil?: string; appli_installee?: true } {
+  const d = String(device ?? '')
+  const appareil = /iPad/i.test(d) ? 'tablette' : /iPhone|iPod/i.test(d) ? 'téléphone' : /Android/i.test(d) ? 'téléphone ou tablette' : /Ordinateur/i.test(d) ? 'ordinateur' : undefined
+  return { ...(appareil ? { appareil } : {}), ...(appareil && /appli installée/i.test(d) ? { appli_installee: true as const } : {}) }
+}
+
+/** « à l'instant », « il y a 4 min », « il y a 2 h 05 », « il y a 3 j ». */
+export function ilYA(ms: number): string {
+  const min = Math.floor(Math.max(0, ms) / 60_000)
+  if (min < 1) return 'à l’instant'
+  if (min < 60) return `il y a ${min} min`
+  if (min < 24 * 60) return `il y a ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`
+  return `il y a ${Math.floor(min / (24 * 60))} j`
+}
+
+/** Code court et stable d'un compte (« C- » + 7 signes, même calcul que les codes de joueurs) : jamais l'identifiant brut. */
+export const codeCompte = (userId: string) => `C-${codeJoueur(userId).slice(2)}`
+
+/** Texte du périmètre (comme src/perimeter.ts, perimeterText, sur les unités d'affectation) ; à défaut, le secteur du profil. */
+export function textePerimetre(c: CompteSrv): string | undefined {
+  if (c.role === 'admin') return 'Toute la base (administrateur)'
+  const us = c.unites ?? []
+  if (us.some((u) => u.federation)) return 'Toute la base'
+  if (us.length) {
+    return clip(
+      us
+        .map((u) => {
+          const nom = sansCoordonnees(u.name, 120) || 'Unité'
+          if (u.club) return `${nom} (n° ${sansCoordonnees(u.club, 12)})`
+          const ds = (u.depts ?? []).filter(Boolean).map((d) => clip(d, 4))
+          if (!ds.length) return nom
+          const list = ds.length > 8 ? `${ds.length} départements` : ds.join(', ')
+          return nom.includes(`(${list})`) ? nom : `${nom} (${list})`
+        })
+        .sort((a, b) => a.localeCompare(b, 'fr'))
+        .join(' ; '),
+      400,
+    )
+  }
+  const ds = (c.departments ?? []).filter(Boolean).map((d) => clip(d, 4))
+  return ds.length ? `secteur ${ds.join(', ')}` : undefined
+}
+
+export interface ConnexionsInput {
+  minutes?: number
+  limite?: number
+}
+
+const borne = (v: unknown, def: number, min: number, max: number) => {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : def
+  return Math.max(min, Math.min(max, n))
+}
+
+export async function outilConnexions(src: Source, reg: Reglages, input: ConnexionsInput = {}) {
+  // Le rôle d'abord : rien n'est lu pour un compte qui n'est pas administrateur (la base, elle, ne lui rendrait rien).
+  if (!(await src.estAdmin())) return { erreur: 'Réservé aux administrateurs : ce compte ne peut pas voir qui s’est connecté.' }
+  const minutes = borne(input.minutes, BORNES.connexionsMinutes, 1, BORNES.connexionsMinutesMax)
+  const limite = borne(input.limite, BORNES.connexionsDefaut, 1, BORNES.connexionsMax)
+  const maintenant = reg.maintenant ?? Date.now()
+  const depuis = new Date(maintenant - minutes * 60_000).toISOString()
+  const lu = await src.connexions(depuis, BORNES.connexionsSessions)
+  // Par compte : dernière activité, appareil de la dernière ouverture, nombre d'ouvertures vues sur la période.
+  const parCompte = new Map<string, { derniere: number; device?: string | null; sessions: number }>()
+  for (const s of lu.sessions) {
+    const t = Date.parse(s.lastSeenAt)
+    if (!s.userId || !Number.isFinite(t) || t < maintenant - minutes * 60_000) continue
+    const cur = parCompte.get(s.userId)
+    if (!cur) parCompte.set(s.userId, { derniere: t, device: s.device, sessions: 1 })
+    else {
+      cur.sessions++
+      if (t > cur.derniere) Object.assign(cur, { derniere: t, device: s.device })
+    }
+  }
+  const ordre = [...parCompte].sort((a, b) => b[1].derniere - a[1].derniere)
+  const page = ordre.slice(0, limite)
+  const comptes = new Map((page.length ? await src.comptes(page.map(([id]) => id)) : []).map((c) => [c.userId, c]))
+  const connexions = page.map(([id, v]) => {
+    const c = comptes.get(id) ?? { userId: id }
+    const perimetre = textePerimetre(c)
+    return {
+      compte: codeCompte(id),
+      nom_affiche: sansCoordonnees(c.fullName, 80) || SANS_NOM,
+      role: (c.role && ROLE_LIBELLE[c.role]) || SANS_ROLE,
+      ...(perimetre ? { perimetre } : {}),
+      derniere_activite: new Date(v.derniere).toISOString(),
+      il_y_a: ilYA(maintenant - v.derniere),
+      ...typeAppareil(v.device),
+      sessions: v.sessions,
+    }
+  })
+  return {
+    fenetre_minutes: minutes,
+    depuis,
+    maintenant: new Date(maintenant).toISOString(),
+    total: ordre.length,
+    ...(ordre.length > page.length ? { tronque: true } : {}),
+    connexions,
+    avertissements: [
+      ...(lu.tronque ? [`Plus de ${BORNES.connexionsSessions} ouvertures de l’appli sur la période : seules les plus récentes sont comptées. Réduis la fenêtre.`] : []),
+      'Dernière activité : dernier signe de vie de l’appli (envoyé toutes les quelques minutes tant qu’elle est affichée). Sessions : ouvertures de l’appli vues sur la période.',
+    ],
+    message: 'Comptes du staff (nom affiché et rôle) ; jamais d’adresse mail, de téléphone, d’adresse IP ni de donnée de joueur.',
   }
 }
 

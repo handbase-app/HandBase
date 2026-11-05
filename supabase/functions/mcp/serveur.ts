@@ -17,7 +17,7 @@ import { pipeline } from 'npm:@supabase/middleware@1.0.0'
 import { withCors } from 'npm:@supabase/middleware@1.0.0/cors'
 import { withOAuthProtectedResource, withSupabase } from 'npm:@supabase/server@1.9.2'
 import { z } from 'npm:zod@4.6.7'
-import { BORNES, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
+import { BORNES, outilConnexions, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
 
 /** Origines des navigateurs autorisées (comme supabase/functions/transcrire) ; localhost pour les essais. */
 export const ORIGINES = ['https://handbase-demo.github.io', 'https://handbase-app.github.io', 'https://volleybase-demo.github.io']
@@ -29,7 +29,8 @@ export const INSTRUCTIONS =
   'résultats lus sur une feuille : nextar_proposer (le coach valide ensuite dans l’appli ; rien n’est enregistré avant). Pour ' +
   'interroger : nextar_lire (lignes en codes). Pour un rapport : rédige-le en Markdown AVEC LES CODES, puis nextar_rapport ; ' +
   'donne au coach le lien rendu : son appli remplacera les codes par les noms sur son appareil. N’essaie jamais de deviner ou ' +
-  'de demander les noms derrière les codes.'
+  'de demander les noms derrière les codes. Pour un administrateur seulement : nextar_connexions (qui s’est connecté ' +
+  'récemment ; noms et rôles des comptes du staff, jamais d’adresse mail).'
 
 type Ctx = { supabase: unknown; userClaims?: { id?: string } | null }
 
@@ -39,7 +40,7 @@ const texte = (out: unknown) => ({ content: [{ type: 'text' as const, text: JSON
 async function repondre(nom: string, f: () => Promise<Record<string, unknown>>) {
   try {
     const out = await f()
-    verifierSortie(out)
+    verifierSortie(out, nom)
     return { ...texte(out), ...('erreur' in out ? { isError: true } : {}) }
   } catch (e) {
     // Journal de la fonction : le message seul (jamais les données reçues).
@@ -168,6 +169,25 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
     (a) => repondre('nextar_rapport', () => outilRapport(src, reg, a)),
   )
 
+  server.registerTool(
+    'nextar_connexions',
+    {
+      title: 'Qui s’est connecté (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail. Répond à « qui s’est connecté dans les N ' +
+        'dernières minutes ? » : pour chaque compte du staff qui a eu l’appli ouverte sur la période, du plus récent au plus ancien, ' +
+        'le nom affiché, le rôle, le périmètre (unités d’affectation ou secteur), la dernière activité (heure ISO et « il y a N min »), ' +
+        'le type d’appareil (téléphone, tablette, ordinateur) et le nombre d’ouvertures de l’appli ; plus le total. Jamais d’adresse ' +
+        'mail, de téléphone, d’identifiant, d’adresse IP ni de donnée de joueur. Un compte qui n’est pas administrateur reçoit un refus.',
+      inputSchema: z.object({
+        minutes: z.number().int().min(1).max(BORNES.connexionsMinutesMax).optional().describe(`Fenêtre en minutes (défaut ${BORNES.connexionsMinutes}, 7 jours au plus).`),
+        limite: z.number().int().min(1).max(BORNES.connexionsMax).optional().describe(`Comptes rendus au plus (défaut ${BORNES.connexionsDefaut}, ${BORNES.connexionsMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_connexions', () => outilConnexions(src, reg, a ?? {})),
+  )
+
   return server
 }
 
@@ -177,6 +197,7 @@ export function reglagesEnv(env: { get(k: string): string | undefined }): Reglag
     appUrl: (env.get('NEXTAR_APP_URL') ?? '').trim().replace(/\/+$/, ''),
     sport: env.get('NEXTAR_SPORT') ?? undefined,
     today: new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
+    maintenant: Date.now(),
   }
 }
 

@@ -9,6 +9,8 @@
 //    la base (grande base : premier tri), colonnes reliées par identifiant de test, lignes déposées telles qu'écrites, et
 //    proposition qui s'ouvre dans l'écran « À valider » de l'appli avec les mêmes joueurs ;
 //  - nextar_lire (filtres, tri, limite), nextar_suivi, nextar_rapport (codes faux signalés, bornes) ;
+//  - nextar_connexions (administrateurs) : liste filtrée par la fenêtre, tri, libellés, bornes ; refus sans données pour un
+//    coach ; jamais d'adresse mail (même quand le nom du profil en est une), de téléphone, d'identifiant brut ni d'adresse IP ;
 //  - rapport → remplacement local des codes (Markdown, fiches fondues, codes inconnus, partagés, faux) ;
 //  - copies générées à jour (tools/generer-partage-mcp.ts), bornes égales à celles des scripts 067 et 068, branchements.
 //
@@ -32,10 +34,26 @@ import * as copieCodes from '../supabase/functions/mcp/partage/codesJoueurs'
 import { propose, type ImportCriterion } from '../src/importMesures'
 import { fromServer, rowsOf, type ServerProposition } from '../src/propositionsCore'
 import { inlineText, parseInline, parseMarkdown } from '../src/rapportMarkdown'
-import { BORNES, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages } from '../supabase/functions/mcp/outils'
+import {
+  BORNES,
+  codeCompte,
+  ilYA,
+  outilConnexions,
+  outilContexte,
+  outilLire,
+  outilProposer,
+  outilRapport,
+  outilSuivi,
+  ROLE_LIBELLE,
+  sansCoordonnees,
+  typeAppareil,
+  verifierSortie,
+  type Reglages,
+  type Source,
+} from '../supabase/functions/mcp/outils'
 import { sourceSupabase } from '../supabase/functions/mcp/source'
 import { copiesPerimees } from './generer-partage-mcp'
-import { CRITERES, EVENEMENTS, grandeBase, JOUEURS, sourceFictive, textesInterdits } from './mcp-jeu-fictif'
+import { COMPTES, CRITERES, EVENEMENTS, grandeBase, JOUEURS, MAINTENANT_FICTIF, sourceFictive, textesInterdits, textesInterditsComptes } from './mcp-jeu-fictif'
 
 let n = 0
 const t = async (name: string, f: () => void | Promise<void>) => {
@@ -369,6 +387,187 @@ await t('nextar_rapport : gardé, lien /rapport/<id>, codes comptés, codes faux
   assert.ok('erreur' in garde(await outilRapport(src, reg, { markdown: 'x'.repeat(BORNES.rapport + 1) })))
 })
 
+// ---------- Outils : connexions (administrateurs seulement) ----------
+
+const regC: Reglages = { ...reg, maintenant: MAINTENANT_FICTIF }
+const interditsComptes = textesInterditsComptes()
+/** Réponse de nextar_connexions : sa liste blanche, puis aucune adresse, aucun téléphone, aucun identifiant brut, aucun joueur. */
+const gardeC = <T>(x: T): T => {
+  verifierSortie(x, 'nextar_connexions')
+  sorties.push(x)
+  const s = JSON.stringify(x)
+  for (const txt of [...interdits, ...interditsComptes]) assert.ok(!s.includes(txt), `« ${txt} » ne doit jamais sortir : ${s.slice(0, 300)}`)
+  const cles = new Set<string>()
+  const tour = (v: unknown) => {
+    if (Array.isArray(v)) v.forEach(tour)
+    else if (v && typeof v === 'object') for (const [k, w] of Object.entries(v)) (cles.add(k.toLowerCase()), tour(w))
+  }
+  tour(x)
+  for (const k of cles) assert.ok(!/mail|phone|tel|^ip|user_?agent|user_?id|uid|token|jeton|session_id/.test(k), `clé « ${k} »`)
+  return x
+}
+type ReponseC = Awaited<ReturnType<typeof outilConnexions>>
+const liste = (r: ReponseC) => {
+  if (!('connexions' in r)) throw new Error(JSON.stringify(r))
+  return r
+}
+const [A, B, CAM, D, E, SR] = COMPTES
+
+await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plus récent, nom, rôle, périmètre, appareil, sessions', async () => {
+  const r = liste(gardeC(await outilConnexions(sourceFictive({ admin: true }), regC, {})))
+  assert.equal(r.fenetre_minutes, 10)
+  assert.equal(r.maintenant, '2026-11-05T10:00:00.000Z')
+  assert.equal(r.depuis, '2026-11-05T09:50:00.000Z')
+  assert.equal(r.total, 4)
+  assert.ok(!('tronque' in r))
+  assert.deepEqual(
+    r.connexions.map((c) => c.compte),
+    [A, B, SR, CAM].map((c) => codeCompte(c.userId)),
+    'Denis (12 min) et Élise (3 h) sont hors de la fenêtre ; tri du plus récent',
+  )
+  assert.deepEqual(r.connexions[0], {
+    compte: codeCompte(A.userId),
+    nom_affiche: 'Alice Administratrice-Fictive',
+    role: 'Administrateur',
+    perimetre: 'Toute la base (administrateur)',
+    derniere_activite: '2026-11-05T09:59:00.000Z',
+    il_y_a: 'il y a 1 min',
+    appareil: 'ordinateur',
+    sessions: 1,
+  })
+  assert.deepEqual(r.connexions[1], {
+    compte: codeCompte(B.userId),
+    nom_affiche: 'Bruno Encadrant-Fictif',
+    role: 'Encadrant',
+    perimetre: 'Comité Fictif du Var (83)',
+    derniere_activite: '2026-11-05T09:57:00.000Z',
+    il_y_a: 'il y a 3 min',
+    appareil: 'téléphone',
+    appli_installee: true,
+    sessions: 2,
+  })
+  // Sans nom ni rôle, appareil farfelu (adresse IP, mail dans le texte) : rien de tout cela ne sort.
+  assert.deepEqual(r.connexions[2], { compte: codeCompte(SR.userId), nom_affiche: '(nom pas encore choisi)', role: 'En attente (aucun rôle)', derniere_activite: '2026-11-05T09:55:00.000Z', il_y_a: 'il y a 5 min', sessions: 1 })
+  // Nom du profil = adresse mail : remplacé.
+  assert.equal(r.connexions[3].nom_affiche, '(nom pas encore choisi)')
+  assert.equal(r.connexions[3].perimetre, 'Club Rêvé (n° 6383999)')
+  assert.equal(r.connexions[3].appareil, 'téléphone ou tablette')
+  assert.match(r.connexions[3].compte, /^C-[0-9A-HJKMNP-TV-Z]{7}$/)
+})
+
+await t('nextar_connexions : fenêtre plus large (15 min, 5 h, 7 jours), limite, tronque', async () => {
+  const src = sourceFictive({ admin: true })
+  const r15 = liste(gardeC(await outilConnexions(src, regC, { minutes: 15 })))
+  assert.equal(r15.total, 5)
+  const d = r15.connexions.find((c) => c.compte === codeCompte(D.userId))!
+  assert.equal(d.perimetre, 'Toute la base', 'affecté au niveau Fédération')
+  assert.equal(d.appareil, 'tablette')
+  const r300 = liste(gardeC(await outilConnexions(src, regC, { minutes: 300 })))
+  assert.equal(r300.total, 6)
+  const e = r300.connexions[r300.connexions.length - 1]
+  assert.equal(e.compte, codeCompte(E.userId))
+  assert.equal(e.perimetre, 'secteur 13, 84')
+  assert.equal(e.il_y_a, 'il y a 3 h 00')
+  const semaine = liste(gardeC(await outilConnexions(src, regC, { minutes: 10_080 })))
+  assert.equal(semaine.connexions[0].sessions, 2, 'la session d’avant-hier compte sur 7 jours')
+  const lim = liste(gardeC(await outilConnexions(src, regC, { limite: 2 })))
+  assert.equal(lim.connexions.length, 2)
+  assert.equal(lim.total, 4)
+  assert.equal(lim.tronque, true)
+})
+
+await t('nextar_connexions : bornes des paramètres (minutes 1 à 10 080, limite 1 à 200, valeurs folles ramenées)', async () => {
+  const src = sourceFictive({ admin: true })
+  const b = async (i: { minutes?: number; limite?: number }) => liste(gardeC(await outilConnexions(src, regC, i)))
+  assert.equal((await b({ minutes: 0 })).fenetre_minutes, 1)
+  assert.equal((await b({ minutes: -50 })).fenetre_minutes, 1)
+  assert.equal((await b({ minutes: 1 })).total, 1, 'seule Alice (il y a 1 min, borne comprise)')
+  assert.equal((await b({ minutes: 1e9 })).fenetre_minutes, BORNES.connexionsMinutesMax)
+  assert.equal((await b({ minutes: Number.NaN })).fenetre_minutes, 10)
+  assert.equal((await b({ minutes: 4.9 })).fenetre_minutes, 4)
+  assert.equal((await b({ limite: 0 })).connexions.length, 1)
+  const beaucoup = Array.from({ length: 260 }, (_, i) => ({ userId: `00000000-0000-4000-8000-${String(1000 + i).padStart(12, '0')}`, device: 'Ordinateur', startedAt: '2026-11-05T09:50:00.000Z', lastSeenAt: new Date(MAINTENANT_FICTIF - i * 1000).toISOString() }))
+  const gros = liste(gardeC(await outilConnexions(sourceFictive({ admin: true, sessions: beaucoup }), regC, { limite: 5000 })))
+  assert.equal(gros.connexions.length, BORNES.connexionsMax)
+  assert.equal(gros.total, 260)
+  assert.equal(gros.tronque, true)
+  assert.equal(gros.connexions[0].nom_affiche, '(nom pas encore choisi)', 'compte sans profil')
+  assert.deepEqual([BORNES.connexionsMinutes, BORNES.connexionsMinutesMax, BORNES.connexionsDefaut, BORNES.connexionsMax], [10, 10_080, 50, 200])
+})
+
+await t('nextar_connexions (coach, observateur) : « réservé aux administrateurs », aucune donnée lue ni rendue', async () => {
+  const src = sourceFictive()
+  const r = gardeC(await outilConnexions(src, regC, { minutes: 10_080, limite: 200 }))
+  assert.deepEqual(Object.keys(r), ['erreur'])
+  assert.match((r as { erreur: string }).erreur, /^Réservé aux administrateurs/)
+  assert.equal(src.appelsConnexions, 0, 'ni connexions ni comptes demandés')
+})
+
+await t('nextar_connexions : aucune adresse mail même si la base en glisse une (nom, unité, champ en trop), clés interdites refusées', async () => {
+  // Une Source qui en dit trop (champ email, nom = « Prénom <adresse> téléphone », unité avec un mail) : rien ne sort.
+  const base = sourceFictive({ admin: true })
+  const bavarde: Source = {
+    ...base,
+    comptes: async (ids) =>
+      ids.map((id, i) => ({
+        userId: id,
+        fullName: i === 0 ? 'Jean Fictif <jean.fictif@exemple.test> 06 12 34 56 78' : 'Zoé Fictive (+33 6 12 34 56 78) 10.0.0.12',
+        role: 'observateur',
+        unites: [{ name: 'Comité contact@exemple.test', depts: ['83'] }],
+        email: 'jean.fictif@exemple.test',
+        phone: '0612345678',
+      })) as never,
+  }
+  const r = liste(gardeC(await outilConnexions(bavarde, regC, { minutes: 60 })))
+  assert.equal(r.connexions[0].nom_affiche, 'Jean Fictif')
+  assert.equal(r.connexions[1].nom_affiche, 'Zoé Fictive')
+  assert.equal(r.connexions[0].perimetre, 'Comité (83)')
+  const s = JSON.stringify(r)
+  assert.ok(!s.includes('@') && !/"(email|mail|phone|ip|user_agent)"/.test(s))
+  // Le dernier verrou : la liste blanche de l'outil.
+  const C = (o: Record<string, unknown>) => () => verifierSortie({ connexions: [{ compte: 'C-1', ...o }] }, 'nextar_connexions')
+  assert.throws(C({ email: 'x' }), /interdite/)
+  assert.throws(C({ 'e-mail': 'x' }), /interdite/)
+  assert.throws(C({ mail: 'x' }), /interdite/)
+  assert.throws(C({ phone: 'x' }), /interdite/)
+  assert.throws(C({ telephone: 'x' }), /interdite/)
+  assert.throws(C({ ip: 'x' }), /interdite/)
+  assert.throws(C({ user_agent: 'x' }), /interdite/)
+  assert.throws(C({ userAgent: 'x' }), /interdite/)
+  assert.throws(C({ user_id: 'x' }), /interdite/)
+  assert.throws(C({ token: 'x' }), /interdite/)
+  assert.throws(C({ device: 'x' }), /interdite/)
+  assert.throws(C({ nom_affiche: 'quelqu.un@exemple.test' }), /adresse mail ou IP/)
+  assert.throws(C({ appareil: 'ordinateur 192.168.0.1' }), /adresse mail ou IP/)
+  assert.throws(C({ code: 'J-1' }), /inconnue/, 'aucune clé des outils de joueurs')
+  assert.throws(() => verifierSortie({ joueurs: [{ code: 'J-1', nom_affiche: 'X' }] }), /inconnue/, 'nom_affiche : seulement dans nextar_connexions')
+  assert.doesNotThrow(C({ nom_affiche: 'Camille Fictive', role: 'Observateur', derniere_activite: '2026-11-05T09:58:12.000Z', il_y_a: 'il y a 2 min' }))
+})
+
+await t('nextar_connexions : petits outils (appareil, « il y a », coordonnées retirées, code de compte, rôles = appli)', () => {
+  assert.deepEqual(typeAppareil('iPhone'), { appareil: 'téléphone' })
+  assert.deepEqual(typeAppareil('iPad (appli installée)'), { appareil: 'tablette', appli_installee: true })
+  assert.deepEqual(typeAppareil('Ordinateur'), { appareil: 'ordinateur' })
+  assert.deepEqual(typeAppareil('Android (appli installée)'), { appareil: 'téléphone ou tablette', appli_installee: true })
+  assert.deepEqual(typeAppareil('Mozilla/5.0 (appli installée)'), {})
+  assert.deepEqual(typeAppareil(null), {})
+  assert.equal(ilYA(20_000), 'à l’instant')
+  assert.equal(ilYA(59 * 60_000), 'il y a 59 min')
+  assert.equal(ilYA(125 * 60_000), 'il y a 2 h 05')
+  assert.equal(ilYA(3 * 86_400_000 + 5), 'il y a 3 j')
+  assert.equal(sansCoordonnees('Pôle 2025 - 2026', 80), 'Pôle 2025 - 2026', 'une saison n’est pas un téléphone')
+  assert.equal(sansCoordonnees('Marc Fictif 06.12.34.56.78', 80), 'Marc Fictif')
+  assert.equal(sansCoordonnees('a@b.c', 80), '')
+  const c = codeCompte(A.userId)
+  assert.equal(c, codeCompte(A.userId))
+  assert.match(c, /^C-.{7}$/)
+  assert.ok(!c.includes(A.userId))
+  const roles = read('src/roles.ts')
+  for (const [k, v] of Object.entries(ROLE_LIBELLE)) assert.match(roles, new RegExp(`\\b${k}: '${v}'`), `src/roles.ts : ${k} → ${v}`)
+  assert.match(read('src/components/Members.tsx'), /'En attente \(aucun rôle\)'/)
+  assert.match(read('src/components/Members.tsx'), /'\(nom pas encore choisi\)'/)
+})
+
 // ---------- Liste blanche ----------
 
 await t('verifierSortie : clé interdite, clé inconnue, clé nominative dans un dictionnaire, texte trop long : refusés', () => {
@@ -434,6 +633,57 @@ await t('source.ts : la lecture ne sélectionne ni noms ni commentaires ; écrit
   )
   assert.equal((ecritures[0].insert as { source: string }).source, 'mcp')
   assert.ok(!appels.some((a) => a.ops.some((o) => o === 'update' || o === 'delete' || o === 'upsert' || o === 'rpc')))
+})
+
+await t('source.ts (connexions) : hb_is_admin, puis hb_connections et profils sans email ni téléphone ; aucune écriture', async () => {
+  const appels: { table: string; select?: string; ops: string[] }[] = []
+  const rpcs: string[] = []
+  const reponses: Record<string, unknown[]> = {
+    hb_connections: [{ u: 'u1', d: 'iPhone', s: '2026-11-05T09:00:00Z', l: '2026-11-05T09:58:00Z' }],
+    hb_profiles: [{ user_id: 'u1', full_name: 'Compte Fictif', role: 'preparateur', departments: ['83'] }],
+    hb_assignments: [{ u: 'u1', unite: 'unite-1' }],
+    hb_units: [{ id: 'unite-1', n: 'Ligue Fictive', l: 'niveau-ligue', d: ['13', '83'], c: null }],
+    hb_levels: [{ id: 'niveau-ligue', n: 'Ligue' }],
+  }
+  const faux = {
+    rpc(fn: string) {
+      rpcs.push(fn)
+      return Promise.resolve({ data: fn === 'hb_is_admin', error: null })
+    },
+    from(table: string) {
+      const a: (typeof appels)[number] = { table, ops: [] }
+      appels.push(a)
+      const q: Record<string, unknown> = {}
+      const chain = (op: string) => (...args: unknown[]) => {
+        a.ops.push(op)
+        if (op === 'select') a.select = String(args[0])
+        return q
+      }
+      for (const op of ['select', 'eq', 'in', 'gte', 'order', 'range', 'limit', 'insert', 'update', 'delete', 'upsert']) q[op] = chain(op)
+      q.then = (ok: (v: unknown) => void) => ok({ data: reponses[table] ?? [], error: null })
+      return q
+    },
+  }
+  const src = sourceSupabase(faux)
+  assert.equal(await src.estAdmin(), true)
+  assert.deepEqual(rpcs, ['hb_is_admin'])
+  const cx = await src.connexions('2026-11-05T09:50:00Z', 100)
+  assert.deepEqual(cx.sessions, [{ userId: 'u1', device: 'iPhone', startedAt: '2026-11-05T09:00:00Z', lastSeenAt: '2026-11-05T09:58:00Z' }])
+  assert.ok(appels[0].ops.includes('gte'))
+  const cs = await src.comptes(['u1'])
+  assert.deepEqual(cs, [{ userId: 'u1', fullName: 'Compte Fictif', role: 'preparateur', departments: ['83'], unites: [{ name: 'Ligue Fictive', depts: ['13', '83'] }] }])
+  const prof = appels.find((a) => a.table === 'hb_profiles')!
+  assert.equal(prof.select, 'user_id, full_name, role, departments')
+  for (const a of appels) {
+    assert.ok(a.select && !/email|phone|mail|postalCode|city|lat|lng|ip|agent/i.test(a.select), `${a.table} : ${a.select}`)
+    assert.ok(!/(^|[\s,])data(\s*,|$)/.test(a.select), `« data » entier demandé : ${a.select}`)
+    assert.ok(!a.ops.some((o) => ['insert', 'update', 'delete', 'upsert'].includes(o)), a.table)
+  }
+  // hb_is_admin en erreur, ou autre chose que true : pas administrateur.
+  const non = sourceSupabase({ ...faux, rpc: () => Promise.resolve({ data: null, error: { message: 'absente', code: 'PGRST202' } }) })
+  assert.equal(await non.estAdmin(), false)
+  const texte = sourceSupabase({ ...faux, rpc: () => Promise.resolve({ data: 'true', error: null }) })
+  assert.equal(await texte.estAdmin(), false)
 })
 
 // ---------- Rapport : remise des noms sur l'appareil ----------
@@ -513,10 +763,13 @@ await t('bornes du serveur = scripts 067 et 068 ; 068 : auteur seul, pas de modi
 
 await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé de service), appli (routes, Réglages, boîte)', () => {
   const srv = read('supabase/functions/mcp/serveur.ts')
-  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport']) assert.match(srv, new RegExp(`'${outil}'`))
+  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions']) assert.match(srv, new RegExp(`'${outil}'`))
+  assert.match(srv, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
+  assert.match(srv, /minutes: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMinutesMax\)/)
+  assert.match(srv, /limite: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMax\)/)
   assert.match(srv, /withOAuthProtectedResource\(/)
   assert.match(srv, /withSupabase\(\{ auth: 'user' \}\)/)
-  assert.match(srv, /verifierSortie\(out\)/)
+  assert.match(srv, /verifierSortie\(out, nom\)/)
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)

@@ -22,6 +22,8 @@ const jeton = (claims, key = privateKey) => {
 const autre = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey
 const jetons = {
   coach: jeton({ sub: '00000000-0000-4000-8000-0000000000c1', email: 'coach@exemple.test', client_id: 'client-fictif' }),
+  // Administrateur fictif (nextar_connexions) : main/index.ts lui donne la Source « administrateur » du jeu fictif.
+  admin: jeton({ sub: '00000000-0000-4000-8000-0000000000a1', email: 'admin@exemple.test', client_id: 'client-fictif' }),
   expire: jeton({ sub: '00000000-0000-4000-8000-0000000000c1', exp: now - 60 }),
   fauxSignataire: jeton({ sub: '00000000-0000-4000-8000-0000000000c1' }, autre),
 }

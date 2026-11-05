@@ -5,7 +5,7 @@
 //   MCP_URL=http://127.0.0.1:9707/functions/v1/mcp JETONS=<fichier> npx jiti tools/essai-mcp/appels.ts
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { textesInterdits } from '../mcp-jeu-fictif'
+import { textesInterdits, textesInterditsComptes } from '../mcp-jeu-fictif'
 
 const URL_MCP = process.env.MCP_URL ?? 'http://127.0.0.1:9707/functions/v1/mcp'
 const jetons = JSON.parse(readFileSync(process.env.JETONS!, 'utf8')) as Record<string, string>
@@ -92,15 +92,19 @@ for (const [nom, j] of [
 {
   const { body } = await rpc('tools/list', {})
   const noms = body.result.tools.map((t: { name: string }) => t.name).sort()
-  assert.deepEqual(noms, ['nextar_contexte', 'nextar_lire', 'nextar_proposer', 'nextar_rapport', 'nextar_suivi'])
+  assert.deepEqual(noms, ['nextar_connexions', 'nextar_contexte', 'nextar_lire', 'nextar_proposer', 'nextar_rapport', 'nextar_suivi'])
+  const cx = body.result.tools.find((t: { name: string }) => t.name === 'nextar_connexions')
+  assert.match(cx.description, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
+  assert.equal(cx.inputSchema.properties.minutes.maximum, 10080)
+  assert.equal(cx.inputSchema.properties.limite.maximum, 200)
   const lire = body.result.tools.find((t: { name: string }) => t.name === 'nextar_lire')
   assert.equal(lire.annotations.readOnlyHint, true)
   assert.ok(lire.inputSchema.properties.limite)
-  ok('tools/list : les cinq outils, schémas et annotations')
+  ok('tools/list : les six outils, schémas et annotations')
 }
 // 5. Chaque outil.
-const appel = async (name: string, args: unknown) => {
-  const { res, body } = await rpc('tools/call', { name, arguments: args })
+const appel = async (name: string, args: unknown, jeton = jetons.coach) => {
+  const { res, body } = await rpc('tools/call', { name, arguments: args }, jeton)
   assert.equal(res.status, 200, name)
   assert.ok(!body.error, `${name} : ${JSON.stringify(body.error)}`)
   sansNoms(name, body)
@@ -153,6 +157,27 @@ let codes: string[] = []
   const { out, isError } = await appel('nextar_lire', { evenement: 'Événement qui n’existe pas' })
   assert.ok(isError && out.erreur)
   ok('erreur rendue proprement (isError)')
+}
+// nextar_connexions : refus pour le coach ; liste pour l'administrateur (noms et rôles des comptes, jamais d'adresse mail).
+{
+  const { out, isError } = await appel('nextar_connexions', { minutes: 10080 })
+  assert.ok(isError)
+  assert.deepEqual(Object.keys(out), ['erreur'])
+  assert.match(out.erreur, /^Réservé aux administrateurs/)
+  ok('nextar_connexions (coach) : « réservé aux administrateurs », aucune donnée')
+}
+{
+  const { out, isError } = await appel('nextar_connexions', {}, jetons.admin)
+  assert.ok(!isError, JSON.stringify(out))
+  assert.equal(out.fenetre_minutes, 10)
+  assert.equal(out.total, 4)
+  assert.equal(out.connexions[0].nom_affiche, 'Alice Administratrice-Fictive')
+  assert.equal(out.connexions[1].role, 'Encadrant')
+  const s = JSON.stringify(out)
+  for (const t of textesInterditsComptes()) assert.ok(!s.includes(t), `nextar_connexions : « ${t} » ne doit pas apparaître`)
+  const { res } = await rpc('tools/call', { name: 'nextar_connexions', arguments: { minutes: 0 } }, jetons.admin)
+  assert.equal(res.status, 200)
+  ok(`nextar_connexions (administrateur) : ${out.total} comptes, sans adresse mail ni identifiant brut`)
 }
 // 6. Protocole récent (sans version 2025) : la liste répond aussi.
 {
