@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo } from 'react'
 import { indexFiches, type IndexFiches } from './codesJoueurs'
-import { db, TRIAL } from './db'
+import { db } from './db'
 import { supabase } from './sync'
 
 /*
@@ -26,7 +26,7 @@ export type Lecture = { etat: 'ok'; rapport: Rapport } | { etat: 'introuvable' }
 
 const absente = (e: { code?: string } | null) => !!e && (e.code === '42P01' || e.code === 'PGRST205')
 /** Version d'essai sans serveur : pas de rapports (ils viennent du serveur MCP, avec un compte). */
-export const rapportsPossibles = () => !!supabase && !TRIAL
+export const rapportsPossibles = () => !!supabase
 
 export async function lireRapport(id: string): Promise<Lecture> {
   if (!rapportsPossibles()) return { etat: 'sans-serveur' }
