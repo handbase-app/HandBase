@@ -5,11 +5,12 @@
 //   MCP_URL=http://127.0.0.1:9707/functions/v1/mcp JETONS=<fichier> npx jiti tools/essai-mcp/appels.ts
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { textesInterdits, textesInterditsComptes } from '../mcp-jeu-fictif'
+import { JOUEURS, JOUEURS_ADMIN, textesInterdits, textesInterditsAdmin, textesInterditsComptes } from '../mcp-jeu-fictif'
 
 const URL_MCP = process.env.MCP_URL ?? 'http://127.0.0.1:9707/functions/v1/mcp'
 const jetons = JSON.parse(readFileSync(process.env.JETONS!, 'utf8')) as Record<string, string>
 const interdits = textesInterdits()
+const interditsAdmin = [...textesInterdits([...JOUEURS, ...JOUEURS_ADMIN]), ...textesInterditsAdmin()]
 
 let n = 0
 const ok = (nom: string) => console.log(`ok ${++n} - ${nom}`)
@@ -92,7 +93,25 @@ for (const [nom, j] of [
 {
   const { body } = await rpc('tools/list', {})
   const noms = body.result.tools.map((t: { name: string }) => t.name).sort()
-  assert.deepEqual(noms, ['nextar_connexions', 'nextar_contexte', 'nextar_lire', 'nextar_proposer', 'nextar_rapport', 'nextar_suivi'])
+  assert.deepEqual(noms, [
+    'nextar_admin_a_faire',
+    'nextar_admin_activite',
+    'nextar_admin_questions',
+    'nextar_admin_sante',
+    'nextar_connexions',
+    'nextar_contexte',
+    'nextar_lire',
+    'nextar_proposer',
+    'nextar_rapport',
+    'nextar_suivi',
+  ])
+  for (const n of ['nextar_admin_a_faire', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_sante']) {
+    const o = body.result.tools.find((t: { name: string }) => t.name === n)
+    assert.match(o.description, /^Réservé aux administrateurs ; lecture seule\./, n)
+    assert.equal(o.annotations.readOnlyHint, true, n)
+  }
+  const act = body.result.tools.find((t: { name: string }) => t.name === 'nextar_admin_activite')
+  assert.equal(act.inputSchema.properties.jours.maximum, 365)
   const cx = body.result.tools.find((t: { name: string }) => t.name === 'nextar_connexions')
   assert.match(cx.description, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
   assert.equal(cx.inputSchema.properties.minutes.maximum, 10080)
@@ -100,7 +119,7 @@ for (const [nom, j] of [
   const lire = body.result.tools.find((t: { name: string }) => t.name === 'nextar_lire')
   assert.equal(lire.annotations.readOnlyHint, true)
   assert.ok(lire.inputSchema.properties.limite)
-  ok('tools/list : les six outils, schémas et annotations')
+  ok('tools/list : les dix outils, schémas et annotations (outils d’administration en lecture seule)')
 }
 // 5. Chaque outil.
 const appel = async (name: string, args: unknown, jeton = jetons.coach) => {
@@ -178,6 +197,34 @@ let codes: string[] = []
   const { res } = await rpc('tools/call', { name: 'nextar_connexions', arguments: { minutes: 0 } }, jetons.admin)
   assert.equal(res.status, 200)
   ok(`nextar_connexions (administrateur) : ${out.total} comptes, sans adresse mail ni identifiant brut`)
+}
+// Outils d'administration : refus pour le coach (aucune donnée) ; réponse pour l'administrateur, sans nom de joueur, adresse
+// mail, téléphone, IP ni jeton ; 069 absent dans l'essai : « indisponible tant que 069… ».
+for (const [nom, args] of [
+  ['nextar_admin_a_faire', {}],
+  ['nextar_admin_sante', {}],
+  ['nextar_admin_activite', { jours: 30 }],
+  ['nextar_admin_questions', { jours: 60, filtre: 'toutes' }],
+] as const) {
+  const coach = await appel(nom, args)
+  assert.ok(coach.isError, nom)
+  assert.deepEqual(Object.keys(coach.out), ['erreur'], nom)
+  assert.match(coach.out.erreur, /^Réservé aux administrateurs/, nom)
+  const { out, isError } = await appel(nom, args, jetons.admin)
+  assert.ok(!isError, `${nom} : ${JSON.stringify(out)}`)
+  const s = JSON.stringify(out)
+  for (const t of interditsAdmin) assert.ok(!s.includes(t), `${nom} : « ${t} » ne doit pas apparaître`)
+  assert.ok(!s.includes('@'), `${nom} : « @ »`)
+  if (nom === 'nextar_admin_a_faire') assert.equal(out.resume.doublons, 2)
+  if (nom === 'nextar_admin_sante') assert.match(out.base, /indisponible tant que supabase\/069_admin_sante\.sql/)
+  if (nom === 'nextar_admin_activite') assert.equal(out.inactifs.total, 1)
+  if (nom === 'nextar_admin_questions') assert.ok(out.groupes.some((g: { formulation: string }) => g.formulation === 'Montre les mesures de [joueur]'))
+  ok(`${nom} : refus pour le coach, réponse pour l’administrateur (sans nom de joueur ni adresse mail)`)
+}
+{
+  const { res } = await rpc('tools/call', { name: 'nextar_admin_activite', arguments: { jours: 0 } }, jetons.admin)
+  assert.equal(res.status, 200)
+  ok('nextar_admin_activite : jours hors bornes refusé par le schéma, sans plantage')
 }
 // 6. Protocole récent (sans version 2025) : la liste répond aussi.
 {

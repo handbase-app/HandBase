@@ -3,7 +3,24 @@
 // propositions et rapports gardés). Noms, clubs et licences inventés. Importable par Node (jiti) et par Deno (imports en .ts,
 // aucun module Node).
 
-import type { AvisSrv, CompteSrv, CritereSrv, EvenementSrv, GroupeSrv, JoueurNom, MesureSrv, PropositionSrv, SessionSrv, Source, VuSrv } from '../supabase/functions/mcp/outils.ts'
+import type {
+  ActiviteSrv,
+  AvisAValiderSrv,
+  AvisSrv,
+  Comptage,
+  CompteSrv,
+  CritereSrv,
+  EvenementSrv,
+  GroupeSrv,
+  JoueurNom,
+  JournalSrv,
+  MesureSrv,
+  ProfilSrv,
+  PropositionSrv,
+  SessionSrv,
+  Source,
+  VuSrv,
+} from '../supabase/functions/mcp/outils.ts'
 
 export interface JoueurFictif {
   id: string
@@ -124,9 +141,10 @@ export function textesInterdits(js: readonly JoueurFictif[] = JOUEURS): string[]
   for (const p of js) {
     out.add(p.lastName)
     if (p.firstName.length >= 4) out.add(p.firstName)
-    out.add(p.birthDate)
+    // Année seule (« 2012 ») : elle peut sortir ; licence vide : rien à chercher.
+    if (p.birthDate.length > 4) out.add(p.birthDate)
     out.add(p.club)
-    out.add(p.license)
+    if (p.license) out.add(p.license)
   }
   for (const a of AVIS) {
     if (a.strengths) out.add(a.strengths)
@@ -136,6 +154,95 @@ export function textesInterdits(js: readonly JoueurFictif[] = JOUEURS): string[]
   return [...out]
 }
 
+// ---------- Administration (outils nextar_admin_*) : fiches, avis, journal, activité INVENTÉS ----------
+
+/** Fiches vues seulement par les outils d'administration (proposées, homonymes) ; noms inventés, qui ne doivent jamais sortir. */
+export const JOUEURS_ADMIN: (JoueurFictif & { createdBy?: string; createdAt?: string })[] = [
+  // Homonyme proposé de p-noah, seule l'année connue : doublon probable « même année ».
+  { id: 'p-noah-bis', firstName: 'Noah', lastName: 'Fictivus', birthDate: '2012', sex: 'M', position: 'PIV', dept: '13', club: 'HB Nulle Part', license: '', review: 'pending', createdBy: '00000000-0000-4000-8000-0000000000b2', createdAt: '2026-10-30T18:00:00.000Z' },
+  { id: 'p-ines', firstName: 'Inès', lastName: 'Proposée-Fictive', birthDate: '2013-02-02', sex: 'F', position: 'AD', dept: '83', club: 'Club Fictif de Toulon', license: '', review: 'pending', createdBy: '00000000-0000-4000-8000-0000000000c1', createdAt: '2026-11-02T09:30:00.000Z' },
+  // Homonyme sans état de p-hors (hors cadre), même date : doublon probable « même date ».
+  { id: 'p-zoe-bis', firstName: 'Zoé', lastName: 'Horscadre', birthDate: '2011-04-04', sex: 'F', position: 'AG', dept: '83', club: 'Entente Inventée', license: '6383001000889' },
+]
+
+/** Avis spontanés en attente de validation (auteur : un compte fictif, ou un compte supprimé). */
+export const AVIS_A_VALIDER: AvisAValiderSrv[] = [
+  { playerId: 'p-emma', date: '2026-11-01', createdBy: '00000000-0000-4000-8000-0000000000b2', createdAt: '2026-11-01T18:00:00.000Z' },
+  { playerId: 'p-jade', date: '2026-11-03', createdBy: '00000000-0000-4000-8000-0000000000ff', createdAt: '2026-11-03T12:00:00.000Z' },
+]
+
+/** Compte du staff sans ouverture de l'appli depuis 45 jours (inactif) ; vu seulement par les outils d'administration. */
+export const COMPTE_INACTIF: CompteSrv & { email: string } = { userId: '00000000-0000-4000-8000-0000000000b6', fullName: 'Fabien Inactif-Fictif', role: 'observateur', email: 'fabien@exemple.test' }
+
+/** Création des comptes (hb_profiles.created_at). */
+export const CREES_LE: Record<string, string> = {
+  [COMPTES[0].userId]: '2026-01-10T08:00:00.000Z',
+  [COMPTES[1].userId]: '2026-02-01T08:00:00.000Z',
+  [COMPTES[2].userId]: '2026-03-01T08:00:00.000Z',
+  [COMPTES[3].userId]: '2026-04-01T08:00:00.000Z',
+  [COMPTES[4].userId]: '2026-05-01T08:00:00.000Z',
+  [COMPTES[5].userId]: '2026-11-04T07:00:00.000Z',
+  [COMPTE_INACTIF.userId]: '2026-06-01T08:00:00.000Z',
+}
+
+/** Activité fictive par compte (lignes créées sur la période, quelle qu'elle soit). */
+export const ACTIVITE: Record<string, ActiviteSrv> = {
+  [COMPTES[0].userId]: { avis: 2, mesures: 140, evenements: 3, vus: 25, fiches: 1 },
+  [COMPTES[1].userId]: { avis: 12, mesures: 30, evenements: 1, vus: 60, fiches: 2 },
+  [COMPTES[2].userId]: { avis: 5, mesures: 0, evenements: 0, vus: 10, fiches: 1 },
+}
+
+/** Dernière écriture à l'historique, par compte. */
+export const ECRITURES: Record<string, string> = {
+  [COMPTES[1].userId]: ilYaMin(30),
+  [COMPTE_INACTIF.userId]: ilYaMin(50 * 24 * 60),
+}
+
+const ilYaJ = (j: number) => ilYaMin(j * 24 * 60)
+
+/**
+ * Journal des questions fictif. Des phrases AVEC des noms de joueurs du jeu (comme si l'appareil du coach n'avait pas eu la
+ * fiche pour les anonymiser), un téléphone, une adresse mail, une adresse IP, une licence : rien de cela ne doit sortir.
+ */
+export const JOURNAL: JournalSrv[] = [
+  { id: 'q1', at: ilYaJ(1), authorId: COMPTES[1].userId, phrase: 'Montre les mesures de Lucas Exemplaire', recipe: 'pas_comprise', page: 'joueurs' },
+  { id: 'q2', at: ilYaJ(2), authorId: COMPTES[0].userId, phrase: 'montre les mesures de lucas exemplaire', recipe: 'pas_comprise', status: 'erreur', page: 'joueurs' },
+  { id: 'q3', at: ilYaJ(3), authorId: COMPTES[1].userId, phrase: '[prénom] [nom] a-t-il progressé au Sprint 10 m ?', recipe: 'partielle', recipeMissing: ['Hugo Martinvert', 'tri par progression'], status: 'ok', page: 'bilan' },
+  { id: 'q4', at: ilYaJ(4), authorId: COMPTES[1].userId, phrase: 'Gauchers nés en 2011 dans le Var', recipe: 'complete', page: 'joueurs' },
+  { id: 'a4', at: ilYaJ(4), authorId: COMPTES[1].userId, kind: 'avis', questionId: 'q4', verdict: 'mauvaise', comment: 'je voulais la fiche de Jade Chimérique, appeler le 06 12 34 56 78 ou jade@exemple.test' },
+  { id: 'q5', at: ilYaJ(5), authorId: COMPTES[0].userId, phrase: 'Compare Emma et Léa Bidonville au CMJ', recipe: 'pas_comprise', page: 'comparer' },
+  { id: 'q6', at: ilYaJ(6), authorId: COMPTES[0].userId, phrase: 'liste des gardiens du Pôle Espoirs Fictif', recipe: 'complete', page: 'groupes' },
+  { id: 'q7', at: ilYaJ(7), authorId: COMPTES[1].userId, phrase: 'Qui est Hugo Martinvert ? 192.168.1.20', recipe: 'pas_comprise', page: 'question' },
+  { id: 'q8', at: ilYaJ(8), authorId: COMPTES[0].userId, phrase: 'Joueurs vus à Toulon et Marseille', recipe: 'pas_comprise', page: 'joueurs' },
+  { id: 'q9', at: ilYaJ(40), authorId: COMPTES[1].userId, phrase: 'licence 6383001000111 de Tom Utopiste', recipe: 'pas_comprise', page: 'joueurs' },
+  { id: 'v1', at: ilYaJ(2), authorId: COMPTES[1].userId, kind: 'avis_vocal', phrase: 'Emma Imaginaire très bonne défense' },
+]
+
+/** Réponse fictive de hb_admin_sante (069), avec une clé en trop et des textes piégés : rien de cela ne doit sortir tel quel. */
+export const SANTE_069 = {
+  version: 1,
+  mesure_le: ilYaMin(0),
+  base: { taille_octets: 439_353_344, postgres: '17.4' },
+  tables: [
+    { table: 'hb_registre', lignes_estimees: 338_824, taille_octets: 120_000_000 },
+    { table: 'hb_measurements', lignes_estimees: 145_471, taille_octets: 90_000_000 },
+    { table: 'hb_players', lignes_estimees: 40_001, taille_octets: 60_000_000 },
+  ],
+  registre: { lignes_24h: 1200, pertes_24h: 3, derniere: ilYaMin(2), purge_le: ilYaMin(400) },
+  charge: { niveau: 'calme', jusqua: ilYaMin(10), en_cours: false, annonce_le: ilYaMin(15) },
+  abonnements: { total: 4, comptes: 3, par_appareil: [{ appareil: 'iPhone', nb: 3 }, { appareil: 'Android', nb: 1 }], sans_envoi_reussi_30j: 1, endpoint: 'https://push.exemple.test/jeton-secret' },
+  veille: [{ jour: '2026-11-04', comptes: 2, appareils: 3, envoyes: 3 }],
+  notifications: { en_attente: 0, plus_ancienne: null },
+  taches: [{ tache: 'handbase-purge', derniere_execution: ilYaMin(400), dernier_etat: 'succeeded', echecs_7j: 0, executions_7j: 7 }, { tache: 'alerte admin@exemple.test', dernier_etat: 'failed', echecs_7j: 2, executions_7j: 2 }],
+  transcription: { periode: '2026-11', total: 5 },
+  secret: 'ne doit pas sortir',
+}
+
+/** Textes des outils d'administration qui ne doivent jamais sortir (jetons, téléphones, adresses, IP, licences). */
+export function textesInterditsAdmin(): string[] {
+  return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
+}
+
 export interface SourceFictive extends Source {
   propositionsDeposees: { id: string; titre: string; contexte: Record<string, unknown>; lignes: string[][]; etat: string; created_at: string }[]
   rapportsDeposes: { id: string; titre: string; contenu: string }[]
@@ -143,10 +250,14 @@ export interface SourceFictive extends Source {
   appelsNoms: number
   /** Appels faits à connexions et comptes (un compte qui n'est pas administrateur : aucun). */
   appelsConnexions: number
+  /** Appels faits aux lectures d'administration (un compte qui n'est pas administrateur : aucun). */
+  appelsAdmin: number
 }
 
 /** Une Source en mémoire sur ces données (ou d'autres joueurs : grande base fictive). */
-export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: string; admin?: boolean; sessions?: SessionSrv[] } = {}): SourceFictive {
+export function sourceFictive(
+  o: { joueurs?: JoueurFictif[]; erreurDepot?: string; admin?: boolean; sessions?: SessionSrv[]; sante?: 'ok' | 'absente' | 'erreur'; nomsTronques?: boolean } = {},
+): SourceFictive {
   const joueurs = o.joueurs ?? JOUEURS
   const vivants = () => joueurs.filter((p) => !p.mergedInto && p.review !== 'refused')
   let n = 0
@@ -158,6 +269,7 @@ export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: strin
     rapportsDeposes: raps,
     appelsNoms: 0,
     appelsConnexions: 0,
+    appelsAdmin: 0,
     async criteres() {
       return CRITERES.filter((c) => !c.deleted).map((c) => ({ ...c }))
     },
@@ -234,6 +346,90 @@ export function sourceFictive(o: { joueurs?: JoueurFictif[]; erreurDepot?: strin
     async comptes(ids) {
       src.appelsConnexions++
       return COMPTES.filter((c) => ids.includes(c.userId)).map(({ email: _e, phone: _p, ...c }) => ({ ...c }))
+    },
+    // ---- Administration : comme la base, rien pour un compte qui n'est pas administrateur ----
+    async profils() {
+      src.appelsAdmin++
+      if (!o.admin) return []
+      return [...COMPTES, COMPTE_INACTIF].map((c): ProfilSrv => ({ userId: c.userId, fullName: c.fullName, role: c.role, createdAt: CREES_LE[c.userId] }))
+    },
+    async fichesAValider(max) {
+      src.appelsAdmin++
+      if (!o.admin) return { fiches: [], total: 0 }
+      const fs = [...joueurs, ...JOUEURS_ADMIN].filter((p) => p.review === 'pending' && !p.mergedInto).sort((a, b) => ((a as { createdAt?: string }).createdAt ?? '').localeCompare((b as { createdAt?: string }).createdAt ?? ''))
+      return {
+        fiches: fs.slice(0, max).map((p) => ({ id: p.id, annee: +p.birthDate.slice(0, 4), poste: p.position, dept: p.dept, createdBy: (p as { createdBy?: string }).createdBy ?? null, createdAt: (p as { createdAt?: string }).createdAt ?? null })),
+        total: fs.length,
+      }
+    },
+    async avisAValider(max) {
+      src.appelsAdmin++
+      if (!o.admin) return { avis: [], total: 0 }
+      return { avis: AVIS_A_VALIDER.slice(0, max).map((a) => ({ ...a })), total: AVIS_A_VALIDER.length }
+    },
+    async nomsJoueurs(max) {
+      src.appelsAdmin++
+      src.appelsNoms++
+      if (!o.admin) return { joueurs: [], tronque: false }
+      const js = [...joueurs, ...JOUEURS_ADMIN].filter((p) => !p.mergedInto)
+      const lim = o.nomsTronques ? 2 : max
+      return { joueurs: js.slice(0, lim).map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, birthDate: p.birthDate, ...(p.review ? { review: p.review } : {}) })), tronque: js.length > lim }
+    },
+    async propositionsEnAttente(max) {
+      src.appelsAdmin++
+      const ps = props.filter((p) => p.etat === 'en_attente').reverse()
+      return { propositions: ps.slice(0, max).map((p) => ({ ...toSrv(p), nbLignes: -1 })), total: ps.length }
+    },
+    async journal(depuis, max) {
+      src.appelsAdmin++
+      if (!o.admin) return { lignes: [], tronque: false }
+      const ls = JOURNAL.filter((l) => l.at >= depuis).sort((a, b) => b.at.localeCompare(a.at))
+      return { lignes: ls.slice(0, max).map((l) => ({ ...l })), tronque: ls.length > max }
+    },
+    async compter(quoi: Comptage) {
+      src.appelsAdmin++
+      if (!o.admin) return 0
+      const tous = [...joueurs, ...JOUEURS_ADMIN]
+      const n: Partial<Record<Comptage, number | null>> = {
+        joueurs: tous.filter((p) => !p.mergedInto).length,
+        joueurs_fondus: tous.filter((p) => p.mergedInto).length,
+        joueurs_revus: tous.filter((p) => p.review && !p.mergedInto).length,
+        mesures: MESURES.length,
+        avis: AVIS.length + AVIS_A_VALIDER.length,
+        evenements: EVENEMENTS.length,
+        groupes: GROUPES.length,
+        vus: VUS.length,
+        videos: null, // illisible
+        connexions: SESSIONS.length,
+        journal_questions: JOURNAL.length,
+      }
+      return quoi in n ? (n[quoi] ?? null) : 0
+    },
+    async sante() {
+      src.appelsAdmin++
+      if (!o.admin) return { erreur: 'Réservé aux administrateurs' }
+      if (o.sante === 'ok') return { ok: JSON.parse(JSON.stringify(SANTE_069)) as Record<string, unknown> }
+      if (o.sante === 'erreur') return { erreur: 'permission denied for table hb_registre' }
+      return { absente: true as const }
+    },
+    async dernieresVues() {
+      src.appelsAdmin++
+      if (!o.admin) return []
+      const m = new Map<string, string>()
+      for (const s of o.sessions ?? SESSIONS) if (!m.has(s.userId) || s.lastSeenAt > m.get(s.userId)!) m.set(s.userId, s.lastSeenAt)
+      m.set(COMPTE_INACTIF.userId, ilYaMin(45 * 24 * 60))
+      return [...m].map(([userId, lastSeenAt]) => ({ userId, lastSeenAt }))
+    },
+    async derniereEcriture(userId) {
+      src.appelsAdmin++
+      if (!o.admin) return null
+      if (!userId) return ilYaMin(4)
+      return ECRITURES[userId] ?? null
+    },
+    async activite(userId) {
+      src.appelsAdmin++
+      if (!o.admin) return { avis: null, mesures: null, evenements: null, vus: null, fiches: null }
+      return { ...(ACTIVITE[userId] ?? { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 }) }
     },
   }
   return src

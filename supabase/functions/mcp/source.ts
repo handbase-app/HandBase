@@ -11,12 +11,37 @@
 //  - nextar_connexions (administrateurs) : hb_is_admin() d'abord ; puis hb_connections (compte, type d'appareil, début et
 //    dernier signe de vie ; la table n'a ni adresse IP ni navigateur ; lisible par les administrateurs seulement, 030),
 //    hb_profiles (user_id, full_name, role, departments : JAMAIS email ni phone, que la base ne donne d'ailleurs pas en
-//    lecture directe, 029), affectations et unités (nom, départements, n° de club, niveau ; ni adresse ni ville).
+//    lecture directe, 029), affectations et unités (nom, départements, n° de club, niveau ; ni adresse ni ville) ;
+//  - outils d'administration (admin.ts ; appelés APRÈS hb_is_admin) : hb_profiles (user_id, full_name, role, created_at) ;
+//    fiches proposées (id, année tirée de la date, poste, département, auteur, date de création) ; avis en attente (joueur,
+//    date, auteur ; ni notes ni commentaires) ; prénom, nom, date de naissance et état des fiches, pour les doublons et le
+//    masquage des questions (jamais rendus) ; journal des questions (phrase, issue, page, verdict, commentaire, auteur : ni
+//    requête SQL, ni détail d'erreur, ni nom d'auteur) ; nombres de lignes (count, head : aucune ligne transférée) ;
+//    hb_admin_sante (069), hb_last_seen (030), dernière date de l'historique (hb_audit.at seulement : ni résumé ni changements).
 // Fichier sans import Deno (testable avec npx jiti et un faux client, tools/test-mcp.ts).
 
 import { eventNumbers } from './partage/importMesures.ts'
 import type { ConfigRow } from './partage/sportConfig.ts'
-import type { AvisSrv, CompteSrv, CritereSrv, EvenementSrv, FiltreJoueurs, GroupeSrv, JoueurLire, JoueurNom, MesureSrv, PropositionSrv, SessionSrv, Source, VuSrv } from './outils.ts'
+import type {
+  ActiviteSrv,
+  AvisSrv,
+  Comptage,
+  CompteSrv,
+  CritereSrv,
+  EvenementSrv,
+  FiltreJoueurs,
+  GroupeSrv,
+  JoueurLire,
+  JoueurNom,
+  JournalSrv,
+  MesureSrv,
+  NomJoueurSrv,
+  ProfilSrv,
+  PropositionSrv,
+  SessionSrv,
+  Source,
+  VuSrv,
+} from './outils.ts'
 
 /** Ce dont on se sert du client supabase-js (requêtes PostgREST). */
 // deno-lint-ignore no-explicit-any
@@ -296,5 +321,195 @@ export function sourceSupabase(sb: ClientSupabase): Source {
         }
       })
     },
+
+    // ---------- Administration (admin.ts) ----------
+
+    async profils(): Promise<ProfilSrv[]> {
+      // Colonnes nommées une à une : ni email ni phone (029 ne les donne d'ailleurs pas en lecture directe).
+      const { rows } = await pages<{ user_id: string; full_name: string | null; role: string | null; created_at: string | null }>(
+        (a, b) => sb.from('hb_profiles').select('user_id, full_name, role, created_at').order('created_at').range(a, b),
+        5000,
+      )
+      return rows.filter((p) => p.user_id && p.role !== 'joueur').map((p) => ({ userId: p.user_id, fullName: p.full_name, role: p.role, createdAt: p.created_at }))
+    },
+
+    async fichesAValider(max) {
+      type Row = { id: string; b: string | null; p: string | null; dept: string | null; m: string | null; by: string | null; at: string | null }
+      const { data, error, count } = await sb
+        .from('hb_players')
+        .select('id, b:data->>birthDate, p:data->>position, dept:scope_dept, m:data->>mergedInto, by:created_by, at:data->>createdAtServer', { count: 'exact' })
+        .eq('deleted', false)
+        .eq('data->>review', 'pending')
+        .is('data->>mergedInto', null)
+        .order('data->>createdAtServer', { ascending: true })
+        .range(0, Math.max(0, max - 1))
+      if (error) throw new Error(error.message)
+      const rows = ((data ?? []) as Row[]).filter((r) => !r.m)
+      return {
+        fiches: rows.map((r) => ({ id: r.id, ...(yearOf(r.b) ? { annee: yearOf(r.b) } : {}), ...(r.p ? { poste: r.p } : {}), ...(r.dept ? { dept: r.dept } : {}), createdBy: r.by, createdAt: r.at })),
+        total: typeof count === 'number' ? count : rows.length,
+      }
+    },
+
+    async avisAValider(max) {
+      type Row = { p: string | null; d: string | null; by: string | null; at: string | null }
+      const { data, error, count } = await sb
+        .from('hb_evaluations')
+        .select('p:data->>playerId, d:data->>date, by:created_by, at:data->>createdAtServer', { count: 'exact' })
+        .eq('deleted', false)
+        .eq('data->>review', 'pending')
+        .order('data->>createdAtServer', { ascending: true })
+        .range(0, Math.max(0, max - 1))
+      if (error) throw new Error(error.message)
+      const rows = ((data ?? []) as Row[]).filter((r): r is Row & { p: string } => !!r.p)
+      return { avis: rows.map((r) => ({ playerId: r.p, date: r.d, createdBy: r.by, createdAt: r.at })), total: typeof count === 'number' ? count : rows.length }
+    },
+
+    async nomsJoueurs(max) {
+      type Row = { id: string; f: string | null; l: string | null; b: string | null; r: string | null; m: string | null }
+      const r = await pages<Row>(
+        (a, b) => sb.from('hb_players').select('id, f:data->>firstName, l:data->>lastName, b:data->>birthDate, r:data->>review, m:data->>mergedInto').eq('deleted', false).order('id').range(a, b),
+        max,
+      )
+      const joueurs: NomJoueurSrv[] = r.rows
+        .filter((x) => !x.m)
+        .map((x) => ({ id: x.id, firstName: x.f ?? '', lastName: x.l ?? '', ...(x.b ? { birthDate: x.b } : {}), ...(x.r ? { review: x.r } : {}) }))
+      return { joueurs, tronque: r.tronque }
+    },
+
+    async propositionsEnAttente(max) {
+      const { data, error, count } = await sb
+        .from('hb_propositions')
+        .select('id, source, kind, titre, etat, created_at, updated_at, expires_at, deleted_at', { count: 'exact' })
+        .eq('etat', 'en_attente')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .range(0, Math.max(0, max - 1))
+      if (absente(error)) return { propositions: [], total: 0 }
+      if (error) throw new Error(error.message)
+      const rows = (data ?? []) as Omit<PropositionSrv, 'nbLignes'>[]
+      return { propositions: rows.map((p) => ({ ...p, nbLignes: -1 })), total: typeof count === 'number' ? count : rows.length }
+    },
+
+    async journal(depuis, max) {
+      // Ni sql, ni sqlRetry, ni detail, ni authorName : jamais demandés.
+      type Row = {
+        id: string; at: string | null; u: string | null; ph: string | null; r: string | null; s: string | null; rm: unknown; d: string | null
+        pg: string | null; k: string | null; q: string | null; v: string | null; c: string | null; rd: unknown
+      }
+      const COLS = 'id, at:data->>at, u:data->>authorId, ph:data->>phrase, r:data->>recipe, s:data->>status, rm:data->recipeMissing, d:data->>display, pg:data->>page, k:data->>kind, q:data->>questionId, v:data->>verdict, c:data->>comment, rd:data->recipeDone'
+      let r: { rows: Row[]; tronque: boolean }
+      try {
+        r = await pages<Row>((a, b) => sb.from('hb_question_log').select(COLS).eq('deleted', false).gte('data->>at', depuis).order('data->>at', { ascending: false }).range(a, b), max)
+      } catch (e) {
+        if (e instanceof Error && /hb_question_log|does not exist|PGRST205/.test(e.message)) return { lignes: [], tronque: false }
+        throw e
+      }
+      const lignes: JournalSrv[] = r.rows
+        .filter((x) => x.id && x.at)
+        .map((x) => ({
+          id: x.id,
+          at: x.at!,
+          ...(x.u ? { authorId: x.u } : {}),
+          ...(x.ph ? { phrase: x.ph } : {}),
+          ...(x.r ? { recipe: x.r } : {}),
+          ...(x.s ? { status: x.s } : {}),
+          ...(arr(x.rm)?.length ? { recipeMissing: arr(x.rm) } : {}),
+          ...(x.d ? { display: x.d } : {}),
+          ...(x.pg ? { page: x.pg } : {}),
+          ...(x.k ? { kind: x.k } : {}),
+          ...(x.q ? { questionId: x.q } : {}),
+          ...(x.v ? { verdict: x.v } : {}),
+          ...(x.c ? { comment: x.c } : {}),
+          ...(x.rd === true ? { recipeDone: true } : {}),
+        }))
+      return { lignes, tronque: r.tronque }
+    },
+
+    async compter(quoi: Comptage) {
+      const c = COMPTAGES[quoi]
+      if (!c) return null
+      // deno-lint-ignore no-explicit-any
+      let q: any = sb.from(c.table).select(c.cle ?? 'id', { count: 'exact', head: true })
+      if (c.vivantes !== false) q = q.eq('deleted', false)
+      for (const [col, val] of c.egal ?? []) q = q.eq(col, val)
+      for (const col of c.nonNul ?? []) q = q.not(col, 'is', null)
+      for (const col of c.nul ?? []) q = q.is(col, null)
+      const { count, error } = await q
+      if (error || typeof count !== 'number') return null
+      return count
+    },
+
+    async sante() {
+      const { data, error } = await sb.rpc('hb_admin_sante')
+      if (error) {
+        // Fonction absente (script 069 pas appliqué) : PostgREST PGRST202, Postgres 42883.
+        if (error.code === 'PGRST202' || error.code === '42883' || /hb_admin_sante/.test(error.message ?? '') && /find|exist/i.test(error.message ?? '')) return { absente: true as const }
+        return { erreur: error.message ?? 'erreur' }
+      }
+      return data && typeof data === 'object' && !Array.isArray(data) ? { ok: data as Record<string, unknown> } : { erreur: 'réponse inattendue' }
+    },
+
+    async dernieresVues() {
+      const { data, error } = await sb.rpc('hb_last_seen')
+      if (error || !Array.isArray(data)) return []
+      return (data as { user_id: string | null; last_seen_at: string | null }[]).filter((x) => x.user_id && x.last_seen_at).map((x) => ({ userId: x.user_id!, lastSeenAt: x.last_seen_at! }))
+    },
+
+    async derniereEcriture(userId) {
+      // La date seulement (ni résumé, ni changements, ni nom).
+      let q = sb.from('hb_audit').select('at')
+      if (userId) q = q.eq('user_id', userId)
+      const { data, error } = await q.order('at', { ascending: false }).limit(1)
+      if (error || !Array.isArray(data) || !data.length) return null
+      return typeof data[0].at === 'string' ? data[0].at : null
+    },
+
+    async activite(userId, depuis): Promise<ActiviteSrv> {
+      // Lignes créées par ce compte (auteur posé par le serveur, hb_stamp 004 ; colonne created_by de 058 quand elle existe)
+      // depuis `depuis` : server_updated_at >= depuis (index de 058) ET createdAtServer >= depuis (création, pas modification).
+      const n = async (table: string, auteur: string) => {
+        const { count, error } = await sb
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('deleted', false)
+          .eq(auteur, userId)
+          .gte('server_updated_at', depuis)
+          .gte('data->>createdAtServer', depuis)
+        if (error && auteur === 'created_by' && /created_by/.test(error.message ?? '')) return n(table, 'data->>createdBy')
+        return error || typeof count !== 'number' ? null : count
+      }
+      const [avis, mesures, evenements, vus, fiches] = await Promise.all([
+        n('hb_evaluations', 'created_by'),
+        n('hb_measurements', 'created_by'),
+        n('hb_events', 'data->>createdBy'),
+        n('hb_seen', 'created_by'),
+        n('hb_players', 'created_by'),
+      ])
+      return { avis, mesures, evenements, vus, fiches }
+    },
   }
+}
+
+/** Comptages de Source.compter : table et filtres FIXES (aucun nom de table ne vient de l'extérieur). */
+const COMPTAGES: Record<Comptage, { table: string; cle?: string; vivantes?: false; egal?: [string, string][]; nonNul?: string[]; nul?: string[] }> = {
+  joueurs: { table: 'hb_players', nul: ['data->>mergedInto'] },
+  joueurs_fondus: { table: 'hb_players', nonNul: ['data->>mergedInto'] },
+  joueurs_revus: { table: 'hb_players', nonNul: ['data->>review'], nul: ['data->>mergedInto'] },
+  mesures: { table: 'hb_measurements' },
+  avis: { table: 'hb_evaluations' },
+  evenements: { table: 'hb_events' },
+  groupes: { table: 'hb_groups' },
+  vus: { table: 'hb_seen' },
+  videos: { table: 'hb_videos' },
+  a_revoir: { table: 'hb_rewatch' },
+  criteres: { table: 'hb_criteria' },
+  listes: { table: 'hb_lists' },
+  unites: { table: 'hb_units' },
+  affectations: { table: 'hb_assignments' },
+  rencontres: { table: 'hb_rencontres' },
+  alertes: { table: 'hb_alerts' },
+  journal_questions: { table: 'hb_question_log' },
+  historique: { table: 'hb_audit', vivantes: false },
+  connexions: { table: 'hb_connections', cle: 'session_id', vivantes: false },
 }

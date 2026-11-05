@@ -17,6 +17,7 @@ import { pipeline } from 'npm:@supabase/middleware@1.0.0'
 import { withCors } from 'npm:@supabase/middleware@1.0.0/cors'
 import { withOAuthProtectedResource, withSupabase } from 'npm:@supabase/server@1.9.2'
 import { z } from 'npm:zod@4.6.7'
+import { outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante } from './admin.ts'
 import { BORNES, outilConnexions, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
 
 /** Origines des navigateurs autorisées (comme supabase/functions/transcrire) ; localhost pour les essais. */
@@ -29,8 +30,10 @@ export const INSTRUCTIONS =
   'résultats lus sur une feuille : nextar_proposer (le coach valide ensuite dans l’appli ; rien n’est enregistré avant). Pour ' +
   'interroger : nextar_lire (lignes en codes). Pour un rapport : rédige-le en Markdown AVEC LES CODES, puis nextar_rapport ; ' +
   'donne au coach le lien rendu : son appli remplacera les codes par les noms sur son appareil. N’essaie jamais de deviner ou ' +
-  'de demander les noms derrière les codes. Pour un administrateur seulement : nextar_connexions (qui s’est connecté ' +
-  'récemment ; noms et rôles des comptes du staff, jamais d’adresse mail).'
+  'de demander les noms derrière les codes. Pour un administrateur seulement, en lecture seule : nextar_connexions (qui s’est ' +
+  'connecté récemment), nextar_admin_a_faire (ce qui l’attend), nextar_admin_sante (état de l’installation), ' +
+  'nextar_admin_activite (activité des comptes du staff) et nextar_admin_questions (questions que les coachs n’arrivent pas à ' +
+  'faire aboutir) ; noms et rôles des comptes du staff, jamais d’adresse mail, joueurs toujours en codes.'
 
 type Ctx = { supabase: unknown; userClaims?: { id?: string } | null }
 
@@ -186,6 +189,82 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
       annotations: lecture,
     },
     (a) => repondre('nextar_connexions', () => outilConnexions(src, reg, a ?? {})),
+  )
+
+  // ---------- Administration, lecture seule (admin.ts) ----------
+
+  const jours = (quoi: string) =>
+    z.number().int().min(1).max(BORNES.joursMax).optional().describe(`${quoi} (défaut ${BORNES.joursDefaut}, ${BORNES.joursMax} au plus).`)
+
+  server.registerTool(
+    'nextar_admin_a_faire',
+    {
+      title: 'Ce qui m’attend (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Répond à « qu’est-ce qui m’attend ? » : comptes en attente de rôle (depuis ' +
+        'quand), fiches joueur proposées et avis spontanés à valider (joueurs en codes, auteur par nom affiché), doublons ' +
+        'probables à fondre (paires de codes et raison), propositions « À valider » de ce compte encore en attente, questions du ' +
+        'journal à traiter ; nombres et quelques éléments de chaque file, liens vers les écrans de l’appli. Jamais de nom de ' +
+        'joueur ni d’adresse mail. Un compte qui n’est pas administrateur reçoit un refus.',
+      inputSchema: z.object({
+        limite: z.number().int().min(1).max(BORNES.aFaireMax).optional().describe(`Éléments rendus par file (défaut ${BORNES.aFaireDefaut}, ${BORNES.aFaireMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_a_faire', () => outilAdminAFaire(src, reg, a ?? {})),
+  )
+
+  server.registerTool(
+    'nextar_admin_sante',
+    {
+      title: 'État de l’installation (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. État de l’installation Nextar : nombre de lignes des tables principales, ' +
+        'comptes du staff par rôle, comptes connectés sur 24 h / 7 j / 30 j et types d’appareils, dernière écriture, erreurs du ' +
+        'mode avancé sur 7 jours ; avec le script 069 : taille de la base et des tables, registre des changements, charge ' +
+        'annoncée, abonnements aux notifications (des nombres), rappels de la veille, notifications en attente, tâches ' +
+        'programmées (échecs). Ce qui manque est marqué « indisponible ». Aucun compte, aucun jeton, aucune donnée de joueur.',
+      inputSchema: z.object({}),
+      annotations: lecture,
+    },
+    () => repondre('nextar_admin_sante', () => outilAdminSante(src, reg)),
+  )
+
+  server.registerTool(
+    'nextar_admin_activite',
+    {
+      title: 'Activité des comptes du staff (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Par compte du staff (code C-…, nom affiché, rôle), sur les N derniers jours : ' +
+        'avis donnés, mesures saisies, événements créés, joueurs vus (joueur × événement), fiches créées, dernière activité ; ' +
+        'plus les comptes inactifs depuis plus de M jours (ou jamais vus). Jamais d’adresse mail ni de donnée de joueur.',
+      inputSchema: z.object({
+        jours: jours('Période en jours'),
+        inactifs_jours: jours('Inactif : aucune activité depuis ce nombre de jours'),
+        limite: z.number().int().min(1).max(BORNES.activiteMax).optional().describe(`Comptes rendus (défaut ${BORNES.activiteDefaut}, ${BORNES.activiteMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_activite', () => outilAdminActivite(src, reg, a ?? {})),
+  )
+
+  server.registerTool(
+    'nextar_admin_questions',
+    {
+      title: 'Questions que les coachs n’arrivent pas à faire aboutir (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Questions « Demander » / « Poser une question » du journal sur les N derniers ' +
+        'jours : par défaut celles à traiter (pas comprises en entier, sauvées par le mode avancé, ou jugées « mauvaise réponse » / ' +
+        '« pas de réponse »), regroupées par formulation proche, avec le nombre, le nombre de comptes distincts, l’issue, ce que la ' +
+        'recette n’a pas appliqué et ce que les coachs voulaient. Les noms de joueurs sont remplacés par [joueur] côté serveur.',
+      inputSchema: z.object({
+        jours: jours('Période en jours'),
+        filtre: z.enum(['a_traiter', 'toutes']).optional().describe('« a_traiter » (défaut) ou « toutes ».'),
+        limite: z.number().int().min(1).max(BORNES.questionsMax).optional().describe(`Groupes rendus (défaut ${BORNES.questionsDefaut}, ${BORNES.questionsMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_questions', () => outilAdminQuestions(src, reg, a ?? {})),
   )
 
   return server

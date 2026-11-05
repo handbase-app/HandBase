@@ -11,13 +11,17 @@
 //  - nextar_lire (filtres, tri, limite), nextar_suivi, nextar_rapport (codes faux signalés, bornes) ;
 //  - nextar_connexions (administrateurs) : liste filtrée par la fenêtre, tri, libellés, bornes ; refus sans données pour un
 //    coach ; jamais d'adresse mail (même quand le nom du profil en est une), de téléphone, d'identifiant brut ni d'adresse IP ;
+//  - outils d'administration (admin.ts : nextar_admin_a_faire, _sante, _activite, _questions) : refus SANS AUCUNE lecture pour
+//    un compte qui n'est pas administrateur ; listes blanches propres ; joueurs en codes ; noms masqués côté serveur dans les
+//    questions ([joueur], [nom], [licence]) ; doublons = règle de src/merge.ts ; 069 absent / appliqué / en erreur ; bornes ;
+//    source.ts (colonnes nommées, comptages sans lignes, aucune écriture) ; supabase/069_admin_sante.sql (définition, droits) ;
 //  - rapport → remplacement local des codes (Markdown, fiches fondues, codes inconnus, partagés, faux) ;
 //  - copies générées à jour (tools/generer-partage-mcp.ts), bornes égales à celles des scripts 067 et 068, branchements.
 //
 //   npx jiti tools/test-mcp.ts
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   CODE_ALPHABET,
@@ -51,9 +55,23 @@ import {
   type Reglages,
   type Source,
 } from '../supabase/functions/mcp/outils'
+import { doublonsProbables, masqueNoms, outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante, REFUS_ADMIN, taille } from '../supabase/functions/mcp/admin'
 import { sourceSupabase } from '../supabase/functions/mcp/source'
 import { copiesPerimees } from './generer-partage-mcp'
-import { COMPTES, CRITERES, EVENEMENTS, grandeBase, JOUEURS, MAINTENANT_FICTIF, sourceFictive, textesInterdits, textesInterditsComptes } from './mcp-jeu-fictif'
+import {
+  COMPTE_INACTIF,
+  COMPTES,
+  CRITERES,
+  EVENEMENTS,
+  grandeBase,
+  JOUEURS,
+  JOUEURS_ADMIN,
+  MAINTENANT_FICTIF,
+  sourceFictive,
+  textesInterdits,
+  textesInterditsAdmin,
+  textesInterditsComptes,
+} from './mcp-jeu-fictif'
 
 let n = 0
 const t = async (name: string, f: () => void | Promise<void>) => {
@@ -568,6 +586,316 @@ await t('nextar_connexions : petits outils (appareil, « il y a », coordonnées
   assert.match(read('src/components/Members.tsx'), /'\(nom pas encore choisi\)'/)
 })
 
+// ---------- Outils d'administration (admin.ts), lecture seule ----------
+
+/** Adresse de l'appli des essais d'administration (« exemple.test » est cherché comme reste d'adresse mail). */
+const regA: Reglages = { ...regC, appUrl: 'https://nextar-essai.invalid/HandBase' }
+const interditsAdmin = [...textesInterdits([...JOUEURS, ...JOUEURS_ADMIN]), ...textesInterditsAdmin()]
+const sortiesAdmin: unknown[] = []
+/** Réponse d'un outil d'administration : sa liste blanche, puis aucun nom de joueur, mail, téléphone, IP, jeton du jeu. */
+const gardeA = <T>(outil: string, x: T): T => {
+  verifierSortie(x, outil)
+  sortiesAdmin.push(x)
+  const s = JSON.stringify(x)
+  for (const txt of interditsAdmin) assert.ok(!s.includes(txt), `${outil} : « ${txt} » ne doit jamais sortir : ${s.slice(0, 300)}`)
+  assert.ok(!s.includes('@'), `${outil} : « @ »`)
+  assert.ok(!/\b\d{1,3}(\.\d{1,3}){3}\b/.test(s), `${outil} : adresse IP`)
+  for (const c of [...COMPTES, COMPTE_INACTIF]) assert.ok(!s.includes(c.userId), `${outil} : identifiant brut`)
+  for (const p of [...JOUEURS, ...JOUEURS_ADMIN]) assert.ok(!s.includes(`"${p.id}"`), `${outil} : identifiant de fiche ${p.id}`)
+  return x
+}
+const ok = <T,>(r: T): Exclude<T, { erreur: string }> => {
+  if (r && typeof r === 'object' && 'erreur' in r && Object.keys(r).length === 1) throw new Error(JSON.stringify(r))
+  return r as Exclude<T, { erreur: string }>
+}
+const OUTILS_ADMIN = {
+  nextar_admin_a_faire: (s: Source) => outilAdminAFaire(s, regA, {}),
+  nextar_admin_sante: (s: Source) => outilAdminSante(s, regA),
+  nextar_admin_activite: (s: Source) => outilAdminActivite(s, regA, {}),
+  nextar_admin_questions: (s: Source) => outilAdminQuestions(s, regA, {}),
+} as const
+
+await t('outils d’administration : un compte qui n’est pas administrateur reçoit un refus, sans AUCUNE lecture', async () => {
+  for (const [nom, f] of Object.entries(OUTILS_ADMIN)) {
+    const src = sourceFictive()
+    const r = gardeA(nom, await f(src))
+    assert.deepEqual(r, { erreur: REFUS_ADMIN }, nom)
+    assert.equal(src.appelsAdmin, 0, `${nom} : aucune lecture d'administration`)
+    assert.equal(src.appelsConnexions, 0, `${nom} : aucune connexion lue`)
+    assert.equal(src.appelsNoms, 0, `${nom} : aucun nom lu`)
+  }
+})
+
+await t('nextar_admin_a_faire : comptes sans rôle, fiches et avis à valider (codes, auteur par nom affiché), doublons, questions à traiter', async () => {
+  const src = sourceFictive({ admin: true })
+  const r = ok(gardeA('nextar_admin_a_faire', await outilAdminAFaire(src, regA, {})))
+  assert.deepEqual(r.resume, { comptes_sans_role: 1, fiches_a_valider: 2, avis_a_valider: 2, doublons: 2, propositions_en_attente: 0, questions_a_traiter: 8 })
+  assert.deepEqual(r.comptes_sans_role, [{ compte: codeCompte(SR.userId), nom_affiche: '(nom pas encore choisi)', depuis: '2026-11-04T07:00:00.000Z', il_y_a: 'il y a 1 j' }])
+  assert.deepEqual(r.fiches_a_valider[0], {
+    code: code('p-noah-bis'),
+    poste: 'PIV',
+    annee: 2012,
+    departement: '13',
+    proposee_le: '2026-10-30T18:00:00.000Z',
+    il_y_a: 'il y a 5 j',
+    par: { compte: codeCompte(CAM.userId), nom_affiche: '(nom pas encore choisi)' },
+  }, 'la plus ancienne d’abord ; nom du profil = adresse mail : remplacé')
+  assert.equal(r.fiches_a_valider[1].par.nom_affiche, 'Bruno Encadrant-Fictif')
+  assert.deepEqual(r.avis_a_valider.map((a) => a.code), [code('p-emma'), code('p-jade')])
+  assert.equal(r.avis_a_valider[1].par.nom_affiche, '(compte supprimé ou invisible)')
+  assert.deepEqual(r.doublons, [
+    { codes: [code('p-noah'), code('p-noah-bis')], raison: 'même prénom et même nom (sans accents ni tirets), même année de naissance ; fiche proposée' },
+    { codes: [code('p-zoe-bis'), code('p-hors')], raison: 'même prénom et même nom (sans accents ni tirets), même date de naissance ; fiche hors cadre' },
+  ], 'fiche fondue (p-fondu) ignorée ; homonymes sans fiche proposée ni hors cadre ignorés ; [à garder, à fondre]')
+  assert.equal(r.questions_a_traiter, 8)
+  assert.equal(r.liens.validation, 'https://nextar-essai.invalid/HandBase/avis-spontanes')
+  assert.ok(!('tronque' in r))
+})
+
+await t('nextar_admin_a_faire : limite (bornée), propositions du compte au titre masqué, trop de fiches → pas de doublons ni de titres', async () => {
+  const src = sourceFictive({ admin: true })
+  await outilProposer(src, reg, { titre: 'Tests de Lucas Exemplaire', evenement: 'Détection U15 Var', lignes: [{ nom: 'Exemplaire', prenom: 'Lucas', valeurs: { sprint_10: 1.9 } }] })
+  const r1 = ok(gardeA('nextar_admin_a_faire', await outilAdminAFaire(src, regA, { limite: 1 })))
+  assert.equal(r1.fiches_a_valider.length, 1)
+  assert.equal(r1.doublons.length, 1)
+  assert.equal(r1.tronque, true)
+  assert.equal(r1.resume.propositions_en_attente, 1)
+  assert.equal(r1.propositions_en_attente[0].titre, 'Tests de [joueur]')
+  const rMax = ok(gardeA('nextar_admin_a_faire', await outilAdminAFaire(src, regA, { limite: 10_000 })))
+  assert.equal(rMax.fiches_a_valider.length, 2, 'limite bornée à 50 : tout tient')
+  const trop = sourceFictive({ admin: true, nomsTronques: true })
+  await outilProposer(trop, reg, { titre: 'Tests de Lucas Exemplaire', lignes: [['Lucas Exemplaire', '1,9']], colonnes: ['Joueur', 'sprint_10'] })
+  const r2 = ok(gardeA('nextar_admin_a_faire', await outilAdminAFaire(trop, regA, {})))
+  assert.equal(r2.resume.doublons, null)
+  assert.deepEqual(r2.doublons, [])
+  assert.ok(r2.avertissements.some((a) => /doublons non calculés/.test(a)))
+  assert.ok(r2.propositions_en_attente.length === 1 && !('titre' in r2.propositions_en_attente[0]), 'sans la liste des noms : pas de titre')
+})
+
+await t('doublons probables : même règle que src/merge.ts (possibleDuplicates) et que le filtre de l’écran Propositions', () => {
+  const merge = read('src/merge.ts')
+  assert.match(merge, /const sameBirth = \(a\?: string, b\?: string\) => !a \|\| !b \|\| a === b \|\| \(a\.length === 4 \|\| b\.length === 4 \? a\.slice\(0, 4\) === b\.slice\(0, 4\) : false\)/)
+  assert.match(merge, /\.replace\(\/\[\^a-zA-Z\]\/g, ''\)/)
+  assert.match(read('src/pages/Review.tsx'), /possibleDuplicates\(alive\(await db\.players\.toArray\(\)\)\)\.filter\(\(\[a, b\]\) => !!a\.review \|\| !!b\.review\)/)
+  const d = doublonsProbables([
+    { id: 'a', firstName: 'Jean-Pierre', lastName: "D'Amico", birthDate: '2011-01-01' },
+    { id: 'b', firstName: 'Jean Pierre', lastName: 'Damico', birthDate: '2011', review: 'pending' },
+    { id: 'c', firstName: 'Jean-Pierre', lastName: 'Damico', birthDate: '2012-01-01', review: 'pending' },
+    { id: 'd', firstName: 'Paul', lastName: 'Sansétat' },
+    { id: 'e', firstName: 'Paul', lastName: 'Sansetat' },
+    { id: 'demo-1', firstName: 'Jean-Pierre', lastName: 'Damico', review: 'pending' },
+  ])
+  assert.deepEqual(d.map((x) => [x.a.id, x.b.id]), [['a', 'b']], 'naissances incompatibles, ni proposée ni hors cadre, démo : ignorés')
+})
+
+await t('masquage des noms (questions, titres) : mots et parties de noms, minuscules sans accents, mots outils, vocabulaire, mots propres, coordonnées', () => {
+  const m = masqueNoms([{ firstName: 'Jean-Pierre', lastName: "D'Amico" }, { firstName: 'Léa', lastName: 'Bidonville' }, { firstName: 'Rose', lastName: 'De' }], ['Pôle Espoirs Fictif', 'Sprint 10 m', 'Var'])
+  assert.equal(m.texte('Montre Jean-Pierre et lea bidonville', 200), 'Montre [joueur] et [joueur]')
+  assert.equal(m.texte("les mesures de d'Amico", 200), 'les mesures de [joueur]', 'nom collé (« damico ») : tout le mot')
+  assert.equal(m.texte("la sœur d'Bidonville", 200), "la sœur d'[joueur]", 'partie d’un mot composé')
+  assert.equal(m.texte('la de rose', 200), 'la de [joueur]', '« de » est un mot outil même si c’est un nom ; « rose » est un prénom du périmètre')
+  assert.equal(m.texte('Sprint au Pôle Espoirs Fictif du Var', 200), 'Sprint au Pôle Espoirs Fictif du Var', 'vocabulaire de l’installation gardé')
+  assert.equal(m.texte('Joueurs de Martigues vus par Durand', 200), 'Joueurs de [nom] vus par [nom]', 'mot propre inconnu hors début de phrase')
+  assert.equal(m.texte('Martigues ? Durand. ARG GB', 200), 'Martigues ? Durand. ARG GB', 'début de phrase et sigles : gardés')
+  assert.equal(m.texte('[prénom] [nom] et [prénom]', 200), '[joueur] et [joueur]')
+  assert.equal(m.texte('licence 6383001000111 tel 06 12 34 56 78 mail x.y@exemple.test ip 10.0.0.1', 200), 'licence [licence] tel mail ip')
+  assert.equal(m.noms, 8, 'jean, pierre, jeanpierre, amico, damico, lea, bidonville, rose')
+  assert.equal(masqueNoms([]).texte('x'.repeat(500), 50).length, 50)
+})
+
+await t('nextar_admin_sante : sans 069 (« indisponible tant que 069… »), avec 069 (champs connus seulement), 069 en erreur', async () => {
+  const sans = ok(gardeA('nextar_admin_sante', await outilAdminSante(sourceFictive({ admin: true }), regA)))
+  assert.equal(sans.script_069, 'pas appliqué')
+  assert.match(String(sans.base), /^indisponible tant que supabase\/069_admin_sante\.sql n’est pas appliqué$/)
+  assert.equal(sans.tables, sans.base)
+  assert.deepEqual(sans.indisponible, ['base', 'tables', 'registre', 'charge', 'abonnements', 'veille', 'notifications', 'taches', 'transcription'])
+  assert.deepEqual(sans.volumes[0], { table: 'fiches joueur', lignes: JOUEURS.length + JOUEURS_ADMIN.length - 1 })
+  assert.deepEqual(sans.volumes.find((v) => v.table === 'vidéos'), { table: 'vidéos', lignes: null, precision: 'illisible avec ce compte' })
+  assert.deepEqual(sans.comptes.par_role.find((x) => x.role === 'Observateur'), { role: 'Observateur', nb: 4 })
+  assert.equal(sans.connexions.comptes_24h, 6)
+  assert.equal(sans.connexions.appli_installee_30j, 1)
+  assert.match(sans.version_appli, /^indisponible/)
+  assert.deepEqual(sans.journal_questions, { questions_7j: 7, erreurs_7j: 1 })
+  assert.equal(sans.derniere_ecriture, '2026-11-05T09:56:00.000Z')
+  const avec = ok(gardeA('nextar_admin_sante', await outilAdminSante(sourceFictive({ admin: true, sante: 'ok' }), regA)))
+  assert.equal(avec.script_069, 'appliqué')
+  assert.ok(!('indisponible' in avec))
+  assert.deepEqual(avec.base, { taille_octets: 439_353_344, taille: '419 Mo', postgres: '17.4' })
+  assert.deepEqual((avec.tables as { table: string }[]).map((x) => x.table), ['hb_registre', 'hb_measurements', 'hb_players'])
+  assert.deepEqual(avec.abonnements, { total: 4, comptes: 3, par_appareil: [{ appareil: 'iPhone', nb: 3 }, { appareil: 'Android', nb: 1 }], sans_envoi_reussi_30j: 1 }, 'clé en trop (endpoint) non recopiée')
+  assert.deepEqual((avec.taches as { tache: string }[]).map((x) => x.tache), ['handbase-purge', 'alerte'], 'adresse mail retirée du nom de tâche')
+  assert.deepEqual(avec.notifications, { en_attente: 0 })
+  const err = ok(gardeA('nextar_admin_sante', await outilAdminSante(sourceFictive({ admin: true, sante: 'erreur' }), regA)))
+  assert.equal(err.script_069, 'erreur')
+  assert.ok(err.avertissements.some((a) => /hb_admin_sante \(069\) a répondu par une erreur/.test(a)))
+  assert.equal(taille(1023), '1023 octets')
+  assert.equal(taille(1536), '1,5 Ko')
+  assert.equal(taille(-1), undefined)
+})
+
+await t('nextar_admin_activite : par compte du staff (créations sur la période), dernière activité, inactifs, bornes', async () => {
+  const src = sourceFictive({ admin: true })
+  const r = ok(gardeA('nextar_admin_activite', await outilAdminActivite(src, regA, {})))
+  assert.equal(r.periode_jours, 30)
+  assert.equal(r.depuis, '2026-10-06T10:00:00.000Z')
+  assert.equal(r.total, 6, 'compte sans rôle exclu')
+  assert.deepEqual(r.totaux, { avis: 19, mesures: 170, evenements: 4, vus: 95, fiches: 4 })
+  assert.deepEqual(r.comptes[0], { compte: codeCompte(A.userId), nom_affiche: 'Alice Administratrice-Fictive', role: 'Administrateur', avis: 2, mesures: 140, evenements: 3, vus: 25, fiches: 1, derniere_activite: '2026-11-05T09:59:00.000Z', il_y_a: 'il y a 1 min' })
+  assert.equal(r.comptes[1].nom_affiche, 'Bruno Encadrant-Fictif')
+  assert.ok(!r.comptes.some((c) => c.compte === codeCompte(SR.userId)))
+  assert.deepEqual(r.inactifs, { seuil_jours: 30, total: 1, comptes: [{ compte: codeCompte(COMPTE_INACTIF.userId), nom_affiche: 'Fabien Inactif-Fictif', role: 'Observateur', derniere_activite: '2026-09-21T10:00:00.000Z', il_y_a: 'il y a 45 j' }] })
+  const r60 = ok(gardeA('nextar_admin_activite', await outilAdminActivite(src, regA, { inactifs_jours: 60 })))
+  assert.equal(r60.inactifs.total, 0)
+  const b = ok(gardeA('nextar_admin_activite', await outilAdminActivite(src, regA, { jours: 0, inactifs_jours: 10_000, limite: 2 })))
+  assert.equal(b.periode_jours, 1)
+  assert.equal(b.inactifs.seuil_jours, 365)
+  assert.equal(b.comptes.length, 2)
+  assert.equal(b.tronque, true)
+  const grand = ok(gardeA('nextar_admin_activite', await outilAdminActivite(src, regA, { jours: 9999 })))
+  assert.equal(grand.periode_jours, 365)
+})
+
+await t('nextar_admin_questions : à traiter, regroupées, noms masqués côté serveur, comptes distincts, avis, bornes, période', async () => {
+  const src = sourceFictive({ admin: true })
+  const r = ok(gardeA('nextar_admin_questions', await outilAdminQuestions(src, regA, {})))
+  if (!('groupes' in r) || !('total' in r)) throw new Error('groupes attendus')
+  assert.deepEqual(r.resume, { questions: 8, a_traiter: 7, ratees: 5, sauvees: 1, comprises: 2, comptes: 2, avis: { super: 0, mauvaise: 1, sans_reponse: 0 } })
+  assert.equal(r.total, 6, '« liste des gardiens… » comprise : pas à traiter')
+  const g0 = r.groupes[0]
+  assert.equal(g0.formulation, 'Montre les mesures de [joueur]')
+  assert.deepEqual(g0.autres_formulations, ['montre les mesures de [joueur]'], 'minuscules sans accents : masqué aussi, même groupe')
+  assert.equal(g0.nb, 2)
+  assert.equal(g0.comptes, 2)
+  assert.equal(g0.issue, 'Ratée')
+  const sauvee = r.groupes.find((g) => g.issue === 'Sauvée par le mode avancé')!
+  assert.equal(sauvee.formulation, '[joueur] a-t-il progressé au Sprint 10 m ?')
+  assert.deepEqual(sauvee.pas_applique, ['[joueur]', 'tri par progression'])
+  const avis = r.groupes.find((g) => g.avis)!
+  assert.equal(avis.formulation, 'Gauchers nés en 2011 dans le Var')
+  assert.equal(avis.ce_qu_ils_voulaient![0], 'je voulais la fiche de [joueur], appeler le ou', 'nom, téléphone et mail retirés du commentaire')
+  assert.ok(r.groupes.some((g) => g.formulation === 'Qui est [joueur] ?'), 'adresse IP retirée')
+  assert.ok(r.groupes.some((g) => g.formulation === 'Joueurs vus à [nom] et [nom]'))
+  assert.match(r.masquage, /\[joueur\]/)
+  assert.ok(!JSON.stringify(r).includes('Tom'), 'question de plus de 30 jours : hors période')
+  const r60 = ok(gardeA('nextar_admin_questions', await outilAdminQuestions(src, regA, { jours: 60, filtre: 'toutes', limite: 1 })))
+  if (!('groupes' in r60)) throw new Error('groupes attendus')
+  assert.equal(r60.resume.questions, 9)
+  assert.equal(r60.groupes.length, 1)
+  assert.equal(r60.tronque, true)
+  const tout = ok(gardeA('nextar_admin_questions', await outilAdminQuestions(src, regA, { jours: 60, filtre: 'toutes', limite: 1000 })))
+  assert.ok(JSON.stringify(tout).includes('licence [licence] de [joueur]'), 'licence et « Tom Utopiste » masqués')
+  assert.ok(JSON.stringify(tout).includes('liste des gardiens du Pôle Espoirs Fictif'), 'vocabulaire gardé')
+  const b = ok(gardeA('nextar_admin_questions', await outilAdminQuestions(src, regA, { jours: 0 })))
+  assert.equal(b.periode_jours, 1)
+  // Trop de fiches pour lire tous les noms : aucune formulation, seulement les nombres et les pages.
+  const trop = ok(gardeA('nextar_admin_questions', await outilAdminQuestions(sourceFictive({ admin: true, nomsTronques: true }), regA, {})))
+  assert.deepEqual(trop.groupes, [])
+  assert.match(trop.masquage, /aucune formulation n’est rendue/)
+  assert.equal(trop.resume.a_traiter, 7)
+})
+
+await t('outils d’administration : listes blanches propres (clés interdites, inconnues, textes avec « @ » ou IP refusés)', () => {
+  for (const outil of Object.keys(OUTILS_ADMIN)) {
+    const V = (o: Record<string, unknown>) => () => verifierSortie(o, outil)
+    for (const k of ['email', 'e-mail', 'phone', 'telephone', 'ip', 'user_id', 'userAgent', 'token', 'nom', 'prenom', 'firstName', 'lastName', 'birthDate', 'club', 'licence', 'commentaire', 'device', 'endpoint'])
+      assert.throws(V({ [k]: 'x' }), /interdite|inconnue/, `${outil} : ${k}`)
+    assert.throws(V({ message: 'écrire à x@exemple.test' }), /adresse mail ou IP/)
+    assert.throws(V({ message: 'serveur 10.0.0.1' }), /adresse mail ou IP/)
+    assert.throws(V({ connexions_inconnues: 1 }), /inconnue/)
+    assert.doesNotThrow(V({ message: 'ok', avertissements: ['ok'], maintenant: '2026-11-05T10:00:00.000Z' }))
+  }
+  assert.throws(() => verifierSortie({ volumes: [{ code: 'J-1' }] }, 'nextar_admin_sante'), /inconnue/, 'pas de code de joueur dans l’état de l’installation')
+  assert.throws(() => verifierSortie({ resume: { comptes_sans_role: 1 } }), /inconnue/, 'clés d’administration : pas dans les outils de joueurs')
+  assert.doesNotThrow(() => verifierSortie({ fiches_a_valider: [{ code: 'J-1', par: { compte: 'C-1', nom_affiche: 'X' } }] }, 'nextar_admin_a_faire'))
+})
+
+await t('outils d’administration : aucune des réponses ne contient un nom de joueur, une adresse mail, un téléphone, une IP ou un jeton', () => {
+  assert.ok(sortiesAdmin.length >= 20, `${sortiesAdmin.length} réponses`)
+  const tout = JSON.stringify(sortiesAdmin)
+  for (const txt of interditsAdmin) assert.ok(!tout.includes(txt), txt)
+  console.log(`   (${sortiesAdmin.length} réponses, ${interditsAdmin.length} textes interdits cherchés)`)
+})
+
+await t('source.ts (administration) : colonnes nommées, ni email, ni téléphone, ni requête SQL du journal ; comptages sans lignes ; aucune écriture', async () => {
+  const appels: { table: string; select?: string; opts?: unknown; ops: string[]; args: unknown[][] }[] = []
+  const rpcs: string[] = []
+  const faux = (rpc: (fn: string) => Promise<{ data: unknown; error: unknown }>) => ({
+    rpc(fn: string) {
+      rpcs.push(fn)
+      return rpc(fn)
+    },
+    from(table: string) {
+      const a: (typeof appels)[number] = { table, ops: [], args: [] }
+      appels.push(a)
+      const q: Record<string, unknown> = {}
+      const chain = (op: string) => (...args: unknown[]) => {
+        a.ops.push(op)
+        a.args.push([op, ...args])
+        if (op === 'select') {
+          a.select = String(args[0])
+          a.opts = args[1]
+        }
+        return q
+      }
+      for (const op of ['select', 'eq', 'in', 'is', 'not', 'gte', 'order', 'range', 'limit', 'insert', 'update', 'delete', 'upsert']) q[op] = chain(op)
+      q.then = (fini: (v: unknown) => void) => fini({ data: [], error: null, count: 3 })
+      return q
+    },
+  })
+  const src = sourceSupabase(faux(async (fn) => (fn === 'hb_last_seen' ? { data: [{ user_id: 'u1', last_seen_at: '2026-11-05T09:00:00Z' }], error: null } : { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.hb_admin_sante' } })))
+  await src.profils()
+  await src.fichesAValider(5)
+  await src.avisAValider(5)
+  await src.nomsJoueurs(10)
+  await src.propositionsEnAttente(5)
+  await src.journal('2026-10-01T00:00:00Z', 100)
+  assert.equal(await src.compter('joueurs'), 3)
+  assert.equal(await src.compter('connexions'), 3)
+  assert.deepEqual(await src.sante(), { absente: true })
+  assert.deepEqual(await src.dernieresVues(), [{ userId: 'u1', lastSeenAt: '2026-11-05T09:00:00Z' }])
+  await src.derniereEcriture('u1')
+  assert.deepEqual(await src.activite('u1', '2026-10-06T10:00:00Z'), { avis: 3, mesures: 3, evenements: 3, vus: 3, fiches: 3 })
+  assert.deepEqual(rpcs, ['hb_admin_sante', 'hb_last_seen'])
+  const de = (t: string) => appels.filter((a) => a.table === t)
+  assert.equal(de('hb_profiles')[0].select, 'user_id, full_name, role, created_at')
+  for (const a of appels) {
+    assert.ok(a.select && !/email|phone|mail|postalCode|city|lat|lng|agent|endpoint|p256dh/i.test(a.select), `${a.table} : ${a.select}`)
+    assert.ok(!/(^|[\s,])data(\s*,|$)/.test(a.select), `« data » entier demandé : ${a.select}`)
+    assert.ok(!a.ops.some((o) => ['insert', 'update', 'delete', 'upsert'].includes(o)), `${a.table} : écriture`)
+  }
+  assert.ok(!/firstName|lastName/.test(de('hb_players')[0].select!), 'fiches à valider : aucun nom')
+  assert.match(de('hb_players')[1].select!, /firstName/, 'doublons et masquage : les noms, côté serveur')
+  assert.ok(!/strengths|improvements|scores|comment|observer/.test(de('hb_evaluations')[0].select!), 'avis à valider : ni notes ni commentaires')
+  const j = de('hb_question_log')[0].select!
+  assert.ok(!/sql|detail|authorName/.test(j), `journal : ${j}`)
+  assert.equal(de('hb_audit')[0].select, 'at', 'historique : la date seulement')
+  const comptages = appels.filter((a) => (a.opts as { head?: boolean } | undefined)?.head === true)
+  assert.ok(comptages.length >= 7, 'comptages : head (aucune ligne transférée)')
+  const act = appels.filter((a) => a.table === 'hb_measurements')[0]
+  assert.deepEqual(act.args.filter((x) => x[0] === 'eq' || x[0] === 'gte').map((x) => x.slice(1)), [['deleted', false], ['created_by', 'u1'], ['server_updated_at', '2026-10-06T10:00:00Z'], ['data->>createdAtServer', '2026-10-06T10:00:00Z']])
+  assert.ok(appels.find((a) => a.table === 'hb_events' && a.args.some((x) => x[0] === 'eq' && x[1] === 'data->>createdBy')), 'événements : data->>createdBy (pas de colonne générée)')
+  // hb_admin_sante en erreur (autre que « absente ») : erreur ; réponse : ok.
+  const e = sourceSupabase(faux(async () => ({ data: null, error: { code: '42501', message: 'Réservé aux administrateurs' } })))
+  assert.deepEqual(await e.sante(), { erreur: 'Réservé aux administrateurs' })
+  const o = sourceSupabase(faux(async () => ({ data: { version: 1 }, error: null })))
+  assert.deepEqual(await o.sante(), { ok: { version: 1 } })
+})
+
+await t('supabase/069_admin_sante.sql : SECURITY DEFINER réservé aux administrateurs, search_path fixé, droits, additif, contrôle final', () => {
+  const s = read('supabase/069_admin_sante.sql')
+  const code = s.replace(/--.*$/gm, '')
+  assert.match(code, /create or replace function public\.hb_admin_sante\(\) returns jsonb\s+language plpgsql stable security definer set search_path = public, pg_temp as \$\$/)
+  assert.match(code, /begin\s+if not coalesce\(public\.hb_is_admin\(\), false\) then\s+raise exception 'Réservé aux administrateurs' using errcode = '42501';/, 'le rôle d’abord')
+  assert.match(code, /revoke all on function public\.hb_admin_sante\(\) from public, anon;/)
+  assert.match(code, /grant execute on function public\.hb_admin_sante\(\) to authenticated;/)
+  assert.ok(!/hb_upsert|create table|alter table|create policy|drop policy|create trigger|insert into|update public|delete from/i.test(code), 'additif : une fonction, rien d’autre')
+  assert.ok(!/endpoint|p256dh|user_agent|return_message|\bcommand\b|email|user_id/i.test(code.replace(/count\(distinct user_id\)/g, '')), 'jamais jeton, adresse d’envoi, commande, message, mail ni compte')
+  assert.match(s, /-- ---------- Vérification ----------/)
+  assert.match(s, /authenticated_t/)
+  assert.ok(existsSync(new URL('../tools/essai-sql-069/lancer.sh', import.meta.url)))
+  assert.ok(!existsSync(new URL('../supabase/070_admin_sante.sql', import.meta.url)))
+})
+
 // ---------- Liste blanche ----------
 
 await t('verifierSortie : clé interdite, clé inconnue, clé nominative dans un dictionnaire, texte trop long : refusés', () => {
@@ -763,7 +1091,18 @@ await t('bornes du serveur = scripts 067 et 068 ; 068 : auteur seul, pas de modi
 
 await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé de service), appli (routes, Réglages, boîte)', () => {
   const srv = read('supabase/functions/mcp/serveur.ts')
-  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions']) assert.match(srv, new RegExp(`'${outil}'`))
+  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions'])
+    assert.match(srv, new RegExp(`'${outil}'`))
+  // Outils d'administration : lecture seule, « Réservé aux administrateurs ; lecture seule » en tête de description.
+  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions']) {
+    const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
+    assert.match(bloc, /Réservé aux administrateurs ; lecture seule\./, outil)
+    assert.match(bloc, /annotations: lecture,/, outil)
+  }
+  assert.match(srv, /jours: jours\('Période en jours'\)/)
+  assert.match(srv, /z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.joursMax\)/)
+  const readme = read('supabase/functions/mcp/README.md')
+  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', '069_admin_sante.sql']) assert.ok(readme.includes(outil), `README : ${outil}`)
   assert.match(srv, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
   assert.match(srv, /minutes: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMinutesMax\)/)
   assert.match(srv, /limite: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMax\)/)
@@ -773,7 +1112,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)
-  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'source.ts']) {
+  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'source.ts']) {
     const txt = read(`supabase/functions/mcp/${f}`)
     assert.ok(!/supabaseAdmin|SERVICE_ROLE|service_role|sb_secret/.test(txt.replace(/\/\/.*$/gm, '')), `${f} : jamais la clé de service`)
   }

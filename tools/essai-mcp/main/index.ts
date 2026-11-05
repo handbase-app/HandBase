@@ -5,7 +5,8 @@ import { fabriquer } from '../../../supabase/functions/mcp/serveur.ts'
 import { MAINTENANT_FICTIF, sourceFictive } from '../../mcp-jeu-fictif.ts'
 
 const src = sourceFictive()
-// Le jeton de l'administrateur fictif (jeton.mjs) reçoit une Source où hb_is_admin répond oui (nextar_connexions) ; tout
+// Le jeton de l'administrateur fictif (jeton.mjs) reçoit une Source où hb_is_admin répond oui (nextar_connexions et les
+// outils nextar_admin_* ; 069 absent : « indisponible tant que 069… ») ; tout
 // autre jeton : celle du coach (refus). L'identifiant vient des « claims » vérifiés par withSupabase.
 const srcAdmin = sourceFictive({ admin: true })
 const ADMIN = '00000000-0000-4000-8000-0000000000a1'
@@ -15,6 +16,6 @@ const compteDe = (ctx: any): string | undefined => ctx?.userClaims?.id ?? ctx?.u
 Deno.serve(
   fabriquer({
     sourceDe: (ctx) => (compteDe(ctx) === ADMIN ? srcAdmin : src),
-    reglages: () => ({ appUrl: 'https://exemple.test/HandBase', today: '2026-11-05', maintenant: MAINTENANT_FICTIF }),
+    reglages: () => ({ appUrl: 'https://nextar-essai.invalid/HandBase', today: '2026-11-05', maintenant: MAINTENANT_FICTIF }),
   }),
 )

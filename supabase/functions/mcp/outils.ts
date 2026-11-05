@@ -1,4 +1,4 @@
-// Nextar : les SIX OUTILS du serveur MCP, en fonctions PURES (ni Deno, ni réseau, ni base) : elles reçoivent une `Source`
+// Nextar : les outils du serveur MCP (six ici ; les quatre outils d'administration sont dans admin.ts), en fonctions PURES (ni Deno, ni réseau, ni base) : elles reçoivent une `Source`
 // (accès aux données AUX DROITS DU COACH : source.ts avec le client Supabase de son jeton ; un jeu fictif dans
 // tools/test-mcp.ts) et rendent un objet JSON. serveur.ts les branche dans le SDK MCP.
 //
@@ -19,7 +19,9 @@
 // Exception voulue, et la seule : nextar_connexions (administrateurs seulement) rend le NOM AFFICHÉ et le rôle des COMPTES
 // du staff connectés (jamais une adresse mail, un téléphone, un identifiant brut, une adresse IP ni un appareil détaillé ;
 // aucune donnée de joueur). Sa réponse passe par sa propre liste blanche (CLES_CONNEXIONS : « nom_affiche » n'est permis
-// que là) et par un contrôle des textes (aucun « @ », aucune adresse IP).
+// que là) et par un contrôle des textes (aucun « @ », aucune adresse IP). Même régime pour les quatre outils
+// d'administration en lecture seule (admin.ts : nextar_admin_a_faire, _sante, _activite, _questions) : refus sans rien lire
+// pour un compte qui n'est pas administrateur, une liste blanche par outil (CLES_ADMIN), joueurs en codes seulement.
 
 import { codeJoueur, codesDuTexte, indexCodes } from './partage/codesJoueurs.ts'
 import {
@@ -152,6 +154,118 @@ export interface Source {
   connexions(depuis: string, max: number): Promise<{ sessions: SessionSrv[]; tronque: boolean }>
   /** Nom, rôle, secteur et unités d'affectation de ces comptes (hb_profiles, hb_assignments, hb_units) ; JAMAIS l'adresse mail. */
   comptes(userIds: string[]): Promise<CompteSrv[]>
+
+  // ---- Administration (outils nextar_admin_*, admin.ts) : appelées APRÈS estAdmin() seulement, aux droits du compte ----
+  /** Comptes visibles (hb_profiles : staff et comptes sans rôle ; ni email, ni phone). */
+  profils(): Promise<ProfilSrv[]>
+  /** Fiches joueur proposées en attente (review « pending », ni supprimées ni fondues), les plus anciennes d'abord ; total. */
+  fichesAValider(max: number): Promise<{ fiches: FicheAValiderSrv[]; total: number }>
+  /** Avis spontanés en attente (review « pending »), les plus anciens d'abord ; total. */
+  avisAValider(max: number): Promise<{ avis: AvisAValiderSrv[]; total: number }>
+  /**
+   * Prénom, nom, date de naissance et état de validation des fiches (ni supprimées, ni fondues) : doublons probables et
+   * masquage des noms dans les questions, CÔTÉ SERVEUR. Jamais rendus.
+   */
+  nomsJoueurs(max: number): Promise<{ joueurs: NomJoueurSrv[]; tronque: boolean }>
+  /** Propositions « À valider » du compte encore en attente (067 ; table absente : aucune). */
+  propositionsEnAttente(max: number): Promise<{ propositions: PropositionSrv[]; total: number }>
+  /** Journal des questions (043) depuis `depuis` (ISO), sans requête SQL ni nom d'auteur ; au plus `max`. */
+  journal(depuis: string, max: number): Promise<{ lignes: JournalSrv[]; tronque: boolean }>
+  /** Nombre de lignes vivantes (liste fermée de comptages) ; illisible : null. */
+  compter(quoi: Comptage): Promise<number | null>
+  /** État de l'installation par supabase/069_admin_sante.sql (hb_admin_sante) ; script pas appliqué : « absente ». */
+  sante(): Promise<{ ok: Record<string, unknown> } | { absente: true } | { erreur: string }>
+  /** Dernière ouverture de l'appli de chaque compte (hb_last_seen, 030). */
+  dernieresVues(): Promise<{ userId: string; lastSeenAt: string }[]>
+  /** Dernière écriture notée à l'historique (hb_audit, 004) : de ce compte, ou de tous (sans argument). */
+  derniereEcriture(userId?: string): Promise<string | null>
+  /** Lignes créées par ce compte depuis `depuis` (ISO) : avis, mesures, événements, « vus », fiches (créateur de la ligne). */
+  activite(userId: string, depuis: string): Promise<ActiviteSrv>
+}
+
+/** Comptages permis à Source.compter (source.ts : table et filtres fixes pour chacun). */
+export type Comptage =
+  | 'joueurs'
+  | 'joueurs_fondus'
+  | 'joueurs_revus'
+  | 'mesures'
+  | 'avis'
+  | 'evenements'
+  | 'groupes'
+  | 'vus'
+  | 'videos'
+  | 'a_revoir'
+  | 'criteres'
+  | 'listes'
+  | 'unites'
+  | 'affectations'
+  | 'rencontres'
+  | 'journal_questions'
+  | 'historique'
+  | 'connexions'
+  | 'alertes'
+
+/** Compte vu par un administrateur (hb_profiles) : ni adresse mail, ni téléphone. */
+export interface ProfilSrv {
+  userId: string
+  fullName?: string | null
+  role?: string | null
+  createdAt?: string | null
+}
+
+/** Fiche proposée en attente : ce qui peut sortir (année, poste, département) et son auteur ; aucun nom. */
+export interface FicheAValiderSrv {
+  id: string
+  annee?: number
+  poste?: string
+  dept?: string
+  createdBy?: string | null
+  createdAt?: string | null
+}
+
+/** Avis spontané en attente : joueur (rendu en code), date, auteur ; ni notes ni commentaires. */
+export interface AvisAValiderSrv {
+  playerId: string
+  date?: string | null
+  createdBy?: string | null
+  createdAt?: string | null
+}
+
+/** Nom d'une fiche, lu côté serveur pour les doublons et le masquage ; jamais rendu. */
+export interface NomJoueurSrv {
+  id: string
+  firstName: string
+  lastName: string
+  birthDate?: string
+  /** pending | validated | refused (fiche proposée, validée, hors cadre). */
+  review?: string
+}
+
+/** Ligne du journal des questions (043, 049) : ni requête SQL, ni détail d'erreur, ni nom d'auteur. */
+export interface JournalSrv {
+  id: string
+  at: string
+  authorId?: string
+  phrase?: string
+  recipe?: string
+  status?: string
+  recipeMissing?: string[]
+  display?: string
+  page?: string
+  kind?: string
+  questionId?: string
+  verdict?: string
+  comment?: string
+  recipeDone?: boolean
+}
+
+/** Lignes créées par un compte sur une période (null : illisible). */
+export interface ActiviteSrv {
+  avis: number | null
+  mesures: number | null
+  evenements: number | null
+  vus: number | null
+  fiches: number | null
 }
 
 /** Une ouverture de l'appli (hb_connections). */
@@ -219,6 +333,23 @@ export const BORNES = {
   connexionsDefaut: 50,
   connexionsMax: 200,
   connexionsSessions: 5_000,
+  /** Outils d'administration (admin.ts). Éléments rendus par file (nextar_admin_a_faire). */
+  aFaireDefaut: 10,
+  aFaireMax: 50,
+  /** Fiches lues pour les doublons et le masquage des noms (au-delà : pas de doublons, questions en catégories seulement). */
+  nomsMax: 100_000,
+  /** Lignes du journal des questions lues. */
+  journalMax: 5_000,
+  /** Périodes en jours (activité, questions, inactivité) : défaut 30, de 1 à 365. */
+  joursDefaut: 30,
+  joursMax: 365,
+  /** Comptes du staff passés en revue (nextar_admin_activite) ; comptes rendus (défaut, maximum). */
+  activiteComptes: 200,
+  activiteDefaut: 50,
+  activiteMax: 200,
+  /** Groupes de questions rendus (défaut, maximum). */
+  questionsDefaut: 20,
+  questionsMax: 100,
 } as const
 
 // ---------- Vérification des réponses (liste blanche) ----------
@@ -250,6 +381,38 @@ const CLES_CONNEXIONS = new Set([
   'erreur', 'message', 'avertissements', 'total', 'tronque', 'fenetre_minutes', 'depuis', 'maintenant', 'connexions',
   'compte', 'nom_affiche', 'role', 'perimetre', 'derniere_activite', 'il_y_a', 'appareil', 'appli_installee', 'sessions',
 ])
+/**
+ * Outils d'administration (admin.ts) : une liste blanche PAR OUTIL, comme nextar_connexions (« nom_affiche » : nom d'un
+ * COMPTE du staff ; joueurs en codes « code » / « codes » seulement ; aucune clé de nom, de mail, de téléphone, d'IP).
+ */
+const COMMUNES_ADMIN = ['erreur', 'message', 'avertissements', 'maintenant', 'total', 'tronque', 'compte', 'nom_affiche', 'role', 'il_y_a', 'nb']
+export const CLES_ADMIN: Record<string, Set<string>> = {
+  nextar_admin_a_faire: new Set([
+    ...COMMUNES_ADMIN, 'resume', 'comptes_sans_role', 'fiches_a_valider', 'avis_a_valider', 'doublons', 'propositions_en_attente',
+    'questions_a_traiter', 'depuis', 'code', 'codes', 'poste', 'annee', 'departement', 'proposee_le', 'par', 'date', 'deposee_le',
+    'raison', 'id', 'titre', 'nb_lignes', 'creee_le', 'expire_le', 'liens', 'validation', 'membres', 'boite', 'journal',
+  ]),
+  nextar_admin_sante: new Set([
+    ...COMMUNES_ADMIN, 'volumes', 'table', 'libelle', 'lignes', 'precision', 'comptes', 'par_role', 'connexions', 'comptes_24h',
+    'comptes_7j', 'comptes_30j', 'appareils_30j', 'appareil', 'appli_installee_30j', 'version_appli', 'derniere_ecriture',
+    'script_069', 'base', 'taille_octets', 'taille', 'postgres', 'tables', 'lignes_estimees', 'registre', 'lignes_24h',
+    'pertes_24h', 'derniere', 'purge_le', 'charge', 'niveau', 'jusqua', 'en_cours', 'annonce_le', 'abonnements',
+    'par_appareil', 'sans_envoi_reussi_30j', 'veille', 'jour', 'appareils', 'envoyes', 'notifications', 'en_attente',
+    'plus_ancienne', 'taches', 'tache', 'derniere_execution', 'dernier_etat', 'echecs_7j', 'executions_7j', 'transcription',
+    'periode', 'journal_questions', 'questions_7j', 'erreurs_7j', 'indisponible',
+  ]),
+  nextar_admin_activite: new Set([
+    ...COMMUNES_ADMIN, 'periode_jours', 'depuis', 'comptes', 'avis', 'mesures', 'evenements', 'vus', 'fiches',
+    'derniere_activite', 'inactifs', 'seuil_jours', 'totaux',
+  ]),
+  nextar_admin_questions: new Set([
+    ...COMMUNES_ADMIN, 'periode_jours', 'depuis', 'filtre', 'resume', 'questions', 'a_traiter', 'ratees', 'sauvees', 'comprises',
+    'comptes', 'avis', 'super', 'mauvaise', 'sans_reponse', 'groupes', 'formulation', 'autres_formulations', 'issue', 'recette',
+    'complete', 'partielle', 'pas_comprise', 'mode_avance', 'lance', 'reponse_calculee', 'pas_applique', 'ce_qu_ils_voulaient',
+    'pages', 'page', 'derniere', 'transformee', 'par_page', 'masquage', 'noms_connus',
+  ]),
+}
+
 /** Jamais dans une réponse, même dans un dictionnaire (comparé aussi après retrait des signes : « e-mail », « userAgent »). */
 const INTERDITES =
   /^(nom|noms|prenom|prenoms|firstname|lastname|name|fullname|full_name|birthdate|naissance|date_naissance|ddn|club|clubs|clubcode|licence|license|licences|previouslicenses|email|emails|e_mail|mail|mails|courriel|telephone|phone|phones|adresse_ip|ip_address|ipaddress|user_agent|useragent|user_id|userid|token|tokens|jeton|jetons|access_token|refresh_token|session_id|sessionid|password|mot_de_passe|commentaire|commentaires|comment|strengths|improvements|portrait|notes|note|gaps|photo|adresse|fiche|cellules|cells)$/i
@@ -265,8 +428,9 @@ const MAX_TEXTE = 2000
  * `outil` : nom de l'outil (« nextar_connexions » a sa propre liste blanche et son contrôle des textes).
  */
 export function verifierSortie(x: unknown, outil?: string): void {
+  const admin = outil ? CLES_ADMIN[outil] : undefined
   const connexions = outil === 'nextar_connexions'
-  verifier(x, 'réponse', false, connexions ? CLES_CONNEXIONS : CLES, connexions)
+  verifier(x, 'réponse', false, admin ?? (connexions ? CLES_CONNEXIONS : CLES), connexions || !!admin)
 }
 
 function verifier(x: unknown, chemin: string, dict: boolean, cles: Set<string>, textes: boolean): void {
@@ -297,7 +461,7 @@ function verifier(x: unknown, chemin: string, dict: boolean, cles: Set<string>, 
 
 // ---------- Petits outils ----------
 
-const clip = (s: unknown, n: number) => {
+export const clip = (s: unknown, n: number) => {
   const t = String(s ?? '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ') // eslint-disable-line no-control-regex
     .replace(/\s+/g, ' ')
@@ -305,9 +469,9 @@ const clip = (s: unknown, n: number) => {
   return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t
 }
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
-const uniq = <T>(xs: Iterable<T>) => [...new Set(xs)]
+export const uniq = <T>(xs: Iterable<T>) => [...new Set(xs)]
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d
-const lienBoite = (r: Reglages) => `${r.appUrl}/?propositions=1`
+export const lienBoite = (r: Reglages) => `${r.appUrl}/?propositions=1`
 const lienRapport = (r: Reglages, id: string) => `${r.appUrl}/rapport/${encodeURIComponent(id)}`
 
 const yearOf = (d?: string) => (d && /^\d{4}/.test(d) ? +d.slice(0, 4) : undefined)
@@ -919,8 +1083,8 @@ export async function outilRapport(src: Source, reg: Reglages, input: { titre?: 
 
 /** Libellés des rôles : les mêmes que l'appli (src/roles.ts, ROLE_LABEL ; tools/test-mcp.ts vérifie qu'ils restent égaux). */
 export const ROLE_LIBELLE: Record<string, string> = { admin: 'Administrateur', preparateur: 'Encadrant', observateur: 'Observateur', joueur: 'Joueur' }
-const SANS_ROLE = 'En attente (aucun rôle)'
-const SANS_NOM = '(nom pas encore choisi)'
+export const SANS_ROLE = 'En attente (aucun rôle)'
+export const SANS_NOM = '(nom pas encore choisi)'
 
 /** Retire d'un texte écrit par quelqu'un ce qui ressemble à une adresse mail, un téléphone ou une adresse IP. */
 export function sansCoordonnees(s: unknown, n: number): string {
@@ -983,7 +1147,7 @@ export interface ConnexionsInput {
   limite?: number
 }
 
-const borne = (v: unknown, def: number, min: number, max: number) => {
+export const borne = (v: unknown, def: number, min: number, max: number) => {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : def
   return Math.max(min, Math.min(max, n))
 }
