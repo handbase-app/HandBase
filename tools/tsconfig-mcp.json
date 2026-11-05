@@ -1,0 +1,22 @@
+{
+  // Vérification des types des fichiers PURS de la fonction « mcp » (sans les imports npm: de Deno : serveur.ts et index.ts
+  // sont vérifiés par l'essai de bout en bout, tools/essai-mcp/lancer.sh). Lancé par tools/test-mcp.ts :
+  //   npx tsc -p tools/tsconfig-mcp.json
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "files": ["../supabase/functions/mcp/outils.ts", "../supabase/functions/mcp/source.ts", "../tools/mcp-jeu-fictif.ts"]
+}

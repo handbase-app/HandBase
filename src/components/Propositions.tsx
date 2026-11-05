@@ -14,8 +14,8 @@ import { Icon } from './ui'
 
 /*
  * Boîte « À valider » (projet « Serveur MCP Nextar », étape 2) : les propositions de mesures qui attendent la validation du
- * coach (tableaux gardés « pour plus tard » depuis « Coller un tableau de mesures », et demain ceux déposés par le serveur MCP
- * avec son compte). Données : src/propositions.ts ; règles : src/propositionsCore.ts ; serveur : supabase/067_propositions.sql.
+ * coach (tableaux gardés « pour plus tard » depuis « Coller un tableau de mesures », et ceux déposés par le serveur MCP avec
+ * son compte : supabase/functions/mcp, outil nextar_proposer, lignes en cellules avec en-tête, colonnes reliées dans contexte.choix). Données : src/propositions.ts ; règles : src/propositionsCore.ts ; serveur : supabase/067_propositions.sql.
  *  - PropositionsPill : petit repère dans l'en-tête (« 2 à valider »), seulement quand quelque chose attend ; il ouvre la boîte.
  *  - PropositionsHost : la fenêtre, ouverte par openPropositions() (repère, menu du profil) ou par l'adresse ?propositions=1
  *    (toucher la notification « 1 proposition à valider »).
@@ -114,8 +114,8 @@ function PropositionsBox({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <p className="text-xs text-muted">
-            Les tableaux de mesures qui attendent ta validation : ceux gardés pour plus tard depuis « Coller un tableau de mesures » et, bientôt, ceux préparés avec
-            Claude. Rien n’est enregistré avant que tu valides.
+            Les tableaux de mesures qui attendent ta validation : ceux gardés pour plus tard depuis « Coller un tableau de mesures » et ceux préparés avec Claude
+            (Réglages → Applications connectées). Rien n’est enregistré avant que tu valides.
           </p>
           {all === undefined ? (
             <p className="py-8 text-center text-sm text-muted">Chargement…</p>

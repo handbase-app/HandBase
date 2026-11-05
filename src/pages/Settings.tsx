@@ -41,6 +41,7 @@ import { useExpressions } from '../expressions'
 import { useThemeVersion } from '../theme'
 import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
 import { appName } from '../appBrand'
+import { ConnectedApps } from '../components/ConnectedApps'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -103,6 +104,12 @@ export default function Settings() {
           en dernier. */}
       <ApparenceFold />
       <DictationSetting />
+      {/* Serveur MCP Nextar : brancher Claude, autorisations données, rapports en codes (src/components/ConnectedApps.tsx). */}
+      {supabase && !TRIAL && (
+        <Fold id="applications" icon="key" title="Applications connectées" summary="Brancher Claude (lecture en codes, propositions à valider), autorisations, rapports">
+          <ConnectedApps />
+        </Fold>
+      )}
 
       {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
       {!admin && (

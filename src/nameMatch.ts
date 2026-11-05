@@ -150,3 +150,16 @@ export function searchByName<T>(
 
 /** Mots du nom et du prénom (pour la recherche approchante). */
 export const nameTokens = (p: { firstName?: string; lastName?: string }) => nameKey(`${p.firstName ?? ''} ${p.lastName ?? ''}`).split(' ').filter(Boolean)
+
+/** Ressemblance de deux mots : 1 identiques ; 0,9 même son ; 0,8 une ou deux lettres ; 0,75 sons voisins ; 0 sinon. Chiffres : identiques seulement. */
+export function wordLike(a: string, b: string): number {
+  if (a === b) return 1
+  if (/\d/.test(a) || /\d/.test(b) || a.length < 3 || b.length < 3) return 0
+  const pa = phonetic(a)
+  const pb = phonetic(b)
+  if (pa === pb) return 0.9
+  const max = Math.max(a.length, b.length) >= 6 ? 2 : 1
+  if (levenshtein(a, b, max) <= max) return 0.8
+  if (pa.length >= 3 && pb.length >= 3 && levenshtein(pa, pb, 1) <= 1) return 0.75
+  return 0
+}

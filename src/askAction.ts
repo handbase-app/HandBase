@@ -1,5 +1,5 @@
 import { accord, pluralG, w, type Gender } from './gender'
-import { levenshtein, nameKey, phonetic } from './nameMatch'
+import { nameKey, wordLike } from './nameMatch'
 import { currentSport } from './sportConfig'
 
 /*
@@ -702,18 +702,8 @@ const STOP = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'l', 'd', 'a', 'au',
 const GENERIC = new Set(['evenement', 'evenements', 'tournoi', 'tournois', 'stage', 'stages', 'match', 'matchs', 'groupe', 'groupes', 'selection', 'equipe', 'rassemblement', 'entrainement', 'observation', 'seance'])
 const tokens = (s: string) => nameKey(s).split(' ').filter((w) => w && !STOP.has(w))
 
-/** Ressemblance de deux mots : 1 identiques ; 0,9 même son ; 0,8 une ou deux lettres ; 0,75 sons voisins ; 0 sinon. Chiffres : identiques seulement. */
-export function wordLike(a: string, b: string): number {
-  if (a === b) return 1
-  if (/\d/.test(a) || /\d/.test(b) || a.length < 3 || b.length < 3) return 0
-  const pa = phonetic(a)
-  const pb = phonetic(b)
-  if (pa === pb) return 0.9
-  const max = Math.max(a.length, b.length) >= 6 ? 2 : 1
-  if (levenshtein(a, b, max) <= max) return 0.8
-  if (pa.length >= 3 && pb.length >= 3 && levenshtein(pa, pb, 1) <= 1) return 0.75
-  return 0
-}
+// Ressemblance de deux mots (wordLike) : src/nameMatch.ts (fonction pure, partagée avec le serveur MCP), réexportée ici.
+export { wordLike }
 
 /**
  * Ressemblance d'un nom dit à un nom de l'appareil (0 à 1). Chaque mot dit doit ressembler à un mot du nom (sauf les mots de

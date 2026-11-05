@@ -1,6 +1,5 @@
 import type { Criterion, Measurement } from './db'
-import { wordLike } from './askAction'
-import { nameKey } from './nameMatch'
+import { nameKey, wordLike } from './nameMatch'
 
 /*
  * « Coller un tableau » de mesures (étape 1 du projet « Serveur MCP Nextar ») : le préparateur a noté les résultats sur
@@ -739,7 +738,7 @@ const glue = (s: string) => nameKey(s).replace(/ /g, '')
 /**
  * Ressemblance d'un nom écrit à un joueur (0 à 1), dans n'importe quel ordre (« MARTIN Lucas », « Lucas Martin »),
  * initiales comprises (« Lucas M. », « L. Martin »), noms composés écrits collés (« Jeanpierre »), petites fautes et noms
- * qui se prononcent pareil (wordLike, src/askAction.ts). `strong` : orthographe exacte et prénom + nom présents.
+ * qui se prononcent pareil (wordLike, src/nameMatch.ts). `strong` : orthographe exacte et prénom + nom présents.
  */
 export function nameMatchScore(written: string, p: Pick<Candidate, 'firstName' | 'lastName'>): { s: number; strong: boolean } {
   const it = nameTokens(written)

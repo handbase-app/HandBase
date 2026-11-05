@@ -75,6 +75,9 @@ const Question = lazy(() => import('./pages/Question'))
 const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
 const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
+// Serveur MCP Nextar : rapport en codes (noms remis sur l'appareil) et page d'autorisation OAuth (connecteur Claude).
+const RapportPage = lazy(() => import('./pages/Rapport'))
+const OAuthConsent = lazy(() => import('./pages/OAuthConsent'))
 // Espace joueur (/moi) : la seule page d'un compte joueur ; aperçu pour un administrateur depuis une fiche.
 const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
@@ -401,6 +404,7 @@ export default function App() {
             <Route path="/moi" element={<Me />} />
             <Route path="/parametres" element={<Settings />} />
             <Route path="/confidentialite" element={<Privacy />} />
+            <Route path="/oauth/consent" element={<OAuthConsent />} />
             <Route path="*" element={<Navigate to="/moi" replace />} />
           </Routes>
         ) : (
@@ -438,6 +442,9 @@ export default function App() {
           </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path="/groupes/:id/rapport" element={<GroupReport />} />
+          {/* Serveur MCP Nextar : rapport rédigé par Claude avec des codes, noms remis sur l'appareil ; autorisation OAuth. */}
+          <Route path="/rapport/:id" element={<RapportPage />} />
+          <Route path="/oauth/consent" element={<OAuthConsent />} />
           {/* Changement de saison d'un groupe Pôle (src/pages/PoleSeason.tsx). */}
           <Route path="/groupes/:id/saison" element={<PoleSeason />} />
           <Route path={STAFF.route} element={<Teams />} />
