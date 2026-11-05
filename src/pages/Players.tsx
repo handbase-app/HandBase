@@ -22,6 +22,7 @@ import { keepPlayerTab } from '../tabQuery'
 import { accord, pluralG, w } from '../gender'
 import { basePlayers, useListMeasures, usePlainPreview, usePlayersByName } from '../playersCache'
 import { RewatchPlace } from '../rewatchPlace'
+import { ImportMesures } from '../components/ImportMesures'
 
 // Dernière valeur de chaque critère factuel, par joueur (src/playersOrder.ts ; importée d'ici par d'autres écrans).
 export { latestByPlayer } from '../playersOrder'
@@ -71,6 +72,8 @@ export default function Players() {
   if (preview) previewSeen.current = preview
   const { nPending, nRefused } = all ? counted : (previewSeen.current ?? counted)
   const [grouping, setGrouping] = useState(false)
+  // « Coller un tableau de mesures » (src/components/ImportMesures.tsx) : joueurs recherchés dans toute la base.
+  const [pasting, setPasting] = useState(false)
   const [groupMsg, setGroupMsg] = useState<{ text: string; groupId?: string }>({ text: '' })
   // Liste qui défile d'un trait (plus de « Afficher plus ») : toutes les fiches filtrées sont dans la liste, seule une
   // fenêtre d'une soixantaine de lignes autour de l'écran est dessinée (components/InfiniteList.tsx, Windowed). `win` :
@@ -154,6 +157,8 @@ export default function Players() {
             onSelect: () => (setGrouping(true), setGroupMsg({ text: '' })),
           },
         filtered.length > 0 && { label: 'Exporter (tableur)', icon: 'download', hint: `Les ${w(gender).joueurs} ${accord('affiché', gender, 2)}, fichier CSV`, onSelect: () => void exportCsv(filtered) },
+        // Résultats de tests notés sur papier, mis en tableau par l'IA du préparateur : collés ici, validés, enregistrés.
+        can.editMeasurements(role) && { label: 'Coller un tableau de mesures', icon: 'ruler', hint: 'résultats de tests (IA, tableur, CSV)', onSelect: () => setPasting(true) },
       ]}
     />
   )
@@ -204,6 +209,7 @@ export default function Players() {
           </Link>
         </div>
       )}
+      {pasting && <ImportMesures scope={{ kind: 'tous' }} onClose={() => setPasting(false)} />}
       {grouping && (
         <AddToGroupDialog playerIds={filtered.map((p) => p.id)} onClose={(text, groupId) => (setGrouping(false), setGroupMsg({ text: text ?? '', groupId }))} />
       )}

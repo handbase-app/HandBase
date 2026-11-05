@@ -48,6 +48,8 @@ import { FoldSection } from '../components/FoldSection'
 import { afterWindow, FormWindow } from '../components/FormWindow'
 import { useGiveObjective } from '../components/GroupObjectives'
 import { DuplicateEvent } from '../components/DuplicateEvent'
+import { ImportMesures } from '../components/ImportMesures'
+import { eventNumbers } from '../importMesures'
 import { foldKey, startsOpen } from '../fold'
 import { eventToAgenda } from '../agendaFile'
 import { fixtureHeading, itineraryUrl } from '../rencontres'
@@ -544,6 +546,8 @@ export function EventDetail() {
   // « Modifier » : fenêtre par-dessus la page (ouverte aussi par ?modifier=1, une fois le paramètre retiré de l'adresse).
   const [editing, setEditing] = useState(false)
   const [duplicating, setDuplicating] = useState(false)
+  // « Coller un tableau de mesures » (src/components/ImportMesures.tsx) : joueurs recherchés parmi ceux de l'événement.
+  const [pasting, setPasting] = useState(false)
   // « Infos de l'événement » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
   const [stampOpen, setStampOpen] = useState(false)
   // Après Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
@@ -793,6 +797,8 @@ export function EventDetail() {
     canAdd && !adding && { label: `Ajouter des ${ew.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${ew.un} par ${ew.un}`, onSelect: () => (toPlayers(), setAdding(true)) },
     roster.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
     canRemove && !pick.on && !removing && { label: `Retirer des ${ew.joueurs}`, icon: 'close', onSelect: () => (toPlayers(), setAdding(false), setRemoving(true)) },
+    // Résultats de tests notés sur papier, mis en tableau par l'IA du préparateur : collés ici, validés, enregistrés.
+    can.editMeasurements(role) && roster.length > 0 && { label: 'Coller un tableau de mesures', icon: 'ruler', hint: 'résultats de tests (IA, tableur, CSV)', onSelect: () => setPasting(true) },
     showSplit && { label: 'Répartir par équipe', icon: 'users', hint: 'observateurs par équipe (tournoi)', onSelect: () => setSplitOpen(true) },
     !removing && !pick.on && give.item && { ...give.item, onSelect: () => (toPlayers(), setAdding(false), (give.item as MenuItem).onSelect()) },
   ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
@@ -966,6 +972,7 @@ export function EventDetail() {
         </FormWindow>
       )}
       {duplicating && <DuplicateEvent ev={ev} onClose={() => setDuplicating(false)} />}
+      {pasting && <ImportMesures scope={{ kind: 'evenement', name: ev.name, players: roster, nums: eventNumbers(ev) }} onClose={() => setPasting(false)} />}
       {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos de l’événement" onClose={() => setStampOpen(false)} />}
         <div>
           {ev.archived && <div className="mb-1 w-fit rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-bold text-muted">ARCHIVÉ</div>}

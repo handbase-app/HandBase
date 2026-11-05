@@ -399,13 +399,15 @@ function TestDetail({
               <span className="min-w-0">
                 <span className="font-bold">{fmtDate(m.date)}</span>
                 {staff && m.note && <span className="ml-2 text-[11px] text-amber-200">« {m.note} »</span>}
+                {/* Venue d'un tableau collé (src/components/ImportMesures.tsx) : la trace, sous la date. */}
+                {staff && m.imported && <span className="block text-[11px] text-muted">importé, validé par {m.imported.by || m.author || 'un encadrant'}</span>}
               </span>
               <span className="flex shrink-0 items-center gap-2.5">
                 <span className="flex items-center gap-1 text-sm font-bold">
                   {fmtValue(l.c, m.value)}
                   <MeasureMedal cfg={reperes} c={l.c} value={m.value} who={player} day={m.date} size={14} />
                 </span>
-                {staff && m.author && <span className="text-[10px] text-muted">{m.author}</span>}
+                {staff && m.author && !m.imported && <span className="text-[10px] text-muted">{m.author}</span>}
                 {editable && (
                   <>
                     <button type="button" className="-m-1 rounded-full p-1.5 text-muted hover:text-fg" title="Modifier cette mesure" aria-label="Modifier cette mesure" onClick={() => setEditing(m)}>

@@ -244,6 +244,12 @@ export interface Measurement extends Syncable {
   author?: string
   /** Commentaire du préparateur (« blessé », « D>G »…). */
   note?: string
+  /**
+   * Mesure venue d'un tableau collé (« Coller un tableau de mesures », src/components/ImportMesures.tsx) : qui l'a validée
+   * (`by`, nom de l'appareil, comme `author`) et quand (`at`, ISO). Champ libre de data (jsonb), gardé tel quel par le serveur
+   * (hb_upsert) : pas de SQL. Montré sur la fiche (onglet Tests) : « importé, validé par … ».
+   */
+  imported?: { by?: string; at: string }
 }
 
 export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'

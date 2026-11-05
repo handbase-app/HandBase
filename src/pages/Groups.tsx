@@ -46,6 +46,7 @@ import { PanelClose, selectedCls, usePanel, useSelected } from '../components/Ma
 import { MQ, useMedia } from '../layout'
 import { CompareBar, PickBox, useComparePick } from '../components/ComparePick'
 import { canTransferGroup, TransferGroup } from '../components/TransferGroup'
+import { ImportMesures } from '../components/ImportMesures'
 import { OtherGroupDetail, OtherGroupsSection, useAllGroups } from '../components/AdminGroups'
 import { useGroupsQuery } from '../components/GroupsQuery'
 import { BarActions, BelowBar, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
@@ -966,6 +967,8 @@ function PlayerGroupDetail() {
   const [transferring, setTransferring] = useState(false)
   // Fenêtre « Infos du groupe » (créé par…, modifié par…), ouverte par le ⋮.
   const [stampOpen, setStampOpen] = useState(false)
+  // « Coller un tableau de mesures » (src/components/ImportMesures.tsx) : joueurs recherchés parmi ceux du groupe.
+  const [pasting, setPasting] = useState(false)
   useEffect(() => setTransferring(false), [id])
   // « Voir tous les groupes » (administrateurs, supabase/039) : un groupe absent de l'appareil se lit sur le serveur.
   const allGroups = useAllGroups(role).on
@@ -1057,6 +1060,8 @@ function PlayerGroupDetail() {
     canAdd && { label: `Ajouter des ${gw.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${gw.un} par ${gw.un}`, onSelect: () => setAdding(true) },
     players.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
     canRemove && !pick.on && !removing && { label: `Retirer des ${gw.joueurs}`, icon: 'close', onSelect: () => setRemoving(true) },
+    // Résultats de tests notés sur papier, mis en tableau par l'IA du préparateur : collés ici, validés, enregistrés.
+    can.editMeasurements(role) && players.length > 0 && { label: 'Coller un tableau de mesures', icon: 'ruler', hint: 'résultats de tests (IA, tableur, CSV)', onSelect: () => setPasting(true) },
     !removing && !pick.on && give.item,
   ] as (MenuItem | false)[]).filter((x): x is MenuItem => !!x)
   // Un trait entre ces actions et celles du groupe (Dupliquer, Modifier…).
@@ -1188,6 +1193,7 @@ function PlayerGroupDetail() {
         </FormWindow>
       )}
       {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du groupe" onClose={() => setStampOpen(false)} />}
+      {pasting && <ImportMesures scope={{ kind: 'groupe', name: g.name, players }} onClose={() => setPasting(false)} />}
         <div>
           {/* Le nom, et au bout de la rangée « Suivre » puis le ⋮ (actions du groupe, Supprimer en dernier). */}
           <div className="flex items-start justify-between gap-2">
