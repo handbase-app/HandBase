@@ -134,7 +134,14 @@ export default function OAuthConsent() {
                     ['eye', 'lire tes joueurs EN CODES (J-…) : poste, année, sexe, département, mesures, moyennes d’avis, nombre de « vus » ; jamais un nom, un club, une date de naissance ni un commentaire'],
                     ['check', 'déposer des mesures dans ta boîte « À valider » : rien n’est enregistré avant que tu valides'],
                     ['printer', 'garder 30 jours des rapports écrits avec les codes : ton appareil y remet les noms'],
-                    ...(role === 'admin' ? [['users', 'voir qui s’est connecté récemment (administrateur) : nom et rôle des comptes, jamais d’adresse mail'] as const] : []),
+                    ...(role === 'admin'
+                      ? [
+                          [
+                            'users',
+                            '(administrateur) voir l’état de l’installation, l’activité du staff, les questions non comprises et qui s’est connecté — noms et rôles des comptes, jamais d’adresse mail — et préparer des actions d’administration (rôles, périmètres, archivage, fusions de fiches) à valider dans « À valider » : rien n’est fait avant que tu les appliques',
+                          ] as const,
+                        ]
+                      : []),
                   ].map(([icon, txt]) => (
                     <li key={icon} className="flex gap-2">
                       <Icon name={icon as 'eye'} className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
@@ -144,7 +151,7 @@ export default function OAuthConsent() {
                   <li className="flex gap-2">
                     <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                     <span>
-                      Jamais modifier ni supprimer une fiche, une mesure ou un avis. Révocable à tout moment : Réglages → Applications connectées.
+                      Jamais modifier ni supprimer lui-même une fiche, une mesure, un avis ou un compte. Révocable à tout moment : Réglages → Applications connectées.
                     </span>
                   </li>
                 </ul>

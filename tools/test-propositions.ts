@@ -3,7 +3,9 @@
 // proposition → validation en partie → « Défaire », état après validation, lignes déposées par le serveur MCP (objets),
 // aller-retour avec le serveur (envoi, relecture, version locale plus récente, oubli des effacées), ménage de l'appareil,
 // mêmes bornes que supabase/067_propositions.sql, notification de la fonction « veille » (texte, message minimal, préférence)
-// et branchements dans l'appli. Données FICTIVES seulement.
+// et branchements dans l'appli ; propositions D'ADMINISTRATION (sorte « admin », src/propositionsAdmin.ts) : lecture des
+// actions, libellés avec les noms remis sur l'appareil, application partielle par les chemins de l'appli (faux chemins qui
+// notent les appels : hb_update_member, save, remove, mergePlayers), « Défaire », rejet. Données FICTIVES seulement.
 //
 //   npx jiti tools/test-propositions.ts
 import assert from 'node:assert/strict'
@@ -42,6 +44,8 @@ import {
   PROPOSITION_URL,
   titreCourt,
 } from '../supabase/functions/veille/veille'
+import { actionsDe, appliquerActions, defaireActions, etatApresAdmin, libelleAction, nonDefaisables, resumeAdmin, sorteProposition, type DepsAdmin } from '../src/propositionsAdmin'
+import { lireAction, saisonDe } from '../src/propositionsAdminCore'
 
 let n = 0
 const t = (name: string, f: () => void) => {
@@ -325,4 +329,209 @@ t('branchements : pastille et boîte dans l\'appli, « Garder pour plus tard »,
   assert.doesNotMatch(box, /fetch\(|transcrire|mistral|anthropic|openai/i)
 })
 
+
+// ---------- Propositions d'administration (sorte « admin ») ----------
+
+const ta: Promise<void>[] = []
+const tAsync = (name: string, f: () => Promise<void>) => {
+  ta.push(
+    (async () => {
+      await f()
+      n++
+      console.log(`ok ${n} - ${name}`)
+    })(),
+  )
+}
+
+const U_BRUNO = '00000000-0000-4000-8000-0000000000c1'
+const U_NOUVEAU = '00000000-0000-4000-8000-0000000000b5'
+const U_CAMILLE = '00000000-0000-4000-8000-0000000000b2'
+const ADMIN_LIGNES = [
+  { a: 'role', userId: U_BRUNO, compte: 'C-AAAAAAA', nom: 'Bruno Encadrant-Fictif', role: 'observateur', avant: 'preparateur' },
+  { a: 'role', userId: U_NOUVEAU, compte: 'C-BBBBBBB', nom: '', role: 'preparateur', avant: null },
+  { a: 'unite', userId: U_CAMILLE, compte: 'C-CCCCCCC', nom: 'Camille Fictive', uniteId: 'u-var', unite: 'Comité Fictif du Var', roleUnite: 'observateur' },
+  { a: 'secteur', userId: U_CAMILLE, compte: 'C-CCCCCCC', nom: 'Camille Fictive', depts: ['83', '2A'] },
+  { a: 'archiver', quoi: 'evenement', id: 'ev-s1', nom: 'Tournoi d’automne Fictif', date: '2025-10-18' },
+  { a: 'archiver', quoi: 'evenement', id: 'ev-absent', nom: 'Événement disparu', date: '2025-11-02' },
+  { a: 'archiver', quoi: 'groupe', id: 'g-pole', nom: 'Pôle Fictif' },
+  { a: 'fusion', garder: 'p-noah', fondre: 'p-noah-bis' },
+  { a: 'supprimer_tout', id: 'x' },
+]
+
+/** Faux chemins de l'appli : notent chaque appel ; hb_update_member refuse le compte « nouveau » (comme la base le ferait). */
+function fauxChemins(o: { serveur?: boolean } = {}) {
+  const appels: string[] = []
+  const lignes = new Map<string, Record<string, unknown> & { id: string }>([
+    ['events:ev-s1', { id: 'ev-s1', name: 'Tournoi d’automne Fictif', archived: false }],
+    ['groups:g-pole', { id: 'g-pole', name: 'Pôle Fictif', poleUnitId: 'u-pole' }],
+  ])
+  const membres = [
+    { user_id: U_BRUNO, role: 'preparateur', departments: [] },
+    { user_id: U_NOUVEAU, role: null, departments: [] },
+    { user_id: U_CAMILLE, role: 'observateur', departments: ['13'] },
+  ]
+  const d: DepsAdmin = {
+    rpc:
+      o.serveur === false
+        ? null
+        : async (fn, args) => {
+            appels.push(`rpc ${fn} ${JSON.stringify(args ?? {})}`)
+            if (fn === 'hb_members') return { data: membres, error: null }
+            if (fn === 'hb_update_member' && args?.p_user === U_NOUVEAU) return { data: null, error: { message: 'Réservé aux administrateurs' } }
+            return { data: null, error: null }
+          },
+    enLigne: () => true,
+    evenement: async (id) => lignes.get(`events:${id}`) as never,
+    groupe: async (id) => lignes.get(`groups:${id}`) as never,
+    save: async (table, row) => {
+      appels.push(`save ${table} ${row.id} ${'archived' in row ? `archived=${row.archived}` : `unit=${row.unitId} role=${row.role}`}`)
+      lignes.set(`${table}:${row.id}`, row)
+    },
+    remove: async (table, id) => {
+      appels.push(`remove ${table} ${id}`)
+    },
+    affectations: async () => [],
+    fiche: async (id) => ({ id }),
+    fondre: async (source, cible) => {
+      appels.push(`merge ${source} → ${cible}`)
+      return null
+    },
+    newId: () => 'aff-1',
+  }
+  return { d, appels, lignes }
+}
+
+t('propositions d’administration : sorte « admin » lue du serveur, comptée dans la pastille, actions lisibles, libellés neutres', () => {
+  const s: ServerProposition = { id: 'adm-1', source: 'mcp', kind: 'admin', titre: 'Fin de saison', contexte: { sorte: 'archiver', version: 1 }, lignes: ADMIN_LIGNES, etat: 'en_attente', created_at: '2026-11-05T10:00:00Z', updated_at: '2026-11-05T10:00:00Z', expires_at: '2026-12-05T10:00:00Z', deleted_at: null }
+  const row = fromServer(s, undefined, ME)!
+  assert.equal(row.kind, 'admin')
+  assert.equal(badgeCount([row], ME, NOW), 1)
+  const acts = actionsDe(row.lignes)
+  assert.equal(acts.filter((a) => a.action).length, 8, 'la ligne inconnue n’est pas applicable')
+  assert.equal(acts[8].action, null)
+  assert.equal(sorteProposition(row.contexte), 'archiver')
+  const noms = { compte: (id: string, n: string) => (id === U_NOUVEAU ? 'Nouveau Compte-Fictif' : n), fiche: (id: string) => (id === 'p-noah' ? 'Noah Fictivus' : id === 'p-noah-bis' ? 'Noah Fictivus (bis)' : undefined), code: (id: string) => `J-${id.length}` }
+  const L = acts.map((a) => (a.action ? libelleAction(a.action, noms) : null))
+  assert.equal(L[0]!.titre, 'Donner le rôle Observateur à Bruno Encadrant-Fictif')
+  assert.match(L[0]!.detail!, /rôle actuel : Encadrant/)
+  assert.equal(L[1]!.titre, 'Donner le rôle Encadrant à Nouveau Compte-Fictif', 'nom à jour remis par l’appareil')
+  assert.equal(L[2]!.titre, 'Affecter Camille Fictive à « Comité Fictif du Var »')
+  assert.equal(L[3]!.titre, 'Secteur de Camille Fictive : 83, 2A')
+  assert.equal(L[4]!.titre, 'Archiver l’événement « Tournoi d’automne Fictif »')
+  assert.match(L[4]!.detail!, /18\/10\/2025 · saison 2025-26/)
+  assert.equal(L[7]!.titre, 'Fondre « Noah Fictivus (bis) » dans « Noah Fictivus »')
+  assert.equal(libelleAction(acts[7].action!, noms, true).titre, 'Fondre « Noah Fictivus » dans « Noah Fictivus (bis) »', 'inverser')
+  assert.match(libelleAction(acts[7].action!, { ...noms, fiche: () => undefined }).titre, /absente de cet appareil/)
+  assert.equal(resumeAdmin('archiver', actionsDe(ADMIN_LIGNES.slice(4, 6))), 'Archiver 2 événements de la saison 2025-26')
+  assert.equal(resumeAdmin('archiver', actionsDe(ADMIN_LIGNES.slice(4, 7))), 'Archiver 2 événements de la saison 2025-26 et 1 groupe')
+  assert.equal(saisonDe('2026-08-31'), '2025-26')
+  assert.equal(saisonDe('2026-09-01'), '2026-27')
+  // Libellés neutres : aucun mot négatif sur un joueur.
+  const tout = L.filter(Boolean).map((x) => `${x!.titre} ${x!.detail ?? ''}`).join(' ')
+  assert.doesNotMatch(tout, /pas retenu|refus|écarté|mauvais|faible/i)
+  // Jamais « administrateur » à donner ; formes inconnues ignorées.
+  assert.equal(lireAction({ a: 'role', userId: 'u', compte: 'C-AAAAAAA', nom: 'x', role: 'admin' }), null)
+  assert.equal(lireAction({ a: 'secteur', userId: 'u', compte: 'C-AAAAAAA', nom: 'x', depts: ['99'] }), null)
+  assert.equal(lireAction(['role']), null)
+})
+
+tAsync('propositions d’administration : application PARTIELLE par les chemins de l’appli (hb_update_member, save, mergePlayers), état, « Défaire »', async () => {
+  const { d, appels, lignes } = fauxChemins()
+  const acts = actionsDe(ADMIN_LIGNES)
+  // L'administrateur décoche la fusion (i = 7) ; la ligne inconnue (8) n'est pas cochable.
+  const cochees = new Set([0, 1, 2, 3, 4, 5, 6])
+  const { resultats, retours } = await appliquerActions(acts, cochees, new Set(), d)
+  const par = Object.fromEntries(resultats.map((r) => [r.i, `${r.ok ? 'ok' : 'non'} ${r.message}`]))
+  assert.deepEqual(par, {
+    0: 'ok fait',
+    1: 'non Réservé aux administrateurs',
+    2: 'ok fait',
+    3: 'ok fait',
+    4: 'ok fait',
+    5: 'non événement introuvable sur cet appareil (supprimé, ou pas encore reçu)',
+    6: 'non groupe Pôle : passe d’une saison à l’autre par « Changement de saison »',
+  })
+  assert.deepEqual(appels, [
+    'rpc hb_members {}',
+    `rpc hb_update_member {"p_user":"${U_BRUNO}","p_role":"observateur"}`,
+    `rpc hb_update_member {"p_user":"${U_NOUVEAU}","p_role":"preparateur"}`,
+    `save assignments aff-1 unit=u-var role=observateur`,
+    `rpc hb_update_member {"p_user":"${U_CAMILLE}","p_departments":["83","2A"]}`,
+    'save events ev-s1 archived=true',
+  ])
+  assert.ok(!appels.some((a) => a.startsWith('merge')), 'fusion décochée : non faite')
+  assert.equal(lignes.get('events:ev-s1')!.archived, true)
+  // 4 sur 8 actions lisibles : validée en partie.
+  assert.equal(etatApresAdmin(acts, resultats), 'partielle')
+  assert.equal(etatApresAdmin(acts, []), 'en_attente')
+  assert.equal(etatApresAdmin(actionsDe(ADMIN_LIGNES.slice(0, 1)), [{ i: 0, ok: true, message: 'fait' }]), 'validee')
+  // Défaire : rôle remis (Encadrant), affectation retirée, secteur remis (13), événement désarchivé ; du dernier au premier.
+  assert.deepEqual(retours.map((r) => r.k), ['role', 'unite', 'secteur', 'archiver'])
+  appels.length = 0
+  const def = await defaireActions(retours, d)
+  assert.ok(def.every((r) => r.ok))
+  assert.deepEqual(appels, [
+    'save events ev-s1 archived=false',
+    `rpc hb_update_member {"p_user":"${U_CAMILLE}","p_departments":["13"]}`,
+    'remove assignments aff-1',
+    `rpc hb_update_member {"p_user":"${U_BRUNO}","p_role":"preparateur"}`,
+  ])
+  assert.equal(lignes.get('events:ev-s1')!.archived, false)
+})
+
+tAsync('propositions d’administration : fusion (inversée par l’administrateur) par mergePlayers, ne se défait pas ; sans serveur : rôles, secteurs et fusions refusés', async () => {
+  const { d, appels } = fauxChemins()
+  const acts = actionsDe(ADMIN_LIGNES)
+  const { resultats, retours } = await appliquerActions(acts, new Set([7]), new Set([7]), d)
+  assert.deepEqual(appels, ['merge p-noah → p-noah-bis'], 'inversée : p-noah fondue dans p-noah-bis')
+  assert.equal(retours.length, 0)
+  assert.deepEqual(nonDefaisables(resultats, retours), [7])
+  // Rôle donné à un compte qui n'en avait pas : ne se défait pas d'ici.
+  const r2 = await appliquerActions(actionsDe([{ ...ADMIN_LIGNES[1], userId: U_CAMILLE, role: 'preparateur' }]), new Set([0]), new Set(), {
+    ...d,
+    rpc: async (fn) => (fn === 'hb_members' ? { data: [{ user_id: U_CAMILLE, role: null, departments: [] }], error: null } : { data: null, error: null }),
+  })
+  assert.deepEqual(nonDefaisables(r2.resultats, r2.retours), [0])
+  // Déjà fait : compte qui a déjà le rôle, affectation déjà là, événement déjà archivé.
+  const deja = await appliquerActions(actionsDe([{ ...ADMIN_LIGNES[0], role: 'preparateur' }, ADMIN_LIGNES[2]]), new Set([0, 1]), new Set(), { ...d, affectations: async () => [{ id: 'x', unitId: 'u-var' }] })
+  assert.deepEqual(deja.resultats.map((r) => r.message), ['déjà fait', 'déjà fait'])
+  // Version sans serveur : rôles, secteurs et fusions demandent le serveur ; archivage et affectation passent.
+  const sans = fauxChemins({ serveur: false })
+  const r3 = await appliquerActions(acts, new Set([0, 2, 3, 4, 7]), new Set(), sans.d)
+  assert.deepEqual(r3.resultats.map((r) => r.ok), [false, true, false, true, false])
+  assert.match(r3.resultats[0].message, /en ligne, avec le serveur/)
+})
+
+t('propositions d’administration : « Rejeter » (rien n’est fait, état rejetée), « Défaire » remet en attente', () => {
+  const row: PropositionRow = { ...keep([['a', '1']], []), kind: 'admin', source: 'mcp', contexte: { sorte: 'role' }, lignes: ADMIN_LIGNES.slice(0, 2) as never }
+  const rej = planEtat(row, 'rejetee', NOW + 1)
+  assert.equal(rej.etat, 'rejetee')
+  assert.equal(badgeCount([rej], ME, NOW + 2), 0)
+  const val = planEtat(row, 'partielle', NOW + 1)
+  assert.equal(planEtat(val, 'en_attente', NOW + 2).etat, 'en_attente')
+  assert.deepEqual(toServer(rej).kind, 'admin')
+})
+
+t('propositions d’administration : branchements (boîte, écran, chemins de l’appli, fond flouté, consentement)', () => {
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  const box = read('src/components/Propositions.tsx')
+  assert.match(box, /current\?\.kind === 'admin'/)
+  assert.match(box, /<AdminReview /)
+  const ecran = read('src/components/PropositionsAdmin.tsx')
+  assert.match(ecran, /Appliquer \$\{plural\(n, 'action'\)\}/)
+  assert.match(ecran, /Rejeter/)
+  assert.match(ecran, /Défaire/)
+  assert.match(ecran, /useNomsParCode\(\)/, 'noms des joueurs remis sur l’appareil comme /rapport')
+  assert.match(ecran, /mergePlayers\(source, cible\)/)
+  assert.match(ecran, /supabase!\.rpc\(fn, args\)/)
+  assert.match(ecran, /save\(table, row as never\)/)
+  assert.match(ecran, /FormActions/)
+  assert.match(read('src/components/Confirm.tsx'), /scrim/, 'questions sur fond flouté')
+  assert.match(read('src/components/FilterWindow.tsx'), /scrim/, 'fenêtre de la boîte sur fond flouté')
+  assert.doesNotMatch(ecran + read('src/propositionsAdmin.ts'), /fetch\(|anthropic|openai|mistral/i)
+  assert.match(read('src/propositionsAdmin.ts'), /'hb_update_member'/)
+  assert.match(read('src/pages/OAuthConsent.tsx'), /\(administrateur\) voir l’état de l’installation, l’activité du staff, les questions non comprises et qui s’est connecté/)
+})
+
+await Promise.all(ta)
 console.log(`\n${n} essais réussis`)

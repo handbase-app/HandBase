@@ -21,7 +21,10 @@
 // aucune donnée de joueur). Sa réponse passe par sa propre liste blanche (CLES_CONNEXIONS : « nom_affiche » n'est permis
 // que là) et par un contrôle des textes (aucun « @ », aucune adresse IP). Même régime pour les quatre outils
 // d'administration en lecture seule (admin.ts : nextar_admin_a_faire, _sante, _activite, _questions) : refus sans rien lire
-// pour un compte qui n'est pas administrateur, une liste blanche par outil (CLES_ADMIN), joueurs en codes seulement.
+// pour un compte qui n'est pas administrateur, une liste blanche par outil (CLES_ADMIN), joueurs en codes seulement. Et
+// nextar_admin_proposer (adminProposer.ts), le seul outil d'administration qui écrit : il DÉPOSE des actions d'administration
+// (rôles, périmètres, archivage, fusions) dans la boîte « À valider » de l'administrateur (hb_propositions, sorte « admin »,
+// supabase/070_propositions_admin.sql) ; rien ne s'applique avant que l'administrateur les valide dans l'appli.
 
 import { codeJoueur, codesDuTexte, indexCodes } from './partage/codesJoueurs.ts'
 import {
@@ -68,6 +71,14 @@ export interface GroupeSrv {
   name: string
   archived?: boolean
   playerIds?: string[]
+  /** Groupe d'une unité Pôle (src/poleSeason.ts) : jamais archivé à la main (changement de saison). */
+  pole?: boolean
+}
+
+/** Unité de la structure (hb_units, 044) : identifiant et nom seulement. */
+export interface UniteSrv {
+  id: string
+  name: string
 }
 
 /** Joueur pour nextar_lire : AUCUN nom, aucune date complète, aucun club. */
@@ -181,6 +192,19 @@ export interface Source {
   derniereEcriture(userId?: string): Promise<string | null>
   /** Lignes créées par ce compte depuis `depuis` (ISO) : avis, mesures, événements, « vus », fiches (créateur de la ligne). */
   activite(userId: string, depuis: string): Promise<ActiviteSrv>
+
+  // ---- nextar_admin_proposer (adminProposer.ts) : appelées APRÈS estAdmin() seulement, aux droits du compte ----
+  /** Identifiant du compte du jeton (claims vérifiés par withSupabase) ; inconnu : null. Jamais rendu. */
+  moi(): Promise<string | null>
+  /** Unités de la structure (044), identifiant et nom ; table absente : aucune. */
+  unites(): Promise<UniteSrv[]>
+  /** Identifiants des fiches (ni supprimées) et si elles sont déjà fondues : rien d'autre (codes J-… résolus ici). */
+  idsFiches(max: number): Promise<{ fiches: { id: string; fondue: boolean }[]; tronque: boolean }>
+  /**
+   * Dépose une proposition d'ADMINISTRATION (sorte « admin », supabase/070_propositions_admin.sql) dans la boîte « À valider »
+   * du compte ; 070 pas appliqué (sorte refusée par la table) : « indisponible ».
+   */
+  deposerPropositionAdmin(p: { titre: string; contexte: Record<string, unknown>; lignes: Record<string, unknown>[] }): Promise<{ id: string } | { indisponible: true } | { erreur: string }>
 }
 
 /** Comptages permis à Source.compter (source.ts : table et filtres fixes pour chacun). */
@@ -350,6 +374,8 @@ export const BORNES = {
   /** Groupes de questions rendus (défaut, maximum). */
   questionsDefaut: 20,
   questionsMax: 100,
+  /** nextar_admin_proposer : actions par proposition (comme supabase/070_propositions_admin.sql). */
+  adminActions: 50,
 } as const
 
 // ---------- Vérification des réponses (liste blanche) ----------
@@ -410,6 +436,11 @@ export const CLES_ADMIN: Record<string, Set<string>> = {
     'comptes', 'avis', 'super', 'mauvaise', 'sans_reponse', 'groupes', 'formulation', 'autres_formulations', 'issue', 'recette',
     'complete', 'partielle', 'pas_comprise', 'mode_avance', 'lance', 'reponse_calculee', 'pas_applique', 'ce_qu_ils_voulaient',
     'pages', 'page', 'derniere', 'transformee', 'par_page', 'masquage', 'noms_connus',
+  ]),
+  // Seul outil d'administration qui ÉCRIT : il dépose une proposition dans la boîte « À valider » de l'administrateur.
+  nextar_admin_proposer: new Set([
+    ...COMMUNES_ADMIN, 'id', 'etat', 'titre', 'sorte', 'resume', 'pretes', 'refusees', 'actions', 'n', 'raison', 'role_actuel',
+    'unite', 'role_unite', 'secteur', 'quoi', 'libelle', 'date', 'garder', 'fondre', 'lien_boite', 'reste',
   ]),
 }
 

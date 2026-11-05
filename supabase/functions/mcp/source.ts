@@ -17,7 +17,10 @@
 //    date, auteur ; ni notes ni commentaires) ; prénom, nom, date de naissance et état des fiches, pour les doublons et le
 //    masquage des questions (jamais rendus) ; journal des questions (phrase, issue, page, verdict, commentaire, auteur : ni
 //    requête SQL, ni détail d'erreur, ni nom d'auteur) ; nombres de lignes (count, head : aucune ligne transférée) ;
-//    hb_admin_sante (069), hb_last_seen (030), dernière date de l'historique (hb_audit.at seulement : ni résumé ni changements).
+//    hb_admin_sante (069), hb_last_seen (030), dernière date de l'historique (hb_audit.at seulement : ni résumé ni changements) ;
+//  - nextar_admin_proposer (adminProposer.ts ; APRÈS hb_is_admin) : profils (comme ci-dessus), unités (id, nom), identifiants
+//    des fiches et « fondue » (ni nom, ni date, ni club), événements et groupes (comme nextar_contexte, plus « groupe Pôle ») ;
+//    une seule écriture : la proposition « admin » dans hb_propositions (070), avec le jeton du compte.
 // Fichier sans import Deno (testable avec npx jiti et un faux client, tools/test-mcp.ts).
 
 import { eventNumbers } from './partage/importMesures.ts'
@@ -79,7 +82,8 @@ const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
 const arr = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined)
 const yearOf = (d?: string | null) => (d && /^\d{4}/.test(d) ? +d.slice(0, 4) : undefined)
 
-export function sourceSupabase(sb: ClientSupabase): Source {
+/** `moi` : identifiant du compte du jeton (claims vérifiés par withSupabase, index.ts), pour nextar_admin_proposer. */
+export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source {
   const evenementDe = (id: string, d: Record<string, unknown>): EvenementSrv => ({
     id,
     name: str(d.name) ?? 'Événement',
@@ -131,17 +135,19 @@ export function sourceSupabase(sb: ClientSupabase): Source {
     },
 
     async groupes({ archives }): Promise<GroupeSrv[]> {
-      const { rows } = await pages<{ id: string; n: string | null; a: unknown; p: unknown }>(
-        (a, b) => sb.from('hb_groups').select('id, n:data->>name, a:data->archived, p:data->playerIds').eq('deleted', false).range(a, b),
+      const { rows } = await pages<{ id: string; n: string | null; a: unknown; p: unknown; pu: string | null }>(
+        (a, b) => sb.from('hb_groups').select('id, n:data->>name, a:data->archived, p:data->playerIds, pu:data->>poleUnitId').eq('deleted', false).range(a, b),
         600,
       )
-      return rows.map((r) => ({ id: r.id, name: r.n ?? 'Groupe', archived: r.a === true, playerIds: arr(r.p) ?? [] })).filter((g) => archives || !g.archived)
+      return rows
+        .map((r) => ({ id: r.id, name: r.n ?? 'Groupe', archived: r.a === true, playerIds: arr(r.p) ?? [], ...(r.pu ? { pole: true } : {}) }))
+        .filter((g) => archives || !g.archived)
     },
 
     async groupe(id): Promise<GroupeSrv | null> {
-      const { data, error } = await sb.from('hb_groups').select('id, n:data->>name, a:data->archived, p:data->playerIds').eq('id', id).eq('deleted', false).maybeSingle()
+      const { data, error } = await sb.from('hb_groups').select('id, n:data->>name, a:data->archived, p:data->playerIds, pu:data->>poleUnitId').eq('id', id).eq('deleted', false).maybeSingle()
       if (error || !data) return null
-      return { id: data.id, name: data.n ?? 'Groupe', archived: data.a === true, playerIds: arr(data.p) ?? [] }
+      return { id: data.id, name: data.n ?? 'Groupe', archived: data.a === true, playerIds: arr(data.p) ?? [], ...(data.pu ? { pole: true } : {}) }
     },
 
     async joueursLire(f: FiltreJoueurs, max: number) {
@@ -487,6 +493,37 @@ export function sourceSupabase(sb: ClientSupabase): Source {
         n('hb_players', 'created_by'),
       ])
       return { avis, mesures, evenements, vus, fiches }
+    },
+
+    // ---------- nextar_admin_proposer (adminProposer.ts) ----------
+
+    async moi() {
+      return moi ?? null
+    },
+
+    async unites() {
+      // Identifiant et nom seulement ; structure (044) absente : aucune unité.
+      try {
+        const { rows } = await pages<{ id: string; n: string | null }>((a, b) => sb.from('hb_units').select('id, n:data->>name').eq('deleted', false).order('id').range(a, b), 5000)
+        return rows.map((u) => ({ id: u.id, name: u.n ?? 'Unité' }))
+      } catch {
+        return []
+      }
+    },
+
+    async idsFiches(max) {
+      // Identifiant et « fondue » seulement : ni nom, ni date, ni club.
+      const r = await pages<{ id: string; m: string | null }>((a, b) => sb.from('hb_players').select('id, m:data->>mergedInto').eq('deleted', false).order('id').range(a, b), max)
+      return { fiches: r.rows.map((x) => ({ id: x.id, fondue: !!x.m })), tronque: r.tronque }
+    },
+
+    async deposerPropositionAdmin(p) {
+      const { data, error } = await sb.from('hb_propositions').insert({ source: 'mcp', kind: 'admin', titre: p.titre, contexte: p.contexte, lignes: p.lignes }).select('id').single()
+      // Table absente (067), ou sorte « admin » refusée par la contrainte de 067 (070 pas appliqué) : indisponible.
+      if (absente(error) || (error?.code === '23514' && /kind/.test(error.message ?? ''))) return { indisponible: true as const }
+      if (error?.code === '42501') return { erreur: 'réservé aux administrateurs (refus de la base)' }
+      if (error || !data) return { erreur: error?.message ?? 'refus du serveur' }
+      return { id: data.id as string }
     },
   }
 }

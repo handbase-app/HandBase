@@ -15,6 +15,11 @@
 //    un compte qui n'est pas administrateur ; listes blanches propres ; joueurs en codes ; noms masqués côté serveur dans les
 //    questions ([joueur], [nom], [licence]) ; doublons = règle de src/merge.ts ; 069 absent / appliqué / en erreur ; bornes ;
 //    source.ts (colonnes nommées, comptages sans lignes, aucune écriture) ; supabase/069_admin_sante.sql (définition, droits) ;
+//  - nextar_admin_proposer (adminProposer.ts) : refus sans lecture NI écriture pour un compte qui n'est pas administrateur ;
+//    rôles (jamais administrateur, jamais le dernier administrateur, jamais son propre compte, rôle déjà là, staff → joueur),
+//    périmètres (unité par nom ou identifiant, nom ambigu, secteur), archivage (déjà archivé, groupe Pôle, fin de saison),
+//    fusions (codes J-… résolus, fiche fondue, code faux) ; bornes (50 actions) ; 070 absent (« indisponible ») ; lignes
+//    déposées lisibles par l'appli ; supabase/070_propositions_admin.sql (additif, sorte réservée aux administrateurs) ;
 //  - rapport → remplacement local des codes (Markdown, fiches fondues, codes inconnus, partagés, faux) ;
 //  - copies générées à jour (tools/generer-partage-mcp.ts), bornes égales à celles des scripts 067 et 068, branchements.
 //
@@ -56,6 +61,9 @@ import {
   type Source,
 } from '../supabase/functions/mcp/outils'
 import { doublonsProbables, masqueNoms, outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante, REFUS_ADMIN, taille } from '../supabase/functions/mcp/admin'
+import { INDISPONIBLE_070, outilAdminProposer, type AdminProposerInput } from '../supabase/functions/mcp/adminProposer'
+import { lireAction } from '../src/propositionsAdminCore'
+import { actionsDe, libelleAction, resumeAdmin } from '../src/propositionsAdmin'
 import { sourceSupabase } from '../supabase/functions/mcp/source'
 import { copiesPerimees } from './generer-partage-mcp'
 import {
@@ -67,6 +75,7 @@ import {
   JOUEURS,
   JOUEURS_ADMIN,
   MAINTENANT_FICTIF,
+  SECOND_ADMIN,
   sourceFictive,
   textesInterdits,
   textesInterditsAdmin,
@@ -613,6 +622,7 @@ const OUTILS_ADMIN = {
   nextar_admin_sante: (s: Source) => outilAdminSante(s, regA),
   nextar_admin_activite: (s: Source) => outilAdminActivite(s, regA, {}),
   nextar_admin_questions: (s: Source) => outilAdminQuestions(s, regA, {}),
+  nextar_admin_proposer: (s: Source) => outilAdminProposer(s, regA, { sorte: 'role', actions: [{ compte: codeCompte(COMPTES[1].userId), role: 'observateur' }] }),
 } as const
 
 await t('outils d’administration : un compte qui n’est pas administrateur reçoit un refus, sans AUCUNE lecture', async () => {
@@ -792,6 +802,285 @@ await t('nextar_admin_questions : à traiter, regroupées, noms masqués côté 
   assert.deepEqual(trop.groupes, [])
   assert.match(trop.masquage, /aucune formulation n’est rendue/)
   assert.equal(trop.resume.a_traiter, 7)
+})
+
+// ---------- nextar_admin_proposer : préparer des actions d'administration (adminProposer.ts) ----------
+
+const C = (i: number) => codeCompte(COMPTES[i].userId)
+const proposer = async (o: Parameters<typeof sourceFictive>[0], input: AdminProposerInput) => {
+  const src = sourceFictive({ admin: true, ...o })
+  const r = gardeA('nextar_admin_proposer', await outilAdminProposer(src, regA, input)) as Record<string, unknown> & {
+    actions?: { n: number; etat: string; raison?: string; [k: string]: unknown }[]
+    resume?: { pretes: number; refusees: number }
+  }
+  return { src, r, act: (n: number) => r.actions!.find((a) => a.n === n)! }
+}
+
+await t('nextar_admin_proposer : un compte qui n’est pas administrateur reçoit un refus, sans RIEN lire ni écrire (toutes les sortes)', async () => {
+  for (const input of [
+    { sorte: 'role', actions: [{ compte: C(1), role: 'observateur' }] },
+    { sorte: 'perimetre', actions: [{ compte: C(1), unite: 'u-var' }] },
+    { sorte: 'archiver', evenements_avant: '2026-07-01' },
+    { sorte: 'fusion', actions: [{ garder: code('p-noah'), fondre: code('p-noah-bis') }] },
+    { sorte: 'inconnue' },
+  ] as AdminProposerInput[]) {
+    const src = sourceFictive()
+    const r = gardeA('nextar_admin_proposer', await outilAdminProposer(src, regA, input))
+    assert.deepEqual(r, { erreur: REFUS_ADMIN })
+    assert.equal(src.appelsAdmin, 0, 'aucune lecture d’administration')
+    assert.equal(src.appelsNoms, 0, 'aucun nom lu')
+    assert.equal(src.ecritures, 0, 'aucune écriture')
+    assert.equal(src.propositionsAdmin.length, 0)
+  }
+})
+
+await t('nextar_admin_proposer (rôles) : prêtes ou refusées avec la raison ; dernier administrateur, son propre compte, administrateur, rôle déjà là', async () => {
+  const { src, r, act } = await proposer({}, {
+    sorte: 'role',
+    actions: [
+      { compte: C(1), role: 'observateur' }, // 1 Bruno, encadrant → observateur : prête
+      { compte: C(5).toLowerCase(), role: 'Encadrant' }, // 2 compte sans rôle → encadrant (minuscules) : prête
+      { compte: C(0), role: 'observateur' }, // 3 soi-même, seul administrateur : dernier administrateur
+      { compte: C(2), role: 'administrateur' }, // 4 nommer un administrateur : refusé
+      { compte: C(3), role: 'observateur' }, // 5 déjà observateur
+      { compte: C(4), role: 'joueur' }, // 6 staff → joueur : refusé
+      { compte: 'C-1234567', role: 'observateur' }, // 7 code inconnu
+      { compte: 'Bruno', role: 'observateur' }, // 8 code mal formé
+      { compte: C(1), role: 'encadrant' }, // 9 doublon dans la proposition
+      { compte: C(2), role: 'chef' }, // 10 rôle inconnu
+    ],
+  })
+  assert.equal(r.etat, 'en_attente')
+  assert.deepEqual(r.resume, { pretes: 2, refusees: 8 })
+  assert.equal(act(1).etat, 'prête')
+  assert.equal(act(1).nom_affiche, 'Bruno Encadrant-Fictif')
+  assert.equal(act(1).role, 'Observateur')
+  assert.equal(act(1).role_actuel, 'Encadrant')
+  assert.equal(act(2).etat, 'prête')
+  assert.equal(act(2).role, 'Encadrant')
+  assert.equal(act(2).role_actuel, 'En attente (aucun rôle)')
+  assert.match(act(3).raison!, /dernier administrateur/)
+  assert.match(act(4).raison!, /se nomme uniquement depuis Supabase/)
+  assert.match(act(5).raison!, /a déjà le rôle Observateur/)
+  assert.match(act(6).raison!, /Réglages › Membres/)
+  assert.match(act(7).raison!, /introuvable/)
+  assert.match(act(8).raison!, /mal formé/)
+  assert.match(act(9).raison!, /déjà demandé/)
+  assert.match(act(10).raison!, /rôle manquant ou inconnu/)
+  // Déposé : les deux prêtes seulement, avec l'identifiant du compte (pour l'appli), jamais rendu.
+  assert.equal(src.propositionsAdmin.length, 1)
+  const d = src.propositionsAdmin[0]
+  assert.deepEqual(d.contexte, { sorte: 'role', version: 1 })
+  assert.equal(d.lignes.length, 2)
+  assert.deepEqual(d.lignes[0], { a: 'role', userId: COMPTES[1].userId, compte: C(1), nom: 'Bruno Encadrant-Fictif', role: 'observateur', avant: 'preparateur' })
+  assert.equal(r.id, d.id)
+  assert.equal(r.titre, 'Rôles à donner (2)')
+  assert.match(String(r.lien_boite), /\?propositions=1$/)
+  assert.match(String(r.message), /RIEN n’est appliqué/)
+  // Le nom affiché qui est une adresse mail ne sort pas.
+  const { act: act2 } = await proposer({}, { sorte: 'role', actions: [{ compte: C(2), role: 'encadrant' }] })
+  assert.equal(act2(1).nom_affiche, '(nom pas encore choisi)')
+})
+
+await t('nextar_admin_proposer (rôles) : un autre administrateur (pas le dernier) et son propre compte quand il y en a deux ; compte de session inconnu', async () => {
+  const { act } = await proposer({ secondAdmin: true }, { sorte: 'role', actions: [{ compte: codeCompte(SECOND_ADMIN.userId), role: 'observateur' }, { compte: C(0), role: 'encadrant' }, { compte: C(5), role: 'joueur' }] })
+  assert.match(act(1).raison!, /compte administrateur : son rôle se change uniquement depuis Supabase/)
+  assert.match(act(2).raison!, /ton propre rôle/)
+  assert.equal(act(3).etat, 'prête', 'compte en attente → compte joueur')
+  const { r, src } = await proposer({ moi: null }, { sorte: 'role', actions: [{ compte: C(1), role: 'observateur' }] })
+  assert.equal(r.etat, 'non déposée')
+  assert.match(r.actions![0].raison!, /compte de la session inconnu/)
+  assert.equal(src.ecritures, 0, 'aucune prête : rien n’est déposé')
+})
+
+await t('nextar_admin_proposer (périmètres) : unité par nom ou identifiant, nom ambigu, inconnue, secteur, rôle dans l’unité', async () => {
+  const { src, r, act } = await proposer({}, {
+    sorte: 'perimetre',
+    actions: [
+      { compte: C(1), unite: 'comite fictif du var' }, // 1 par nom (sans accents ni majuscules) : prête, rôle Encadrant
+      { compte: C(2), unite: 'u-club', role_unite: 'encadrant' }, // 2 par identifiant, rôle donné
+      { compte: C(3), unite: 'Ligue Doublon' }, // 3 deux unités de ce nom
+      { compte: C(4), unite: 'Unité Inexistante' }, // 4 introuvable
+      { compte: C(4), secteur: ['83', '2a', '83'] }, // 5 secteur : prête, 2A, sans doublon
+      { compte: C(3), secteur: ['99'] }, // 6 département inconnu
+      { compte: C(3), unite: 'u-var', secteur: ['83'] }, // 7 les deux
+      { compte: C(5), unite: 'u-var' }, // 8 compte sans rôle
+      { compte: C(0), secteur: ['83'] }, // 9 administrateur : pas de secteur
+      { compte: C(3), unite: 'u-var', role_unite: 'administrateur' }, // 10 rôle administrateur pour un observateur
+    ],
+  })
+  assert.deepEqual(r.resume, { pretes: 3, refusees: 7 })
+  assert.equal(act(1).unite, 'Comité Fictif du Var')
+  assert.equal(act(1).role_unite, 'Encadrant')
+  assert.equal(act(2).role_unite, 'Encadrant')
+  assert.match(act(3).raison!, /plusieurs unités/)
+  assert.match(act(4).raison!, /unité introuvable/)
+  assert.deepEqual(act(5).secteur, ['83', '2A'])
+  assert.match(act(6).raison!, /département inconnu : 99/)
+  assert.match(act(7).raison!, /pas les deux/)
+  assert.match(act(8).raison!, /sans rôle du staff/)
+  assert.match(act(9).raison!, /pas de secteur/)
+  assert.match(act(10).raison!, /seulement pour un compte administrateur/)
+  assert.deepEqual(src.propositionsAdmin[0].lignes.map((l) => l.a), ['unite', 'unite', 'secteur'])
+  assert.equal(src.propositionsAdmin[0].lignes[0].uniteId, 'u-var')
+  assert.equal(src.propositionsAdmin[0].lignes[1].roleUnite, 'preparateur')
+})
+
+await t('nextar_admin_proposer (archivage) : par identifiant, déjà archivé, groupe Pôle, fin de saison (événements avant une date), titre', async () => {
+  const { src, r, act } = await proposer({}, {
+    sorte: 'archiver',
+    actions: [{ evenement: 'ev-var' }, { evenement: 'ev-old' }, { groupe: 'g-pole-u15' }, { groupe: 'g-stage' }, { groupe: 'g-nulle-part' }, { evenement: 'ev-var', groupe: 'g-stage' }],
+  })
+  assert.deepEqual(r.resume, { pretes: 2, refusees: 4 })
+  assert.deepEqual([act(1).quoi, act(1).id, act(1).libelle, act(1).date], ['événement', 'ev-var', 'Détection U15 Var', '2026-10-12'])
+  assert.match(act(2).raison!, /déjà archivé/)
+  assert.match(act(3).raison!, /groupe Pôle/)
+  assert.equal(act(4).etat, 'prête')
+  assert.match(act(5).raison!, /introuvable/)
+  assert.match(act(6).raison!, /OU un groupe/)
+  assert.equal(src.propositionsAdmin[0].lignes.length, 2)
+  // Fin de saison : les événements non archivés datés avant le 1er juillet 2026, les plus anciens d'abord.
+  const fin = await proposer({}, { sorte: 'archiver', evenements_avant: '2026-07-01' })
+  assert.deepEqual(fin.r.actions!.map((a) => a.id), ['ev-s1', 'ev-s2', 'ev-s3'])
+  assert.equal(fin.r.titre, 'Fin de saison 2025-26 : 3 événements à archiver')
+  assert.ok((fin.r.avertissements as string[]).some((a) => /1 événements sans date/.test(a)))
+  const aucun = await proposer({}, { sorte: 'archiver', evenements_avant: '2020-01-01' })
+  assert.equal(aucun.r.etat, 'non déposée')
+  assert.ok((aucun.r.avertissements as string[]).some((a) => /Aucun événement/.test(a)))
+})
+
+await t('nextar_admin_proposer (fusions) : codes J-… résolus côté serveur, fiche fondue, code faux, même fiche, fiche déjà prise', async () => {
+  const faux = code('p-tom').slice(0, 8) + (code('p-tom')[8] === '0' ? '1' : '0')
+  const { src, r, act } = await proposer({}, {
+    sorte: 'fusion',
+    actions: [
+      { garder: code('p-noah'), fondre: code('p-noah-bis').toLowerCase() }, // 1 prête
+      { garder: code('p-lucas'), fondre: code('p-fondu') }, // 2 fiche déjà fondue
+      { garder: code('p-tom'), fondre: faux }, // 3 code faux
+      { garder: code('p-emma'), fondre: code('p-emma') }, // 4 même fiche
+      { garder: code('p-noah'), fondre: code('p-zoe-bis') }, // 5 p-noah déjà dans une fusion
+      { garder: code('p-hors'), fondre: code('p-zoe-bis') }, // 6 prête (hors cadre : fiche existante)
+    ],
+  })
+  assert.deepEqual(r.resume, { pretes: 2, refusees: 4 })
+  assert.deepEqual([act(1).garder, act(1).fondre], [code('p-noah'), code('p-noah-bis')])
+  assert.match(act(2).raison!, /déjà fondue/)
+  assert.match(act(3).raison!, /introuvable/)
+  assert.match(act(4).raison!, /même fiche/)
+  assert.match(act(5).raison!, /déjà dans une autre fusion/)
+  assert.deepEqual(src.propositionsAdmin[0].lignes[0], { a: 'fusion', garder: 'p-noah', fondre: 'p-noah-bis' })
+  assert.equal(src.appelsNoms, 0, 'aucun nom de joueur lu : seulement les identifiants')
+})
+
+await t('nextar_admin_proposer : bornes (50 actions, aucune action, sorte inconnue, champ hors sorte), titre borné, 070 absent', async () => {
+  const src = sourceFictive({ admin: true })
+  const trop = gardeA('nextar_admin_proposer', await outilAdminProposer(src, regA, { sorte: 'archiver', actions: Array.from({ length: 51 }, () => ({ evenement: 'ev-var' })) }))
+  assert.match(String((trop as { erreur: string }).erreur), /50 actions au plus/)
+  assert.equal(src.ecritures, 0)
+  assert.match(String(((await outilAdminProposer(src, regA, { sorte: 'role' })) as { erreur: string }).erreur), /Aucune action/)
+  assert.match(String(((await outilAdminProposer(src, regA, { sorte: 'supprimer', actions: [{}] })) as { erreur: string }).erreur), /Sorte inconnue/)
+  assert.match(String(((await outilAdminProposer(src, regA, { sorte: 'role', evenements_avant: '2026-07-01', actions: [{}] })) as { erreur: string }).erreur), /archiver/)
+  assert.match(String(((await outilAdminProposer(src, regA, { sorte: 'archiver', evenements_avant: '01/07/2026' })) as { erreur: string }).erreur), /AAAA-MM-JJ/)
+  const cinquante = await proposer({}, { sorte: 'archiver', titre: 'x'.repeat(200), actions: Array.from({ length: 50 }, () => ({ evenement: 'ev-var' })) })
+  assert.equal(cinquante.r.resume!.pretes, 1, 'le même événement n’est préparé qu’une fois')
+  assert.equal(String(cinquante.r.titre).length, 80)
+  // 070 pas appliqué : « indisponible », rien de déposé, les actions vérifiées quand même.
+  const sans = await proposer({ sans070: true }, { sorte: 'role', actions: [{ compte: C(1), role: 'observateur' }] })
+  assert.equal(sans.r.erreur, INDISPONIBLE_070)
+  assert.match(INDISPONIBLE_070, /indisponible tant que supabase\/070_propositions_admin\.sql n’est pas appliqué/)
+  assert.equal(sans.r.etat, 'non déposée')
+  assert.equal(sans.r.actions![0].etat, 'prête')
+  assert.equal(sans.src.propositionsAdmin.length, 0)
+})
+
+await t('nextar_admin_proposer → appli : chaque ligne déposée se lit (src/propositionsAdminCore.ts) et s’affiche avec les noms remis sur l’appareil', async () => {
+  const toutes: Record<string, unknown>[] = []
+  for (const input of [
+    { sorte: 'role', actions: [{ compte: C(1), role: 'observateur' }, { compte: C(5), role: 'encadrant' }] },
+    { sorte: 'perimetre', actions: [{ compte: C(1), unite: 'u-var' }, { compte: C(4), secteur: ['13'] }, { compte: C(4), secteur: [] }] },
+    { sorte: 'archiver', evenements_avant: '2026-07-01', actions: [{ groupe: 'g-stage' }] },
+    { sorte: 'fusion', actions: [{ garder: code('p-noah'), fondre: code('p-noah-bis') }] },
+  ] as AdminProposerInput[]) {
+    const { src } = await proposer({}, input)
+    toutes.push(...src.propositionsAdmin[0].lignes)
+    const acts = actionsDe(src.propositionsAdmin[0].lignes)
+    assert.ok(acts.every((a) => a.action), `${input.sorte} : toutes lisibles`)
+    assert.ok(resumeAdmin(input.sorte as never, acts).length > 0)
+  }
+  assert.ok(toutes.every((l) => lireAction(l)), 'toutes lisibles par l’appli')
+  const noms = { compte: (_id: string, n: string) => n, fiche: (id: string) => ({ 'p-noah': 'Noah Fictivus', 'p-noah-bis': 'Noah Fictivus' })[id], code }
+  const lib = toutes.map((l) => libelleAction(lireAction(l)!, noms).titre)
+  assert.ok(lib.includes('Donner le rôle Observateur à Bruno Encadrant-Fictif'))
+  assert.ok(lib.includes('Affecter Bruno Encadrant-Fictif à « Comité Fictif du Var »'))
+  assert.ok(lib.includes('Archiver le groupe « Stage Toussaint Fictif »'))
+  assert.ok(lib.includes('Fondre « Noah Fictivus » dans « Noah Fictivus »'))
+  assert.equal(resumeAdmin('archiver', actionsDe(toutes.filter((l) => l.a === 'archiver' && l.quoi === 'evenement'))), 'Archiver 3 événements de la saison 2025-26')
+  assert.equal(lireAction({ a: 'role', userId: 'u', compte: 'C-1234567', nom: 'x', role: 'admin' }), null, 'jamais « administrateur »')
+  assert.equal(lireAction({ a: 'supprimer', id: 'x' }), null)
+  assert.equal(lireAction({ a: 'fusion', garder: 'a', fondre: 'a' }), null)
+})
+
+await t('source.ts (nextar_admin_proposer) : compte du jeton, unités (id, nom), identifiants des fiches seulement, une seule écriture (sorte « admin »)', async () => {
+  const appels: { table: string; select?: string; insert?: Record<string, unknown>; ops: string[] }[] = []
+  let erreurInsert: { code: string; message: string } | null = null
+  const faux = {
+    rpc: async () => ({ data: null, error: null }),
+    from(table: string) {
+      const a: (typeof appels)[number] = { table, ops: [] }
+      appels.push(a)
+      const q: Record<string, unknown> = {}
+      const chain = (op: string) => (...args: unknown[]) => {
+        a.ops.push(op)
+        if (op === 'select') a.select = String(args[0])
+        if (op === 'insert') a.insert = args[0] as Record<string, unknown>
+        return q
+      }
+      for (const op of ['select', 'eq', 'in', 'or', 'order', 'range', 'limit', 'insert', 'is']) q[op] = chain(op)
+      q.single = async () => (erreurInsert ? { data: null, error: erreurInsert } : { data: { id: 'p1' }, error: null })
+      q.then = (ok: (v: unknown) => void) => ok({ data: table === 'hb_players' ? [{ id: 'a', m: null }, { id: 'b', m: 'a' }] : [{ id: 'u1', n: 'Unité' }], error: null })
+      return q
+    },
+  }
+  const src = sourceSupabase(faux, 'compte-du-jeton')
+  assert.equal(await src.moi(), 'compte-du-jeton')
+  assert.equal(await sourceSupabase(faux).moi(), null)
+  assert.deepEqual(await src.unites(), [{ id: 'u1', name: 'Unité' }])
+  assert.deepEqual(await src.idsFiches(10), { fiches: [{ id: 'a', fondue: false }, { id: 'b', fondue: true }], tronque: false })
+  assert.equal(appels.find((a) => a.table === 'hb_players')!.select, 'id, m:data->>mergedInto', 'ni nom, ni date, ni club')
+  assert.equal(appels.find((a) => a.table === 'hb_units')!.select, 'id, n:data->>name')
+  assert.deepEqual(await src.deposerPropositionAdmin({ titre: 't', contexte: { sorte: 'role' }, lignes: [{ a: 'role' }] }), { id: 'p1' })
+  const ins = appels.filter((a) => a.ops.includes('insert'))
+  assert.deepEqual(ins.map((a) => [a.table, a.insert!.kind, a.insert!.source]), [['hb_propositions', 'admin', 'mcp']])
+  erreurInsert = { code: '23514', message: 'new row for relation "hb_propositions" violates check constraint "hb_propositions_kind_check"' }
+  assert.deepEqual(await src.deposerPropositionAdmin({ titre: 't', contexte: {}, lignes: [{}] }), { indisponible: true })
+  erreurInsert = { code: '42P01', message: 'relation "public.hb_propositions" does not exist' }
+  assert.deepEqual(await src.deposerPropositionAdmin({ titre: 't', contexte: {}, lignes: [{}] }), { indisponible: true })
+  erreurInsert = { code: '42501', message: 'Propositions d’administration : réservées aux administrateurs' }
+  assert.match(String(((await src.deposerPropositionAdmin({ titre: 't', contexte: {}, lignes: [{}] })) as { erreur: string }).erreur), /réservé aux administrateurs/)
+  erreurInsert = { code: '23514', message: 'new row violates check constraint "hb_propositions_admin_forme"' }
+  assert.ok('erreur' in (await src.deposerPropositionAdmin({ titre: 't', contexte: {}, lignes: [{}] })), 'forme refusée : une erreur, pas « indisponible »')
+  assert.ok(!appels.some((a) => a.ops.some((o) => o === 'update' || o === 'delete' || o === 'upsert')))
+})
+
+await t('supabase/070_propositions_admin.sql : additif, sorte « admin » réservée aux administrateurs (création et modification), forme, 50 actions, contrôle final', () => {
+  const sql = read('supabase/070_propositions_admin.sql')
+  const code = sql.replace(/^\s*--.*$/gm, '')
+  assert.match(code, /check \(kind in \('mesures', 'avis', 'vus', 'a_revoir', 'admin'\)\)/)
+  assert.match(code, /jsonb_array_length\(lignes\) between 1 and 50/)
+  assert.equal(BORNES.adminActions, 50)
+  assert.match(code, /coalesce\(contexte ->> 'sorte', ''\) in \('role', 'perimetre', 'archiver', 'fusion'\)/)
+  assert.match(code, /new\.kind = 'admin' and not \(/)
+  assert.match(code, /old\.kind = 'admin' and v_uid is not null and not coalesce\(public\.hb_is_admin\(\), false\)/)
+  assert.equal((code.match(/errcode = '42501'/g) ?? []).length, 2)
+  assert.match(code, /new\.kind := old\.kind;/, 'la sorte ne change jamais')
+  assert.ok(!/create table|drop table|hb_upsert|create policy|drop policy|grant /i.test(code), 'additif : ni table, ni règles, ni droits, ni hb_upsert')
+  assert.match(sql, /-- ---------- Vérification ----------/)
+  assert.match(sql, /RETOUR ARRIÈRE/)
+  // Les règles de 067 sont reprises telles quelles (garde de 067 = garde de 070 sans les lignes « 070 »).
+  const g067 = read('supabase/067_propositions.sql').match(/create or replace function public\.hb_propositions_garde\(\)[\s\S]*?end \$\$;/)![0]
+  const g070 = sql.match(/create or replace function public\.hb_propositions_garde\(\)[\s\S]*?end \$\$;/)![0]
+  const sans070 = g070.replace(/^ *-- 070[^\n]*\n[\s\S]*?^ *end if;\n/gm, '')
+  assert.equal(sans070.replace(/\s+/g, ' '), g067.replace(/\s+/g, ' '), 'garde de 067 reprise à l’identique')
 })
 
 await t('outils d’administration : listes blanches propres (clés interdites, inconnues, textes avec « @ » ou IP refusés)', () => {
@@ -1091,8 +1380,16 @@ await t('bornes du serveur = scripts 067 et 068 ; 068 : auteur seul, pas de modi
 
 await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé de service), appli (routes, Réglages, boîte)', () => {
   const srv = read('supabase/functions/mcp/serveur.ts')
-  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions'])
+  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer'])
     assert.match(srv, new RegExp(`'${outil}'`))
+  // nextar_admin_proposer : « n’applique rien », dépôt (pas lecture seule), 50 actions au plus.
+  const blocP = srv.slice(srv.indexOf(`'nextar_admin_proposer',`), srv.indexOf(`repondre('nextar_admin_proposer'`))
+  assert.match(blocP, /Réservé aux administrateurs ; N’APPLIQUE RIEN/)
+  assert.match(blocP, /annotations: depot,/)
+  assert.match(blocP, /\.max\(BORNES\.adminActions\)/)
+  assert.match(read('supabase/functions/mcp/README.md'), /nextar_admin_proposer[\s\S]*070_propositions_admin\.sql/)
+  assert.match(read('src/pages/OAuthConsent.tsx'), /préparer des actions d’administration/)
+  assert.match(read('supabase/functions/mcp/index.ts'), /sourceSupabase\(ctx\.supabase as ClientSupabase, ctx\.userClaims\?\.id/)
   // Outils d'administration : lecture seule, « Réservé aux administrateurs ; lecture seule » en tête de description.
   for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions']) {
     const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
@@ -1112,7 +1409,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)
-  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'source.ts']) {
+  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'source.ts']) {
     const txt = read(`supabase/functions/mcp/${f}`)
     assert.ok(!/supabaseAdmin|SERVICE_ROLE|service_role|sb_secret/.test(txt.replace(/\/\/.*$/gm, '')), `${f} : jamais la clé de service`)
   }

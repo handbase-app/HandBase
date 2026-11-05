@@ -18,6 +18,7 @@ import { withCors } from 'npm:@supabase/middleware@1.0.0/cors'
 import { withOAuthProtectedResource, withSupabase } from 'npm:@supabase/server@1.9.2'
 import { z } from 'npm:zod@4.6.7'
 import { outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante } from './admin.ts'
+import { outilAdminProposer } from './adminProposer.ts'
 import { BORNES, outilConnexions, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
 
 /** Origines des navigateurs autorisées (comme supabase/functions/transcrire) ; localhost pour les essais. */
@@ -33,9 +34,11 @@ export const INSTRUCTIONS =
   'de demander les noms derrière les codes. Pour un administrateur seulement, en lecture seule : nextar_connexions (qui s’est ' +
   'connecté récemment), nextar_admin_a_faire (ce qui l’attend), nextar_admin_sante (état de l’installation), ' +
   'nextar_admin_activite (activité des comptes du staff) et nextar_admin_questions (questions que les coachs n’arrivent pas à ' +
-  'faire aboutir) ; noms et rôles des comptes du staff, jamais d’adresse mail, joueurs toujours en codes.'
+  'faire aboutir) ; noms et rôles des comptes du staff, jamais d’adresse mail, joueurs toujours en codes. Toujours pour un ' +
+  'administrateur : nextar_admin_proposer PRÉPARE des actions d’administration (rôles, périmètres, archivage, fusions de ' +
+  'fiches) déposées dans sa boîte « À valider » ; rien ne s’applique avant qu’il les valide dans l’appli.'
 
-type Ctx = { supabase: unknown; userClaims?: { id?: string } | null }
+type Ctx = { supabase: unknown; userClaims?: { id?: string; sub?: string } | null }
 
 const texte = (out: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(out, null, 1) }] })
 
@@ -265,6 +268,50 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
       annotations: lecture,
     },
     (a) => repondre('nextar_admin_questions', () => outilAdminQuestions(src, reg, a ?? {})),
+  )
+
+  // ---------- Administration : préparer des actions à valider (adminProposer.ts) ----------
+
+  server.registerTool(
+    'nextar_admin_proposer',
+    {
+      title: 'Préparer des actions d’administration à valider (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; N’APPLIQUE RIEN : prépare des actions d’administration et les dépose dans la boîte ' +
+        '« À valider » de l’administrateur, qui les coche puis « Appliquer » dans l’appli (mêmes écrans, mêmes droits). Une ' +
+        'sorte par proposition, 50 actions au plus : « role » (actions { compte: "C-…", role: observateur | encadrant | joueur } ; ' +
+        'jamais administrateur, jamais un administrateur ni ton propre compte ; « joueur » seulement pour un compte en attente), ' +
+        '« perimetre » ({ compte, unite: id ou nom, role_unite? } pour affecter à une unité, ou { compte, secteur: ["83", "2A"] }), ' +
+        '« archiver » ({ evenement: id } ou { groupe: id }, identifiants de nextar_contexte avec archives ; ou ' +
+        '`evenements_avant: AAAA-MM-JJ` pour tous les événements non archivés datés avant ce jour, fin de saison), « fusion » ' +
+        '({ garder: "J-…", fondre: "J-…" }, codes de nextar_admin_a_faire ; l’administrateur peut inverser). Codes des comptes : ' +
+        'nextar_connexions, nextar_admin_a_faire, nextar_admin_activite. Rend, par action, « prête » ou « refusée » avec la ' +
+        'raison, et l’identifiant de la proposition. Joueurs en codes, comptes par nom affiché et rôle, jamais d’adresse mail. ' +
+        'Un compte qui n’est pas administrateur reçoit un refus.',
+      inputSchema: z.object({
+        sorte: z.enum(['role', 'perimetre', 'archiver', 'fusion']).describe('Une sorte par proposition.'),
+        titre: z.string().max(BORNES.titreProposition).optional().describe('Titre court (« Fin de saison 2025-26 »).'),
+        actions: z
+          .array(
+            z.object({
+              compte: z.string().max(20).optional().describe('role, perimetre : code du compte (« C-… »).'),
+              role: z.string().max(30).optional().describe('role : observateur, encadrant ou joueur.'),
+              unite: z.string().max(200).optional().describe('perimetre : unité de la structure (identifiant ou nom).'),
+              role_unite: z.string().max(30).optional().describe('perimetre (unité) : encadrant, observateur ou administrateur ; défaut : son rôle.'),
+              secteur: z.array(z.string().max(4)).max(30).optional().describe('perimetre : départements du secteur ([] : aucun).'),
+              evenement: z.string().max(200).optional().describe('archiver : identifiant de l’événement.'),
+              groupe: z.string().max(200).optional().describe('archiver : identifiant du groupe.'),
+              garder: z.string().max(20).optional().describe('fusion : code « J-… » de la fiche à garder.'),
+              fondre: z.string().max(20).optional().describe('fusion : code « J-… » de la fiche à fondre dans l’autre.'),
+            }),
+          )
+          .max(BORNES.adminActions)
+          .optional(),
+        evenements_avant: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('archiver : tous les événements non archivés datés avant ce jour.'),
+      }),
+      annotations: depot,
+    },
+    (a) => repondre('nextar_admin_proposer', () => outilAdminProposer(src, reg, a ?? {})),
   )
 
   return server

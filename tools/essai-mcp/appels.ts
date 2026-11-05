@@ -1,5 +1,6 @@
 // Essai de bout en bout (tools/essai-mcp/lancer.sh) : appels HTTP au serveur MCP lancé dans le runtime des fonctions
 // Supabase, comme le ferait Claude : découverte OAuth, refus sans jeton, CORS, puis initialize, tools/list et chaque outil
+// (onze, dont nextar_admin_proposer qui dépose une proposition d'administration dans le jeu fictif)
 // avec un jeton fictif. Vérifie qu'aucune réponse ne contient un nom, une date de naissance, un club, une licence ou un
 // commentaire du jeu fictif.
 //   MCP_URL=http://127.0.0.1:9707/functions/v1/mcp JETONS=<fichier> npx jiti tools/essai-mcp/appels.ts
@@ -96,6 +97,7 @@ for (const [nom, j] of [
   assert.deepEqual(noms, [
     'nextar_admin_a_faire',
     'nextar_admin_activite',
+    'nextar_admin_proposer',
     'nextar_admin_questions',
     'nextar_admin_sante',
     'nextar_connexions',
@@ -119,7 +121,12 @@ for (const [nom, j] of [
   const lire = body.result.tools.find((t: { name: string }) => t.name === 'nextar_lire')
   assert.equal(lire.annotations.readOnlyHint, true)
   assert.ok(lire.inputSchema.properties.limite)
-  ok('tools/list : les dix outils, schémas et annotations (outils d’administration en lecture seule)')
+  const prop = body.result.tools.find((t: { name: string }) => t.name === 'nextar_admin_proposer')
+  assert.match(prop.description, /^Réservé aux administrateurs ; N’APPLIQUE RIEN/)
+  assert.equal(prop.annotations.readOnlyHint, false)
+  assert.equal(prop.annotations.destructiveHint, false)
+  assert.equal(prop.inputSchema.properties.actions.maxItems, 50)
+  ok('tools/list : les onze outils, schémas et annotations (outils d’administration en lecture seule, nextar_admin_proposer : dépôt)')
 }
 // 5. Chaque outil.
 const appel = async (name: string, args: unknown, jeton = jetons.coach) => {
@@ -225,6 +232,24 @@ for (const [nom, args] of [
   const { res } = await rpc('tools/call', { name: 'nextar_admin_activite', arguments: { jours: 0 } }, jetons.admin)
   assert.equal(res.status, 200)
   ok('nextar_admin_activite : jours hors bornes refusé par le schéma, sans plantage')
+}
+// nextar_admin_proposer : refus pour le coach ; pour l'administrateur, actions prêtes et refusées, proposition déposée.
+{
+  const args = { sorte: 'archiver', evenements_avant: '2026-07-01', actions: [{ evenement: 'ev-old' }] }
+  const coach = await appel('nextar_admin_proposer', args)
+  assert.ok(coach.isError)
+  assert.deepEqual(Object.keys(coach.out), ['erreur'])
+  const { out, isError } = await appel('nextar_admin_proposer', args, jetons.admin)
+  assert.ok(!isError, JSON.stringify(out))
+  assert.equal(out.etat, 'en_attente')
+  assert.deepEqual(out.resume, { pretes: 3, refusees: 1 })
+  assert.match(out.actions[0].raison, /déjà archivé/)
+  assert.match(out.titre, /Fin de saison 2025-26/)
+  const s = JSON.stringify(out)
+  for (const t of interditsAdmin) assert.ok(!s.includes(t), `nextar_admin_proposer : « ${t} » ne doit pas apparaître`)
+  const trop = await rpc('tools/call', { name: 'nextar_admin_proposer', arguments: { sorte: 'archiver', actions: Array.from({ length: 51 }, () => ({ evenement: 'ev-var' })) } }, jetons.admin)
+  assert.equal(trop.res.status, 200)
+  ok('nextar_admin_proposer : refus pour le coach ; fin de saison préparée pour l’administrateur (3 prêtes, 1 refusée), 51 actions refusées par le schéma')
 }
 // 6. Protocole récent (sans version 2025) : la liste répond aussi.
 {

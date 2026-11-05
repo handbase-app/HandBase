@@ -10,6 +10,8 @@ import { ask } from './Confirm'
 import { FormActions, FormWindow } from './FormWindow'
 import { fromChoix, ImportReview, toChoix } from './ImportMesures'
 import { flash } from './ItemMenu'
+import { AdminReview } from './PropositionsAdmin'
+import { actionsDe, resumeAdmin, sorteProposition } from '../propositionsAdmin'
 import { Icon } from './ui'
 
 /*
@@ -19,6 +21,9 @@ import { Icon } from './ui'
  *  - PropositionsPill : petit repère dans l'en-tête (« 2 à valider »), seulement quand quelque chose attend ; il ouvre la boîte.
  *  - PropositionsHost : la fenêtre, ouverte par openPropositions() (repère, menu du profil) ou par l'adresse ?propositions=1
  *    (toucher la notification « 1 proposition à valider »).
+ *  - Proposition d'administration (sorte « admin », préparée par Claude avec le compte d'un administrateur : rôles,
+ *    périmètres, archivage, fusions ; supabase/070_propositions_admin.sql) : écran AdminReview (src/components/
+ *    PropositionsAdmin.tsx), actions cochées puis « Appliquer », par les chemins des écrans de l'administrateur.
  *  - Ouvrir une proposition : l'écran « À valider » de « Coller un tableau » (ImportReview) sur ses lignes brutes ;
  *    « Enregistrer N mesures » la marque validée (ou validée en partie), « Défaire » la remet en attente, « Rejeter » la
  *    marque rejetée ; « Garder pour plus tard » garde les choix déjà faits.
@@ -108,14 +113,17 @@ function PropositionsBox({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <FormWindow title="À valider" onClose={onClose} width={current ? 820 : 640} guard={!!current && !done}>
-      {current ? (
+    <FormWindow title="À valider" onClose={onClose} width={current && current.kind !== 'admin' ? 820 : 640} guard={!!current && !done && current.kind !== 'admin'}>
+      {current?.kind === 'admin' ? (
+        <AdminReview key={current.id} p={current} when={whenLabel(current.createdAt)} onBack={back} />
+      ) : current ? (
         <PropositionReview key={current.id} p={current} canSave={can.editMeasurements(role)} onBack={back} onSaved={() => setDone(true)} onUndone={() => setDone(false)} />
       ) : (
         <>
           <p className="text-xs text-muted">
             Les tableaux de mesures qui attendent ta validation : ceux gardés pour plus tard depuis « Coller un tableau de mesures » et ceux préparés avec Claude
-            (Réglages → Applications connectées). Rien n’est enregistré avant que tu valides.
+            (Réglages → Applications connectées){role === 'admin' ? ', ainsi que les actions d’administration préparées par Claude (rôles, périmètres, archivage, fusions)' : ''}. Rien
+            n’est enregistré avant que tu valides.
           </p>
           {all === undefined ? (
             <p className="py-8 text-center text-sm text-muted">Chargement…</p>
@@ -149,6 +157,7 @@ function PropositionsBox({ onClose }: { onClose: () => void }) {
 
 /** Une proposition de la liste : titre, d'où elle vient, quand, combien de lignes, où sont cherchés les joueurs. */
 function PropositionItem({ p, onOpen }: { p: PropositionRow; onOpen: () => void }) {
+  if (p.kind === 'admin') return <AdminItem p={p} onOpen={onOpen} />
   const n = dataLineCount(p.lignes)
   const d = dm(p.contexte.date)
   return (
@@ -171,6 +180,31 @@ function PropositionItem({ p, onOpen }: { p: PropositionRow; onOpen: () => void 
               <span>tests du {d}</span>
             </>
           )}
+        </span>
+        {p.sendError && <span className="mt-1 block text-[11px] text-spread-lo">Gardée sur cet appareil pour l’instant : {p.sendError}</span>}
+      </span>
+      <Icon name="chevron" className="mt-2 h-4 w-4 shrink-0 text-muted" />
+    </button>
+  )
+}
+
+/** Une proposition d'administration de la liste : titre, « depuis Claude », quand, résumé des actions. */
+function AdminItem({ p, onOpen }: { p: PropositionRow; onOpen: () => void }) {
+  const actions = actionsDe(p.lignes)
+  return (
+    <button type="button" onClick={onOpen} className="card flex min-h-11 w-full items-start gap-3 p-3 text-left transition hover:border-accent" data-proposition={p.id}>
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent" aria-hidden>
+        <Icon name="settings" className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold break-words">{p.titre}</span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted">
+          <span className="rounded-full bg-accent/15 px-2 py-0.5 font-bold text-accent">{SOURCE_LABEL[p.source]}</span>
+          <span>{whenLabel(p.createdAt)}</span>
+          <span aria-hidden>·</span>
+          <span>administration</span>
+          <span aria-hidden>·</span>
+          <span className="break-words">{resumeAdmin(sorteProposition(p.contexte), actions)}</span>
         </span>
         {p.sendError && <span className="mt-1 block text-[11px] text-spread-lo">Gardée sur cet appareil pour l’instant : {p.sendError}</span>}
       </span>

@@ -42,6 +42,28 @@ nom affiché et rôle ; aucune écriture.
   seulement les nombres et les pages. Limite connue : un nom mal orthographié en minuscules n'est pas reconnu. Ni requête
   SQL, ni détail d'erreur, ni nom d'auteur ne sont lus.
 
+**Un outil d'administration qui prépare, sans rien appliquer** (`adminProposer.ts`) : `nextar_admin_proposer`. « Claude
+prépare, l'admin valide d'un toucher » : l'outil vérifie chaque action demandée et dépose celles qui sont prêtes dans la
+boîte « À valider » de l'administrateur (`hb_propositions`, sorte `admin`, **`supabase/070_propositions_admin.sql`**) ; rien ne
+s'applique avant que l'administrateur coche et touche « Appliquer » dans l'appli, qui passe par les mêmes chemins que ses
+écrans (`src/propositionsAdmin.ts` : `hb_update_member` comme Réglages › Membres, affectation enregistrée comme Structure,
+`archived: true` comme les menus Archiver, `hb_merge_players` comme l'écran « Propositions »), donc avec les mêmes contrôles de
+droits. Même régime que les autres outils d'administration (refus sans rien lire ni écrire pour un compte qui n'est pas
+administrateur, jeton du compte, liste blanche `CLES_ADMIN.nextar_admin_proposer`), une sorte par proposition, 50 actions au
+plus :
+- `role` (`{ compte: "C-…", role }`) : Observateur, Encadrant, Joueur (compte en attente seulement) ; jamais administrateur,
+  jamais un compte administrateur (le dernier : « dernier administrateur »), jamais son propre compte, pas un rôle déjà là ;
+- `perimetre` (`{ compte, unite, role_unite? }` ou `{ compte, secteur: [...] }`) : unité par identifiant ou nom (nom ambigu :
+  refusé), secteur (départements vérifiés) ;
+- `archiver` (`{ evenement }` / `{ groupe }`, ou `evenements_avant: "AAAA-MM-JJ"` pour une fin de saison) : déjà archivé,
+  groupe Pôle (changement de saison) refusés ;
+- `fusion` (`{ garder: "J-…", fondre: "J-…" }`) : codes résolus sur les seuls identifiants des fiches ; fiche fondue, code
+  faux ou partagé refusés ; l'administrateur peut inverser dans l'appli.
+Réponse : par action « prête » ou « refusée » avec la raison, l'identifiant de la proposition et le lien vers la boîte ;
+comptes par code, nom affiché et rôle, joueurs en codes. Sans 070 : « Boîte admin indisponible tant que
+supabase/070_propositions_admin.sql n'est pas appliqué », rien n'est déposé. Dans l'appli, « Défaire » remet un rôle (si le
+compte en avait un), un secteur, une affectation et un archivage ; une fusion ne se défait pas.
+
 | Outil | Entrée | Sortie |
 |---|---|---|
 | `nextar_contexte` | `archives?` | tests et unités, critères d'avis par poste, postes, événements et groupes (id, nom, date, type, nombre de joueurs) |
@@ -54,17 +76,21 @@ nom affiché et rôle ; aucune écriture.
 | `nextar_admin_sante` (administrateurs) | — | volumes, comptes par rôle, connexions, dernière écriture, version (indisponible), erreurs du mode avancé ; avec 069 : base, tables, registre, charge, abonnements, veille, notifications, tâches, transcription |
 | `nextar_admin_activite` (administrateurs) | `jours?`, `inactifs_jours?` (défaut 30, 1 à 365), `limite?` (≤ 200) | par compte : avis, mesures, événements, vus, fiches, dernière activité ; totaux ; inactifs |
 | `nextar_admin_questions` (administrateurs) | `jours?` (défaut 30, 1 à 365), `filtre?`, `limite?` (défaut 20, ≤ 100) | résumé, pages, groupes de formulations masquées (nombre, comptes distincts, issue, avis, manques) |
+| `nextar_admin_proposer` (administrateurs) | `sorte` (role, perimetre, archiver, fusion), `actions` (≤ 50), `evenements_avant?`, `titre?` | par action « prête » / « refusée » + raison, id de la proposition « À valider », lien ; rien n'est appliqué |
 
 Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/server` 2.4.0, `@supabase/server` 1.9.2,
-`@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `admin.ts` (les outils d'administration, purs),
+`@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `admin.ts` (les outils d'administration en lecture, purs), `adminProposer.ts`
+(`nextar_admin_proposer`, pur),
 `source.ts` (requêtes aux droits du coach), `partage/` (copies **générées** de modules purs de `src/` :
 `npx jiti tools/generer-partage-mcp.ts` après un changement de `src/importMesures.ts`, `src/nameMatch.ts`,
-`src/codesJoueurs.ts`, `src/sportConfig.ts`, `src/gender.ts`, `src/askAction.ts` ou `src/questionLogCore.ts`), `deno.json`.
+`src/codesJoueurs.ts`, `src/sportConfig.ts`, `src/gender.ts`, `src/askAction.ts`, `src/questionLogCore.ts` ou
+`src/propositionsAdminCore.ts`), `deno.json`.
 
 ## Mise en ligne (base de test d'abord)
 
 1. **SQL** (SQL Editor, dans l'ordre) : `supabase/067_propositions.sql`, puis `supabase/068_rapports.sql`, puis (facultatif,
-   pour `nextar_admin_sante`) `supabase/069_admin_sante.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
+   pour `nextar_admin_sante`) `supabase/069_admin_sante.sql`, puis (facultatif, pour `nextar_admin_proposer`)
+   `supabase/070_propositions_admin.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
    tard, sections « ACTIVATION » (purges pg_cron, notification de 067).
 2. **Clés de signature JWT asymétriques** (*Project Settings → JWT Keys*) : `@supabase/server` refuse les jetons HS256
    (ancien secret partagé). Passer aux clés de signature (ECC P-256 recommandé), faire tourner la clé une fois les appareils
@@ -89,8 +115,11 @@ Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/se
 - `npx jiti tools/test-mcp.ts` : outils sur un jeu fictif (aucun nom dans les réponses, codes, rapprochement, rapport ;
   outils d'administration : refus sans lecture, listes blanches, masquage des noms, bornes).
 - `bash tools/essai-mcp/lancer.sh` : la pile réelle dans le runtime des fonctions Supabase (Docker
-  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les dix outils
-  (`nextar_connexions` et les quatre `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
+  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les onze outils
+  (`nextar_connexions` et les cinq `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
 - `bash tools/essai-sql-068/lancer.sh` : `068_rapports.sql` sur un Postgres jetable.
 - `bash tools/essai-sql-069/lancer.sh` : `069_admin_sante.sql` sur un Postgres jetable (refus des autres comptes, forme de la
   réponse, rien de personnel, tables facultatives absentes).
+- `bash tools/essai-sql-070/lancer.sh` : `070_propositions_admin.sql` sur un Postgres jetable (propositions d'avant 070
+  gardées, sorte « admin » réservée aux administrateurs en création et en modification, forme, 50 actions, essais de 067
+  rejoués après 070).

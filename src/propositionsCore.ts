@@ -10,11 +10,12 @@
  */
 
 export type PropSource = 'collage' | 'mcp' | 'photo'
-export type PropKind = 'mesures' | 'avis' | 'vus' | 'a_revoir'
+/** « admin » : actions d'administration préparées par Claude (supabase/070_propositions_admin.sql, src/propositionsAdminCore.ts). */
+export type PropKind = 'mesures' | 'avis' | 'vus' | 'a_revoir' | 'admin'
 export type PropEtat = 'en_attente' | 'validee' | 'partielle' | 'rejetee'
 
 /** Sortes que cette version sait ouvrir (les autres attendent une version plus récente, sans compter dans la pastille). */
-export const KNOWN_KINDS: readonly PropKind[] = ['mesures']
+export const KNOWN_KINDS: readonly PropKind[] = ['mesures', 'admin']
 
 /** Mêmes bornes que le serveur (supabase/067_propositions.sql). */
 export const LIMITS = {
@@ -50,6 +51,8 @@ export interface PropChoix {
 
 /** Contexte d'une proposition : où chercher les joueurs, date des tests, format lu, choix déjà faits. */
 export interface PropContexte {
+  /** Proposition d'administration (sorte « admin ») : rôle, périmètre, archivage ou fusion. */
+  sorte?: string
   portee?: 'evenement' | 'groupe' | 'tous'
   /** Identifiant de l'événement ou du groupe. */
   id?: string
@@ -108,7 +111,7 @@ export interface ServerProposition {
 }
 
 const SOURCES: readonly PropSource[] = ['collage', 'mcp', 'photo']
-const KINDS: readonly PropKind[] = ['mesures', 'avis', 'vus', 'a_revoir']
+const KINDS: readonly PropKind[] = ['mesures', 'avis', 'vus', 'a_revoir', 'admin']
 const ETATS: readonly PropEtat[] = ['en_attente', 'validee', 'partielle', 'rejetee']
 
 /** Taille en octets d'une valeur une fois en JSON (ce que le serveur compte). */

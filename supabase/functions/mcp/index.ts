@@ -5,7 +5,8 @@
 // RÈGLE : Nextar n'envoie jamais de données de joueur à une IA (codes seulement : outils.ts). Tout passe par le client
 // Supabase DU COACH (son jeton, RLS) : jamais la clé de service.
 //
-// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), outils.ts (les six outils, purs), source.ts (requêtes aux droits du coach),
+// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), outils.ts (les six outils, purs), admin.ts (les quatre outils d'administration en lecture), adminProposer.ts
+// (nextar_admin_proposer : dépose des actions d'administration à valider), source.ts (requêtes aux droits du coach),
 // partage/ (copies générées de modules purs de src/ : tools/generer-partage-mcp.ts). Mise en ligne : README.md.
 //
 // Déployer SANS la vérification JWT de la passerelle (la découverte OAuth doit passer sans jeton ; le jeton est vérifié par
@@ -22,7 +23,8 @@ const issuer = Deno.env.get('MCP_AUTH_ISSUER')?.trim()
 
 Deno.serve(
   fabriquer({
-    sourceDe: (ctx) => sourceSupabase(ctx.supabase as ClientSupabase),
+    // Compte du jeton (claims vérifiés par withSupabase) : nextar_admin_proposer refuse toute action sur son propre compte.
+    sourceDe: (ctx) => sourceSupabase(ctx.supabase as ClientSupabase, ctx.userClaims?.id ?? ctx.userClaims?.sub ?? null),
     reglages: () => reglagesEnv(Deno.env),
     ...(issuer ? { authorizationServer: issuer } : {}),
   }),

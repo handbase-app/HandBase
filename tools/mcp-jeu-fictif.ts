@@ -66,6 +66,26 @@ export const EVENEMENTS: (EvenementSrv & { deleted?: boolean })[] = [
 ]
 
 export const GROUPES: GroupeSrv[] = [{ id: 'g-pole', name: 'Pôle Espoirs Fictif', playerIds: ['p-lucas', 'p-emma', 'p-noah', 'p-jade'] }]
+/** Groupes vus seulement par nextar_admin_proposer (archivage) : un groupe d'unité Pôle, un groupe déjà archivé. */
+export const GROUPES_ADMIN: GroupeSrv[] = [
+  { id: 'g-pole-u15', name: 'Pôle U15 Fictif', pole: true, playerIds: [] },
+  { id: 'g-2024', name: 'Sélection 2024 Fictive', archived: true, playerIds: [] },
+  { id: 'g-stage', name: 'Stage Toussaint Fictif', playerIds: ['p-tom'] },
+]
+/** Événements vus seulement par nextar_admin_proposer (fin de saison 2025-26 ; un sans date). */
+export const EVENEMENTS_ADMIN: EvenementSrv[] = [
+  { id: 'ev-s1', name: 'Tournoi d’automne Fictif', type: 'tournoi', date: '2025-10-18', playerIds: [] },
+  { id: 'ev-s2', name: 'Stage de Noël Fictif', type: 'observation', date: '2025-12-20', playerIds: [] },
+  { id: 'ev-s3', name: 'Finales régionales Fictives', type: 'tournoi', date: '2026-05-30', playerIds: [] },
+  { id: 'ev-sans-date', name: 'Rassemblement sans date', type: 'observation', playerIds: [] },
+]
+/** Unités de la structure (deux portent le même nom). */
+export const UNITES = [
+  { id: 'u-var', name: 'Comité Fictif du Var' },
+  { id: 'u-club', name: 'Club Rêvé' },
+  { id: 'u-dup1', name: 'Ligue Doublon' },
+  { id: 'u-dup2', name: 'Ligue Doublon' },
+]
 
 export const MESURES: MesureSrv[] = [
   { playerId: 'p-lucas', criterionId: 'sprint_10', value: 1.92, date: '2026-09-01' },
@@ -240,10 +260,14 @@ export const SANTE_069 = {
 
 /** Textes des outils d'administration qui ne doivent jamais sortir (jetons, téléphones, adresses, IP, licences). */
 export function textesInterditsAdmin(): string[] {
-  return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
+  return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, SECOND_ADMIN.email, SECOND_ADMIN.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
 }
 
 export interface SourceFictive extends Source {
+  /** Propositions d'administration déposées (nextar_admin_proposer). */
+  propositionsAdmin: { id: string; titre: string; contexte: Record<string, unknown>; lignes: Record<string, unknown>[] }[]
+  /** Écritures tentées (propositions de mesures, rapports, propositions d'administration). */
+  ecritures: number
   propositionsDeposees: { id: string; titre: string; contexte: Record<string, unknown>; lignes: string[][]; etat: string; created_at: string }[]
   rapportsDeposes: { id: string; titre: string; contenu: string }[]
   /** Appels faits à joueursNoms (pour vérifier que nextar_lire n'en fait aucun). */
@@ -256,7 +280,20 @@ export interface SourceFictive extends Source {
 
 /** Une Source en mémoire sur ces données (ou d'autres joueurs : grande base fictive). */
 export function sourceFictive(
-  o: { joueurs?: JoueurFictif[]; erreurDepot?: string; admin?: boolean; sessions?: SessionSrv[]; sante?: 'ok' | 'absente' | 'erreur'; nomsTronques?: boolean } = {},
+  o: {
+    joueurs?: JoueurFictif[]
+    erreurDepot?: string
+    admin?: boolean
+    sessions?: SessionSrv[]
+    sante?: 'ok' | 'absente' | 'erreur'
+    nomsTronques?: boolean
+    /** Script 070 pas appliqué : la sorte « admin » est refusée par la table. */
+    sans070?: boolean
+    /** Identifiant du compte du jeton (défaut : l'administratrice fictive si admin, l'encadrant sinon ; null : inconnu). */
+    moi?: string | null
+    /** Seul administrateur ? (défaut : oui) ; non : un second administrateur fictif existe. */
+    secondAdmin?: boolean
+  } = {},
 ): SourceFictive {
   const joueurs = o.joueurs ?? JOUEURS
   const vivants = () => joueurs.filter((p) => !p.mergedInto && p.review !== 'refused')
@@ -264,7 +301,10 @@ export function sourceFictive(
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
   const props: SourceFictive['propositionsDeposees'] = []
   const raps: SourceFictive['rapportsDeposes'] = []
+  const propsAdmin: SourceFictive['propositionsAdmin'] = []
   const src: SourceFictive = {
+    propositionsAdmin: propsAdmin,
+    ecritures: 0,
     propositionsDeposees: props,
     rapportsDeposes: raps,
     appelsNoms: 0,
@@ -277,14 +317,14 @@ export function sourceFictive(
       return []
     },
     async evenements({ archives }) {
-      return EVENEMENTS.filter((e) => !e.deleted && (archives || !e.archived)).map(({ nums: _n, ...e }) => ({ ...e }))
+      return [...EVENEMENTS, ...(o.admin ? EVENEMENTS_ADMIN : [])].filter((e) => !(e as { deleted?: boolean }).deleted && (archives || !e.archived)).map(({ nums: _n, ...e }) => ({ ...e }))
     },
     async evenement(id) {
       const e = EVENEMENTS.find((x) => x.id === id && !x.deleted)
       return e ? { ...e } : null
     },
     async groupes({ archives }) {
-      return GROUPES.filter((g) => archives || !g.archived).map((g) => ({ ...g }))
+      return [...GROUPES, ...(o.admin ? GROUPES_ADMIN : [])].filter((g) => archives || !g.archived).map((g) => ({ ...g }))
     },
     async groupe(id) {
       const g = GROUPES.find((x) => x.id === id)
@@ -315,6 +355,7 @@ export function sourceFictive(
       return VUS.filter((v) => ids.includes(v.playerId))
     },
     async deposerProposition(p) {
+      src.ecritures++
       if (o.erreurDepot) return { erreur: o.erreurDepot }
       const id = uuid()
       props.push({ id, ...p, etat: 'en_attente', created_at: '2026-11-05T10:00:00Z' })
@@ -328,6 +369,7 @@ export function sourceFictive(
       return props.slice(-limite).reverse().map((p) => ({ ...toSrv(p), nbLignes: -1 }))
     },
     async deposerRapport(r) {
+      src.ecritures++
       const id = uuid()
       raps.push({ id, ...r })
       return { id, expires_at: '2026-12-05T10:00:00Z' }
@@ -351,7 +393,7 @@ export function sourceFictive(
     async profils() {
       src.appelsAdmin++
       if (!o.admin) return []
-      return [...COMPTES, COMPTE_INACTIF].map((c): ProfilSrv => ({ userId: c.userId, fullName: c.fullName, role: c.role, createdAt: CREES_LE[c.userId] }))
+      return [...COMPTES, COMPTE_INACTIF, ...(o.secondAdmin ? [SECOND_ADMIN] : [])].map((c): ProfilSrv => ({ userId: c.userId, fullName: c.fullName, role: c.role, createdAt: CREES_LE[c.userId] }))
     },
     async fichesAValider(max) {
       src.appelsAdmin++
@@ -431,9 +473,37 @@ export function sourceFictive(
       if (!o.admin) return { avis: null, mesures: null, evenements: null, vus: null, fiches: null }
       return { ...(ACTIVITE[userId] ?? { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 }) }
     },
+    // ---- nextar_admin_proposer ----
+    async moi() {
+      src.appelsAdmin++
+      return o.moi !== undefined ? o.moi : o.admin ? COMPTES[0].userId : COMPTES[1].userId
+    },
+    async unites() {
+      src.appelsAdmin++
+      return o.admin ? UNITES.map((u) => ({ ...u })) : []
+    },
+    async idsFiches(max) {
+      src.appelsAdmin++
+      if (!o.admin) return { fiches: [], tronque: false }
+      const tous = [...joueurs, ...JOUEURS_ADMIN]
+      return { fiches: tous.slice(0, max).map((p) => ({ id: p.id, fondue: !!p.mergedInto })), tronque: tous.length > max }
+    },
+    async deposerPropositionAdmin(p) {
+      src.ecritures++
+      // Comme la base : sorte « admin » refusée sans 070, et pour un compte qui n'est pas administrateur (42501).
+      if (o.sans070) return { indisponible: true as const }
+      if (!o.admin) return { erreur: 'réservé aux administrateurs (refus de la base)' }
+      if (p.lignes.length > 50) return { erreur: 'new row violates check constraint "hb_propositions_admin_forme"' }
+      const id = uuid()
+      propsAdmin.push({ id, ...p })
+      return { id }
+    },
   }
   return src
 }
+
+/** Second administrateur fictif (essai : changer le rôle d'un administrateur qui n'est pas le dernier). */
+export const SECOND_ADMIN: CompteSrv & { email: string } = { userId: '00000000-0000-4000-8000-0000000000a2', fullName: 'Gaëlle Administratrice-Fictive', role: 'admin', email: 'gaelle@exemple.test' }
 
 const toSrv = (p: SourceFictive['propositionsDeposees'][number]): PropositionSrv => ({
   id: p.id,
