@@ -1,5 +1,6 @@
 // Nextar : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
-// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag } ; sans titre : « Nextar ».
+// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag } ; sans titre : « Nextar ». Même format pour les
+// propositions à valider (fonction « veille », supabase/067) : { body, url: "/?propositions=1", tag: "propositions", calme? }.
 // Message de la veille (fonction « veille », { type: "veille", … }) : confié à veille-sw.js (src/veilleSw.ts, chargé avant ce
 // fichier), qui affiche la notification et prépare les événements du lendemain hors ligne.
 self.addEventListener('push', (event) => {
@@ -21,7 +22,9 @@ self.addEventListener('push', (event) => {
       body: d.body || '',
       // Même sujet : la nouvelle remplace l'ancienne au lieu de s'empiler.
       tag: d.tag,
-      renotify: !!d.tag,
+      renotify: !!d.tag && !d.calme,
+      // Créneau « ne pas déranger » de la personne (propositions à valider, fonction « veille ») : sans son ni vibration.
+      silent: !!d.calme,
       icon: 'icon-192.png',
       badge: 'icon-192.png',
       data: { url: d.url || '/' },

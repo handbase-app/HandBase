@@ -40,6 +40,8 @@ import { MQ, useMedia } from './layout'
 import { isPlayerRole } from './roles'
 import { AskButton } from './components/Demander'
 import { AskActionHost } from './components/AskAction'
+import { openPropositions, PropositionsHost, PropositionsPill } from './components/Propositions'
+import { usePendingPropositionCount } from './propositions'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -261,10 +263,12 @@ export default function App() {
   const toReview = usePendingCount()
   const alerts = useAlertCount()
   const followNews = useFollowNewsCount()
-  // Pastille sur l'icône de l'appli : tout ce qui attend (propositions à valider + nouvelles alertes).
+  // Boîte « À valider » (propositions de mesures en attente) : repère de l'en-tête, entrée du menu de profil, icône de l'appli.
+  const toValidate = usePendingPropositionCount()
+  // Pastille sur l'icône de l'appli : tout ce qui attend (propositions à valider, nouvelles alertes, mesures à valider).
   useEffect(() => {
-    void setIconBadge(toReview + alerts)
-  }, [toReview, alerts])
+    void setIconBadge(toReview + alerts + toValidate)
+  }, [toReview, alerts, toValidate])
   // Noms des départements (liste modifiable) : toute l'appli se redessine quand ils changent.
   useDepartments()
   // Sport et postes de l'installation (table hb_config, handball par défaut) : redessin quand ils changent.
@@ -312,6 +316,7 @@ export default function App() {
       ? [
           { label: followNews ? `Mes suivis · ${followNews} nouveauté${followNews > 1 ? 's' : ''}` : 'Mes suivis', icon: 'star' as const, onSelect: goGuarded('/suivis') },
           { label: alerts ? `Profils recherchés · ${alerts}` : 'Profils recherchés', icon: 'target' as const, onSelect: goGuarded('/alertes') },
+          ...(toValidate ? [{ label: `À valider · ${toValidate}`, icon: 'check' as const, onSelect: openPropositions }] : []),
         ]
       : []
   // Compte joueur : sa navigation à lui ; staff : le Bilan seulement pour qui a le droit de le voir.
@@ -342,6 +347,8 @@ export default function App() {
           <div className={`mx-auto flex max-w-2xl items-center gap-3 px-4 pb-2.5 wide:max-w-none side:relative side:gap-4 side:px-6 ${TRIAL ? 'pt-1.5' : 'pt-2.5'}`}>
             <HeaderBack split={split} />
             <AskButton bar />
+            {/* Boîte « À valider » : un petit repère seulement quand des propositions de mesures attendent (src/components/Propositions.tsx). */}
+            <PropositionsPill />
             <FollowStar n={followNews} compact={!side} />
             <ProfileButton />
           </div>
@@ -524,9 +531,10 @@ export default function App() {
         {/* Téléphone couché : en bas, l'étoile des suivis et la cible (si la hauteur le permet), puis la bulle de profil. */}
         {rail && (
           <div className="flex shrink-0 flex-col items-center gap-3.5 pt-1 pb-2.5">
+            {!player && !railShort && <PropositionsPill compact />}
             {!player && !railShort && <FollowStar n={followNews} compact />}
             {!player && !railShort && <AlertBell n={alerts} />}
-            <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts : 0} />
+            <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts + toValidate : 0} />
           </div>
         )}
       </nav>
@@ -540,6 +548,7 @@ export default function App() {
       <ConfirmHost />
       <AccountWindows />
       <AskActionHost />
+      {!player && <PropositionsHost />}
     </div>
   )
 }

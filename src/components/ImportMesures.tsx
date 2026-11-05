@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { alive, db, fmtDate, newId, plural, saveMany, today, type Criterion, type Measurement, type Player } from '../db'
 import {
   autoChecked,
@@ -22,8 +22,11 @@ import {
   type ValueDecision,
 } from '../importMesures'
 import { nameKey } from '../nameMatch'
+import { keepProposition } from '../propositions'
+import type { PropChoix, PropContexte } from '../propositionsCore'
 import { can, useRole } from '../roles'
 import { FormActions, FormWindow } from './FormWindow'
+import { flash } from './ItemMenu'
 import { useReperes } from './Medal'
 import { getMe, Icon } from './ui'
 
@@ -47,10 +50,32 @@ import { getMe, Icon } from './ui'
 
 const UNDO_MS = 10_000
 
-export type ImportScope = { kind: 'evenement' | 'groupe'; name: string; players: Player[]; nums?: Record<string, string> } | { kind: 'tous' }
+export type ImportScope = { kind: 'evenement' | 'groupe'; id?: string; name: string; players: Player[]; nums?: Record<string, string> } | { kind: 'tous' }
 
 const fullName = (p: Pick<Player, 'firstName' | 'lastName'>) => `${p.lastName.toUpperCase()} ${p.firstName}`
 const yearOf = (p: Pick<Player, 'birthDate'>) => (p.birthDate && /^\d{4}/.test(p.birthDate) ? p.birthDate.slice(0, 4) : '')
+
+/** Choix faits sur l'écran « À valider », tels qu'ils sont gardés avec une proposition (src/propositionsCore.ts). */
+export type ReviewState = { choices: ImportChoices; decisions: Record<string, ValueDecision>; checks: Record<number, boolean> }
+export const toChoix = (s: ReviewState): PropChoix => ({ ...s.choices, decisions: s.decisions, checks: s.checks })
+export const fromChoix = (c: PropChoix | undefined): Partial<ReviewState> =>
+  c
+    ? {
+        choices: { columns: c.columns as ImportChoices['columns'], players: c.players, values: c.values },
+        decisions: (c.decisions ?? {}) as Record<string, ValueDecision>,
+        checks: c.checks ?? {},
+      }
+    : {}
+
+/** Contexte d'une proposition gardée depuis cette fenêtre (portée, date, format, joueurs du contexte). */
+function scopeContexte(scope: ImportScope, date: string, table: PastedTable | null): PropContexte {
+  return {
+    portee: scope.kind,
+    ...(scope.kind === 'tous' ? {} : { ...(scope.id ? { id: scope.id } : {}), nom: scope.name, joueurs: scope.players.map((p) => p.id) }),
+    date,
+    ...(table ? { format: table.format, ...(table.free ? { libre: true } : {}) } : {}),
+  }
+}
 
 /** Fenêtre « Coller un tableau de mesures ». */
 export function ImportMesures({ scope, onClose }: { scope: ImportScope; onClose: () => void }) {
@@ -60,6 +85,21 @@ export function ImportMesures({ scope, onClose }: { scope: ImportScope; onClose:
   const [table, setTable] = useState<PastedTable | null>(null)
   const [done, setDone] = useState(false)
   const [msg, setMsg] = useState('')
+  // « Garder pour plus tard » : le tableau va dans la boîte « À valider » (src/propositions.ts), rien n'est enregistré.
+  const keep = async (t: PastedTable, state?: ReviewState): Promise<string | null> => {
+    const r = await keepProposition({ rows: t.rows, contexte: { ...scopeContexte(scope, date, t), ...(state ? { choix: toChoix(state) } : {}) } })
+    if ('error' in r) return r.error
+    setDone(true)
+    flash('Gardé dans « À valider » : la pastille en haut de l’écran y mène.')
+    onClose()
+    return null
+  }
+  const keepText = async () => {
+    const t = parseTable(text)
+    if (!t.rows.length) return setMsg('Rien à garder : colle d’abord le tableau.')
+    const err = await keep(t)
+    if (err) setMsg(err)
+  }
   // Toute la base (⋮ de la liste Joueurs) : fiches de la base, sans les fiches hors cadre ni les fiches fondues.
   const all = useLiveQuery(
     async (): Promise<Player[] | null> => (scope.kind === 'tous' ? alive(await db.players.toArray()).filter((p) => p.review !== 'refused' && !p.mergedInto) : null),
@@ -102,6 +142,7 @@ export function ImportMesures({ scope, onClose }: { scope: ImportScope; onClose:
           onBack={() => setTable(null)}
           onSaved={() => setDone(true)}
           onUndone={() => setDone(false)}
+          onKeep={(s) => keep(table, s)}
           onClose={onClose}
         />
       ) : (
@@ -138,6 +179,10 @@ export function ImportMesures({ scope, onClose }: { scope: ImportScope; onClose:
           <FormActions>
             <button type="button" className="btn-primary" disabled={!text.trim() || !date} onClick={read}>
               Lire le tableau
+            </button>
+            {/* Pas le temps de valider maintenant : le tableau attend dans la boîte « À valider » (pastille de l'en-tête). */}
+            <button type="button" className="btn-ghost" disabled={!text.trim() || !date} onClick={() => void keepText()}>
+              Garder pour plus tard
             </button>
             <button type="button" className="btn-ghost" onClick={onClose}>
               Annuler
@@ -179,8 +224,12 @@ export function ImportReview({
   date,
   where,
   onBack,
+  backLabel = '‹ Modifier le tableau',
   onSaved,
   onUndone,
+  onKeep,
+  initial,
+  extraActions,
   onClose,
 }: {
   rows: string[][]
@@ -194,8 +243,16 @@ export function ImportReview({
   date: string
   where?: string
   onBack?: () => void
-  onSaved?: (ids: string[]) => void
+  backLabel?: string
+  /** Après « Enregistrer N mesures » : mesures créées, lignes du tableau qui portaient une valeur et lignes enregistrées. */
+  onSaved?: (ids: string[], info: { lignes: number; enregistrees: number }) => void
   onUndone?: () => void
+  /** « Garder pour plus tard » (boîte « À valider ») avec les choix déjà faits ; renvoie un message d'erreur ou null. */
+  onKeep?: (state: ReviewState) => Promise<string | null> | void
+  /** Choix déjà faits (proposition rouverte depuis la boîte). */
+  initial?: Partial<ReviewState>
+  /** Boutons de plus au pied (« Rejeter » dans la boîte). */
+  extraActions?: ReactNode
   onClose: () => void
 }) {
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then(alive), [])
@@ -214,9 +271,9 @@ export function ImportReview({
   const cands = useMemo<Candidate[]>(() => players.map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, birthDate: p.birthDate, num: nums?.[p.id] })), [players, nums])
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players])
 
-  const [choices, setChoices] = useState<ImportChoices>({})
-  const [decisions, setDecisions] = useState<Record<string, ValueDecision>>({})
-  const [checks, setChecks] = useState<Record<number, boolean>>({})
+  const [choices, setChoices] = useState<ImportChoices>(initial?.choices ?? {})
+  const [decisions, setDecisions] = useState<Record<string, ValueDecision>>(initial?.decisions ?? {})
+  const [checks, setChecks] = useState<Record<number, boolean>>(initial?.checks ?? {})
   const [picking, setPicking] = useState<number | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [allCols, setAllCols] = useState(false)
@@ -288,9 +345,28 @@ export function ImportReview({
       )
       setSaved({ rows: created, players: new Set(created.map((m) => m.playerId)).size, dates: [...new Set(created.map((m) => m.date))].sort() })
       setUndone('')
-      onSaved?.(created.map((m) => m.id))
+      // Lignes du tableau qui portaient une valeur, et celles dont au moins une mesure vient d'être écrite (boîte « À valider » :
+      // proposition validée, ou validée en partie).
+      const lignes = proposal.rows.filter((r) => r.values.some((v) => v.value !== undefined)).length
+      const enregistrees = proposal.rows.filter((r) => r.match.playerId && isChecked(r) && r.values.some((v) => willSave(v, decisions[dkey(r, v)]))).length
+      onSaved?.(
+        created.map((m) => m.id),
+        { lignes, enregistrees },
+      )
     } catch (e) {
       setError(`Mesures non enregistrées : ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function keep() {
+    if (!onKeep) return
+    setBusy(true)
+    setError('')
+    try {
+      const err = await onKeep({ choices, decisions, checks })
+      if (err) setError(err)
     } finally {
       setBusy(false)
     }
@@ -503,11 +579,17 @@ export function ImportReview({
         <button type="button" className="btn-primary" disabled={!toSave.length || busy} onClick={() => void save()}>
           {busy ? 'Enregistrement…' : toSave.length ? `Enregistrer ${plural(toSave.length, 'mesure')}` : 'Aucune mesure retenue'}
         </button>
-        {onBack && (
-          <button type="button" className="btn-ghost" onClick={onBack}>
-            ‹ Modifier le tableau
+        {onKeep && (
+          <button type="button" className="btn-ghost" disabled={busy} onClick={() => void keep()}>
+            Garder pour plus tard
           </button>
         )}
+        {onBack && (
+          <button type="button" className="btn-ghost" onClick={onBack}>
+            {backLabel}
+          </button>
+        )}
+        {extraActions}
       </FormActions>
     </div>
   )

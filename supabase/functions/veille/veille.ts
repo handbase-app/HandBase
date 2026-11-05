@@ -182,3 +182,72 @@ export async function parallele<T>(tasks: readonly (() => Promise<T>)[], n = PAR
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, tasks.length)) }, worker))
   return out
 }
+
+// ---------- Propositions à valider (supabase/067_propositions.sql) ----------
+// Une proposition déposée par le serveur MCP (ou lue sur une photo) : le déclencheur hb_propositions_signal appelle cette
+// fonction avec { type: "proposition", id }. Le message poussé est une notification SIMPLE, au format de la fonction
+// « notify » (public/push-sw.js l'affiche telle quelle) : { body, url, tag, calme? } ; body = « 1 proposition à valider ·
+// Tests rentrée Pôle » (titre de la proposition, coupé), url = la boîte « À valider ». JAMAIS un joueur, une ligne, une mesure.
+
+/** Adresse ouverte par le toucher : l'appli ouvre la boîte « À valider » (src/components/Propositions.tsx). */
+export const PROPOSITION_URL = '/?propositions=1'
+/** Même sujet : la nouvelle notification remplace la précédente au lieu de s'empiler. */
+export const PROPOSITION_TAG = 'propositions'
+/** Durée de vie chez le service de push (téléphone éteint) : un jour. */
+export const PROPOSITION_TTL_S = 24 * 3600
+/** Longueur du titre dans le message. */
+export const MAX_TITRE = 40
+
+export interface PropositionPayload {
+  body: string
+  url: string
+  tag: string
+  calme?: true
+}
+
+/** Identifiant de proposition valable (uuid). */
+export const idProposition = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+
+/** Titre court : espaces resserrés, caractères de contrôle retirés, coupé à MAX_TITRE (avec « … »). */
+export function titreCourt(titre: string | null | undefined): string {
+  // eslint-disable-next-line no-control-regex
+  const s = String(titre ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  return s.length > MAX_TITRE ? s.slice(0, MAX_TITRE - 1).trimEnd() + '…' : s
+}
+
+/** « 1 proposition à valider · Tests rentrée Pôle » ; « 3 propositions à valider · <titre de la dernière> ». */
+export function propositionTexte(n: number, titre: string | null | undefined): string {
+  const k = Math.max(1, Math.floor(n) || 1)
+  const head = `${k} proposition${k > 1 ? 's' : ''} à valider`
+  const t = titreCourt(titre)
+  return t ? `${head} · ${t}` : head
+}
+
+/** Message d'une proposition (voir plus haut) ; `calme` : créneau « ne pas déranger » (notification sans son). */
+export function propositionPayload(n: number, titre: string | null | undefined, opts: { calme?: boolean } = {}): PropositionPayload {
+  return { body: propositionTexte(n, titre), url: PROPOSITION_URL, tag: PROPOSITION_TAG, ...(opts.calme ? { calme: true as const } : {}) }
+}
+
+/**
+ * Faut-il annoncer cette proposition ? Seulement si elle attend encore, n'a pas été retirée, ne vient pas de l'appareil
+ * lui-même (« collage ») et que la personne n'a pas coupé « Propositions à valider » (préférence proposition, oui par défaut).
+ */
+export function propositionAAnnoncer(
+  p: { source?: string | null; etat?: string | null; deleted_at?: string | null } | null | undefined,
+  notif: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!p || p.source === 'collage' || p.etat !== 'en_attente' || p.deleted_at) return false
+  return (notif ?? {}).proposition !== false
+}
+
+const CLES_PROP = new Set(['body', 'url', 'tag', 'calme'])
+
+/** Le message ne contient-il QUE le texte, le lien et le sujet (aucune donnée de joueur, aucun champ inattendu) ? */
+export function propositionIsMinimal(p: unknown): boolean {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return false
+  const o = p as Record<string, unknown>
+  if (Object.keys(o).some((k) => !CLES_PROP.has(k))) return false
+  if (o.url !== PROPOSITION_URL || o.tag !== PROPOSITION_TAG || typeof o.body !== 'string') return false
+  if (o.calme !== undefined && o.calme !== true) return false
+  return /^\d+ propositions? à valider( · .{1,40})?$/.test(o.body)
+}

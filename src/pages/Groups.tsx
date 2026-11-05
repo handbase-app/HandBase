@@ -1193,7 +1193,7 @@ function PlayerGroupDetail() {
         </FormWindow>
       )}
       {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du groupe" onClose={() => setStampOpen(false)} />}
-      {pasting && <ImportMesures scope={{ kind: 'groupe', name: g.name, players }} onClose={() => setPasting(false)} />}
+      {pasting && <ImportMesures scope={{ kind: 'groupe', id: g.id, name: g.name, players }} onClose={() => setPasting(false)} />}
         <div>
           {/* Le nom, et au bout de la rangée « Suivre » puis le ⋮ (actions du groupe, Supprimer en dernier). */}
           <div className="flex items-start justify-between gap-2">

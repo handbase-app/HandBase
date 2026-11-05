@@ -124,6 +124,12 @@ export const NOTIF_KINDS = [
     label: 'La veille de mes événements',
     help: 'Organisateur, participant ou membre du staff : vers 18 h, une notification pour tous tes événements du lendemain, et tes joueurs préparés hors ligne sur ce téléphone.',
   },
+  // Boîte « À valider » (supabase/067_propositions.sql, fonction « veille ») : propositions déposées ailleurs que sur l'appareil.
+  {
+    id: 'proposition',
+    label: 'Propositions à valider',
+    help: 'Des mesures préparées pour toi (avec Claude, par exemple) attendent ta validation dans « À valider ».',
+  },
   // supabase/033_notifications_suivis.sql
   {
     id: 'suivi',

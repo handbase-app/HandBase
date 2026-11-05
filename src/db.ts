@@ -20,6 +20,7 @@ import type { RewatchOrigin } from './rewatchCore'
 import type { UsualTeam } from './rencontres'
 import type { RencontreSnapshot } from './rencontreEvent'
 import type { ExpressionRow } from './expressionsCore'
+import type { PropositionRow } from './propositionsCore'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -648,6 +649,7 @@ export const db = new Dexie(realDbName(accountDb, TRIAL)) as Dexie & {
   assignments: EntityTable<Assignment, 'id'>
   saved_questions: EntityTable<SavedQuestionRow, 'id'>
   expressions: EntityTable<ExpressionRow, 'id'>
+  propositions: EntityTable<PropositionRow, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -728,6 +730,10 @@ db.version(17).stores({ saved_questions: 'id, updatedAt' })
 // v18 : « Mes expressions » (vocabulaire de l'entraîneur pour l'avis vocal, supabase/062_mes_expressions.sql). Hors de la
 // synchronisation générale : src/expressions.ts les envoie et les relit lui-même.
 db.version(18).stores({ expressions: 'id, owner, updatedAt' })
+
+// v19 : boîte « À valider » (propositions de mesures gardées pour plus tard ou déposées par le serveur MCP,
+// supabase/067_propositions.sql). Hors de la synchronisation générale : src/propositions.ts les envoie et les relit lui-même.
+db.version(19).stores({ propositions: 'id, owner, updatedAt' })
 
 // « Voir comme… » : l'écran ne lit que le périmètre du membre simulé (src/viewAsFilter.ts). Hors simulation : rien.
 if (spyTarget()) db.use(viewAsMiddleware)

@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import { confirmLogout } from '../logout'
-import { ROLE_LABEL, useRole } from '../roles'
+import { can, ROLE_LABEL, useRole } from '../roles'
+import { usePendingPropositionCount } from '../propositions'
+import { openPropositions } from './Propositions'
 import { supabase, syncNow, useSyncState } from '../sync'
 import { percent, showProgress } from '../syncProgress'
 import { canLeave } from './Confirm'
@@ -62,6 +64,8 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
   const sync = useSyncInfo()
   const nav = useNavigate()
   const accounts = useAccountsView()
+  // Boîte « À valider » (src/components/Propositions.tsx) : tableaux de mesures qui attendent la validation.
+  const toValidate = usePendingPropositionCount()
   // Petite fenêtre sous les initiales, comme tous les menus ; le geste Retour la referme sans quitter la page (ItemMenu).
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
   /**
@@ -87,6 +91,18 @@ export function ProfileButton({ rail = false, extra = [], badge = 0 }: { rail?: 
       onSelect: () => close(() => void syncNow()),
       stay: true,
     },
+    ...(can.editMeasurements(role) || toValidate > 0
+      ? [
+          {
+            label: toValidate ? `À valider · ${toValidate}` : 'À valider',
+            icon: 'check' as const,
+            hint: toValidate ? 'Mesures en attente' : 'Mesures gardées pour plus tard',
+            onSelect: () => close(openPropositions),
+            stay: true,
+            separated: true,
+          },
+        ]
+      : []),
     { label: 'Réglages', icon: 'settings', onSelect: () => go('/parametres'), stay: true, separated: true },
     { label: 'Confidentialité', icon: 'lock', onSelect: () => go('/confidentialite'), stay: true },
   ]

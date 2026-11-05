@@ -972,7 +972,7 @@ export function EventDetail() {
         </FormWindow>
       )}
       {duplicating && <DuplicateEvent ev={ev} onClose={() => setDuplicating(false)} />}
-      {pasting && <ImportMesures scope={{ kind: 'evenement', name: ev.name, players: roster, nums: eventNumbers(ev) }} onClose={() => setPasting(false)} />}
+      {pasting && <ImportMesures scope={{ kind: 'evenement', id: ev.id, name: ev.name, players: roster, nums: eventNumbers(ev) }} onClose={() => setPasting(false)} />}
       {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos de l’événement" onClose={() => setStampOpen(false)} />}
         <div>
           {ev.archived && <div className="mb-1 w-fit rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-bold text-muted">ARCHIVÉ</div>}
