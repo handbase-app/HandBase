@@ -105,7 +105,7 @@ export default function Settings() {
       <ApparenceFold />
       <DictationSetting />
       {/* Serveur MCP Nextar : brancher Claude, autorisations données, rapports en codes (src/components/ConnectedApps.tsx). */}
-      {supabase && !TRIAL && (
+      {supabase && (
         <Fold id="applications" icon="key" title="Applications connectées" summary="Brancher Claude (lecture en codes, propositions à valider), autorisations, rapports">
           <ConnectedApps />
         </Fold>
