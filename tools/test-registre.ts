@@ -18,10 +18,13 @@ import {
   diffCanaux,
   filetRareDu,
   lireEtatRegistre,
+  lireOuvertes,
   lireRegistre,
+  marquerOuverte,
   memesCanaux,
   planRegistre,
   REGISTRE_RECOUVREMENT_MS,
+  rouvrir,
   type RegistreReponse,
 } from '../src/registre'
 
@@ -201,6 +204,62 @@ t('câblage : vérifications d’un jour (ou tout de suite si les canaux / un st
   assert.ok(sync.includes('const d = diffCanaux([...channels.keys()], topics)'))
   assert.ok(sync.includes("res = await supabase!.rpc('hb_mes_canaux_memo')"))
   assert.ok(sync.includes("res ??= await supabase!.rpc('hb_mes_canaux')"), 'serveur sans 061 : comme avant')
+})
+
+t('relecture inachevée : liste gardée (illisible : vide), marquée au début, retirée à la fin', () => {
+  assert.deepEqual([...lireOuvertes(null)], [])
+  assert.deepEqual([...lireOuvertes('{pas du json')], [])
+  assert.deepEqual([...lireOuvertes(JSON.stringify(['measurements', 3, null]))], ['measurements'])
+  const a = marquerOuverte(new Set(), 'measurements', true)
+  assert.deepEqual(a, ['measurements'])
+  assert.deepEqual(marquerOuverte(new Set(a), 'evaluations', true), ['evaluations', 'measurements'])
+  assert.deepEqual(marquerOuverte(new Set(a), 'measurements', false), [])
+  assert.deepEqual(marquerOuverte(new Set(), 'measurements', false), [])
+})
+
+t('relecture inachevée : relue même si le registre / le filet disent « rien de neuf » ; table inconnue du serveur : reste inconnue', () => {
+  const open = new Set(['measurements', 'seen'])
+  assert.deepEqual(rouvrir({ players: false, measurements: false, seen: null, events: true }, open), { players: false, measurements: true, seen: null, events: true })
+  assert.deepEqual(rouvrir({ players: false }, new Set()), { players: false })
+  // Clé absente : planPull relit déjà (prudence) ; rien d'ajouté.
+  assert.deepEqual(rouvrir({ players: false }, open), { players: false })
+})
+
+t('incident du 04/11 : premier chargement des mesures coupé, puis registre « rien de neuf » → plus aucune mesure sautée', () => {
+  // Mesures du serveur : 79 000 reçues (curseur à 22:37:53), 66 000 plus récentes écrites AVANT le curseur du registre (import
+  // de 22:37 et 23:13) ; le registre (curseur pris à 23:36) ne les cite pas ; heure du serveur 23:44.
+  const curseur = '2026-11-04T22:37:53.000000+00:00'
+  const r = rep({})
+  r.t = '2026-11-04T23:44:18.000000+00:00'
+  const plan = planRegistre(r, ['measurements'], {}, vide)
+  assert.equal(plan.measurements, undefined, 'le registre ne cite rien')
+  // Avant : « rien de neuf » → curseur avancé à 23:43:18, par-dessus les 66 000 lignes restantes.
+  const avant: Record<string, boolean> = { measurements: false }
+  assert.notEqual(curseurApres(curseur, r.t), curseur, 'c’est ce saut qui perdait les lignes')
+  // Maintenant : la table est marquée « relecture inachevée » → relue par curseur, curseur intact (le code n'avance que les
+  // tables à false).
+  const apres = rouvrir(avant, lireOuvertes(JSON.stringify(marquerOuverte(new Set(), 'measurements', true))))
+  assert.equal(apres.measurements, true)
+})
+
+t('câblage (src/sync.ts) : relecture marquée ouverte au début, fermée après la dernière page, rouverte avant d’avancer les curseurs', () => {
+  const sync = readFileSync(new URL('../src/sync.ts', import.meta.url), 'utf8')
+  const debut = sync.indexOf('setOuverte(table, true)')
+  const lecture = sync.indexOf('? await readScopedPages<PulledRow>(')
+  const fin = sync.indexOf('setOuverte(table, false)')
+  assert.ok(debut > 0 && lecture > debut && fin > lecture, 'ouverte avant la première page, fermée après la dernière')
+  // Une erreur (throw) pendant la lecture saute la fermeture : la table reste ouverte.
+  assert.ok(!/catch[^]*setOuverte\(table, false\)/.test(sync.slice(lecture, fin)))
+  // Registre : rouverte AVANT la boucle qui avance les curseurs « à jour ».
+  const rouv = sync.indexOf('Object.assign(flags, rouvrir(flags, ouvertes()))')
+  const avance = sync.indexOf('const next = curseurApres(cur, rep.t)')
+  assert.ok(rouv > 0 && rouv < avance)
+  // Filet de 059 : pas d'avance de curseur pour une table ouverte ; réponse rouverte ; hb_quoi_de_neuf aussi (pull).
+  assert.ok(sync.includes('if (!d.confirm || open.has(table)) continue'))
+  assert.ok(sync.includes('return rouvrir(flags, open)'))
+  assert.ok(sync.includes('const flags = answer && rouvrir(answer, ouvertes())'))
+  // Gardée sous handbase.* : effacée avec l'appareil (wipeDevice).
+  assert.ok(sync.includes("const OPEN_KEY = `handbase${TRIAL ? '-essai' : ''}.lecture.inachevee`"))
 })
 
 chain.then(
