@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
-import { db, DEMO, newId } from './db'
+import { db, newId } from './db'
 import { realUserId } from './roles'
 import { guardWrite, spyTarget } from './spy'
 import { subscribeSync, supabase } from './sync'
@@ -42,7 +42,7 @@ import {
 
 /** Compte à qui appartiennent les propositions de l'appareil (version d'essai sans serveur : « »). */
 const owner = () => realUserId() ?? ''
-const synced = () => !!supabase && !DEMO && !!realUserId()
+const synced = () => !!supabase && !!realUserId()
 const mine = () => db.propositions.where('owner').equals(owner()).toArray()
 
 /** Mes propositions (toutes, traitées comprises) ; undefined pendant la lecture. */
@@ -224,7 +224,7 @@ export function refreshPropositions(min = 0) {
 
 if (typeof window !== 'undefined') {
   void tidy().catch(() => {})
-  if (supabase && !DEMO) {
+  if (supabase) {
     // Ouverture de l'appli : au premier passage de la synchronisation (session prête), puis au plus toutes les 5 minutes à
     // son rythme ; retour au premier plan : relecture (au plus toutes les 20 s) ; retour du réseau : envoi.
     subscribeSync(() => refreshPropositions(5 * 60_000))

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { OAuthAuthorizationDetails } from '@supabase/supabase-js'
 import { Icon } from '../components/ui'
-import { DEMO, TRIAL } from '../db'
+import { TRIAL } from '../db'
 import { isPlayerRole, useRole } from '../roles'
 import { supabase } from '../sync'
 import { appName } from '../appBrand'
@@ -40,7 +40,7 @@ export default function OAuthConsent() {
   const role = useRole()
   const authId = new URLSearchParams(loc.search).get('authorization_id') ?? ''
   const [etat, setEtat] = useState<Etat>(() =>
-    !supabase || TRIAL || DEMO
+    !supabase || TRIAL
       ? { k: 'erreur', message: 'Brancher une application demande la version connectée de l’appli (avec un compte).' }
       : !authId
         ? { k: 'erreur', message: 'Demande d’autorisation incomplète (identifiant absent). Recommence depuis Claude.' }
@@ -50,7 +50,7 @@ export default function OAuthConsent() {
   const joueur = isPlayerRole(role)
 
   useEffect(() => {
-    if (!supabase || TRIAL || DEMO || !authId) return
+    if (!supabase || TRIAL || !authId) return
     let alive = true
     void supabase.auth.oauth.getAuthorizationDetails(authId).then(({ data, error }) => {
       if (!alive) return

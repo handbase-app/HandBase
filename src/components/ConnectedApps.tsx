@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { OAuthGrant } from '@supabase/supabase-js'
 import { appName } from '../appBrand'
-import { DEMO, TRIAL } from '../db'
+import { TRIAL } from '../db'
 import { listerRapports, rapportsPossibles, type Rapport } from '../rapports'
 import { supabase } from '../sync'
 import { ask } from './Confirm'
@@ -38,7 +38,7 @@ async function copier(texte: string) {
 
 export function ConnectedApps() {
   const url = mcpUrl()
-  const possible = !!supabase && !TRIAL && !DEMO && !!url
+  const possible = !!supabase && !TRIAL && !!url
   const [grants, setGrants] = useState<OAuthGrant[] | null | 'off'>(null)
   const [rapports, setRapports] = useState<Omit<Rapport, 'contenu'>[] | null>(null)
 
