@@ -201,3 +201,42 @@ export function diffCanaux(avant: readonly string[], apres: readonly string[]): 
   const b = new Set(apres)
   return { fermer: [...a].filter((t) => !b.has(t)), ouvrir: [...b].filter((t) => !a.has(t)) }
 }
+
+/*
+ * RELECTURES INACHEVÉES (incident du 04/11 : 65 000 mesures jamais reçues par un téléphone). Une relecture par curseur
+ * avance le curseur de la table page par page ; coupée au milieu (appli mise en arrière-plan, réseau coupé, onglet fermé),
+ * il reste des lignes plus récentes que ce curseur. Le registre, lui, ne cite que les changements depuis SON curseur (pris
+ * au passage précédent) : les lignes écrites avant restent muettes, et « rien de neuf » faisait avancer le curseur de la
+ * table à (heure du serveur − 60 s), par-dessus tout ce qui restait à lire. Règle : une table dont la relecture a commencé
+ * sans finir est relue par curseur, quoi que disent le registre ou le filet, et son curseur n'avance que par ses pages.
+ * Liste gardée sur l'appareil (effacée avec lui) ; marquée au début de la relecture, retirée quand la dernière page est
+ * arrivée.
+ */
+
+/** Liste gardée des tables à relecture inachevée (texte JSON) ; illisible : vide. */
+export function lireOuvertes(text: string | null): Set<string> {
+  try {
+    const p = JSON.parse(text ?? '[]') as unknown
+    return new Set(Array.isArray(p) ? p.filter(isStr) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** Liste à garder après avoir ouvert (ouverte) ou fini (sinon) la relecture de `table`. */
+export function marquerOuverte(ouvertes: ReadonlySet<string>, table: string, ouverte: boolean): string[] {
+  const s = new Set(ouvertes)
+  if (ouverte) s.add(table)
+  else s.delete(table)
+  return [...s].sort()
+}
+
+/**
+ * Réponse de « quoi de neuf ? » (registre, filet, ou hb_quoi_de_neuf) corrigée : une table à relecture inachevée est relue
+ * (true) même si la réponse dit « rien de neuf » ; une table inconnue du serveur (null) le reste.
+ */
+export function rouvrir<F extends Record<string, boolean | null | undefined>>(flags: F, ouvertes: ReadonlySet<string>): F {
+  const out: Record<string, boolean | null | undefined> = { ...flags }
+  for (const t of ouvertes) if (t in out && out[t] === false) out[t] = true
+  return out as F
+}

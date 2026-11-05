@@ -29,7 +29,20 @@ import {
   type Ledger,
   type LedgerEntry,
 } from './filet'
-import { curseurApres, curseurTrop, diffCanaux, filetRareDu, lireEtatRegistre, lireRegistre, memesCanaux, planRegistre, type RegistreEtat } from './registre'
+import {
+  curseurApres,
+  curseurTrop,
+  diffCanaux,
+  filetRareDu,
+  lireEtatRegistre,
+  lireOuvertes,
+  lireRegistre,
+  marquerOuverte,
+  memesCanaux,
+  planRegistre,
+  rouvrir,
+  type RegistreEtat,
+} from './registre'
 import { questionLogRights } from './questionLogCore'
 import { orphanIds, planScopeChange, SCOPED_TABLES, scopeSignature, type ServerScope } from './perimeter'
 import { spyTarget } from './spy'
@@ -306,6 +319,12 @@ const setState = (s: SyncState, err = '') => {
 }
 
 const PULL_KEY = (t: SyncTable) => `handbase${TRIAL ? '-essai' : ''}.lastPull.${t}`
+/**
+ * Tables dont la relecture par curseur a commencé sans finir (appli fermée ou mise en arrière-plan, réseau coupé au milieu
+ * d'un premier chargement) : relues par curseur à la synchronisation suivante quoi que disent le registre ou le filet, et leur
+ * curseur n'avance que par leurs pages (src/registre.ts, rouvrir ; incident du 04/11 : 65 000 mesures sautées).
+ */
+const OPEN_KEY = `handbase${TRIAL ? '-essai' : ''}.lecture.inachevee`
 
 const store = {
   get: (k: string) => {
@@ -322,6 +341,14 @@ const store = {
       /* stockage indisponible */
     }
   },
+}
+
+/** Tables à relecture inachevée (OPEN_KEY). */
+const ouvertes = () => lireOuvertes(store.get(OPEN_KEY))
+const setOuverte = (table: SyncTable, ouverte: boolean) => {
+  const now = ouvertes()
+  if (now.has(table) === ouverte) return
+  store.set(OPEN_KEY, JSON.stringify(marquerOuverte(now, table, ouverte)))
 }
 
 /*
@@ -841,6 +868,7 @@ async function noteRows(table: SyncTable, rows: readonly ServerRow[]) {
  */
 async function applyFilet(answer: Record<string, FiletAnswer>): Promise<WhatsNew> {
   const flags: WhatsNew = {}
+  const open = ouvertes()
   for (const [t, a] of Object.entries(answer)) {
     if (!SYNC_TABLES.includes(t as SyncTable)) continue
     const table = t as SyncTable
@@ -852,7 +880,8 @@ async function applyFilet(answer: Record<string, FiletAnswer>): Promise<WhatsNew
     }
     filetStats[d.why]++
     flags[table] = d.pull
-    if (!d.confirm) continue
+    // Relecture inachevée : le curseur n'avance que par les pages de la table (rouvrir, plus bas).
+    if (!d.confirm || open.has(table)) continue
     const m = suaMicros(d.confirm.cursor)
     const c = cursorUs(table)
     if (d.confirm.cursor && m !== null && (c === null || m > c)) localStorage.setItem(PULL_KEY(table), d.confirm.cursor)
@@ -860,7 +889,7 @@ async function applyFilet(answer: Record<string, FiletAnswer>): Promise<WhatsNew
     const now = cursorUs(table)
     if (now !== null) setLedger(ledgerTrim(led(), table, now - OVERLAP_US))
   }
-  return flags
+  return rouvrir(flags, open)
 }
 
 /** Décisions du filet depuis le lancement (indication pour les essais et le simulateur de charge). */
@@ -998,6 +1027,9 @@ async function askRegistre(tables: SyncTable[], uid: string): Promise<WhatsNew |
     }
     flags[t] = false
   }
+  // Relecture inachevée (premier chargement coupé…) : le registre ne cite que ce qui a changé depuis SON curseur, pas les lignes
+  // plus anciennes qui restent à lire ; la table est relue par curseur et son curseur n'avance pas ici (src/registre.ts, rouvrir).
+  Object.assign(flags, rouvrir(flags, ouvertes()))
   // Tables à jour : curseur avancé à (heure du serveur − 60 s) (une relecture par curseur plus tard ne reprend pas la journée).
   for (const t of tables) {
     if (flags[t] !== false) continue
@@ -1066,7 +1098,9 @@ async function pull(uid: string, scope: Set<SyncTable> | null) {
   // Complète, appareil déjà servi au moins une fois : une requête dit quelles tables ont changé (premier chargement : tout).
   // Staffs de ce compte AVANT « quoi de neuf ? » (le registre peut déjà en relire un par identifiant).
   const teamsBefore = await myTeams(uid)
-  const flags = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)), uid)
+  const answer = scope || first ? null : await whatsNew(wanted.filter((t) => !fresh.has(t)), uid)
+  // Relecture inachevée : relue quoi que dise la réponse (hb_quoi_de_neuf compris).
+  const flags = answer && rouvrir(answer, ouvertes())
   const plan = planPull(wanted, fresh, flags)
   for (const t of plan.quiet) knowTable(t, true)
   for (const t of plan.absent) knowTable(t, false)
@@ -1475,6 +1509,8 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
   const start = new Date(startMs).toISOString()
   // Registre du filet : refait au-dessus de start par cette relecture (incomplet tant qu'elle n'a pas fini).
   setLedger(ledgerStartPull(led(), table, startMs * 1000))
+  // Relecture ouverte : retirée de la liste seulement quand la dernière page est arrivée (coupée : reprise au passage suivant).
+  setOuverte(table, true)
   const buffer = new PullBuffer<PulledRow>(startMs * 1000)
   let missing = false
   const read = (after: PageKey | null, byColumn: boolean) => {
@@ -1550,6 +1586,8 @@ async function pullTable(table: SyncTable, uid: string, per: Partial<Record<Sync
         } else if (!error && mine) assignmentUserColumn ??= true
         return check(data, error)
       }, (rows) => onPage(rows))
+  // Dernière page reçue (ou table absente du serveur) : relecture finie.
+  setOuverte(table, false)
   if (table === 'players') markPlayersReady()
   // Table terminée (ou absente du serveur) : sa part de l'avancement est faite.
   const p = per[table]
