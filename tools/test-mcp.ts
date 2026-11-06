@@ -59,8 +59,23 @@ import {
   verifierSortie,
   type Reglages,
   type Source,
+  type TraceSrv,
 } from '../supabase/functions/mcp/outils'
 import { doublonsProbables, masqueNoms, outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante, REFUS_ADMIN, taille } from '../supabase/functions/mcp/admin'
+import {
+  creeLe,
+  GENERATEUR,
+  lireInstant,
+  lotDe,
+  outilAdminJournal,
+  outilAdminLots,
+  outilAdminSaisies,
+  paris,
+  provenance,
+  PROVENANCES,
+  SIGNATURE_SQL,
+  trancheDe,
+} from '../supabase/functions/mcp/adminTraces'
 import { INDISPONIBLE_070, outilAdminProposer, type AdminProposerInput } from '../supabase/functions/mcp/adminProposer'
 import { lireAction } from '../src/propositionsAdminCore'
 import { actionsDe, libelleAction, resumeAdmin } from '../src/propositionsAdmin'
@@ -79,7 +94,9 @@ import {
   JOUEURS_ADMIN,
   MAINTENANT_FICTIF,
   SECOND_ADMIN,
+  SESSIONS_JOURNAL,
   sourceFictive,
+  TRACES,
   textesInterdits,
   textesInterditsAdmin,
   textesInterditsComptes,
@@ -626,6 +643,9 @@ const OUTILS_ADMIN = {
   nextar_admin_activite: (s: Source) => outilAdminActivite(s, regA, {}),
   nextar_admin_questions: (s: Source) => outilAdminQuestions(s, regA, {}),
   nextar_admin_proposer: (s: Source) => outilAdminProposer(s, regA, { sorte: 'role', actions: [{ compte: codeCompte(COMPTES[1].userId), role: 'observateur' }] }),
+  nextar_admin_journal: (s: Source) => outilAdminJournal(s, regA, { compte: codeCompte(COMPTES[1].userId), regrouper: false, inclure_generation: true }),
+  nextar_admin_saisies: (s: Source) => outilAdminSaisies(s, regA, { auteur: codeCompte(COMPTES[1].userId), detail: true }),
+  nextar_admin_lots: (s: Source) => outilAdminLots(s, regA, {}),
 } as const
 
 await t('outils d’administration : un compte qui n’est pas administrateur reçoit un refus, sans AUCUNE lecture', async () => {
@@ -1101,6 +1121,232 @@ await t('outils d’administration : listes blanches propres (clés interdites, 
   assert.doesNotThrow(() => verifierSortie({ fiches_a_valider: [{ code: 'J-1', par: { compte: 'C-1', nom_affiche: 'X' } }] }, 'nextar_admin_a_faire'))
 })
 
+// ---------- Traçabilité de l'activité du staff (adminTraces.ts, supabase/071_provenance.sql) ----------
+
+/** Source fictive pour la traçabilité : lignes créées de TRACES, ouverture du téléphone de Bruno ce matin ; 071 ou non. */
+const srcT = (o: { avec071?: boolean } = {}) => sourceFictive({ admin: true, jeuTraces: true, sessions: SESSIONS_JOURNAL, ...o })
+const cA = codeCompte(A.userId)
+const cB = codeCompte(B.userId)
+
+await t('provenance, lot, heure de création : mêmes règles que supabase/071_provenance.sql (lignes de tools/essai-sql-071/avant.sql)', () => {
+  const now = '2026-11-05T10:00:00.000Z'
+  const d1 = 'd1'
+  const L = (x: Partial<TraceSrv> & { id: string }): TraceSrv => ({ type: 'mesure', auteur: d1, creeServeur: now.replace('Z', '+00:00'), ecrit: now, ...x })
+  const lignes: TraceSrv[] = [
+    L({ id: 'demo-prog-m-1', marque: 'demo-progression', creeServeur: '2025-09-16T16:01:37+00:00' }),
+    L({ id: 'ess-m1' }),
+    L({ id: 'ess-m3', importe: true }),
+    L({ id: 'ess-m4', marque: 'proposition_validee', lot: 'prop-essai-1' }),
+    L({ id: 'ess-sql-1', auteur: null, sql: true }),
+    L({ id: 'ess-a1', type: 'avis', scores: { tir: 4 } }),
+    L({ id: 'ess-a2', type: 'avis', scores: { tir: 2 }, importe: true }),
+    L({ id: 'd2:ess-ev:ess-p2', type: 'vu', auteur: 'd2', demoBilan: true }),
+    L({ id: 'demo:abc', type: 'evenement' }),
+    L({ id: 'demo-x', type: 'fiche' }),
+    L({ id: 'ancienne', auteur: null }),
+  ]
+  assert.deepEqual(lignes.map((x) => `${x.id}=${provenance(x)}:${lotDe(x) ?? '-'}`), [
+    'demo-prog-m-1=generation:demo-progression',
+    'ess-m1=saisie_appli:-',
+    'ess-m3=import_fichier:-',
+    'ess-m4=proposition_validee:prop-essai-1',
+    'ess-sql-1=generation:sql-sans-compte',
+    'ess-a1=saisie_appli:-',
+    'ess-a2=proposition_validee:-',
+    'd2:ess-ev:ess-p2=generation:demo-bilan',
+    'demo:abc=generation:demo-rencontres',
+    'demo-x=generation:demo-appli',
+    'ancienne=saisie_appli:-',
+  ], 'mêmes résultats que tools/essai-sql-071/essais.sql')
+  assert.equal(lotDe(L({ id: 'x', lot: 'a b;drop' })), null, 'lotId mal formé ignoré')
+  assert.equal(creeLe(lignes[0]), Date.parse(now), 'génération : heure réelle d’écriture, pas la date antidatée')
+  assert.equal(creeLe(L({ id: 'y', creeServeur: '2026-11-05T08:00:00+00:00' })), Date.parse('2026-11-05T08:00:00Z'))
+  assert.equal(creeLe(L({ id: 'z', creeServeur: '2030-01-01T00:00:00+00:00' })), Date.parse(now), 'jamais après la dernière écriture')
+  // Le script garde les mêmes cas, mot pour mot.
+  const sql = read('supabase/071_provenance.sql')
+  for (const m of ["'demo-%'", "'demo:%'", "'demo', 'demo-progression'", "p_data ? 'demoBilan'", `'${SIGNATURE_SQL}'`, "p_data ? 'imported'", "p_data ? 'scores'", "'demo-prog-%'", "'demo-bilan'", "'demo-rencontres'", "'demo-appli'", "'sql-sans-compte'", "'^[A-Za-z0-9_.:-]{1,80}$'", ...PROVENANCES.map((x) => `'${x}'`)])
+    assert.ok(sql.includes(m), `071 : ${m}`)
+  assert.match(read('supabase/004_audit.sql'), new RegExp(`name := '${SIGNATURE_SQL.replace(/[()]/g, '\\$&')}'`))
+  // 071 : additif, sans réécriture ni hb_upsert.
+  const code071 = sql.replace(/--.*$/gm, '')
+  assert.ok(!/\bhb_upsert\b|\balter table public\.hb_(measurements|evaluations|seen|players|events)\b|\bupdate public\.hb_(measurements|evaluations|seen|players|events)\b|create index|create trigger/i.test(code071), '071 ne touche ni hb_upsert, ni les tables de données')
+  assert.match(code071, /raise exception 'Réservé aux administrateurs' using errcode = '42501'/)
+  assert.equal((code071.match(/security invoker/g) ?? []).length, 2)
+  assert.match(sql, /-- ---------- RETOUR ARRIÈRE/)
+  // Heures : Paris (heure d'hiver et d'été), tranches, saisies.
+  assert.equal(paris(Date.parse('2026-11-05T07:40:00Z')), '05/11/2026 08:40')
+  assert.equal(paris(Date.parse('2026-07-01T07:40:00Z')), '01/07/2026 09:40')
+  assert.equal(lireInstant('2026-11-05'), Date.parse('2026-11-04T23:00:00Z'))
+  assert.equal(lireInstant('2026-07-01'), Date.parse('2026-06-30T22:00:00Z'))
+  assert.equal(lireInstant('2026-11-05T08:00'), Date.parse('2026-11-05T07:00:00Z'), 'sans fuseau : heure de Paris')
+  assert.equal(lireInstant('2026-11-05T08:00:00Z'), Date.parse('2026-11-05T08:00:00Z'))
+  assert.equal(lireInstant('hier'), 'invalide')
+  assert.equal(trancheDe(Date.parse('2026-10-25T12:00:00Z'), 'jour'), Date.parse('2026-10-24T22:00:00Z'), 'jour du changement d’heure')
+  assert.equal(trancheDe(Date.parse('2026-11-04T23:59:00Z'), 'jour'), Date.parse('2026-11-04T23:00:00Z'))
+  assert.equal(trancheDe(Date.parse('2026-11-04T22:40:00Z'), 'heure'), Date.parse('2026-11-04T22:00:00Z'))
+})
+
+await t('« Qui a été le plus actif ce mois-ci ? » : classement hors génération, puis avec (agrégats 071, et avant 071)', async () => {
+  for (const avec071 of [true, false]) {
+    const r = ok(gardeA('nextar_admin_activite', await outilAdminActivite(srcT({ avec071 }), regA, { depuis: '2026-11-01' })))
+    assert.equal(r.depuis, '2026-10-31T23:00:00.000Z')
+    assert.equal(r.depuis_paris, '01/11/2026 00:00')
+    assert.equal(r.inclure_generation, false)
+    const lig = (c: Record<string, unknown>) => [c.compte, c.nom_affiche, c.mesures, c.avis, c.evenements, c.vus, c.fiches]
+    assert.deepEqual(r.comptes.slice(0, 3).map(lig), [
+      [cA, 'Alice Administratrice-Fictive', 40, 4, 1, 0, 0],
+      [cB, 'Bruno Encadrant-Fictif', 12, 3, 0, 1, 1],
+      [codeCompte(CAM.userId), '(nom pas encore choisi)', 0, 0, 0, 0, 0],
+    ], `ce mois-ci, du plus actif au moins actif (071 : ${avec071}) ; le « vu » retiré ne compte plus`)
+    assert.deepEqual(r.totaux, { avis: 7, mesures: 52, evenements: 1, vus: 1, fiches: 1 })
+    if (avec071) {
+      assert.match(r.via, /071/)
+      assert.deepEqual(r.comptes[0].par_source, { import_fichier: 40, proposition_validee: 4, saisie_appli: 1 })
+      assert.deepEqual(r.totaux_par_source, { import_fichier: 40, proposition_validee: 4, saisie_appli: 18 })
+    } else assert.match(String(r.ventilation_source), /indisponible tant que supabase\/071_provenance\.sql/)
+    const g = ok(gardeA('nextar_admin_activite', await outilAdminActivite(srcT({ avec071 }), regA, { depuis: '2026-11-01', inclure_generation: true })))
+    assert.deepEqual(lig(g.comptes[0]), [GENERATEUR.compte, 'Générateur démo', 60, 10, 2, 0, 0], 'avec la génération : le générateur passe devant')
+    assert.equal(g.comptes[0].role, 'Génération (aucun compte)')
+    assert.deepEqual(g.comptes[0].comptes_porteurs, [
+      { compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', nb: 60 },
+      { compte: cA, nom_affiche: 'Alice Administratrice-Fictive', nb: 12 },
+    ], 'comptes sous lesquels les lignes générées ont été posées')
+    assert.equal(g.comptes[1].compte, cA)
+    assert.deepEqual(g.totaux, r.totaux, 'les comptes du staff gardent leurs nombres')
+    assert.deepEqual(g.totaux_generation, { avis: 10, mesures: 60, evenements: 2, vus: 0, fiches: 0 })
+  }
+  // « jours » reste possible ; la période calendaire l'emporte.
+  const j = ok(gardeA('nextar_admin_activite', await outilAdminActivite(srcT({ avec071: true }), regA, { jours: 3 })))
+  assert.equal(j.depuis, '2026-11-02T10:00:00.000Z')
+  assert.equal(j.comptes[0].compte, cA)
+})
+
+await t('« Décris toutes les actions de Bruno ce matin » : sessions (appareil, types, tests, événement), puis heures exactes', async () => {
+  for (const avec071 of [true, false]) {
+    const r = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT({ avec071 }), regA, { compte: cB, depuis: '2026-11-05' })))
+    if (!('sessions' in r)) throw new Error('sessions attendues')
+    assert.deepEqual(r.periode, { depuis: '2026-11-04T23:00:00.000Z', depuis_paris: '05/11/2026 00:00', jusqu_a: '2026-11-05T10:00:00.000Z', jusqu_a_paris: '05/11/2026 11:00' })
+    assert.deepEqual(r.compte_demande, { compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', role: 'Encadrant' })
+    assert.equal(r.total, 3)
+    assert.deepEqual(r.sessions[0], {
+      compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', role: 'Encadrant',
+      debut: '2026-11-05T07:38:00.000Z', debut_paris: '05/11/2026 08:38', fin: '2026-11-05T07:52:00.000Z', fin_paris: '05/11/2026 08:52', duree_min: 14,
+      appareil: 'téléphone', nb_actions: 13, par_type: { connexions: 1, mesures: 12 }, par_action: { creation: 12 },
+      evenements: ['Détection U15 Var'], tests: ['Sprint 10 m', 'CMJ', 'Taille'], joueurs: 4, sources: ['saisie_appli'],
+    })
+    assert.deepEqual([r.sessions[1].debut_paris, r.sessions[1].appareil, r.sessions[1].par_type], ['05/11/2026 10:00', 'ordinateur', { connexions: 1 }], 'ouverture de l’appli sans action')
+    const s3 = r.sessions[2]
+    assert.deepEqual([s3.debut_paris, s3.fin_paris, s3.nb_actions, s3.par_type, s3.par_action, s3.joueurs], ['05/11/2026 10:20', '05/11/2026 10:40', 8, { avis: 3, vus: 3, mesures: 1, connexions: 1 }, { creation: 5, modification: 1, suppression: 1 }, 5])
+    assert.match(String(s3.appareil), /ordinateur/)
+  }
+  const l = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { compte: cB, depuis: '2026-11-05', regrouper: false })))
+  if (!('actions' in l)) throw new Error('lignes attendues')
+  assert.equal(l.total, 22, '3 ouvertures, 12 mesures, 3 avis, 2 « vus », une modification, une suppression (critère et compte inconnu : écartés)')
+  assert.deepEqual(l.actions[1], {
+    heure: '2026-11-05T07:40:00.000Z', heure_paris: '05/11/2026 08:40', compte: cB, nom_affiche: 'Bruno Encadrant-Fictif',
+    action: 'création', type: 'mesure', objet: { code: code('p-lucas'), test: 'Sprint 10 m', valeur: 1.84, evenement: 'Détection U15 Var' }, source: 'saisie_appli',
+  })
+  assert.deepEqual(l.actions.slice(-4).map((a) => `${a.heure_paris.slice(11)} ${a.action} ${a.type}`), ['10:30 création vu', '10:31 modification mesure', '10:33 suppression vu', '10:40 ouverture de l’appli connexion'])
+  assert.deepEqual(l.actions[0].objet, { appareil: 'téléphone', fin: '2026-11-05T07:55:00.000Z', fin_paris: '05/11/2026 08:55' })
+  // Génération : absente par défaut ; avec inclure_generation, la nuit du 04 au 05/11, sous « Générateur démo », sans historique.
+  const nuit = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { depuis: '2026-11-04T22:00:00Z', jusqu_a: '2026-11-05T00:00:00Z' })))
+  assert.equal(nuit.total, 0)
+  const g = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { depuis: '2026-11-04T22:00:00Z', jusqu_a: '2026-11-05T00:00:00Z', inclure_generation: true })))
+  if (!('sessions' in g)) throw new Error('sessions attendues')
+  assert.deepEqual([g.total, g.sessions[0].compte, g.sessions[0].debut_paris, g.sessions[0].fin_paris, g.sessions[0].par_type, g.sessions[0].sources], [1, GENERATEUR.compte, '04/11/2026 23:37', '05/11/2026 00:09', { evenements: 2, avis: 10, mesures: 60 }, ['generation']])
+  assert.deepEqual(g.sessions[0].lots, ['demo-progression'])
+  const gl = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { depuis: '2026-11-04T22:00:00Z', jusqu_a: '2026-11-05T00:00:00Z', inclure_generation: true, regrouper: false, limite: 3 })))
+  if (!('actions' in gl)) throw new Error('lignes attendues')
+  assert.deepEqual([gl.total, gl.tronque, gl.actions.length, gl.actions[0].historique, gl.actions[0].source, gl.actions[0].lot_id], [72, true, 3, false, 'generation', 'demo-progression'])
+  // Types, bornes, erreurs.
+  const avis = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { compte: cB, depuis: '2026-11-05', types: ['avis'], regrouper: false })))
+  if (!('actions' in avis)) throw new Error('lignes attendues')
+  assert.deepEqual(avis.actions.map((a) => a.type), ['avis', 'avis', 'avis'])
+  assert.match((await outilAdminJournal(srcT(), regA, { compte: 'C-0000000' }) as { erreur: string }).erreur, /inconnu/)
+  assert.match((await outilAdminJournal(srcT(), regA, { depuis: 'hier' }) as { erreur: string }).erreur, /illisible/)
+  assert.match((await outilAdminJournal(srcT(), regA, { depuis: '2026-11-05', jusqu_a: '2026-11-04' }) as { erreur: string }).erreur, /Période vide/)
+  assert.match((await outilAdminJournal(srcT(), regA, { compte: 'générateur' }) as { erreur: string }).erreur, /inclure_generation/)
+  const long = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { depuis: '2026-01-01' })))
+  assert.ok(long.avertissements.some((a: string) => /ramenée à 31 jours/.test(a)))
+})
+
+await t('« Quelles mesures a-t-il saisies ? » : par test (volumes, plages, événement, heures, provenance), avis par critère, détail en codes', async () => {
+  const sorties2: unknown[] = []
+  for (const avec071 of [true, false]) {
+    const r = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071 }), regA, { auteur: cB, depuis: '2026-11-05' })))
+    assert.match(r.via, avec071 ? /071/ : /lignes lues/)
+    assert.deepEqual(r.auteur, { compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', role: 'Encadrant' })
+    assert.equal(r.mesures.total, 12)
+    assert.deepEqual(r.mesures.par_test.find((x) => x.test_id === 'sprint_10'), {
+      test: 'Sprint 10 m', test_id: 'sprint_10', unite: 's', nb: 4, joueurs: 4, min: 1.84, max: 2.1, moyenne: 1.975, evenements: ['Détection U15 Var'],
+      premiere: '2026-11-05T07:40:00.000Z', premiere_paris: '05/11/2026 08:40', derniere: '2026-11-05T07:43:00.000Z', derniere_paris: '05/11/2026 08:43', sources: ['saisie_appli'],
+    })
+    assert.deepEqual(r.mesures.par_test.map((x) => [x.test, x.nb, x.min, x.max, x.moyenne]), [['CMJ', 4, 30, 38, 33.75], ['Sprint 10 m', 4, 1.84, 2.1, 1.975], ['Taille', 4, 163, 177, 169.25]])
+    assert.deepEqual(r.avis.par_critere.map((x) => [x.critere, x.nb, x.joueurs, x.moyenne]), [['Défense', 3, 3, 4], ['Mental', 2, 2, 4.5], ['Tir en appui', 2, 2, 3.5]])
+    assert.equal(r.avis.nb_notes, 7)
+    sorties2.push({ m: r.mesures, a: r.avis })
+  }
+  assert.deepEqual(sorties2[0], sorties2[1], 'agrégats dans la base (071) = agrégats du serveur MCP')
+  const d = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071: true }), regA, { auteur: cB, depuis: '2026-11-05', detail: true, limite: 5 })))
+  if (!d.detail) throw new Error('détail attendu')
+  assert.equal(d.detail.mesures.length, 5)
+  assert.deepEqual(d.detail.mesures[0], { code: code('p-lea'), test: 'Taille', valeur: 163, heure: '2026-11-05T07:52:00.000Z', heure_paris: '05/11/2026 08:52', evenement: 'Détection U15 Var', source: 'saisie_appli' })
+  assert.deepEqual(d.detail.avis[0], { code: code('p-hugo'), heure: '2026-11-05T09:27:00.000Z', heure_paris: '05/11/2026 10:27', evenement: 'Détection U15 Var', nb_criteres: 2, moyenne: 3, source: 'saisie_appli' })
+  assert.equal(d.tronque, true)
+  // Filtres : test, événement, provenance, générateur ; erreurs.
+  const cmj = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071: true }), regA, { auteur: cB, depuis: '2026-11-05', test: 'CMJ' })))
+  assert.deepEqual([cmj.mesures.par_test.map((x) => x.test), cmj.avis.par_critere.length], [['CMJ'], 0])
+  for (const avec071 of [true, false]) {
+    const imp = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071 }), regA, { auteur: cA, depuis: '2026-11-01', source: 'import_fichier', detail: true })))
+    assert.deepEqual(imp.mesures.par_test.map((x) => [x.test, x.nb, x.sources]), [['CMJ', 20, ['import_fichier']], ['Sprint 10 m', 20, ['import_fichier']]])
+    assert.equal(imp.detail?.mesures[0].lot_id, 'collage-a1')
+    const gen = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071 }), regA, { auteur: 'générateur', depuis: '2026-11-01' })))
+    assert.deepEqual([gen.auteur, gen.mesures.total, gen.avis.nb_notes], [GENERATEUR, 60, 10])
+    const ev = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071 }), regA, { depuis: '2026-11-01', evenement: 'Détection U15 Var' })))
+    assert.deepEqual([ev.mesures.total, ev.avis.nb_notes], [36, 11], `tous les comptes, un événement (mesures du jour de joueurs inscrits seulement) (071 : ${avec071})`)
+  }
+  const crit = ok(gardeA('nextar_admin_saisies', await outilAdminSaisies(srcT({ avec071: true }), regA, { auteur: cB, depuis: '2026-11-05', test: 'Défense' })))
+  assert.deepEqual([crit.mesures.total, crit.avis.par_critere.map((x) => [x.critere, x.nb])], [0, [['Défense', 3]]], 'un critère d’avis : par les lignes')
+  assert.match((await outilAdminSaisies(srcT(), regA, { test: 'Saut à la perche' }) as { erreur: string }).erreur, /inconnu/)
+  assert.match((await outilAdminSaisies(srcT(), regA, { auteur: 'C-0000000' }) as { erreur: string }).erreur, /inconnu/)
+  assert.match((await outilAdminSaisies(srcT(), regA, { source: 'autre' }) as { erreur: string }).erreur, /Provenance inconnue/)
+})
+
+await t('« Les mesures générées ont-elles été créées le même jour, à la même heure ? » : activité par heure et lots', async () => {
+  for (const avec071 of [true, false]) {
+    const r = ok(gardeA('nextar_admin_activite', await outilAdminActivite(srcT({ avec071 }), regA, { depuis: '2026-11-04', jusqu_a: '2026-11-06', par: 'heure', inclure_generation: true })))
+    const g = r.comptes.find((c) => c.compte === GENERATEUR.compte)!
+    assert.deepEqual(g.histogramme, [
+      { tranche: '2026-11-04T22:00:00.000Z', tranche_paris: '04/11/2026 23 h', nb: 52, par_type: { mesures: 40, avis: 10, evenements: 2 } },
+      { tranche: '2026-11-04T23:00:00.000Z', tranche_paris: '05/11/2026 00 h', nb: 20, par_type: { mesures: 20 } },
+    ], `même nuit, deux tranches d’une heure (071 : ${avec071})`)
+    const alice = r.comptes.find((c) => c.compte === cA)!
+    assert.deepEqual(alice.histogramme, [{ tranche: '2026-11-04T16:00:00.000Z', tranche_paris: '04/11/2026 17 h', nb: 40, par_type: { mesures: 40 } }])
+    const jour = ok(gardeA('nextar_admin_activite', await outilAdminActivite(srcT({ avec071 }), regA, { depuis: '2026-11-04', jusqu_a: '2026-11-06', par: 'jour' })))
+    assert.deepEqual(jour.comptes.find((c) => c.compte === cB)!.histogramme, [{ tranche: '2026-11-04T23:00:00.000Z', tranche_paris: '05/11/2026', nb: 16, par_type: { mesures: 12, avis: 3, vus: 1 } }])
+    const lots = ok(gardeA('nextar_admin_lots', await outilAdminLots(srcT({ avec071 }), regA, {})))
+    const demo = lots.lots.find((x) => x.id === 'demo-progression')!
+    assert.deepEqual(
+      [demo.source, demo.auteur, demo.premiere_ecriture_paris, demo.derniere_ecriture_paris, demo.duree_min, demo.volumes, demo.dates_declarees],
+      ['generation', GENERATEUR, '04/11/2026 23:37', '05/11/2026 00:09', 33, { mesures: 60, avis: 10, evenements: 2 }, { min: '2025-08-17T10:54:41.000+00:00', max: '2026-09-05T16:01:37.000+00:00' }],
+      'écrites en 33 minutes la nuit du 04/11, datées de 2025-08 à 2026-09 dans les lignes (antidatées)',
+    )
+    assert.equal(demo.enregistre, avec071)
+    assert.deepEqual(demo.porteurs, [{ compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', nb: 60 }, { compte: cA, nom_affiche: 'Alice Administratrice-Fictive', nb: 12 }])
+    assert.deepEqual(lots.lots.map((x) => x.id), ['demo-progression', 'collage-a1', 'prop-avis-1', 'demo-bilan', 'sql-sans-compte'])
+    assert.deepEqual([lots.lots[1].source, lots.lots[1].auteur, lots.lots[1].volumes], ['import_fichier', { compte: cA, nom_affiche: 'Alice Administratrice-Fictive' }, { mesures: 40 }])
+    assert.deepEqual([lots.lots[4].volumes, lots.lots[4].creee_le_paris], [{ fiches: 5 }, '07/10/2026 16:32'])
+    if (!avec071) assert.match(String(lots.lignes), /indisponible tant que supabase\/071/)
+  }
+  const l1 = ok(gardeA('nextar_admin_lots', await outilAdminLots(srcT({ avec071: true }), regA, { limite: 1 })))
+  assert.deepEqual([l1.total, l1.tronque, l1.lots.length], [5, true, 1])
+})
+
+await t('traçabilité : jeu fictif cohérent (une création à l’historique par ligne saisie, aucune pour la génération)', () => {
+  assert.equal(TRACES.filter((x) => provenance(x) === 'generation').length, 81)
+  assert.equal(TRACES.filter((x) => x.auteur === B.userId && x.creeServeur?.startsWith('2026-11-05')).length, 17)
+})
+
 await t('outils d’administration : aucune des réponses ne contient un nom de joueur, une adresse mail, un téléphone, une IP ou un jeton', () => {
   assert.ok(sortiesAdmin.length >= 20, `${sortiesAdmin.length} réponses`)
   const tout = JSON.stringify(sortiesAdmin)
@@ -1129,7 +1375,7 @@ await t('source.ts (administration) : colonnes nommées, ni email, ni téléphon
         }
         return q
       }
-      for (const op of ['select', 'eq', 'in', 'is', 'not', 'gte', 'order', 'range', 'limit', 'insert', 'update', 'delete', 'upsert']) q[op] = chain(op)
+      for (const op of ['select', 'eq', 'in', 'is', 'not', 'gte', 'lt', 'or', 'order', 'range', 'limit', 'insert', 'update', 'delete', 'upsert']) q[op] = chain(op)
       q.then = (fini: (v: unknown) => void) => fini({ data: [], error: null, count: 3 })
       return q
     },
@@ -1148,6 +1394,28 @@ await t('source.ts (administration) : colonnes nommées, ni email, ni téléphon
   await src.derniereEcriture('u1')
   assert.deepEqual(await src.activite('u1', '2026-10-06T10:00:00Z'), { avis: 3, mesures: 3, evenements: 3, vus: 3, fiches: 3 })
   assert.deepEqual(rpcs, ['hb_admin_sante', 'hb_last_seen'])
+  // Traçabilité : colonnes nommées (marques de provenance, codes), jamais un nom, un commentaire ni le résumé de l'historique ;
+  // fonctions de 071 absentes : null (les outils passent aux lignes lues).
+  const f = { depuis: '2026-11-05T00:00:00Z', jusqua: '2026-11-05T10:00:00Z', auteur: 'u1', types: ['mesure', 'avis', 'evenement', 'vu', 'fiche'] as const, generation: 'sans' as const }
+  await src.traces({ ...f, types: [...f.types] }, 10)
+  await src.tracesParIds('avis', ['a1'])
+  await src.actions({ depuis: f.depuis, jusqua: f.jusqua, auteur: 'u1' }, 10)
+  await src.evenementsParIds(['e1'])
+  assert.equal(await src.agregats({ depuis: f.depuis, jusqua: f.jusqua, generation: false, par: 'heure' }), null)
+  assert.equal(await src.saisiesResume({ depuis: f.depuis, jusqua: f.jusqua, generation: false }), null)
+  assert.deepEqual(await src.activite('u1', f.depuis, { jusqua: f.jusqua, sansGeneration: true }), { avis: 3, mesures: 3, evenements: 3, vus: 3, fiches: 3 })
+  assert.deepEqual(rpcs.slice(2), ['hb_admin_creations', 'hb_admin_saisies'])
+  const traces = appels.filter((a) => a.select?.includes('sua:server_updated_at'))
+  assert.equal(traces.length, 6)
+  for (const a of traces) {
+    assert.ok(!/firstName|lastName|strengths|improvements|portrait|comment|observer|createdByName\b(?!,)|birthDate|license|club/.test(a.select!.replace('byn:data->>createdByName', '')), `${a.table} : ${a.select}`)
+    assert.match(a.select!, /src:data->>source, lot:data->>lotId, db:data->>demoBilan, imp:data->imported->>at/)
+  }
+  assert.ok(traces.find((a) => a.table === 'hb_players')!.select!.endsWith('imp:data->imported->>at'), 'fiche : aucune colonne de plus (ni nom ni date)')
+  const audit = appels.find((a) => a.table === 'hb_audit' && a.select?.includes('table_name'))!
+  assert.equal(audit.select, 'at, u:user_id, t:table_name, r:row_id, a:action', 'historique : ni user_name, ni résumé, ni changements')
+  const actSans = appels.filter((a) => a.ops.includes('or'))
+  assert.ok(actSans.length === 5 && actSans.every((a) => a.args.some((x) => x[0] === 'not' && x[1] === 'id' && x[3] === 'demo-%')), 'activité sans génération : filtres posés')
   const de = (t: string) => appels.filter((a) => a.table === t)
   assert.equal(de('hb_profiles')[0].select, 'user_id, full_name, role, created_at')
   for (const a of appels) {
@@ -1582,7 +1850,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
     assert.ok(read('supabase/functions/mcp/README.md').includes(outil), `README : ${outil}`)
   }
   assert.match(read('src/pages/OAuthConsent.tsx'), /avis, des joueurs vus ou à revoir/)
-  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer'])
+  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots'])
     assert.match(srv, new RegExp(`'${outil}'`))
   // nextar_admin_proposer : « n’applique rien », dépôt (pas lecture seule), 50 actions au plus.
   const blocP = srv.slice(srv.indexOf(`'nextar_admin_proposer',`), srv.indexOf(`repondre('nextar_admin_proposer'`))
@@ -1593,7 +1861,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(read('src/pages/OAuthConsent.tsx'), /préparer des actions d’administration/)
   assert.match(read('supabase/functions/mcp/index.ts'), /sourceSupabase\(ctx\.supabase as ClientSupabase, ctx\.userClaims\?\.id/)
   // Outils d'administration : lecture seule, « Réservé aux administrateurs ; lecture seule » en tête de description.
-  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions']) {
+  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots']) {
     const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
     assert.match(bloc, /Réservé aux administrateurs ; lecture seule\./, outil)
     assert.match(bloc, /annotations: lecture,/, outil)
@@ -1601,7 +1869,9 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(srv, /jours: jours\('Période en jours'\)/)
   assert.match(srv, /z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.joursMax\)/)
   const readme = read('supabase/functions/mcp/README.md')
-  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', '069_admin_sante.sql']) assert.ok(readme.includes(outil), `README : ${outil}`)
+  for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', '069_admin_sante.sql', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots', '071_provenance.sql']) assert.ok(readme.includes(outil), `README : ${outil}`)
+  assert.match(srv, /journalLimiteMax|saisiesMax|lotsMax/)
+  assert.match(srv, /par: z\.enum\(\['total', 'jour', 'heure'\]\)/)
   assert.match(srv, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
   assert.match(srv, /minutes: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMinutesMax\)/)
   assert.match(srv, /limite: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMax\)/)
@@ -1611,7 +1881,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)
-  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'proposerJoueurs.ts', 'source.ts']) {
+  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'adminTraces.ts', 'proposerJoueurs.ts', 'source.ts']) {
     const txt = read(`supabase/functions/mcp/${f}`)
     assert.ok(!/supabaseAdmin|SERVICE_ROLE|service_role|sb_secret/.test(txt.replace(/\/\/.*$/gm, '')), `${f} : jamais la clé de service`)
   }

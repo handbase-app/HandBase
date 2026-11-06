@@ -1,6 +1,6 @@
 // Essai de bout en bout (tools/essai-mcp/lancer.sh) : appels HTTP au serveur MCP lancé dans le runtime des fonctions
 // Supabase, comme le ferait Claude : découverte OAuth, refus sans jeton, CORS, puis initialize, tools/list et chaque outil
-// (quatorze, dont nextar_admin_proposer qui dépose une proposition d'administration dans le jeu fictif, et les propositions
+// (dix-sept, dont les outils de traçabilité nextar_admin_journal, _saisies, _lots, nextar_admin_proposer qui dépose une proposition d'administration dans le jeu fictif, et les propositions
 // d'avis, de vus et de « à revoir »)
 // avec un jeton fictif. Vérifie qu'aucune réponse ne contient un nom, une date de naissance, un club, une licence ou un
 // commentaire du jeu fictif.
@@ -98,8 +98,11 @@ for (const [nom, j] of [
   assert.deepEqual(noms, [
     'nextar_admin_a_faire',
     'nextar_admin_activite',
+    'nextar_admin_journal',
+    'nextar_admin_lots',
     'nextar_admin_proposer',
     'nextar_admin_questions',
+    'nextar_admin_saisies',
     'nextar_admin_sante',
     'nextar_connexions',
     'nextar_contexte',
@@ -111,13 +114,17 @@ for (const [nom, j] of [
     'nextar_rapport',
     'nextar_suivi',
   ])
-  for (const n of ['nextar_admin_a_faire', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_sante']) {
+  for (const n of ['nextar_admin_a_faire', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_sante', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots']) {
     const o = body.result.tools.find((t: { name: string }) => t.name === n)
     assert.match(o.description, /^Réservé aux administrateurs ; lecture seule\./, n)
     assert.equal(o.annotations.readOnlyHint, true, n)
   }
   const act = body.result.tools.find((t: { name: string }) => t.name === 'nextar_admin_activite')
   assert.equal(act.inputSchema.properties.jours.maximum, 365)
+  assert.deepEqual(act.inputSchema.properties.par.enum, ['total', 'jour', 'heure'])
+  const jo = body.result.tools.find((t: { name: string }) => t.name === 'nextar_admin_journal')
+  assert.equal(jo.inputSchema.properties.limite.maximum, 500)
+  assert.deepEqual(jo.inputSchema.properties.types.items.enum, ['mesure', 'avis', 'evenement', 'vu', 'fiche', 'connexion'])
   const cx = body.result.tools.find((t: { name: string }) => t.name === 'nextar_connexions')
   assert.match(cx.description, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
   assert.equal(cx.inputSchema.properties.minutes.maximum, 10080)
@@ -139,7 +146,7 @@ for (const [nom, j] of [
   const pav = body.result.tools.find((t: { name: string }) => t.name === 'nextar_proposer_avis')
   assert.deepEqual(pav.inputSchema.properties.contexte.enum, ['unss', 'club', 'match', 'selection', 'video', 'autre'])
   assert.deepEqual(body.result.tools.find((t: { name: string }) => t.name === 'nextar_proposer_vus').inputSchema.required.sort(), ['evenement', 'lignes'])
-  ok('tools/list : les quatorze outils, schémas et annotations (outils d’administration en lecture seule ; propositions : dépôt)')
+  ok('tools/list : les dix-sept outils, schémas et annotations (outils d’administration en lecture seule ; propositions : dépôt)')
 }
 // 5. Chaque outil.
 const appel = async (name: string, args: unknown, jeton = jetons.coach) => {
@@ -252,6 +259,10 @@ for (const [nom, args] of [
   ['nextar_admin_sante', {}],
   ['nextar_admin_activite', { jours: 30 }],
   ['nextar_admin_questions', { jours: 60, filtre: 'toutes' }],
+  ['nextar_admin_journal', { depuis: '2026-11-05', regrouper: false }],
+  ['nextar_admin_saisies', { depuis: '2026-11-05', detail: true }],
+  ['nextar_admin_lots', {}],
+  ['nextar_admin_activite', { depuis: '2026-11-04', jusqu_a: '2026-11-06', par: 'heure', inclure_generation: true }],
 ] as const) {
   const coach = await appel(nom, args)
   assert.ok(coach.isError, nom)
@@ -265,6 +276,10 @@ for (const [nom, args] of [
   if (nom === 'nextar_admin_a_faire') assert.equal(out.resume.doublons, 2)
   if (nom === 'nextar_admin_sante') assert.match(out.base, /indisponible tant que supabase\/069_admin_sante\.sql/)
   if (nom === 'nextar_admin_activite') assert.equal(out.inactifs.total, 1)
+  if (nom === 'nextar_admin_activite' && 'par' in args) assert.deepEqual(out.comptes[0].histogramme.map((h: { tranche_paris: string }) => h.tranche_paris), ['04/11/2026 23 h', '05/11/2026 00 h'])
+  if (nom === 'nextar_admin_journal') assert.equal(out.actions[1].heure_paris, '05/11/2026 08:40')
+  if (nom === 'nextar_admin_saisies') assert.ok(out.mesures.par_test.some((x: { test: string; nb: number }) => x.test === 'Sprint 10 m' && x.nb === 4))
+  if (nom === 'nextar_admin_lots') assert.match(out.via, /indisponible tant que supabase\/071_provenance\.sql/)
   if (nom === 'nextar_admin_questions') assert.ok(out.groupes.some((g: { formulation: string }) => g.formulation === 'Montre les mesures de [joueur]'))
   ok(`${nom} : refus pour le coach, réponse pour l’administrateur (sans nom de joueur ni adresse mail)`)
 }

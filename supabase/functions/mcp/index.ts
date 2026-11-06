@@ -5,7 +5,7 @@
 // RÈGLE : Nextar n'envoie jamais de données de joueur à une IA (codes seulement : outils.ts). Tout passe par le client
 // Supabase DU COACH (son jeton, RLS) : jamais la clé de service.
 //
-// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), outils.ts (les six outils, purs), admin.ts (les quatre outils d'administration en lecture), adminProposer.ts
+// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), outils.ts (les six outils, purs), admin.ts (les quatre outils d'administration en lecture), adminTraces.ts (journal, saisies, lots : traçabilité), adminProposer.ts
 // (nextar_admin_proposer : dépose des actions d'administration à valider), source.ts (requêtes aux droits du coach),
 // partage/ (copies générées de modules purs de src/ : tools/generer-partage-mcp.ts). Mise en ligne : README.md.
 //

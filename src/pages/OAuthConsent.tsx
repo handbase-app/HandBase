@@ -138,7 +138,7 @@ export default function OAuthConsent() {
                       ? [
                           [
                             'users',
-                            '(administrateur) voir l’état de l’installation, l’activité du staff, les questions non comprises et qui s’est connecté — noms et rôles des comptes, jamais d’adresse mail — et préparer des actions d’administration (rôles, périmètres, archivage, fusions de fiches) à valider dans « À valider » : rien n’est fait avant que tu les appliques',
+                            '(administrateur) voir l’état de l’installation, l’activité du staff (journal horodaté, saisies, créations en masse), les questions non comprises et qui s’est connecté — noms et rôles des comptes, jamais d’adresse mail — et préparer des actions d’administration (rôles, périmètres, archivage, fusions de fiches) à valider dans « À valider » : rien n’est fait avant que tu les appliques',
                           ] as const,
                         ]
                       : []),

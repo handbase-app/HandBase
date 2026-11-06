@@ -18,6 +18,11 @@
 //    masquage des questions (jamais rendus) ; journal des questions (phrase, issue, page, verdict, commentaire, auteur : ni
 //    requête SQL, ni détail d'erreur, ni nom d'auteur) ; nombres de lignes (count, head : aucune ligne transférée) ;
 //    hb_admin_sante (069), hb_last_seen (030), dernière date de l'historique (hb_audit.at seulement : ni résumé ni changements) ;
+//  - traçabilité (adminTraces.ts ; APRÈS hb_is_admin) : lignes créées (identifiant, heure d'écriture, supprimée, auteur,
+//    signature SQL ou non, createdAtServer, data.source, data.lotId, data.demoBilan, data.imported->>at ; joueur, test,
+//    valeur, date, événement, nom d'un événement, notes chiffrées d'un avis : ni nom, ni commentaire, ni « data » entier) ;
+//    historique hb_audit (heure, compte, table, ligne, action : ni user_name, ni résumé, ni changements) ; hb_admin_creations,
+//    hb_admin_saisies et hb_lots (071 ; absents : null, les outils passent aux lignes lues) ;
 //  - nextar_admin_proposer (adminProposer.ts ; APRÈS hb_is_admin) : profils (comme ci-dessus), unités (id, nom), identifiants
 //    des fiches et « fondue » (ni nom, ni date, ni club), événements et groupes (comme nextar_contexte, plus « groupe Pôle ») ;
 //    une seule écriture : la proposition « admin » dans hb_propositions (070), avec le jeton du compte.
@@ -41,8 +46,11 @@ import type {
   NomJoueurSrv,
   ProfilSrv,
   PropositionSrv,
+  Provenance,
   SessionSrv,
   Source,
+  TraceSrv,
+  TypeTrace,
   VuSrv,
 } from './outils.ts'
 
@@ -471,17 +479,23 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
       return typeof data[0].at === 'string' ? data[0].at : null
     },
 
-    async activite(userId, depuis): Promise<ActiviteSrv> {
+    async activite(userId, depuis, o = {}): Promise<ActiviteSrv> {
       // Lignes créées par ce compte (auteur posé par le serveur, hb_stamp 004 ; colonne created_by de 058 quand elle existe)
       // depuis `depuis` : server_updated_at >= depuis (index de 058) ET createdAtServer >= depuis (création, pas modification).
-      const n = async (table: string, auteur: string) => {
-        const { count, error } = await sb
+      // `jusqua` : createdAtServer avant ; `sansGeneration` : sans identifiants « demo-… », data.source de démo ni data.demoBilan
+      // (adminTraces.ts, provenance ; la ligne SQL sans compte n'a pas d'auteur, donc n'est jamais comptée ici).
+      const n = async (table: string, auteur: string): Promise<number | null> => {
+        // deno-lint-ignore no-explicit-any
+        let q: any = sb
           .from(table)
           .select('id', { count: 'exact', head: true })
           .eq('deleted', false)
           .eq(auteur, userId)
           .gte('server_updated_at', depuis)
           .gte('data->>createdAtServer', depuis)
+        if (o.jusqua) q = q.lt('data->>createdAtServer', o.jusqua)
+        if (o.sansGeneration) q = q.not('id', 'like', 'demo-%').or('data->>source.is.null,data->>source.not.in.(demo,demo-progression,generation)').is('data->>demoBilan', null)
+        const { count, error } = await q
         if (error && auteur === 'created_by' && /created_by/.test(error.message ?? '')) return n(table, 'data->>createdBy')
         return error || typeof count !== 'number' ? null : count
       }
@@ -493,6 +507,120 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
         n('hb_players', 'created_by'),
       ])
       return { avis, mesures, evenements, vus, fiches }
+    },
+
+    // ---------- Traçabilité (adminTraces.ts) : APRÈS hb_is_admin ----------
+
+    async traces(f, max) {
+      let tronque = false
+      const lignes: TraceSrv[] = []
+      for (const type of f.types) {
+        const d = TRACES[type]
+        const r = await pages<RowTrace>((a, b) => {
+          // deno-lint-ignore no-explicit-any
+          let q: any = sb.from(d.table).select(d.cols).eq('deleted', false).gte('server_updated_at', f.depuis)
+          if (f.auteur) q = q.eq(d.auteur, f.auteur)
+          if (f.generation === 'sans') q = q.not('id', 'like', 'demo-%')
+          return q.order('server_updated_at', { ascending: false }).range(a, b)
+        }, max)
+        tronque ||= r.tronque
+        lignes.push(...r.rows.map((x) => versTrace(type, x)))
+      }
+      return { lignes, tronque }
+    },
+
+    async tracesParIds(type, ids) {
+      const d = TRACES[type]
+      const rows = await parPaquets(ids, async (paquet) => {
+        const { data, error } = await sb.from(d.table).select(d.cols).in('id', paquet)
+        if (error) throw new Error(error.message)
+        return (data ?? []) as RowTrace[]
+      })
+      return rows.map((x) => versTrace(type, x))
+    },
+
+    async actions(f, max) {
+      // Heure, compte, table, ligne, action : ni user_name, ni résumé (qui porte le nom du joueur), ni changements.
+      const r = await pages<{ at: string; u: string | null; t: string; r: string; a: string }>((a, b) => {
+        // deno-lint-ignore no-explicit-any
+        let q: any = sb.from('hb_audit').select('at, u:user_id, t:table_name, r:row_id, a:action').gte('at', f.depuis).lt('at', f.jusqua)
+          .in('table_name', ['measurements', 'evaluations', 'events', 'seen', 'players']).not('user_id', 'is', null)
+        if (f.auteur) q = q.eq('user_id', f.auteur)
+        return q.order('at', { ascending: false }).range(a, b)
+      }, max)
+      return { lignes: r.rows.filter((x) => x.u && x.at).map((x) => ({ at: x.at, userId: x.u!, table: x.t, rowId: x.r, action: x.a })), tronque: r.tronque }
+    },
+
+    async agregats(f) {
+      const { data, error } = await sb.rpc('hb_admin_creations', {
+        p_depuis: f.depuis, p_jusqua: f.jusqua, p_auteur: f.auteur ?? null, p_types: f.types ?? null, p_generation: f.generation, p_par: f.par,
+      })
+      if (error) {
+        if (fonctionAbsente(error, 'hb_admin_creations')) return null
+        throw new Error(error.message ?? 'hb_admin_creations')
+      }
+      return ((data ?? []) as Record<string, unknown>[]).map((x) => ({
+        type: x.type as TypeTrace,
+        auteur: str(x.auteur) ?? null,
+        source: x.source as Provenance,
+        lot: str(x.lot_id) ?? null,
+        tranche: str(x.tranche) ?? null,
+        nb: Number(x.nb) || 0,
+        joueurs: Number(x.joueurs) || 0,
+        premier: String(x.premier ?? ''),
+        dernier: String(x.dernier ?? ''),
+        declareMin: str(x.declare_min) ?? null,
+        declareMax: str(x.declare_max) ?? null,
+      }))
+    },
+
+    async saisiesResume(f) {
+      const { data, error } = await sb.rpc('hb_admin_saisies', {
+        p_depuis: f.depuis, p_jusqua: f.jusqua, p_auteur: f.auteur ?? null, p_test: f.test ?? null, p_evenement: f.evenement ?? null,
+        p_source: f.source ?? null, p_generation: f.generation,
+      })
+      if (error) {
+        if (fonctionAbsente(error, 'hb_admin_saisies')) return null
+        throw new Error(error.message ?? 'hb_admin_saisies')
+      }
+      const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null)
+      return ((data ?? []) as Record<string, unknown>[]).map((x) => ({
+        type: x.type === 'avis' ? ('avis' as const) : ('mesure' as const),
+        cle: String(x.cle ?? ''),
+        nb: Number(x.nb) || 0,
+        joueurs: Number(x.joueurs) || 0,
+        min: num(x.mini),
+        max: num(x.maxi),
+        moyenne: num(x.moyenne),
+        premier: String(x.premier ?? ''),
+        dernier: String(x.dernier ?? ''),
+        sources: arr(x.sources) ?? [],
+        evenements: arr(x.evenements) ?? [],
+        valeursTexte: Number(x.valeurs_texte) || 0,
+      }))
+    },
+
+    async lots() {
+      const { data, error } = await sb.from('hb_lots').select('id, created_at, created_by, source, description, nb_lignes').order('created_at', { ascending: false }).limit(1000)
+      if (absente(error)) return null
+      if (error) throw new Error(error.message)
+      return ((data ?? []) as { id: string; created_at: string; created_by: string | null; source: string; description: string | null; nb_lignes: unknown }[]).map((x) => ({
+        id: x.id,
+        createdAt: x.created_at,
+        createdBy: x.created_by,
+        source: x.source,
+        description: x.description,
+        nbLignes: x.nb_lignes && typeof x.nb_lignes === 'object' && !Array.isArray(x.nb_lignes) ? (x.nb_lignes as Record<string, number>) : {},
+      }))
+    },
+
+    async evenementsParIds(ids) {
+      const rows = await parPaquets(ids, async (paquet) => {
+        const { data, error } = await sb.from('hb_events').select('id, n:data->>name, d:data->>date, a:data->archived, p:data->playerIds').in('id', paquet)
+        if (error) throw new Error(error.message)
+        return (data ?? []) as { id: string; n: string | null; d: string | null; a: unknown; p: unknown }[]
+      })
+      return rows.map((r) => ({ id: r.id, name: r.n ?? 'Événement', date: r.d ?? undefined, archived: r.a === true, playerIds: arr(r.p) ?? [] }))
     },
 
     // ---------- nextar_admin_proposer (adminProposer.ts) ----------
@@ -525,6 +653,48 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
       if (error || !data) return { erreur: error?.message ?? 'refus du serveur' }
       return { id: data.id as string }
     },
+  }
+}
+
+/** Fonction de 071 absente : PostgREST PGRST202, Postgres 42883. */
+const fonctionAbsente = (e: { code?: string; message?: string }, nom: string) =>
+  e.code === 'PGRST202' || e.code === '42883' || (new RegExp(nom).test(e.message ?? '') && /find|exist/i.test(e.message ?? ''))
+
+/** Colonnes des lignes tracées : marques de provenance, et ce qui sort en codes ; JAMAIS un nom, un commentaire ni « data » entier. */
+type RowTrace = {
+  id: string; sua: string; del: boolean | null; by: string | null; byn: string | null; cs: string | null; src: string | null; lot: string | null
+  db: string | null; imp: string | null; p?: string | null; c?: string | null; v?: unknown; d?: string | null; e?: string | null; n?: string | null; s?: unknown
+}
+const MARQUES = 'id, sua:server_updated_at, del:deleted, by:data->>createdBy, byn:data->>createdByName, cs:data->>createdAtServer, src:data->>source, lot:data->>lotId, db:data->>demoBilan, imp:data->imported->>at'
+const TRACES: Record<TypeTrace, { table: string; auteur: string; cols: string }> = {
+  mesure: { table: 'hb_measurements', auteur: 'created_by', cols: `${MARQUES}, p:data->>playerId, c:data->>criterionId, v:data->value, d:data->>date` },
+  avis: { table: 'hb_evaluations', auteur: 'created_by', cols: `${MARQUES}, p:data->>playerId, e:data->>eventId, d:data->>date, s:data->scores` },
+  vu: { table: 'hb_seen', auteur: 'created_by', cols: `${MARQUES}, p:data->>playerId, e:data->>eventId` },
+  fiche: { table: 'hb_players', auteur: 'created_by', cols: MARQUES },
+  evenement: { table: 'hb_events', auteur: 'data->>createdBy', cols: `${MARQUES}, n:data->>name, d:data->>date` },
+}
+function versTrace(type: TypeTrace, x: RowTrace): TraceSrv {
+  const scores: Record<string, number> = {}
+  if (x.s && typeof x.s === 'object' && !Array.isArray(x.s)) for (const [k, v] of Object.entries(x.s as Record<string, unknown>)) if (typeof v === 'number' && Number.isFinite(v)) scores[k] = v
+  return {
+    type,
+    id: x.id,
+    auteur: x.by || null,
+    ...(x.byn === 'Administration Supabase (SQL)' ? { sql: true } : {}),
+    creeServeur: x.cs ?? null,
+    ecrit: x.sua,
+    ...(x.del ? { supprime: true } : {}),
+    marque: x.src ?? null,
+    lot: x.lot ?? null,
+    ...(x.db !== null && x.db !== undefined ? { demoBilan: true } : {}),
+    ...(x.imp ? { importe: true } : {}),
+    ...(type === 'fiche' ? { joueur: x.id } : x.p ? { joueur: x.p } : {}),
+    ...(x.c ? { test: x.c } : {}),
+    ...(typeof x.v === 'number' || typeof x.v === 'string' ? { valeur: x.v } : {}),
+    ...(x.d ? { date: x.d } : {}),
+    ...(x.e ? { evenement: x.e } : {}),
+    ...(type === 'evenement' && x.n ? { nom: x.n } : {}),
+    ...(type === 'avis' ? { scores } : {}),
   }
 }
 

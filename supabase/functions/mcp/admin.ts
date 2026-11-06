@@ -4,8 +4,9 @@
 //                           propositions « À valider » du compte, questions du journal à traiter ;
 //  - nextar_admin_sante     état de l'installation : volumes, comptes, connexions, dernière écriture ; avec 069 (hb_admin_sante) :
 //                           taille de la base et des tables, registre, charge, abonnements, veille, notifications, tâches ;
-//  - nextar_admin_activite  par compte du staff, sur une période : avis, mesures, événements, « vus », fiches créés ; dernière
-//                           activité ; comptes inactifs ;
+//  - nextar_admin_activite  par compte du staff, sur une période (jours, ou depuis / jusqu'à) : avis, mesures, événements,
+//                           « vus », fiches créés, par provenance, histogramme par jour / heure (adminTraces.ts : agrégats,
+//                           génération sous « Générateur démo ») ; dernière activité ; comptes inactifs ;
 //  - nextar_admin_questions ce que les coachs n'arrivent pas à faire : questions du journal ratées, sauvées ou jugées
 //                           « mauvaise réponse » / « pas de réponse », regroupées par formulation proche.
 // Règles (les mêmes que nextar_connexions, outils.ts) :
@@ -58,6 +59,7 @@ import {
   type Reglages,
   type Source,
 } from './outils.ts'
+import { construireActivite, GENERATEUR, histogramme, INDISPONIBLE_071, lireAgregats, lirePeriode, paris, type LigneActivite } from './adminTraces.ts'
 
 export const REFUS_ADMIN = 'Réservé aux administrateurs : ce compte ne peut pas utiliser cet outil.'
 const JOUR = 86_400_000
@@ -468,6 +470,12 @@ export async function outilAdminSante(src: Source, reg: Reglages) {
 
 export interface ActiviteInput {
   jours?: number
+  /** Début et fin calendaires (AAAA-MM-JJ = minuit à Paris, ou heure ISO) ; prioritaires sur `jours`. */
+  depuis?: string
+  jusqu_a?: string
+  /** total (défaut : comme avant), jour ou heure (histogramme par compte, heure de Paris). */
+  par?: 'total' | 'jour' | 'heure'
+  inclure_generation?: boolean
   inactifs_jours?: number
   limite?: number
 }
@@ -477,46 +485,97 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
   const jours = borne(input.jours, BORNES.joursDefaut, 1, BORNES.joursMax)
   const seuil = borne(input.inactifs_jours, BORNES.joursDefaut, 1, BORNES.joursMax)
   const limite = borne(input.limite, BORNES.activiteDefaut, 1, BORNES.activiteMax)
+  const par = input.par === 'jour' || input.par === 'heure' ? input.par : 'total'
+  const generation = input.inclure_generation === true
   const maintenant = reg.maintenant ?? Date.now()
-  const depuis = iso(maintenant - jours * JOUR)
+  const per = lirePeriode(input.depuis || input.jusqu_a ? input : { depuis: iso(maintenant - jours * JOUR) }, maintenant, jours * JOUR, BORNES.joursMax)
+  if ('erreur' in per) return { erreur: per.erreur }
+  const depuis = iso(per.depuis)
+  const calendaire = !!(input.depuis || input.jusqu_a)
   const tous = (await src.profils()).filter((p) => p.role && p.role !== 'joueur').sort((a, b) => nomAffiche(a).localeCompare(nomAffiche(b), 'fr'))
   const staff = tous.slice(0, BORNES.activiteComptes)
+  const enStaff = new Set(staff.map((p) => p.userId))
   const vues = new Map((await src.dernieresVues()).map((v) => [v.userId, v.lastSeenAt]))
+  const avertissements: string[] = [...per.avertissements]
+  // Comptages : agrégats dans la base (071), sinon comptes exacts (total, sans génération), sinon lignes lues (bornées).
+  let parCompte: Map<string | null, LigneActivite> | null = null
+  let via = 'comptages par compte (comme avant 071)'
+  let ventilation = true
+  const ags071 = await src.agregats({ depuis, jusqua: iso(per.jusqua), generation, par })
+  if (ags071) {
+    parCompte = construireActivite(ags071)
+    via = 'agrégats dans la base (071)'
+  } else if (par !== 'total' || generation) {
+    const lu = await lireAgregats(src, { ...per, generation, par })
+    parCompte = construireActivite(lu.ags)
+    via = `lignes lues et agrégées par le serveur MCP (${INDISPONIBLE_071} pour les agrégats dans la base)`
+    if (lu.tronque) avertissements.push(`Plus de ${BORNES.tracesMax} lignes par type sur la période : nombres calculés sur les plus récentes (partiels). Appliquer 071 pour des agrégats complets.`)
+  } else ventilation = false
   const lus = await parLots(staff, 6, async (p) => {
-    const [a, e] = await Promise.all([src.activite(p.userId, depuis), src.derniereEcriture(p.userId)])
+    const [a, e] = await Promise.all([
+      parCompte ? Promise.resolve(null) : src.activite(p.userId, depuis, { jusqua: iso(per.jusqua), sansGeneration: true }),
+      src.derniereEcriture(p.userId),
+    ])
     return { a, e }
   })
   const lignes = staff.map((p, i) => {
-    const { a, e } = lus[i]
+    const { a: compte, e } = lus[i]
+    const l = parCompte?.get(p.userId)
+    const a: ActiviteSrv = parCompte ? { avis: l?.avis ?? 0, mesures: l?.mesures ?? 0, evenements: l?.evenements ?? 0, vus: l?.vus ?? 0, fiches: l?.fiches ?? 0 } : compte!
     const t = Math.max(tempsDe(vues.get(p.userId)) ?? -Infinity, tempsDe(e) ?? -Infinity)
     const somme = (['avis', 'mesures', 'evenements', 'vus', 'fiches'] as (keyof ActiviteSrv)[]).reduce((s, k) => s + (a[k] ?? 0), 0)
-    return { p, a, t: Number.isFinite(t) ? t : undefined, somme }
+    return { p, a, l, t: Number.isFinite(t) ? t : undefined, somme }
   })
-  const triees = [...lignes].sort((x, y) => y.somme - x.somme || (y.t ?? 0) - (x.t ?? 0))
   const quandFmt = (t?: number) => (t === undefined ? { il_y_a: 'jamais vu' } : { derniere_activite: iso(t), il_y_a: ilYA(maintenant - t) })
-  const comptes = triees.slice(0, limite).map(({ p, a, t }) => ({
-    compte: codeCompte(p.userId),
-    nom_affiche: nomAffiche(p),
-    role: libelleRole(p.role),
-    avis: a.avis,
-    mesures: a.mesures,
-    evenements: a.evenements,
-    vus: a.vus,
-    fiches: a.fiches,
-    ...quandFmt(t),
+  const extra = (l?: LigneActivite) => ({
+    ...(ventilation ? { par_source: { ...(l?.parSource ?? {}) } } : {}),
+    ...(par !== 'total' ? { histogramme: l ? histogramme(l, par) : [] } : {}),
+  })
+  type Rang = { somme: number; t?: number; ligne: Record<string, unknown> }
+  const rangs: Rang[] = lignes.map(({ p, a, l, t, somme }) => ({
+    somme,
+    t,
+    ligne: { compte: codeCompte(p.userId), nom_affiche: nomAffiche(p), role: libelleRole(p.role), avis: a.avis, mesures: a.mesures, evenements: a.evenements, vus: a.vus, fiches: a.fiches, ...extra(l), ...quandFmt(t) },
   }))
+  // Génération : une ligne « Générateur démo » (aucun compte), avec les comptes sous lesquels ses lignes ont été posées.
+  const gen = parCompte?.get(null)
+  if (generation && gen) {
+    const somme = gen.avis + gen.mesures + gen.evenements + gen.vus + gen.fiches
+    const profils = new Map(tous.map((p) => [p.userId, p]))
+    rangs.push({
+      somme,
+      ligne: {
+        ...GENERATEUR,
+        avis: gen.avis, mesures: gen.mesures, evenements: gen.evenements, vus: gen.vus, fiches: gen.fiches,
+        ...extra(gen),
+        comptes_porteurs: [...gen.porteurs].sort((x, y) => y[1] - x[1]).slice(0, 10).map(([u, n]) => ({ compte: codeCompte(u), nom_affiche: profils.has(u) ? nomAffiche(profils.get(u)) : '(compte supprimé ou invisible)', nb: n })),
+      },
+    })
+  }
+  const triees = [...rangs].sort((x, y) => y.somme - x.somme || (y.t ?? 0) - (x.t ?? 0))
+  const comptes = triees.slice(0, limite).map((r) => r.ligne)
   const inactifs = lignes
     .filter((l) => l.t === undefined || l.t < maintenant - seuil * JOUR)
     .sort((x, y) => (x.t ?? -Infinity) - (y.t ?? -Infinity))
   const total = (k: keyof ActiviteSrv) => lignes.reduce((s, l) => s + (l.a[k] ?? 0), 0)
   const illisibles = lignes.some((l) => Object.values(l.a).some((v) => v === null))
+  const parSourceTotal: Record<string, number> = {}
+  if (ventilation) for (const l of lignes) for (const [k, v] of Object.entries(l.l?.parSource ?? {})) parSourceTotal[k] = (parSourceTotal[k] ?? 0) + v
+  const horsStaff = parCompte ? [...parCompte.keys()].filter((k) => k !== null && !enStaff.has(k)).length : 0
   return {
-    periode_jours: jours,
+    periode_jours: Math.max(1, Math.ceil((per.jusqua - per.depuis) / JOUR)),
     depuis,
+    ...(calendaire || par !== 'total' || generation ? { depuis_paris: paris(per.depuis), jusqu_a: iso(per.jusqua), jusqu_a_paris: paris(per.jusqua) } : {}),
     maintenant: iso(maintenant),
+    par,
+    inclure_generation: generation,
+    via,
     total: tous.length,
-    ...(tous.length > staff.length || staff.length > comptes.length ? { tronque: true } : {}),
+    ...(tous.length > staff.length || rangs.length > comptes.length ? { tronque: true } : {}),
     totaux: { avis: total('avis'), mesures: total('mesures'), evenements: total('evenements'), vus: total('vus'), fiches: total('fiches') },
+    ...(ventilation ? { totaux_par_source: parSourceTotal } : { ventilation_source: `${INDISPONIBLE_071} (par: "jour" ou "heure" la donne sur les lignes lues).` }),
+    ...(generation ? { totaux_generation: gen ? { avis: gen.avis, mesures: gen.mesures, evenements: gen.evenements, vus: gen.vus, fiches: gen.fiches } : { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 } } : {}),
+    ...(horsStaff ? { hors_staff: horsStaff } : {}),
     comptes,
     inactifs: {
       seuil_jours: seuil,
@@ -524,9 +583,11 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
       comptes: inactifs.slice(0, limite).map(({ p, t }) => ({ compte: codeCompte(p.userId), nom_affiche: nomAffiche(p), role: libelleRole(p.role), ...quandFmt(t) })),
     },
     avertissements: [
+      ...avertissements,
       ...(tous.length > staff.length ? [`Plus de ${BORNES.activiteComptes} comptes du staff : seuls les ${BORNES.activiteComptes} premiers (ordre des noms) sont passés en revue.`] : []),
       ...(illisibles ? ['Certains nombres sont illisibles (null) : table absente ou refusée par la base.'] : []),
-      'Lignes CRÉÉES par chaque compte sur la période (auteur posé par le serveur), encore présentes. Vus : joueur × événement. Dernière activité : dernière ouverture de l’appli ou dernière écriture à l’historique, la plus récente. Comptes joueurs exclus.',
+      ...(horsStaff ? [`${horsStaff} compte(s) hors staff (comptes joueurs, comptes supprimés ou sans rôle) ont créé des lignes : non comptés.`] : []),
+      'Lignes CRÉÉES par chaque compte sur la période (auteur et heure posés par le serveur), encore présentes. Vus : joueur × événement. Génération (démos, jeux d’essai, lignes écrites par SQL) exclue sauf inclure_generation ; elle apparaît alors sous « Générateur démo ». Dernière activité : dernière ouverture de l’appli ou dernière écriture à l’historique, la plus récente. Comptes joueurs exclus.',
     ],
     message: 'Activité des comptes du staff (code, nom affiché, rôle) ; jamais d’adresse mail ni de donnée de joueur.',
   }

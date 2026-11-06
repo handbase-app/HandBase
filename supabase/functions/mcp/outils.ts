@@ -22,7 +22,8 @@
 // du staff connectés (jamais une adresse mail, un téléphone, un identifiant brut, une adresse IP ni un appareil détaillé ;
 // aucune donnée de joueur). Sa réponse passe par sa propre liste blanche (CLES_CONNEXIONS : « nom_affiche » n'est permis
 // que là) et par un contrôle des textes (aucun « @ », aucune adresse IP). Même régime pour les quatre outils
-// d'administration en lecture seule (admin.ts : nextar_admin_a_faire, _sante, _activite, _questions) : refus sans rien lire
+// d'administration en lecture seule (admin.ts : nextar_admin_a_faire, _sante, _activite, _questions ; adminTraces.ts :
+// nextar_admin_journal, _saisies, _lots, traçabilité de l'activité du staff) : refus sans rien lire
 // pour un compte qui n'est pas administrateur, une liste blanche par outil (CLES_ADMIN), joueurs en codes seulement. Et
 // nextar_admin_proposer (adminProposer.ts), le seul outil d'administration qui écrit : il DÉPOSE des actions d'administration
 // (rôles, périmètres, archivage, fusions) dans la boîte « À valider » de l'administrateur (hb_propositions, sorte « admin »,
@@ -197,8 +198,31 @@ export interface Source {
   dernieresVues(): Promise<{ userId: string; lastSeenAt: string }[]>
   /** Dernière écriture notée à l'historique (hb_audit, 004) : de ce compte, ou de tous (sans argument). */
   derniereEcriture(userId?: string): Promise<string | null>
-  /** Lignes créées par ce compte depuis `depuis` (ISO) : avis, mesures, événements, « vus », fiches (créateur de la ligne). */
-  activite(userId: string, depuis: string): Promise<ActiviteSrv>
+  /**
+   * Lignes créées par ce compte depuis `depuis` (ISO) : avis, mesures, événements, « vus », fiches (créateur de la ligne).
+   * `jusqua` : fin de la période (exclue) ; `sansGeneration` : sans les lignes de génération reconnues (adminTraces.ts).
+   */
+  activite(userId: string, depuis: string, o?: { jusqua?: string; sansGeneration?: boolean }): Promise<ActiviteSrv>
+
+  // ---- Traçabilité (adminTraces.ts : nextar_admin_journal, _saisies, _activite, _lots) : APRÈS estAdmin() seulement ----
+  /**
+   * Lignes créées (non supprimées) écrites depuis `f.depuis` (server_updated_at, index), des types demandés, de cet auteur ;
+   * la plus récente d'abord, au plus `max` PAR TYPE ; marques de provenance brutes (jamais un nom, un commentaire ni une fiche).
+   * La période de création est appliquée ensuite (adminTraces.ts, creeLe).
+   */
+  traces(f: FiltreTraces, max: number): Promise<{ lignes: TraceSrv[]; tronque: boolean }>
+  /** Les mêmes champs pour ces lignes d'un type (supprimées comprises) : actions de l'historique. */
+  tracesParIds(type: TypeTrace, ids: string[]): Promise<TraceSrv[]>
+  /** Historique des écritures (hb_audit, 004 : heure, compte, table, ligne, action ; jamais le résumé ni les changements). */
+  actions(f: { depuis: string; jusqua: string; auteur?: string | null }, max: number): Promise<{ lignes: ActionSrv[]; tronque: boolean }>
+  /** Agrégats dans la base (hb_admin_creations, supabase/071_provenance.sql) ; script pas appliqué : null. */
+  agregats(f: FiltreAgregats): Promise<AgregatSrv[] | null>
+  /** Mesures par test et avis par critère dans la base (hb_admin_saisies, 071) ; script pas appliqué : null. */
+  saisiesResume(f: FiltreSaisies): Promise<SaisieResumeSrv[] | null>
+  /** Table des lots (hb_lots, 071) ; script pas appliqué : null. */
+  lots(): Promise<LotSrv[] | null>
+  /** Événements par identifiant (nom, date, joueurs inscrits), archivés et supprimés compris. */
+  evenementsParIds(ids: string[]): Promise<EvenementSrv[]>
 
   // ---- nextar_admin_proposer (adminProposer.ts) : appelées APRÈS estAdmin() seulement, aux droits du compte ----
   /** Identifiant du compte du jeton (claims vérifiés par withSupabase) ; inconnu : null. Jamais rendu. */
@@ -299,6 +323,132 @@ export interface ActiviteSrv {
   fiches: number | null
 }
 
+/** Types de lignes tracées (tables hb_measurements, hb_evaluations, hb_events, hb_seen, hb_players). */
+export type TypeTrace = 'mesure' | 'avis' | 'evenement' | 'vu' | 'fiche'
+/** Provenance d'une ligne créée (supabase/071_provenance.sql, hb_provenance ; adminTraces.ts, provenance). */
+export type Provenance = 'saisie_appli' | 'import_fichier' | 'proposition_validee' | 'generation'
+
+/**
+ * Ligne créée, lue aux droits de l'administrateur : marques de provenance BRUTES (adminTraces.ts en tire la provenance, le
+ * lot et l'heure de création) et ce qui peut sortir en codes (joueur, test, valeur, événement). Jamais un nom de joueur, un
+ * commentaire, ni le nom de l'auteur (`sql` : signature « Administration Supabase (SQL) », rien d'autre).
+ */
+export interface TraceSrv {
+  type: TypeTrace
+  id: string
+  /** data.createdBy (posé par le serveur, hb_stamp). */
+  auteur?: string | null
+  /** Ligne signée « Administration Supabase (SQL) » (écrite par SQL, sans compte). */
+  sql?: boolean
+  /** data.createdAtServer (hb_stamp ; antidaté par les générateurs). */
+  creeServeur?: string | null
+  /** server_updated_at (hb_touch : heure de la dernière écriture). */
+  ecrit: string
+  supprime?: boolean
+  /** data.source (« demo », « demo-progression », ou une provenance posée par l'appli). */
+  marque?: string | null
+  /** data.lotId. */
+  lot?: string | null
+  /** data.demoBilan présent. */
+  demoBilan?: boolean
+  /** data.imported présent (trace de l'appli d'avant 071). */
+  importe?: boolean
+  /** Joueur visé (fiche : la fiche elle-même). */
+  joueur?: string
+  /** Mesure : identifiant du test. */
+  test?: string
+  valeur?: number | string
+  /** Date de la mesure, de l'avis ou de l'événement (AAAA-MM-JJ). */
+  date?: string
+  /** Avis, « vu » : identifiant de l'événement. */
+  evenement?: string
+  /** Événement : son nom. */
+  nom?: string
+  /** Avis : notes chiffrées seulement. */
+  scores?: Record<string, number>
+}
+
+export interface FiltreTraces {
+  depuis: string
+  jusqua: string
+  auteur?: string | null
+  types: TypeTrace[]
+  /** « sans » : la Source peut écarter d'avance ce qu'elle reconnaît (identifiants « demo-… ») ; le tri fin est fait après. */
+  generation: 'avec' | 'sans'
+}
+
+/** Ligne de l'historique (hb_audit). */
+export interface ActionSrv {
+  at: string
+  userId: string
+  /** players, measurements, evaluations, events, seen… */
+  table: string
+  rowId: string
+  /** création, modification, suppression, restauration, suppression définitive… */
+  action: string
+}
+
+export interface FiltreAgregats {
+  depuis: string
+  jusqua: string
+  auteur?: string | null
+  types?: TypeTrace[]
+  generation: boolean
+  par: 'total' | 'jour' | 'heure' | 'lot'
+}
+
+/** Ligne de hb_admin_creations (071). */
+export interface AgregatSrv {
+  type: TypeTrace
+  auteur: string | null
+  source: Provenance
+  lot?: string | null
+  /** Début de la tranche (jour ou heure de Paris), ISO. */
+  tranche?: string | null
+  nb: number
+  joueurs: number
+  premier: string
+  dernier: string
+  declareMin?: string | null
+  declareMax?: string | null
+}
+
+export interface FiltreSaisies {
+  depuis: string
+  jusqua: string
+  auteur?: string | null
+  test?: string
+  evenement?: string
+  source?: Provenance
+  generation: boolean
+}
+
+/** Ligne de hb_admin_saisies (071) : un test (mesures) ou un critère (avis). */
+export interface SaisieResumeSrv {
+  type: 'mesure' | 'avis'
+  cle: string
+  nb: number
+  joueurs: number
+  min: number | null
+  max: number | null
+  moyenne: number | null
+  premier: string
+  dernier: string
+  sources: string[]
+  evenements: string[]
+  valeursTexte: number
+}
+
+/** Ligne de hb_lots (071). */
+export interface LotSrv {
+  id: string
+  createdAt: string
+  createdBy: string | null
+  source: string
+  description?: string | null
+  nbLignes: Record<string, number>
+}
+
 /** Une ouverture de l'appli (hb_connections). */
 export interface SessionSrv {
   userId: string
@@ -383,6 +533,20 @@ export const BORNES = {
   questionsMax: 100,
   /** nextar_admin_proposer : actions par proposition (comme supabase/070_propositions_admin.sql). */
   adminActions: 50,
+  /** Traçabilité (adminTraces.ts). nextar_admin_journal : période (31 jours au plus), éléments rendus, écritures lues. */
+  journalJoursMax: 31,
+  journalDefaut: 100,
+  journalLimiteMax: 500,
+  journalActions: 5_000,
+  /** nextar_admin_saisies : lignes de détail rendues par sorte ; lignes lues pour le détail quand 071 fait le résumé. */
+  saisiesDefaut: 100,
+  saisiesMax: 500,
+  saisiesLues: 5_000,
+  /** Lignes lues PAR TYPE quand les agrégats sont faits par le serveur MCP (071 pas appliqué). */
+  tracesMax: 20_000,
+  /** nextar_admin_lots : lots rendus. */
+  lotsDefaut: 50,
+  lotsMax: 200,
 } as const
 
 // ---------- Vérification des réponses (liste blanche) ----------
@@ -439,6 +603,29 @@ export const CLES_ADMIN: Record<string, Set<string>> = {
   nextar_admin_activite: new Set([
     ...COMMUNES_ADMIN, 'periode_jours', 'depuis', 'comptes', 'avis', 'mesures', 'evenements', 'vus', 'fiches',
     'derniere_activite', 'inactifs', 'seuil_jours', 'totaux',
+    // traçabilité (adminTraces.ts) : période calendaire, histogramme, provenance, génération
+    'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'par', 'inclure_generation', 'via', 'par_source', 'saisie_appli', 'import_fichier',
+    'proposition_validee', 'generation', 'histogramme', 'tranche', 'tranche_paris', 'par_type', 'comptes_porteurs', 'totaux_par_source', 'totaux_generation', 'ventilation_source', 'hors_staff',
+  ]),
+  // Traçabilité (adminTraces.ts), lecture seule.
+  nextar_admin_journal: new Set([
+    ...COMMUNES_ADMIN, 'periode', 'depuis', 'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'compte_demande', 'types', 'regroupe',
+    'inclure_generation', 'sessions', 'actions', 'heure', 'heure_paris', 'action', 'type', 'objet', 'code', 'test', 'valeur',
+    'evenement', 'appareil', 'fin', 'fin_paris', 'source', 'lot_id', 'historique', 'debut', 'debut_paris', 'duree_min',
+    'nb_actions', 'par_type', 'par_action', 'mesures', 'avis', 'vus', 'fiches', 'connexions', 'creation', 'modification',
+    'suppression', 'restauration', 'evenements', 'tests', 'joueurs', 'sources', 'lots',
+  ]),
+  nextar_admin_saisies: new Set([
+    ...COMMUNES_ADMIN, 'auteur', 'periode', 'depuis', 'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'filtres', 'test', 'test_id',
+    'unite', 'evenement', 'source', 'inclure_generation', 'via', 'mesures', 'avis', 'par_test', 'par_critere', 'critere',
+    'critere_id', 'nb_notes', 'joueurs', 'min', 'max', 'moyenne', 'valeurs_texte', 'evenements', 'premiere', 'premiere_paris',
+    'derniere', 'derniere_paris', 'sources', 'detail', 'code', 'valeur', 'heure', 'heure_paris', 'lot_id', 'nb_criteres',
+  ]),
+  nextar_admin_lots: new Set([
+    ...COMMUNES_ADMIN, 'periode', 'depuis', 'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'via', 'lignes', 'lots', 'id', 'source',
+    'description', 'auteur', 'porteurs', 'creee_le', 'creee_le_paris', 'premiere_ecriture', 'premiere_ecriture_paris',
+    'derniere_ecriture', 'derniere_ecriture_paris', 'duree_min', 'volumes', 'mesures', 'avis', 'evenements', 'vus', 'fiches',
+    'rencontres', 'dates_declarees', 'min', 'max', 'enregistre',
   ]),
   nextar_admin_questions: new Set([
     ...COMMUNES_ADMIN, 'periode_jours', 'depuis', 'filtre', 'resume', 'questions', 'a_traiter', 'ratees', 'sauvees', 'comprises',

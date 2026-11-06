@@ -15,7 +15,7 @@ blanche à part, où « nom_affiche » est la seule clé de nom permise, et aucu
 n'est pas administrateur reçoit un refus, sans rien lire. Aucun SQL nouveau : `hb_is_admin()` (043), `hb_connections` (030,
 lecture administrateurs), `hb_profiles` (colonnes publiques de 029), affectations et unités (044).
 
-**Quatre outils d'administration, en lecture seule** (`admin.ts`), même régime : refus sans rien lire pour un compte qui
+**Quatre outils d'administration, en lecture seule** (`admin.ts` ; plus trois de traçabilité, `adminTraces.ts`, ci-dessous), même régime : refus sans rien lire pour un compte qui
 n'est pas administrateur, toujours le jeton du compte (jamais la clé de service), une liste blanche par outil
 (`outils.ts`, `CLES_ADMIN`) et le contrôle des textes ; joueurs en codes `J-…` seulement, comptes du staff en code `C-…`,
 nom affiché et rôle ; aucune écriture.
@@ -30,9 +30,41 @@ nom affiché et rôle ; aucune écriture.
   abonnements aux notifications (des nombres), rappels de la veille, notifications en attente, tâches pg_cron (état et
   échecs, ni commande ni message), quota de transcription. Sans 069 : ces lignes disent « indisponible tant que
   supabase/069_admin_sante.sql n'est pas appliqué », le reste répond.
-- `nextar_admin_activite` (`jours` défaut 30, de 1 à 365 ; `inactifs_jours` idem ; `limite` ≤ 200) : par compte du staff,
-  lignes créées sur la période (avis, mesures, « vus » : colonne `created_by` de 058 ; événements : `data->>createdBy` ;
-  fiches), dernière activité (dernière ouverture `hb_last_seen` ou dernière écriture), comptes inactifs ou jamais vus.
+- `nextar_admin_activite` (`jours` défaut 30, de 1 à 365, ou période calendaire `depuis` / `jusqu_a` ; `par` total, jour ou
+  heure ; `inclure_generation` ; `inactifs_jours` ; `limite` ≤ 200) : par compte du staff, classé du plus actif au moins
+  actif, lignes créées sur la période (avis, mesures, « vus » : colonne `created_by` de 058 ; événements :
+  `data->>createdBy` ; fiches), ventilées par provenance, histogramme par jour ou par heure (heure de Paris), dernière
+  activité (dernière ouverture `hb_last_seen` ou dernière écriture), comptes inactifs ou jamais vus. Génération exclue par
+  défaut ; avec `inclure_generation`, une ligne « Générateur démo » (aucun compte) et les comptes sous lesquels ses lignes
+  ont été posées.
+
+**Traçabilité de l'activité du staff** (`adminTraces.ts`, lecture seule, même régime) : qui a fait quoi, quand, avec quelle
+**provenance** — `saisie_appli`, `import_fichier` (collage d'un tableau), `proposition_validee` (boîte « À valider ») ou
+`generation` (démos, jeux d'essai, lignes écrites par SQL sans compte ; exclue par défaut). La provenance, le lot et l'heure
+de création posée par le serveur sont **déduits des lignes sans les réécrire** (`data.source`, `data.lotId` posés par
+l'appli depuis cette version ; sinon identifiants `demo-…` / `demo:…`, `data.source` « demo » / « demo-progression »,
+`data.demoBilan`, signature « Administration Supabase (SQL) », `data.imported`) ; une ligne générée est datée par son
+écriture réelle (`server_updated_at`), car les générateurs antidatent `createdAtServer`. Les outils marchent **avant**
+**`supabase/071_provenance.sql`** (lignes lues par pages, au plus 20 000 par type, agrégées par le serveur MCP, « tronque »
+au-delà) et **mieux après** : `hb_admin_creations` et `hb_admin_saisies` (SECURITY INVOKER, `hb_is_admin()` d'abord) font les
+agrégats dans la base, et la table `hb_lots` décrit les lots (ceux de la démo y sont enregistrés). 071 n'ajoute ni colonne,
+ni index, ni déclencheur aux tables synchronisées et ne touche pas `hb_upsert` (une colonne générée réécrirait la table).
+- `nextar_admin_journal` (`compte?` C-…, `depuis` / `jusqu_a` défaut 24 h, 31 jours au plus, `types?`, `regrouper` défaut
+  oui, `inclure_generation`, `limite` défaut 100, ≤ 500) : créations, modifications, suppressions (historique `hb_audit` :
+  heure, compte, table, ligne, action — jamais le résumé, qui porte le nom du joueur, ni les changements) et ouvertures de
+  l'appli (`hb_connections`). Regroupé : sessions (actions d'un compte à moins de 15 min) avec début, fin, appareil, nombres
+  par type et par action, événements et tests touchés, joueurs distincts, provenances, lots ; sinon une ligne par action
+  (heure exacte, compte, action, type, objet en code `J-…`, test, valeur, événement, provenance, lot). La génération (écrite
+  déclencheurs coupés, absente de l'historique) est lue dans les tables, `historique: false`.
+- `nextar_admin_saisies` (`auteur?` C-… ou « générateur », période défaut 30 jours, `test?`, `evenement?`, `source?`,
+  `detail?`, `limite` ≤ 500) : mesures par test (nombre, joueurs, min, max, moyenne, événements — même jour, joueur inscrit —,
+  première et dernière heure, provenances), avis par critère (nombre de notes, joueurs, moyenne ; jamais un commentaire) ;
+  `detail` : les lignes en codes.
+- `nextar_admin_lots` (période défaut 365 jours, `limite` ≤ 200) : lots (collage, proposition validée = identifiant de la
+  proposition, génération) avec description, auteur (génération : « Générateur démo » et comptes porteurs), première et
+  dernière écriture réelles, durée, volumes par type, dates déclarées dans les lignes (antidatage), enregistré ou non dans
+  `hb_lots`.
+Toutes les heures : ISO UTC et un champ lisible à l'heure de Paris (`…_paris`).
 - `nextar_admin_questions` (`jours`, `filtre` « a_traiter » ou « toutes », `limite` ≤ 100) : questions du journal (043, 049)
   regroupées par phrase semblable (`src/questionLogCore.ts`), nombre, comptes distincts, issue, recette, avis des
   entraîneurs, ce que la recette n'a pas appliqué, ce qu'ils voulaient. **Masquage côté serveur** : chaque mot (ou partie de
@@ -101,13 +133,16 @@ compte en avait un), un secteur, une affectation et un archivage ; une fusion ne
 | `nextar_connexions` (administrateurs) | `minutes?` (défaut 10, de 1 à 10 080), `limite?` (défaut 50, ≤ 200) | par compte, du plus récent : code `C-…`, nom affiché, rôle, périmètre, dernière activité (ISO + « il y a N min »), appareil (téléphone / tablette / ordinateur), ouvertures de l'appli sur la période ; total |
 | `nextar_admin_a_faire` (administrateurs) | `limite?` (par file, défaut 10, ≤ 50) | résumé (nombres), comptes sans rôle, fiches et avis à valider, doublons, propositions en attente, questions à traiter, liens |
 | `nextar_admin_sante` (administrateurs) | — | volumes, comptes par rôle, connexions, dernière écriture, version (indisponible), erreurs du mode avancé ; avec 069 : base, tables, registre, charge, abonnements, veille, notifications, tâches, transcription |
-| `nextar_admin_activite` (administrateurs) | `jours?`, `inactifs_jours?` (défaut 30, 1 à 365), `limite?` (≤ 200) | par compte : avis, mesures, événements, vus, fiches, dernière activité ; totaux ; inactifs |
+| `nextar_admin_activite` (administrateurs) | `jours?` ou `depuis?` / `jusqu_a?`, `par?` (total, jour, heure), `inclure_generation?`, `inactifs_jours?` (défaut 30, 1 à 365), `limite?` (≤ 200) | par compte, du plus actif : avis, mesures, événements, vus, fiches, par provenance, histogramme, dernière activité ; « Générateur démo » et comptes porteurs ; totaux ; inactifs |
+| `nextar_admin_journal` (administrateurs) | `compte?`, `depuis?` / `jusqu_a?` (défaut 24 h, ≤ 31 j), `types?`, `regrouper?`, `inclure_generation?`, `limite?` (défaut 100, ≤ 500) | sessions (début, fin, appareil, nombres par type et action, événements, tests, joueurs, provenances, lots) ou une ligne par action (heure, compte, action, type, objet en code, provenance, lot) |
+| `nextar_admin_saisies` (administrateurs) | `auteur?`, `depuis?` / `jusqu_a?` (défaut 30 j), `test?`, `evenement?`, `source?`, `detail?`, `inclure_generation?`, `limite?` (≤ 500) | mesures par test (nombre, joueurs, min, max, moyenne, événements, heures, provenances), avis par critère (notes chiffrées), détail en codes |
+| `nextar_admin_lots` (administrateurs) | `depuis?` / `jusqu_a?` (défaut 365 j), `limite?` (≤ 200) | lots : provenance, description, auteur et porteurs, première / dernière écriture, durée, volumes, dates déclarées |
 | `nextar_admin_questions` (administrateurs) | `jours?` (défaut 30, 1 à 365), `filtre?`, `limite?` (défaut 20, ≤ 100) | résumé, pages, groupes de formulations masquées (nombre, comptes distincts, issue, avis, manques) |
 | `nextar_admin_proposer` (administrateurs) | `sorte` (role, perimetre, archiver, fusion), `actions` (≤ 50), `evenements_avant?`, `titre?` | par action « prête » / « refusée » + raison, id de la proposition « À valider », lien ; rien n'est appliqué |
 
 Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/server` 2.4.0, `@supabase/server` 1.9.2,
 `@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `proposerJoueurs.ts` (avis, vus, à revoir, purs), `admin.ts` (les outils d'administration en
-lecture, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
+lecture, purs), `adminTraces.ts` (traçabilité : journal, saisies, lots, agrégats de l'activité, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
 `source.ts` (requêtes aux droits du coach), `partage/` (copies **générées** de modules purs de `src/` :
 `npx jiti tools/generer-partage-mcp.ts` après un changement de `src/importMesures.ts`, `src/nameMatch.ts`,
 `src/codesJoueurs.ts`, `src/sportConfig.ts`, `src/gender.ts`, `src/askAction.ts`, `src/questionLogCore.ts`,
@@ -117,7 +152,8 @@ lecture, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
 
 1. **SQL** (SQL Editor, dans l'ordre) : `supabase/067_propositions.sql`, puis `supabase/068_rapports.sql`, puis (facultatif,
    pour `nextar_admin_sante`) `supabase/069_admin_sante.sql`, puis (facultatif, pour `nextar_admin_proposer`)
-   `supabase/070_propositions_admin.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
+   `supabase/070_propositions_admin.sql`, puis (facultatif, agrégats de la traçabilité dans la base)
+   `supabase/071_provenance.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
    tard, sections « ACTIVATION » (purges pg_cron, notification de 067).
 2. **Clés de signature JWT asymétriques** (*Project Settings → JWT Keys*) : `@supabase/server` refuse les jetons HS256
    (ancien secret partagé). Passer aux clés de signature (ECC P-256 recommandé), faire tourner la clé une fois les appareils
@@ -144,11 +180,15 @@ lecture, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
   listes blanches, masquage des noms, bornes). `npx jiti tools/test-propositions.ts` : la boîte dans l'appli (application
   par de faux chemins, « Défaire »).
 - `bash tools/essai-mcp/lancer.sh` : la pile réelle dans le runtime des fonctions Supabase (Docker
-  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les quatorze outils
-  (`nextar_connexions` et les cinq `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
+  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les dix-sept outils
+  (`nextar_connexions` et les huit `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
 - `bash tools/essai-sql-068/lancer.sh` : `068_rapports.sql` sur un Postgres jetable.
 - `bash tools/essai-sql-069/lancer.sh` : `069_admin_sante.sql` sur un Postgres jetable (refus des autres comptes, forme de la
   réponse, rien de personnel, tables facultatives absentes).
 - `bash tools/essai-sql-070/lancer.sh` : `070_propositions_admin.sql` sur un Postgres jetable (propositions d'avant 070
   gardées, sorte « admin » réservée aux administrateurs en création et en modification, forme, 50 actions, essais de 067
   rejoués après 070).
+- `bash tools/essai-sql-071/lancer.sh` : `071_provenance.sql` sur un Postgres jetable (lignes fictives de chaque provenance
+  écrites avant 071, 071 deux fois, provenance, lots, agrégats, refus 42501 pour les autres comptes, droits de `hb_lots`,
+  empreintes de `hb_upsert` / `hb_stamp` / `hb_log` et des lignes de données inchangées, rencontres fictives marquées,
+  retour arrière).

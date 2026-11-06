@@ -3,7 +3,9 @@
 // propositions et rapports gardés). Noms, clubs et licences inventés. Importable par Node (jiti) et par Deno (imports en .ts,
 // aucun module Node).
 
+import { agregerTraces, creeLe, evenementsDe, provenance, resumerSaisies } from '../supabase/functions/mcp/adminTraces.ts'
 import type {
+  ActionSrv,
   ActiviteSrv,
   AvisAValiderSrv,
   AvisSrv,
@@ -14,11 +16,14 @@ import type {
   GroupeSrv,
   JoueurNom,
   JournalSrv,
+  LotSrv,
   MesureSrv,
   ProfilSrv,
   PropositionSrv,
   SessionSrv,
   Source,
+  TraceSrv,
+  TypeTrace,
   VuSrv,
 } from '../supabase/functions/mcp/outils.ts'
 
@@ -263,6 +268,119 @@ export function textesInterditsAdmin(): string[] {
   return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, SECOND_ADMIN.email, SECOND_ADMIN.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
 }
 
+// ---------- Traçabilité (adminTraces.ts : journal, saisies, activité, lots) : lignes créées INVENTÉES ----------
+
+const A1 = '00000000-0000-4000-8000-0000000000a1' // Alice, administratrice
+const C1 = '00000000-0000-4000-8000-0000000000c1' // Bruno, encadrant
+const B2 = '00000000-0000-4000-8000-0000000000b2' // Camille, observatrice
+const at = (s: string) => new Date(Date.parse(s)).toISOString()
+const pg = (s: string) => at(s).replace('Z', '+00:00') // createdAtServer comme le rend Postgres
+/** Ligne saisie dans l'appli : createdAtServer = heure d'écriture (hb_stamp). */
+const saisie = (t: Omit<TraceSrv, 'ecrit' | 'creeServeur'> & { le: string }): TraceSrv => {
+  const { le, ...r } = t
+  return { ...r, creeServeur: pg(le), ecrit: at(le) }
+}
+const plus = (s: string, secondes: number) => new Date(Date.parse(s) + secondes * 1000).toISOString()
+
+/**
+ * Lignes créées, de chaque provenance :
+ *  - Bruno CE MATIN (05/11, heure de Paris = UTC + 1) : 12 mesures (Sprint 10 m, CMJ, Taille) de la Détection U15 Var de 08:40
+ *    à 08:52, puis 3 avis et 2 « vus » de 10:20 à 10:30 (un « vu » retiré à 10:33) ; une fiche proposée le 02/11 ;
+ *  - Alice : un collage de 40 mesures le 04/11 à 17:00 (lot « collage-a1 »), 4 avis d'une proposition validée le 03/11 (lot
+ *    « prop-avis-1 »), un événement le 01/11 ; en octobre, une mesure collée et un avis validé d'avant 071 (data.imported) ;
+ *  - Camille : 5 « vus » le 20/10 ;
+ *  - GÉNÉRATION : 60 mesures « demo-prog-m-… » posées sous le compte de Bruno, 10 avis et 2 événements sous celui d'Alice,
+ *    écrits la nuit du 04 au 05/11 (23:37 → 00:09 à Paris) avec un createdAtServer antidaté ; 4 « vus » du Bilan de démo
+ *    (demoBilan) le 15/10 ; 5 fiches écrites par SQL sans compte le 07/10.
+ */
+export const TRACES: TraceSrv[] = (() => {
+  const ts: TraceSrv[] = []
+  const evVar = '2026-10-12'
+  const mes = (id: string, joueur: string, test: string, valeur: number, le: string, plusTrace: Partial<TraceSrv> = {}) =>
+    ts.push(saisie({ type: 'mesure', id, auteur: C1, joueur, test, valeur, date: evVar, le, ...plusTrace }))
+  // Bruno, ce matin.
+  mes('b-m-1', 'p-lucas', 'sprint_10', 1.84, '2026-11-05T07:40:00Z')
+  mes('b-m-2', 'p-emma', 'sprint_10', 2.01, '2026-11-05T07:41:00Z')
+  mes('b-m-3', 'p-hugo', 'sprint_10', 1.95, '2026-11-05T07:42:00Z')
+  mes('b-m-4', 'p-lea', 'sprint_10', 2.1, '2026-11-05T07:43:00Z')
+  mes('b-m-5', 'p-lucas', 'cmj', 38, '2026-11-05T07:45:00Z')
+  mes('b-m-6', 'p-emma', 'cmj', 32, '2026-11-05T07:46:00Z')
+  mes('b-m-7', 'p-hugo', 'cmj', 35, '2026-11-05T07:47:00Z')
+  mes('b-m-8', 'p-lea', 'cmj', 30, '2026-11-05T07:48:00Z')
+  mes('b-m-9', 'p-lucas', 'taille', 177, '2026-11-05T07:50:00Z')
+  mes('b-m-10', 'p-emma', 'taille', 165, '2026-11-05T07:50:30Z')
+  mes('b-m-11', 'p-hugo', 'taille', 172, '2026-11-05T07:51:00Z')
+  mes('b-m-12', 'p-lea', 'taille', 163, '2026-11-05T07:52:00Z')
+  ts.push(saisie({ type: 'avis', id: 'b-a-1', auteur: C1, joueur: 'p-lucas', evenement: 'ev-var', date: evVar, scores: { tir: 4, defense: 4, mental: 5 }, le: '2026-11-05T09:20:00Z' }))
+  ts.push(saisie({ type: 'avis', id: 'b-a-2', auteur: C1, joueur: 'p-emma', evenement: 'ev-var', date: evVar, scores: { defense: 5, mental: 4 }, le: '2026-11-05T09:24:00Z' }))
+  ts.push(saisie({ type: 'avis', id: 'b-a-3', auteur: C1, joueur: 'p-hugo', evenement: 'ev-var', date: evVar, scores: { tir: 3, defense: 3 }, le: '2026-11-05T09:27:00Z' }))
+  ts.push(saisie({ type: 'vu', id: 'b-v-1', auteur: C1, joueur: 'p-lea', evenement: 'ev-var', le: '2026-11-05T09:29:00Z' }))
+  ts.push({ ...saisie({ type: 'vu', id: 'b-v-2', auteur: C1, joueur: 'p-hugo2', evenement: 'ev-var', le: '2026-11-05T09:30:00Z' }), ecrit: at('2026-11-05T09:33:00Z'), supprime: true })
+  ts.push(saisie({ type: 'fiche', id: 'p-ines', auteur: C1, joueur: 'p-ines', le: '2026-11-02T09:30:00Z' }))
+  // Alice.
+  for (let i = 0; i < 40; i++) {
+    const joueurs = ['p-lucas', 'p-emma', 'p-noah', 'p-hugo', 'p-jade']
+    const sprint = i < 20
+    ts.push(
+      saisie({
+        type: 'mesure', id: `a-m-${i + 1}`, auteur: A1, joueur: joueurs[i % 5], test: sprint ? 'sprint_10' : 'cmj',
+        valeur: sprint ? 1.8 + (i % 5) / 20 : 30 + (i % 5) * 2, date: evVar, marque: 'import_fichier', lot: 'collage-a1', le: plus('2026-11-04T16:00:00Z', i * 3),
+      }),
+    )
+  }
+  for (const [k, j] of ['p-lucas', 'p-emma', 'p-hugo', 'p-lea'].entries())
+    ts.push(saisie({ type: 'avis', id: `a-a-${k + 1}`, auteur: A1, joueur: j, evenement: 'ev-var', date: evVar, scores: { defense: 3 + (k % 2) }, marque: 'proposition_validee', lot: 'prop-avis-1', le: plus('2026-11-03T18:00:00Z', k * 20) }))
+  ts.push(saisie({ type: 'evenement', id: 'ev-nov', auteur: A1, nom: 'Tournoi de novembre Fictif', date: '2026-11-15', le: '2026-11-01T08:00:00Z' }))
+  ts.push(saisie({ type: 'mesure', id: 'a-m-old', auteur: A1, joueur: 'p-tom', test: 'cmj', valeur: 29, date: '2026-04-02', importe: true, le: '2026-10-25T10:00:00Z' }))
+  ts.push(saisie({ type: 'avis', id: 'a-a-old', auteur: A1, joueur: 'p-noah', evenement: 'ev-old', date: '2026-04-02', scores: { mental: 4 }, importe: true, le: '2026-10-20T10:00:00Z' }))
+  // Camille.
+  for (const [k, j] of ['p-noah', 'p-tom', 'p-lucas', 'p-jade', 'p-emma'].entries())
+    ts.push(saisie({ type: 'vu', id: `c-v-${k + 1}`, auteur: B2, joueur: j, evenement: 'ev-old', le: plus('2026-10-20T14:00:00Z', k * 60) }))
+  // Génération : déclencheurs coupés, createdAtServer antidaté, server_updated_at = heure réelle d'écriture.
+  for (let i = 0; i < 60; i++)
+    ts.push({
+      type: 'mesure', id: `demo-prog-m-${i + 1}`, auteur: C1, joueur: ['p-noah', 'p-jade', 'p-tom'][i % 3], test: i % 2 ? 'cmj' : 'sprint_10',
+      valeur: i % 2 ? 33 + (i % 7) : 1.9 + (i % 5) / 50, date: '2025-09-16', marque: 'demo-progression',
+      creeServeur: pg(plus('2025-09-16T16:01:37Z', i * 86_400 * 6)), ecrit: plus('2026-11-04T22:40:00Z', i * 30),
+    })
+  for (let i = 0; i < 10; i++)
+    ts.push({
+      type: 'avis', id: `demo-prog-a-${i + 1}`, auteur: A1, joueur: ['p-noah', 'p-jade'][i % 2], evenement: 'demo-prog-e-1', scores: { defense: 2 + (i % 3) },
+      marque: 'demo-progression', creeServeur: pg(plus('2025-10-01T10:00:00Z', i * 86_400 * 20)), ecrit: plus('2026-11-04T22:38:00Z', i * 5),
+    })
+  for (let i = 0; i < 2; i++)
+    ts.push({ type: 'evenement', id: `demo-prog-e-${i + 1}`, auteur: A1, nom: 'Stage de rentrée (démo)', date: '2025-09-16', marque: 'demo-progression', creeServeur: pg('2025-08-17T10:54:41Z'), ecrit: plus('2026-11-04T22:37:00Z', i) })
+  for (const [k, j] of ['p-lucas', 'p-emma', 'p-noah', 'p-tom'].entries())
+    ts.push({ type: 'vu', id: `demo-bilan-${k}`, auteur: B2, joueur: j, evenement: 'ev-var', demoBilan: true, creeServeur: pg('2026-04-18T09:00:00Z'), ecrit: plus('2026-10-15T08:00:00Z', k) })
+  for (let i = 0; i < 5; i++) ts.push({ type: 'fiche', id: `p-sql-${i + 1}`, auteur: null, sql: true, joueur: `p-sql-${i + 1}`, creeServeur: '2026-09-01T08:00:00+02:00', ecrit: plus('2026-10-07T14:32:05Z', i) })
+  return ts
+})()
+
+/** Historique (hb_audit) : une « création » par ligne saisie (pas pour la génération, écrite déclencheurs coupés), plus une modification et une suppression de Bruno ce matin. */
+export const ACTIONS: ActionSrv[] = [
+  ...TRACES.filter((t) => t.auteur && provenance(t) !== 'generation').map((t) => ({
+    at: new Date(creeLe(t)).toISOString(),
+    userId: t.auteur!,
+    table: ({ mesure: 'measurements', avis: 'evaluations', evenement: 'events', vu: 'seen', fiche: 'players' } as Record<TypeTrace, string>)[t.type],
+    rowId: t.id,
+    action: 'création',
+  })),
+  { at: at('2026-11-05T09:31:00Z'), userId: C1, table: 'measurements', rowId: 'b-m-1', action: 'modification' },
+  { at: at('2026-11-05T09:33:00Z'), userId: C1, table: 'seen', rowId: 'b-v-2', action: 'suppression' },
+  // Une écriture d'une table hors journal (critères) et une d'un compte inconnu : jamais dans le journal du staff.
+  { at: at('2026-11-05T09:35:00Z'), userId: C1, table: 'criteria', rowId: 'sprint_10', action: 'modification' },
+  { at: at('2026-11-05T09:36:00Z'), userId: '00000000-0000-4000-8000-0000000000ee', table: 'measurements', rowId: 'b-m-2', action: 'modification' },
+]
+
+/** Ouverture de l'appli de Bruno ce matin (téléphone) : pour le journal seulement (essais de nextar_connexions inchangés). */
+export const SESSIONS_JOURNAL: SessionSrv[] = [...SESSIONS, { userId: C1, device: 'iPhone (appli installée)', startedAt: at('2026-11-05T07:38:00Z'), lastSeenAt: at('2026-11-05T07:55:00Z') }]
+
+/** Table des lots (071) fictive. */
+export const LOTS_TABLE: LotSrv[] = [
+  { id: 'demo-progression', createdAt: at('2026-11-04T22:37:00Z'), createdBy: null, source: 'generation', description: 'Progression fictive (générateur hors dépôt).', nbLignes: { mesure: 60, avis: 10, evenement: 2 } },
+  { id: 'collage-a1', createdAt: at('2026-11-04T16:00:00Z'), createdBy: A1, source: 'import_fichier', description: 'Collage fictif de tests du Var', nbLignes: { mesure: 40 } },
+]
+
 export interface SourceFictive extends Source {
   /** Propositions d'administration déposées (nextar_admin_proposer). */
   propositionsAdmin: { id: string; titre: string; contexte: Record<string, unknown>; lignes: Record<string, unknown>[] }[]
@@ -293,6 +411,10 @@ export function sourceFictive(
     moi?: string | null
     /** Seul administrateur ? (défaut : oui) ; non : un second administrateur fictif existe. */
     secondAdmin?: boolean
+    /** Script 071 appliqué : agrégats, résumé des saisies et table des lots dans la « base » (calculés sur TRACES). */
+    avec071?: boolean
+    /** activite() compte sur TRACES (au lieu des nombres fixes d'ACTIVITE). */
+    jeuTraces?: boolean
   } = {},
 ): SourceFictive {
   const joueurs = o.joueurs ?? JOUEURS
@@ -470,10 +592,78 @@ export function sourceFictive(
       if (!userId) return ilYaMin(4)
       return ECRITURES[userId] ?? null
     },
-    async activite(userId) {
+    async activite(userId, depuis, f = {}) {
       src.appelsAdmin++
       if (!o.admin) return { avis: null, mesures: null, evenements: null, vus: null, fiches: null }
-      return { ...(ACTIVITE[userId] ?? { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 }) }
+      if (!o.jeuTraces) return { ...(ACTIVITE[userId] ?? { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 }) }
+      // Comme source.ts : auteur, createdAtServer dans la période, sans les marques de génération.
+      const xs = TRACES.filter(
+        (t) => !t.supprime && t.auteur === userId && t.ecrit >= depuis && Date.parse(t.creeServeur ?? '') >= Date.parse(depuis) &&
+          (!f.jusqua || Date.parse(t.creeServeur ?? '') < Date.parse(f.jusqua)) &&
+          !(f.sansGeneration && (t.id.startsWith('demo-') || ['demo', 'demo-progression', 'generation'].includes(t.marque ?? '') || t.demoBilan)),
+      )
+      const n = (ty: TypeTrace) => xs.filter((t) => t.type === ty).length
+      return { avis: n('avis'), mesures: n('mesure'), evenements: n('evenement'), vus: n('vu'), fiches: n('fiche') }
+    },
+    // ---- Traçabilité (comme source.ts et supabase/071_provenance.sql) ----
+    async traces(f, max) {
+      src.appelsAdmin++
+      if (!o.admin) return { lignes: [], tronque: false }
+      let tronque = false
+      const lignes: TraceSrv[] = []
+      for (const ty of f.types) {
+        const xs = TRACES.filter((t) => t.type === ty && !t.supprime && t.ecrit >= f.depuis && (!f.auteur || t.auteur === f.auteur) && !(f.generation === 'sans' && t.id.startsWith('demo-')))
+          .sort((a, b) => b.ecrit.localeCompare(a.ecrit))
+        tronque ||= xs.length > max
+        lignes.push(...xs.slice(0, max).map((t) => ({ ...t })))
+      }
+      return { lignes, tronque }
+    },
+    async tracesParIds(type, ids) {
+      src.appelsAdmin++
+      if (!o.admin) return []
+      return TRACES.filter((t) => t.type === type && ids.includes(t.id)).map((t) => ({ ...t }))
+    },
+    async actions(f, max) {
+      src.appelsAdmin++
+      if (!o.admin) return { lignes: [], tronque: false }
+      const xs = ACTIONS.filter((a) => a.at >= f.depuis && a.at < f.jusqua && (!f.auteur || a.userId === f.auteur) && ['measurements', 'evaluations', 'events', 'seen', 'players'].includes(a.table))
+        .sort((a, b) => b.at.localeCompare(a.at))
+      return { lignes: xs.slice(0, max).map((a) => ({ ...a })), tronque: xs.length > max }
+    },
+    async agregats(f) {
+      src.appelsAdmin++
+      if (!o.admin || !o.avec071) return null
+      const xs = TRACES.filter((t) => t.ecrit >= f.depuis && (!f.auteur || t.auteur === f.auteur) && (!f.types || f.types.includes(t.type)))
+      return agregerTraces(xs, { depuis: Date.parse(f.depuis), jusqua: Date.parse(f.jusqua), generation: f.generation, par: f.par })
+    },
+    async saisiesResume(f) {
+      src.appelsAdmin++
+      if (!o.admin || !o.avec071) return null
+      const evs = [...EVENEMENTS, ...EVENEMENTS_ADMIN]
+      const ev = f.evenement ? evs.find((e) => e.id === f.evenement) : undefined
+      // Comme hb_admin_saisies : un test ne regarde que les mesures ; un événement : celui de l'avis, ou même jour et joueur inscrit.
+      const xs = TRACES.filter((t) => {
+        if (t.supprime || (t.type !== 'mesure' && t.type !== 'avis') || t.ecrit < f.depuis || (f.auteur && t.auteur !== f.auteur)) return false
+        const c = creeLe(t)
+        if (c < Date.parse(f.depuis) || c >= Date.parse(f.jusqua)) return false
+        const s = provenance(t)
+        if ((!f.generation && s === 'generation') || (f.source && s !== f.source)) return false
+        if (f.test && (t.type !== 'mesure' || t.test !== f.test)) return false
+        if (f.evenement && !(ev && evenementsDe(t, [ev]).length)) return false
+        return true
+      })
+      return resumerSaisies(xs, evs)
+    },
+    async lots() {
+      src.appelsAdmin++
+      if (!o.admin || !o.avec071) return null
+      return LOTS_TABLE.map((l) => ({ ...l, nbLignes: { ...l.nbLignes } }))
+    },
+    async evenementsParIds(ids) {
+      src.appelsAdmin++
+      if (!o.admin) return []
+      return [...EVENEMENTS, ...EVENEMENTS_ADMIN].filter((e) => ids.includes(e.id)).map(({ nums: _n, ...e }) => ({ ...e }))
     },
     // ---- nextar_admin_proposer ----
     async moi() {

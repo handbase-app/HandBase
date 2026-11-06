@@ -8,7 +8,8 @@ const src = sourceFictive()
 // Le jeton de l'administrateur fictif (jeton.mjs) reçoit une Source où hb_is_admin répond oui (nextar_connexions et les
 // outils nextar_admin_* ; 069 absent : « indisponible tant que 069… ») ; tout
 // autre jeton : celle du coach (refus). L'identifiant vient des « claims » vérifiés par withSupabase.
-const srcAdmin = sourceFictive({ admin: true })
+// Traçabilité : lignes créées du jeu fictif (TRACES), sans 071 (lignes lues et agrégées par le serveur MCP).
+const srcAdmin = sourceFictive({ admin: true, jeuTraces: true })
 const ADMIN = '00000000-0000-4000-8000-0000000000a1'
 // deno-lint-ignore no-explicit-any
 const compteDe = (ctx: any): string | undefined => ctx?.userClaims?.id ?? ctx?.userClaims?.sub ?? ctx?.claims?.sub

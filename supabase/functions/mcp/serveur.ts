@@ -19,6 +19,7 @@ import { withOAuthProtectedResource, withSupabase } from 'npm:@supabase/server@1
 import { z } from 'npm:zod@4.6.7'
 import { outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante } from './admin.ts'
 import { outilAdminProposer } from './adminProposer.ts'
+import { outilAdminJournal, outilAdminLots, outilAdminSaisies } from './adminTraces.ts'
 import { ECHELLES_TEXTE, outilProposerAReVoir, outilProposerAvis, outilProposerVus } from './proposerJoueurs.ts'
 import { JOUEURS_LIMITES, TYPES_CONTEXTE } from './partage/propositionsJoueursCore.ts'
 import { BORNES, outilConnexions, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
@@ -37,7 +38,9 @@ export const INSTRUCTIONS =
   'donne au coach le lien rendu : son appli remplacera les codes par les noms sur son appareil. N’essaie jamais de deviner ou ' +
   'de demander les noms derrière les codes. Pour un administrateur seulement, en lecture seule : nextar_connexions (qui s’est ' +
   'connecté récemment), nextar_admin_a_faire (ce qui l’attend), nextar_admin_sante (état de l’installation), ' +
-  'nextar_admin_activite (activité des comptes du staff) et nextar_admin_questions (questions que les coachs n’arrivent pas à ' +
+  'nextar_admin_activite (activité des comptes du staff, par jour ou par heure), nextar_admin_journal (actions horodatées du ' +
+  'staff, par session), nextar_admin_saisies (ce qu’un compte a saisi), nextar_admin_lots (créations en masse) et ' +
+  'nextar_admin_questions (questions que les coachs n’arrivent pas à ' +
   'faire aboutir) ; noms et rôles des comptes du staff, jamais d’adresse mail, joueurs toujours en codes. Toujours pour un ' +
   'administrateur : nextar_admin_proposer PRÉPARE des actions d’administration (rôles, périmètres, archivage, fusions de ' +
   'fiches) déposées dans sa boîte « À valider » ; rien ne s’applique avant qu’il les valide dans l’appli.'
@@ -329,11 +332,19 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
     {
       title: 'Activité des comptes du staff (administrateurs)',
       description:
-        'Réservé aux administrateurs ; lecture seule. Par compte du staff (code C-…, nom affiché, rôle), sur les N derniers jours : ' +
-        'avis donnés, mesures saisies, événements créés, joueurs vus (joueur × événement), fiches créées, dernière activité ; ' +
-        'plus les comptes inactifs depuis plus de M jours (ou jamais vus). Jamais d’adresse mail ni de donnée de joueur.',
+        'Réservé aux administrateurs ; lecture seule. Par compte du staff (code C-…, nom affiché, rôle), sur les N derniers jours ' +
+        'ou une période calendaire (depuis / jusqu_a) : avis donnés, mesures saisies, événements créés, joueurs vus (joueur × ' +
+        'événement), fiches créées, ventilés par provenance (saisie dans l’appli, import d’un fichier, proposition validée), ' +
+        'dernière activité ; classés du plus actif au moins actif ; par: "jour" ou "heure" ajoute un histogramme par compte (heure ' +
+        'de Paris). Génération (démos, jeux d’essai) exclue sauf inclure_generation: true (ligne « Générateur démo », avec les ' +
+        'comptes sous lesquels ses lignes ont été posées). Plus les comptes inactifs depuis plus de M jours (ou jamais vus). ' +
+        'Jamais d’adresse mail ni de donnée de joueur.',
       inputSchema: z.object({
-        jours: jours('Période en jours'),
+        jours: jours('Période en jours (sans depuis / jusqu_a)'),
+        depuis: z.string().max(40).optional().describe('Début : AAAA-MM-JJ (minuit à Paris) ou heure ISO. « Ce mois-ci » : le 1er du mois.'),
+        jusqu_a: z.string().max(40).optional().describe('Fin (exclue) : AAAA-MM-JJ ou heure ISO ; défaut : maintenant.'),
+        par: z.enum(['total', 'jour', 'heure']).optional().describe('total (défaut), jour ou heure : histogramme par compte.'),
+        inclure_generation: z.boolean().optional().describe('Compter aussi la génération (démos, jeux d’essai) ; défaut : non.'),
         inactifs_jours: jours('Inactif : aucune activité depuis ce nombre de jours'),
         limite: z.number().int().min(1).max(BORNES.activiteMax).optional().describe(`Comptes rendus (défaut ${BORNES.activiteDefaut}, ${BORNES.activiteMax} au plus).`),
       }),
@@ -359,6 +370,84 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
       annotations: lecture,
     },
     (a) => repondre('nextar_admin_questions', () => outilAdminQuestions(src, reg, a ?? {})),
+  )
+
+  // ---------- Administration, traçabilité de l'activité du staff (adminTraces.ts), lecture seule ----------
+
+  const periode = {
+    depuis: z.string().max(40).optional().describe('Début : AAAA-MM-JJ (minuit à Paris) ou heure ISO (« 2026-11-05T08:00:00Z »).'),
+    jusqu_a: z.string().max(40).optional().describe('Fin (exclue) : AAAA-MM-JJ ou heure ISO ; défaut : maintenant.'),
+  }
+  const compte = (quoi: string) => z.string().max(20).optional().describe(`${quoi} : code « C-… » (nextar_admin_activite, nextar_connexions) ; « générateur » pour la génération.`)
+  const generationOpt = z.boolean().optional().describe('Montrer aussi la génération (démos, jeux d’essai), sous « Générateur démo » ; défaut : non.')
+
+  server.registerTool(
+    'nextar_admin_journal',
+    {
+      title: 'Journal des actions du staff (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Journal horodaté des actions du staff sur une période (défaut : 24 h, 31 ' +
+        'jours au plus) : créations, modifications et suppressions de mesures, avis, événements, « vus » et fiches (historique ' +
+        'des écritures), ouvertures de l’appli. Par défaut regroupé en SESSIONS (actions d’un même compte à moins de 15 min) : ' +
+        'compte, début, fin, appareil, nombre par type, événements et tests touchés, joueurs distincts, provenance ; ' +
+        'regrouper: false : une ligne par action (heure exacte, compte, action, type, objet en code J-…, test, événement, ' +
+        'provenance, lot). Répond à « décris les actions de <compte> ce matin ». Heures en ISO UTC et à l’heure de Paris. ' +
+        'Jamais de nom de joueur ni d’adresse mail.',
+      inputSchema: z.object({
+        compte: compte('Un seul compte'),
+        ...periode,
+        types: z.array(z.enum(['mesure', 'avis', 'evenement', 'vu', 'fiche', 'connexion'])).max(6).optional().describe('Types d’actions (défaut : tous).'),
+        regrouper: z.boolean().optional().describe('Sessions (défaut) ou une ligne par action (false).'),
+        inclure_generation: generationOpt,
+        limite: z.number().int().min(1).max(BORNES.journalLimiteMax).optional().describe(`Sessions ou lignes rendues, les plus récentes (défaut ${BORNES.journalDefaut}, ${BORNES.journalLimiteMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_journal', () => outilAdminJournal(src, reg, a ?? {})),
+  )
+
+  server.registerTool(
+    'nextar_admin_saisies',
+    {
+      title: 'Ce qu’un compte a saisi (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Contenu créé par un compte du staff sur une période (défaut : 30 jours) : ' +
+        'mesures PAR TEST (nombre, joueurs, min, max, moyenne, événements, première et dernière heure de saisie, provenance) et ' +
+        'avis PAR CRITÈRE (nombre de notes, joueurs, moyenne ; jamais un commentaire) ; filtres test, événement, provenance ; ' +
+        'detail: true ajoute les lignes (code J-…, test, valeur, heure, provenance, lot). Répond à « quelles mesures a-t-il ' +
+        'saisies ? ». Jamais de nom de joueur ni d’adresse mail.',
+      inputSchema: z.object({
+        auteur: compte('Auteur (défaut : tous les comptes du staff)'),
+        ...periode,
+        test: z.string().max(200).optional().describe('Test ou critère (identifiant ou libellé de nextar_contexte).'),
+        evenement: z.string().max(200).optional().describe('Événement (identifiant ou nom).'),
+        source: z.enum(['saisie_appli', 'import_fichier', 'proposition_validee', 'generation']).optional().describe('Provenance.'),
+        detail: z.boolean().optional().describe('Ajouter les lignes une à une (défaut : non).'),
+        inclure_generation: generationOpt,
+        limite: z.number().int().min(1).max(BORNES.saisiesMax).optional().describe(`Lignes de détail par sorte (défaut ${BORNES.saisiesDefaut}, ${BORNES.saisiesMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_saisies', () => outilAdminSaisies(src, reg, a ?? {})),
+  )
+
+  server.registerTool(
+    'nextar_admin_lots',
+    {
+      title: 'Créations en masse (administrateurs)',
+      description:
+        'Réservé aux administrateurs ; lecture seule. Lots de créations en masse sur une période (défaut : 365 jours) : collage ' +
+        'd’un tableau, proposition validée, génération (démos, jeux d’essai) ; pour chacun : identifiant, provenance, ' +
+        'description, auteur (génération : « Générateur démo » et comptes porteurs), première et dernière écriture (heure ' +
+        'réelle du serveur), durée, volumes par type, dates déclarées dans les lignes (antidatage). Répond à « ces lignes ont-' +
+        'elles été créées le même jour, à la même heure ? ». Aucune donnée de joueur.',
+      inputSchema: z.object({
+        ...periode,
+        limite: z.number().int().min(1).max(BORNES.lotsMax).optional().describe(`Lots rendus, les plus récents (défaut ${BORNES.lotsDefaut}, ${BORNES.lotsMax} au plus).`),
+      }),
+      annotations: lecture,
+    },
+    (a) => repondre('nextar_admin_lots', () => outilAdminLots(src, reg, a ?? {})),
   )
 
   // ---------- Administration : préparer des actions à valider (adminProposer.ts) ----------

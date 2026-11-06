@@ -18,5 +18,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "files": ["../supabase/functions/mcp/outils.ts", "../supabase/functions/mcp/admin.ts", "../supabase/functions/mcp/adminProposer.ts", "../supabase/functions/mcp/proposerJoueurs.ts", "../supabase/functions/mcp/source.ts", "../tools/mcp-jeu-fictif.ts"]
+  "files": ["../supabase/functions/mcp/outils.ts", "../supabase/functions/mcp/admin.ts", "../supabase/functions/mcp/adminTraces.ts", "../supabase/functions/mcp/adminProposer.ts", "../supabase/functions/mcp/proposerJoueurs.ts", "../supabase/functions/mcp/source.ts", "../tools/mcp-jeu-fictif.ts"]
 }

@@ -552,7 +552,7 @@ t('propositions d’administration : branchements (boîte, écran, chemins de l�
   assert.match(read('src/components/FilterWindow.tsx'), /scrim/, 'fenêtre de la boîte sur fond flouté')
   assert.doesNotMatch(ecran + read('src/propositionsAdmin.ts'), /fetch\(|anthropic|openai|mistral/i)
   assert.match(read('src/propositionsAdmin.ts'), /'hb_update_member'/)
-  assert.match(read('src/pages/OAuthConsent.tsx'), /\(administrateur\) voir l’état de l’installation, l’activité du staff, les questions non comprises et qui s’est connecté/)
+  assert.match(read('src/pages/OAuthConsent.tsx'), /\(administrateur\) voir l’état de l’installation, l’activité du staff \(journal horodaté, saisies, créations en masse\), les questions non comprises et qui s’est connecté/)
 })
 
 // ---------- Propositions sur des joueurs (avis, vus, à revoir : src/propositionsJoueurs.ts) ----------
@@ -719,6 +719,24 @@ function fauxJoueurs(o: { existant?: AvisRow } = {}) {
   return { d, appels, avis, vus, aRevoir, evenement }
 }
 
+tAsync('avis : provenance posée sur les avis CRÉÉS depuis une proposition (data.source = proposition_validee, lot = identifiant de la proposition), pas sur un avis complété', async () => {
+  const existant: AvisRow = { id: 'av-old', playerId: 'p-lucas', eventId: 'ev-var', date: '2026-10-12', scores: { defense: 2 }, observer: 'Coach Fictif' }
+  const f = fauxJoueurs({ existant })
+  const r = rapprocherSurAppareil(lignesDe('avis', LIGNES_AVIS), CANDS_J)
+  const choix: ChoixJoueurs = { players: { 1: 'p-hugo' } }
+  const notes = (x: LigneRevue) => notesReprises(x.ligne as LigneAvis, CRITS_AVIS, vautTir(ficheDe(x, choix))).scores
+  await appliquerAvis(r, choix, notes, { eventId: 'ev-var', date: '2026-10-12' }, { ...f.d, lot: 'prop-1234' })
+  const crees = [...f.avis.values()].filter((a) => a.id !== 'av-old')
+  assert.ok(crees.length >= 2)
+  for (const a of crees) assert.deepEqual([a.source, a.lotId], ['proposition_validee', 'prop-1234'])
+  const lucas = f.avis.get('av-old')!
+  assert.ok(!('source' in lucas) && !('lotId' in lucas), 'avis complété : provenance d’origine gardée')
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  assert.match(read('src/components/PropositionsJoueurs.tsx'), /lot: p\.id \}\)/)
+  assert.match(read('src/components/Propositions.tsx'), /provenance=\{\{ source: p\.source === 'mcp' \? 'proposition_validee' : 'import_fichier', lotId: p\.id \}\}/)
+  assert.match(read('src/components/ImportMesures.tsx'), /const trace = provenance \?\? \{ source: 'import_fichier' as const, lotId: newId\(\) \}/)
+})
+
 tAsync('avis : enregistrés par saveEvaluation (trace « importé, validé par »), avis déjà là complété, joueur ajouté à l’événement ; « Défaire » remet tout', async () => {
   const existant: AvisRow = { id: 'av-old', playerId: 'p-lucas', eventId: 'ev-var', date: '2026-10-12', scores: { defense: 2, mental: 3 }, strengths: 'Volontaire', observer: 'Coach Fictif' }
   const f = fauxJoueurs({ existant })
@@ -743,6 +761,8 @@ tAsync('avis : enregistrés par saveEvaluation (trace « importé, validé par �
   assert.equal(lea.eventId, 'ev-var')
   assert.deepEqual(lea.scores, { tir: 5, mental: 4 })
   assert.ok(f.evenement.has('p-hugo') && f.evenement.has('p-lea'), 'joueurs notés ajoutés à l’événement (saveEvaluation)')
+  // Provenance (supabase/071_provenance.sql) : sans lot donné, rien ; un avis complété garde sa provenance d'origine.
+  assert.ok(!('source' in lea) && !('lotId' in lea) && !('source' in lucas))
   assert.deepEqual(etatApresJoueurs(r, app.resultats), 'partielle')
   // Défaire : avis créés retirés, joueurs retirés de l'événement, avis complété remis comme avant.
   const k = await app.defaire!()
