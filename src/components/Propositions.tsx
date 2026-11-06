@@ -1,8 +1,7 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { alive, db, plural, today, type Player } from '../db'
-import { eventNumbers, FORMAT_LABEL, type TableFormat } from '../importMesures'
+import { plural, today } from '../db'
+import { FORMAT_LABEL, type TableFormat } from '../importMesures'
 import { refreshPropositions, saveChoix, setPropositionEtat, usePendingPropositionCount, usePendingPropositions, usePropositions } from '../propositions'
 import { badgeLabel, dataLineCount, etatApresValidation, porteeLabel, rowsOf, SOURCE_LABEL, type PropositionRow } from '../propositionsCore'
 import { can, useRole } from '../roles'
@@ -11,6 +10,7 @@ import { FormActions, FormWindow } from './FormWindow'
 import { fromChoix, ImportReview, toChoix } from './ImportMesures'
 import { flash } from './ItemMenu'
 import { AdminReview } from './PropositionsAdmin'
+import { JoueursItem, JoueursReview, usePropScope } from './PropositionsJoueurs'
 import { actionsDe, resumeAdmin, sorteProposition } from '../propositionsAdmin'
 import { Icon } from './ui'
 
@@ -21,6 +21,9 @@ import { Icon } from './ui'
  *  - PropositionsPill : petit repère dans l'en-tête (« 2 à valider »), seulement quand quelque chose attend ; il ouvre la boîte.
  *  - PropositionsHost : la fenêtre, ouverte par openPropositions() (repère, menu du profil) ou par l'adresse ?propositions=1
  *    (toucher la notification « 1 proposition à valider »).
+ *  - Propositions sur des joueurs (sortes « avis », « vus », « a_revoir », préparées par Claude : nextar_proposer_avis, _vus,
+ *    _a_revoir) : écran JoueursReview (src/components/PropositionsJoueurs.tsx), lignes cochées puis « Enregistrer N avis » /
+ *    « Marquer N vus » / « Mettre N à revoir », par les chemins de l'appli (saveEvaluation, markSeenMany, addRewatchMany).
  *  - Proposition d'administration (sorte « admin », préparée par Claude avec le compte d'un administrateur : rôles,
  *    périmètres, archivage, fusions ; supabase/070_propositions_admin.sql) : écran AdminReview (src/components/
  *    PropositionsAdmin.tsx), actions cochées puis « Appliquer », par les chemins des écrans de l'administrateur.
@@ -98,6 +101,9 @@ function whenLabel(t: number) {
   return `le ${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`
 }
 
+/** Propositions sur des joueurs préparées par Claude (avis, vus, à revoir : src/components/PropositionsJoueurs.tsx). */
+const JOUEURS: readonly string[] = ['avis', 'vus', 'a_revoir']
+
 const dm = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : '')
 
 function PropositionsBox({ onClose }: { onClose: () => void }) {
@@ -116,14 +122,16 @@ function PropositionsBox({ onClose }: { onClose: () => void }) {
     <FormWindow title="À valider" onClose={onClose} width={current && current.kind !== 'admin' ? 820 : 640} guard={!!current && !done && current.kind !== 'admin'}>
       {current?.kind === 'admin' ? (
         <AdminReview key={current.id} p={current} when={whenLabel(current.createdAt)} onBack={back} />
+      ) : current && JOUEURS.includes(current.kind) ? (
+        <JoueursReview key={current.id} p={current} when={whenLabel(current.createdAt)} onBack={back} onSaved={() => setDone(true)} onUndone={() => setDone(false)} />
       ) : current ? (
         <PropositionReview key={current.id} p={current} canSave={can.editMeasurements(role)} onBack={back} onSaved={() => setDone(true)} onUndone={() => setDone(false)} />
       ) : (
         <>
           <p className="text-xs text-muted">
-            Les tableaux de mesures qui attendent ta validation : ceux gardés pour plus tard depuis « Coller un tableau de mesures » et ceux préparés avec Claude
-            (Réglages → Applications connectées){role === 'admin' ? ', ainsi que les actions d’administration préparées par Claude (rôles, périmètres, archivage, fusions)' : ''}. Rien
-            n’est enregistré avant que tu valides.
+            Ce qui attend ta validation : les tableaux de mesures gardés pour plus tard depuis « Coller un tableau de mesures », et ce qui a été préparé avec Claude
+            (Réglages → Applications connectées) : mesures, avis, joueurs vus ou à revoir{role === 'admin' ? ', actions d’administration (rôles, périmètres, archivage, fusions)' : ''}.
+            Rien n’est enregistré avant que tu valides.
           </p>
           {all === undefined ? (
             <p className="py-8 text-center text-sm text-muted">Chargement…</p>
@@ -158,6 +166,7 @@ function PropositionsBox({ onClose }: { onClose: () => void }) {
 /** Une proposition de la liste : titre, d'où elle vient, quand, combien de lignes, où sont cherchés les joueurs. */
 function PropositionItem({ p, onOpen }: { p: PropositionRow; onOpen: () => void }) {
   if (p.kind === 'admin') return <AdminItem p={p} onOpen={onOpen} />
+  if (JOUEURS.includes(p.kind)) return <JoueursItem p={p} when={whenLabel(p.createdAt)} onOpen={onOpen} />
   const n = dataLineCount(p.lignes)
   const d = dm(p.contexte.date)
   return (
@@ -211,25 +220,6 @@ function AdminItem({ p, onOpen }: { p: PropositionRow; onOpen: () => void }) {
       <Icon name="chevron" className="mt-2 h-4 w-4 shrink-0 text-muted" />
     </button>
   )
-}
-
-/** Joueurs où chercher pour une proposition : ceux gardés avec elle, sinon ceux de l'événement ou du groupe, sinon toute la base. */
-function usePropScope(p: PropositionRow) {
-  return useLiveQuery(async () => {
-    const ctx = p.contexte
-    const ev = ctx.portee === 'evenement' && ctx.id ? await db.events.get(ctx.id) : undefined
-    const g = ctx.portee === 'groupe' && ctx.id ? await db.groups.get(ctx.id) : undefined
-    const ids = ctx.joueurs?.length ? ctx.joueurs : ev && !ev.deleted ? (ev.playerIds ?? []) : g && !g.deleted ? (g.playerIds ?? []) : []
-    let players: Player[] = []
-    if (ids.length) players = alive((await db.players.bulkGet(ids)).filter((x): x is Player => !!x)).filter((x) => !x.mergedInto)
-    const nums = ev && !ev.deleted ? eventNumbers(ev) : undefined
-    if (players.length) {
-      const what = ctx.portee === 'groupe' ? 'du groupe' : 'de l’événement'
-      return { players, nums, where: `parmi les ${plural(players.length, 'joueur')} ${what}${ctx.nom ? ` « ${ctx.nom} »` : ''}` }
-    }
-    const base = alive(await db.players.toArray()).filter((x) => x.review !== 'refused' && !x.mergedInto)
-    return { players: base, nums, where: `parmi toute la base (${plural(base.length, 'fiche')})` }
-  }, [p.id])
 }
 
 function PropositionReview({

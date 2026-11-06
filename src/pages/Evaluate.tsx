@@ -27,6 +27,7 @@ import { usePlayersByName } from '../playersCache'
 import { FormActions, FormWindow } from '../components/FormWindow'
 import type { EventDraft } from '../eventCopy'
 import { hasPlayingTime, parsePlayingTime, stepPlayingTime, SUPER_POWER_MAX } from '../avisMatch'
+import { saveEvaluation } from '../avisSave'
 import {
   alive,
   CONTEXT_TYPES,
@@ -211,42 +212,22 @@ export default function Evaluate() {
     if (!player || !(event || (spontaneous && draft.contextType))) return
     const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => isFilled(v)))
     const id = existing?.id ?? newId()
-    // Avis spontané : validé d'office pour un encadrant ou un administrateur, sinon en attente
-    // (le serveur applique la même règle, quoi qu'envoie l'appareil).
-    const review = spontaneous
-      ? can.review(role)
-        ? { review: 'validated' as const, reviewedBy: currentUserId() ?? undefined, reviewedByName: me, reviewedAt: new Date().toISOString(), reviewNote: undefined }
-        : { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-      : event && !can.editEvent(role, event) && !can.contributeEvent(role, event) && !(event.playerIds ?? []).includes(player.id)
-        ? // Joueur hors liste noté par un autre que l'organisateur : à valider (supabase/021_avis_hors_liste.sql).
-          { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-        : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-    await save<Evaluation>('evaluations', {
-      ...draft,
-      ...review,
-      id,
-      playerId: player.id,
-      eventId: spontaneous ? undefined : eventId || undefined,
-      contextType: spontaneous ? draft.contextType : undefined,
-      contextPlace: spontaneous ? draft.contextPlace?.trim() || undefined : undefined,
-      observer: me,
-      observerId: currentUserId() ?? draft.observerId,
-      date: draft.date ?? today(),
-      scores,
-      // Super-pouvoir (une phrase, vide : rien) ; temps de jeu seulement sur un match ou un tournoi (src/avisMatch.ts).
-      superPower: draft.superPower?.replace(/\s+/g, ' ').trim() || undefined,
-      playingTime: playTime ? draft.playingTime : undefined,
-    } as Evaluation)
+    // Validation (avis spontané, joueur hors liste), auteur, puis le joueur noté rejoint la liste de l'événement si on peut la
+    // modifier : src/avisSave.ts (même chemin que la boîte « À valider »).
+    await saveEvaluation(
+      {
+        ...draft,
+        id,
+        playerId: player.id,
+        date: draft.date ?? today(),
+        scores,
+        // Super-pouvoir (une phrase, vide : rien) ; temps de jeu seulement sur un match ou un tournoi (src/avisMatch.ts).
+        superPower: draft.superPower?.replace(/\s+/g, ' ').trim() || undefined,
+        playingTime: playTime ? draft.playingTime : undefined,
+      },
+      { spontaneous, role, me, event: event && !spontaneous && eventId ? event : undefined },
+    )
     if (spontaneous) setAvisId(id)
-    // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
-    if (event && !spontaneous && (can.editEvent(role, event) || can.contributeEvent(role, event)) && !(event.playerIds ?? []).includes(player.id)) {
-      const me = currentUserId()
-      await save<HBEvent>('events', {
-        ...event,
-        playerIds: [...(event.playerIds ?? []), player.id],
-        ...(me && { addedBy: { ...event.addedBy, [player.id]: me } }),
-      })
-    }
     setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })

@@ -286,13 +286,28 @@ export async function saveTournament(ev: HBEvent, change: (t: Tournament) => Tou
   await save<HBEvent>('events', { ...cur, tournament, names: { ...cur.names, ...names } })
 }
 
+/** Joueurs que j'ai déjà mis à revoir (mon « à revoir » encore ouvert, même règle que myOpenRewatch). */
+export async function openRewatchSet(ids: readonly string[]): Promise<Set<string>> {
+  if (!ids.length || !scoutId()) return new Set()
+  const rows = alive(await db.rewatch.where('playerId').anyOf([...ids]).toArray())
+  return new Set(rows.filter((r) => !r.done && isMyRewatch(r)).map((r) => r.playerId))
+}
+/** Joueurs que j'ai déjà marqués vus à cet événement. */
+export async function seenSet(eventId: string, ids: readonly string[]): Promise<Set<string>> {
+  const me = scoutId()
+  if (!ids.length || !me) return new Set()
+  const rows = await db.seen.bulkGet(ids.map((id) => seenId(me, eventId, id)))
+  return new Set(rows.filter((r) => r && !r.deleted).map((r) => r!.playerId))
+}
+
 /**
  * « À revoir » pour plusieurs joueurs d'un coup (même geste que l'horloge d'une ligne) : dans un groupe, il vise ce
  * groupe ; dans un événement, il en part (originEventId). Mon « à revoir » encore ouvert sur un joueur est complété
  * (groupe ajouté) plutôt que doublé. `origin` : l'écran d'où la sélection a été faite (src/rewatchPlace.tsx), gardé sur
- * les nouveaux. Renvoie le nombre de joueurs changés.
+ * les nouveaux ; `notes` : commentaire de chaque nouveau « à revoir » (raison courte, boîte « À valider »). Renvoie le nombre
+ * de joueurs changés.
  */
-export async function addRewatchMany(playerIds: readonly string[], ctx: { originEventId?: string; groupId?: string; origin?: RewatchOrigin } = {}): Promise<number> {
+export async function addRewatchMany(playerIds: readonly string[], ctx: { originEventId?: string; groupId?: string; origin?: RewatchOrigin; notes?: Record<string, string> } = {}): Promise<number> {
   if (!scoutId()) return 0
   let n = 0
   for (const playerId of new Set(playerIds)) {
@@ -300,7 +315,14 @@ export async function addRewatchMany(playerIds: readonly string[], ctx: { origin
     if (open) {
       if (!ctx.groupId || open.groups?.includes(ctx.groupId)) continue
       await save<Rewatch>('rewatch', { ...open, groups: [...(open.groups ?? []), ctx.groupId] })
-    } else await saveRewatch({ playerId, originEventId: ctx.originEventId, origin: pickOrigin(ctx, ctx.origin), ...(ctx.groupId ? { groups: [ctx.groupId] } : {}) })
+    } else
+      await saveRewatch({
+        playerId,
+        originEventId: ctx.originEventId,
+        origin: pickOrigin(ctx, ctx.origin),
+        ...(ctx.groupId ? { groups: [ctx.groupId] } : {}),
+        ...(ctx.notes?.[playerId] ? { note: ctx.notes[playerId] } : {}),
+      })
     n++
   }
   return n

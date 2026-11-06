@@ -52,7 +52,7 @@ const UNDO_MS = 10_000
 
 export type ImportScope = { kind: 'evenement' | 'groupe'; id?: string; name: string; players: Player[]; nums?: Record<string, string> } | { kind: 'tous' }
 
-const fullName = (p: Pick<Player, 'firstName' | 'lastName'>) => `${p.lastName.toUpperCase()} ${p.firstName}`
+export const fullName = (p: Pick<Player, 'firstName' | 'lastName'>) => `${p.lastName.toUpperCase()} ${p.firstName}`
 const yearOf = (p: Pick<Player, 'birthDate'>) => (p.birthDate && /^\d{4}/.test(p.birthDate) ? p.birthDate.slice(0, 4) : '')
 
 /** Choix faits sur l'écran « À valider », tels qu'ils sont gardés avec une proposition (src/propositionsCore.ts). */
@@ -194,7 +194,7 @@ export function ImportMesures({ scope, onClose }: { scope: ImportScope; onClose:
   )
 }
 
-const CONF: Record<ProposalRow['match']['confidence'], { label: string; cls: string }> = {
+export const CONF: Record<ProposalRow['match']['confidence'], { label: string; cls: string }> = {
   sur: { label: 'Sûr', cls: 'bg-gain/15 text-gain' },
   verifier: { label: 'À vérifier', cls: 'bg-spread-lo/15 text-spread-lo' },
   introuvable: { label: 'Introuvable', cls: 'bg-panel-2 text-muted' },
@@ -498,23 +498,7 @@ export function ImportReview({
           return (
             <li key={r.line} className={`card overflow-hidden ${on ? 'border-accent/50' : ''}`} data-import-row={r.line}>
               <div className="flex items-start gap-1 p-1.5 pr-3">
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  aria-label={on ? 'Ligne retenue' : 'Ligne laissée de côté'}
-                  disabled={!p}
-                  onClick={() => setChecks((c) => ({ ...c, [r.line]: !on }))}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center disabled:opacity-40"
-                >
-                  <span className={`flex h-[22px] w-[22px] items-center justify-center rounded-md border-2 ${on ? 'border-accent bg-accent text-white' : 'border-line'}`}>
-                    {on && (
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M5 12.5l4.5 4.5L19 7.5" />
-                      </svg>
-                    )}
-                  </span>
-                </button>
+                <RowCheck on={on} disabled={!p} onToggle={() => setChecks((c) => ({ ...c, [r.line]: !on }))} />
                 <button
                   type="button"
                   className="min-h-11 min-w-0 flex-1 rounded-lg px-1.5 py-1 text-left hover:bg-fg/5"
@@ -592,6 +576,29 @@ export function ImportReview({
         {extraActions}
       </FormActions>
     </div>
+  )
+}
+
+/** Case d'une ligne à valider (retenue / laissée de côté), 44 px de cible. */
+export function RowCheck({ on, disabled, onToggle }: { on: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={on}
+      aria-label={on ? 'Ligne retenue' : 'Ligne laissée de côté'}
+      disabled={disabled}
+      onClick={onToggle}
+      className="flex h-11 w-11 shrink-0 items-center justify-center disabled:opacity-40"
+    >
+      <span className={`flex h-[22px] w-[22px] items-center justify-center rounded-md border-2 ${on ? 'border-accent bg-accent text-white' : 'border-line'}`}>
+        {on && (
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        )}
+      </span>
+    </button>
   )
 }
 
@@ -726,7 +733,7 @@ function ValueCell({
 }
 
 /** Choisir un autre joueur, dans le contexte : les possibles d'abord, puis la recherche (2 ou 3 lettres). */
-function PlayerPick({
+export function PlayerPick({
   cands,
   first,
   nums,

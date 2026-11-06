@@ -577,6 +577,8 @@ export function AvisCard({
             </>
           )}
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
+          {/* Avis venu de la boîte « À valider » (préparé avec Claude, src/propositionsJoueurs.ts). */}
+          {e.imported && <> · importé, validé par {e.imported.by || e.observer}</>}
           <br />
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
         </div>

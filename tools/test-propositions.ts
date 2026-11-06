@@ -46,6 +46,28 @@ import {
 } from '../supabase/functions/veille/veille'
 import { actionsDe, appliquerActions, defaireActions, etatApresAdmin, libelleAction, nonDefaisables, resumeAdmin, sorteProposition, type DepsAdmin } from '../src/propositionsAdmin'
 import { lireAction, saisonDe } from '../src/propositionsAdminCore'
+import { codeJoueur } from '../src/codesJoueurs'
+import {
+  appliquerAvis,
+  appliquerMarques,
+  cochee,
+  contexteJoueurs,
+  etatApresJoueurs,
+  ficheDe,
+  libelleBouton,
+  lignesDe,
+  messageFait,
+  notesReprises,
+  raisonsParFiche,
+  rapprocherSurAppareil,
+  resumeJoueurs,
+  type AvisRow,
+  type ChoixJoueurs,
+  type CritereAvis,
+  type DepsJoueurs,
+  type LigneRevue,
+} from '../src/propositionsJoueurs'
+import type { LigneAvis } from '../src/propositionsJoueursCore'
 
 let n = 0
 const t = (name: string, f: () => void) => {
@@ -150,7 +172,7 @@ t('pastille : seulement mes propositions en attente (ni traitées, ni retirées,
   rows.push(planEtat(keep([['c', '1']], rows), 'rejetee', NOW))
   rows.push(planDelete(keep([['d', '1']], rows), NOW))
   rows.push({ ...keep([['e', '1']], rows), expiresAt: NOW - 1 })
-  rows.push({ ...keep([['f', '1']], rows), kind: 'avis' })
+  rows.push({ ...keep([['f', '1']], rows), kind: 'inconnue' as never })
   rows.push({ ...keep([['g', '1']], rows), owner: OTHER })
   assert.equal(badgeCount(rows, ME, NOW), 2)
   assert.equal(badgeCount([], ME, NOW), 0)
@@ -531,6 +553,272 @@ t('propositions d’administration : branchements (boîte, écran, chemins de l�
   assert.doesNotMatch(ecran + read('src/propositionsAdmin.ts'), /fetch\(|anthropic|openai|mistral/i)
   assert.match(read('src/propositionsAdmin.ts'), /'hb_update_member'/)
   assert.match(read('src/pages/OAuthConsent.tsx'), /\(administrateur\) voir l’état de l’installation, l’activité du staff, les questions non comprises et qui s’est connecté/)
+})
+
+// ---------- Propositions sur des joueurs (avis, vus, à revoir : src/propositionsJoueurs.ts) ----------
+
+const CANDS_J: Candidate[] = [
+  { id: 'p-lucas', firstName: 'Lucas', lastName: 'Exemplaire', birthDate: '2011-03-14', num: '7' },
+  { id: 'p-emma', firstName: 'Emma', lastName: 'Imaginaire', birthDate: '2011-07-02', num: '11' },
+  { id: 'p-hugo', firstName: 'Hugo', lastName: 'Martinvert', birthDate: '2011-05-05', num: '9' },
+  { id: 'p-hugo2', firstName: 'Hugo', lastName: 'Martinbleu', birthDate: '2012-05-05', num: '19' },
+  { id: 'p-lea', firstName: 'Léa', lastName: 'Bidonville', birthDate: '2011-11-30', num: '4' },
+]
+const LIGNES_AVIS = [
+  { n: 1, nom: 'EXEMPLAIRE Lucas', numero: '7', confiance: 'sur', joueur: 'p-lucas', notes: { tir: 4, defense: 3, mental: 5 }, forts: 'Lecture du jeu', progres: 'Replacement' },
+  { n: 3, nom: 'Hugo M.', confiance: 'verifier', possibles: ['p-hugo', 'p-hugo2'], notes: { defense: 3 } },
+  { n: 4, nom: 'Personne Inventée', confiance: 'introuvable', notes: { mental: 2 } },
+  { n: 5, code: codeJoueur('p-lea'), confiance: 'sur', joueur: 'p-lea', notes: { tir: 5, mental: 4 }, date: '2026-10-13' },
+  { n: 6, nom: 'Emma Imaginaire', confiance: 'sur', joueur: 'p-emma', notes: { tir: 4, inconnu: 2 } },
+  { pas: 'une ligne' },
+]
+const CRITS_AVIS = new Map<string, CritereAvis>([
+  ['tir', { id: 'tir', label: 'Tir en appui', scale: 'score5' }],
+  ['defense', { id: 'defense', label: 'Défense', scale: 'score5' }],
+  ['mental', { id: 'mental', label: 'Mental', scale: 'score5' }],
+])
+const POSTES: Record<string, string> = { 'p-lucas': 'ARG', 'p-emma': 'DC', 'p-lea': 'ARD', 'p-hugo': 'ARG', 'p-hugo2': 'AG' }
+const vautTir = (pid?: string) => (cid: string) => cid !== 'tir' || ['ARG', 'ARD'].includes(POSTES[pid ?? ''] ?? '')
+
+t('propositions sur des joueurs : sortes lues du serveur, comptées dans la pastille, lignes lisibles, contexte', () => {
+  const s: ServerProposition = {
+    id: 'pj-1',
+    source: 'mcp',
+    kind: 'avis',
+    titre: 'Avis du 12/10 · Détection',
+    contexte: { sorte: 'avis', version: 1, portee: 'evenement', id: 'ev-var', nom: 'Détection', date: '2026-10-12' },
+    lignes: LIGNES_AVIS,
+    etat: 'en_attente',
+    created_at: '2026-11-05T09:00:00Z',
+    updated_at: '2026-11-05T09:00:00Z',
+    expires_at: '2026-12-05T09:00:00Z',
+    deleted_at: null,
+  }
+  const row = fromServer(s, undefined, ME)!
+  assert.equal(row.kind, 'avis')
+  const vus = fromServer({ ...s, id: 'pj-2', kind: 'vus', contexte: { sorte: 'vus', portee: 'evenement', id: 'ev-var' }, lignes: [{ n: 1, confiance: 'sur', joueur: 'p-lucas' }] }, undefined, ME)!
+  const rev = fromServer({ ...s, id: 'pj-3', kind: 'a_revoir', contexte: { sorte: 'a_revoir', portee: 'tous' }, lignes: [{ n: 1, confiance: 'sur', joueur: 'p-noah', raison: 'à revoir en défense' }] }, undefined, ME)!
+  assert.equal(badgeCount([row, vus, rev], ME, NOW), 3)
+  assert.equal(lignesDe('avis', row.lignes).length, 5, 'ligne illisible ignorée')
+  assert.deepEqual(contexteJoueurs('avis', row.contexte), { sorte: 'avis', version: 1, portee: 'evenement', id: 'ev-var', nom: 'Détection', date: '2026-10-12' })
+  assert.equal(contexteJoueurs('vus', { portee: 'groupe' })!.portee, 'groupe')
+  assert.equal(resumeJoueurs('avis', 5), '5 avis')
+  assert.equal(resumeJoueurs('vus', 1), '1 joueur vu')
+  assert.equal(resumeJoueurs('a_revoir', 3), '3 joueurs à revoir')
+  assert.equal(libelleBouton('avis', 3), 'Enregistrer 3 avis')
+  assert.equal(libelleBouton('vus', 1), 'Marquer 1 vu')
+  assert.equal(libelleBouton('vus', 4), 'Marquer 4 vus')
+  assert.equal(libelleBouton('a_revoir', 2), 'Mettre 2 à revoir')
+})
+
+t('rapprochement sur l’appareil : fiche sûre du serveur, code, nom, possibles du serveur, fiche absente, deux lignes pour la même fiche', () => {
+  const r = rapprocherSurAppareil(lignesDe('avis', LIGNES_AVIS), CANDS_J)
+  assert.deepEqual(
+    r.map((x) => [x.i, x.match.playerId ?? null, x.match.confidence]),
+    [
+      [0, 'p-lucas', 'sur'],
+      [1, r[1].match.playerId, 'verifier'],
+      [2, null, 'introuvable'],
+      [3, 'p-lea', 'sur'],
+      [4, 'p-emma', 'sur'],
+    ],
+  )
+  assert.ok(['p-hugo', 'p-hugo2'].includes(r[1].match.playerId!) && r[1].match.others.length >= 1)
+  // Fiche du serveur absente de l'appareil : rapprochement local par le nom.
+  const ailleurs = rapprocherSurAppareil([{ i: 0, ligne: { n: 1, nom: 'Emma Imaginaire', confiance: 'sur', joueur: 'p-absente' } }], CANDS_J)
+  assert.equal(ailleurs[0].match.playerId, 'p-emma')
+  // Introuvable par le nom, mais des possibles du serveur sur l'appareil : à vérifier.
+  const poss = rapprocherSurAppareil([{ i: 0, ligne: { n: 1, nom: 'Zzz', confiance: 'verifier', possibles: ['p-absente', 'p-lea'] } }], CANDS_J)
+  assert.deepEqual([poss[0].match.playerId, poss[0].match.confidence], ['p-lea', 'verifier'])
+  // Deux lignes pour la même fiche.
+  const dbl = rapprocherSurAppareil(
+    [
+      { i: 0, ligne: { n: 1, code: codeJoueur('p-lucas'), confiance: 'sur', joueur: 'p-lucas' } },
+      { i: 1, ligne: { n: 2, nom: 'Lucas Exemplaire', confiance: 'sur', joueur: 'p-lucas' } },
+    ],
+    CANDS_J,
+  )
+  assert.deepEqual(dbl.map((x) => x.match.confidence), ['verifier', 'verifier'])
+})
+
+t('choix du coach : cases d’office (sûrs), joueur choisi, « Ne pas importer cette ligne », case décochée ; notes reprises (critère, échelle, poste)', () => {
+  const r = rapprocherSurAppareil(lignesDe('avis', LIGNES_AVIS), CANDS_J)
+  const vide: ChoixJoueurs = {}
+  assert.deepEqual(r.map((x) => cochee(x, vide)), [true, false, false, true, true])
+  const c: ChoixJoueurs = { players: { 1: 'p-hugo2', 2: 'p-hugo', 0: '' }, checks: { 3: false } }
+  assert.deepEqual(r.map((x) => ficheDe(x, c) ?? null), [null, 'p-hugo2', 'p-hugo', 'p-lea', 'p-emma'])
+  assert.deepEqual(r.map((x) => cochee(x, c)), [false, true, true, false, true])
+  const emma = notesReprises(r[4].ligne as LigneAvis, CRITS_AVIS, vautTir('p-emma'))
+  assert.deepEqual(emma.scores, {})
+  assert.deepEqual(emma.ecartees.map((e) => e.raison), ['critère d’un autre poste', 'critère absent de cet appareil'])
+  assert.deepEqual(notesReprises(r[0].ligne as LigneAvis, CRITS_AVIS, vautTir('p-lucas')).scores, { tir: 4, defense: 3, mental: 5 })
+  assert.deepEqual(notesReprises({ n: 1, confiance: 'sur', notes: { mental: 7 } }, CRITS_AVIS, () => true).ecartees[0].raison, 'hors échelle (1 à 5)')
+})
+
+/** Faux chemins de l'appli : notent les appels, gardent les lignes écrites. */
+function fauxJoueurs(o: { existant?: AvisRow } = {}) {
+  const appels: string[] = []
+  const avis = new Map<string, AvisRow>()
+  if (o.existant) avis.set(o.existant.id, o.existant)
+  const vus = new Set<string>(['p-emma'])
+  const aRevoir = new Map<string, string>()
+  const evenement = new Set<string>(['p-lucas', 'p-emma'])
+  let k = 0
+  const d: DepsJoueurs = {
+    me: 'Coach Fictif',
+    newId: () => `av-${++k}`,
+    now: () => '2026-11-05T10:00:00.000Z',
+    monAvis: async (pid, ev) => [...avis.values()].find((a) => a.playerId === pid && a.eventId === ev),
+    enregistrerAvis: async (row, spontaneous) => {
+      appels.push(`saveEvaluation:${row.playerId}:${spontaneous ? 'spontané' : 'événement'}`)
+      avis.set(row.id, row)
+      const ajoute = !!row.eventId && !evenement.has(row.playerId)
+      if (ajoute) evenement.add(row.playerId)
+      return { addedToEvent: ajoute }
+    },
+    retirerAvis: async (id) => {
+      appels.push(`remove:evaluations:${id}`)
+      avis.delete(id)
+    },
+    remettreAvis: async (row) => {
+      appels.push(`save:evaluations:${row.id}`)
+      avis.set(row.id, row)
+    },
+    retirerDeEvenement: async (_ev, pid) => {
+      appels.push(`events:retire:${pid}`)
+      evenement.delete(pid)
+    },
+    vus: {
+      already: async (ids) => new Set(ids.filter((x) => vus.has(x))),
+      mark: async (ids) => {
+        appels.push(`markSeenMany:${ids.join(',')}`)
+        let n = 0
+        for (const x of ids) if (!vus.has(x)) (vus.add(x), n++)
+        return n
+      },
+      created: async (pid) => pid,
+      unmark: async (pid) => {
+        appels.push(`setSeen:false:${pid}`)
+        vus.delete(pid)
+      },
+    },
+    aRevoir: (notes) => ({
+      already: async (ids) => new Set(ids.filter((x) => aRevoir.has(x))),
+      mark: async (ids) => {
+        appels.push(`addRewatchMany:${ids.join(',')}:${JSON.stringify(notes)}`)
+        for (const x of ids) aRevoir.set(x, notes[x] ?? '')
+        return ids.length
+      },
+      created: async (pid) => (aRevoir.has(pid) ? `rw-${pid}` : undefined),
+      unmark: async (id) => {
+        appels.push(`remove:rewatch:${id}`)
+        aRevoir.delete(id.slice(3))
+      },
+    }),
+  }
+  return { d, appels, avis, vus, aRevoir, evenement }
+}
+
+tAsync('avis : enregistrés par saveEvaluation (trace « importé, validé par »), avis déjà là complété, joueur ajouté à l’événement ; « Défaire » remet tout', async () => {
+  const existant: AvisRow = { id: 'av-old', playerId: 'p-lucas', eventId: 'ev-var', date: '2026-10-12', scores: { defense: 2, mental: 3 }, strengths: 'Volontaire', observer: 'Coach Fictif' }
+  const f = fauxJoueurs({ existant })
+  const r = rapprocherSurAppareil(lignesDe('avis', LIGNES_AVIS), CANDS_J)
+  const choix: ChoixJoueurs = { players: { 1: 'p-hugo' } }
+  const notes = (x: LigneRevue) => notesReprises(x.ligne as LigneAvis, CRITS_AVIS, vautTir(ficheDe(x, choix))).scores
+  const app = await appliquerAvis(r, choix, notes, { eventId: 'ev-var', date: '2026-10-12' }, f.d)
+  assert.deepEqual(app.resultats.map((x) => [x.i, x.ok, x.message]), [
+    [0, true, 'ton avis déjà là est complété'],
+    [1, true, 'avis enregistré'],
+    [3, true, 'avis enregistré'],
+    [4, false, 'aucune note reprise sur cet appareil'],
+  ])
+  assert.equal(app.faits, 3)
+  const lucas = f.avis.get('av-old')!
+  assert.deepEqual(lucas.scores, { defense: 3, mental: 5, tir: 4 }, 'notes ajoutées ou remplacées')
+  assert.equal(lucas.strengths, 'Volontaire\nLecture du jeu')
+  assert.equal(lucas.improvements, 'Replacement')
+  assert.deepEqual(lucas.imported, { by: 'Coach Fictif', at: '2026-11-05T10:00:00.000Z' })
+  const lea = [...f.avis.values()].find((a) => a.playerId === 'p-lea')!
+  assert.equal(lea.date, '2026-10-13', 'date de la ligne')
+  assert.equal(lea.eventId, 'ev-var')
+  assert.deepEqual(lea.scores, { tir: 5, mental: 4 })
+  assert.ok(f.evenement.has('p-hugo') && f.evenement.has('p-lea'), 'joueurs notés ajoutés à l’événement (saveEvaluation)')
+  assert.deepEqual(etatApresJoueurs(r, app.resultats), 'partielle')
+  // Défaire : avis créés retirés, joueurs retirés de l'événement, avis complété remis comme avant.
+  const k = await app.defaire!()
+  assert.equal(k, 3)
+  assert.deepEqual([...f.avis.keys()], ['av-old'])
+  assert.deepEqual(f.avis.get('av-old'), existant)
+  assert.ok(!f.evenement.has('p-hugo') && !f.evenement.has('p-lea') && f.evenement.has('p-lucas'))
+  assert.ok(f.appels.includes('remove:evaluations:av-1') && f.appels.includes('save:evaluations:av-old'))
+})
+
+tAsync('avis hors événement : avis spontané (contexte, lieu) par saveEvaluation ; rien de coché : rien d’écrit', async () => {
+  const f = fauxJoueurs()
+  const r = rapprocherSurAppareil(lignesDe('avis', [{ n: 1, confiance: 'sur', joueur: 'p-emma', notes: { mental: 4 }, forts: 'Communication' }]), CANDS_J)
+  const app = await appliquerAvis(r, {}, (x) => notesReprises(x.ligne as LigneAvis, CRITS_AVIS, () => true).scores, { date: '2026-11-02', typeContexte: 'club', lieu: 'Gymnase Fictif' }, f.d)
+  assert.equal(app.faits, 1)
+  const a = [...f.avis.values()][0]
+  assert.deepEqual([a.contextType, a.contextPlace, a.eventId, a.date, a.strengths], ['club', 'Gymnase Fictif', undefined, '2026-11-02', 'Communication'])
+  assert.deepEqual(f.appels, ['saveEvaluation:p-emma:spontané'])
+  const rien = await appliquerAvis(r, { checks: { 0: false } }, () => ({ mental: 4 }), { date: '2026-11-02' }, fauxJoueurs().d)
+  assert.equal(rien.faits, 0)
+  assert.equal(rien.defaire, undefined)
+})
+
+tAsync('vus : markSeenMany (déjà vus gardés), « Défaire » ne retire que les « vu » posés ; à revoir : addRewatchMany avec les raisons, « Défaire »', async () => {
+  const f = fauxJoueurs()
+  const lignes = lignesDe('vus', [
+    { n: 1, confiance: 'sur', joueur: 'p-lucas' },
+    { n: 2, confiance: 'sur', joueur: 'p-emma' },
+    { n: 3, nom: 'Hugo M.', confiance: 'verifier', possibles: ['p-hugo', 'p-hugo2'] },
+    { n: 4, confiance: 'sur', joueur: 'p-lea' },
+  ])
+  const r = rapprocherSurAppareil(lignes, CANDS_J)
+  const app = await appliquerMarques(r, { players: { 2: 'p-hugo2' } }, f.d.vus!, 'déjà vu par toi à cet événement')
+  assert.deepEqual(app.resultats.map((x) => x.message), ['fait', 'déjà vu par toi à cet événement', 'fait', 'fait'])
+  assert.equal(app.faits, 3)
+  assert.deepEqual(f.appels, ['markSeenMany:p-lucas,p-emma,p-hugo2,p-lea'])
+  assert.deepEqual(etatApresJoueurs(r, app.resultats), 'validee')
+  assert.equal(await app.defaire!(), 3)
+  assert.deepEqual([...f.vus], ['p-emma'], 'le « vu » d’avant reste')
+  // À revoir.
+  const g = fauxJoueurs()
+  const lr = rapprocherSurAppareil(lignesDe('a_revoir', [{ n: 1, confiance: 'sur', joueur: 'p-lucas', raison: 'à revoir en défense' }, { n: 2, confiance: 'sur', joueur: 'p-lea' }]), CANDS_J)
+  const choix: ChoixJoueurs = {}
+  const ar = await appliquerMarques(lr, choix, g.d.aRevoir!(raisonsParFiche(lr, choix)), 'déjà à revoir pour toi')
+  assert.equal(ar.faits, 2)
+  assert.deepEqual(g.appels, ['addRewatchMany:p-lucas,p-lea:{"p-lucas":"à revoir en défense"}'])
+  assert.equal(await ar.defaire!(), 2)
+  assert.equal(g.aRevoir.size, 0)
+  assert.match(messageFait('vus', 3, 1), /^3 joueurs marqués vus \(1 déjà fait\)$/)
+  assert.equal(messageFait('a_revoir', 1, 0), '1 joueur mis à revoir')
+})
+
+t('propositions sur des joueurs : branchements (boîte, écran, mêmes chemins que l’appli, Défaire 10 s, fond flouté, libellés neutres)', () => {
+  const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  const box = read('src/components/Propositions.tsx')
+  assert.match(box, /<JoueursReview /)
+  assert.match(box, /<JoueursItem /)
+  const ecran = read('src/components/PropositionsJoueurs.tsx')
+  assert.match(ecran, /saveEvaluation\(row as unknown as Evaluation/)
+  assert.match(ecran, /markSeenMany\(o\.eventId!, ids\)/)
+  assert.match(ecran, /addRewatchMany\(ids, \{/)
+  assert.match(ecran, /<PlayerPick/)
+  assert.match(ecran, /<RowCheck/)
+  assert.match(ecran, /Garder pour plus tard/)
+  assert.match(ecran, /Rejeter/)
+  assert.match(ecran, /Défaire \(\{undoLeft\} s\)/)
+  assert.match(ecran, /const UNDO_MS = 10_000/)
+  assert.match(ecran, /Points forts : /)
+  assert.match(ecran, /Axes de progression : /)
+  assert.doesNotMatch(ecran + read('src/propositionsJoueurs.ts'), /pas retenu|non retenu|faible|mauvais|insuffisant|refusé/i, 'aucun libellé négatif sur un jeune')
+  assert.doesNotMatch(ecran + read('src/propositionsJoueurs.ts') + read('src/avisSave.ts'), /fetch\(|anthropic|openai|mistral/i)
+  assert.match(read('src/pages/Evaluate.tsx'), /await saveEvaluation\(/, 'l’écran d’avis passe par le même chemin')
+  assert.match(read('src/components/Opinions.tsx'), /importé, validé par \{e\.imported\.by/)
+  assert.match(read('src/scouting.ts'), /notes\?: Record<string, string>/)
+  assert.match(read('src/components/FilterWindow.tsx'), /scrim/, 'fenêtre de la boîte sur fond flouté')
+  assert.match(read('src/pages/OAuthConsent.tsx'), /des avis, des joueurs vus ou à revoir/)
 })
 
 await Promise.all(ta)

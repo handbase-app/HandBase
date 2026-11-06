@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router-dom'
 import { useBackCloses } from '../backNav'
-import { alive, db, newId, POSITIONS, remove, save, today, type HBEvent, type Player, type PlayerGroup } from '../db'
+import { db, newId, POSITIONS, remove, save, today, type HBEvent, type Player, type PlayerGroup } from '../db'
 import {
   ACTION_DISPLAY,
   actionDetail,
@@ -38,7 +38,7 @@ import { rescueInterpretation } from '../questionRescue'
 import { buildQuestionSchema, hasConditions, hasPopulation, interpretRecipe, recipeChips } from '../recipe'
 import { can, isParticipant, isPlayerRole, useRole } from '../roles'
 import { listOrigin, type RewatchOrigin } from '../rewatchCore'
-import { addRewatchMany, isMyRewatch, markSeenMany, myOpenRewatch, scoutId, seenId, setSeen } from '../scouting'
+import { addRewatchMany, markSeenMany, myOpenRewatch, openRewatchSet, scoutId, seenSet, setSeen } from '../scouting'
 import { doneMessage } from '../selection'
 import { spyTarget } from '../spy'
 import { addPlayersToEvent } from './AddToEvent'
@@ -195,20 +195,6 @@ const NO_CURRENT = 'Je ne sais pas de quels joueurs tu parles. Dis-moi les crit�
 const UNDO_MS = 10_000
 const LIST_MAX = 100
 const OUT_CHIPS = new Set(['out', 'value', 'keep', 'outPeriod', 'sort', 'limit', 'minMatch', 'noneYears'])
-
-/** Joueurs que j'ai déjà mis à revoir (mon « à revoir » encore ouvert, même règle que myOpenRewatch). */
-async function openRewatchSet(ids: readonly string[]): Promise<Set<string>> {
-  if (!ids.length || !scoutId()) return new Set()
-  const rows = alive(await db.rewatch.where('playerId').anyOf([...ids]).toArray())
-  return new Set(rows.filter((r) => !r.done && isMyRewatch(r)).map((r) => r.playerId))
-}
-/** Joueurs que j'ai déjà marqués vus à cet événement. */
-async function seenSet(eventId: string, ids: readonly string[]): Promise<Set<string>> {
-  const me = scoutId()
-  if (!ids.length || !me) return new Set()
-  const rows = await db.seen.bulkGet(ids.map((id) => seenId(me, eventId, id)))
-  return new Set(rows.filter((r) => r && !r.deleted).map((r) => r!.playerId))
-}
 
 function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
   const nav = useNavigate()

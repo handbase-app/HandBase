@@ -15,7 +15,7 @@ export type PropKind = 'mesures' | 'avis' | 'vus' | 'a_revoir' | 'admin'
 export type PropEtat = 'en_attente' | 'validee' | 'partielle' | 'rejetee'
 
 /** Sortes que cette version sait ouvrir (les autres attendent une version plus récente, sans compter dans la pastille). */
-export const KNOWN_KINDS: readonly PropKind[] = ['mesures', 'admin']
+export const KNOWN_KINDS: readonly PropKind[] = ['mesures', 'admin', 'avis', 'vus', 'a_revoir']
 
 /** Mêmes bornes que le serveur (supabase/067_propositions.sql). */
 export const LIMITS = {
@@ -39,7 +39,10 @@ export const LIMITS = {
 
 const DAY = 86_400_000
 
-/** Choix déjà faits par le coach sur l'écran « À valider » (colonnes reliées, joueurs choisis, valeurs corrigées, décisions). */
+/**
+ * Choix déjà faits par le coach sur l'écran « À valider » (colonnes reliées, joueurs choisis, valeurs corrigées, décisions) ;
+ * propositions sur des joueurs (avis, vus, à revoir) : joueurs choisis et cases, par rang de ligne.
+ */
 export interface PropChoix {
   columns?: Record<number, unknown>
   players?: Record<number, string>
@@ -51,8 +54,11 @@ export interface PropChoix {
 
 /** Contexte d'une proposition : où chercher les joueurs, date des tests, format lu, choix déjà faits. */
 export interface PropContexte {
-  /** Proposition d'administration (sorte « admin ») : rôle, périmètre, archivage ou fusion. */
+  /** Proposition d'administration (sorte « admin ») : rôle, périmètre, archivage ou fusion ; sur des joueurs : avis, vus, a_revoir. */
   sorte?: string
+  /** Avis hors événement (propositions « avis ») : contexte (« match », « club »…) et lieu (src/propositionsJoueursCore.ts). */
+  typeContexte?: string
+  lieu?: string
   portee?: 'evenement' | 'groupe' | 'tous'
   /** Identifiant de l'événement ou du groupe. */
   id?: string

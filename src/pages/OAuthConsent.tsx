@@ -132,7 +132,7 @@ export default function OAuthConsent() {
                 <ul className="flex flex-col gap-1.5">
                   {[
                     ['eye', 'lire tes joueurs EN CODES (J-…) : poste, année, sexe, département, mesures, moyennes d’avis, nombre de « vus » ; jamais un nom, un club, une date de naissance ni un commentaire'],
-                    ['check', 'déposer des mesures dans ta boîte « À valider » : rien n’est enregistré avant que tu valides'],
+                    ['check', 'déposer des mesures, des avis, des joueurs vus ou à revoir dans ta boîte « À valider » : rien n’est enregistré avant que tu valides'],
                     ['printer', 'garder 30 jours des rapports écrits avec les codes : ton appareil y remet les noms'],
                     ...(role === 'admin'
                       ? [

@@ -373,6 +373,12 @@ export interface Evaluation extends Syncable {
    */
   superPower?: string
   playingTime?: number
+  /**
+   * Avis venu de la boîte « À valider » (préparé par Claude, src/propositionsJoueurs.ts) : qui l'a validé (`by`, nom de
+   * l'appareil, comme `observer`) et quand (`at`, ISO). Champ libre de data (jsonb), gardé tel quel par hb_upsert : pas de SQL.
+   * Montré sur l'avis : « importé, validé par … » (comme les mesures importées).
+   */
+  imported?: { by?: string; at: string }
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */
