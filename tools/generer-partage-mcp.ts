@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 export const DOSSIER = 'supabase/functions/mcp/partage'
 /** Modules recopiés (src/<nom>.ts → partage/<nom>.ts). */
-export const MODULES = ['nameMatch', 'importMesures', 'codesJoueurs', 'sportConfig', 'gender', 'askAction', 'questionLogCore', 'propositionsAdminCore'] as const
+export const MODULES = ['nameMatch', 'importMesures', 'codesJoueurs', 'sportConfig', 'gender', 'askAction', 'questionLogCore', 'propositionsAdminCore', 'propositionsJoueursCore'] as const
 /** Imports permis en plus des modules recopiés : fichiers écrits à la main dans partage/ (types seulement). */
 const A_LA_MAIN = ['db']
 

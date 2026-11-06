@@ -19,6 +19,8 @@ import { withOAuthProtectedResource, withSupabase } from 'npm:@supabase/server@1
 import { z } from 'npm:zod@4.6.7'
 import { outilAdminActivite, outilAdminAFaire, outilAdminQuestions, outilAdminSante } from './admin.ts'
 import { outilAdminProposer } from './adminProposer.ts'
+import { ECHELLES_TEXTE, outilProposerAReVoir, outilProposerAvis, outilProposerVus } from './proposerJoueurs.ts'
+import { JOUEURS_LIMITES, TYPES_CONTEXTE } from './partage/propositionsJoueursCore.ts'
 import { BORNES, outilConnexions, outilContexte, outilLire, outilProposer, outilRapport, outilSuivi, verifierSortie, type Reglages, type Source } from './outils.ts'
 
 /** Origines des navigateurs autorisées (comme supabase/functions/transcrire) ; localhost pour les essais. */
@@ -28,7 +30,9 @@ const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/
 export const INSTRUCTIONS =
   'Serveur Nextar (détection et suivi de jeunes sportifs). Nextar ne donne JAMAIS le nom d’un joueur : chaque joueur est un code ' +
   '(« J- » puis 7 signes). Commence par nextar_contexte (tests, critères d’avis, postes, événements, groupes). Pour entrer des ' +
-  'résultats lus sur une feuille : nextar_proposer (le coach valide ensuite dans l’appli ; rien n’est enregistré avant). Pour ' +
+  'résultats lus sur une feuille : nextar_proposer (le coach valide ensuite dans l’appli ; rien n’est enregistré avant) ; de même ' +
+  'nextar_proposer_avis (notes du match par critère d’avis), nextar_proposer_vus (joueurs vus à un événement) et ' +
+  'nextar_proposer_a_revoir (joueurs à revoir). Pour ' +
   'interroger : nextar_lire (lignes en codes). Pour un rapport : rédige-le en Markdown AVEC LES CODES, puis nextar_rapport ; ' +
   'donne au coach le lien rendu : son appli remplacera les codes par les noms sur son appareil. N’essaie jamais de deviner ou ' +
   'de demander les noms derrière les codes. Pour un administrateur seulement, en lecture seule : nextar_connexions (qui s’est ' +
@@ -115,6 +119,93 @@ export function creerServeur(src: Source, reg: Reglages): McpServer {
       annotations: depot,
     },
     (a) => repondre('nextar_proposer', () => outilProposer(src, reg, a)),
+  )
+
+  // ---------- Propositions sur des joueurs : avis, vus, à revoir (proposerJoueurs.ts) ----------
+
+  const ligneJoueur = {
+    joueur: z.string().max(JOUEURS_LIMITES.nom).optional().describe('Nom tel qu’écrit sur la feuille (« MARTIN Lucas », « Lucas M. »), ou code « J-… » de nextar_lire.'),
+    nom: z.string().max(60).optional().describe('Nom de famille, si séparé du prénom.'),
+    prenom: z.string().max(60).optional().describe('Prénom, si séparé du nom.'),
+    numero: z.union([z.string().max(6), z.number().int()]).optional().describe('N° de maillot lu (aide au rapprochement dans un événement).'),
+    annee: z.union([z.string().max(4), z.number().int()]).optional().describe('Année de naissance lue.'),
+  }
+  const commun = 'Nextar rapproche lui-même les joueurs et ne renvoie, par ligne, que « trouvé » + code, « à vérifier », « plusieurs possibles » ' +
+    '(un nombre), « introuvable » ou « refusée » avec la raison, et l’identifiant de la proposition ; jamais un nom ni un texte. Rien ' +
+    'n’est écrit dans les fiches avant que le coach valide dans l’appli (boîte « À valider », joueur modifiable).'
+
+  server.registerTool(
+    'nextar_proposer_avis',
+    {
+      title: 'Proposer des avis à valider',
+      description:
+        '« Voici mes notes du match, mets les avis. » Dépose des avis (notes par critère d’avis) dans la boîte « À valider ». ' + commun +
+        ' Une ligne par joueur : `notes` { <id de critère d’avis de nextar_contexte (criteres_avis)>: note } dans l’échelle du critère ' +
+        `(${ECHELLES_TEXTE} ; choice : une des options) ; un critère inconnu, hors échelle ou pas pour le poste du joueur est refusé ` +
+        `(raison par note). Facultatif : \`points_forts\` et \`axes_de_progression\`, textes courts du coach (${JOUEURS_LIMITES.texte} signes ` +
+        'au plus, formulations positives ou neutres ; gardés tels quels, jamais renvoyés), `date` de la ligne. Précise l’événement ' +
+        '(identifiant ou nom) quand les avis portent sur un match ou un tournoi de nextar_contexte ; sans événement, avis hors ' +
+        `événement (\`contexte\` : ${TYPES_CONTEXTE.join(', ')} ; défaut match), avec un groupe pour mieux rapprocher. ${JOUEURS_LIMITES.lignes.avis} joueurs au plus.`,
+      inputSchema: z.object({
+        titre: z.string().max(BORNES.titreProposition).optional().describe('Titre court (« Avis U15 · match du 12/10 »).'),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Date des avis (AAAA-MM-JJ) ; défaut : date de l’événement, sinon aujourd’hui.'),
+        evenement: z.string().max(200).optional().describe('Événement (identifiant ou nom) des avis ; joueurs cherchés parmi les siens.'),
+        groupe: z.string().max(200).optional().describe('Sans événement : groupe (identifiant ou nom) où chercher les joueurs.'),
+        contexte: z.enum(TYPES_CONTEXTE).optional().describe('Sans événement : contexte de l’avis (défaut match).'),
+        lieu: z.string().max(JOUEURS_LIMITES.lieu).optional().describe('Sans événement : lieu (« Gymnase de Hyères »).'),
+        lignes: z
+          .array(
+            z.object({
+              ...ligneJoueur,
+              notes: z.record(z.string().max(120), z.union([z.number(), z.string().max(60)])).optional().describe('{ <id de critère d’avis>: note }.'),
+              date: z.string().max(10).optional().describe('Date de cet avis (AAAA-MM-JJ), si différente.'),
+              points_forts: z.string().max(2000).optional().describe(`Points forts, texte court du coach (${JOUEURS_LIMITES.texte} signes au plus).`),
+              axes_de_progression: z.string().max(2000).optional().describe(`Axes de progression, texte court du coach (${JOUEURS_LIMITES.texte} signes au plus).`),
+            }),
+          )
+          .max(BORNES.lignes),
+      }),
+      annotations: depot,
+    },
+    (a) => repondre('nextar_proposer_avis', () => outilProposerAvis(src, reg, a)),
+  )
+
+  server.registerTool(
+    'nextar_proposer_vus',
+    {
+      title: 'Proposer des joueurs vus à valider',
+      description:
+        '« Marque vus les joueurs de cette feuille. » Dépose dans la boîte « À valider » les joueurs vus par le coach à un événement ' +
+        '(`evenement` obligatoire : identifiant ou nom de nextar_contexte ; joueurs cherchés parmi les siens, ou dans toute la base ' +
+        `s’il n’en a encore aucun). ${commun} Marque neutre : « vu ». ${JOUEURS_LIMITES.lignes.vus} joueurs au plus.`,
+      inputSchema: z.object({
+        titre: z.string().max(BORNES.titreProposition).optional(),
+        evenement: z.string().min(1).max(200).describe('Événement (identifiant ou nom de nextar_contexte).'),
+        lignes: z.array(z.object(ligneJoueur)).max(BORNES.lignes),
+      }),
+      annotations: depot,
+    },
+    (a) => repondre('nextar_proposer_vus', () => outilProposerVus(src, reg, a)),
+  )
+
+  server.registerTool(
+    'nextar_proposer_a_revoir',
+    {
+      title: 'Proposer des joueurs à revoir',
+      description:
+        '« Mets à revoir ces joueurs. » Dépose dans la boîte « À valider » des joueurs à mettre « à revoir » pour le coach (marque ' +
+        `neutre de l’appli), avec une \`raison\` courte facultative (${JOUEURS_LIMITES.raison} signes au plus, formulation positive ou ` +
+        'neutre ; gardée telle quelle, jamais renvoyée). Précise l’événement où ils ont été repérés, ou un groupe, pour un meilleur ' +
+        `rapprochement (sinon toute la base). ${commun} ${JOUEURS_LIMITES.lignes.a_revoir} joueurs au plus.`,
+      inputSchema: z.object({
+        titre: z.string().max(BORNES.titreProposition).optional(),
+        evenement: z.string().max(200).optional().describe('Événement (identifiant ou nom) où ils ont été repérés.'),
+        groupe: z.string().max(200).optional().describe('Groupe (identifiant ou nom) où chercher les joueurs.'),
+        lignes: z.array(z.object({ ...ligneJoueur, raison: z.string().max(1000).optional().describe('Raison courte (« à revoir en défense »).') })).max(BORNES.lignes),
+      }),
+      annotations: depot,
+    },
+    (a) => repondre('nextar_proposer_a_revoir', () => outilProposerAReVoir(src, reg, a)),
   )
 
   server.registerTool(

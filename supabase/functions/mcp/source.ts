@@ -237,7 +237,7 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
     },
 
     async deposerProposition(p) {
-      const { data, error } = await sb.from('hb_propositions').insert({ source: 'mcp', kind: 'mesures', titre: p.titre, contexte: p.contexte, lignes: p.lignes }).select('id').single()
+      const { data, error } = await sb.from('hb_propositions').insert({ source: 'mcp', kind: p.kind ?? 'mesures', titre: p.titre, contexte: p.contexte, lignes: p.lignes }).select('id').single()
       if (absente(error)) return { erreur: 'la boîte « À valider » n’est pas encore installée sur le serveur (script 067).' }
       if (error || !data) return { erreur: error?.message ?? 'refus du serveur' }
       return { id: data.id as string }

@@ -1,6 +1,7 @@
 // Essai de bout en bout (tools/essai-mcp/lancer.sh) : appels HTTP au serveur MCP lancé dans le runtime des fonctions
 // Supabase, comme le ferait Claude : découverte OAuth, refus sans jeton, CORS, puis initialize, tools/list et chaque outil
-// (onze, dont nextar_admin_proposer qui dépose une proposition d'administration dans le jeu fictif)
+// (quatorze, dont nextar_admin_proposer qui dépose une proposition d'administration dans le jeu fictif, et les propositions
+// d'avis, de vus et de « à revoir »)
 // avec un jeton fictif. Vérifie qu'aucune réponse ne contient un nom, une date de naissance, un club, une licence ou un
 // commentaire du jeu fictif.
 //   MCP_URL=http://127.0.0.1:9707/functions/v1/mcp JETONS=<fichier> npx jiti tools/essai-mcp/appels.ts
@@ -104,6 +105,9 @@ for (const [nom, j] of [
     'nextar_contexte',
     'nextar_lire',
     'nextar_proposer',
+    'nextar_proposer_a_revoir',
+    'nextar_proposer_avis',
+    'nextar_proposer_vus',
     'nextar_rapport',
     'nextar_suivi',
   ])
@@ -126,7 +130,16 @@ for (const [nom, j] of [
   assert.equal(prop.annotations.readOnlyHint, false)
   assert.equal(prop.annotations.destructiveHint, false)
   assert.equal(prop.inputSchema.properties.actions.maxItems, 50)
-  ok('tools/list : les onze outils, schémas et annotations (outils d’administration en lecture seule, nextar_admin_proposer : dépôt)')
+  for (const n of ['nextar_proposer_avis', 'nextar_proposer_vus', 'nextar_proposer_a_revoir']) {
+    const o = body.result.tools.find((t: { name: string }) => t.name === n)
+    assert.equal(o.annotations.readOnlyHint, false, n)
+    assert.equal(o.annotations.destructiveHint, false, n)
+    assert.ok(o.inputSchema.properties.lignes, n)
+  }
+  const pav = body.result.tools.find((t: { name: string }) => t.name === 'nextar_proposer_avis')
+  assert.deepEqual(pav.inputSchema.properties.contexte.enum, ['unss', 'club', 'match', 'selection', 'video', 'autre'])
+  assert.deepEqual(body.result.tools.find((t: { name: string }) => t.name === 'nextar_proposer_vus').inputSchema.required.sort(), ['evenement', 'lignes'])
+  ok('tools/list : les quatorze outils, schémas et annotations (outils d’administration en lecture seule ; propositions : dépôt)')
 }
 // 5. Chaque outil.
 const appel = async (name: string, args: unknown, jeton = jetons.coach) => {
@@ -160,6 +173,33 @@ let propId = ''
   )
   propId = out.id
   ok(`nextar_proposer : ${out.resume.trouves} trouvés, ${out.resume.plusieurs} à plusieurs possibles, ${out.resume.introuvables} introuvable (codes seulement)`)
+}
+// Avis, vus, à revoir : dépôt, rapprochement, refus ; jamais un nom ni le texte du coach.
+{
+  const texte = 'Lucas Exemplaire a une lecture du jeu remarquable'
+  const { out, isError } = await appel('nextar_proposer_avis', {
+    evenement: 'Détection U15 Var',
+    lignes: [
+      { joueur: 'EXEMPLAIRE Lucas', numero: 7, notes: { tir: 4, defense: '3' }, points_forts: texte },
+      { joueur: 'Emma Imaginaire', notes: { tir: 4, defense: 6 } },
+      { joueur: 'Hugo M.', notes: { mental: 3 } },
+    ],
+  })
+  assert.ok(!isError, JSON.stringify(out))
+  assert.deepEqual(out.lignes.map((l: { etat: string }) => l.etat), ['trouvé', 'refusée', 'plusieurs possibles'])
+  assert.ok(!JSON.stringify(out).includes(texte), 'texte du coach jamais renvoyé')
+  const trop = await appel('nextar_proposer_avis', { lignes: Array.from({ length: 101 }, () => ({ joueur: 'Lucas', notes: { mental: 3 } })) })
+  assert.ok(trop.isError && /100 joueurs au plus/.test(trop.out.erreur))
+  const { out: vus } = await appel('nextar_proposer_vus', { evenement: 'ev-var', lignes: [{ numero: '7' }, { numero: '11' }] })
+  assert.deepEqual(vus.resume, { trouves: 2, a_verifier: 0, plusieurs: 0, introuvables: 0, refusees: 0 })
+  const sansEv = await rpc('tools/call', { name: 'nextar_proposer_vus', arguments: { lignes: [{ numero: '7' }] } })
+  assert.equal(sansEv.res.status, 200)
+  const { out: ar } = await appel('nextar_proposer_a_revoir', { lignes: [{ joueur: 'Noah Fictivus', raison: 'Revoir Noah Fictivus au pivot' }] })
+  assert.equal(ar.lignes[0].etat, 'trouvé')
+  assert.ok(!JSON.stringify(ar).includes('Revoir Noah'), 'raison jamais renvoyée')
+  const { out: suivi } = await appel('nextar_suivi', { id: ar.id })
+  assert.equal(suivi.sorte, 'à revoir')
+  ok('nextar_proposer_avis / _vus / _a_revoir : dépôt, rapprochement, refus (note hors échelle, trop de lignes, événement manquant), aucun nom ni texte rendu')
 }
 {
   const { out } = await appel('nextar_suivi', { id: propId })

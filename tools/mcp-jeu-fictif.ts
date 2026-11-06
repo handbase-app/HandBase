@@ -268,7 +268,7 @@ export interface SourceFictive extends Source {
   propositionsAdmin: { id: string; titre: string; contexte: Record<string, unknown>; lignes: Record<string, unknown>[] }[]
   /** Écritures tentées (propositions de mesures, rapports, propositions d'administration). */
   ecritures: number
-  propositionsDeposees: { id: string; titre: string; contexte: Record<string, unknown>; lignes: string[][]; etat: string; created_at: string }[]
+  propositionsDeposees: { id: string; titre: string; contexte: Record<string, unknown>; lignes: string[][] | Record<string, unknown>[]; kind?: string; etat: string; created_at: string }[]
   rapportsDeposes: { id: string; titre: string; contenu: string }[]
   /** Appels faits à joueursNoms (pour vérifier que nextar_lire n'en fait aucun). */
   appelsNoms: number
@@ -358,7 +358,9 @@ export function sourceFictive(
       src.ecritures++
       if (o.erreurDepot) return { erreur: o.erreurDepot }
       const id = uuid()
-      props.push({ id, ...p, etat: 'en_attente', created_at: '2026-11-05T10:00:00Z' })
+      // Comme la table (067) : 300 lignes au plus.
+      if (p.lignes.length > 300) return { erreur: 'Trop de lignes (300 au plus)' }
+      props.push({ id, ...p, kind: p.kind ?? 'mesures', etat: 'en_attente', created_at: '2026-11-05T10:00:00Z' })
       return { id }
     },
     async proposition(id) {
@@ -508,7 +510,7 @@ export const SECOND_ADMIN: CompteSrv & { email: string } = { userId: '00000000-0
 const toSrv = (p: SourceFictive['propositionsDeposees'][number]): PropositionSrv => ({
   id: p.id,
   source: 'mcp',
-  kind: 'mesures',
+  kind: p.kind ?? 'mesures',
   titre: p.titre,
   etat: p.etat,
   nbLignes: p.lignes.length,

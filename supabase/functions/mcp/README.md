@@ -2,8 +2,8 @@
 
 Le coach branche Nextar dans Claude (*Réglages → Connecteurs → Ajouter un connecteur personnalisé*, adresse
 `https://<projet>.supabase.co/functions/v1/mcp`) et se connecte avec son compte Nextar (serveur OAuth 2.1 de Supabase Auth ;
-page d'autorisation de l'appli : `/oauth/consent`). Claude peut alors lire en codes, proposer des mesures à valider et garder
-des rapports en codes, **avec les droits du coach** (RLS, périmètre, rôle).
+page d'autorisation de l'appli : `/oauth/consent`). Claude peut alors lire en codes, proposer des mesures, des avis, des
+joueurs vus ou à revoir à valider, et garder des rapports en codes, **avec les droits du coach** (RLS, périmètre, rôle).
 
 **Règle : Nextar n'envoie jamais de données de joueur à une IA.** Les réponses ne contiennent que des codes (`J-7K3Q2MX`),
 postes, années, sexe, département, mesures, moyennes d'avis et nombres de « vus » (liste blanche : `outils.ts`,
@@ -42,6 +42,30 @@ nom affiché et rôle ; aucune écriture.
   seulement les nombres et les pages. Limite connue : un nom mal orthographié en minuscules n'est pas reconnu. Ni requête
   SQL, ni détail d'erreur, ni nom d'auteur ne sont lus.
 
+**Trois outils qui proposent sur des joueurs** (`proposerJoueurs.ts`), comme `nextar_proposer` pour les mesures : ils
+DÉPOSENT dans la boîte « À valider » du coach (`hb_propositions`, sortes `avis`, `vus`, `a_revoir`, déjà prévues par
+`supabase/067_propositions.sql` : **aucun SQL**), et rien n'est écrit dans les fiches avant que le coach valide dans l'appli.
+Trois outils plutôt qu'un paramètre « sorte » : un schéma par geste, plus clair pour un modèle ; `nextar_proposer` reste
+l'outil des mesures. Rapprochement côté serveur (nom lu sur la feuille, n° de maillot, année, ou code `J-…`), dans
+l'événement, le groupe ou toute la base ; par ligne : « trouvé » + code, « à vérifier », « plusieurs possibles » (nombre),
+« introuvable », ou « refusée » + raison ; jamais un nom, ni le texte du coach (liste blanche `CLES`).
+- `nextar_proposer_avis` (≤ 100 joueurs) : `notes` { id de critère d'avis de `nextar_contexte` : note } contrôlées sur
+  l'échelle du critère (score5 : 1 à 5, score3 : 0 à 3, score2 : 0 à 2, notes entières ; choice : une des options ; texte
+  libre refusé) et sur le poste du joueur trouvé ; critère inconnu, hors échelle ou pas pour ce poste : refus par note
+  (`notes_refusees`), ligne refusée si rien de valable. `date` (défaut : celle de l'événement), `evenement` facultatif ; sans
+  événement, avis hors événement (`contexte` unss, club, match, selection, video, autre ; défaut match ; `lieu`).
+  `points_forts`, `axes_de_progression` : texte court du coach (300 signes au plus), gardé tel quel, jamais renvoyé.
+- `nextar_proposer_vus` (≤ 200) : `evenement` obligatoire ; joueurs cherchés parmi les siens (toute la base s'il n'en a
+  aucun).
+- `nextar_proposer_a_revoir` (≤ 100) : `raison` courte facultative (120 signes au plus, gardée comme commentaire du « à
+  revoir », jamais renvoyée).
+Format des lignes : `src/propositionsJoueursCore.ts` (copie dans `partage/`). Dans l'appli (`src/propositionsJoueurs.ts`,
+écran `src/components/PropositionsJoueurs.tsx`) : noms remis sur l'appareil, rapprochement refait sur ses fiches, joueur
+modifiable (possibles puis recherche, « Ne pas importer cette ligne »), cases, « Enregistrer N avis » (`saveEvaluation`,
+`src/avisSave.ts`, sorti de l'écran d'avis ; trace « importé, validé par … », champ `imported`), « Marquer N vus »
+(`markSeenMany`), « Mettre N à revoir » (`addRewatchMany`), « Défaire » 10 s (retire ce qui vient d'être créé, remet un avis
+complété comme avant), « Garder pour plus tard », « Rejeter ».
+
 **Un outil d'administration qui prépare, sans rien appliquer** (`adminProposer.ts`) : `nextar_admin_proposer`. « Claude
 prépare, l'admin valide d'un toucher » : l'outil vérifie chaque action demandée et dépose celles qui sont prêtes dans la
 boîte « À valider » de l'administrateur (`hb_propositions`, sorte `admin`, **`supabase/070_propositions_admin.sql`**) ; rien ne
@@ -68,6 +92,9 @@ compte en avait un), un secteur, une affectation et un archivage ; une fusion ne
 |---|---|---|
 | `nextar_contexte` | `archives?` | tests et unités, critères d'avis par poste, postes, événements et groupes (id, nom, date, type, nombre de joueurs) |
 | `nextar_proposer` | `tableau` (texte) ou `lignes` (+ `colonnes`), `evenement` / `groupe` (id ou nom), `date`, `titre` | id de la proposition, lien vers la boîte, par ligne : « trouvé » + code, « à vérifier », « plusieurs possibles » (nombre), « introuvable » |
+| `nextar_proposer_avis` | `lignes` (`joueur` / `nom` + `prenom`, `numero?`, `annee?`, `notes`, `date?`, `points_forts?`, `axes_de_progression?`), `evenement?` / `groupe?`, `date?`, `contexte?`, `lieu?`, `titre?` | id, lien, par ligne : état + code si trouvé, `nb_notes`, `avec_texte`, `notes_refusees` (critère, raison) ; ou « refusée » + raison |
+| `nextar_proposer_vus` | `evenement`, `lignes` (`joueur`, `numero?`, `annee?`), `titre?` | id, lien, par ligne : état + code si trouvé |
+| `nextar_proposer_a_revoir` | `lignes` (`joueur`, `numero?`, `annee?`, `raison?`), `evenement?` / `groupe?`, `titre?` | id, lien, par ligne : état + code si trouvé, `avec_raison` ; ou « refusée » + raison |
 | `nextar_suivi` | `id?` | état (en attente, validée, validée en partie, rejetée) ; sans id : les 20 dernières |
 | `nextar_lire` | années, sexe, postes, départements, événement, groupe, mesures min/max, vus min, avis min, tri, limite ≤ 200 | lignes en codes |
 | `nextar_rapport` | `markdown` (avec les codes), `titre?` | lien `/rapport/<id>` (gardé 30 jours, auteur seul), codes mal recopiés |
@@ -79,12 +106,12 @@ compte en avait un), un secteur, une affectation et un archivage ; une fusion ne
 | `nextar_admin_proposer` (administrateurs) | `sorte` (role, perimetre, archiver, fusion), `actions` (≤ 50), `evenements_avant?`, `titre?` | par action « prête » / « refusée » + raison, id de la proposition « À valider », lien ; rien n'est appliqué |
 
 Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/server` 2.4.0, `@supabase/server` 1.9.2,
-`@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `admin.ts` (les outils d'administration en lecture, purs), `adminProposer.ts`
-(`nextar_admin_proposer`, pur),
+`@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `proposerJoueurs.ts` (avis, vus, à revoir, purs), `admin.ts` (les outils d'administration en
+lecture, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
 `source.ts` (requêtes aux droits du coach), `partage/` (copies **générées** de modules purs de `src/` :
 `npx jiti tools/generer-partage-mcp.ts` après un changement de `src/importMesures.ts`, `src/nameMatch.ts`,
-`src/codesJoueurs.ts`, `src/sportConfig.ts`, `src/gender.ts`, `src/askAction.ts`, `src/questionLogCore.ts` ou
-`src/propositionsAdminCore.ts`), `deno.json`.
+`src/codesJoueurs.ts`, `src/sportConfig.ts`, `src/gender.ts`, `src/askAction.ts`, `src/questionLogCore.ts`,
+`src/propositionsAdminCore.ts` ou `src/propositionsJoueursCore.ts`), `deno.json`.
 
 ## Mise en ligne (base de test d'abord)
 
@@ -113,9 +140,11 @@ Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/se
 ## Essais sans projet Supabase
 
 - `npx jiti tools/test-mcp.ts` : outils sur un jeu fictif (aucun nom dans les réponses, codes, rapprochement, rapport ;
-  outils d'administration : refus sans lecture, listes blanches, masquage des noms, bornes).
+  avis, vus, à revoir : rapprochement, refus, textes du coach jamais rendus ; outils d'administration : refus sans lecture,
+  listes blanches, masquage des noms, bornes). `npx jiti tools/test-propositions.ts` : la boîte dans l'appli (application
+  par de faux chemins, « Défaire »).
 - `bash tools/essai-mcp/lancer.sh` : la pile réelle dans le runtime des fonctions Supabase (Docker
-  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les onze outils
+  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les quatorze outils
   (`nextar_connexions` et les cinq `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
 - `bash tools/essai-sql-068/lancer.sh` : `068_rapports.sql` sur un Postgres jetable.
 - `bash tools/essai-sql-069/lancer.sh` : `069_admin_sante.sql` sur un Postgres jetable (refus des autres comptes, forme de la

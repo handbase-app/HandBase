@@ -15,7 +15,9 @@
 // Ce que le coach donne lui-même à Claude (une photo avec des noms) entre par nextar_proposer ; Nextar ne renvoie que des
 // codes et un état par ligne, sans répéter ce qu'il a reçu (ni noms, ni en-têtes de colonnes).
 // Rien n'est écrit dans les fiches : nextar_proposer dépose dans la boîte « À valider » (hb_propositions, source « mcp »),
-// nextar_rapport garde un texte en codes pour son auteur seul (hb_rapports, supabase/068_rapports.sql).
+// comme nextar_proposer_avis, _vus et _a_revoir (proposerJoueurs.ts : sortes « avis », « vus », « a_revoir » ; le texte du
+// coach, points forts, axes ou raison, est gardé dans la proposition et jamais rendu) ; nextar_rapport garde un texte en
+// codes pour son auteur seul (hb_rapports, supabase/068_rapports.sql).
 // Exception voulue, et la seule : nextar_connexions (administrateurs seulement) rend le NOM AFFICHÉ et le rôle des COMPTES
 // du staff connectés (jamais une adresse mail, un téléphone, un identifiant brut, une adresse IP ni un appareil détaillé ;
 // aucune donnée de joueur). Sa réponse passe par sa propre liste blanche (CLES_CONNEXIONS : « nom_affiche » n'est permis
@@ -152,7 +154,12 @@ export interface Source {
   mesures(playerIds: string[]): Promise<MesureSrv[]>
   avis(playerIds: string[]): Promise<AvisSrv[]>
   vus(playerIds: string[]): Promise<VuSrv[]>
-  deposerProposition(p: { titre: string; contexte: Record<string, unknown>; lignes: string[][] }): Promise<{ id: string } | { erreur: string }>
+  /**
+   * Dépose une proposition dans la boîte « À valider » du coach (hb_propositions, 067). `kind` : « mesures » (défaut, lignes
+   * en cellules), ou « avis », « vus », « a_revoir » (nextar_proposer_avis, _vus, _a_revoir : une ligne objet par joueur,
+   * src/propositionsJoueursCore.ts).
+   */
+  deposerProposition(p: { titre: string; contexte: Record<string, unknown>; lignes: string[][] | Record<string, unknown>[]; kind?: 'mesures' | 'avis' | 'vus' | 'a_revoir' }): Promise<{ id: string } | { erreur: string }>
   proposition(id: string): Promise<PropositionSrv | null>
   propositions(limite: number): Promise<PropositionSrv[]>
   deposerRapport(r: { titre: string; contenu: string }): Promise<{ id: string; expires_at: string } | { erreur: string }>
@@ -396,6 +403,8 @@ const CLES = new Set([
   'tronque', 'legende', 'tri',
   // rapport
   'codes', 'codes_invalides',
+  // proposer_avis, proposer_vus, proposer_a_revoir (proposerJoueurs.ts) ; suivi : sorte de la proposition
+  'sorte', 'evenement', 'refusees', 'raison', 'nb_notes', 'notes_refusees', 'critere', 'avec_texte', 'avec_raison', 'contexte_avis',
 ])
 /** Objets dont les clés sont libres (identifiants de tests ou de critères) ; leurs valeurs restent vérifiées. */
 const DICTS = new Set(['mesures', 'criteres', 'legende'])
@@ -499,7 +508,7 @@ export const clip = (s: unknown, n: number) => {
     .trim()
   return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t
 }
-const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
+export const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))
 export const uniq = <T>(xs: Iterable<T>) => [...new Set(xs)]
 const round = (n: number, d = 2) => Math.round(n * 10 ** d) / 10 ** d
 export const lienBoite = (r: Reglages) => `${r.appUrl}/?propositions=1`
@@ -573,7 +582,8 @@ export async function outilContexte(src: Source, reg: Reglages, input: { archive
     regles:
       "Nextar ne donne jamais de nom de joueur : chaque joueur est un code (J- puis 7 signes). Écris tes rapports avec ces codes " +
       "(nextar_rapport) : l'appli du coach remet les noms sur son appareil. Rien n'est enregistré sans la validation du coach : " +
-      'nextar_proposer dépose dans la boîte « À valider ».',
+      'nextar_proposer (mesures), nextar_proposer_avis (notes par critère d’avis), nextar_proposer_vus (joueurs vus à un ' +
+      'événement) et nextar_proposer_a_revoir déposent dans la boîte « À valider ».',
   }
 }
 
@@ -706,7 +716,7 @@ const ALERTE_TEXTE: Record<string, string> = {
 }
 
 /** État d'une ligne pour l'IA : jamais de nom, un code seulement si le joueur est sûr. */
-function etatLigne(m: PlayerMatch, partages: Set<string>) {
+export function etatLigne(m: PlayerMatch, partages: Set<string>) {
   if (m.confidence === 'sur' && m.playerId) {
     const code = codeJoueur(m.playerId)
     return { etat: 'trouvé', code, ...(partages.has(code) ? { code_partage: true } : {}) }
@@ -833,9 +843,12 @@ const toImportCriterion = (c: CritereSrv): ImportCriterion => ({
 
 const ETAT_MOTS: Record<string, string> = { en_attente: 'en attente', validee: 'validée', partielle: 'validée en partie', rejetee: 'rejetée' }
 
+const SORTE_MOTS: Record<string, string> = { mesures: 'mesures', avis: 'avis', vus: 'vus', a_revoir: 'à revoir', admin: 'administration' }
+
 const resumeProp = (p: PropositionSrv) => ({
   id: p.id,
   titre: clip(p.titre, 80),
+  sorte: SORTE_MOTS[p.kind] ?? 'autre',
   etat: p.deleted_at ? 'retirée' : (ETAT_MOTS[p.etat] ?? p.etat),
   source: p.source === 'mcp' ? 'depuis Claude' : p.source === 'collage' ? 'collé dans l’appli' : p.source,
   ...(p.nbLignes >= 0 ? { nb_lignes: p.nbLignes } : {}),
@@ -876,7 +889,7 @@ export interface LireInput {
 }
 
 /** Critère par identifiant ou par libellé (sans accents ; exact, puis tous les mots). */
-function critere(ref: string, list: readonly CritereSrv[]): CritereSrv | undefined {
+export function critere(ref: string, list: readonly CritereSrv[]): CritereSrv | undefined {
   const r = ref.trim()
   const byId = list.find((c) => c.id === r)
   if (byId) return byId

@@ -65,6 +65,9 @@ import { INDISPONIBLE_070, outilAdminProposer, type AdminProposerInput } from '.
 import { lireAction } from '../src/propositionsAdminCore'
 import { actionsDe, libelleAction, resumeAdmin } from '../src/propositionsAdmin'
 import { sourceSupabase } from '../supabase/functions/mcp/source'
+import { outilProposerAReVoir, outilProposerAvis, outilProposerVus } from '../supabase/functions/mcp/proposerJoueurs'
+import { controleNote, lireLigne, vautPourPoste } from '../src/propositionsJoueursCore'
+import { lignesDe, rapprocherSurAppareil } from '../src/propositionsJoueurs'
 import { copiesPerimees } from './generer-partage-mcp'
 import {
   COMPTE_INACTIF,
@@ -1185,6 +1188,193 @@ await t('supabase/069_admin_sante.sql : SECURITY DEFINER réservé aux administr
   assert.ok(!existsSync(new URL('../supabase/070_admin_sante.sql', import.meta.url)))
 })
 
+// ---------- nextar_proposer_avis, _vus, _a_revoir : propositions sur des joueurs (proposerJoueurs.ts) ----------
+
+/** Textes donnés par « le coach » (avec des noms dedans) : jamais renvoyés à Claude. */
+const TEXTES_COACH = ['Lucas Exemplaire a une lecture du jeu remarquable', 'Replacement défensif à travailler en duel', 'Revoir Noah Fictivus au poste de pivot', 'Personne Inventée-Ailleurs']
+const sansTexteCoach = <T>(x: T): T => {
+  const s = JSON.stringify(garde(x))
+  for (const txt of TEXTES_COACH) assert.ok(!s.includes(txt), `texte du coach renvoyé : « ${txt} »`)
+  return x
+}
+
+await t('nextar_proposer_avis : notes par critère, rapprochement (trouvé, code, plusieurs, introuvable), refus par note et par ligne, texte jamais rendu', async () => {
+  const src = sourceFictive()
+  const r = sansTexteCoach(
+    await outilProposerAvis(src, reg, {
+      evenement: 'Détection U15 Var',
+      lignes: [
+        { joueur: 'EXEMPLAIRE Lucas', numero: 7, notes: { tir: 4, defense: '3', Mental: '5/5' }, points_forts: TEXTES_COACH[0], axes_de_progression: TEXTES_COACH[1] },
+        { joueur: 'Emma Imaginaire', notes: { tir: 4, defense: 6, vitesse_inconnue: 3 } },
+        { joueur: 'Hugo M.', notes: { defense: 3 } },
+        { joueur: TEXTES_COACH[3], notes: { mental: 2 } },
+        { joueur: code('p-lea'), notes: { tir: 5, defense: 2.5 } },
+      ],
+    }),
+  ) as Record<string, any>
+  assert.equal(r.etat, 'en_attente')
+  assert.equal(r.sorte, 'avis')
+  assert.equal(r.date, '2026-10-12', 'date de l’événement par défaut')
+  assert.match(r.portee, /événement « Détection U15 Var »/)
+  assert.deepEqual(r.lignes.map((l: any) => l.etat), ['trouvé', 'refusée', 'plusieurs possibles', 'introuvable', 'trouvé'])
+  assert.equal(r.lignes[0].code, code('p-lucas'))
+  assert.equal(r.lignes[0].nb_notes, 3)
+  assert.equal(r.lignes[0].avec_texte, true)
+  assert.match(r.lignes[1].raison, /aucune note valable/)
+  assert.deepEqual(
+    r.lignes[1].notes_refusees.map((x: any) => x.raison.split(' (')[0]),
+    ['pas pour ce poste', 'hors échelle', 'critère d’avis inconnu'],
+  )
+  assert.equal(r.lignes[2].possibles, 2)
+  assert.equal(r.lignes[4].code, code('p-lea'))
+  assert.equal(r.lignes[4].nb_notes, 1, 'tir pour une ARD ; 2,5 hors échelle (notes entières)')
+  assert.deepEqual(r.resume, { trouves: 2, a_verifier: 0, plusieurs: 1, introuvables: 1, refusees: 1 })
+  // Déposé : sorte « avis », contexte, lignes objets (texte du coach gardé tel quel, identifiants de fiches).
+  const dep = src.propositionsDeposees[0]
+  assert.equal(dep.kind, 'avis')
+  assert.deepEqual({ ...dep.contexte, joueurs: undefined }, { sorte: 'avis', version: 1, portee: 'evenement', id: 'ev-var', nom: 'Détection U15 Var', date: '2026-10-12', joueurs: undefined })
+  const lignes = dep.lignes as Record<string, any>[]
+  assert.equal(lignes.length, 4, 'la ligne refusée n’est pas déposée')
+  assert.deepEqual(lignes[0], { n: 1, nom: 'EXEMPLAIRE Lucas', numero: '7', confiance: 'sur', joueur: 'p-lucas', notes: { tir: 4, defense: 3, mental: 5 }, forts: TEXTES_COACH[0], progres: TEXTES_COACH[1] })
+  assert.deepEqual(lignes[1].possibles?.sort(), ['p-hugo', 'p-hugo2'])
+  assert.equal(lignes[3].code, code('p-lea'))
+  // L'appli relit chaque ligne et retrouve les mêmes fiches sur l'appareil.
+  const lues = lignesDe('avis', lignes)
+  assert.equal(lues.length, 4)
+  const cands = JOUEURS.filter((p) => !p.mergedInto && p.review !== 'refused').map((p) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, birthDate: p.birthDate, num: EVENEMENTS[0].nums?.[p.id] }))
+  const revues = rapprocherSurAppareil(lues, cands)
+  assert.deepEqual(revues.map((x) => [x.match.playerId ?? null, x.match.confidence]), [['p-lucas', 'sur'], [revues[1].match.playerId, 'verifier'], [null, 'introuvable'], ['p-lea', 'sur']])
+  assert.ok(['p-hugo', 'p-hugo2'].includes(revues[1].match.playerId!))
+})
+
+await t('nextar_proposer_avis : hors événement (groupe, contexte, lieu), deux lignes pour la même fiche, date de ligne, critère par libellé', async () => {
+  const src = sourceFictive()
+  const r = garde(
+    await outilProposerAvis(src, reg, {
+      groupe: 'Pôle Espoirs Fictif',
+      contexte: 'club',
+      lieu: 'Gymnase Fictif',
+      date: '2026-11-02',
+      lignes: [
+        { prenom: 'Noah', nom: 'Fictivus', notes: { Défense: 4 }, date: '2026-11-01' },
+        { joueur: 'Jade Chimérique', notes: { mental: 3 } },
+        { joueur: 'Chimérique Jade', notes: { defense: 2 } },
+      ],
+    }),
+  ) as Record<string, any>
+  assert.equal(r.etat, 'en_attente')
+  assert.equal(r.contexte_avis, 'hors événement : club')
+  assert.deepEqual(r.lignes.map((l: any) => l.etat), ['trouvé', 'à vérifier', 'à vérifier'], 'deux lignes pour la même fiche : à vérifier')
+  assert.equal(r.lignes[0].date, '2026-11-01')
+  const dep = src.propositionsDeposees[0]
+  assert.equal(dep.contexte.typeContexte, 'club')
+  assert.equal(dep.contexte.lieu, 'Gymnase Fictif')
+  assert.equal(dep.contexte.portee, 'groupe')
+  assert.deepEqual((dep.lignes[0] as Record<string, unknown>).notes, { defense: 4 })
+  assert.match(String(dep.titre), /^Avis du 02\/11 · Pôle Espoirs Fictif$/)
+})
+
+await t('nextar_proposer_avis : refus (événement inconnu, trop de lignes, date, contexte avec un événement, rien de valable : rien déposé)', async () => {
+  const src = sourceFictive()
+  const e1 = garde(await outilProposerAvis(src, reg, { evenement: 'Tournoi qui n’existe pas', lignes: [{ joueur: 'Lucas', notes: { mental: 3 } }] })) as Record<string, any>
+  assert.match(e1.erreur, /Introuvable/)
+  const e2 = garde(await outilProposerAvis(src, reg, { lignes: Array.from({ length: 101 }, () => ({ joueur: 'Lucas', notes: { mental: 3 } })) })) as Record<string, any>
+  assert.match(e2.erreur, /Trop de lignes : 100 joueurs au plus/)
+  const e3 = garde(await outilProposerAvis(src, reg, { date: '12/10/2026', lignes: [{ joueur: 'Lucas', notes: { mental: 3 } }] })) as Record<string, any>
+  assert.match(e3.erreur, /AAAA-MM-JJ/)
+  const e4 = garde(await outilProposerAvis(src, reg, { evenement: 'ev-var', contexte: 'club', lignes: [{ joueur: 'Lucas', notes: { mental: 3 } }] })) as Record<string, any>
+  assert.match(e4.erreur, /hors événement/)
+  const e5 = garde(await outilProposerAvis(src, reg, { lignes: [] })) as Record<string, any>
+  assert.match(e5.erreur, /Aucune ligne/)
+  const rien = sansTexteCoach(
+    await outilProposerAvis(src, reg, {
+      evenement: 'ev-var',
+      lignes: [
+        { joueur: 'Lucas Exemplaire', notes: { mental: 9 } },
+        { joueur: 'Emma Imaginaire', notes: { mental: 3 }, points_forts: 'x'.repeat(301) },
+        { joueur: 'Léa Bidonville', notes: { mental: 3 }, date: 'hier' },
+        { numero: '', notes: { mental: 3 } },
+      ],
+    }),
+  ) as Record<string, any>
+  assert.equal(rien.etat, 'non déposée')
+  assert.ok(!('id' in rien))
+  assert.deepEqual(rien.lignes.map((l: any) => l.etat), ['refusée', 'refusée', 'refusée', 'refusée'])
+  assert.match(rien.lignes[1].raison, /points forts trop long/)
+  assert.match(rien.lignes[2].raison, /date de la ligne/)
+  assert.match(rien.lignes[3].raison, /ni nom/)
+  assert.equal(src.ecritures, 0, 'rien n’est écrit')
+  const plein = sourceFictive({ erreurDepot: 'Boîte pleine : 30 propositions en attente au plus.' })
+  const e6 = garde(await outilProposerAvis(plein, reg, { evenement: 'ev-var', lignes: [{ joueur: 'Lucas Exemplaire', notes: { mental: 3 } }] })) as Record<string, any>
+  assert.match(e6.erreur, /Boîte pleine/)
+})
+
+await t('nextar_proposer_vus : événement obligatoire, n° de maillot, joueur hors événement introuvable, 200 au plus', async () => {
+  const src = sourceFictive()
+  const r = garde(
+    await outilProposerVus(src, reg, {
+      evenement: 'ev-var',
+      lignes: [{ joueur: 'Lucas Exemplaire' }, { numero: '11' }, { joueur: 'Noah Fictivus' }, { joueur: code('p-hugo2') }],
+    }),
+  ) as Record<string, any>
+  assert.equal(r.sorte, 'vus')
+  assert.deepEqual(r.lignes.map((l: any) => l.etat), ['trouvé', 'trouvé', 'introuvable', 'trouvé'])
+  assert.equal(r.lignes[1].code, code('p-emma'))
+  assert.equal(r.titre, 'Vus · Détection U15 Var')
+  const dep = src.propositionsDeposees[0]
+  assert.equal(dep.kind, 'vus')
+  assert.deepEqual((dep.lignes as Record<string, unknown>[]).map((l) => l.joueur ?? null), ['p-lucas', 'p-emma', null, 'p-hugo2'])
+  assert.match((garde(await outilProposerVus(src, reg, { lignes: [{ joueur: 'Lucas' }] })) as Record<string, any>).erreur, /evenement` est obligatoire/)
+  assert.match((garde(await outilProposerVus(src, reg, { evenement: 'ev-var', lignes: Array.from({ length: 201 }, () => ({ numero: '7' })) })) as Record<string, any>).erreur, /200 joueurs au plus/)
+  assert.match((garde(await outilProposerVus(src, reg, { evenement: 'Inconnu au bataillon', lignes: [{ numero: '7' }] })) as Record<string, any>).erreur, /Introuvable/)
+})
+
+await t('nextar_proposer_a_revoir : toute la base, raison courte gardée (jamais rendue), raison trop longue refusée', async () => {
+  const src = sourceFictive()
+  const r = sansTexteCoach(
+    await outilProposerAReVoir(src, reg, {
+      lignes: [{ joueur: 'Noah Fictivus', raison: TEXTES_COACH[2] }, { joueur: 'Tom Utopiste', raison: 'y'.repeat(121) }, { joueur: 'Zoé Horscadre' }],
+    }),
+  ) as Record<string, any>
+  assert.equal(r.sorte, 'a_revoir')
+  assert.equal(r.portee, 'toute la base')
+  assert.deepEqual(r.lignes.map((l: any) => l.etat), ['trouvé', 'refusée', 'introuvable'], 'fiche hors cadre : jamais trouvée')
+  assert.equal(r.lignes[0].avec_raison, true)
+  assert.match(r.lignes[1].raison, /raison trop longue/)
+  const dep = src.propositionsDeposees[0]
+  assert.equal(dep.kind, 'a_revoir')
+  assert.deepEqual(dep.lignes[0], { n: 1, nom: 'Noah Fictivus', confiance: 'sur', joueur: 'p-noah', raison: TEXTES_COACH[2] })
+  assert.equal(dep.titre, 'À revoir (2)')
+  // Suivi : la sorte est dite.
+  const s = garde(await outilSuivi(src, reg, { id: r.id })) as Record<string, any>
+  assert.equal(s.sorte, 'à revoir')
+})
+
+await t('format partagé (src/propositionsJoueursCore.ts) : contrôle des notes sur l’échelle, poste, lecture des lignes', () => {
+  assert.deepEqual(controleNote({ scale: 'score5' }, '4/5'), { ok: 4 })
+  assert.deepEqual(controleNote({ scale: 'score5' }, '4/10'), { raison: 'hors échelle (1 à 5)' })
+  assert.deepEqual(controleNote({ scale: 'score5' }, 0), { raison: 'hors échelle (1 à 5)' })
+  assert.deepEqual(controleNote({ scale: 'score3' }, 0), { ok: 0 })
+  assert.deepEqual(controleNote({ scale: 'score2' }, 3), { raison: 'hors échelle (0 à 2)' })
+  assert.deepEqual(controleNote({ scale: 'choice', options: ['Gauche', 'Droit'] }, 'gauche'), { ok: 'Gauche' })
+  assert.ok('raison' in controleNote({ scale: 'text' }, 'libre'))
+  assert.equal(vautPourPoste(['ARG'], 'DC'), false)
+  assert.equal(vautPourPoste(['ARG'], undefined), true)
+  assert.equal(vautPourPoste([], 'DC'), true)
+  assert.equal(lireLigne('avis', { n: 0, notes: {} }), null)
+  assert.deepEqual(lireLigne('vus', { n: 2, joueur: 'p-x', confiance: 'sur', autre: 'ignoré' }), { n: 2, joueur: 'p-x', confiance: 'sur' })
+  assert.equal(lireLigne('vus', { n: 3, confiance: 'sur' })!.confiance, 'introuvable', 'sûr sans fiche : introuvable')
+  assert.equal(lireLigne('a_revoir', { n: 1, raison: 'z'.repeat(500) }) && (lireLigne('a_revoir', { n: 1, raison: 'z'.repeat(500) }) as { raison: string }).raison.length, 120)
+})
+
+await t('liste blanche : les réponses des trois outils passent, une clé de nom ou de texte est refusée', () => {
+  assert.doesNotThrow(() => verifierSortie({ sorte: 'avis', lignes: [{ ligne: 1, etat: 'trouvé', code: 'J-1', nb_notes: 2, avec_texte: true, notes_refusees: [{ critere: 'tir', raison: 'x' }] }] }))
+  assert.throws(() => verifierSortie({ lignes: [{ ligne: 1, strengths: 'x' }] }), /interdite/)
+  assert.throws(() => verifierSortie({ lignes: [{ ligne: 1, notes: { tir: 4 } }] }), /interdite/)
+  assert.throws(() => verifierSortie({ lignes: [{ ligne: 1, points_forts: 'x' }] }), /inconnue/)
+  assert.throws(() => verifierSortie({ lignes: [{ ligne: 1, nom: 'x' }] }), /interdite/)
+})
+
 // ---------- Liste blanche ----------
 
 await t('verifierSortie : clé interdite, clé inconnue, clé nominative dans un dictionnaire, texte trop long : refusés', () => {
@@ -1242,13 +1432,16 @@ await t('source.ts : la lecture ne sélectionne ni noms ni commentaires ; écrit
   await src.joueursNoms(['a'], 10)
   assert.match(appels[appels.length - 1].select!, /firstName/, 'le rapprochement, lui, lit les noms (côté serveur)')
   await src.deposerProposition({ titre: 't', contexte: {}, lignes: [['a']] })
+  await src.deposerProposition({ titre: 't', contexte: { sorte: 'avis' }, lignes: [{ n: 1, confiance: 'introuvable', notes: {} }], kind: 'avis' })
   await src.deposerRapport({ titre: 't', contenu: 'c' })
   const ecritures = appels.filter((a) => a.ops.includes('insert'))
   assert.deepEqual(
     ecritures.map((a) => a.table),
-    ['hb_propositions', 'hb_rapports'],
+    ['hb_propositions', 'hb_propositions', 'hb_rapports'],
   )
   assert.equal((ecritures[0].insert as { source: string }).source, 'mcp')
+  assert.equal((ecritures[0].insert as { kind: string }).kind, 'mesures', 'sorte par défaut : mesures')
+  assert.equal((ecritures[1].insert as { kind: string }).kind, 'avis')
   assert.ok(!appels.some((a) => a.ops.some((o) => o === 'update' || o === 'delete' || o === 'upsert' || o === 'rpc')))
 })
 
@@ -1380,6 +1573,15 @@ await t('bornes du serveur = scripts 067 et 068 ; 068 : auteur seul, pas de modi
 
 await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé de service), appli (routes, Réglages, boîte)', () => {
   const srv = read('supabase/functions/mcp/serveur.ts')
+  assert.match(srv, /const commun = [^\n]*\n[^\n]*jamais un nom ni un texte/)
+  for (const outil of ['nextar_proposer_avis', 'nextar_proposer_vus', 'nextar_proposer_a_revoir']) {
+    assert.match(srv, new RegExp(`'${outil}'`))
+    const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
+    assert.match(bloc, /annotations: depot,/, outil)
+    assert.match(bloc, /\$\{commun\}|' \+ commun/, outil)
+    assert.ok(read('supabase/functions/mcp/README.md').includes(outil), `README : ${outil}`)
+  }
+  assert.match(read('src/pages/OAuthConsent.tsx'), /avis, des joueurs vus ou à revoir/)
   for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer'])
     assert.match(srv, new RegExp(`'${outil}'`))
   // nextar_admin_proposer : « n’applique rien », dépôt (pas lecture seule), 50 actions au plus.
@@ -1409,7 +1611,7 @@ await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)
-  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'source.ts']) {
+  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'proposerJoueurs.ts', 'source.ts']) {
     const txt = read(`supabase/functions/mcp/${f}`)
     assert.ok(!/supabaseAdmin|SERVICE_ROLE|service_role|sb_secret/.test(txt.replace(/\/\/.*$/gm, '')), `${f} : jamais la clé de service`)
   }
