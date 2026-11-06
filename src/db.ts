@@ -251,6 +251,13 @@ export interface Measurement extends Syncable {
    * (hb_upsert) : pas de SQL. Montré sur la fiche (onglet Tests) : « importé, validé par … ».
    */
   imported?: { by?: string; at: string }
+  /**
+   * Provenance (supabase/071_provenance.sql) : « import_fichier » (collage) ou « proposition_validee » (boîte « À valider »),
+   * et le lot (identifiant commun de l'enregistrement, ou de la proposition). Absente : saisie dans l'appli. Champs libres de
+   * data, gardés tels quels par hb_upsert : pas de changement de synchronisation.
+   */
+  source?: 'import_fichier' | 'proposition_validee'
+  lotId?: string
 }
 
 export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
@@ -379,6 +386,9 @@ export interface Evaluation extends Syncable {
    * Montré sur l'avis : « importé, validé par … » (comme les mesures importées).
    */
   imported?: { by?: string; at: string }
+  /** Provenance et lot (comme Measurement.source / lotId) : « proposition_validee », lot = identifiant de la proposition. */
+  source?: 'proposition_validee'
+  lotId?: string
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */

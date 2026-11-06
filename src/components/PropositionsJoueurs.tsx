@@ -109,10 +109,11 @@ export function JoueursItem({ p, when, onOpen }: { p: PropositionRow; when: stri
 }
 
 /** Les chemins de l'appli, branchés pour src/propositionsJoueurs.ts. */
-function depsAppli(o: { role: ReturnType<typeof useRole>; me: string; eventId?: string; originEventId?: string; groupId?: string }): DepsJoueurs {
+function depsAppli(o: { role: ReturnType<typeof useRole>; me: string; eventId?: string; originEventId?: string; groupId?: string; lot?: string }): DepsJoueurs {
   const uid = () => currentUserId()
   return {
     me: o.me,
+    ...(o.lot ? { lot: o.lot } : {}),
     newId,
     now: () => new Date().toISOString(),
     monAvis: async (playerId, eventId) => {
@@ -240,7 +241,7 @@ export function JoueursReview({ p, when, onBack, onSaved, onUndone }: { p: Propo
     setBusy(true)
     setError('')
     try {
-      const d = depsAppli({ role, me, eventId, originEventId: eventId, groupId: ctx.portee === 'groupe' ? ctx.id : undefined })
+      const d = depsAppli({ role, me, eventId, originEventId: eventId, groupId: ctx.portee === 'groupe' ? ctx.id : undefined, lot: p.id })
       let app: Application
       if (sorte === 'avis') app = await appliquerAvis(retenues, choix, (r) => notesDe(r).scores, { eventId, date: ctx.date ?? today(), typeContexte: ctx.typeContexte, lieu: ctx.lieu }, d)
       else if (sorte === 'vus') app = await appliquerMarques(retenues, choix, d.vus!, 'déjà vu par toi à cet événement')

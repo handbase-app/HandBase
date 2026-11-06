@@ -22,6 +22,9 @@
  *    de son département (calculé ici depuis les contours de l'appli, src/assets) avec un décalage ;
  *  - idempotent : les rencontres source = 'demo' sont effacées puis recréées ; tirages déterministes (empreinte md5 d'une
  *    clé : mêmes rencontres pour les mêmes week-ends et la même base, quel que soit l'ordre de lecture) — pas de random() ;
+ *  - PROVENANCE (supabase/071_provenance.sql) : chaque rencontre porte data.source = 'generation' et data.lotId =
+ *    'demo-rencontres' ; avec 071 (table hb_lots présente), le lot est enregistré ou remis à jour (volumes, heure de
+ *    génération) dans la même transaction ; sans 071, rien de plus (la colonne source = 'demo' reste la marque) ;
  *  - à la fin, une ligne de contrôle (nombre de rencontres, clubs, répartition par catégorie, par jour, taille de la table).
  *
  * Ordre de grandeur (offre gratuite de Supabase, 500 Mo) : base de test (40 000 joueurs, ~2 300 clubs) ≈ 66 000 rencontres
@@ -328,6 +331,9 @@ select 'demo:' || md5(p.k) as id,
   from placed p`
 }
 
+/** Lot des rencontres fictives (supabase/071_provenance.sql : hb_lot_de reconnaît aussi les identifiants « demo:… »). */
+export const LOT_RENCONTRES = 'demo-rencontres'
+
 const INSERT_COLS = 'id, starts_at, lat, lng, category, sex, level, competition, home_unit_id, home_club, home_team, home_name, away_unit_id, away_club, away_team, away_name, venue, city'
 
 export function seedSql(o: SeedOptions, now = new Date()): string {
@@ -359,11 +365,24 @@ end $$;
 
 delete from public.hb_rencontres where source = 'demo';
 
-insert into public.hb_rencontres (${INSERT_COLS}, source)
-select ${INSERT_COLS}, 'demo' from (
+insert into public.hb_rencontres (${INSERT_COLS}, source, data)
+select ${INSERT_COLS}, 'demo', jsonb_build_object('source', 'generation', 'lotId', '${LOT_RENCONTRES}') from (
 ${fixturesQuery(o)}
 ) f
 on conflict (id) do nothing;
+
+-- Lot de génération (supabase/071_provenance.sql, table hb_lots) : enregistré ou remis à jour s'il y a la table.
+do $$
+begin
+  if to_regclass('public.hb_lots') is null then return; end if;
+  execute $q$insert into public.hb_lots as l (id, created_at, created_by, source, description, nb_lignes)
+    select '${LOT_RENCONTRES}', now(), null, 'generation',
+           'Rencontres fictives d''« Autour de moi » (tools/seed-rencontres.ts) : source demo, identifiants demo:….',
+           jsonb_build_object('rencontre', count(*))
+      from public.hb_rencontres where source = 'demo' and not deleted
+    having count(*) > 0
+    on conflict (id) do update set created_at = excluded.created_at, nb_lignes = excluded.nb_lignes$q$;
+end $$;
 
 commit;
 

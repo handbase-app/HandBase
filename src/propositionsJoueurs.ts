@@ -157,6 +157,11 @@ export interface AvisRow {
 export interface DepsJoueurs {
   /** Nom de l'appareil (auteur des avis, « validé par »). */
   me: string
+  /**
+   * Identifiant de la proposition validée : posé sur les avis CRÉÉS (data.source = « proposition_validee », data.lotId :
+   * supabase/071_provenance.sql) ; un avis déjà là, complété, garde sa provenance d'origine.
+   */
+  lot?: string
   newId(): string
   now(): string
   /** Mon avis (non spontané) sur ce joueur à cet événement, s'il y en a un (à compléter plutôt que doubler). */
@@ -245,6 +250,7 @@ export async function appliquerAvis(
           ...(l.forts ? { strengths: l.forts } : {}),
           ...(l.progres ? { improvements: l.progres } : {}),
           imported,
+          ...(d.lot ? { source: 'proposition_validee', lotId: d.lot } : {}),
         }
         const { addedToEvent } = await d.enregistrerAvis(row, !ctx.eventId)
         retours.push({ i: r.i, k: 'retirer', id: row.id, eventId: ctx.eventId, playerId, ajoute: addedToEvent })

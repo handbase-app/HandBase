@@ -278,6 +278,7 @@ function PropositionReview({
           date={p.contexte.date ?? today()}
           where={scope.where}
           initial={initial}
+          provenance={{ source: p.source === 'mcp' ? 'proposition_validee' : 'import_fichier', lotId: p.id }}
           onBack={onBack}
           backLabel="‹ Toutes les propositions"
           onSaved={(_ids, info) => {

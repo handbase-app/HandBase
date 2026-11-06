@@ -230,6 +230,7 @@ export function ImportReview({
   onKeep,
   initial,
   extraActions,
+  provenance,
   onClose,
 }: {
   rows: string[][]
@@ -253,6 +254,12 @@ export function ImportReview({
   initial?: Partial<ReviewState>
   /** Boutons de plus au pied (« Rejeter » dans la boîte). */
   extraActions?: ReactNode
+  /**
+   * Provenance posée sur les mesures enregistrées (data.source, data.lotId : supabase/071_provenance.sql ; champs libres de
+   * data, gardés tels quels par hb_upsert : pas de changement de synchronisation). Défaut : collage d'un tableau
+   * (import_fichier), un lot par enregistrement ; boîte « À valider » : proposition_validee, lot = identifiant de la proposition.
+   */
+  provenance?: { source: 'import_fichier' | 'proposition_validee'; lotId: string }
   onClose: () => void
 }) {
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then(alive), [])
@@ -337,11 +344,12 @@ export function ImportReview({
     setError('')
     const author = getMe() || undefined
     const at = new Date().toISOString()
+    const trace = provenance ?? { source: 'import_fichier' as const, lotId: newId() }
     try {
       // Comme une séance de tests : une seule transaction, même table, même file d'envoi, même auteur ; et la trace.
       const created = await saveMany<Measurement>(
         'measurements',
-        toSave.map((m) => ({ id: newId(), ...m, author, imported: { ...(author ? { by: author } : {}), at } })),
+        toSave.map((m) => ({ id: newId(), ...m, author, imported: { ...(author ? { by: author } : {}), at }, source: trace.source, lotId: trace.lotId })),
       )
       setSaved({ rows: created, players: new Set(created.map((m) => m.playerId)).size, dates: [...new Set(created.map((m) => m.date))].sort() })
       setUndone('')

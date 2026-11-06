@@ -458,6 +458,11 @@ const players: P[] = [
   // Le fichier : idempotent (jeu « demo » remplacé), une transaction, sport de la base, salles fictives, aucune donnée.
   const sql = seedSql({ weeks: 10, rest: 0.15 }, new Date('2026-10-26T12:00:00Z'))
   assert.match(sql, /delete from public\.hb_rencontres where source = 'demo';/)
+  // Provenance (071) : data.source = generation, lot « demo-rencontres » ; lot enregistré seulement si hb_lots existe.
+  assert.match(sql, /jsonb_build_object\('source', 'generation', 'lotId', 'demo-rencontres'\)/)
+  assert.match(sql, /if to_regclass\('public\.hb_lots'\) is null then return; end if;/)
+  assert.match(sql, /on conflict \(id\) do update set created_at = excluded\.created_at, nb_lignes = excluded\.nb_lignes/)
+  assert.ok(sql.indexOf('hb_lots') < sql.indexOf('commit;'), 'lot dans la même transaction')
   assert.match(sql, /^begin;$/m)
   assert.match(sql, /^commit;$/m)
   assert.match(sql, /from public\.hb_config where id = 'sport'/)
