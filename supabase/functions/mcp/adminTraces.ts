@@ -31,6 +31,7 @@ import {
   typeAppareil,
   uniq,
   type AgregatSrv,
+  type AppelMcpSrv,
   type CritereSrv,
   type EvenementSrv,
   type ProfilSrv,
@@ -42,6 +43,7 @@ import {
   type TraceSrv,
   type TypeTrace,
 } from './outils.ts'
+import { texteFiltres } from './journalMcp.ts'
 
 export const REFUS_ADMIN_TRACES = 'Réservé aux administrateurs : ce compte ne peut pas utiliser cet outil.'
 export const INDISPONIBLE_071 = 'indisponible tant que supabase/071_provenance.sql n’est pas appliqué'
@@ -300,7 +302,7 @@ const libelleTest = (id: string, crits: readonly CritereSrv[]) => {
 }
 const lotSur = (s: string | null | undefined) => (s && LOT_VALIDE.test(s) ? s : undefined)
 /** Clés des nombres par type (au pluriel : « fiche » est une clé interdite des réponses, outils.ts). */
-export const PLURIEL: Record<string, string> = { mesure: 'mesures', avis: 'avis', evenement: 'evenements', vu: 'vus', fiche: 'fiches', connexion: 'connexions', rencontre: 'rencontres' }
+export const PLURIEL: Record<string, string> = { mesure: 'mesures', avis: 'avis', evenement: 'evenements', vu: 'vus', fiche: 'fiches', connexion: 'connexions', rencontre: 'rencontres', mcp: 'appels_mcp' }
 const parType = (xs: readonly { type: string }[]) => {
   const o: Record<string, number> = {}
   for (const x of xs) o[PLURIEL[x.type] ?? x.type] = (o[PLURIEL[x.type] ?? x.type] ?? 0) + 1
@@ -325,7 +327,7 @@ export interface JournalInput {
   limite?: number
 }
 
-type Evt = { t: number; userId: string | null; action: string; type: TypeTrace | 'connexion'; trace?: TraceSrv; session?: SessionSrv; historique: boolean }
+type Evt = { t: number; userId: string | null; action: string; type: TypeTrace | 'connexion' | 'mcp'; trace?: TraceSrv; session?: SessionSrv; appel?: AppelMcpSrv; historique: boolean }
 
 export async function outilAdminJournal(src: Source, reg: Reglages, input: JournalInput = {}) {
   if (!(await src.estAdmin())) return { erreur: REFUS_ADMIN_TRACES }
@@ -335,9 +337,9 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
   const limite = borne(input.limite, BORNES.journalDefaut, 1, BORNES.journalLimiteMax)
   const regrouper = input.regrouper !== false
   const generation = input.inclure_generation === true
-  const voulus = (input.types ?? []).filter((x): x is TypeTrace | 'connexion' => [...TYPES, 'connexion'].includes(x))
-  const types = voulus.length ? uniq(voulus) : [...TYPES, 'connexion' as const]
-  const typesDonnees = types.filter((x): x is TypeTrace => x !== 'connexion')
+  const voulus = (input.types ?? []).filter((x): x is TypeTrace | 'connexion' | 'mcp' => [...TYPES, 'connexion', 'mcp'].includes(x))
+  const types = voulus.length ? uniq(voulus) : [...TYPES, 'connexion' as const, 'mcp' as const]
+  const typesDonnees = types.filter((x): x is TypeTrace => x !== 'connexion' && x !== 'mcp')
   const profilsL = await src.profils()
   const staff = new Map(profilsL.filter((p) => p.role !== 'joueur').map((p) => [p.userId, p]))
   const cible = resoudreCompte(input.compte, profilsL)
@@ -348,11 +350,13 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
   const depuis = iso(per.depuis)
   const jusqua = iso(per.jusqua)
 
-  const [acts, gen, cx] = await Promise.all([
+  const [acts, gen, cx, mcp] = await Promise.all([
     typesDonnees.length && !(cible && 'generateur' in cible) ? src.actions({ depuis, jusqua, auteur: userId }, BORNES.journalActions) : Promise.resolve({ lignes: [], tronque: false }),
     // Génération : écrite déclencheurs coupés, absente de l'historique ; lue dans les tables.
     generation && typesDonnees.length && !userId ? lireTraces(src, { ...per, types: typesDonnees, generation: true }, BORNES.journalActions) : Promise.resolve({ lignes: [], tronque: false }),
     types.includes('connexion') || regrouper ? src.connexions(iso(per.depuis - HEURE), BORNES.connexionsSessions) : Promise.resolve({ sessions: [], tronque: false }),
+    // Appels d'outils du serveur MCP (Claude), 072 ; absent : null.
+    types.includes('mcp') && !(cible && 'generateur' in cible) ? src.appelsMcp({ depuis, jusqua, auteur: userId }, BORNES.journalActions) : Promise.resolve({ appels: [], tronque: false }),
   ])
   if (acts.tronque) avertissements.push(`Plus de ${BORNES.journalActions} écritures à l’historique sur la période : seules les plus récentes sont lues. Réduis la période ou choisis un compte.`)
   if (gen.tronque) avertissements.push(`Génération : plus de ${BORNES.journalActions} lignes par type ; seules les plus récentes sont lues.`)
@@ -393,6 +397,15 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
       evts.push({ t: at, userId: s.userId, action: 'ouverture de l’appli', type: 'connexion', session: s, historique: false })
     }
   if (cx.tronque) avertissements.push(`Plus de ${BORNES.connexionsSessions} ouvertures de l’appli : seules les plus récentes sont lues.`)
+  if (!mcp) avertissements.push('Appels du serveur MCP (type « mcp ») non journalisés tant que supabase/072_mcp_lecture_appels.sql n’est pas appliqué.')
+  else {
+    if (mcp.tronque) avertissements.push(`Plus de ${BORNES.journalActions} appels du serveur MCP sur la période : seuls les plus récents sont lus.`)
+    for (const a of mcp.appels) {
+      const at = ms(a.at)
+      if (at === undefined || at < per.depuis || at >= per.jusqua || !staff.has(a.userId) || (userId && a.userId !== userId)) continue
+      evts.push({ t: at, userId: a.userId, action: 'appel MCP', type: 'mcp', appel: a, historique: false })
+    }
+  }
   evts.sort((a, b) => a.t - b.t)
 
   // Libellés : tests, événements (avis et « vus » : le leur ; mesure : même jour, joueur inscrit).
@@ -404,6 +417,16 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
   const qui = (u: string | null) => (u === null ? { compte: GENERATEUR.compte, nom_affiche: GENERATEUR.nom_affiche } : { compte: codeCompte(u), nom_affiche: nomAffiche(staff.get(u)) })
 
   const objet = (e: Evt) => {
+    if (e.appel) {
+      const f = texteFiltres(e.appel.filtres)
+      return {
+        outil: clip(e.appel.outil, 60),
+        succes: e.appel.ok,
+        ...(typeof e.appel.dureeMs === 'number' ? { duree_ms: e.appel.dureeMs } : {}),
+        ...(typeof e.appel.nbLignes === 'number' ? { nb_lignes: e.appel.nbLignes } : {}),
+        ...(f ? { filtres: f } : {}),
+      }
+    }
     if (e.session) {
       const fin = ms(e.session.lastSeenAt)
       return { ...(typeAppareil(e.session.device).appareil ? { appareil: typeAppareil(e.session.device).appareil } : {}), ...(fin !== undefined ? { fin: iso(fin), fin_paris: paris(fin) } : {}) }
@@ -428,7 +451,7 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
     inclure_generation: generation,
   }
   const notes = [
-    'Créations, modifications et suppressions : historique des écritures (hb_audit), heure du serveur. Génération (écrite déclencheurs coupés) : lue dans les tables, « historique: false ». Ouvertures de l’appli : hb_connections. Comptes joueurs exclus.',
+    'Créations, modifications et suppressions : historique des écritures (hb_audit), heure du serveur. Génération (écrite déclencheurs coupés) : lue dans les tables, « historique: false ». Ouvertures de l’appli : hb_connections. Appels d’outils par Claude (type « mcp », canal « mcp ») : hb_mcp_appels (072), outil, durée, succès, lignes rendues, filtres structurés ; jamais les paramètres bruts. Comptes joueurs exclus.',
   ]
 
   if (!regrouper) {
@@ -440,7 +463,7 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
       type: e.type,
       objet: objet(e),
       ...(e.trace ? { source: provenance(e.trace), ...(lotSur(lotDe(e.trace)) ? { lot_id: lotSur(lotDe(e.trace)) } : {}) } : {}),
-      ...(e.historique || e.type === 'connexion' ? {} : { historique: false }),
+      ...(e.historique || e.type === 'connexion' || e.type === 'mcp' ? {} : { historique: false }),
     }))
     return {
       ...base,
@@ -481,7 +504,9 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
       : []
     const donnees = s.evts.filter((e) => e.trace)
     const pa: Record<string, number> = {}
-    for (const e of s.evts) if (e.type !== 'connexion') pa[ACTION_CLE[e.action] ?? 'modification'] = (pa[ACTION_CLE[e.action] ?? 'modification'] ?? 0) + 1
+    for (const e of s.evts) if (e.type !== 'connexion' && e.type !== 'mcp') pa[ACTION_CLE[e.action] ?? 'modification'] = (pa[ACTION_CLE[e.action] ?? 'modification'] ?? 0) + 1
+    const appels = s.evts.filter((e) => e.appel)
+    const autres = s.evts.some((e) => !e.appel)
     const joueurs = new Set(donnees.filter((e) => e.trace!.type !== 'evenement' && e.trace!.joueur).map((e) => e.trace!.joueur!))
     const p = s.userId ? staff.get(s.userId) : undefined
     return {
@@ -492,9 +517,11 @@ export async function outilAdminJournal(src: Source, reg: Reglages, input: Journ
       fin_paris: paris(fin),
       duree_min: Math.round((fin - debut) / MIN),
       ...(appareils.length ? { appareil: appareils.join(' + ') } : {}),
+      ...(s.userId ? { canal: appels.length && autres ? 'appli et mcp' : appels.length ? 'mcp' : 'appli' } : {}),
       nb_actions: s.evts.length,
       par_type: parType(s.evts),
       ...(Object.keys(pa).length ? { par_action: pa } : {}),
+      ...(appels.length ? { outils: uniq(appels.map((e) => clip(e.appel!.outil, 60))).slice(0, 20) } : {}),
       ...(donnees.length
         ? {
             evenements: uniq(donnees.flatMap((e) => nomsEv(e.trace!))).slice(0, 10),

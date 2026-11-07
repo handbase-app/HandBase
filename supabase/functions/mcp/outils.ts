@@ -84,10 +84,12 @@ export interface UniteSrv {
   name: string
 }
 
-/** Joueur pour nextar_lire : AUCUN nom, aucune date complète, aucun club. */
+/** Joueur pour nextar_lire : AUCUN nom, aucune date complète, aucun club (année et trimestre calculés par la Source). */
 export interface JoueurLire {
   id: string
   annee?: number
+  /** Trimestre de naissance (1 : janvier-mars … 4 : octobre-décembre), tiré du mois ; la date complète ne sort jamais. */
+  trimestre?: number
   sexe?: 'M' | 'F'
   poste?: string
   dept?: string
@@ -112,6 +114,9 @@ export interface AvisSrv {
   playerId: string
   date?: string
   scores: Record<string, number | string>
+  /** Événement de l'avis (sinon avis hors événement) et type de contexte (match, club…) : nextar_joueur. */
+  eventId?: string
+  contexte?: string
 }
 
 export interface VuSrv {
@@ -130,6 +135,62 @@ export interface PropositionSrv {
   updated_at: string
   expires_at: string
   deleted_at?: string | null
+}
+
+/** Départements des joueurs (identifiant → scope_dept) : la Source lit mesures, avis et « vus » par l'index de scope_dept. */
+export type DeptsJoueurs = Map<string, string | undefined>
+
+/** Filtre de hb_mcp_lire (supabase/072_mcp_lecture_appels.sql) : identifiants de tests et de critères déjà résolus. */
+export interface FiltreLireBase {
+  annees?: number[]
+  trimestres?: number[]
+  /** Nés entre (année × 10 + trimestre), bornes comprises. */
+  nes_de?: number
+  nes_a?: number
+  sexe?: 'M' | 'F'
+  postes?: string[]
+  depts?: string[]
+  ids?: string[]
+  mesures?: { test: string; min?: number; max?: number }[]
+  vus_min?: number
+  avis_min?: number
+  avis_criteres?: { critere: string; min: number }[]
+  /** Critères notés de 1 à 5 (moyenne d'avis). */
+  score5: string[]
+  tri?: { par: 'annee' | 'vus' | 'avis' | 'test'; test?: string; ordre?: 'asc' | 'desc' }
+  limite: number
+  /** Tests dont la dernière valeur est rendue. */
+  sortie: string[]
+  avec_criteres?: boolean
+}
+
+/** Réponse de hb_mcp_lire : identifiants (changés en codes par l'outil), jamais un nom ni une date complète. */
+export interface LireBaseSrv {
+  total: number
+  lignes: {
+    id: string
+    annee?: number
+    trimestre?: number
+    sexe?: string
+    poste?: string
+    dept?: string
+    vus?: number
+    avis_nb?: number
+    avis_moy?: number
+    mesures?: Record<string, { v: number | string; d: string }>
+    criteres?: Record<string, number>
+  }[]
+}
+
+/** Appel d'outil du serveur MCP lu dans hb_mcp_appels (072), pour les administrateurs : jamais les paramètres bruts. */
+export interface AppelMcpSrv {
+  at: string
+  userId: string
+  outil: string
+  dureeMs?: number | null
+  ok: boolean
+  nbLignes?: number | null
+  filtres?: Record<string, unknown> | null
 }
 
 export interface FiltreJoueurs {
@@ -152,9 +213,18 @@ export interface Source {
   joueursLire(f: FiltreJoueurs, max: number): Promise<{ joueurs: JoueurLire[]; tronque: boolean }>
   /** Noms pour le rapprochement : ces fiches (null : tout le périmètre), au plus `max`. */
   joueursNoms(ids: string[] | null, max: number): Promise<{ joueurs: JoueurNom[]; tronque: boolean }>
-  mesures(playerIds: string[]): Promise<MesureSrv[]>
-  avis(playerIds: string[]): Promise<AvisSrv[]>
-  vus(playerIds: string[]): Promise<VuSrv[]>
+  /** Mesures, avis, « vus » de ces joueurs ; `depts` : lecture par l'index de scope_dept (rapide sous les règles de lecture). */
+  mesures(playerIds: string[], depts?: DeptsJoueurs): Promise<MesureSrv[]>
+  avis(playerIds: string[], depts?: DeptsJoueurs): Promise<AvisSrv[]>
+  vus(playerIds: string[], depts?: DeptsJoueurs): Promise<VuSrv[]>
+  /** nextar_lire calculé dans la base (hb_mcp_lire, supabase/072_mcp_lecture_appels.sql) ; script pas appliqué : null. */
+  lireBase(f: FiltreLireBase): Promise<LireBaseSrv | null>
+  /** Fiches visibles (ni supprimées), aux droits du compte : identifiant, fondue, hors cadre ; rien d'autre (codes J-… résolus ici). */
+  fichesVisibles(max: number): Promise<{ fiches: { id: string; fondue: boolean; horsCadre: boolean }[]; tronque: boolean }>
+  /** Une fiche visible : année, trimestre, sexe, poste, département (jamais un nom, un club ni la date complète) ; sinon null. */
+  joueur(id: string): Promise<JoueurLire | null>
+  /** Note un appel d'outil (hb_mcp_appels, 072), avec le jeton du compte ; table absente ou refus : rien (jamais d'erreur). */
+  journaliser(a: { outil: string; duree_ms: number; ok: boolean; nb_lignes: number; filtres: Record<string, unknown> | null }): Promise<void>
   /**
    * Dépose une proposition dans la boîte « À valider » du coach (hb_propositions, 067). `kind` : « mesures » (défaut, lignes
    * en cellules), ou « avis », « vus », « a_revoir » (nextar_proposer_avis, _vus, _a_revoir : une ligne objet par joueur,
@@ -223,6 +293,11 @@ export interface Source {
   lots(): Promise<LotSrv[] | null>
   /** Événements par identifiant (nom, date, joueurs inscrits), archivés et supprimés compris. */
   evenementsParIds(ids: string[]): Promise<EvenementSrv[]>
+  /**
+   * Appels d'outils du serveur MCP (hb_mcp_appels, 072 ; lecture administrateurs) depuis `f.depuis`, avant `f.jusqua`, de ce
+   * compte ; le plus récent d'abord, au plus `max` ; script pas appliqué : null.
+   */
+  appelsMcp(f: { depuis: string; jusqua?: string; auteur?: string | null }, max: number): Promise<{ appels: AppelMcpSrv[]; tronque: boolean } | null>
 
   // ---- nextar_admin_proposer (adminProposer.ts) : appelées APRÈS estAdmin() seulement, aux droits du compte ----
   /** Identifiant du compte du jeton (claims vérifiés par withSupabase) ; inconnu : null. Jamais rendu. */
@@ -547,6 +622,13 @@ export const BORNES = {
   /** nextar_admin_lots : lots rendus. */
   lotsDefaut: 50,
   lotsMax: 200,
+  /** Appels MCP lus (072) pour nextar_connexions, nextar_admin_activite, nextar_admin_journal. */
+  appelsMcpMax: 20_000,
+  /** nextar_joueur : fiches lues pour retrouver un code ; points rendus par test (les plus récents). */
+  fichesCodes: 200_000,
+  serieMax: 100,
+  avisGroupesMax: 100,
+  vusMax: 200,
 } as const
 
 // ---------- Vérification des réponses (liste blanche) ----------
@@ -569,6 +651,11 @@ const CLES = new Set([
   'codes', 'codes_invalides',
   // proposer_avis, proposer_vus, proposer_a_revoir (proposerJoueurs.ts) ; suivi : sorte de la proposition
   'sorte', 'evenement', 'refusees', 'raison', 'nb_notes', 'notes_refusees', 'critere', 'avec_texte', 'avec_raison', 'contexte_avis',
+  // lire : trimestre de naissance, calcul exact dans la base (072) ou approximatif
+  'trimestre', 'trimestres', 'nes_entre', 'approximatif', 'calcul',
+  // joueur (joueur.ts) : profil, séries datées par test, évolution, vus, avis dans le temps
+  'profil', 'serie', 'evolution', 'premiere', 'derniere', 'ecart', 'nb_points', 'premiere_date', 'derniere_date', 'periode', 'depuis',
+  'jusqu_a', 'hors_evenement',
 ])
 /** Objets dont les clés sont libres (identifiants de tests ou de critères) ; leurs valeurs restent vérifiées. */
 const DICTS = new Set(['mesures', 'criteres', 'legende'])
@@ -579,6 +666,8 @@ const DICTS = new Set(['mesures', 'criteres', 'legende'])
 const CLES_CONNEXIONS = new Set([
   'erreur', 'message', 'avertissements', 'total', 'tronque', 'fenetre_minutes', 'depuis', 'maintenant', 'connexions',
   'compte', 'nom_affiche', 'role', 'perimetre', 'derniere_activite', 'il_y_a', 'appareil', 'appli_installee', 'sessions',
+  // canal : appli (ouvertures) et/ou mcp (appels d'outils, 072)
+  'canal', 'appels_mcp', 'dernier_appel_mcp', 'par_canal', 'appli', 'mcp', 'appli_et_mcp',
 ])
 /**
  * Outils d'administration (admin.ts) : une liste blanche PAR OUTIL, comme nextar_connexions (« nom_affiche » : nom d'un
@@ -606,6 +695,8 @@ export const CLES_ADMIN: Record<string, Set<string>> = {
     // traçabilité (adminTraces.ts) : période calendaire, histogramme, provenance, génération
     'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'par', 'inclure_generation', 'via', 'par_source', 'saisie_appli', 'import_fichier',
     'proposition_validee', 'generation', 'histogramme', 'tranche', 'tranche_paris', 'par_type', 'comptes_porteurs', 'totaux_par_source', 'totaux_generation', 'ventilation_source', 'hors_staff',
+    // canal : appli et/ou serveur MCP (072)
+    'canal', 'appels_mcp', 'dernier_appel_mcp', 'dernier_appel_mcp_paris', 'appels_mcp_erreurs', 'outils', 'outil',
   ]),
   // Traçabilité (adminTraces.ts), lecture seule.
   nextar_admin_journal: new Set([
@@ -614,6 +705,8 @@ export const CLES_ADMIN: Record<string, Set<string>> = {
     'evenement', 'appareil', 'fin', 'fin_paris', 'source', 'lot_id', 'historique', 'debut', 'debut_paris', 'duree_min',
     'nb_actions', 'par_type', 'par_action', 'mesures', 'avis', 'vus', 'fiches', 'connexions', 'creation', 'modification',
     'suppression', 'restauration', 'evenements', 'tests', 'joueurs', 'sources', 'lots',
+    // appels d'outils du serveur MCP (072) : outil, durée, succès, lignes rendues, filtres structurés (texte court)
+    'mcp', 'appels_mcp', 'appel', 'outil', 'outils', 'duree_ms', 'succes', 'nb_lignes', 'filtres', 'canal',
   ]),
   nextar_admin_saisies: new Set([
     ...COMMUNES_ADMIN, 'auteur', 'periode', 'depuis', 'depuis_paris', 'jusqu_a', 'jusqu_a_paris', 'filtres', 'test', 'test_id',
@@ -1058,6 +1151,10 @@ export async function outilSuivi(src: Source, reg: Reglages, input: { id?: strin
 
 export interface LireInput {
   annees?: number[]
+  /** Trimestres de naissance (1 : janvier-mars … 4 : octobre-décembre), combinables avec `annees`. */
+  trimestres?: number[]
+  /** Nés entre deux trimestres, bornes comprises (« 2012-T4 » → « 2013-T4 » ; une année seule : T1 au début, T4 à la fin). */
+  nes_entre?: { de?: string; a?: string }
   sexe?: 'M' | 'F'
   postes?: string[]
   departements?: string[]
@@ -1088,7 +1185,27 @@ export function critere(ref: string, list: readonly CritereSrv[]): CritereSrv | 
   return near.length === 1 ? near[0] : undefined
 }
 
-const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && /^-?\d+([.,]\d+)?$/.test(v.trim()) ? +v.replace(',', '.') : NaN)
+export const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && /^-?\d+([.,]\d+)?$/.test(v.trim()) ? +v.trim().replace(',', '.') : NaN)
+
+/** Trimestre de naissance d'une date (« 2013-11-04 » → 4) ; année seule ou date illisible : undefined. */
+export const trimestreDe = (d?: string | null) => {
+  const m = d ? /^\d{4}-(0[1-9]|1[0-2])/.exec(d) : null
+  return m ? Math.floor((+m[1] + 2) / 3) : undefined
+}
+
+/** « 2012-T4 », « 2012T4 », « 2012-4 », « 2012 » → année × 10 + trimestre (année seule : T1 au début, T4 à la fin). */
+export function lireTrimestre(s: unknown, fin: boolean): number | { erreur: string } {
+  const m = typeof s === 'string' ? /^\s*(\d{4})(?:\s*[-/ ]?\s*[Tt]?([1-4]))?\s*$/.exec(s) : null
+  if (!m) return { erreur: `nes_entre : « ${clip(s, 20)} » n’est pas un trimestre (écrire « 2012-T4 », ou une année « 2013 »).` }
+  return +m[1] * 10 + (m[2] ? +m[2] : fin ? 4 : 1)
+}
+
+/** Égalités départagées par l'identifiant, octet par octet (comme « id collate "C" » de hb_mcp_lire, 072). */
+const parId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Requête trop lente pour la base (limite de 8 s du rôle authenticated) : message clair au lieu d'une erreur du serveur. */
+const LENTE = /statement timeout|canceling statement|57014/i
+export const LIRE_072 = 'supabase/072_mcp_lecture_appels.sql'
 
 export async function outilLire(src: Source, reg: Reglages, input: LireInput = {}) {
   void reg
@@ -1097,6 +1214,7 @@ export async function outilLire(src: Source, reg: Reglages, input: LireInput = {
   const crits = (await src.criteres()).filter((c) => !c.deleted)
   const tests = crits.filter((c) => (c.kind ?? 'factual') === 'factual')
   const avisCrits = crits.filter((c) => c.kind === 'subjective')
+  const score5Ids = avisCrits.filter((c) => (c.scale ?? 'score5') === 'score5').map((c) => c.id)
   // Contexte : événement ou groupe.
   let ids: string[] | undefined
   if (input.evenement && input.groupe) return { erreur: 'Donne un événement OU un groupe, pas les deux.' }
@@ -1138,151 +1256,269 @@ export async function outilLire(src: Source, reg: Reglages, input: LireInput = {
     }
   } else sortie = [...filtresMesures.map((f) => f.c), ...(triTest ? [triTest] : [])]
   sortie = uniq(sortie)
-  // Joueurs (sans noms).
+  // Joueurs (sans noms) : années, trimestres, nés entre deux trimestres.
   const annees = (input.annees ?? []).filter((y) => Number.isInteger(y) && y > 1900 && y < 2100)
+  const trimestres = uniq((input.trimestres ?? []).filter((t) => Number.isInteger(t) && t >= 1 && t <= 4))
+  let nesDe: number | undefined
+  let nesA: number | undefined
+  if (input.nes_entre && (input.nes_entre.de || input.nes_entre.a)) {
+    if (input.nes_entre.de) {
+      const x = lireTrimestre(input.nes_entre.de, false)
+      if (typeof x !== 'number') return x
+      nesDe = x
+    }
+    if (input.nes_entre.a) {
+      const x = lireTrimestre(input.nes_entre.a, true)
+      if (typeof x !== 'number') return x
+      nesA = x
+    }
+    if (nesDe !== undefined && nesA !== undefined && nesDe > nesA) return { erreur: 'nes_entre : le début est après la fin.' }
+  }
   const postes = (input.postes ?? []).map((p) => String(p).trim()).filter(Boolean)
   const depts = (input.departements ?? []).map((d) => String(d).trim().toUpperCase()).filter(Boolean)
   if (ids && !ids.length) return { joueurs: [], total: 0, avertissements: ['Cet événement ou ce groupe n’a aucun joueur.'] }
-  const lus = await src.joueursLire({ ...(ids ? { ids } : {}), ...(annees.length ? { annees } : {}), ...(input.sexe ? { sexe: input.sexe } : {}), ...(postes.length ? { postes } : {}), ...(depts.length ? { depts } : {}) }, BORNES.lireAvant)
-  if (lus.tronque) avertissements.push(`Plus de ${BORNES.lireAvant} joueurs correspondent avant les filtres sur les mesures, avis et vus : seuls les ${BORNES.lireAvant} premiers sont considérés. Précise l’année, le poste, le département, un événement ou un groupe.`)
-  let joueurs = lus.joueurs.filter(
-    (p) =>
-      (!ids || ids.includes(p.id)) &&
-      (!annees.length || (p.annee !== undefined && annees.includes(p.annee))) &&
-      (!input.sexe || p.sexe === input.sexe) &&
-      (!postes.length || (p.poste !== undefined && postes.includes(p.poste))) &&
-      (!depts.length || (p.dept !== undefined && depts.includes(p.dept.toUpperCase()))),
-  )
-  // Mesures, avis, vus : lus pour les joueurs encore en lice quand un filtre ou le tri en a besoin, sinon pour la page rendue.
-  const besoinAvant = filtresMesures.length > 0 || filtresAvis.length > 0 || input.avis_min !== undefined || input.vus_min !== undefined || (input.tri && input.tri.par !== 'annee')
-  type Info = { mes: Map<string, { valeur: number | string; date: string }>; avis: { moy?: number; nb: number; par: Map<string, number[]> }; vus: number }
-  const infos = new Map<string, Info>()
-  const charger = async (pids: string[]) => {
-    const todo = pids.filter((id) => !infos.has(id))
-    if (!todo.length) return
-    const [ms, av, vs] = await Promise.all([src.mesures(todo), src.avis(todo), src.vus(todo)])
-    for (const id of todo) infos.set(id, { mes: new Map(), avis: { nb: 0, par: new Map() }, vus: 0 })
-    for (const m of ms) {
-      const i = infos.get(m.playerId)
-      if (!i) continue
-      const cur = i.mes.get(m.criterionId)
-      if (!cur || m.date > cur.date) i.mes.set(m.criterionId, { valeur: m.value, date: m.date })
-    }
-    const score5 = new Set(avisCrits.filter((c) => (c.scale ?? 'score5') === 'score5').map((c) => c.id))
-    const toutes = new Map<string, number[]>()
-    for (const a of av) {
-      const i = infos.get(a.playerId)
-      if (!i) continue
-      i.avis.nb++
-      for (const [cid, v] of Object.entries(a.scores ?? {})) {
-        const n = num(v)
-        if (!Number.isFinite(n)) continue
-        i.avis.par.set(cid, [...(i.avis.par.get(cid) ?? []), n])
-        if (score5.has(cid)) toutes.set(a.playerId, [...(toutes.get(a.playerId) ?? []), n])
-      }
-    }
-    for (const [pid, xs] of toutes) {
-      const i = infos.get(pid)
-      if (i && xs.length) i.avis.moy = round(xs.reduce((s, x) => s + x, 0) / xs.length)
-    }
-    const evs = new Map<string, Set<string>>()
-    for (const v of vs) evs.set(v.playerId, (evs.get(v.playerId) ?? new Set()).add(v.eventId))
-    for (const [pid, s] of evs) {
-      const i = infos.get(pid)
-      if (i) i.vus = s.size
-    }
-  }
-  const moyCrit = (i: Info, cid: string) => {
-    const xs = i.avis.par.get(cid)
-    return xs?.length ? round(xs.reduce((s, x) => s + x, 0) / xs.length) : undefined
-  }
-  if (besoinAvant) {
-    for (let k = 0; k < joueurs.length; k += 500) await charger(joueurs.slice(k, k + 500).map((p) => p.id))
-    joueurs = joueurs.filter((p) => {
-      const i = infos.get(p.id)!
-      for (const f of filtresMesures) {
-        const v = num(i.mes.get(f.c.id)?.valeur)
-        if (!Number.isFinite(v) || (f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) return false
-      }
-      if (input.vus_min !== undefined && i.vus < input.vus_min) return false
-      if (input.avis_min !== undefined && (i.avis.moy === undefined || i.avis.moy < input.avis_min)) return false
-      for (const f of filtresAvis) {
-        const m = moyCrit(i, f.c.id)
-        if (m === undefined || m < f.min) return false
-      }
-      return true
-    })
-  }
-  // Tri.
   const ordre = input.tri?.ordre === 'asc' ? 1 : input.tri?.ordre === 'desc' ? -1 : input.tri?.par === 'annee' ? 1 : -1
-  const cle = (p: JoueurLire): number | undefined => {
-    const i = infos.get(p.id)
-    switch (input.tri?.par) {
-      case 'annee':
-        return p.annee
-      case 'vus':
-        return i?.vus
-      case 'avis':
-        return i?.avis.moy
-      case 'test': {
-        const v = num(i?.mes.get(triTest!.id)?.valeur)
-        return Number.isFinite(v) ? v : undefined
-      }
-      default:
-        return undefined
-    }
-  }
   const codeDe = (id: string) => codeJoueur(id)
-  joueurs.sort((a, b) => {
-    const x = cle(a)
-    const y = cle(b)
-    if (x !== undefined && y !== undefined && x !== y) return (x - y) * ordre
-    if (x === undefined && y !== undefined) return 1
-    if (y === undefined && x !== undefined) return -1
-    return codeDe(a.id).localeCompare(codeDe(b.id))
-  })
-  const total = joueurs.length
-  const page = joueurs.slice(0, limite)
-  await charger(page.map((p) => p.id))
-  const index = indexCodes(page.map((p) => p.id))
-  const lignes = page.map((p) => {
-    const i = infos.get(p.id)!
-    const code = codeDe(p.id)
-    const mesures: Record<string, { valeur: number | string; date: string }> = {}
-    for (const c of sortie) {
-      const m = i.mes.get(c.id)
-      if (m) mesures[c.id] = { valeur: typeof m.valeur === 'string' ? clip(m.valeur, 60) : m.valeur, date: m.date }
-    }
-    const criteres: Record<string, number> = {}
-    if (input.avec_avis_criteres) for (const c of avisCrits) {
-      const m = moyCrit(i, c.id)
-      if (m !== undefined) criteres[c.id] = m
-    }
-    return {
-      code,
-      ...((index.get(code)?.length ?? 0) > 1 ? { code_partage: true } : {}),
-      ...(p.poste ? { poste: p.poste } : {}),
-      ...(p.annee ? { annee: p.annee } : {}),
-      ...(p.sexe ? { sexe: p.sexe } : {}),
-      ...(p.dept ? { departement: p.dept } : {}),
-      vus: i.vus,
-      ...(Object.keys(mesures).length ? { mesures } : {}),
-      avis: { nb: i.avis.nb, ...(i.avis.moy !== undefined ? { moyenne: i.avis.moy } : {}), ...(Object.keys(criteres).length ? { criteres } : {}) },
-    }
-  })
   const legende: Record<string, string> = {}
   for (const c of sortie) legende[c.id] = clip(c.unit ? `${c.label} (${c.unit})` : c.label, 120)
   if (input.avec_avis_criteres) for (const c of avisCrits) legende[c.id] = clip(c.label, 120)
-  return {
-    joueurs: lignes,
-    total,
-    ...(total > page.length ? { tronque: true } : {}),
-    ...(Object.keys(legende).length ? { legende } : {}),
-    ...(input.tri ? { tri: `${input.tri.par}${triTest ? ` ${triTest.id}` : ''} ${ordre > 0 ? 'croissant' : 'décroissant'}` } : {}),
-    avertissements: [
-      ...avertissements,
-      'Moyenne d’avis : critères notés de 1 à 5. Mesures : dernière valeur de chaque test. Un joueur est désigné par son code ; écris le rapport avec ces codes.',
-    ],
+  const avisIds = new Set(avisCrits.map((c) => c.id))
+  const triTexte = input.tri ? `${input.tri.par}${triTest ? ` ${triTest.id}` : ''} ${ordre > 0 ? 'croissant' : 'décroissant'}` : undefined
+  const nesTexte = nesDe !== undefined || nesA !== undefined
+    ? `${nesDe !== undefined ? `${Math.floor(nesDe / 10)}-T${nesDe % 10}` : 'début'} → ${nesA !== undefined ? `${Math.floor(nesA / 10)}-T${nesA % 10}` : 'fin'}`
+    : undefined
+  const NOTE = 'Moyenne d’avis : critères notés de 1 à 5. Mesures : dernière valeur de chaque test. Trimestre de naissance : 1 (janvier-mars) à 4 (octobre-décembre). Un joueur est désigné par son code ; écris le rapport avec ces codes.'
+
+  // 1) Dans la base (072) : filtres, tri et limite exacts, en une requête.
+  const base = await src.lireBase({
+    ...(annees.length ? { annees } : {}),
+    ...(trimestres.length ? { trimestres } : {}),
+    ...(nesDe !== undefined ? { nes_de: nesDe } : {}),
+    ...(nesA !== undefined ? { nes_a: nesA } : {}),
+    ...(input.sexe ? { sexe: input.sexe } : {}),
+    ...(postes.length ? { postes } : {}),
+    ...(depts.length ? { depts } : {}),
+    ...(ids ? { ids } : {}),
+    ...(filtresMesures.length ? { mesures: filtresMesures.map((f) => ({ test: f.c.id, ...(f.min !== undefined ? { min: f.min } : {}), ...(f.max !== undefined ? { max: f.max } : {}) })) } : {}),
+    ...(input.vus_min !== undefined ? { vus_min: input.vus_min } : {}),
+    ...(input.avis_min !== undefined ? { avis_min: input.avis_min } : {}),
+    ...(filtresAvis.length ? { avis_criteres: filtresAvis.map((f) => ({ critere: f.c.id, min: f.min })) } : {}),
+    score5: score5Ids,
+    ...(input.tri ? { tri: { par: input.tri.par, ...(triTest ? { test: triTest.id } : {}), ordre: ordre > 0 ? 'asc' as const : 'desc' as const } } : {}),
+    limite,
+    sortie: sortie.map((c) => c.id),
+    ...(input.avec_avis_criteres ? { avec_criteres: true } : {}),
+  }).catch((e: unknown) => {
+    if (e instanceof Error && LENTE.test(e.message)) return 'lente' as const
+    throw e
+  })
+  if (base === 'lente') return { erreur: 'La base a mis trop de temps à répondre. Précise la recherche (année, sexe, poste, département, événement ou groupe) et réessaie.' }
+  if (base) {
+    const index = indexCodes(base.lignes.map((l) => l.id))
+    const lignes = base.lignes.map((l) => {
+      const code = codeDe(l.id)
+      const mesures: Record<string, { valeur: number | string; date: string }> = {}
+      for (const c of sortie) {
+        const m = l.mesures?.[c.id]
+        if (m && (typeof m.v === 'number' || typeof m.v === 'string')) mesures[c.id] = { valeur: typeof m.v === 'string' ? clip(m.v, 60) : m.v, date: String(m.d ?? '') }
+      }
+      const criteres: Record<string, number> = {}
+      if (input.avec_avis_criteres) for (const [k, v] of Object.entries(l.criteres ?? {})) if (avisIds.has(k) && typeof v === 'number') criteres[k] = v
+      return {
+        code,
+        ...((index.get(code)?.length ?? 0) > 1 ? { code_partage: true } : {}),
+        ...(l.poste ? { poste: l.poste } : {}),
+        ...(l.annee ? { annee: l.annee } : {}),
+        ...(l.trimestre ? { trimestre: l.trimestre } : {}),
+        ...(l.sexe === 'M' || l.sexe === 'F' ? { sexe: l.sexe } : {}),
+        ...(l.dept ? { departement: l.dept } : {}),
+        vus: l.vus ?? 0,
+        ...(Object.keys(mesures).length ? { mesures } : {}),
+        avis: { nb: l.avis_nb ?? 0, ...(typeof l.avis_moy === 'number' ? { moyenne: l.avis_moy } : {}), ...(Object.keys(criteres).length ? { criteres } : {}) },
+      }
+    })
+    return {
+      joueurs: lignes,
+      total: base.total,
+      ...(base.total > lignes.length ? { tronque: true } : {}),
+      ...(Object.keys(legende).length ? { legende } : {}),
+      ...(triTexte ? { tri: triTexte } : {}),
+      ...(nesTexte ? { nes_entre: nesTexte } : {}),
+      calcul: 'dans la base : filtres, tri et limite exacts',
+      avertissements: [...avertissements, NOTE],
+    }
+  }
+
+  // 2) Sans 072 : côté serveur MCP, sur 5 000 joueurs au plus (ordre des identifiants) ; au-delà, résultat APPROXIMATIF.
+  try {
+    // Années pour la base : celles demandées, sinon celles couvertes par « nés entre » ; trimestres filtrés ensuite.
+    let anneesSrc = annees
+    if (!anneesSrc.length && nesDe !== undefined && nesA !== undefined && Math.floor(nesA / 10) - Math.floor(nesDe / 10) < 20) {
+      anneesSrc = []
+      for (let y = Math.floor(nesDe / 10); y <= Math.floor(nesA / 10); y++) anneesSrc.push(y)
+    }
+    const lus = await src.joueursLire({ ...(ids ? { ids } : {}), ...(anneesSrc.length ? { annees: anneesSrc } : {}), ...(input.sexe ? { sexe: input.sexe } : {}), ...(postes.length ? { postes } : {}), ...(depts.length ? { depts } : {}) }, BORNES.lireAvant)
+    const rang = (p: JoueurLire) => (p.annee !== undefined && p.trimestre !== undefined ? p.annee * 10 + p.trimestre : undefined)
+    let joueurs = lus.joueurs.filter(
+      (p) =>
+        (!ids || ids.includes(p.id)) &&
+        (!annees.length || (p.annee !== undefined && annees.includes(p.annee))) &&
+        (!trimestres.length || (p.trimestre !== undefined && trimestres.includes(p.trimestre))) &&
+        (nesDe === undefined || (rang(p) !== undefined && rang(p)! >= nesDe)) &&
+        (nesA === undefined || (rang(p) !== undefined && rang(p)! <= nesA)) &&
+        (!input.sexe || p.sexe === input.sexe) &&
+        (!postes.length || (p.poste !== undefined && postes.includes(p.poste))) &&
+        (!depts.length || (p.dept !== undefined && depts.includes(p.dept.toUpperCase()))),
+    )
+    const deptsJ: DeptsJoueurs = new Map(joueurs.map((p) => [p.id, p.dept]))
+    // Mesures, avis, vus : lus AVANT le tri seulement s'il en faut (filtres, tri), puis pour la page rendue.
+    type Info = { mes: Map<string, { valeur: number | string; date: string }>; avis: { moy?: number; nb: number; par: Map<string, number[]> }; vus: number }
+    const infos = new Map<string, Info>()
+    const charges = { mes: new Set<string>(), avis: new Set<string>(), vus: new Set<string>() }
+    const info = (id: string) => {
+      let i = infos.get(id)
+      if (!i) infos.set(id, (i = { mes: new Map(), avis: { nb: 0, par: new Map() }, vus: 0 }))
+      return i
+    }
+    const score5 = new Set(score5Ids)
+    const charger = async (pids: string[], quoi: { mes?: boolean; avis?: boolean; vus?: boolean }) => {
+      const todo = (k: keyof typeof charges, oui?: boolean) => (oui ? pids.filter((id) => !charges[k].has(id)) : [])
+      const [tm, ta, tv] = [todo('mes', quoi.mes), todo('avis', quoi.avis), todo('vus', quoi.vus)]
+      const [ms, av, vs] = await Promise.all([
+        tm.length ? src.mesures(tm, deptsJ) : Promise.resolve([] as MesureSrv[]),
+        ta.length ? src.avis(ta, deptsJ) : Promise.resolve([] as AvisSrv[]),
+        tv.length ? src.vus(tv, deptsJ) : Promise.resolve([] as VuSrv[]),
+      ])
+      for (const id of tm) (charges.mes.add(id), info(id))
+      for (const id of ta) (charges.avis.add(id), info(id))
+      for (const id of tv) (charges.vus.add(id), info(id))
+      const enTm = new Set(tm)
+      for (const m of ms) {
+        if (!enTm.has(m.playerId)) continue
+        const i = info(m.playerId)
+        const cur = i.mes.get(m.criterionId)
+        if (!cur || m.date > cur.date) i.mes.set(m.criterionId, { valeur: m.value, date: m.date })
+      }
+      const enTa = new Set(ta)
+      const toutes = new Map<string, number[]>()
+      for (const a of av) {
+        if (!enTa.has(a.playerId)) continue
+        const i = info(a.playerId)
+        i.avis.nb++
+        for (const [cid, v] of Object.entries(a.scores ?? {})) {
+          const n = num(v)
+          if (!Number.isFinite(n)) continue
+          i.avis.par.set(cid, [...(i.avis.par.get(cid) ?? []), n])
+          if (score5.has(cid)) toutes.set(a.playerId, [...(toutes.get(a.playerId) ?? []), n])
+        }
+      }
+      for (const [pid, xs] of toutes) if (xs.length) info(pid).avis.moy = round(xs.reduce((s, x) => s + x, 0) / xs.length)
+      const evs = new Map<string, Set<string>>()
+      for (const v of vs) if (tv.includes(v.playerId)) evs.set(v.playerId, (evs.get(v.playerId) ?? new Set()).add(v.eventId))
+      for (const [pid, st] of evs) info(pid).vus = st.size
+    }
+    const moyCrit = (i: Info, cid: string) => {
+      const xs = i.avis.par.get(cid)
+      return xs?.length ? round(xs.reduce((s, x) => s + x, 0) / xs.length) : undefined
+    }
+    const avant = {
+      mes: filtresMesures.length > 0 || input.tri?.par === 'test',
+      avis: filtresAvis.length > 0 || input.avis_min !== undefined || input.tri?.par === 'avis',
+      vus: input.vus_min !== undefined || input.tri?.par === 'vus',
+    }
+    if (avant.mes || avant.avis || avant.vus) {
+      await charger(joueurs.map((p) => p.id), avant)
+      joueurs = joueurs.filter((p) => {
+        const i = info(p.id)
+        for (const f of filtresMesures) {
+          const v = num(i.mes.get(f.c.id)?.valeur)
+          if (!Number.isFinite(v) || (f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max)) return false
+        }
+        if (input.vus_min !== undefined && i.vus < input.vus_min) return false
+        if (input.avis_min !== undefined && (i.avis.moy === undefined || i.avis.moy < input.avis_min)) return false
+        for (const f of filtresAvis) {
+          const m = moyCrit(i, f.c.id)
+          if (m === undefined || m < f.min) return false
+        }
+        return true
+      })
+    }
+    // Tri ; égalités départagées par l'identifiant (comme 072).
+    const cle = (p: JoueurLire): number | undefined => {
+      const i = infos.get(p.id)
+      switch (input.tri?.par) {
+        case 'annee':
+          return p.annee
+        case 'vus':
+          return i?.vus
+        case 'avis':
+          return i?.avis.moy
+        case 'test': {
+          const v = num(i?.mes.get(triTest!.id)?.valeur)
+          return Number.isFinite(v) ? v : undefined
+        }
+        default:
+          return undefined
+      }
+    }
+    joueurs.sort((a, b) => {
+      const x = cle(a)
+      const y = cle(b)
+      if (x !== undefined && y !== undefined && x !== y) return (x - y) * ordre
+      if (x === undefined && y !== undefined) return 1
+      if (y === undefined && x !== undefined) return -1
+      return parId(a.id, b.id)
+    })
+    const total = joueurs.length
+    const page = joueurs.slice(0, limite)
+    await charger(page.map((p) => p.id), { mes: true, avis: true, vus: true })
+    const index = indexCodes(page.map((p) => p.id))
+    const lignes = page.map((p) => {
+      const i = info(p.id)
+      const code = codeDe(p.id)
+      const mesures: Record<string, { valeur: number | string; date: string }> = {}
+      for (const c of sortie) {
+        const m = i.mes.get(c.id)
+        if (m) mesures[c.id] = { valeur: typeof m.valeur === 'string' ? clip(m.valeur, 60) : m.valeur, date: m.date }
+      }
+      const criteres: Record<string, number> = {}
+      if (input.avec_avis_criteres) for (const c of avisCrits) {
+        const m = moyCrit(i, c.id)
+        if (m !== undefined) criteres[c.id] = m
+      }
+      return {
+        code,
+        ...((index.get(code)?.length ?? 0) > 1 ? { code_partage: true } : {}),
+        ...(p.poste ? { poste: p.poste } : {}),
+        ...(p.annee ? { annee: p.annee } : {}),
+        ...(p.trimestre ? { trimestre: p.trimestre } : {}),
+        ...(p.sexe ? { sexe: p.sexe } : {}),
+        ...(p.dept ? { departement: p.dept } : {}),
+        vus: i.vus,
+        ...(Object.keys(mesures).length ? { mesures } : {}),
+        avis: { nb: i.avis.nb, ...(i.avis.moy !== undefined ? { moyenne: i.avis.moy } : {}), ...(Object.keys(criteres).length ? { criteres } : {}) },
+      }
+    })
+    if (lus.tronque)
+      avertissements.unshift(
+        `Résultat APPROXIMATIF tant que ${LIRE_072} n’est pas appliqué : plus de ${BORNES.lireAvant} joueurs correspondent avant les filtres sur les mesures, avis et vus, et seuls les ${BORNES.lireAvant} premiers (ordre des identifiants) sont considérés ; le total, le tri et le classement (un « top 10 ») portent sur eux seulement. Ne présente pas ce classement comme exact ; précise l’année et le sexe, le poste, le département, un événement ou un groupe.`,
+      )
+    return {
+      joueurs: lignes,
+      total,
+      ...(total > page.length ? { tronque: true } : {}),
+      ...(lus.tronque ? { approximatif: true } : {}),
+      ...(Object.keys(legende).length ? { legende } : {}),
+      ...(triTexte ? { tri: triTexte } : {}),
+      ...(nesTexte ? { nes_entre: nesTexte } : {}),
+      calcul: lus.tronque ? `serveur MCP, sur ${BORNES.lireAvant} joueurs au plus (approximatif ; ${LIRE_072} le rend exact)` : 'serveur MCP (tous les joueurs correspondants)',
+      avertissements: [...avertissements, NOTE],
+    }
+  } catch (e) {
+    if (e instanceof Error && LENTE.test(e.message)) {
+      return { erreur: `La base a mis trop de temps à répondre (plus de 8 s) : ${LIRE_072} n’est pas appliqué, les mesures sont lues joueur par joueur. Précise la recherche (année et sexe, poste, département, événement ou groupe) et réessaie.` }
+    }
+    throw e
   }
 }
 
@@ -1390,22 +1626,43 @@ export async function outilConnexions(src: Source, reg: Reglages, input: Connexi
   const limite = borne(input.limite, BORNES.connexionsDefaut, 1, BORNES.connexionsMax)
   const maintenant = reg.maintenant ?? Date.now()
   const depuis = new Date(maintenant - minutes * 60_000).toISOString()
-  const lu = await src.connexions(depuis, BORNES.connexionsSessions)
-  // Par compte : dernière activité, appareil de la dernière ouverture, nombre d'ouvertures vues sur la période.
-  const parCompte = new Map<string, { derniere: number; device?: string | null; sessions: number }>()
+  const [lu, mcp, moi] = await Promise.all([src.connexions(depuis, BORNES.connexionsSessions), src.appelsMcp({ depuis }, BORNES.appelsMcpMax), src.moi()])
+  // Par compte : dernière activité (appli ou serveur MCP), appareil de la dernière ouverture de l'appli, ouvertures de l'appli
+  // et appels d'outils du serveur MCP vus sur la période. Un compte qui n'utilise que Claude apparaît (canal « mcp »).
+  type Acc = { derniere: number; device?: string | null; sessions: number; appli?: number; appels: number; dernierMcp?: number }
+  const parCompte = new Map<string, Acc>()
+  const acc = (u: string) => {
+    let a = parCompte.get(u)
+    if (!a) parCompte.set(u, (a = { derniere: -Infinity, sessions: 0, appels: 0 }))
+    return a
+  }
   for (const s of lu.sessions) {
     const t = Date.parse(s.lastSeenAt)
     if (!s.userId || !Number.isFinite(t) || t < maintenant - minutes * 60_000) continue
-    const cur = parCompte.get(s.userId)
-    if (!cur) parCompte.set(s.userId, { derniere: t, device: s.device, sessions: 1 })
-    else {
-      cur.sessions++
-      if (t > cur.derniere) Object.assign(cur, { derniere: t, device: s.device })
-    }
+    const cur = acc(s.userId)
+    cur.sessions++
+    if (cur.appli === undefined || t > cur.appli) Object.assign(cur, { appli: t, device: s.device })
+    cur.derniere = Math.max(cur.derniere, t)
+  }
+  for (const x of mcp?.appels ?? []) {
+    const t = Date.parse(x.at)
+    if (!x.userId || !Number.isFinite(t) || t < maintenant - minutes * 60_000) continue
+    const cur = acc(x.userId)
+    cur.appels++
+    cur.dernierMcp = Math.max(cur.dernierMcp ?? -Infinity, t)
+    cur.derniere = Math.max(cur.derniere, t)
+  }
+  // L'appel en cours (le journal l'écrit après la réponse) : son auteur est connecté, par le serveur MCP, maintenant.
+  if (moi) {
+    const cur = acc(moi)
+    cur.appels++
+    cur.dernierMcp = maintenant
+    cur.derniere = maintenant
   }
   const ordre = [...parCompte].sort((a, b) => b[1].derniere - a[1].derniere)
   const page = ordre.slice(0, limite)
   const comptes = new Map((page.length ? await src.comptes(page.map(([id]) => id)) : []).map((c) => [c.userId, c]))
+  const canal = (v: Acc) => (v.sessions && v.appels ? 'appli et mcp' : v.appels ? 'mcp' : 'appli')
   const connexions = page.map(([id, v]) => {
     const c = comptes.get(id) ?? { userId: id }
     const perimetre = textePerimetre(c)
@@ -1414,22 +1671,29 @@ export async function outilConnexions(src: Source, reg: Reglages, input: Connexi
       nom_affiche: sansCoordonnees(c.fullName, 80) || SANS_NOM,
       role: (c.role && ROLE_LIBELLE[c.role]) || SANS_ROLE,
       ...(perimetre ? { perimetre } : {}),
+      canal: canal(v),
       derniere_activite: new Date(v.derniere).toISOString(),
       il_y_a: ilYA(maintenant - v.derniere),
-      ...typeAppareil(v.device),
+      ...(v.sessions ? typeAppareil(v.device) : {}),
       sessions: v.sessions,
+      ...(mcp || v.appels ? { appels_mcp: v.appels } : {}),
+      ...(v.dernierMcp !== undefined ? { dernier_appel_mcp: new Date(v.dernierMcp).toISOString() } : {}),
     }
   })
+  const vals = [...parCompte.values()]
   return {
     fenetre_minutes: minutes,
     depuis,
     maintenant: new Date(maintenant).toISOString(),
     total: ordre.length,
+    par_canal: { appli: vals.filter((v) => v.sessions && !v.appels).length, mcp: vals.filter((v) => v.appels && !v.sessions).length, appli_et_mcp: vals.filter((v) => v.appels && v.sessions).length },
     ...(ordre.length > page.length ? { tronque: true } : {}),
     connexions,
     avertissements: [
       ...(lu.tronque ? [`Plus de ${BORNES.connexionsSessions} ouvertures de l’appli sur la période : seules les plus récentes sont comptées. Réduis la fenêtre.`] : []),
-      'Dernière activité : dernier signe de vie de l’appli (envoyé toutes les quelques minutes tant qu’elle est affichée). Sessions : ouvertures de l’appli vues sur la période.',
+      ...(mcp?.tronque ? [`Plus de ${BORNES.appelsMcpMax} appels du serveur MCP sur la période : seuls les plus récents sont comptés.`] : []),
+      ...(mcp ? [] : [`Appels du serveur MCP (Claude) non journalisés tant que ${LIRE_072} n’est pas appliqué : seul le compte qui pose la question apparaît pour le canal « mcp ».`]),
+      'Canal : « appli » (l’appli Nextar ouverte), « mcp » (Claude par le serveur MCP), ou les deux. Dernière activité : dernier signe de vie de l’appli (envoyé toutes les quelques minutes tant qu’elle est affichée) ou dernier appel d’outil par Claude. Sessions : ouvertures de l’appli vues sur la période ; appels_mcp : appels d’outils par Claude (l’appel en cours compris).',
     ],
     message: 'Comptes du staff (nom affiché et rôle) ; jamais d’adresse mail, de téléphone, d’adresse IP ni de donnée de joueur.',
   }

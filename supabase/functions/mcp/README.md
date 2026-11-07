@@ -6,8 +6,51 @@ page d'autorisation de l'appli : `/oauth/consent`). Claude peut alors lire en co
 joueurs vus ou à revoir à valider, et garder des rapports en codes, **avec les droits du coach** (RLS, périmètre, rôle).
 
 **Règle : Nextar n'envoie jamais de données de joueur à une IA.** Les réponses ne contiennent que des codes (`J-7K3Q2MX`),
-postes, années, sexe, département, mesures, moyennes d'avis et nombres de « vus » (liste blanche : `outils.ts`,
-`verifierSortie` ; essais : `tools/test-mcp.ts`, `tools/essai-mcp/lancer.sh`).
+postes, années et trimestres de naissance (jamais la date complète), sexe, département, mesures, moyennes d'avis et nombres
+de « vus » (liste blanche : `outils.ts`, `verifierSortie` ; essais : `tools/test-mcp.ts`, `tools/essai-mcp/lancer.sh`).
+
+**Lecture exacte et historique d'un joueur** (`supabase/072_mcp_lecture_appels.sql`, `joueur.ts`) :
+- `nextar_lire` rend le **trimestre** de naissance (1 : janvier-mars … 4 : octobre-décembre, calculé côté serveur, la date
+  ne sort jamais) et accepte `trimestres: [1..4]` (combinable avec `annees`) et `nes_entre: { de: "2012-T4", a: "2013-T4" }`
+  (une seule requête pour « nés entre fin 2012 et 2013 »). Avec **072**, filtres, tri et limite sont faits **dans la base**
+  (`hb_mcp_lire`, SECURITY INVOKER : règles de lecture du compte ; ORDER BY … LIMIT avant toute coupe) : un top 10 par
+  taille sur une année de plus de 5 000 joueurs est exact (`calcul: "dans la base…"`). Sans 072 : calcul côté serveur MCP
+  sur 5 000 joueurs au plus ; au-delà, `approximatif: true` et un avertissement « résultat APPROXIMATIF tant que
+  supabase/072_mcp_lecture_appels.sql n'est pas appliqué » (jamais un top faux présenté comme exact). Égalités départagées
+  par l'identifiant, des deux côtés.
+- **Cause de l'« Erreur du serveur Nextar »** (07/11, `annees: [2013]` + tri par taille, sans sexe) : journal de la fonction
+  « nextar_lire : canceling statement due to statement timeout », requête `hb_measurements?data->>playerId=in.(150 ids)` en
+  500. Sous RLS, un filtre sur `data->>'playerId'` n'utilise pas l'index (l'opérateur jsonb `->>` n'est pas « leakproof ») :
+  chaque paquet relisait les 145 000 mesures (1 à 5 s) et 5 087 joueurs en faisaient 34 ; un paquet a dépassé les 8 s du rôle
+  `authenticated`. Corrigé : 072 (une lecture, dans la base) ; sans 072, mesures, avis et « vus » sont lus **par
+  département** (`scope_dept`, colonne simple, index utilisable sous RLS, tenue égale au département du joueur par 046),
+  seulement ce qu'il faut avant le tri, et un dépassement de délai rend un message clair au lieu d'une erreur du serveur.
+- `nextar_joueur` (`code` J-… requis, `tests` ids / libellés ou « toutes », `depuis` / `jusqu_a`) : profil (sexe, année +
+  trimestre, département, poste), mesures par test en série datée `[{ valeur, date, evenement }]` (événement du même jour
+  où le joueur est inscrit) avec `evolution` (première → dernière valeur, écart, nombre de points), `vus` (événements :
+  libellé, date, type), `avis` (moyenne par événement — hors événement : par jour — et par critère ; jamais un commentaire ni
+  un auteur). Même périmètre que `nextar_lire` (RLS), tout pour un administrateur. Code inconnu, mal recopié ou hors
+  périmètre : la même réponse « introuvable dans ton périmètre » ; code partagé par deux fiches : refus ; fiche fondue ou hors
+  cadre : dit comme tel. Aucun SQL nécessaire (lectures par département).
+
+**Journal des appels** (`journalMcp.ts`, table `hb_mcp_appels` de 072) : chaque appel d'outil est noté par le compte
+lui-même (son jeton ; règle : pour soi, à l'heure du serveur ; lecture : administrateurs ; ni modification ni suppression ;
+purge à 90 jours, tâche pg_cron dans la section ACTIVATION) : heure, compte, outil, durée, succès / erreur, nombre de lignes
+rendues et **filtres structurés** seulement (années, trimestres, postes, départements, identifiants de tests ou
+d'événements, tri, limite, codes J-… / C-…, nombre de lignes reçues) — **jamais les paramètres bruts** (lignes d'une
+proposition, textes d'avis, titres, noms d'événements tapés). L'écriture part sans être attendue (`EdgeRuntime.waitUntil`) et
+son échec, ou l'absence de 072, ne change rien à la réponse. Canal **`mcp`** : `nextar_connexions` distingue « appli »,
+« mcp » et « appli et mcp » (`appels_mcp`, `dernier_appel_mcp`, `par_canal` ; l'appel en cours compte : un administrateur qui
+n'utilise que Claude apparaît dans « qui est connecté maintenant ? ») ; `nextar_admin_activite` ajoute `canal`, `appels_mcp`,
+`appels_mcp_erreurs`, `dernier_appel_mcp`, `outils` ; `nextar_admin_journal` a le type **`mcp`** (sessions : canal, outils ;
+lignes : outil, durée, succès, lignes, filtres en texte court).
+
+**Schémas publiés = paramètres lus** : titres, descriptions et schémas d'entrée sont dans `schemas.ts` (construits avec zod par
+`serveur.ts`) ; `tools/test-mcp.ts` les construit avec un faux `z` qui note les clés déclarées et les compare, pour chaque
+outil, aux paramètres lus par son code (accès notés sur l'entrée et `input.x` du code) : un paramètre lu mais non publié (ou
+publié mais jamais lu) fait échouer l'essai. Le 07/11, le schéma « sans par / depuis / jusqu_a / inclure_generation » vu par
+Claude pour `nextar_admin_activite` était celui d'une liste d'outils gardée en cache par le connecteur : la v6 en ligne les
+publie (vérifié dans le code déployé) ; reconnecter le connecteur relit la liste (version du serveur passée à 1.1.0).
 
 Seule exception, **pour les administrateurs** : `nextar_connexions` rend le nom affiché et le rôle des **comptes du staff**
 connectés récemment (jamais d'adresse mail, de téléphone, d'identifiant brut, d'adresse IP ni de donnée de joueur ; liste
@@ -128,9 +171,10 @@ compte en avait un), un secteur, une affectation et un archivage ; une fusion ne
 | `nextar_proposer_vus` | `evenement`, `lignes` (`joueur`, `numero?`, `annee?`), `titre?` | id, lien, par ligne : état + code si trouvé |
 | `nextar_proposer_a_revoir` | `lignes` (`joueur`, `numero?`, `annee?`, `raison?`), `evenement?` / `groupe?`, `titre?` | id, lien, par ligne : état + code si trouvé, `avec_raison` ; ou « refusée » + raison |
 | `nextar_suivi` | `id?` | état (en attente, validée, validée en partie, rejetée) ; sans id : les 20 dernières |
-| `nextar_lire` | années, sexe, postes, départements, événement, groupe, mesures min/max, vus min, avis min, tri, limite ≤ 200 | lignes en codes |
+| `nextar_lire` | années, trimestres, `nes_entre`, sexe, postes, départements, événement, groupe, mesures min/max, vus min, avis min, tri, limite ≤ 200 | lignes en codes (trimestre de naissance) ; `calcul` ; `approximatif` sans 072 au-delà de 5 000 joueurs |
+| `nextar_joueur` | `code` (J-…), `tests?`, `depuis?` / `jusqu_a?` | profil, séries datées par test + évolution, vus, avis par événement et critère |
 | `nextar_rapport` | `markdown` (avec les codes), `titre?` | lien `/rapport/<id>` (gardé 30 jours, auteur seul), codes mal recopiés |
-| `nextar_connexions` (administrateurs) | `minutes?` (défaut 10, de 1 à 10 080), `limite?` (défaut 50, ≤ 200) | par compte, du plus récent : code `C-…`, nom affiché, rôle, périmètre, dernière activité (ISO + « il y a N min »), appareil (téléphone / tablette / ordinateur), ouvertures de l'appli sur la période ; total |
+| `nextar_connexions` (administrateurs) | `minutes?` (défaut 10, de 1 à 10 080), `limite?` (défaut 50, ≤ 200) | par compte, du plus récent : code `C-…`, nom affiché, rôle, périmètre, canal (appli / mcp / les deux), dernière activité (ISO + « il y a N min »), appareil (téléphone / tablette / ordinateur), ouvertures de l'appli, appels MCP et le dernier ; total, nombre par canal |
 | `nextar_admin_a_faire` (administrateurs) | `limite?` (par file, défaut 10, ≤ 50) | résumé (nombres), comptes sans rôle, fiches et avis à valider, doublons, propositions en attente, questions à traiter, liens |
 | `nextar_admin_sante` (administrateurs) | — | volumes, comptes par rôle, connexions, dernière écriture, version (indisponible), erreurs du mode avancé ; avec 069 : base, tables, registre, charge, abonnements, veille, notifications, tâches, transcription |
 | `nextar_admin_activite` (administrateurs) | `jours?` ou `depuis?` / `jusqu_a?`, `par?` (total, jour, heure), `inclure_generation?`, `inactifs_jours?` (défaut 30, 1 à 365), `limite?` (≤ 200) | par compte, du plus actif : avis, mesures, événements, vus, fiches, par provenance, histogramme, dernière activité ; « Générateur démo » et comptes porteurs ; totaux ; inactifs |
@@ -141,7 +185,8 @@ compte en avait un), un secteur, une affectation et un archivage ; une fusion ne
 | `nextar_admin_proposer` (administrateurs) | `sorte` (role, perimetre, archiver, fusion), `actions` (≤ 50), `evenements_avant?`, `titre?` | par action « prête » / « refusée » + raison, id de la proposition « À valider », lien ; rien n'est appliqué |
 
 Fichiers : `index.ts` (entrée), `serveur.ts` (SDK MCP `@modelcontextprotocol/server` 2.4.0, `@supabase/server` 1.9.2,
-`@supabase/middleware` 1.0.0, zod 4.6.7), `outils.ts` (les outils, purs), `proposerJoueurs.ts` (avis, vus, à revoir, purs), `admin.ts` (les outils d'administration en
+`@supabase/middleware` 1.0.0, zod 4.6.7), `schemas.ts` (titres, descriptions, schémas d'entrée), `journalMcp.ts` (journal des
+appels, purs), `joueur.ts` (`nextar_joueur`, pur), `outils.ts` (les outils, purs), `proposerJoueurs.ts` (avis, vus, à revoir, purs), `admin.ts` (les outils d'administration en
 lecture, purs), `adminTraces.ts` (traçabilité : journal, saisies, lots, agrégats de l'activité, purs), `adminProposer.ts` (`nextar_admin_proposer`, pur),
 `source.ts` (requêtes aux droits du coach), `partage/` (copies **générées** de modules purs de `src/` :
 `npx jiti tools/generer-partage-mcp.ts` après un changement de `src/importMesures.ts`, `src/nameMatch.ts`,
@@ -153,7 +198,8 @@ lecture, purs), `adminTraces.ts` (traçabilité : journal, saisies, lots, agrég
 1. **SQL** (SQL Editor, dans l'ordre) : `supabase/067_propositions.sql`, puis `supabase/068_rapports.sql`, puis (facultatif,
    pour `nextar_admin_sante`) `supabase/069_admin_sante.sql`, puis (facultatif, pour `nextar_admin_proposer`)
    `supabase/070_propositions_admin.sql`, puis (facultatif, agrégats de la traçabilité dans la base)
-   `supabase/071_provenance.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
+   `supabase/071_provenance.sql`, puis (facultatif, lecture exacte de `nextar_lire` et journal des appels)
+   `supabase/072_mcp_lecture_appels.sql` ; vérifier les requêtes de contrôle en fin de fichier. Plus
    tard, sections « ACTIVATION » (purges pg_cron, notification de 067).
 2. **Clés de signature JWT asymétriques** (*Project Settings → JWT Keys*) : `@supabase/server` refuse les jetons HS256
    (ancien secret partagé). Passer aux clés de signature (ECC P-256 recommandé), faire tourner la clé une fois les appareils
@@ -180,8 +226,9 @@ lecture, purs), `adminTraces.ts` (traçabilité : journal, saisies, lots, agrég
   listes blanches, masquage des noms, bornes). `npx jiti tools/test-propositions.ts` : la boîte dans l'appli (application
   par de faux chemins, « Défaire »).
 - `bash tools/essai-mcp/lancer.sh` : la pile réelle dans le runtime des fonctions Supabase (Docker
-  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les dix-sept outils
-  (`nextar_connexions` et les huit `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif).
+  `public.ecr.aws/supabase/edge-runtime`), clés ES256 et jetons fictifs : découverte OAuth, 401, CORS, les dix-huit outils
+  (`nextar_connexions` et les huit `nextar_admin_*` : refus pour le coach, réponse pour un administrateur fictif ; schémas
+  publiés de `nextar_admin_activite`, `nextar_lire`, `nextar_joueur` ; canal « mcp », type « mcp » du journal).
 - `bash tools/essai-sql-068/lancer.sh` : `068_rapports.sql` sur un Postgres jetable.
 - `bash tools/essai-sql-069/lancer.sh` : `069_admin_sante.sql` sur un Postgres jetable (refus des autres comptes, forme de la
   réponse, rien de personnel, tables facultatives absentes).
@@ -192,3 +239,8 @@ lecture, purs), `adminTraces.ts` (traçabilité : journal, saisies, lots, agrég
   écrites avant 071, 071 deux fois, provenance, lots, agrégats, refus 42501 pour les autres comptes, droits de `hb_lots`,
   empreintes de `hb_upsert` / `hb_stamp` / `hb_log` et des lignes de données inchangées, rencontres fictives marquées,
   retour arrière).
+- `bash tools/essai-sql-072/lancer.sh` : `072_mcp_lecture_appels.sql` sur un Postgres jetable (6 500 joueurs fictifs nés en
+  2013 : `hb_mcp_lire` comparé à un calcul direct écrit autrement — top 10 par taille, 200 premiers croissants, nés entre deux
+  trimestres, périmètre d'un encadrant, filtres, bornes, refus, rien de personnel — ; journal des appels : pour soi, à l'heure
+  du serveur, lecture administrateurs, ni modification ni suppression, purge réservée ; empreintes de `hb_upsert` / `hb_stamp`
+  / `hb_log` / `hb_touch`, des lignes et de la structure des tables inchangées ; retour arrière).

@@ -2,7 +2,7 @@
 # Essai de BOUT EN BOUT du serveur MCP Nextar, sans projet Supabase : la pile réelle de la fonction (supabase/functions/mcp/
 # serveur.ts) tourne dans le runtime des fonctions Supabase (image Docker public.ecr.aws/supabase/edge-runtime), avec le jeu
 # fictif (tools/mcp-jeu-fictif.ts) à la place de la base, des clés ES256 jetables et des jetons fictifs (jeton.mjs) ; puis
-# appels.ts fait les appels HTTP de Claude (découverte OAuth, 401, CORS, initialize, tools/list, les dix-sept outils ;
+# appels.ts fait les appels HTTP de Claude (découverte OAuth, 401, CORS, initialize, tools/list, les dix-huit outils (dont nextar_joueur) ;
 # nextar_connexions et les huit nextar_admin_* avec le jeton du coach, refusés, puis avec celui d'un administrateur fictif).
 # Le runtime télécharge les paquets npm du serveur (SDK MCP, @supabase/server, zod) au premier lancement.
 #

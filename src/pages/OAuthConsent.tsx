@@ -131,7 +131,7 @@ export default function OAuthConsent() {
                 <p className="font-bold">Avec tes droits (ton périmètre, ton rôle), {client} pourra :</p>
                 <ul className="flex flex-col gap-1.5">
                   {[
-                    ['eye', 'lire tes joueurs EN CODES (J-…) : poste, année, sexe, département, mesures, moyennes d’avis, nombre de « vus » ; jamais un nom, un club, une date de naissance ni un commentaire'],
+                    ['eye', 'lire tes joueurs EN CODES (J-…) : poste, année et trimestre de naissance, sexe, département, mesures, moyennes d’avis, nombre de « vus », et l’historique d’un joueur (mesures datées, vus, avis dans le temps) ; jamais un nom, un club, une date de naissance complète ni un commentaire'],
                     ['check', 'déposer des mesures, des avis, des joueurs vus ou à revoir dans ta boîte « À valider » : rien n’est enregistré avant que tu valides'],
                     ['printer', 'garder 30 jours des rapports écrits avec les codes : ton appareil y remet les noms'],
                     ...(role === 'admin'
@@ -151,7 +151,7 @@ export default function OAuthConsent() {
                   <li className="flex gap-2">
                     <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
                     <span>
-                      Jamais modifier ni supprimer lui-même une fiche, une mesure, un avis ou un compte. Révocable à tout moment : Réglages → Applications connectées.
+                      Jamais modifier ni supprimer lui-même une fiche, une mesure, un avis ou un compte. Chaque appel est noté (outil, heure, durée — jamais son contenu), lisible par les administrateurs. Révocable à tout moment : Réglages → Applications connectées.
                     </span>
                   </li>
                 </ul>

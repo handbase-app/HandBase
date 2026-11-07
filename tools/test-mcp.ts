@@ -47,6 +47,7 @@ import {
   BORNES,
   codeCompte,
   ilYA,
+  lireTrimestre,
   outilConnexions,
   outilContexte,
   outilLire,
@@ -55,8 +56,10 @@ import {
   outilSuivi,
   ROLE_LIBELLE,
   sansCoordonnees,
+  trimestreDe,
   typeAppareil,
   verifierSortie,
+  type MesureSrv,
   type Reglages,
   type Source,
   type TraceSrv,
@@ -84,7 +87,11 @@ import { outilProposerAReVoir, outilProposerAvis, outilProposerVus } from '../su
 import { controleNote, lireLigne, vautPourPoste } from '../src/propositionsJoueursCore'
 import { lignesDe, rapprocherSurAppareil } from '../src/propositionsJoueurs'
 import { copiesPerimees } from './generer-partage-mcp'
+import { INTROUVABLE, outilJoueur } from '../supabase/functions/mcp/joueur'
+import { compterLignes, ERREUR_SERVEUR, executerOutil, filtresStructures, texteFiltres, type AppelMcp } from '../supabase/functions/mcp/journalMcp'
+import { schemasOutils } from '../supabase/functions/mcp/schemas'
 import {
+  ADMIN_MCP,
   COMPTE_INACTIF,
   COMPTES,
   CRITERES,
@@ -100,6 +107,7 @@ import {
   textesInterdits,
   textesInterditsAdmin,
   textesInterditsComptes,
+  type JoueurFictif,
 } from './mcp-jeu-fictif'
 
 let n = 0
@@ -380,6 +388,7 @@ await t('nextar_lire : lignes en codes (poste, année, sexe, département, vus, 
     code: code('p-lucas'),
     poste: 'ARG',
     annee: 2011,
+    trimestre: 1,
     sexe: 'M',
     departement: '83',
     vus: 2,
@@ -399,7 +408,7 @@ await t('nextar_lire : filtres (sexe, postes, départements, événement, groupe
     if (!('joueurs' in r)) throw new Error(JSON.stringify(r))
     return r.joueurs.map((j) => j.code)
   }
-  assert.deepEqual(await codes({ sexe: 'F', annees: [2011], tri: { par: 'annee' } }), [code('p-emma'), code('p-lea')].sort())
+  assert.deepEqual(await codes({ sexe: 'F', annees: [2011], tri: { par: 'annee' } }), [code('p-emma'), code('p-lea')], 'égalités : ordre des identifiants (comme 072)')
   assert.deepEqual((await codes({ postes: ['ARG'] })).sort(), [code('p-lucas'), code('p-hugo')].sort())
   assert.deepEqual(await codes({ departements: ['2a'] }), [code('p-jade')])
   assert.deepEqual((await codes({ evenement: 'Détection U15 Var', postes: ['ARG', 'AG'] })).sort(), [code('p-lucas'), code('p-hugo'), code('p-hugo2')].sort())
@@ -407,7 +416,7 @@ await t('nextar_lire : filtres (sexe, postes, départements, événement, groupe
   assert.deepEqual(await codes({ mesures: [{ test: 'Sprint 10 m', max: 1.9 }] }), [code('p-lucas')])
   assert.deepEqual(await codes({ mesures: [{ test: 'cmj', min: 35 }] }), [code('p-noah')])
   assert.deepEqual(await codes({ vus_min: 2 }), [code('p-lucas')])
-  assert.deepEqual(await codes({ avis_min: 4 }), [code('p-lucas'), code('p-emma')], 'tri par défaut : code ; avis')
+  assert.deepEqual(await codes({ avis_min: 4 }), [code('p-emma'), code('p-lucas')], 'sans tri : ordre des identifiants ; avis')
   assert.deepEqual(await codes({ avis_criteres: [{ critere: 'Défense', min: 3.5 }], tri: { par: 'avis', ordre: 'desc' } }), [code('p-lucas'), code('p-emma')])
   assert.deepEqual(await codes({ annees: [2011], tri: { par: 'test', test: 'sprint_10', ordre: 'asc' }, limite: 2 }), [code('p-lucas'), code('p-hugo')])
   const lim = garde(await outilLire(src, reg, { limite: 5000 }))
@@ -461,7 +470,7 @@ const liste = (r: ReponseC) => {
 const [A, B, CAM, D, E, SR] = COMPTES
 
 await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plus récent, nom, rôle, périmètre, appareil, sessions', async () => {
-  const r = liste(gardeC(await outilConnexions(sourceFictive({ admin: true }), regC, {})))
+  const r = liste(gardeC(await outilConnexions(sourceFictive({ moi: null, admin: true }), regC, {})))
   assert.equal(r.fenetre_minutes, 10)
   assert.equal(r.maintenant, '2026-11-05T10:00:00.000Z')
   assert.equal(r.depuis, '2026-11-05T09:50:00.000Z')
@@ -477,6 +486,7 @@ await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plu
     nom_affiche: 'Alice Administratrice-Fictive',
     role: 'Administrateur',
     perimetre: 'Toute la base (administrateur)',
+    canal: 'appli',
     derniere_activite: '2026-11-05T09:59:00.000Z',
     il_y_a: 'il y a 1 min',
     appareil: 'ordinateur',
@@ -487,6 +497,7 @@ await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plu
     nom_affiche: 'Bruno Encadrant-Fictif',
     role: 'Encadrant',
     perimetre: 'Comité Fictif du Var (83)',
+    canal: 'appli',
     derniere_activite: '2026-11-05T09:57:00.000Z',
     il_y_a: 'il y a 3 min',
     appareil: 'téléphone',
@@ -494,7 +505,7 @@ await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plu
     sessions: 2,
   })
   // Sans nom ni rôle, appareil farfelu (adresse IP, mail dans le texte) : rien de tout cela ne sort.
-  assert.deepEqual(r.connexions[2], { compte: codeCompte(SR.userId), nom_affiche: '(nom pas encore choisi)', role: 'En attente (aucun rôle)', derniere_activite: '2026-11-05T09:55:00.000Z', il_y_a: 'il y a 5 min', sessions: 1 })
+  assert.deepEqual(r.connexions[2], { compte: codeCompte(SR.userId), nom_affiche: '(nom pas encore choisi)', role: 'En attente (aucun rôle)', canal: 'appli', derniere_activite: '2026-11-05T09:55:00.000Z', il_y_a: 'il y a 5 min', sessions: 1 })
   // Nom du profil = adresse mail : remplacé.
   assert.equal(r.connexions[3].nom_affiche, '(nom pas encore choisi)')
   assert.equal(r.connexions[3].perimetre, 'Club Rêvé (n° 6383999)')
@@ -503,7 +514,7 @@ await t('nextar_connexions (admin, 10 min) : comptes vus sur la fenêtre, du plu
 })
 
 await t('nextar_connexions : fenêtre plus large (15 min, 5 h, 7 jours), limite, tronque', async () => {
-  const src = sourceFictive({ admin: true })
+  const src = sourceFictive({ moi: null, admin: true })
   const r15 = liste(gardeC(await outilConnexions(src, regC, { minutes: 15 })))
   assert.equal(r15.total, 5)
   const d = r15.connexions.find((c) => c.compte === codeCompte(D.userId))!
@@ -524,7 +535,7 @@ await t('nextar_connexions : fenêtre plus large (15 min, 5 h, 7 jours), limite,
 })
 
 await t('nextar_connexions : bornes des paramètres (minutes 1 à 10 080, limite 1 à 200, valeurs folles ramenées)', async () => {
-  const src = sourceFictive({ admin: true })
+  const src = sourceFictive({ moi: null, admin: true })
   const b = async (i: { minutes?: number; limite?: number }) => liste(gardeC(await outilConnexions(src, regC, i)))
   assert.equal((await b({ minutes: 0 })).fenetre_minutes, 1)
   assert.equal((await b({ minutes: -50 })).fenetre_minutes, 1)
@@ -534,7 +545,7 @@ await t('nextar_connexions : bornes des paramètres (minutes 1 à 10 080, limite
   assert.equal((await b({ minutes: 4.9 })).fenetre_minutes, 4)
   assert.equal((await b({ limite: 0 })).connexions.length, 1)
   const beaucoup = Array.from({ length: 260 }, (_, i) => ({ userId: `00000000-0000-4000-8000-${String(1000 + i).padStart(12, '0')}`, device: 'Ordinateur', startedAt: '2026-11-05T09:50:00.000Z', lastSeenAt: new Date(MAINTENANT_FICTIF - i * 1000).toISOString() }))
-  const gros = liste(gardeC(await outilConnexions(sourceFictive({ admin: true, sessions: beaucoup }), regC, { limite: 5000 })))
+  const gros = liste(gardeC(await outilConnexions(sourceFictive({ moi: null, admin: true, sessions: beaucoup }), regC, { limite: 5000 })))
   assert.equal(gros.connexions.length, BORNES.connexionsMax)
   assert.equal(gros.total, 260)
   assert.equal(gros.tronque, true)
@@ -552,7 +563,7 @@ await t('nextar_connexions (coach, observateur) : « réservé aux administrateu
 
 await t('nextar_connexions : aucune adresse mail même si la base en glisse une (nom, unité, champ en trop), clés interdites refusées', async () => {
   // Une Source qui en dit trop (champ email, nom = « Prénom <adresse> téléphone », unité avec un mail) : rien ne sort.
-  const base = sourceFictive({ admin: true })
+  const base = sourceFictive({ moi: null, admin: true })
   const bavarde: Source = {
     ...base,
     comptes: async (ids) =>
@@ -773,7 +784,7 @@ await t('nextar_admin_activite : par compte du staff (créations sur la période
   assert.equal(r.depuis, '2026-10-06T10:00:00.000Z')
   assert.equal(r.total, 6, 'compte sans rôle exclu')
   assert.deepEqual(r.totaux, { avis: 19, mesures: 170, evenements: 4, vus: 95, fiches: 4 })
-  assert.deepEqual(r.comptes[0], { compte: codeCompte(A.userId), nom_affiche: 'Alice Administratrice-Fictive', role: 'Administrateur', avis: 2, mesures: 140, evenements: 3, vus: 25, fiches: 1, derniere_activite: '2026-11-05T09:59:00.000Z', il_y_a: 'il y a 1 min' })
+  assert.deepEqual(r.comptes[0], { compte: codeCompte(A.userId), nom_affiche: 'Alice Administratrice-Fictive', role: 'Administrateur', canal: 'appli', avis: 2, mesures: 140, evenements: 3, vus: 25, fiches: 1, derniere_activite: '2026-11-05T09:59:00.000Z', il_y_a: 'il y a 1 min' })
   assert.equal(r.comptes[1].nom_affiche, 'Bruno Encadrant-Fictif')
   assert.ok(!r.comptes.some((c) => c.compte === codeCompte(SR.userId)))
   assert.deepEqual(r.inactifs, { seuil_jours: 30, total: 1, comptes: [{ compte: codeCompte(COMPTE_INACTIF.userId), nom_affiche: 'Fabien Inactif-Fictif', role: 'Observateur', derniere_activite: '2026-09-21T10:00:00.000Z', il_y_a: 'il y a 45 j' }] })
@@ -1231,7 +1242,7 @@ await t('« Décris toutes les actions de Bruno ce matin » : sessions (appareil
     assert.deepEqual(r.sessions[0], {
       compte: cB, nom_affiche: 'Bruno Encadrant-Fictif', role: 'Encadrant',
       debut: '2026-11-05T07:38:00.000Z', debut_paris: '05/11/2026 08:38', fin: '2026-11-05T07:52:00.000Z', fin_paris: '05/11/2026 08:52', duree_min: 14,
-      appareil: 'téléphone', nb_actions: 13, par_type: { connexions: 1, mesures: 12 }, par_action: { creation: 12 },
+      appareil: 'téléphone', canal: 'appli', nb_actions: 13, par_type: { connexions: 1, mesures: 12 }, par_action: { creation: 12 },
       evenements: ['Détection U15 Var'], tests: ['Sprint 10 m', 'CMJ', 'Taille'], joueurs: 4, sources: ['saisie_appli'],
     })
     assert.deepEqual([r.sessions[1].debut_paris, r.sessions[1].appareil, r.sessions[1].par_type], ['05/11/2026 10:00', 'ordinateur', { connexions: 1 }], 'ouverture de l’appli sans action')
@@ -1643,6 +1654,388 @@ await t('liste blanche : les réponses des trois outils passent, une clé de nom
   assert.throws(() => verifierSortie({ lignes: [{ ligne: 1, nom: 'x' }] }), /interdite/)
 })
 
+// ---------- Lot 2 : trimestre de naissance, nextar_joueur, lecture exacte (072), journal des appels (072) ----------
+
+await t('nextar_lire : trimestre de naissance (champ, filtre trimestres combinable avec annees, nes_entre) sans 072', async () => {
+  const src = sourceFictive()
+  const r = garde(await outilLire(src, reg, { annees: [2011], trimestres: [1] }))
+  if (!('joueurs' in r)) throw new Error(JSON.stringify(r))
+  assert.deepEqual(r.joueurs.map((j) => j.code), [code('p-lucas'), code('p-tom')])
+  assert.ok(r.joueurs.every((j) => j.trimestre === 1))
+  const n = garde(await outilLire(src, reg, { nes_entre: { de: '2011-T4', a: '2012-T1' } }))
+  if (!('joueurs' in n)) throw new Error(JSON.stringify(n))
+  assert.deepEqual(n.joueurs.map((j) => j.code), [code('p-lea'), code('p-noah')], 'nov. 2011 et janv. 2012 ; mai 2012 exclu')
+  assert.equal(n.nes_entre, '2011-T4 → 2012-T1')
+  assert.deepEqual([lireTrimestre('2012-T4', false), lireTrimestre('2012t4', false), lireTrimestre('2012-4', false), lireTrimestre('2013', false), lireTrimestre('2013', true)], [20124, 20124, 20124, 20131, 20134])
+  assert.ok('erreur' in garde(await outilLire(src, reg, { nes_entre: { de: 'fin 2012' } })))
+  assert.ok('erreur' in garde(await outilLire(src, reg, { nes_entre: { de: '2013-T2', a: '2013-T1' } })))
+  assert.equal(trimestreDe('2013-11-04'), 4)
+  assert.equal(trimestreDe('2013'), undefined)
+})
+
+await t('nextar_lire : mêmes lignes avec 072 (calcul dans la base, refait en mémoire) et sans (serveur MCP) sur le petit jeu', async () => {
+  const entrees: Parameters<typeof outilLire>[2][] = [
+    { annees: [2011], avec_mesures: 'toutes', avec_avis_criteres: true },
+    { tri: { par: 'avis' }, avec_avis_criteres: true },
+    { tri: { par: 'vus' } },
+    { mesures: [{ test: 'sprint_10', max: 1.95 }] },
+    { evenement: 'Détection U15 Var', tri: { par: 'test', test: 'taille', ordre: 'desc' } },
+    { nes_entre: { de: '2011-T2', a: '2012-T1' }, tri: { par: 'annee', ordre: 'desc' } },
+    { departements: ['2a'] },
+    { avis_criteres: [{ critere: 'defense', min: 3 }], avis_min: 3 },
+    { groupe: 'Pôle Espoirs Fictif', sexe: 'M', limite: 1 },
+  ]
+  for (const e of entrees) {
+    const a = garde(await outilLire(sourceFictive(), reg, e))
+    const s72 = sourceFictive({ avec072: true })
+    const b = garde(await outilLire(s72, reg, e))
+    if (!('joueurs' in a) || !('joueurs' in b)) throw new Error(JSON.stringify([a, b]))
+    assert.deepEqual(b.joueurs, a.joueurs, JSON.stringify(e))
+    assert.equal(b.total, a.total, JSON.stringify(e))
+    assert.equal(s72.appelsLireBase, 1, 'une seule requête dans la base')
+    assert.match(String(b.calcul), /dans la base/)
+  }
+})
+
+// Grande base fictive : 6 200 joueurs nés en 2013 et 800 en 2012 (plus que les 5 000 considérés sans 072), tailles (une ancienne
+// mesure plus grande ne compte pas), et les plus grands rangés APRÈS les 5 000 premiers identifiants (égalités comprises).
+const baseTailles = (() => {
+  const joueurs: JoueurFictif[] = []
+  const mesures: MesureSrv[] = []
+  let x = 987654321
+  const rnd = () => ((x = (Math.imul(x, 1103515245) + 12345) >>> 0), x >>> 12)
+  const ajoute = (id: string, birthDate: string, taille?: number) => {
+    joueurs.push({ id, firstName: 'Prenomfictif', lastName: `Nomfictif${joueurs.length}`, birthDate, sex: rnd() % 2 ? 'M' : 'F', position: 'AG', dept: String(1 + (rnd() % 95)).padStart(2, '0'), club: 'Club Fictif Géant', license: String(7300000000000 + joueurs.length) })
+    if (taille === undefined) return
+    if (joueurs.length % 5 === 0) mesures.push({ playerId: id, criterionId: 'taille', value: 235, date: '2025-01-01' })
+    mesures.push({ playerId: id, criterionId: 'taille', value: taille, date: `2026-09-1${rnd() % 9}` })
+  }
+  for (let i = 0; i < 7000; i++) {
+    const annee = i < 6200 ? 2013 : 2012
+    ajoute(`t-${(rnd() % 1e9).toString(36)}-${i}`, `${annee}-${String(1 + (rnd() % 12)).padStart(2, '0')}-1${rnd() % 10}`, i % 9 ? 140 + (rnd() % 55) : undefined)
+  }
+  for (let k = 0; k < 12; k++) ajoute(`zz-grand-${k}`, k % 3 === 0 ? '2012-11-05' : '2013-06-15', 200 + (k % 6))
+  joueurs.push({ ...joueurs[0], id: 'zz-fondu', mergedInto: joueurs[0].id })
+  mesures.push({ playerId: 'zz-fondu', criterionId: 'taille', value: 250, date: '2026-10-01' })
+  joueurs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  return { joueurs, mesures }
+})()
+/** Calcul DIRECT (écrit à part) : dernière taille par joueur, filtre, tri décroissant, égalités par identifiant. */
+const topDirect = (garder: (p: JoueurFictif) => boolean, n: number) => {
+  const der = new Map<string, { d: string; v: number }>()
+  for (const m of baseTailles.mesures) {
+    const cur = der.get(m.playerId)
+    if (m.criterionId === 'taille' && (!cur || m.date > cur.d)) der.set(m.playerId, { d: m.date, v: Number(m.value) })
+  }
+  return baseTailles.joueurs
+    .filter((p) => !p.mergedInto && p.review !== 'refused' && garder(p) && der.has(p.id))
+    .sort((a, b) => der.get(b.id)!.v - der.get(a.id)!.v || (a.id < b.id ? -1 : 1))
+    .slice(0, n)
+    .map((p) => code(p.id))
+}
+const trimDe = (p: JoueurFictif) => +p.birthDate.slice(0, 4) * 10 + Math.floor((+p.birthDate.slice(5, 7) + 2) / 3)
+const gardeGrand = <T>(x: T): T => {
+  garde(x)
+  const s = JSON.stringify(x)
+  for (const p of baseTailles.joueurs.slice(0, 400)) assert.ok(!s.includes(p.lastName) && !s.includes(p.birthDate) && !s.includes(p.license), 'aucun nom ni date')
+  assert.ok(!s.includes('Club Fictif Géant') && !s.includes('Prenomfictif'))
+  return x
+}
+
+await t('« Les 10 plus grands nés entre fin 2012 et 2013 » : une seule requête, résultat exact (072)', async () => {
+  const src = sourceFictive({ joueurs: baseTailles.joueurs, mesures: baseTailles.mesures, avec072: true })
+  const r = gardeGrand(await outilLire(src, reg, { nes_entre: { de: '2012-T4', a: '2013-T4' }, tri: { par: 'test', test: 'taille', ordre: 'desc' }, limite: 10 }))
+  if (!('joueurs' in r)) throw new Error(JSON.stringify(r))
+  assert.equal(src.appelsLireBase, 1, 'une seule requête')
+  assert.deepEqual(r.joueurs.map((j) => j.code), topDirect((p) => trimDe(p) >= 20124 && trimDe(p) <= 20134, 10))
+  assert.ok(!('approximatif' in r))
+  assert.ok(r.joueurs.every((j) => (j.annee === 2012 && j.trimestre === 4) || j.annee === 2013))
+  assert.ok(r.joueurs.every((j) => typeof j.mesures?.taille?.valeur === 'number' && j.mesures.taille.valeur < 235), 'la vieille mesure plus grande ne compte pas')
+  console.log(`   exemple : ${JSON.stringify(r.joueurs[0])}`)
+})
+
+await t('top 10 par taille sur une année > 5 000 joueurs : identique au calcul direct (072) ; sans 072, « approximatif » annoncé', async () => {
+  assert.ok(baseTailles.joueurs.filter((p) => p.birthDate.startsWith('2013')).length > BORNES.lireAvant)
+  const entree = { annees: [2013], tri: { par: 'test' as const, test: 'taille', ordre: 'desc' as const }, limite: 10 }
+  const exact = topDirect((p) => p.birthDate.startsWith('2013'), 10)
+  const r72 = gardeGrand(await outilLire(sourceFictive({ joueurs: baseTailles.joueurs, mesures: baseTailles.mesures, avec072: true }), reg, entree))
+  if (!('joueurs' in r72)) throw new Error(JSON.stringify(r72))
+  assert.deepEqual(r72.joueurs.map((j) => j.code), exact)
+  assert.equal(r72.total, baseTailles.joueurs.filter((p) => p.birthDate.startsWith('2013') && !p.mergedInto).length)
+  const sans = gardeGrand(await outilLire(sourceFictive({ joueurs: baseTailles.joueurs, mesures: baseTailles.mesures }), reg, entree))
+  if (!('joueurs' in sans)) throw new Error(JSON.stringify(sans))
+  assert.equal(sans.approximatif, true)
+  assert.match(sans.avertissements[0], /APPROXIMATIF tant que supabase\/072_mcp_lecture_appels\.sql/)
+  assert.notDeepEqual(sans.joueurs.map((j) => j.code), exact, 'le calcul sur 5 000 joueurs se trompait (les plus grands sont après)')
+})
+
+await t('« Montre la progression de taille de J-… » : série datée par test, évolution, profil, vus, avis dans le temps', async () => {
+  const src = sourceFictive()
+  const r = garde(await outilJoueur(src, reg, { code: code('p-lucas'), tests: ['taille'] }))
+  if (!('profil' in r)) throw new Error(JSON.stringify(r))
+  assert.deepEqual(r.profil, { code: code('p-lucas'), sexe: 'M', annee: 2011, trimestre: 1, departement: '83', poste: 'ARG' })
+  assert.deepEqual(r.mesures, [{
+    test_id: 'taille', libelle: 'Taille (cm)', unite: 'cm',
+    serie: [{ valeur: 171, date: '2026-03-02' }, { valeur: 176, date: '2026-10-12', evenement: 'Détection U15 Var' }],
+    evolution: { premiere: 171, derniere: 176, ecart: 5, nb_points: 2, premiere_date: '2026-03-02', derniere_date: '2026-10-12' },
+  }])
+  assert.deepEqual(r.vus, [{ libelle: 'Détection U15 Var', date: '2026-10-12', type: 'tournoi' }, { libelle: 'Stage de printemps', date: '2026-04-02', type: 'observation' }])
+  assert.deepEqual(r.avis, [
+    { date: '2026-10-12', evenement: 'Détection U15 Var', nb: 1, moyenne: 4, criteres: { tir: 4, defense: 3, mental: 5 } },
+    { date: '2026-10-13', hors_evenement: true, contexte_avis: 'club', nb: 1, moyenne: 4.5, criteres: { tir: 5, defense: 4 } },
+  ])
+  console.log(`   exemple : ${JSON.stringify(r.mesures[0])}`)
+  const tout = garde(await outilJoueur(src, reg, { code: code('p-lucas') }))
+  if (!('mesures' in tout)) throw new Error(JSON.stringify(tout))
+  assert.deepEqual(tout.mesures.map((m) => [m.test_id, m.evolution.nb_points, m.evolution.ecart]), [['sprint_10', 2, -0.06], ['taille', 2, 5]])
+  const per = garde(await outilJoueur(src, reg, { code: code('p-lucas'), depuis: '2026-10-01', jusqu_a: '2026-10-12' }))
+  if (!('mesures' in per)) throw new Error(JSON.stringify(per))
+  assert.deepEqual(per.mesures.map((m) => m.serie.length), [1, 1])
+  assert.deepEqual(per.avis.length, 1)
+  assert.deepEqual(per.periode, { depuis: '2026-10-01', jusqu_a: '2026-10-12' })
+  // Un administrateur : même réponse (tout lui est visible).
+  assert.deepEqual(garde(await outilJoueur(sourceFictive({ admin: true }), reg, { code: code('p-lucas'), tests: ['taille'] })), r)
+  assert.equal(src.appelsNoms, 0, 'aucun nom lu')
+})
+
+await t('nextar_joueur : code inconnu, hors périmètre (même réponse), mal recopié, partagé, fondu, hors cadre', async () => {
+  const src = sourceFictive()
+  const inconnu = garde(await outilJoueur(src, reg, { code: code('p-inexistant') }))
+  assert.deepEqual(inconnu, { erreur: INTROUVABLE })
+  const hors = garde(await outilJoueur(sourceFictive({ perimetre: ['13'] }), reg, { code: code('p-lucas') }))
+  assert.deepEqual(hors, inconnu, 'hors périmètre : exactement la même réponse qu’un code inconnu')
+  assert.ok('profil' in garde(await outilJoueur(sourceFictive({ perimetre: ['13'] }), reg, { code: code('p-noah') })))
+  assert.match(String((garde(await outilJoueur(src, reg, { code: 'J-12' })) as { erreur: string }).erreur), /Donne le code/)
+  const c = code('p-lucas')
+  const faux = c.slice(0, 8) + (c[8] === '0' ? '1' : '0')
+  assert.match(String((garde(await outilJoueur(src, reg, { code: faux })) as { erreur: string }).erreur), /signe de contrôle/)
+  const [a, b] = collision
+  const fiche = (id: string): JoueurFictif => ({ ...JOUEURS[0], id, firstName: 'Alpha', lastName: 'Collision' })
+  const part = garde(await outilJoueur(sourceFictive({ joueurs: [...JOUEURS, fiche(a), fiche(b)] }), reg, { code: code(a) }))
+  assert.ok('erreur' in part && part.code_partage === true && /partagé par 2 fiches/.test(part.erreur))
+  assert.match(String((garde(await outilJoueur(src, reg, { code: code('p-fondu') })) as { erreur: string }).erreur), /fondue/)
+  assert.match(String((garde(await outilJoueur(src, reg, { code: code('p-hors') })) as { erreur: string }).erreur), /hors cadre/)
+  assert.ok('erreur' in garde(await outilJoueur(src, reg, { code: code('p-lucas'), depuis: '2026-13-01' })))
+})
+
+await t('« Qui est connecté maintenant ? » : un administrateur qui n’utilise que le MCP apparaît (canal mcp) ; sans 072, l’appelant', async () => {
+  const src = sourceFictive({ admin: true, avec072: true })
+  const r = liste(gardeC(await outilConnexions(src, regC, {})))
+  const h = r.connexions.find((c) => c.compte === codeCompte(ADMIN_MCP.userId))
+  assert.deepEqual(h, {
+    compte: codeCompte(ADMIN_MCP.userId), nom_affiche: 'Hélène Claude-Fictive', role: 'Administrateur', perimetre: 'Toute la base (administrateur)',
+    canal: 'mcp', derniere_activite: '2026-11-05T09:58:00.000Z', il_y_a: 'il y a 2 min', sessions: 0, appels_mcp: 2, dernier_appel_mcp: '2026-11-05T09:58:00.000Z',
+  })
+  assert.equal(r.connexions[0].compte, codeCompte(A.userId), 'l’appelant (appel en cours) en tête')
+  assert.equal(r.connexions[0].canal, 'appli et mcp')
+  assert.equal(r.connexions.find((c) => c.compte === codeCompte(B.userId))?.canal, 'appli et mcp')
+  assert.deepEqual(r.par_canal, { appli: 2, mcp: 1, appli_et_mcp: 2 })
+  const sans = liste(gardeC(await outilConnexions(sourceFictive({ admin: true }), regC, {})))
+  assert.ok(!sans.connexions.some((c) => c.compte === codeCompte(ADMIN_MCP.userId)))
+  assert.equal(sans.connexions[0].canal, 'appli et mcp', 'l’appelant, même sans 072')
+  assert.ok(sans.avertissements.some((x) => /072_mcp_lecture_appels\.sql/.test(x)))
+  const coach = sourceFictive({ avec072: true })
+  assert.ok('erreur' in gardeC(await outilConnexions(coach, regC, {})))
+})
+
+await t('nextar_admin_activite : canal (appli / mcp), appels MCP, dernier appel, outils ; l’administratrice MCP seule n’est pas inactive', async () => {
+  const r = ok(gardeA('nextar_admin_activite', await outilAdminActivite(sourceFictive({ admin: true, avec072: true }), regA, {})))
+  const h = r.comptes.find((c) => c.compte === codeCompte(ADMIN_MCP.userId))!
+  assert.equal(h.canal, 'mcp')
+  assert.equal(h.appels_mcp, 3)
+  assert.equal(h.dernier_appel_mcp, '2026-11-05T09:58:00.000Z')
+  assert.deepEqual(h.outils, [{ outil: 'nextar_lire', nb: 1 }, { outil: 'nextar_contexte', nb: 1 }, { outil: 'nextar_joueur', nb: 1 }])
+  const b = r.comptes.find((c) => c.compte === codeCompte(B.userId))!
+  assert.deepEqual([b.canal, b.appels_mcp, b.appels_mcp_erreurs], ['appli et mcp', 1, 1])
+  assert.equal(r.totaux.appels_mcp, 4)
+  assert.ok(!r.inactifs.comptes.some((c) => c.compte === codeCompte(ADMIN_MCP.userId)))
+  const sans = ok(gardeA('nextar_admin_activite', await outilAdminActivite(sourceFictive({ admin: true }), regA, {})))
+  assert.ok(sans.avertissements.some((x) => /072_mcp_lecture_appels\.sql/.test(x)))
+  assert.ok(!('appels_mcp' in sans.totaux))
+})
+
+await t('nextar_admin_journal : type « mcp » filtrable (sessions et lignes : outil, durée, succès, lignes, filtres structurés)', async () => {
+  const src = sourceFictive({ admin: true, jeuTraces: true, sessions: SESSIONS_JOURNAL, avec072: true })
+  const r = ok(gardeA('nextar_admin_journal', await outilAdminJournal(src, regA, { types: ['mcp'], depuis: '2026-11-05' })))
+  if (!('sessions' in r)) throw new Error('sessions attendues')
+  const h = r.sessions.find((s) => s.compte === codeCompte(ADMIN_MCP.userId))!
+  assert.deepEqual([h.canal, h.nb_actions, h.par_type, h.outils], ['mcp', 2, { appels_mcp: 2 }, ['nextar_contexte', 'nextar_lire']])
+  assert.equal(r.sessions.length, 2)
+  const l = ok(gardeA('nextar_admin_journal', await outilAdminJournal(src, regA, { types: ['mcp'], depuis: '2026-11-05', regrouper: false })))
+  if (!('actions' in l)) throw new Error('lignes attendues')
+  assert.deepEqual(l.actions[l.actions.length - 1], {
+    heure: '2026-11-05T09:58:00.000Z', heure_paris: '05/11/2026 10:58', compte: codeCompte(ADMIN_MCP.userId), nom_affiche: 'Hélène Claude-Fictive',
+    action: 'appel MCP', type: 'mcp', objet: { outil: 'nextar_lire', succes: true, duree_ms: 840, nb_lignes: 10, filtres: 'annees=2013 ; tests=taille ; tri=test desc ; limite=10' },
+  })
+  assert.deepEqual(l.actions.find((a) => a.compte === cB)?.objet, { outil: 'nextar_proposer', succes: false, duree_ms: 1300, nb_lignes: 0, filtres: 'evenement=demo-ev-var ; lignes_recues=12' })
+  const un = ok(gardeA('nextar_admin_journal', await outilAdminJournal(src, regA, { types: ['mcp'], compte: codeCompte(ADMIN_MCP.userId), depuis: '2026-11-05', regrouper: false })))
+  assert.ok('actions' in un && un.actions.length === 2 && un.actions.every((a) => a.compte === codeCompte(ADMIN_MCP.userId)))
+  const mes = ok(gardeA('nextar_admin_journal', await outilAdminJournal(src, regA, { types: ['mesure'], depuis: '2026-11-05', regrouper: false })))
+  assert.ok('actions' in mes && !mes.actions.some((a) => a.type === 'mcp'))
+  const tous = ok(gardeA('nextar_admin_journal', await outilAdminJournal(src, regA, { depuis: '2026-11-05' })))
+  assert.ok('types' in tous && tous.types.includes('mcp'), 'type « mcp » par défaut')
+  const sans = ok(gardeA('nextar_admin_journal', await outilAdminJournal(srcT(), regA, { types: ['mcp'], depuis: '2026-11-05' })))
+  assert.ok(sans.avertissements.some((x) => /072_mcp_lecture_appels\.sql/.test(x)))
+})
+
+await t('journal des appels : outil, durée, succès, lignes, filtres STRUCTURÉS — jamais les paramètres bruts ; un journal en panne ne change rien', async () => {
+  const notes: AppelMcp[] = []
+  let horloge = 1000
+  const tic = () => (horloge += 25)
+  const brut = {
+    titre: 'Avis de Lucas Exemplaire', evenement: 'Tournoi chez Emma Imaginaire', groupe: '0f6f2c1e-1111-4222-8333-444455556666', date: '2026-10-12',
+    lignes: [{ joueur: 'Lucas Exemplaire', points_forts: 'Lucas Exemplaire a un tir puissant' }, { nom: 'Imaginaire', prenom: 'Emma' }],
+  }
+  const rep = await executerOutil('nextar_proposer_avis', brut, async () => ({ id: 'p1', etat: 'en_attente', lignes: [{ ligne: 1 }, { ligne: 2 }] }), (a) => notes.push(a), tic)
+  assert.ok(!('isError' in rep))
+  assert.deepEqual(notes[0], { outil: 'nextar_proposer_avis', duree_ms: 25, ok: true, nb_lignes: 2, filtres: { groupe: '0f6f2c1e-1111-4222-8333-444455556666', date: '2026-10-12', lignes_recues: 2 } })
+  const j = JSON.stringify(notes)
+  for (const x of ['Lucas', 'Emma', 'Exemplaire', 'Imaginaire', 'tir puissant', 'Tournoi']) assert.ok(!j.includes(x), x)
+  assert.deepEqual(filtresStructures('nextar_lire', { annees: [2013], trimestres: [4, 9], mesures: [{ test: 'Sprint 10 m' }, { test: 'taille', min: 1 }], tri: { par: 'test', test: 'taille', ordre: 'desc' }, evenement: 'Détection U15 Var', limite: 10, sexe: 'X' }),
+    { annees: [2013], trimestres: [4], tests: ['taille'], tri: { par: 'test', ordre: 'desc' }, limite: 10 })
+  assert.deepEqual(filtresStructures('nextar_joueur', { code: code('p-lucas'), tests: 'toutes' }), { tests_toutes: true, code: code('p-lucas') })
+  assert.deepEqual(filtresStructures('nextar_rapport', { titre: 'Rapport Lucas', markdown: '# Lucas Exemplaire' }), { markdown_signes: 18 })
+  assert.equal(filtresStructures('nextar_admin_sante', {}), null)
+  assert.equal(texteFiltres({ nom: 'Lucas', annees: [2012, 2013], code: 'J-ABC' }), 'annees=2012,2013', 'relu par la liste fermée')
+  // Erreur de l'outil, réponse refusée par la liste blanche : erreur neutre, notée « ok: false ».
+  const err = console.error
+  console.error = () => {}
+  try {
+    const e1 = await executerOutil('nextar_lire', {}, async () => { throw new Error('boom') }, (a) => notes.push(a), tic)
+    assert.ok(e1.isError && JSON.parse(e1.content[0].text).erreur === ERREUR_SERVEUR)
+    const e2 = await executerOutil('nextar_lire', {}, async () => ({ joueurs: [{ code: 'J-1', nom: 'Lucas' }] }), (a) => notes.push(a), tic)
+    assert.ok(e2.isError && !e2.content[0].text.includes('Lucas'))
+    assert.deepEqual(notes.slice(1).map((n) => [n.ok, n.nb_lignes]), [[false, 0], [false, 0]])
+    // Journal qui lève : la réponse sort quand même.
+    const e3 = await executerOutil('nextar_contexte', {}, async () => ({ tests: [] }), () => { throw new Error('journal') }, tic)
+    assert.ok(!('isError' in e3))
+  } finally {
+    console.error = err
+  }
+  // Avec une Source : l'appel est écrit par le compte (Source.journaliser) ; table absente ou refus : rien ne remonte.
+  const src = sourceFictive()
+  await executerOutil('nextar_lire', { annees: [2011] }, () => outilLire(src, reg, { annees: [2011] }), (a) => void src.journaliser(a))
+  assert.deepEqual(src.journalAppels.map((a) => [a.outil, a.ok, a.nb_lignes, a.filtres]), [['nextar_lire', true, 5, { annees: [2011] }]])
+  const casse = sourceFictive({ journalCasse: true })
+  const r = await executerOutil('nextar_lire', {}, () => outilLire(casse, reg, {}), (a) => void casse.journaliser(a).catch(() => {}))
+  assert.ok(!('isError' in r))
+  assert.equal(compterLignes({ profil: {}, mesures: [{ serie: [1, 2] }, { serie: [3] }], vus: [1], avis: [] }), 4)
+})
+
+await t('schémas publiés : chaque paramètre lu par le code d’un outil est déclaré (et inversement), pour tous les outils', async () => {
+  // Faux « z » : note les clés de chaque z.object(...) ; toute autre méthode rend un nœud chaînable.
+  type Noeud = { __cles?: string[] } & Record<string, unknown>
+  const noeud = (cles?: string[]): Noeud => new Proxy({} as Noeud, { get: (_t, k) => (k === '__cles' ? cles : () => noeud(cles)) })
+  const fauxZ = new Proxy({}, { get: (_t, k) => (...args: unknown[]) => (k === 'object' ? noeud(Object.keys(args[0] as object)) : noeud()) })
+  const defs = schemasOutils(fauxZ)
+  const declares = new Map(Object.entries(defs).map(([n, d]) => [n, new Set((d.inputSchema as Noeud).__cles ?? [])]))
+  // Le code de chaque outil (comme gestionnaires() de serveur.ts, qui n'est pas lisible par Node : imports npm:).
+  const srcA = () => sourceFictive({ admin: true, avec071: true, avec072: true, jeuTraces: true, sessions: SESSIONS_JOURNAL })
+  type F = (s: Source, a: Record<string, unknown>) => Promise<unknown>
+  const CODE: Record<string, [F, Record<string, unknown>[]]> = {
+    nextar_contexte: [(s, a) => outilContexte(s, reg, a), [{ archives: true }]],
+    nextar_proposer: [(s, a) => outilProposer(s, reg, a as never), [{ tableau: 'Nom\tSprint 10 m\nLucas Exemplaire\t1,8', evenement: 'ev-var', date: '2026-10-12', titre: 'x' }, { lignes: [['Lucas', '1.8']], colonnes: ['Nom', 'sprint_10'], groupe: 'g-pole' }]],
+    nextar_proposer_avis: [(s, a) => outilProposerAvis(s, reg, a as never), [{ lignes: [{ joueur: 'Lucas Exemplaire', notes: { defense: 3 } }], evenement: 'ev-var', titre: 'x', date: '2026-10-12' }, { lignes: [{ joueur: 'Lucas' }], contexte: 'club', lieu: 'Gymnase', groupe: 'g-pole' }]],
+    nextar_proposer_vus: [(s, a) => outilProposerVus(s, reg, a as never), [{ evenement: 'ev-var', lignes: [{ joueur: 'Lucas Exemplaire' }], titre: 'x' }]],
+    nextar_proposer_a_revoir: [(s, a) => outilProposerAReVoir(s, reg, a as never), [{ lignes: [{ joueur: 'Lucas Exemplaire', raison: 'x' }], evenement: 'ev-var', titre: 'x' }, { lignes: [{ joueur: 'Lucas' }], groupe: 'g-pole' }]],
+    nextar_suivi: [(s, a) => outilSuivi(s, reg, a), [{}, { id: '00000000-0000-4000-8000-000000000001' }]],
+    nextar_lire: [(s, a) => outilLire(s, reg, a as never), [{ annees: [2011], trimestres: [1], nes_entre: { de: '2010', a: '2012' }, sexe: 'M', postes: ['ARG'], departements: ['83'], mesures: [{ test: 'taille', min: 1 }], vus_min: 0, avis_min: 0, avis_criteres: [{ critere: 'defense', min: 0 }], avec_mesures: 'toutes', avec_avis_criteres: true, tri: { par: 'test', test: 'taille' }, limite: 5 }, { evenement: 'ev-var' }, { groupe: 'g-pole' }]],
+    nextar_joueur: [(s, a) => outilJoueur(s, reg, a as never), [{ code: code('p-lucas'), tests: ['taille'], depuis: '2026-01-01', jusqu_a: '2026-12-31' }]],
+    nextar_rapport: [(s, a) => outilRapport(s, reg, a as never), [{ titre: 'x', markdown: '# x' }]],
+    nextar_connexions: [(s, a) => outilConnexions(s, regC, a), [{ minutes: 10, limite: 5 }]],
+    nextar_admin_a_faire: [(s, a) => outilAdminAFaire(s, regA, a), [{ limite: 3 }]],
+    nextar_admin_sante: [(s) => outilAdminSante(s, regA), [{}]],
+    nextar_admin_activite: [(s, a) => outilAdminActivite(s, regA, a), [{ jours: 7, inactifs_jours: 30, limite: 5, par: 'jour', inclure_generation: true }, { depuis: '2026-11-01', jusqu_a: '2026-11-05' }]],
+    nextar_admin_questions: [(s, a) => outilAdminQuestions(s, regA, a), [{ jours: 30, filtre: 'toutes', limite: 5 }]],
+    nextar_admin_journal: [(s, a) => outilAdminJournal(s, regA, a), [{ compte: cB, depuis: '2026-11-05', jusqu_a: '2026-11-05T12:00:00Z', types: ['mesure', 'mcp'], regrouper: false, inclure_generation: false, limite: 5 }]],
+    nextar_admin_saisies: [(s, a) => outilAdminSaisies(s, regA, a), [{ auteur: cB, depuis: '2026-11-01', jusqu_a: '2026-11-06', test: 'sprint_10', evenement: 'ev-var', source: 'saisie_appli', detail: true, inclure_generation: true, limite: 5 }]],
+    nextar_admin_lots: [(s, a) => outilAdminLots(s, regA, a), [{ depuis: '2026-01-01', jusqu_a: '2026-11-06', limite: 5 }]],
+    nextar_admin_proposer: [(s, a) => outilAdminProposer(s, regA, a as never), [{ sorte: 'archiver', titre: 'x', actions: [{ evenement: 'ev-var' }] }, { sorte: 'archiver', evenements_avant: '2026-01-01' }]],
+  }
+  assert.deepEqual(Object.keys(CODE).sort(), [...declares.keys()].sort(), 'un code pour chaque schéma, un schéma pour chaque code')
+  const srvTxt = read('supabase/functions/mcp/serveur.ts')
+  for (const nom of declares.keys()) assert.match(srvTxt, new RegExp(`\\b${nom}: \\(`), `serveur.ts branche ${nom}`)
+  // Paramètres lus : (1) accès notés sur l'entrée (Proxy), avec une entrée vide et des entrées complètes ; (2) « input.x » dans le
+  // corps de la fonction de l'outil (sources).
+  const textes = ['outils.ts', 'admin.ts', 'adminTraces.ts', 'adminProposer.ts', 'proposerJoueurs.ts', 'joueur.ts'].map((f) => read(`supabase/functions/mcp/${f}`)).join('\n')
+  const err = console.error
+  console.error = () => {}
+  try {
+    for (const [nom, [f, exemples]] of Object.entries(CODE)) {
+      const lus = new Set<string>()
+      for (const ex of [{}, ...exemples]) {
+        const p = new Proxy(ex, { get: (o, k) => (typeof k === 'string' && !['then', 'toJSON', 'constructor'].includes(k) && lus.add(k), (o as Record<string | symbol, unknown>)[k]), has: (o, k) => (typeof k === 'string' && lus.add(k), k in o) })
+        await f(srcA(), p).catch(() => undefined)
+      }
+      const fn = /=> (outil\w+)\(/.exec(f.toString())?.[1]
+      const debut = fn ? textes.indexOf(`export async function ${fn}(`) : -1
+      if (debut >= 0) {
+        const corps = textes.slice(debut, textes.indexOf('\nexport ', debut + 10) > 0 ? textes.indexOf('\nexport ', debut + 10) : undefined)
+        for (const m of corps.matchAll(/\binput\??\.([a-z_]+)/g)) lus.add(m[1])
+      }
+      const dec = declares.get(nom)!
+      const manquants = [...lus].filter((k) => !dec.has(k))
+      const inutiles = [...dec].filter((k) => !lus.has(k))
+      assert.deepEqual(manquants, [], `${nom} : paramètres lus mais absents du schéma publié`)
+      assert.deepEqual(inutiles, [], `${nom} : paramètres déclarés jamais lus`)
+    }
+  } finally {
+    console.error = err
+  }
+  // nextar_admin_activite déclare bien par, depuis, jusqu_a, inclure_generation (signalé à l'usage : schéma d'avant, en cache chez Claude).
+  for (const k of ['par', 'depuis', 'jusqu_a', 'inclure_generation']) assert.ok(declares.get('nextar_admin_activite')!.has(k), k)
+  for (const k of ['trimestres', 'nes_entre']) assert.ok(declares.get('nextar_lire')!.has(k), k)
+})
+
+await t('source.ts : hb_mcp_lire, journal (colonnes fixes), lecture par département, fiches visibles et profil sans nom, appels MCP', async () => {
+  const appels: { table: string; ops: [string, unknown[]][] }[] = []
+  const rpcs: [string, unknown][] = []
+  let rpcErreur: { code: string; message: string } | null = null
+  const faux = {
+    from(table: string) {
+      const a = { table, ops: [] as [string, unknown[]][] }
+      appels.push(a)
+      const q: Record<string, unknown> = {}
+      for (const op of ['select', 'eq', 'in', 'or', 'order', 'range', 'limit', 'insert', 'is', 'gt', 'gte', 'lt', 'not']) q[op] = (...args: unknown[]) => (a.ops.push([op, args]), q)
+      q.maybeSingle = async () => ({ data: { id: 'p1', b: '2013-11-04', s: 'M', p: 'ARG', dept: '83' }, error: null })
+      q.then = (ok: (v: unknown) => void) => ok({ data: [], error: null })
+      return q
+    },
+    rpc(fn: string, args?: unknown) {
+      rpcs.push([fn, args])
+      return Promise.resolve(rpcErreur ? { data: null, error: rpcErreur } : { data: { total: 1, lignes: [{ id: 'p1', annee: 2013, trimestre: 4 }] }, error: null })
+    },
+  }
+  const src = sourceSupabase(faux)
+  await src.mesures(['a', 'b', 'c'], new Map([['a', '83'], ['b', '83'], ['c', undefined]]))
+  const mes = appels.filter((x) => x.table === 'hb_measurements')
+  assert.equal(mes.length, 2)
+  const avecDept = mes.find((x) => x.ops.some(([o, a]) => o === 'eq' && a[0] === 'scope_dept'))!
+  assert.deepEqual(avecDept.ops.find(([o]) => o === 'in')![1], ['data->>playerId', ['a', 'b']])
+  assert.deepEqual(avecDept.ops.find(([o, a]) => o === 'eq' && a[0] === 'scope_dept')![1], ['scope_dept', '83'])
+  assert.ok(!mes.find((x) => x !== avecDept)!.ops.some(([o, a]) => o === 'eq' && a[0] === 'scope_dept'))
+  const lb = await src.lireBase({ annees: [2013], score5: [], limite: 10, sortie: ['taille'] })
+  assert.deepEqual(rpcs[0], ['hb_mcp_lire', { p_filtre: { annees: [2013], score5: [], limite: 10, sortie: ['taille'] } }])
+  assert.deepEqual(lb, { total: 1, lignes: [{ id: 'p1', annee: 2013, trimestre: 4 }] })
+  rpcErreur = { code: 'PGRST202', message: 'Could not find the function public.hb_mcp_lire' }
+  assert.equal(await src.lireBase({ score5: [], limite: 10, sortie: [] }), null, '072 pas appliqué : null')
+  rpcErreur = { code: '57014', message: 'canceling statement due to statement timeout' }
+  await assert.rejects(src.lireBase({ score5: [], limite: 10, sortie: [] }), /statement timeout/)
+  await src.journaliser({ outil: 'nextar_lire', duree_ms: 12, ok: true, nb_lignes: 3, filtres: { annees: [2013] } })
+  const ins = appels.find((x) => x.table === 'hb_mcp_appels')!
+  assert.deepEqual(ins.ops, [['insert', [{ outil: 'nextar_lire', duree_ms: 12, ok: true, nb_lignes: 3, filtres: { annees: [2013] } }]]], 'colonnes fixes ; ni compte ni heure envoyés (posés par la base)')
+  assert.deepEqual(await src.joueur('p1'), { id: 'p1', annee: 2013, trimestre: 4, sexe: 'M', poste: 'ARG', dept: '83' }, 'année et trimestre, jamais la date')
+  await src.fichesVisibles(10)
+  for (const x of appels.filter((y) => y.table === 'hb_players')) {
+    const sel = String(x.ops.find(([o]) => o === 'select')?.[1][0])
+    assert.ok(!/firstName|lastName|club|license|(^|[\s,])data(\s*,|$)/.test(sel), sel)
+  }
+  assert.equal(appels.filter((y) => y.table === 'hb_players' && y.ops.some(([o]) => o === 'order')).length, 16, 'seize tranches d’identifiants')
+  await src.appelsMcp({ depuis: '2026-11-05T00:00:00Z', auteur: 'u1' }, 10)
+  const am = appels.filter((x) => x.table === 'hb_mcp_appels').pop()!
+  assert.match(String(am.ops.find(([o]) => o === 'select')?.[1][0]), /^at, u:user_id, o:outil, d:duree_ms, ok, n:nb_lignes, f:filtres$/)
+})
+
 // ---------- Liste blanche ----------
 
 await t('verifierSortie : clé interdite, clé inconnue, clé nominative dans un dictionnaire, texte trop long : refusés', () => {
@@ -1841,47 +2234,60 @@ await t('bornes du serveur = scripts 067 et 068 ; 068 : auteur seul, pas de modi
 
 await t('branchements : fonction (outils, OAuth, client du coach, jamais la clé de service), appli (routes, Réglages, boîte)', () => {
   const srv = read('supabase/functions/mcp/serveur.ts')
-  assert.match(srv, /const commun = [^\n]*\n[^\n]*jamais un nom ni un texte/)
+  const sch = read('supabase/functions/mcp/schemas.ts')
+  /** Définition d'un outil dans schemas.ts (de « d.<outil> = { » à la suivante). */
+  const blocDe = (outil: string) => {
+    const a = sch.indexOf(`d.${outil} = {`)
+    assert.ok(a >= 0, `schemas.ts : ${outil}`)
+    const b = sch.indexOf('\n  d.', a + 5)
+    return sch.slice(a, b < 0 ? sch.indexOf('return d', a) : b)
+  }
+  assert.match(sch, /const commun = [^\n]*\n[^\n]*jamais un nom ni un texte/)
   for (const outil of ['nextar_proposer_avis', 'nextar_proposer_vus', 'nextar_proposer_a_revoir']) {
-    assert.match(srv, new RegExp(`'${outil}'`))
-    const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
+    const bloc = blocDe(outil)
     assert.match(bloc, /annotations: depot,/, outil)
     assert.match(bloc, /\$\{commun\}|' \+ commun/, outil)
     assert.ok(read('supabase/functions/mcp/README.md').includes(outil), `README : ${outil}`)
   }
   assert.match(read('src/pages/OAuthConsent.tsx'), /avis, des joueurs vus ou à revoir/)
-  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots'])
-    assert.match(srv, new RegExp(`'${outil}'`))
+  for (const outil of ['nextar_contexte', 'nextar_proposer', 'nextar_suivi', 'nextar_lire', 'nextar_joueur', 'nextar_rapport', 'nextar_connexions', 'nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_proposer', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots']) {
+    blocDe(outil)
+    assert.match(srv, new RegExp(`${outil}: \\(`), `serveur.ts : code de ${outil}`)
+  }
   // nextar_admin_proposer : « n’applique rien », dépôt (pas lecture seule), 50 actions au plus.
-  const blocP = srv.slice(srv.indexOf(`'nextar_admin_proposer',`), srv.indexOf(`repondre('nextar_admin_proposer'`))
+  const blocP = blocDe('nextar_admin_proposer')
   assert.match(blocP, /Réservé aux administrateurs ; N’APPLIQUE RIEN/)
   assert.match(blocP, /annotations: depot,/)
   assert.match(blocP, /\.max\(BORNES\.adminActions\)/)
   assert.match(read('supabase/functions/mcp/README.md'), /nextar_admin_proposer[\s\S]*070_propositions_admin\.sql/)
   assert.match(read('src/pages/OAuthConsent.tsx'), /préparer des actions d’administration/)
+  assert.match(read('src/pages/OAuthConsent.tsx'), /Chaque appel est noté \(outil, heure, durée — jamais son contenu\)/)
+  assert.match(read('src/pages/OAuthConsent.tsx'), /historique d’un joueur \(mesures datées, vus, avis dans le temps\)/)
+  for (const x of ['nextar_joueur', '072_mcp_lecture_appels.sql', 'hb_mcp_appels', 'trimestre', 'canal']) assert.ok(read('supabase/functions/mcp/README.md').includes(x), `README : ${x}`)
   assert.match(read('supabase/functions/mcp/index.ts'), /sourceSupabase\(ctx\.supabase as ClientSupabase, ctx\.userClaims\?\.id/)
   // Outils d'administration : lecture seule, « Réservé aux administrateurs ; lecture seule » en tête de description.
   for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots']) {
-    const bloc = srv.slice(srv.indexOf(`'${outil}',`), srv.indexOf(`repondre('${outil}'`))
+    const bloc = blocDe(outil)
     assert.match(bloc, /Réservé aux administrateurs ; lecture seule\./, outil)
     assert.match(bloc, /annotations: lecture,/, outil)
   }
-  assert.match(srv, /jours: jours\('Période en jours'\)/)
-  assert.match(srv, /z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.joursMax\)/)
+  assert.match(sch, /jours: jours\('Période en jours'\)/)
+  assert.match(sch, /z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.joursMax\)/)
   const readme = read('supabase/functions/mcp/README.md')
   for (const outil of ['nextar_admin_a_faire', 'nextar_admin_sante', 'nextar_admin_activite', 'nextar_admin_questions', '069_admin_sante.sql', 'nextar_admin_journal', 'nextar_admin_saisies', 'nextar_admin_lots', '071_provenance.sql']) assert.ok(readme.includes(outil), `README : ${outil}`)
-  assert.match(srv, /journalLimiteMax|saisiesMax|lotsMax/)
-  assert.match(srv, /par: z\.enum\(\['total', 'jour', 'heure'\]\)/)
-  assert.match(srv, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
-  assert.match(srv, /minutes: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMinutesMax\)/)
-  assert.match(srv, /limite: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMax\)/)
+  assert.match(sch, /journalLimiteMax|saisiesMax|lotsMax/)
+  assert.match(sch, /par: z\.enum\(\['total', 'jour', 'heure'\]\)/)
+  assert.match(sch, /Réservé aux administrateurs ; noms et rôles des comptes, jamais d’adresse mail/)
+  assert.match(sch, /minutes: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMinutesMax\)/)
+  assert.match(sch, /limite: z\.number\(\)\.int\(\)\.min\(1\)\.max\(BORNES\.connexionsMax\)/)
   assert.match(srv, /withOAuthProtectedResource\(/)
   assert.match(srv, /withSupabase\(\{ auth: 'user' \}\)/)
-  assert.match(srv, /verifierSortie\(out, nom\)/)
+  assert.match(srv, /executerOutil\(nom, a, \(\) => f\(a\), journal\)/)
+  assert.match(read('supabase/functions/mcp/journalMcp.ts'), /verifierSortie\(out, nom\)/)
   assert.match(srv, /createMcpHandler\(/)
   const idx = read('supabase/functions/mcp/index.ts')
   assert.match(idx, /sourceSupabase\(ctx\.supabase/)
-  for (const f of ['index.ts', 'serveur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'adminTraces.ts', 'proposerJoueurs.ts', 'source.ts']) {
+  for (const f of ['index.ts', 'serveur.ts', 'schemas.ts', 'journalMcp.ts', 'joueur.ts', 'outils.ts', 'admin.ts', 'adminProposer.ts', 'adminTraces.ts', 'proposerJoueurs.ts', 'source.ts']) {
     const txt = read(`supabase/functions/mcp/${f}`)
     assert.ok(!/supabaseAdmin|SERVICE_ROLE|service_role|sb_secret/.test(txt.replace(/\/\/.*$/gm, '')), `${f} : jamais la clé de service`)
   }

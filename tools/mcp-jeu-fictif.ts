@@ -7,6 +7,9 @@ import { agregerTraces, creeLe, evenementsDe, provenance, resumerSaisies } from 
 import type {
   ActionSrv,
   ActiviteSrv,
+  AppelMcpSrv,
+  FiltreLireBase,
+  LireBaseSrv,
   AvisAValiderSrv,
   AvisSrv,
   Comptage,
@@ -95,6 +98,7 @@ export const UNITES = [
 export const MESURES: MesureSrv[] = [
   { playerId: 'p-lucas', criterionId: 'sprint_10', value: 1.92, date: '2026-09-01' },
   { playerId: 'p-lucas', criterionId: 'sprint_10', value: 1.86, date: '2026-10-12' },
+  { playerId: 'p-lucas', criterionId: 'taille', value: 171, date: '2026-03-02' },
   { playerId: 'p-lucas', criterionId: 'taille', value: 176, date: '2026-10-12' },
   { playerId: 'p-emma', criterionId: 'sprint_10', value: 2.05, date: '2026-10-12' },
   { playerId: 'p-emma', criterionId: 'cmj', value: 31, date: '2026-10-12' },
@@ -106,8 +110,8 @@ export const MESURES: MesureSrv[] = [
 
 /** Avis : notes ET commentaires (avec des noms dedans) ; les commentaires ne doivent jamais sortir. */
 export const AVIS: (AvisSrv & { strengths?: string; improvements?: string; observer?: string })[] = [
-  { playerId: 'p-lucas', date: '2026-10-12', scores: { tir: 4, defense: 3, mental: 5 }, strengths: 'Lucas Exemplaire a un tir puissant', observer: 'Observateur Fictif' },
-  { playerId: 'p-lucas', date: '2026-10-13', scores: { tir: 5, defense: 4 }, improvements: 'Replacement défensif' },
+  { playerId: 'p-lucas', date: '2026-10-12', eventId: 'ev-var', scores: { tir: 4, defense: 3, mental: 5 }, strengths: 'Lucas Exemplaire a un tir puissant', observer: 'Observateur Fictif' },
+  { playerId: 'p-lucas', date: '2026-10-13', contexte: 'club', scores: { tir: 5, defense: 4 }, improvements: 'Replacement défensif' },
   { playerId: 'p-emma', date: '2026-10-12', scores: { defense: 4, mental: 4 } },
   { playerId: 'p-hugo', date: '2026-10-12', scores: { tir: 2, defense: 2 }, strengths: 'Hugo Martinvert, bonne volonté' },
 ]
@@ -148,6 +152,17 @@ export const SESSIONS: SessionSrv[] = [
   { userId: COMPTES[3].userId, device: 'iPad', startedAt: ilYaMin(30), lastSeenAt: ilYaMin(12) },
   { userId: COMPTES[4].userId, device: 'Ordinateur', startedAt: ilYaMin(200), lastSeenAt: ilYaMin(180) },
   { userId: COMPTES[5].userId, device: 'Mozilla/5.0 (X11; Linux) 192.168.1.20 test@exemple.test', startedAt: ilYaMin(6), lastSeenAt: ilYaMin(5) },
+]
+
+/** Administratrice qui n'utilise QUE Claude (serveur MCP) : aucune ouverture de l'appli, des appels d'outils (072). */
+export const ADMIN_MCP: CompteSrv & { email: string; phone?: string } = { userId: '00000000-0000-4000-8000-0000000000a3', fullName: 'Hélène Claude-Fictive', role: 'admin', email: 'helene.claude@exemple.test' }
+
+/** Appels d'outils du serveur MCP (comme hb_mcp_appels, 072) : filtres structurés seulement. */
+export const APPELS_MCP: AppelMcpSrv[] = [
+  { at: ilYaMin(2), userId: ADMIN_MCP.userId, outil: 'nextar_lire', dureeMs: 840, ok: true, nbLignes: 10, filtres: { annees: [2013], tri: { par: 'test', ordre: 'desc' }, tests: ['taille'], limite: 10 } },
+  { at: ilYaMin(4), userId: ADMIN_MCP.userId, outil: 'nextar_contexte', dureeMs: 210, ok: true, nbLignes: 1, filtres: null },
+  { at: ilYaMin(7), userId: COMPTES[1].userId, outil: 'nextar_proposer', dureeMs: 1300, ok: false, nbLignes: 0, filtres: { lignes_recues: 12, evenement: 'demo-ev-var' } },
+  { at: ilYaMin(26 * 60), userId: ADMIN_MCP.userId, outil: 'nextar_joueur', dureeMs: 500, ok: true, nbLignes: 6, filtres: { code: 'J-0000000' } },
 ]
 
 /** Textes des comptes qui ne doivent jamais sortir de nextar_connexions (adresses, téléphones, identifiants bruts). */
@@ -265,7 +280,7 @@ export const SANTE_069 = {
 
 /** Textes des outils d'administration qui ne doivent jamais sortir (jetons, téléphones, adresses, IP, licences). */
 export function textesInterditsAdmin(): string[] {
-  return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, SECOND_ADMIN.email, SECOND_ADMIN.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
+  return [...textesInterditsComptes(), COMPTE_INACTIF.email, COMPTE_INACTIF.userId, SECOND_ADMIN.email, SECOND_ADMIN.userId, ADMIN_MCP.email, ADMIN_MCP.userId, '06 12 34 56 78', 'jade@exemple.test', '192.168.1.20', '6383001000111', 'jeton-secret', 'ne doit pas sortir', 'Emma Imaginaire très bonne']
 }
 
 // ---------- Traçabilité (adminTraces.ts : journal, saisies, activité, lots) : lignes créées INVENTÉES ----------
@@ -394,6 +409,10 @@ export interface SourceFictive extends Source {
   appelsConnexions: number
   /** Appels faits aux lectures d'administration (un compte qui n'est pas administrateur : aucun). */
   appelsAdmin: number
+  /** Appels journalisés (Source.journaliser) : jamais les paramètres bruts. */
+  journalAppels: { outil: string; duree_ms: number; ok: boolean; nb_lignes: number; filtres: Record<string, unknown> | null }[]
+  /** Appels faits à lireBase (hb_mcp_lire, 072). */
+  appelsLireBase: number
 }
 
 /** Une Source en mémoire sur ces données (ou d'autres joueurs : grande base fictive). */
@@ -415,16 +434,30 @@ export function sourceFictive(
     avec071?: boolean
     /** activite() compte sur TRACES (au lieu des nombres fixes d'ACTIVITE). */
     jeuTraces?: boolean
+    /** Script 072 appliqué : hb_mcp_lire (lireBaseJs) et journal des appels (APPELS_MCP + appels journalisés). */
+    avec072?: boolean
+    /** Autres mesures (grande base fictive). */
+    mesures?: MesureSrv[]
+    /** Périmètre d'un coach (départements) : fiches, profils et lectures en dehors : invisibles (comme les règles de lecture). */
+    perimetre?: string[]
+    /** Le journal des appels lève une erreur (essai : l'outil répond quand même). */
+    journalCasse?: boolean
   } = {},
 ): SourceFictive {
-  const joueurs = o.joueurs ?? JOUEURS
+  const joueursTous = o.joueurs ?? JOUEURS
+  const joueurs = o.perimetre ? joueursTous.filter((p) => o.perimetre!.includes(p.dept)) : joueursTous
   const vivants = () => joueurs.filter((p) => !p.mergedInto && p.review !== 'refused')
+  const mesuresJeu = o.mesures ?? MESURES
+  const visibles = new Set(joueurs.map((p) => p.id))
   let n = 0
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
   const props: SourceFictive['propositionsDeposees'] = []
   const raps: SourceFictive['rapportsDeposes'] = []
   const propsAdmin: SourceFictive['propositionsAdmin'] = []
+  const journalAppels: SourceFictive['journalAppels'] = []
   const src: SourceFictive = {
+    journalAppels,
+    appelsLireBase: 0,
     propositionsAdmin: propsAdmin,
     ecritures: 0,
     propositionsDeposees: props,
@@ -459,7 +492,7 @@ export function sourceFictive(
       if (f.postes?.length) js = js.filter((p) => f.postes!.includes(p.position))
       if (f.depts?.length) js = js.filter((p) => f.depts!.includes(p.dept))
       if (f.annees?.length) js = js.filter((p) => f.annees!.includes(+p.birthDate.slice(0, 4)))
-      return { joueurs: js.slice(0, max).map((p) => ({ id: p.id, annee: +p.birthDate.slice(0, 4), sexe: p.sex, poste: p.position, dept: p.dept })), tronque: js.length > max }
+      return { joueurs: js.slice(0, max).map((p) => joueurLireFictif(p)), tronque: js.length > max }
     },
     async joueursNoms(ids, max) {
       src.appelsNoms++
@@ -468,13 +501,37 @@ export function sourceFictive(
       return { joueurs: js.slice(0, max).map((p): JoueurNom => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, birthDate: p.birthDate })), tronque: js.length > max }
     },
     async mesures(ids) {
-      return MESURES.filter((m) => ids.includes(m.playerId))
+      const ens = new Set(ids)
+      return mesuresJeu.filter((m) => ens.has(m.playerId) && visibles.has(m.playerId)).map((m) => ({ ...m }))
     },
     async avis(ids) {
-      return AVIS.filter((a) => ids.includes(a.playerId)).map((a) => ({ playerId: a.playerId, date: a.date, scores: a.scores }))
+      return AVIS.filter((a) => ids.includes(a.playerId) && visibles.has(a.playerId)).map((a) => ({ playerId: a.playerId, date: a.date, scores: a.scores, ...(a.eventId ? { eventId: a.eventId } : {}), ...(a.contexte ? { contexte: a.contexte } : {}) }))
     },
     async vus(ids) {
-      return VUS.filter((v) => ids.includes(v.playerId))
+      return VUS.filter((v) => ids.includes(v.playerId) && visibles.has(v.playerId))
+    },
+    async lireBase(f) {
+      if (!o.avec072) return null
+      src.appelsLireBase++
+      return lireBaseJs(joueurs, mesuresJeu, AVIS, VUS, f)
+    },
+    async fichesVisibles(max) {
+      return { fiches: joueurs.slice(0, max).map((p) => ({ id: p.id, fondue: !!p.mergedInto, horsCadre: p.review === 'refused' })), tronque: joueurs.length > max }
+    },
+    async joueur(id) {
+      const p = joueurs.find((x) => x.id === id)
+      return p ? joueurLireFictif(p) : null
+    },
+    async journaliser(a) {
+      if (o.journalCasse) throw new Error('journal indisponible')
+      journalAppels.push({ ...a })
+    },
+    // Comme la base (072 : lecture réservée aux administrateurs) : rien pour un autre compte.
+    async appelsMcp(f, max) {
+      if (!o.avec072) return null
+      if (!o.admin) return { appels: [], tronque: false }
+      const tous = APPELS_MCP.filter((a) => a.at >= f.depuis && (!f.jusqua || a.at < f.jusqua) && (!f.auteur || a.userId === f.auteur)).sort((a, b) => b.at.localeCompare(a.at))
+      return { appels: tous.slice(0, max).map((a) => ({ ...a })), tronque: tous.length > max }
     },
     async deposerProposition(p) {
       src.ecritures++
@@ -511,13 +568,13 @@ export function sourceFictive(
     // Comme source.ts : ni email ni phone demandés.
     async comptes(ids) {
       src.appelsConnexions++
-      return COMPTES.filter((c) => ids.includes(c.userId)).map(({ email: _e, phone: _p, ...c }) => ({ ...c }))
+      return [...COMPTES, ADMIN_MCP].filter((c) => ids.includes(c.userId)).map(({ email: _e, phone: _p, ...c }) => ({ ...c }))
     },
     // ---- Administration : comme la base, rien pour un compte qui n'est pas administrateur ----
     async profils() {
       src.appelsAdmin++
       if (!o.admin) return []
-      return [...COMPTES, COMPTE_INACTIF, ...(o.secondAdmin ? [SECOND_ADMIN] : [])].map((c): ProfilSrv => ({ userId: c.userId, fullName: c.fullName, role: c.role, createdAt: CREES_LE[c.userId] }))
+      return [...COMPTES, COMPTE_INACTIF, ...(o.secondAdmin ? [SECOND_ADMIN] : []), ...(o.avec072 ? [ADMIN_MCP] : [])].map((c): ProfilSrv => ({ userId: c.userId, fullName: c.fullName, role: c.role, createdAt: CREES_LE[c.userId] }))
     },
     async fichesAValider(max) {
       src.appelsAdmin++
@@ -732,4 +789,103 @@ export function grandeBase(n: number): JoueurFictif[] {
     })
   }
   return out
+}
+
+/** Ce que la Source rend d'une fiche fictive (comme source.ts : année et trimestre, jamais la date complète). */
+export function joueurLireFictif(p: JoueurFictif) {
+  const m = /^\d{4}-(0[1-9]|1[0-2])/.exec(p.birthDate)
+  return { id: p.id, annee: +p.birthDate.slice(0, 4), ...(m ? { trimestre: Math.floor((+m[1] + 2) / 3) } : {}), sexe: p.sex, poste: p.position, dept: p.dept }
+}
+
+/** Valeur numérique comme hb_mcp_num (072). */
+const numSql = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && /^-?\d{1,12}([.,]\d{1,12})?$/.test(v.trim()) ? +v.trim().replace(',', '.') : undefined)
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * hb_mcp_lire (supabase/072_mcp_lecture_appels.sql) refait en mémoire, MÊMES RÈGLES : joueurs vivants, filtres, dernière mesure
+ * par date (à date égale : la dernière de la liste, comme « id desc »), tri nuls à la fin, égalités par identifiant (octets),
+ * limite ; détails de la page. Sert de « base avec 072 » au jeu fictif ; l'essai Docker tools/essai-sql-072 compare le vrai SQL
+ * à un calcul direct.
+ */
+export function lireBaseJs(
+  joueurs: readonly JoueurFictif[],
+  mesures: readonly MesureSrv[],
+  avis: readonly { playerId: string; scores: Record<string, number | string> }[],
+  vus: readonly VuSrv[],
+  f: FiltreLireBase,
+): LireBaseSrv {
+  const trim = (p: JoueurFictif) => joueurLireFictif(p).trimestre
+  const pl = joueurs.filter((p) => !p.mergedInto && p.review !== 'refused')
+    .filter((p) => (!f.ids || f.ids.includes(p.id)) && (!f.depts || f.depts.includes(p.dept.toUpperCase())))
+    .filter((p) => {
+      const a = +p.birthDate.slice(0, 4)
+      const t = trim(p)
+      return (!f.annees || f.annees.includes(a)) && (!f.trimestres || (t !== undefined && f.trimestres.includes(t)))
+        && (f.nes_de === undefined || (t !== undefined && a * 10 + t >= f.nes_de)) && (f.nes_a === undefined || (t !== undefined && a * 10 + t <= f.nes_a))
+        && (!f.sexe || p.sex === f.sexe) && (!f.postes || f.postes.includes(p.position))
+    })
+  const derniere = (pid: string, tests: readonly string[]) => {
+    const out = new Map<string, { v: number | string; d: string }>()
+    mesures.forEach((m) => {
+      if (m.playerId !== pid || !tests.includes(m.criterionId) || !m.date || (typeof m.value !== 'number' && typeof m.value !== 'string')) return
+      const cur = out.get(m.criterionId)
+      if (!cur || m.date >= cur.d) out.set(m.criterionId, { v: m.value, d: m.date })
+    })
+    return out
+  }
+  const nbVus = (pid: string) => new Set(vus.filter((v) => v.playerId === pid && v.eventId).map((v) => v.eventId)).size
+  const avisDe = (pid: string) => {
+    const as = avis.filter((a) => a.playerId === pid)
+    const toutes: number[] = []
+    const par = new Map<string, number[]>()
+    for (const a of as) for (const [k, v] of Object.entries(a.scores ?? {})) {
+      const n = numSql(v)
+      if (n === undefined) continue
+      par.set(k, [...(par.get(k) ?? []), n])
+      if (f.score5.includes(k)) toutes.push(n)
+    }
+    const moy = (xs: number[]) => r2(xs.reduce((s, x) => s + x, 0) / xs.length)
+    return { nb: as.length, moy: toutes.length ? moy(toutes) : undefined, crit: Object.fromEntries([...par].map(([k, xs]) => [k, moy(xs)])) }
+  }
+  const avant = [...(f.mesures ?? []).map((m) => m.test), ...(f.tri?.par === 'test' && f.tri.test ? [f.tri.test] : [])]
+  const k = pl.map((p) => ({ p, mj: derniere(p.id, avant), vus: nbVus(p.id), av: avisDe(p.id) })).filter(({ mj, vus: nv, av }) =>
+    (f.mesures ?? []).every((m) => {
+      const v = numSql(mj.get(m.test)?.v)
+      return v !== undefined && (m.min === undefined || v >= m.min) && (m.max === undefined || v <= m.max)
+    })
+    && (f.vus_min === undefined || nv >= f.vus_min) && (f.avis_min === undefined || (av.moy !== undefined && av.moy >= f.avis_min))
+    && (f.avis_criteres ?? []).every((c) => av.crit[c.critere] !== undefined && av.crit[c.critere] >= c.min))
+  const desc = (f.tri?.ordre ?? (f.tri?.par === 'annee' ? 'asc' : 'desc')) === 'desc'
+  const cle = (x: (typeof k)[number]) =>
+    f.tri?.par === 'annee' ? +x.p.birthDate.slice(0, 4) : f.tri?.par === 'vus' ? x.vus : f.tri?.par === 'avis' ? x.av.moy : f.tri?.par === 'test' ? numSql(x.mj.get(f.tri.test!)?.v) : undefined
+  k.sort((a, b) => {
+    const x = cle(a)
+    const y = cle(b)
+    if (x !== undefined && y !== undefined && x !== y) return desc ? y - x : x - y
+    if (x === undefined && y !== undefined) return 1
+    if (y === undefined && x !== undefined) return -1
+    return a.p.id < b.p.id ? -1 : a.p.id > b.p.id ? 1 : 0
+  })
+  const page = k.slice(0, f.limite)
+  return {
+    total: k.length,
+    lignes: page.map(({ p }) => {
+      const l = joueurLireFictif(p)
+      const mj = derniere(p.id, f.sortie)
+      const av = avisDe(p.id)
+      return {
+        id: p.id,
+        annee: l.annee,
+        ...(l.trimestre ? { trimestre: l.trimestre } : {}),
+        sexe: p.sex,
+        poste: p.position,
+        dept: p.dept,
+        vus: nbVus(p.id),
+        avis_nb: av.nb,
+        ...(av.moy !== undefined ? { avis_moy: av.moy } : {}),
+        ...(mj.size ? { mesures: Object.fromEntries(mj) } : {}),
+        ...(f.avec_criteres && Object.keys(av.crit).length ? { criteres: av.crit } : {}),
+      }
+    }),
+  }
 }

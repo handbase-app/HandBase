@@ -5,7 +5,8 @@
 // RÈGLE : Nextar n'envoie jamais de données de joueur à une IA (codes seulement : outils.ts). Tout passe par le client
 // Supabase DU COACH (son jeton, RLS) : jamais la clé de service.
 //
-// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), outils.ts (les six outils, purs), admin.ts (les quatre outils d'administration en lecture), adminTraces.ts (journal, saisies, lots : traçabilité), adminProposer.ts
+// Fichiers : serveur.ts (SDK MCP, OAuth, CORS), schemas.ts (titres, descriptions, schémas), journalMcp.ts (journal des appels),
+// joueur.ts (nextar_joueur), outils.ts (les outils de lecture et de dépôt, purs), admin.ts (les quatre outils d'administration en lecture), adminTraces.ts (journal, saisies, lots : traçabilité), adminProposer.ts
 // (nextar_admin_proposer : dépose des actions d'administration à valider), source.ts (requêtes aux droits du coach),
 // partage/ (copies générées de modules purs de src/ : tools/generer-partage-mcp.ts). Mise en ligne : README.md.
 //
@@ -26,6 +27,10 @@ Deno.serve(
     // Compte du jeton (claims vérifiés par withSupabase) : nextar_admin_proposer refuse toute action sur son propre compte.
     sourceDe: (ctx) => sourceSupabase(ctx.supabase as ClientSupabase, ctx.userClaims?.id ?? ctx.userClaims?.sub ?? null),
     reglages: () => reglagesEnv(Deno.env),
+    // Journal des appels (072) : écrit après la réponse, la fonction reste en vie le temps de l'écriture.
+    garder: (p) => {
+      if (typeof EdgeRuntime !== 'undefined' && typeof EdgeRuntime.waitUntil === 'function') EdgeRuntime.waitUntil(p)
+    },
     ...(issuer ? { authorizationServer: issuer } : {}),
   }),
 )

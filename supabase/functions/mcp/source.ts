@@ -26,6 +26,11 @@
 //  - nextar_admin_proposer (adminProposer.ts ; APRÈS hb_is_admin) : profils (comme ci-dessus), unités (id, nom), identifiants
 //    des fiches et « fondue » (ni nom, ni date, ni club), événements et groupes (comme nextar_contexte, plus « groupe Pôle ») ;
 //    une seule écriture : la proposition « admin » dans hb_propositions (070), avec le jeton du compte.
+//  - lecture exacte (072) : rpc hb_mcp_lire (identifiants, année et trimestre, sexe, poste, département, vus, avis, dernières
+//    mesures : jamais un nom ni la date) ; nextar_joueur : fiches visibles (identifiant, fondue, hors cadre), profil (année et
+//    trimestre tirés de la date ICI), mesures, avis (avec événement et contexte), vus — par département (scope_dept) ;
+//  - journal des appels (072) : insertion dans hb_mcp_appels avec le jeton du compte (outil, durée, succès, lignes, filtres
+//    structurés) ; lecture (administrateurs) : heure, compte, outil, durée, succès, lignes, filtres.
 // Fichier sans import Deno (testable avec npx jiti et un faux client, tools/test-mcp.ts).
 
 import { eventNumbers } from './partage/importMesures.ts'
@@ -36,12 +41,14 @@ import type {
   Comptage,
   CompteSrv,
   CritereSrv,
+  DeptsJoueurs,
   EvenementSrv,
   FiltreJoueurs,
   GroupeSrv,
   JoueurLire,
   JoueurNom,
   JournalSrv,
+  LireBaseSrv,
   MesureSrv,
   NomJoueurSrv,
   ProfilSrv,
@@ -86,9 +93,54 @@ async function parPaquets<T>(ids: readonly string[], q: (paquet: string[]) => Pr
   return out
 }
 
+/** `n` tâches à la fois au plus, résultats dans l'ordre. */
+async function enParallele<A, T>(xs: readonly A[], n: number, f: (x: A) => Promise<T>): Promise<T[]> {
+  const out: T[] = new Array(xs.length)
+  let k = 0
+  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => {
+    while (k < xs.length) {
+      const i = k++
+      out[i] = await f(xs[i])
+    }
+  }))
+  return out
+}
+
+/**
+ * Lignes d'un joueur (mesures, avis, « vus ») : sous les règles de lecture, un filtre sur data->>'playerId' ne peut pas utiliser
+ * son index (l'opérateur ->> n'est pas « leakproof ») et chaque requête relisait toute la table (au-delà de 8 s : « statement
+ * timeout »). Avec le département de chaque joueur, les identifiants sont regroupés par département et chaque requête porte
+ * aussi sur scope_dept (colonne simple : son index sert ; 046 la tient égale au département du joueur sur chaque ligne).
+ * Départements inconnus : requêtes sans ce filtre. Quatre requêtes à la fois au plus.
+ */
+async function parDepartement<T>(ids: readonly string[], depts: DeptsJoueurs | undefined, q: (paquet: string[], dept: string | undefined) => Promise<T[]>): Promise<T[]> {
+  const groupes = new Map<string | undefined, string[]>()
+  for (const id of ids) {
+    const d = depts?.get(id) || undefined
+    groupes.set(d, [...(groupes.get(d) ?? []), id])
+  }
+  const taches: [string[], string | undefined][] = []
+  for (const [d, xs] of groupes) for (let i = 0; i < xs.length; i += PAR) taches.push([xs.slice(i, i + PAR), d])
+  return (await enParallele(taches, 4, ([paquet, d]) => q(paquet, d))).flat()
+}
+
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
 const arr = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined)
 const yearOf = (d?: string | null) => (d && /^\d{4}/.test(d) ? +d.slice(0, 4) : undefined)
+/** Trimestre de naissance tiré du mois (la date complète ne quitte jamais ce fichier). */
+const trimestreOf = (d?: string | null) => {
+  const m = d ? /^\d{4}-(0[1-9]|1[0-2])/.exec(d) : null
+  return m ? Math.floor((+m[1] + 2) / 3) : undefined
+}
+/** Ligne d'une fiche → ce qui peut sortir : année et trimestre (jamais la date), sexe, poste, département. */
+const joueurLire = (r: { id: string; b: string | null; s: string | null; p: string | null; dept: string | null }): JoueurLire => ({
+  id: r.id,
+  ...(yearOf(r.b) ? { annee: yearOf(r.b) } : {}),
+  ...(trimestreOf(r.b) ? { trimestre: trimestreOf(r.b) } : {}),
+  ...(r.s === 'M' || r.s === 'F' ? { sexe: r.s } : {}),
+  ...(r.p ? { poste: r.p } : {}),
+  ...(r.dept ? { dept: r.dept } : {}),
+})
 
 /** `moi` : identifiant du compte du jeton (claims vérifiés par withSupabase, index.ts), pour nextar_admin_proposer. */
 export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source {
@@ -188,13 +240,7 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
         rows = r.rows
         tronque = r.tronque
       }
-      const joueurs: JoueurLire[] = joueursVivants(rows).map((r) => ({
-        id: r.id,
-        ...(yearOf(r.b) ? { annee: yearOf(r.b) } : {}),
-        ...(r.s === 'M' || r.s === 'F' ? { sexe: r.s } : {}),
-        ...(r.p ? { poste: r.p } : {}),
-        ...(r.dept ? { dept: r.dept } : {}),
-      }))
+      const joueurs: JoueurLire[] = joueursVivants(rows).map(joueurLire)
       return { joueurs, tronque }
     },
 
@@ -219,29 +265,85 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
       return { joueurs, tronque }
     },
 
-    async mesures(ids): Promise<MesureSrv[]> {
+    async mesures(ids, depts): Promise<MesureSrv[]> {
       type Row = { p: string; c: string; v: number | string; d: string }
-      const rows = await parPaquets(ids, async (paquet) =>
-        (await pages<Row>((a, b) => sb.from('hb_measurements').select('p:data->>playerId, c:data->>criterionId, v:data->value, d:data->>date').eq('deleted', false).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
+      const rows = await parDepartement(ids, depts, async (paquet, dept) =>
+        (await pages<Row>((a, b) => parDept(sb.from('hb_measurements').select('p:data->>playerId, c:data->>criterionId, v:data->value, d:data->>date').eq('deleted', false), dept).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
       )
       return rows.filter((r) => r.p && r.c && r.d && r.v !== null && r.v !== undefined).map((r) => ({ playerId: r.p, criterionId: r.c, value: r.v, date: r.d }))
     },
 
-    async avis(ids): Promise<AvisSrv[]> {
+    async avis(ids, depts): Promise<AvisSrv[]> {
       // Notes chiffrées seulement : ni points forts, ni axes de progression, ni portrait, ni observateur.
-      type Row = { p: string; d: string | null; s: Record<string, number | string> | null; r: string | null }
-      const rows = await parPaquets(ids, async (paquet) =>
-        (await pages<Row>((a, b) => sb.from('hb_evaluations').select('p:data->>playerId, d:data->>date, s:data->scores, r:data->>review').eq('deleted', false).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
+      type Row = { p: string; d: string | null; s: Record<string, number | string> | null; r: string | null; e: string | null; ct: string | null }
+      const rows = await parDepartement(ids, depts, async (paquet, dept) =>
+        (await pages<Row>((a, b) => parDept(sb.from('hb_evaluations').select('p:data->>playerId, d:data->>date, s:data->scores, r:data->>review, e:data->>eventId, ct:data->>contextType').eq('deleted', false), dept).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
       )
-      return rows.filter((r) => r.p && r.r !== 'refused').map((r) => ({ playerId: r.p, ...(r.d ? { date: r.d } : {}), scores: r.s && typeof r.s === 'object' ? r.s : {} }))
+      return rows
+        .filter((r) => r.p && r.r !== 'refused')
+        .map((r) => ({ playerId: r.p, ...(r.d ? { date: r.d } : {}), scores: r.s && typeof r.s === 'object' ? r.s : {}, ...(r.e ? { eventId: r.e } : {}), ...(r.ct ? { contexte: r.ct } : {}) }))
     },
 
-    async vus(ids): Promise<VuSrv[]> {
+    async vus(ids, depts): Promise<VuSrv[]> {
       type Row = { p: string; e: string }
-      const rows = await parPaquets(ids, async (paquet) =>
-        (await pages<Row>((a, b) => sb.from('hb_seen').select('p:data->>playerId, e:data->>eventId').eq('deleted', false).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
+      const rows = await parDepartement(ids, depts, async (paquet, dept) =>
+        (await pages<Row>((a, b) => parDept(sb.from('hb_seen').select('p:data->>playerId, e:data->>eventId').eq('deleted', false), dept).in('data->>playerId', paquet).range(a, b), 50_000)).rows,
       )
       return rows.filter((r) => r.p && r.e).map((r) => ({ playerId: r.p, eventId: r.e }))
+    },
+
+    async lireBase(f) {
+      const { data, error } = await sb.rpc('hb_mcp_lire', { p_filtre: f })
+      if (error) {
+        if (fonctionAbsente(error, 'hb_mcp_lire')) return null
+        throw new Error(error.message ?? 'hb_mcp_lire')
+      }
+      const d = data as { total?: unknown; lignes?: unknown } | null
+      if (!d || typeof d !== 'object' || !Array.isArray(d.lignes)) throw new Error('hb_mcp_lire : réponse inattendue')
+      return { total: Number(d.total) || 0, lignes: d.lignes as LireBaseSrv['lignes'] }
+    },
+
+    async fichesVisibles(max) {
+      // Identifiant, fondue, hors cadre : rien d'autre. Pages par identifiant (index de la clé), seize tranches en parallèle
+      // (premier signe de l'identifiant), quatre à la fois.
+      type Row = { id: string; m: string | null; r: string | null }
+      const bornes = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', null]
+      const tranches = bornes.slice(0, -1).map((de, i) => [de, bornes[i + 1]] as const)
+      let tronque = false
+      const lus = await enParallele(tranches, 4, async ([de, a]) => {
+        const out: Row[] = []
+        let apres = de
+        for (;;) {
+          // deno-lint-ignore no-explicit-any
+          let q: any = sb.from('hb_players').select('id, m:data->>mergedInto, r:data->>review').eq('deleted', false)
+          q = out.length || de ? q.gt('id', apres) : q
+          if (a) q = q.lt('id', a)
+          const { data, error } = await q.order('id').limit(PAGE)
+          if (error) throw new Error(error.message)
+          const rows = (data ?? []) as Row[]
+          out.push(...rows)
+          if (rows.length < PAGE || out.length > max) return out
+          apres = rows[rows.length - 1].id
+        }
+      })
+      const tous = lus.flat()
+      if (tous.length > max) tronque = true
+      return { fiches: tous.slice(0, max).map((x) => ({ id: x.id, fondue: !!x.m, horsCadre: x.r === 'refused' })), tronque }
+    },
+
+    async joueur(id) {
+      const { data, error } = await sb.from('hb_players').select('id, b:data->>birthDate, s:data->>sex, p:data->>position, dept:scope_dept').eq('id', id).eq('deleted', false).maybeSingle()
+      if (error || !data) return null
+      return joueurLire(data)
+    },
+
+    async journaliser(a) {
+      // Écrit avec le jeton du compte (règle de 072 : pour soi, à l'heure du serveur) ; table absente ou refus : rien.
+      try {
+        await sb.from('hb_mcp_appels').insert({ outil: a.outil, duree_ms: a.duree_ms, ok: a.ok, nb_lignes: a.nb_lignes, filtres: a.filtres })
+      } catch {
+        // jamais d'erreur
+      }
     },
 
     async deposerProposition(p) {
@@ -614,6 +716,23 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
       }))
     },
 
+    async appelsMcp(f, max) {
+      type Row = { at: string; u: string; o: string; d: number | null; ok: boolean; n: number | null; f: Record<string, unknown> | null }
+      try {
+        const r = await pages<Row>((a, b) => {
+          // deno-lint-ignore no-explicit-any
+          let q: any = sb.from('hb_mcp_appels').select('at, u:user_id, o:outil, d:duree_ms, ok, n:nb_lignes, f:filtres').gte('at', f.depuis)
+          if (f.jusqua) q = q.lt('at', f.jusqua)
+          if (f.auteur) q = q.eq('user_id', f.auteur)
+          return q.order('at', { ascending: false }).range(a, b)
+        }, max)
+        return { appels: r.rows.filter((x) => x.u && x.at).map((x) => ({ at: x.at, userId: x.u, outil: x.o, dureeMs: x.d, ok: x.ok === true, nbLignes: x.n, filtres: x.f })), tronque: r.tronque }
+      } catch (e) {
+        if (e instanceof Error && /hb_mcp_appels|does not exist|PGRST205|42P01/.test(e.message)) return null
+        throw e
+      }
+    },
+
     async evenementsParIds(ids) {
       const rows = await parPaquets(ids, async (paquet) => {
         const { data, error } = await sb.from('hb_events').select('id, n:data->>name, d:data->>date, a:data->archived, p:data->playerIds').in('id', paquet)
@@ -655,6 +774,10 @@ export function sourceSupabase(sb: ClientSupabase, moi?: string | null): Source 
     },
   }
 }
+
+/** Lecture par département (index de scope_dept) quand il est connu. */
+// deno-lint-ignore no-explicit-any
+const parDept = (q: any, dept: string | undefined) => (dept ? q.eq('scope_dept', dept) : q)
 
 /** Fonction de 071 absente : PostgREST PGRST202, Postgres 42883. */
 const fonctionAbsente = (e: { code?: string; message?: string }, nom: string) =>

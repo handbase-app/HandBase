@@ -497,6 +497,21 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
   const enStaff = new Set(staff.map((p) => p.userId))
   const vues = new Map((await src.dernieresVues()).map((v) => [v.userId, v.lastSeenAt]))
   const avertissements: string[] = [...per.avertissements]
+  // Appels d'outils du serveur MCP (Claude) sur la période, par compte (072 ; absent : « canal » appli seulement).
+  const mcp = await src.appelsMcp({ depuis, jusqua: iso(per.jusqua) }, BORNES.appelsMcpMax)
+  const parMcp = new Map<string, { n: number; erreurs: number; dernier: number; outils: Map<string, number> }>()
+  for (const a of mcp?.appels ?? []) {
+    const t = tempsDe(a.at)
+    if (t === undefined) continue
+    const cur = parMcp.get(a.userId) ?? { n: 0, erreurs: 0, dernier: -Infinity, outils: new Map() }
+    cur.n++
+    if (!a.ok) cur.erreurs++
+    cur.dernier = Math.max(cur.dernier, t)
+    cur.outils.set(a.outil, (cur.outils.get(a.outil) ?? 0) + 1)
+    parMcp.set(a.userId, cur)
+  }
+  if (!mcp) avertissements.push('Appels du serveur MCP (Claude) non journalisés tant que supabase/072_mcp_lecture_appels.sql n’est pas appliqué : canal « appli » seulement.')
+  else if (mcp.tronque) avertissements.push(`Plus de ${BORNES.appelsMcpMax} appels du serveur MCP sur la période : seuls les plus récents sont comptés.`)
   // Comptages : agrégats dans la base (071), sinon comptes exacts (total, sans génération), sinon lignes lues (bornées).
   let parCompte: Map<string | null, LigneActivite> | null = null
   let via = 'comptages par compte (comme avant 071)'
@@ -522,20 +537,33 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
     const { a: compte, e } = lus[i]
     const l = parCompte?.get(p.userId)
     const a: ActiviteSrv = parCompte ? { avis: l?.avis ?? 0, mesures: l?.mesures ?? 0, evenements: l?.evenements ?? 0, vus: l?.vus ?? 0, fiches: l?.fiches ?? 0 } : compte!
-    const t = Math.max(tempsDe(vues.get(p.userId)) ?? -Infinity, tempsDe(e) ?? -Infinity)
+    const m = parMcp.get(p.userId)
+    const t = Math.max(tempsDe(vues.get(p.userId)) ?? -Infinity, tempsDe(e) ?? -Infinity, m?.dernier ?? -Infinity)
     const somme = (['avis', 'mesures', 'evenements', 'vus', 'fiches'] as (keyof ActiviteSrv)[]).reduce((s, k) => s + (a[k] ?? 0), 0)
-    return { p, a, l, t: Number.isFinite(t) ? t : undefined, somme }
+    const appli = tempsDe(vues.get(p.userId)) !== undefined || somme > 0
+    return { p, a, l, t: Number.isFinite(t) ? t : undefined, somme, m, appli }
   })
   const quandFmt = (t?: number) => (t === undefined ? { il_y_a: 'jamais vu' } : { derniere_activite: iso(t), il_y_a: ilYA(maintenant - t) })
   const extra = (l?: LigneActivite) => ({
     ...(ventilation ? { par_source: { ...(l?.parSource ?? {}) } } : {}),
     ...(par !== 'total' ? { histogramme: l ? histogramme(l, par) : [] } : {}),
   })
-  type Rang = { somme: number; t?: number; ligne: Record<string, unknown> }
-  const rangs: Rang[] = lignes.map(({ p, a, l, t, somme }) => ({
+  // Canal : « appli » (ouvertures, écritures), « mcp » (appels d'outils par Claude sur la période), les deux, ou aucun.
+  const canalDe = (appli: boolean, m?: { n: number }) => (appli && m?.n ? 'appli et mcp' : m?.n ? 'mcp' : appli ? 'appli' : 'aucun')
+  const mcpFmt = (m?: { n: number; erreurs: number; dernier: number; outils: Map<string, number> }) =>
+    mcp
+      ? {
+          appels_mcp: m?.n ?? 0,
+          ...(m?.erreurs ? { appels_mcp_erreurs: m.erreurs } : {}),
+          ...(m ? { dernier_appel_mcp: iso(m.dernier), dernier_appel_mcp_paris: paris(m.dernier), outils: [...m.outils].sort((x, y) => y[1] - x[1]).slice(0, 10).map(([outil, nb]) => ({ outil, nb })) } : {}),
+        }
+      : {}
+  type Rang = { somme: number; appels: number; t?: number; ligne: Record<string, unknown> }
+  const rangs: Rang[] = lignes.map(({ p, a, l, t, somme, m, appli }) => ({
     somme,
+    appels: m?.n ?? 0,
     t,
-    ligne: { compte: codeCompte(p.userId), nom_affiche: nomAffiche(p), role: libelleRole(p.role), avis: a.avis, mesures: a.mesures, evenements: a.evenements, vus: a.vus, fiches: a.fiches, ...extra(l), ...quandFmt(t) },
+    ligne: { compte: codeCompte(p.userId), nom_affiche: nomAffiche(p), role: libelleRole(p.role), canal: canalDe(appli, m), avis: a.avis, mesures: a.mesures, evenements: a.evenements, vus: a.vus, fiches: a.fiches, ...mcpFmt(m), ...extra(l), ...quandFmt(t) },
   }))
   // Génération : une ligne « Générateur démo » (aucun compte), avec les comptes sous lesquels ses lignes ont été posées.
   const gen = parCompte?.get(null)
@@ -544,6 +572,7 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
     const profils = new Map(tous.map((p) => [p.userId, p]))
     rangs.push({
       somme,
+      appels: 0,
       ligne: {
         ...GENERATEUR,
         avis: gen.avis, mesures: gen.mesures, evenements: gen.evenements, vus: gen.vus, fiches: gen.fiches,
@@ -552,7 +581,7 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
       },
     })
   }
-  const triees = [...rangs].sort((x, y) => y.somme - x.somme || (y.t ?? 0) - (x.t ?? 0))
+  const triees = [...rangs].sort((x, y) => y.somme - x.somme || y.appels - x.appels || (y.t ?? 0) - (x.t ?? 0))
   const comptes = triees.slice(0, limite).map((r) => r.ligne)
   const inactifs = lignes
     .filter((l) => l.t === undefined || l.t < maintenant - seuil * JOUR)
@@ -572,7 +601,7 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
     via,
     total: tous.length,
     ...(tous.length > staff.length || rangs.length > comptes.length ? { tronque: true } : {}),
-    totaux: { avis: total('avis'), mesures: total('mesures'), evenements: total('evenements'), vus: total('vus'), fiches: total('fiches') },
+    totaux: { avis: total('avis'), mesures: total('mesures'), evenements: total('evenements'), vus: total('vus'), fiches: total('fiches'), ...(mcp ? { appels_mcp: lignes.reduce((s, l) => s + (l.m?.n ?? 0), 0) } : {}) },
     ...(ventilation ? { totaux_par_source: parSourceTotal } : { ventilation_source: `${INDISPONIBLE_071} (par: "jour" ou "heure" la donne sur les lignes lues).` }),
     ...(generation ? { totaux_generation: gen ? { avis: gen.avis, mesures: gen.mesures, evenements: gen.evenements, vus: gen.vus, fiches: gen.fiches } : { avis: 0, mesures: 0, evenements: 0, vus: 0, fiches: 0 } } : {}),
     ...(horsStaff ? { hors_staff: horsStaff } : {}),
@@ -587,7 +616,7 @@ export async function outilAdminActivite(src: Source, reg: Reglages, input: Acti
       ...(tous.length > staff.length ? [`Plus de ${BORNES.activiteComptes} comptes du staff : seuls les ${BORNES.activiteComptes} premiers (ordre des noms) sont passés en revue.`] : []),
       ...(illisibles ? ['Certains nombres sont illisibles (null) : table absente ou refusée par la base.'] : []),
       ...(horsStaff ? [`${horsStaff} compte(s) hors staff (comptes joueurs, comptes supprimés ou sans rôle) ont créé des lignes : non comptés.`] : []),
-      'Lignes CRÉÉES par chaque compte sur la période (auteur et heure posés par le serveur), encore présentes. Vus : joueur × événement. Génération (démos, jeux d’essai, lignes écrites par SQL) exclue sauf inclure_generation ; elle apparaît alors sous « Générateur démo ». Dernière activité : dernière ouverture de l’appli ou dernière écriture à l’historique, la plus récente. Comptes joueurs exclus.',
+      'Lignes CRÉÉES par chaque compte sur la période (auteur et heure posés par le serveur), encore présentes. Vus : joueur × événement. Génération (démos, jeux d’essai, lignes écrites par SQL) exclue sauf inclure_generation ; elle apparaît alors sous « Générateur démo ». Dernière activité : dernière ouverture de l’appli, dernière écriture à l’historique ou dernier appel d’outil par Claude (serveur MCP), la plus récente. Canal : appli, mcp (Claude), les deux, ou aucun sur la période. Comptes joueurs exclus.',
     ],
     message: 'Activité des comptes du staff (code, nom affiché, rôle) ; jamais d’adresse mail ni de donnée de joueur.',
   }
