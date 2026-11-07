@@ -175,7 +175,9 @@ export default defineConfig(({ mode }) => {
         workbox: {
           navigateFallback: 'index.html',
           // Page d'essai autonome (public/essai-dictee/) : jamais remplacée par l'app, jamais installée d'avance.
-          navigateFallbackDenylist: [/\/essai-dictee(\/|$)/],
+          // API Supabase servie à la même adresse que l'app (serveur maison) : une navigation vers /auth/v1/oauth/authorize
+          // (branchement de Claude) doit atteindre le serveur, pas recevoir index.html du service worker.
+          navigateFallbackDenylist: [/\/essai-dictee(\/|$)/, /^\/(auth|rest|functions|storage|realtime|graphql|pg)\//],
           // Première installation : la page ouverte passe tout de suite sous le service worker (hors ligne).
           clientsClaim: true,
           // Push de la veille (veille-sw.js, src/veilleSw.ts), puis réception des notifications (public/push-sw.js), qui lui
