@@ -43,8 +43,9 @@ export function PrivacyText() {
         <li>Avis du staff : notes et commentaires sur le jeu, signés par leur auteur.</li>
       </ul>
       <p>
-        Aucune donnée de santé (blessures, maladies, traitements) n’est enregistrée, ni aucune information sur les origines, la
-        religion ou la situation familiale. Aucune coordonnée des parents n’est enregistrée (seule leur taille peut l’être, sans leur nom).
+        Aucune donnée de santé (blessures, maladies, traitements) n’est enregistrée par le staff, ni aucune information sur les
+        origines, la religion ou la situation familiale (seule exception, écrite par le jeune lui-même : le wellness du matin,
+        ci-dessous, quand son groupe le demande). Aucune coordonnée des parents n’est enregistrée (seule leur taille peut l’être, sans leur nom).
       </p>
 
       <H>Qui les voit ?</H>
@@ -105,6 +106,17 @@ export function PrivacyText() {
         familles : au pôle, il est signé à l’inscription ; sinon, il est demandé au moment de créer le compte ou de remettre le
         code. Durée de conservation : celle de la fiche (fiche effacée : tout ce qu’il a écrit, journal compris, part avec elle).
       </p>
+      <p id="wellness">
+        Wellness du matin (seulement si son groupe le demande ; pas encore ouvert, réservé aux essais avec des données fictives
+        tant que l’accord des familles et l’hébergement adapté aux données de santé ne sont pas décidés) : du lundi au vendredi,
+        le jeune note lui-même son énergie, sa fraîcheur musculaire, son humeur et la qualité de son sommeil (de 1 à 10), dit s’il
+        a une douleur ou une gêne (où, et son intensité) et, après une séance, l’intensité ressentie et, s’il le veut, la durée.
+        Ce sont des données de santé : elles ne sont lues que par le staff de ce groupe (son responsable et ses encadrants) et les
+        administrateurs, jamais par les autres coachs ni par les observateurs. Elles ne sont jamais envoyées à une IA, n’entrent
+        dans aucun export du staff (tableur, PDF) et ne sont pas gardées sur les appareils du staff. Elles sont gardées le temps
+        de la saison (jusqu’au 31 août, plus un mois) puis effacées automatiquement ; fiche effacée : elles partent avec elle. Le
+        jeune les retrouve dans sa copie « Télécharger mes données ».
+      </p>
     </div>
   )
 }
@@ -133,6 +145,14 @@ export function PlayerCharterText() {
         Ta lettre (et ses versions précédentes), tes repères et ton parcours, sur ta fiche, pour mieux te connaître et t’accompagner.
         Ton journal est privé : ton encadrant voit seulement la tendance de tes humeurs (jamais le texte) et les notes que tu choisis
         de partager. Personne d’autre ne lit ce que tu écris.
+      </p>
+
+      <H>Mon wellness du matin</H>
+      <p>
+        Si ton groupe le demande : du lundi au vendredi, le matin, tu dis en quelques secondes comment tu te sens (énergie,
+        fraîcheur, humeur, sommeil) et si tu as mal quelque part ; après une séance, comment tu l’as ressentie. Pas de bonne ou de
+        mauvaise réponse. Seuls les encadrants de ton groupe et les administrateurs le lisent, pour adapter l’entraînement ;
+        jamais d’IA, jamais de classement. C’est gardé pendant la saison, puis effacé.
       </p>
 
       <H>Si ça ne va pas</H>

@@ -52,6 +52,7 @@ import { useGroupsQuery } from '../components/GroupsQuery'
 import { BarActions, BelowBar, HeaderMenu, MoreActions, PageHeader } from '../components/PageHeader'
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { useGiveObjective } from '../components/GroupObjectives'
+import { canReadWellness, canToggleWellness, useWellnessEnabled } from '../components/Wellness'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { Demander, postAsk } from '../components/Demander'
@@ -998,6 +999,8 @@ function PlayerGroupDetail() {
   const [exiting, setExiting] = useState<Player | null>(null)
   const [poleMsg, setPoleMsg] = useState('')
   useEffect(() => setPoleMsg(''), [id])
+  // Wellness (073) : réglage de l'installation (fermé hors mode essai).
+  const wellnessOn = useWellnessEnabled()
 
   // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
   useRestoreScroll(`groupe.${id}`, !!data && data.g?.id === id)
@@ -1032,6 +1035,15 @@ function PlayerGroupDetail() {
   const unitName = !ref ? 'Unité Pôle introuvable' : ref.name.toLowerCase().startsWith(g.name.trim().toLowerCase()) ? '' : ref.name
   const info = pole ? [unitName, ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
   const stamp = stampOf(g)
+  // « Wellness » (073) : le staff du groupe (créateur, participants encadrants, administrateurs) ; fermé sur l'installation :
+  // l'entrée reste pour celui qui l'activerait, avec « Réservé aux essais pour l'instant ».
+  const wellnessRead = canReadWellness(role, g)
+  const wellnessItem = (wellnessRead || canToggleWellness(role, g)) && {
+    label: 'Wellness',
+    icon: 'heart' as const,
+    hint: !wellnessOn ? 'Réservé aux essais pour l’instant' : g.wellness ? 'questionnaire du matin, tableau du jour' : 'questionnaire du matin : désactivé',
+    onSelect: () => nav(`/groupes/${g.id}/wellness`),
+  }
   const view = positionRosterView(players, sort, posFilter)
   const askIds = askFilter ? new Set(askFilter.ids) : null
   // Avant la barre « Demander » (ses filtres : RosterQueryBar, au rendu de la liste).
@@ -1234,6 +1246,7 @@ function PlayerGroupDetail() {
                   },
                   // Plus de boutons « Créer un événement » / « Exporter ▾ » sous le titre (31/10) : ici.
                   can.manageEvents(role) && players.length > 0 && { label: 'Créer un événement', icon: 'calendar', hint: `avec ces ${gw.joueurs}`, onSelect: () => nav(`/evenements?groupe=${g.id}`) },
+                  wellnessItem,
                   ...groupExportItems({ g, players: view.roster, gender: gg, pole: pole && ref && pm ? { ref, m: pm, view: poleView } : undefined, nav }),
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
                   // Créé par…, modifié par… : plus sous le titre (31/10), comme la fiche joueur.
@@ -1254,6 +1267,11 @@ function PlayerGroupDetail() {
           {teamFollowed(g) && <div className="text-[10px] text-muted">{TEAM_FOLLOW.already}</div>}
           {info && <div className="mt-0.5 text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
+          {wellnessOn && g.wellness && wellnessRead && (
+            <Link to={`/groupes/${g.id}/wellness`} className="mt-1 inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-accent" data-testid="lien-wellness">
+              <Icon name="heart" className="h-3.5 w-3.5" /> Wellness du jour ›
+            </Link>
+          )}
           <Participants
             x={g}
             teams={teams}

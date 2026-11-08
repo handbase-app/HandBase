@@ -437,6 +437,13 @@ export interface PlayerGroup extends Syncable {
    * fiches (Player.poles) qui correspondent à l'unité et couvrent la date de la vue (saison en cours / prochaine).
    */
   poleUnitId?: string
+  /**
+   * « Wellness quotidien » (supabase/073_wellness.sql, src/wellness.ts) : questionnaire du matin demandé aux jeunes du groupe
+   * qui ont un espace joueur ; lu par le staff du groupe seulement. Changé par le créateur du groupe ou un administrateur
+   * (hb_upsert, comme le reste du groupe) ; `wellnessSince` : jour de l'activation (AAAA-MM-JJ).
+   */
+  wellness?: boolean
+  wellnessSince?: string
   /** Ancienne couleur de repère (« Repérer des groupes », retiré le 03/11) : reste sur de vieux groupes, plus lue ni écrite. */
   color?: string
 }

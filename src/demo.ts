@@ -7,6 +7,8 @@ import type { MyGoals } from './myGoals'
 import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
 import type { ObjectiveStep, WorkObjective } from './objectives'
 import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
+import { clearDemoWellness, seedDemoWellness } from './wellnessApi'
+import { buildDemoWellness } from './demoWellness'
 import { scoutId } from './scouting'
 import { currentSport, type HandballPosition } from './sportConfig'
 
@@ -292,6 +294,18 @@ export async function loadDemo() {
   // ----- Objectifs de travail et auto-évaluations (vague 2 « Génération Bleue ») : quelques joueurs choisis par leur rang,
   // sans rand() (la suite des autres données de la démo ne change pas). -----
   const demoGoals = buildDemoGoals(now)
+  // Wellness (supabase/073, src/demoWellness.ts) : un groupe « pôle » fictif qui le demande, 10 joueurs de champ, 5 semaines
+  // de réponses et de séances fictives sur l'appareil (deux à 100 %, une gêne signalée aujourd'hui, un pas encore répondu).
+  const wellnessIds = players.filter((p) => p.position !== 'GB').slice(0, 10).map((p) => p.id)
+  const wellnessGroup: PlayerGroup = {
+    id: PREFIX + 'g-wellness',
+    name: 'Groupe pôle (démonstration)',
+    description: 'Wellness quotidien activé : données fictives',
+    playerIds: wellnessIds,
+    wellness: true,
+    wellnessSince: localDay(now - 35 * 24 * 3600 * 1000),
+    updatedAt: now,
+  }
   for (const [i, list] of Object.entries(demoGoals.objectives)) players[Number(i)].objectives = list
   // Objectif donné à toute la liste du « Tournoi de l'Espenon » (src/groupObjectives.ts) : une copie par fiche, identifiants
   // « demo-don-… », avancement tiré de l'identifiant (hashN, pas rand()) ; section « Objectifs donnés » de l'événement.
@@ -303,6 +317,7 @@ export async function loadDemo() {
     await db.seen.bulkPut(scout.seen)
     await db.rewatch.bulkPut(scout.rewatch)
     await db.groups.bulkPut(scout.groups)
+    await db.groups.put(wellnessGroup)
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
@@ -311,6 +326,7 @@ export async function loadDemo() {
     await db.videos.bulkPut(videos)
   })
   // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
+  seedDemoWellness(buildDemoWellness(wellnessIds, localDay(now)))
   seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
   // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
   seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
@@ -567,6 +583,7 @@ export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
   clearDemoSelfEvals()
   clearDemoGoals()
+  clearDemoWellness()
   // Modèles d'objectifs de la démo (jamais ceux qu'un administrateur a enregistrés).
   const tpl = await db.config.get(GOAL_TEMPLATES_KEY)
   if (tpl && isDemoTemplatesValue(tpl.value)) await db.config.delete(GOAL_TEMPLATES_KEY)

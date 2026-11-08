@@ -75,6 +75,8 @@ const Question = lazy(() => import('./pages/Question'))
 const QuestionPlayers = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayers })))
 const QuestionPlayer = lazy(() => import('./pages/Question').then((m) => ({ default: m.QuestionPlayer })))
 const GroupReport = lazy(() => import('./pages/GroupReport').then((m) => ({ default: m.GroupReport })))
+// Wellness d'un groupe, côté staff (supabase/073_wellness.sql).
+const GroupWellness = lazy(() => import('./pages/GroupWellness'))
 // Serveur MCP Nextar : rapport en codes (noms remis sur l'appareil) et page d'autorisation OAuth (connecteur Claude).
 const RapportPage = lazy(() => import('./pages/Rapport'))
 const OAuthConsent = lazy(() => import('./pages/OAuthConsent'))
@@ -215,6 +217,8 @@ const PAGE_W: [RegExp, string][] = [
   [/^\/(bilan|groupes\/[^/]+)\/rapport$/, 'wide:max-w-4xl'],
   // Changement de saison d'un pôle : deux colonnes.
   [/^\/groupes\/[^/]+\/saison$/, 'wide:max-w-6xl'],
+  // Wellness d'un groupe : tableau du staff, deux colonnes au plus.
+  [/^\/groupes\/[^/]+\/wellness$/, 'wide:max-w-5xl'],
   [/^\//, 'wide:max-w-7xl'],
 ]
 
@@ -442,6 +446,7 @@ export default function App() {
           </Route>
           <Route path="/groupes/nouveau" element={<NewGroup />} />
           <Route path="/groupes/:id/rapport" element={<GroupReport />} />
+          <Route path="/groupes/:id/wellness" element={<GroupWellness />} />
           {/* Serveur MCP Nextar : rapport rédigé par Claude avec des codes, noms remis sur l'appareil ; autorisation OAuth. */}
           <Route path="/rapport/:id" element={<RapportPage />} />
           <Route path="/oauth/consent" element={<OAuthConsent />} />

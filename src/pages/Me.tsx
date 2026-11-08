@@ -35,10 +35,16 @@ import { MyObjectives } from '../components/Objectives'
 import { SelfEvalSection } from '../components/SelfEval'
 import { AllTests } from '../components/AllTests'
 import { useReperes } from '../components/Medal'
+import { MyWellnessCard } from '../components/Wellness'
+import { fetchMyWellness } from '../wellnessApi'
+import { myWellnessExport } from '../wellness'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
  *  - En haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
+ *  - « Mon wellness du jour » (073, src/components/Wellness.tsx) : tout en haut, si son groupe le demande et que le réglage
+ *    de l'installation est ouvert (mode essai seulement pour l'instant) : questionnaire du matin (lundi → vendredi),
+ *    « Ma séance », ses 14 derniers jours.
  *  - « Mes objectifs » (vague 2 « Génération Bleue », liste à cocher avec des étapes depuis le 04/11) : ceux du staff (rangés
  *    dans la fiche : il coche leurs étapes) et les siens (« à moi », 5 en cours au plus, 065) ; src/components/Objectives.tsx.
  *  - « Comment ça s'est passé ? » (064) : après un match, un tournoi ou un stage où il était sur la liste, sa courte
@@ -219,7 +225,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
   async function downloadMyData() {
     const r = await fetchNotes(p.id)
     if (!r.ok) return inform(r.error)
-    const data = myDataExport(
+    // Wellness (073) : le sien, toute la saison gardée ; absent (pas demandé, script pas passé) : rien.
+    const wl = await fetchMyWellness(p.id, 400)
+    const base = myDataExport(
       {
         prenom: p.firstName,
         nom: p.lastName,
@@ -232,6 +240,7 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
       r.value,
       new Date().toISOString(),
     )
+    const data = wl.ok && (wl.value.entries.length || wl.value.sessions.length) ? { ...base, ...myWellnessExport(wl.value.entries, wl.value.sessions) } : base
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
@@ -263,6 +272,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         </div>
       )}
       <h1 className="text-lg font-extrabold">{preview ? `La page ${g.duJoueur}` : 'Ma page'}</h1>
+
+      {/* Mon wellness du jour (073) : en haut, ouvert le matin des jours de semaine tant qu'il n'est pas rempli. */}
+      <MyWellnessCard player={p} canWrite={canWrite} />
 
       {/* Identité : tenue par le staff, lecture seule. */}
       <div className="card p-4">
