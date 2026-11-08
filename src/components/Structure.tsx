@@ -306,7 +306,8 @@ function useMembers(enabled: boolean) {
     if (!enabled || !supabase || !online || list) return
     void supabase.rpc('hb_members').then(({ data, error }) => {
       if (error) setErr(`Liste des comptes indisponible : ${error.message}`)
-      else setList((data as Member[]).filter((m) => !!m.role))
+      // Un compte joueur n'a ni secteur ni affectation (supabase/051) : jamais proposé ici.
+      else setList((data as Member[]).filter((m) => !!m.role && m.role !== 'joueur'))
     })
   }, [enabled, online, list])
   return { list, err, online }

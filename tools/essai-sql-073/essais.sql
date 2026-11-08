@@ -319,23 +319,18 @@ begin
   perform essai.attendu('refermé : le staff lit encore (actif = false rendu)', essai.vu(c1, 'select (x ->> ''actif'') || '' '' || jsonb_array_length(x -> ''jours'') from public.hb_wellness_groupe(''g1'', 35) x'), 'false 2');
   update public.hb_config set data = '{"id":"wellness","key":"wellness","value":{"actif":true}}' where id = 'wellness';
 
-  -- ---------- Base de démonstration (réglage { demo: true }) : une fiche sans compte qui a des réponses compte ----------
+  -- ---------- Fiche sans compte joueur : jamais dans le tableau, même avec des réponses (pas de mode « démonstration ») ----------
   insert into public.hb_players (id, data) values
     ('j-7', jsonb_build_object('id', 'j-7', 'firstName', 'Prénom', 'lastName', 'Fictif Sept', 'clubCode', '6383020', 'sex', 'M',
-       'poles', jsonb_build_array(jsonb_build_object('site', 'Fictif-sur-Mer', 'from', to_char(auj - 30, 'YYYY-MM-DD'))))),
-    ('j-8', jsonb_build_object('id', 'j-8', 'firstName', 'Prénom', 'lastName', 'Fictif Huit', 'clubCode', '6383020', 'sex', 'M',
        'poles', jsonb_build_array(jsonb_build_object('site', 'Fictif-sur-Mer', 'from', to_char(auj - 30, 'YYYY-MM-DD')))));
   insert into public.hb_wellness (player_id, jour, scores) values ('j-7', auj - 2, '{"energie":6}');
   insert into public.hb_wellness_seances (player_id, jour, rpe, duree) values ('j-7', auj - 2, 6, 90);
-  perform essai.attendu('sans « demo » : fiche sans compte absente du tableau', essai.vu(c1, 'select (x -> ''comptes'')::text from public.hb_wellness_groupe(''gp'', 35) x'), '["j-4"]');
+  perform essai.attendu('fiche du groupe sans compte, avec des réponses : absente du tableau', essai.vu(c1, 'select (x -> ''comptes'')::text from public.hb_wellness_groupe(''gp'', 35) x'), '["j-4"]');
   update public.hb_config set data = '{"id":"wellness","key":"wellness","value":{"actif":true,"demo":true}}' where id = 'wellness';
-  perform essai.attendu('démonstration : fiche du groupe avec des réponses comptée (pas celle qui n''a rien)',
-    essai.vu(c1, 'select (x -> ''comptes'')::text || '' '' || jsonb_array_length(x -> ''jours'') || '' '' || jsonb_array_length(x -> ''seances'') from public.hb_wellness_groupe(''gp'', 35) x'), '["j-4", "j-7"] 2 1');
-  perform essai.attendu('démonstration : pas dans un autre groupe', essai.vu(c1, 'select (x -> ''comptes'')::text from public.hb_wellness_groupe(''g1'', 35) x'), '["j-1", "j-2"]');
-  perform essai.attendu('démonstration : toujours rien pour un autre coach', essai.vu(c4, 'select public.hb_wellness_groupe(''gp'', 35)::text'), 'ERR P0001 groupe_inconnu');
+  perform essai.attendu('une clé « demo » du réglage ne change rien', essai.vu(c1, 'select (x -> ''comptes'')::text from public.hb_wellness_groupe(''gp'', 35) x'), '["j-4"]');
   update public.hb_config set data = '{"id":"wellness","key":"wellness","value":{"actif":true}}' where id = 'wellness';
-  delete from public.hb_players where id in ('j-7', 'j-8');
-  perform essai.attendu('… fiches fictives retirées, leur wellness avec', (select count(*)::text from public.hb_wellness where player_id = 'j-7'), '0');
+  delete from public.hb_players where id = 'j-7';
+  perform essai.attendu('… fiche fictive retirée, son wellness avec', (select count(*)::text from public.hb_wellness where player_id = 'j-7'), '0');
 
   -- ---------- Fusion : le wellness suit la fiche gardée (celui de la fiche gardée prime pour un même jour) ----------
   insert into public.hb_wellness (player_id, jour, scores) values ('j-2', auj - 5, '{"energie":4}');

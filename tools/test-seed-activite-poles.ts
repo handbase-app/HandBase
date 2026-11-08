@@ -3,8 +3,10 @@
 // (anciens effectifs tirés au hasard, sorties aux motifs variés) et des fiches modifiées par de vrais comptes. Effectifs
 // (12 à 20, quatre classes, ~3/4 entrés en 3e, territoire, fiches figées jamais touchées, plan stable), wellness (taux de
 // réponse variés, jours demandés, douleurs bien formées comme hb_wl_douleurs, fatigue après les grosses journées), séances
-// (durée toujours là, rien pendant les vacances), tests, avis, journal, SQL (gardes, rejouable, rien d'ouvert à l'écriture
-// dans l'extrait), déterminisme. Aucune base, aucun réseau ; données fictives.
+// (durée toujours là ; vacances : la moitié des jeunes actifs, rapport de charge varié à la reprise), tests, avis, journal,
+// comptes joueurs (un par jeune, adresses stables sans nom, charte acceptée, empreinte seulement), SQL (gardes, rejouable,
+// rien d'ouvert à l'écriture dans l'extrait, réglage sans mode démonstration), déterminisme. Aucune base, aucun réseau ;
+// données fictives.
 //
 //   npx jiti tools/test-seed-activite-poles.ts
 import assert from 'node:assert/strict'
@@ -16,14 +18,19 @@ import { playerClub, playerDepartment } from '../src/perimeter'
 import type { PolePeriod } from '../src/db'
 import { POLE_SITES } from '../src/poles'
 import { SPORT_CONTENT } from '../src/sportContent'
-import { cleanPains, completionRate } from '../src/wellness'
+import { chargeSummary, cleanPains, completionRate } from '../src/wellness'
 import { buildSeed, FAMOUS } from './seed-hand'
 import { fold } from './seed-volley'
 import { ANNEE_SORTIS, ANNEES_POLE, appliquerPlan, ciblesClasses, planifierPoles, regionOfDept, tailleSite } from './poles-saison'
 import {
   candidats,
+  csvComptes,
   dow,
   ecrireSql,
+  emailCompte,
+  formeVacances,
+  PLAYER_CHARTER_VERSION,
+  sqlComptes,
   enVacances,
   extraitSql,
   jourDemande,
@@ -179,7 +186,9 @@ t('groupes : un groupe Pôle créé pour chaque unité qui n\'en a pas, wellness
   assert.equal(a.groupesWellness.length, 4)
   const sql = sqlGroupes(a)
   assert.match(sql, /where not exists \(select 1 from public\.hb_groups g where g\.data ->> 'poleUnitId' = v\.unite/)
-  assert.match(sql, /on conflict \(id\) do nothing/)
+  // Déjà là : rien ; retiré par le retour arrière (jamais touché depuis par un vrai compte) : remis.
+  assert.match(sql, /on conflict \(id\) do update set .* deleted = false/)
+  assert.match(sql, /where t\.deleted and t\.data ->> 'demoSeed' = 'poles-2026'/)
 })
 
 // ---------- Wellness et séances ----------
@@ -236,12 +245,13 @@ t('wellness : fatigue le lendemain des grosses journées (fraîcheur plus basse 
   assert.ok(cb(lundis) > cb(mercredis), `${cb(lundis)} / ${cb(mercredis)}`)
 })
 
-t('séances : RPE 1-10 et durée toujours là (1-600), 6 par jour au plus, rien pendant les vacances ni le jour de fin', () => {
+t('séances : RPE 1-10 et durée toujours là (1-600), 6 par jour au plus, rien le jour de fin ; en vacances, seulement les jeunes actifs', () => {
   const parJour = new Map<string, number>()
   for (const s of a.seances) {
     assert.ok(Number.isInteger(s.rpe) && s.rpe >= 1 && s.rpe <= 10)
     assert.ok(Number.isInteger(s.duree) && s.duree >= 1 && s.duree <= 600)
-    assert.ok(!enVacances(s.jour) && s.jour < FIN && s.jour >= '2026-09-01', s.jour)
+    assert.ok(s.jour < FIN && s.jour >= '2026-09-01', s.jour)
+    if (enVacances(s.jour)) assert.notEqual(formeVacances(s.player_id), 'repos', s.player_id)
     assert.ok(s.at.slice(0, 10) <= FIN)
     const k = `${s.player_id}:${s.jour}`
     parJour.set(k, (parJour.get(k) ?? 0) + 1)
@@ -253,6 +263,32 @@ t('séances : RPE 1-10 et durée toujours là (1-600), 6 par jour au plus, rien 
   const durees = a.seances.map((s) => s.duree).sort((x, y) => x - y)
   assert.ok(durees[Math.floor(durees.length * 0.1)] >= 45 && durees[Math.floor(durees.length * 0.9)] <= 120, `${durees[Math.floor(durees.length * 0.1)]} ${durees[Math.floor(durees.length * 0.9)]}`)
   assert.deepEqual(VACANCES, ['2026-10-17', '2026-11-01'])
+})
+
+t('vacances : environ la moitié des jeunes actifs (club, stage, footing), rapport de charge varié à la reprise', () => {
+  const actifs = new Set(a.seances.filter((s) => enVacances(s.jour)).map((s) => s.player_id))
+  const part = actifs.size / a.vies.size
+  assert.ok(part > 0.35 && part < 0.6, `${part}`)
+  const formes = new Set([...a.vies.keys()].map(formeVacances))
+  assert.deepEqual([...formes].sort(), ['club', 'perso', 'repos', 'stage'])
+  // Stage : deux séances le même jour.
+  const parJour = new Map<string, number>()
+  for (const s of a.seances.filter((x) => enVacances(x.jour))) parJour.set(`${s.player_id}:${s.jour}`, (parJour.get(`${s.player_id}:${s.jour}`) ?? 0) + 1)
+  assert.ok([...parJour.values()].some((x) => x === 2))
+  // Rapport aiguë / chronique (src/wellness.ts) le 9 novembre (semaine de la reprise) : ni ~2 pour tout le monde, ni plat.
+  const b = preparer(entree, { fin: '2026-11-09' })
+  const parJeune = new Map<string, { id: string; day: string; rpe: number; minutes: number }[]>()
+  for (const x of b.seances) parJeune.set(x.player_id, [...(parJeune.get(x.player_id) ?? []), { id: x.id, day: x.jour, rpe: x.rpe, minutes: x.duree }])
+  const r = [...b.vies.keys()].map((id) => chargeSummary(parJeune.get(id) ?? [], '2026-11-09').ratio).filter((x): x is number => x !== null)
+  const bas = r.filter((x) => x <= 1.3).length / r.length
+  const hauts = r.filter((x) => x > 1.5).length / r.length
+  // Ceux qui se sont reposés reprennent vers 2 (c'est la réalité), les autres plus bas : au moins un sur six à 1,3 ou moins.
+  assert.ok(bas > 0.15 && hauts > 0.35 && hauts < 0.85, `≤ 1,3 : ${bas} ; > 1,5 : ${hauts}`)
+  // Les jeunes restés actifs reprennent avec un rapport plus bas que ceux qui se sont reposés.
+  const moy = (xs: number[]) => xs.reduce((x, y) => x + y, 0) / xs.length
+  const de = (f: (id: string) => boolean) =>
+    moy([...b.vies.keys()].filter(f).map((id) => chargeSummary(parJeune.get(id) ?? [], '2026-11-09').ratio).filter((x): x is number => x !== null))
+  assert.ok(de((id) => formeVacances(id) === 'repos') > de((id) => formeVacances(id) !== 'repos') + 0.2)
 })
 
 t('déterminisme : même entrée, même SQL ; prolonger la période ne change pas les jours déjà écrits', () => {
@@ -320,6 +356,49 @@ t('journal : notes courtes et positives ou neutres, humeurs connues, une partie 
   assert.equal(new Set(a.journal.map((x) => x.id)).size, a.journal.length)
 })
 
+// ---------- Comptes joueurs ----------
+
+const EMPREINTE = `$2a$06$${'a'.repeat(53)}`
+
+t('comptes : un par jeune du pôle (sans compte déjà relié), adresses j-…@nextar-essai.test stables et sans nom, charte acceptée', () => {
+  assert.equal(a.comptes.length, a.vies.size)
+  assert.deepEqual(new Set(a.comptes.map((c) => c.player_id)), new Set(a.vies.keys()))
+  assert.equal(new Set(a.comptes.map((c) => c.email)).size, a.comptes.length)
+  assert.equal(new Set(a.comptes.map((c) => c.user_id)).size, a.comptes.length)
+  for (const c of a.comptes) {
+    assert.match(c.email, /^j-[a-z2-7]{8}@nextar-essai\.test$/)
+    assert.equal(c.email, emailCompte(c.player_id))
+    assert.match(c.user_id, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    assert.ok(['3e', '2de', '1re', 'Tle'].includes(c.classe))
+    assert.ok(c.at.startsWith('2026-08-31T'))
+    assert.ok(!byId.get(c.player_id)!.compte, 'jamais une fiche déjà reliée à un vrai compte')
+  }
+  // Charte : la même version que l'appli (src/pages/Privacy.tsx, pas importé : fichier React).
+  const privacy = readFileSync(new URL('../src/pages/Privacy.tsx', import.meta.url), 'utf8')
+  assert.equal(Number(privacy.match(/export const PLAYER_CHARTER_VERSION = (\d+)/)![1]), PLAYER_CHARTER_VERSION)
+  // Liste pour Geoffroy : adresse, pôle, classe, fiche ; aucun nom.
+  const csv = csvComptes(a)
+  assert.equal(csv.trim().split('\n').length, a.comptes.length + 1)
+  const noms = new Set(seed.players.flatMap((p) => [fold(String(p.data.lastName ?? ''))]).filter((x) => x.length > 3))
+  for (const ligne of csv.split('\n').slice(1, 200)) for (const mot of ligne.split(/[;@ ()-]/)) assert.ok(!noms.has(fold(mot)), mot)
+  // SQL : empreinte seulement, comme hb_create_player_account, rejouable, déclencheurs remis.
+  const q = sqlComptes(a, EMPREINTE)
+  assert.match(q, /set local session_replication_role = origin/)
+  assert.match(q, /'provider', 'email', 'providers', jsonb_build_array\('email'\), 'demoSeed', 'poles-2026'/)
+  assert.match(q, new RegExp(`'player_charter_version', ${PLAYER_CHARTER_VERSION}`))
+  assert.match(q, /when exists \(select 1 from auth\.users u where u\.id = c\.user_id\) then 'déjà créé'/)
+  assert.match(q, /fiche déjà reliée à un compte : laissée/)
+  assert.match(q, /compte créé et relié/)
+  assert.doesNotMatch(q, /must_change_password|crypt\(|firstName.*lastName.*values/)
+  assert.throws(() => sqlComptes(a, 'mot-de-passe-en-clair'))
+  const r = sqlRetour(a)
+  assert.match(r, /raw_app_meta_data ->> 'demoSeed' = 'poles-2026'/)
+  assert.match(r, /delete from public\.hb_wellness w using act_retour_comptes c where w\.user_id = c\.user_id/)
+  assert.match(r, /comptes_joueurs_retires/)
+  // L'extrait ne compte pas les comptes de ce jeu comme de vrais comptes (relancer redonne la même activité).
+  assert.match(extraitSql(), /coalesce\(u\.raw_app_meta_data ->> 'demoSeed', ''\) <> 'poles-2026'/)
+})
+
 // ---------- SQL ----------
 
 t('SQL : gardes (vrai compte, extrait, marque), rejouable, retour arrière, un seul fichier sans begin/commit, extrait en lecture seule', () => {
@@ -338,16 +417,30 @@ t('SQL : gardes (vrai compte, extrait, marque), rejouable, retour arrière, un s
   const r = sqlRetour(a)
   assert.match(r, /coalesce\(p\.data -> 'poles', 'null'::jsonb\) = coalesce\(t\.apres, 'null'::jsonb\)/)
   assert.match(r, /w\.user_id is null/)
+  // « Modifié par » d'avant remis (libellé d'import de l'extrait ; vide : clé retirée), cache des droits nettoyé.
+  assert.match(r, /jsonb_build_object\('updatedByName', t\.auteur_avant\)/)
+  assert.match(r, /delete from public\.hb_droits_compte d using act_retour_comptes c/)
+  assert.match(extraitSql(), /case when not fige then coalesce\(data ->> 'updatedByName', ''\) end/)
   assert.match(r, /x\.data ->> ''demoSeed'' = %L and not x\.deleted and not \(x\.data \? ''updatedBy''\)/)
   const v = verifySql(FIN)
   assert.match(v, /md5\(prosrc\) hb_upsert/)
   const dir = mkdtempSync(join(tmpdir(), 'test-seed-activite-poles-'))
-  const files = ecrireSql(a, dir)
+  const files = ecrireSql(a, dir, { empreinte: EMPREINTE })
   const tout = readFileSync(`${dir}/activite-poles.sql`, 'utf8')
   assert.doesNotMatch(tout, /^\s*(begin|commit|rollback)\s*;/im)
   assert.doesNotMatch(tout, /\\ir /)
-  assert.ok(files.includes('apply.sql') && files.includes('03_reglage_wellness_demo_retour.sql') && files.includes('07_retour_arriere.sql'))
-  assert.match(readFileSync(`${dir}/03_reglage_wellness_demo.sql`, 'utf8'), /'actif', true, 'demo', true/)
+  assert.match(tout, /===== 08_comptes_joueurs\.sql =====/)
+  assert.ok(files.includes('apply.sql') && files.includes('03_reglage_wellness_retour.sql') && files.includes('07_retour_arriere.sql') && files.includes('08_comptes_joueurs.sql'))
+  const blanc = readFileSync(`${dir}/essai-a-blanc.sql`, 'utf8')
+  assert.match(blanc, /\nrollback;\n$/)
+  assert.doesNotMatch(blanc, /^\s*(begin|commit)\s*;/im)
+  const reglage = readFileSync(`${dir}/03_reglage_wellness.sql`, 'utf8')
+  assert.match(reglage, /jsonb_build_object\('actif', true\)/)
+  assert.doesNotMatch(reglage, /'demo'/)
+  const sans = mkdtempSync(join(tmpdir(), 'test-seed-activite-poles-'))
+  assert.ok(!ecrireSql(a, sans).includes('08_comptes_joueurs.sql'))
+  assert.doesNotMatch(readFileSync(`${sans}/activite-poles.sql`, 'utf8'), /auth\.users/)
+  rmSync(sans, { recursive: true, force: true })
   rmSync(dir, { recursive: true, force: true })
 })
 

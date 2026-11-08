@@ -221,6 +221,8 @@ export function Members() {
   const [access, setAccess] = useState<Access | null>(null)
   // Dernière connexion de chaque membre (supabase/030 ; absent avant 030 : rien d'affiché).
   const [seen, setSeen] = useState<Record<string, number> | null>(null)
+  // Comptes joueurs (espace joueur) : à part, repliés (un pôle entier, c'est des centaines de comptes).
+  const [showPlayers, setShowPlayers] = useState(false)
 
   async function load() {
     setErr('')
@@ -260,8 +262,13 @@ export function Members() {
   const [q, setQ] = useState('')
   // Recherche par nom, prénom ou email (tous les mots, sans accents) : des milliers de comptes à terme. Le membre ouvert reste affiché.
   const words = fold(q).split(/\s+/).filter(Boolean)
-  const allStaff = list?.filter((p) => p.role !== 'admin') ?? []
-  const staff = allStaff.filter((p) => p.user_id === open || words.every((w) => fold(`${p.full_name ?? ''} ${p.email ?? ''}`).includes(w)))
+  const matches = (p: Profile) => p.user_id === open || words.every((w) => fold(`${p.full_name ?? ''} ${p.email ?? ''}`).includes(w))
+  const allStaff = list?.filter((p) => p.role !== 'admin' && p.role !== 'joueur') ?? []
+  const staff = allStaff.filter(matches)
+  // Comptes joueurs : sous les membres du staff, dépliés à la demande ou par la recherche.
+  const allPlayers = list?.filter((p) => p.role === 'joueur') ?? []
+  const players = showPlayers || words.length > 0 ? allPlayers.filter(matches) : allPlayers.filter((p) => p.user_id === open)
+  const total = allStaff.length + allPlayers.length
 
   return (
     <section className="card flex flex-col gap-2 p-4">
@@ -312,20 +319,33 @@ export function Members() {
         )
       )}
 
-      {list && allStaff.length > 8 && (
+      {list && total > 8 && (
         <input
           className="field min-h-11 py-1 text-xs"
           type="search"
           value={q}
           aria-label="Chercher un membre"
-          placeholder={`Chercher parmi ${allStaff.length} membres (nom, prénom, email)…`}
+          placeholder={`Chercher parmi ${total} comptes (nom, prénom, email)…`}
           onChange={(e) => setQ(e.target.value)}
         />
       )}
-      {list && words.length > 0 && !staff.length && <p className="text-[11px] text-muted">Aucun membre ne correspond.</p>}
+      {list && words.length > 0 && !staff.length && !players.length && <p className="text-[11px] text-muted">Aucun compte ne correspond.</p>}
       {list && (
         <div className="divide-y divide-line rounded-lg border border-line">
-          {staff.map((p) =>
+          {[...staff, ...(allPlayers.length > 0 ? ['comptes-joueurs' as const] : []), ...players].map((p) =>
+            p === 'comptes-joueurs' ? (
+              <button
+                key="comptes-joueurs"
+                className="flex min-h-11 w-full items-center justify-between gap-2 bg-panel-2/60 px-3 py-2 text-left text-xs font-bold"
+                aria-expanded={showPlayers || words.length > 0}
+                onClick={() => setShowPlayers(!showPlayers)}
+              >
+                <span>
+                  Comptes joueurs ({words.length > 0 ? `${players.length} / ${allPlayers.length}` : allPlayers.length})
+                </span>
+                <span className="text-[11px] font-normal text-muted">{showPlayers || words.length > 0 ? 'Replier' : 'Afficher'}</span>
+              </button>
+            ) : 
             open === p.user_id ? (
               <div key={p.user_id} className="flex flex-col gap-2 p-2">
                 <MemberForm
