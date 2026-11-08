@@ -15,7 +15,8 @@
  *    handball (GB, AG, ARG, DC, ARD, AD, PIV ; gauchers surtout à droite), leurs tests physiques (1 à 3 séances), des
  *    événements de la filière (détections départementales U13, Intercomités, Interligues, Interpôles, stages de ligue,
  *    championnat de France U18), des « vu », des avis sur la grille du handball (gardiens : critères du gardien), les groupes
- *    des pôles (périodes de pôle sur les fiches, src/poleSeason.ts), trois sélections régionales, trois liens vidéo.
+ *    des pôles (périodes de pôle sur les fiches, src/poleSeason.ts ; effectifs : tools/poles-saison.ts, 12 à 20 jeunes de
+ *    3e à Tle par site, ~3/4 entrés en 3e), trois sélections régionales, trois liens vidéo.
  * Noms et prénoms courants mélangés au hasard (aucune personne réelle) ; staff fictif (noms et identifiants inventés, sans
  * compte ni profil). Aucune donnée fédérale, aucun mineur réel, aucun logo. Marqueurs seulement positifs ou neutres (jamais
  * « pas retenu » ; sorties de pôle : « fin de cursus ») ; textes accordés au féminin par src/gender.ts.
@@ -43,12 +44,13 @@ import { applySportConfig, HANDBALL, resolveSportConfig } from '../src/sportConf
 import { SPORT_CONTENT } from '../src/sportContent'
 import { playerClub, playerDepartment } from '../src/perimeter'
 import { POLE_SITES, type PoleSite } from '../src/poles'
-import { PROGRAMME_AGES, schoolAge } from '../src/poleSeason'
+import { PROGRAMME_AGES } from '../src/poleSeason'
 import { poleCode, poleName } from '../src/structureImport'
 import { accord, sexLabel, w } from '../src/gender'
 import { pillLabel, type PillKind } from '../src/seqPills'
 import type { PoleProgramme } from '../src/db'
 import { insideRepo } from './seed-rencontres'
+import { ANNEE_SORTIS, ANNEES_POLE, planifierPoles, SITE_DEPT, type Candidat } from './poles-saison'
 import {
   addDays,
   appDept,
@@ -87,7 +89,7 @@ import {
   type Town,
 } from './seed-volley'
 
-export { hash32, phi, TOWN_LIST, upsertSql }
+export { hash32, phi, SITE_DEPT, TOWN_LIST, upsertSql }
 
 // ---------- Hasard déterministe ----------
 
@@ -397,19 +399,7 @@ const stamp = (by: string, at: string, uid?: string) => ({
   demoSeed: MARK,
 })
 
-/**
- * Département de chaque site de pôle de src/poles.ts (géographie publique) : les jeunes du département du site y sont un
- * peu plus souvent (affinité), et les tests le contrôlent (le département est bien dans les régions du pôle).
- */
-export const SITE_DEPT: Record<string, string> = {
-  Lyon: '69', Chambéry: '73', "Cournon-d'Auvergne": '63', 'Clermont-Ferrand': '63', Dijon: '21', Besançon: '25',
-  'Cesson-Sévigné': '35', Brest: '29', Rennes: '35', Chartres: '28', Orléans: '45', Strasbourg: '67', 'Pont-à-Mousson': '54',
-  Reims: '51', Metz: '57', Barr: '67', Dunkerque: '59', Amiens: '80', Tourcoing: '59', Eaubonne: '95', 'Châtenay-Malabry': '92',
-  Fontainebleau: '77', Caen: '14', 'Le Havre': '76', 'Bordeaux-Talence': '33', 'Saint-Yrieix-la-Perche': '87', Pau: '64',
-  Angoulême: '16', Montpellier: '34', Nîmes: '30', Toulouse: '31', Nantes: '44', 'Saint-Raphaël': '83', 'Aix-en-Provence': '13',
-  Ajaccio: '2A', 'Aix-en-Provence (Luynes)': '13', Nice: '06', 'Guadeloupe (CREPS Antilles-Guyane)': '971',
-  'Basse-Terre (Guadeloupe)': '971', 'Saint-Denis (CREPS Réunion)': '974', 'Le Port': '974',
-}
+/** Département de chaque site de pôle : tools/poles-saison.ts (SITE_DEPT, partagé avec tools/seed-activite-poles.ts). */
 
 export function buildStructure(): Structure {
   const rows: Row[] = []
@@ -641,10 +631,6 @@ export function siteYears(levels: readonly PoleProgramme[], season = SEASON_STAR
   }
   return [...out].sort()
 }
-/** Âge scolaire d'entrée au site pour une année de naissance (le plus petit des programmes qui l'accueillent). */
-const entryAge = (levels: readonly PoleProgramme[], year: number) =>
-  Math.min(...(levels.length ? levels : (['accession'] as PoleProgramme[])).map((l) => PROGRAMME_AGES[l]).filter(([a, b]) => schoolAge(year, SEASON_START) >= a && schoolAge(year, SEASON_START) <= b).map(([a]) => a))
-
 /** Membre à cette date (période qui la couvre). */
 export const inPoleAt = (p: SeedPlayer, day: string) =>
   ((p.data.poles as { from?: string; to?: string }[] | undefined) ?? []).some((x) => (!x.from || x.from <= day) && (!x.to || x.to >= day))
@@ -652,39 +638,29 @@ export const inPoleAt = (p: SeedPlayer, day: string) =>
 /** Postes d'un effectif de pôle ou d'une sélection (2 par poste, puis les meilleurs restants). */
 const TEAM_QUOTAS: [string, number][] = [['GB', 2], ['AG', 2], ['ARG', 2], ['DC', 2], ['ARD', 2], ['AD', 2], ['PIV', 2]]
 
+/**
+ * Effectifs de la saison 2026-2027 et sortis du 30 juin 2026 : règles de tools/poles-saison.ts (12 à 20 par site, quatre
+ * classes 3e → Tle pour tous les sites, ~3/4 entrés en 3e, sortis en fin de cursus, territoire du pôle, postes équilibrés).
+ * Mérite : niveau de détection (talent, gabarit, maturité, âge relatif) et un peu de hasard propre au joueur.
+ */
 export function buildPoles(st: Structure, players: SeedPlayer[]): PoleOut[] {
-  const taken = new Set<number>()
-  const noise = players.map((p) => new Draw('pole-sel', p.i).normal())
+  const ages = new Set<number>([...ANNEES_POLE, ANNEE_SORTIS])
+  const cands: Candidat[] = players
+    .filter((p) => p.pos && ages.has(p.year))
+    .map((p) => ({ id: p.id, sexe: p.sex, annee: p.year, dept: p.dept.code, region: p.region, poste: p.pos, club: p.club.number, merite: p.L + 0.35 * new Draw('pole-sel', p.i).normal() }))
+  const plan = planifierPoles(cands, { jour: TODAY })
+  const byId = new Map(players.map((p) => [p.id, p]))
+  for (const [id, e] of plan.ecritures) {
+    const p = byId.get(id)!
+    if (!e.poles) continue
+    p.data.poles = e.poles
+    if (e.boarding !== undefined) p.data.boarding = e.boarding
+  }
   return st.poles.map((def) => {
-    const d = new Draw('pole', def.sex, def.site)
-    const big = def.levels.length >= 2 || def.levels.includes('accession')
-    const size = def.regions.some((r) => r === 'region-ant' || r === 'region-reu') ? 12 : (big ? 18 : 14) + d.int(-2, 2)
-    const years = siteYears(def.levels)
-    // Jeunes du territoire du pôle (ses régions), un peu plus souvent du département du site.
-    const score = (p: SeedPlayer) => p.L + 0.35 * noise[p.i] + (p.dept.code === def.dept ? 0.5 : 0)
-    const pool = players.filter((p) => def.regions.includes(p.region) && p.sex === def.sex && !taken.has(p.i) && p.pos)
-    const cand = pool.filter((p) => years.includes(p.year)).sort((a, b) => score(b) - score(a))
-    const current: SeedPlayer[] = []
-    for (const [pos, n] of TEAM_QUOTAS) current.push(...cand.filter((p) => p.pos === pos && !current.includes(p)).slice(0, n))
-    for (const p of cand) if (current.length < size && !current.includes(p)) current.push(p)
-    // Sortis le 30 juin 2026 en fin de cursus : la génération qui quitte le programme le plus âgé du site.
-    const oldest = Math.min(...years) - 1
-    const past = pool.filter((p) => p.year === oldest && !current.includes(p)).sort((a, b) => score(b) - score(a)).slice(0, d.int(2, 3))
-    for (const p of current) {
-      taken.add(p.i)
-      const pd = new Draw('pole-entry', p.i)
-      const entry = clamp(p.year + entryAge(def.levels, p.year) + (pd.chance(0.3) ? 1 : 0), 2023, SEASON_START)
-      p.data.poles = [{ regionId: def.regions[0], site: def.site, from: `${entry}-09-01` }]
-      p.data.boarding = pd.chance(0.8)
-      p.poleUnitId = def.id
-    }
-    for (const p of past) {
-      taken.add(p.i)
-      const from = new Draw('pole-entry', p.i).chance(0.6) ? '2024-09-01' : '2025-09-01'
-      p.data.poles = [{ regionId: def.regions[0], site: def.site, from, to: '2026-06-30', exitReason: 'fin_cursus' }]
-      p.data.boarding = true
-    }
-    return { def, current, past }
+    const sp = plan.sites.find((x) => x.key === poleCode(def))!
+    const current = sp.membres.map((c) => byId.get(c.id)!)
+    for (const p of current) p.poleUnitId = def.id
+    return { def, current, past: sp.sortis.map((c) => byId.get(c.id)!) }
   })
 }
 
@@ -1211,9 +1187,18 @@ export function buildMeasurements(players: SeedPlayer[], events: SeedEvent[], se
       add(p, { date: e.date, tests: e.measure === 'full' ? TESTS_FULL : TESTS_ANTHRO, author: e.measure === 'full' ? staff('prep') : staff('etd') })
     }
   }
+  // Tests des pôles : « ils ne font jamais tout » (Geoffroy, 08/11) : ~85 % présents, taille et poids, puis une partie des
+  // autres tests (taille assise avec la taille et le poids) ; la dernière séance ajoute les critères physiologiques.
   const last = POLE_TESTS[POLE_TESTS.length - 1]
   for (const p of players)
-    if (p.data.poles) for (const day of POLE_TESTS) if (inPoleAt(p, day)) add(p, { date: day, tests: day === last ? [...TESTS_FULL, ...PHYSIO] : TESTS_FULL, author: staff('prep') })
+    if (p.data.poles)
+      for (const day of POLE_TESTS) {
+        if (!inPoleAt(p, day)) continue
+        const d = new Draw('pole-test', p.i, day)
+        if (!d.chance(0.85)) continue
+        const tests = [...TESTS_ANTHRO.slice(0, 3), ...TESTS_FULL.filter((c) => !TESTS_ANTHRO.slice(0, 3).includes(c) && d.chance(0.6))]
+        add(p, { date: day, tests: day === last ? [...tests, ...PHYSIO] : tests, author: staff('prep') })
+      }
   // Joueurs repérés (tests des comités) : niveau, âge, département ; ceux déjà vus un peu plus souvent.
   const score = players.map((p) => 0.55 * p.L + 0.3 * (decimalAge(p.birthDate, TODAY) - 15) / 1.9 + 0.6 * Math.log(deptFactor(p.dept)) + 0.6 * new Draw('detected', p.i).normal() + (seenPlayers.has(p.i) ? 0.5 : 0))
   const cut = [...score].sort((a, b) => b - a)[Math.floor(players.length * DETECTED_SHARE)]

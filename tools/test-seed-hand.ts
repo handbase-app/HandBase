@@ -25,7 +25,6 @@ import {
   seasonAge,
   seedUuid,
   SITE_DEPT,
-  siteYears,
   SPORT_ROW,
   STAFF,
   stats,
@@ -43,7 +42,7 @@ import { SPORT_CONTENT } from '../src/sportContent'
 import { playerDepartment } from '../src/perimeter'
 import { OFFICIAL_REGIONS } from '../src/regionsOfficial'
 import { HANDBALL_LEVELS, type UnitRow } from '../src/structureTree'
-import { membersAt, poleRefsOf, PROGRAMME_AGES, schoolAge } from '../src/poleSeason'
+import { membersAt, poleRefsOf, schoolAge } from '../src/poleSeason'
 import { POLE_SITES } from '../src/poles'
 import { poleCode, poleName } from '../src/structureImport'
 import type { Measurement, Player, PolePeriod } from '../src/db'
@@ -403,7 +402,7 @@ t('événements : tournois aux équipes complètes, numéros de maillot (gardien
   assert.deepEqual([...j.values()], ['1', '2', '12'])
 })
 
-t('pôles : les 51 sites de src/poles.ts, reconnus par l\'appli (poleSeason), effectifs de 10 à 20, du territoire du pôle', () => {
+t('pôles : les 51 sites de src/poles.ts, reconnus par l\'appli (poleSeason), 12 à 20 jeunes de 3e à Tle, ~3/4 entrés en 3e, du territoire du pôle', () => {
   const units = seed.tables.units.map((r) => r.data as unknown as UnitRow)
   const regions = Object.keys(OFFICIAL_REGIONS).map((id) => ({ id, name: id }))
   const refs = poleRefsOf(units, HANDBALL_LEVELS, { regions, regionOfDept: (d) => deptRegion.get(d) })
@@ -419,24 +418,35 @@ t('pôles : les 51 sites de src/poles.ts, reconnus par l\'appli (poleSeason), ef
   assert.equal(groups.length, POLE_SITES.length)
   const fiches = players.map((p) => ({ id: p.id, sex: p.sex, poles: p.data.poles as PolePeriod[] | undefined, p }))
   const counted = new Set<string>()
+  let entres3e = 0
+  let total = 0
   for (const g of groups) {
     const ref = refs.get(g.data.poleUnitId as string)!
     const site = POLE_SITES.find((x) => poleCode(x) === units.find((u) => u.id === ref.unitId)!.code)!
     assert.equal(ref.regionId, g.data.regionId)
     const members = membersAt(fiches, { ...ref, sex: site.sex }, TODAY)
-    assert.ok(members.length >= 10 && members.length <= 20, `${g.data.name} : ${members.length}`)
-    const years = siteYears(site.levels)
+    assert.ok(members.length >= 12 && members.length <= 20, `${g.data.name} : ${members.length}`)
+    const parClasse = [2012, 2011, 2010, 2009].map((y) => members.filter((m) => m.p.year === y).length)
+    assert.ok(parClasse.every((n) => n >= 1), `${site.site} : 4 classes ${parClasse}`)
+    assert.ok(Math.max(parClasse[0], parClasse[1]) >= Math.max(parClasse[2], parClasse[3]), `${site.site} : 3e et 2de les plus nombreuses ${parClasse}`)
     for (const m of members) {
       assert.ok(!counted.has(m.id), 'un seul pôle à la fois')
       counted.add(m.id)
-      assert.ok(years.includes(m.p.year))
       const age = schoolAge(m.p.year, 2026)
-      assert.ok(site.levels.some((l) => age >= PROGRAMME_AGES[l][0] && age <= PROGRAMME_AGES[l][1]), `${site.site} ${m.p.year}`)
+      assert.ok(age >= 14 && age <= 17, `${site.site} ${m.p.year}`)
+      const from = (m.poles ?? [])[0].from!
+      assert.ok(from === `${m.p.year + 14}-09-01` || (age > 14 && from === `${m.p.year + 15}-09-01`), `${site.site} ${m.p.year} entré le ${from}`)
+      if (from === `${m.p.year + 14}-09-01`) entres3e++
+      total++
       assert.ok(site.regions.includes(m.p.region), `${m.p.region} au pôle ${site.site}`)
       assert.equal(m.p.sex, g.data.sex)
       assert.ok(m.p.pos)
     }
   }
+  assert.ok(entres3e / total > 0.68 && entres3e / total < 0.82, `entrés en 3e : ${entres3e} / ${total}`)
+  for (const p of players)
+    for (const x of (p.data.poles as PolePeriod[] | undefined) ?? [])
+      if (x.to) assert.ok(x.to === '2026-06-30' && x.exitReason === 'fin_cursus' && p.year === 2008, `sorti ${p.year} ${x.to}`)
   assert.equal(counted.size, s.poles.now)
   const sel = seed.tables.groups.filter((r) => !r.data.poleUnitId)
   assert.equal(sel.length, 3)

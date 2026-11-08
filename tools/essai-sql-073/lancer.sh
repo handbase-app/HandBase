@@ -4,7 +4,8 @@
 # hb_upsert_lignes, hb_stamp, hb_log, hb_touch et de la structure des tables synchronisées, 073 deux fois (relançable), sa
 # requête de contrôle, essais.sql (réglage d'installation fermé / ouvert, qui est concerné, le jeune n'écrit que le sien,
 # douleurs : une ligne par endroit, 1 à 8, toutes valables ; durée de séance obligatoire,
-# séances, lecture par le staff du groupe seulement, groupe Pôle, hb_upsert garde la clé « wellness », fusion, effacement,
+# séances, lecture par le staff du groupe seulement, groupe Pôle, base de démonstration { demo: true } (fiche sans compte
+# qui a des réponses comptée dans le tableau du staff), hb_upsert garde la clé « wellness », fusion, effacement,
 # purge), puis les empreintes à nouveau, puis le retour arrière. Données fictives seulement ; rien n'est envoyé à une base
 # distante.
 #

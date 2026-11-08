@@ -18,6 +18,10 @@
 --   Ouvrir (plus tard, décision prise) :
 --     insert into public.hb_config (id, data) values ('wellness', '{"id":"wellness","key":"wellness","value":{"actif":true}}')
 --       on conflict (id) do update set data = excluded.data, deleted = false;
+--   Base de DÉMONSTRATION aux données fictives seulement (jeunes sans compte joueur, wellness posé par
+--   tools/seed-activite-poles.ts) : { "actif": true, "demo": true } : dans le tableau du staff (hb_wellness_groupe), une fiche
+--   du groupe qui a des réponses ou des séances dans la période compte comme reliée, même sans compte joueur (sinon il
+--   faudrait créer un compte par jeune fictif). Jamais sur une installation réelle : sans « demo », rien ne change.
 --
 -- PRINCIPE
 --  - Activé PAR GROUPE : clé « wellness » (true) de hb_groups.data, écrite comme le reste du groupe (hb_upsert, inchangé :
@@ -59,7 +63,8 @@
 --    pas_demande, jour_ferme, valeurs (RPE ou durée absents ou hors bornes), trop (6 par jour), seance_inconnue. hb_wellness_seance_retirer(p_id) : retirer une des siennes de ces deux jours
 --    (permis même fermé : on retire toujours ses propres données).
 -- 6) hb_wellness_groupe(p_group_id, p_jours) → pour le staff du groupe : { actif, wellness, comptes: [fiches de joueurs du
---    groupe qui ont un compte joueur relié], jours, seances } des p_jours derniers jours (1 à 120). Refus : groupe_inconnu
+--    groupe qui ont un compte joueur relié ; base de démonstration { demo: true } : aussi celles qui ont des réponses ou des
+--    séances dans la période], jours, seances } des p_jours derniers jours (1 à 120). Refus : groupe_inconnu
 --    (inconnu, supprimé, ou le compte n'en est pas le staff : même refus).
 -- 7) Conservation : la saison (1er septembre → 31 août : hb_wellness_mois_saison(), même constante que SEASON_START_MONTH de
 --    src/wellness.ts) et un mois de grâce (hb_wellness_garde_jours()) ; hb_wellness_purger() efface ce qui est plus ancien ;
@@ -93,6 +98,12 @@ $$;
 create or replace function public.hb_wellness_actif() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select data -> 'value' -> 'actif' = 'true'::jsonb from public.hb_config where id = 'wellness' and not deleted), false)
+$$;
+
+-- Base de démonstration aux données fictives (hb_config « wellness » : { demo: true }) : voir l'en-tête. Faux par défaut.
+create or replace function public.hb_wellness_demo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select data -> 'value' -> 'demo' = 'true'::jsonb from public.hb_config where id = 'wellness' and not deleted), false)
 $$;
 
 -- Clés des notes (mêmes que WELLNESS_ITEMS, src/wellness.ts) : entiers de 1 à 10 ; le reste est ignoré.
@@ -433,17 +444,47 @@ declare
   v_admin boolean := public.hb_is_admin();
   v_auj date := public.hb_wl_auj();
   v_depuis date := public.hb_wl_auj() - (greatest(1, least(coalesce(p_jours, 35), 120)) - 1);
+  v_demo boolean := public.hb_wellness_demo();
   v_ids text[];
+  v_compte boolean;
+  v_cre uuid;
+  v_cre_admin boolean;
+  c_all boolean;
+  c_depts text[];
+  c_clubs text[];
+  u_all boolean;
+  u_depts text[];
+  u_clubs text[];
 begin
   select data, deleted into v_g, v_del from public.hb_groups where id = p_group_id;
   if v_g is null or v_del or not public.hb_wl_staff_de(v_g, v_uid) then raise exception 'groupe_inconnu'; end if;
+  -- Le groupe compte-t-il, et les périmètres du créateur et du lecteur : calculés UNE fois (mêmes règles que
+  -- hb_wl_groupe_compte et hb_scope_has, qui recalculeraient le périmètre, plusieurs dizaines de millisecondes, par fiche).
+  v_compte := coalesce(v_g -> 'wellness' = 'true'::jsonb, false) and not coalesce((v_g ->> 'archived')::boolean, false);
+  select pr.user_id, pr.role = 'admin' into v_cre, v_cre_admin
+    from public.hb_profiles pr where pr.user_id::text = v_g ->> 'createdBy' and pr.role in ('admin', 'preparateur');
+  v_compte := v_compte and v_cre is not null;
+  if v_compte and not v_cre_admin then select s.all_, s.depts, s.clubs into c_all, c_depts, c_clubs from public.hb_scope_of(v_cre) s; end if;
+  if not v_admin then select s.all_, s.depts, s.clubs into u_all, u_depts, u_clubs from public.hb_scope_of(v_uid) s; end if;
   -- Fiches du groupe qui ont un compte joueur relié, que le groupe compte et que ce compte lit (administrateur : toutes).
-  select coalesce(array_agg(distinct p.id), '{}') into v_ids
-    from public.hb_profiles pr
-    join public.hb_players p on p.id = pr.player_id and not p.deleted
-   where pr.role = 'joueur'
-     and public.hb_wl_groupe_compte(v_g, v_del, p, v_auj)
-     and (v_admin or public.hb_scope_has(v_uid, p.scope_dept, p.scope_club, p.data ->> 'createdBy'));
+  -- Base de démonstration (hb_wellness_demo) : aussi les fiches qui ont des réponses ou des séances dans la période.
+  -- Les candidats d'abord, puis leur appartenance au groupe (lecture de la fiche), puis les périmètres.
+  with cand as materialized (
+    select p as r
+      from (select pr.player_id as id from public.hb_profiles pr where pr.role = 'joueur' and pr.player_id is not null
+            union
+            select w.player_id from public.hb_wellness w where v_demo and w.jour >= v_depuis
+            union
+            select s.player_id from public.hb_wellness_seances s where v_demo and s.jour >= v_depuis) x
+      join public.hb_players p on p.id = x.id and not p.deleted
+     where v_compte),
+  c as materialized (select cand.r from cand where public.hb_wl_contient(v_g, (cand.r).id, (cand.r).data, v_auj))
+  select coalesce(array_agg(distinct (c.r).id), '{}') into v_ids
+    from c
+   where (v_cre_admin or coalesce(c_all or (c.r).scope_dept = any (c_depts) or (c.r).scope_club = any (c_clubs)
+                                  or (c.r).data ->> 'createdBy' = v_cre::text, false))
+     and (v_admin or coalesce(u_all or (c.r).scope_dept = any (u_depts) or (c.r).scope_club = any (u_clubs)
+                              or (c.r).data ->> 'createdBy' = v_uid::text, false));
   return jsonb_build_object(
     'actif', public.hb_wellness_actif(),
     'wellness', coalesce(v_g -> 'wellness' = 'true'::jsonb, false),
@@ -505,7 +546,7 @@ declare f text;
 begin
   -- Internes : jamais appelées par l'appli.
   foreach f in array array['public.hb_wellness_mois_saison()', 'public.hb_wellness_garde_jours()', 'public.hb_wl_auj()',
-      'public.hb_wellness_actif()', 'public.hb_wl_scores(jsonb)', 'public.hb_wl_zones_connues()', 'public.hb_wl_zones_cotes()',
+      'public.hb_wellness_actif()', 'public.hb_wellness_demo()', 'public.hb_wl_scores(jsonb)', 'public.hb_wl_zones_connues()', 'public.hb_wl_zones_cotes()',
       'public.hb_wl_types()', 'public.hb_wl_douleurs(jsonb)', 'public.hb_wl_text(text)', 'public.hb_wl_fold(text)', 'public.hb_wl_contient(jsonb, text, jsonb, date)',
       'public.hb_wl_groupe_compte(jsonb, boolean, public.hb_players, date)', 'public.hb_wl_demande(text)',
       'public.hb_wl_staff_de(jsonb, uuid)', 'public.hb_wl_json(public.hb_wellness)',
@@ -565,6 +606,7 @@ select to_regclass('public.hb_wellness') is not null and to_regclass('public.hb_
 -- drop function if exists public.hb_wl_zones_cotes();
 -- drop function if exists public.hb_wl_zones_connues();
 -- drop function if exists public.hb_wl_scores(jsonb);
+-- drop function if exists public.hb_wellness_demo();
 -- drop function if exists public.hb_wellness_actif();
 -- drop function if exists public.hb_wl_auj();
 -- drop function if exists public.hb_wellness_garde_jours();
