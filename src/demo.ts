@@ -295,7 +295,7 @@ export async function loadDemo() {
   // sans rand() (la suite des autres données de la démo ne change pas). -----
   const demoGoals = buildDemoGoals(now)
   // Wellness (supabase/073, src/demoWellness.ts) : un groupe « pôle » fictif qui le demande, 10 joueurs de champ, 5 semaines
-  // de réponses et de séances fictives sur l'appareil (deux à 100 %, une gêne signalée aujourd'hui, un pas encore répondu).
+  // de réponses et de séances fictives sur l'appareil (deux à 100 %, deux avec des douleurs à plusieurs endroits, un pas encore répondu).
   const wellnessIds = players.filter((p) => p.position !== 'GB').slice(0, 10).map((p) => p.id)
   const wellnessGroup: PlayerGroup = {
     id: PREFIX + 'g-wellness',

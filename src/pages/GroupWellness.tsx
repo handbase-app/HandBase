@@ -8,7 +8,7 @@ import { FilterField, pillClass } from '../components/FilterWindow'
 import { RosterQueryBar, type OwnFilters } from '../components/PlayersQuery'
 import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { Empty, playerName, Avatar } from '../components/ui'
-import { canReadWellness, canToggleWellness, shortDay, useWellnessEnabled } from '../components/Wellness'
+import { canReadWellness, canToggleWellness, PainLines, PainSummary, PAIN_TEXT_CLS, shortDay, useWellnessEnabled } from '../components/Wellness'
 import type { AxisAnchor } from '../components/ZoneRadar'
 import { alive, db, positionLabel, save, today, type Player, type PlayerGroup } from '../db'
 import { setGender, w } from '../gender'
@@ -16,13 +16,15 @@ import { can, useRole } from '../roles'
 import {
   CHARGE_WORDS,
   fmt1,
-  painWord,
+  painLine,
+  painMax,
+  painTone,
+  sessionLoad,
   staffDay,
   staffRank,
   staffRow,
   TONE_WORDS,
   WELLNESS_ITEMS,
-  zoneLabel,
   type ChargeTone,
   type StaffRow,
   type Tone,
@@ -36,7 +38,8 @@ import { fetchGroupWellness, type GroupWellness as GW } from '../wellnessApi'
  *  - « Wellness quotidien » : activé / désactivé par le créateur du groupe ou un administrateur (clé `wellness` du groupe,
  *    écrite comme le reste : hb_upsert). Réglage de l'installation fermé : « Réservé aux essais pour l'instant », rien d'autre.
  *  - Tableau du jour : une ligne par joueur, les quatre notes colorées par rapport à SA PROPRE moyenne (28 jours d'avant :
- *    vert comme d'habitude ou mieux, ambre un peu en dessous, rouge doux nettement en dessous), gêne signalée et où, charge
+ *    vert comme d'habitude ou mieux, ambre un peu en dessous, rouge doux nettement en dessous), gênes signalées (une ligne par
+ *    endroit : « Ischio-jambiers droits · Contracture · 6/10 », pastille colorée par l'intensité la plus forte), charge
  *    des 7 derniers jours comparée à sa moyenne par semaine sur 28 jours ; « pas encore répondu aujourd'hui » neutre. Barre
  *    « Demander » commune (RosterQueryBar) et deux filtres de la page. Toucher une ligne : bulle accrochée au doigt (fond
  *    flouté) avec ses 14 derniers jours et ses séances.
@@ -167,7 +170,8 @@ export default function GroupWellnessPage() {
           </div>
           <p className="text-[11px] text-muted">
             Du lundi au vendredi, le matin, les {gw.joueurs} du groupe qui ont un espace joueur disent leur énergie, leur fraîcheur musculaire, leur humeur et leur
-            sommeil (1 à 10), et s’ils ont une douleur ou une gêne ; après une séance, l’intensité ressentie. Seuls le staff du groupe et les administrateurs le lisent.
+            sommeil (1 à 10), et s’ils ont une douleur ou une gêne (pour chaque endroit : ce que c’est et son intensité) ; après une séance,
+            l’intensité ressentie et la durée. Seuls le staff du groupe et les administrateurs le lisent.
             Rien n’est envoyé à une IA ni mis dans les exports.
           </p>
         </section>
@@ -190,7 +194,8 @@ export default function GroupWellnessPage() {
           </p>
           <p className="text-[10px] text-muted">
             Couleurs : par rapport à <b>sa propre moyenne</b> (28 jours d’avant) — <span className="text-gain">comme d’habitude ou mieux</span>, <span className="text-spread-lo">un peu en dessous</span>,{' '}
-            <span className="text-loss">nettement en dessous</span>. Charge = intensité × durée ; 7 jours comparés à sa moyenne par semaine (28 jours).
+            <span className="text-loss">nettement en dessous</span>. Gêne : une ligne par endroit, pastille selon l’intensité la plus forte (1 à 3, <span className="text-spread-lo">4 à 6</span>, <span className="text-loss">7 à 10</span>). Charge =
+            intensité × durée ; 7 jours comparés à sa moyenne par semaine (28 jours).
           </p>
           {players.length === 0 ? (
             <Empty>{gw.AucunJoueur} dans ce groupe.</Empty>
@@ -276,20 +281,13 @@ function WellnessRow({ p, groupId, row, account, isToday, onOpen }: { p: Player;
           {isToday ? 'Pas encore répondu aujourd’hui' : 'Pas de réponse ce jour-là'}{row?.lastDay ? ` · dernière réponse ${shortDay(row.lastDay)}` : ''}
         </button>
       ) : (
-        e.pain && (
-          <span className="text-[11px] break-words">
-            <b className="text-spread-lo">Gêne signalée</b>
-            {e.zones?.length || e.painText ? ` : ${[...(e.zones ?? []).map(zoneLabel), e.painText].filter(Boolean).join(', ')}` : ''}
-            {e.painLevel ? ` · ${e.painLevel}/10 (${painWord(e.painLevel)?.toLowerCase()})` : ''}
-          </span>
-        )
+        <PainSummary entry={e} />
       )}
       {account && row && (row.charge.sessions7 > 0 || row.charge.chronicWeekly > 0) && (
         <span className="text-[10px] text-muted">
           Charge 7 j : <b className="text-fg tabular-nums">{Math.round(row.charge.acute).toLocaleString('fr-FR')}</b>
           {row.charge.chronicWeekly > 0 && ` · moyenne ${Math.round(row.charge.chronicWeekly).toLocaleString('fr-FR')} / sem.`} ·{' '}
           <span className={CHARGE_CLS[row.charge.tone]}>{CHARGE_WORDS[row.charge.tone]}</span>
-          {row.charge.noMinutes7 > 0 && ` · ${row.charge.noMinutes7} séance${row.charge.noMinutes7 > 1 ? 's' : ''} sans durée`}
         </span>
       )}
     </div>
@@ -301,6 +299,7 @@ function PlayerBubble({ p, at, entries, sessions, row, onClose }: { p: Player; a
   const t = today()
   const days = [...entries].filter((e) => e.day <= t).sort((a, b) => b.day.localeCompare(a.day)).slice(0, 14)
   const week = [...sessions].sort((a, b) => b.day.localeCompare(a.day)).slice(0, 8)
+  const withPain = days.filter((e) => painMax(e) !== null)
   return (
     <AnchoredBubble at={at} label={`Wellness de ${playerName(p)}`} title={playerName(p)} sub="14 derniers jours" onClose={onClose} testId="bulle-wellness">
       <div className="flex max-h-[42vh] w-full min-w-0 flex-col gap-2 overflow-y-auto">
@@ -331,17 +330,35 @@ function PlayerBubble({ p, at, entries, sessions, row, onClose }: { p: Player; a
               </tr>
             </thead>
             <tbody>
-              {days.map((e) => (
-                <tr key={e.day} className="border-t border-line">
-                  <td className="truncate py-1 text-left">{shortDay(e.day)}</td>
-                  {WELLNESS_ITEMS.map((it) => (
-                    <td key={it.key}>{e.scores[it.key] ?? '—'}</td>
-                  ))}
-                  <td title={e.pain ? [...(e.zones ?? []).map(zoneLabel), e.painText].filter(Boolean).join(', ') : undefined}>{e.pain ? (e.painLevel ? `${e.painLevel}/10` : '•') : ''}</td>
-                </tr>
-              ))}
+              {days.map((e) => {
+                const max = painMax(e)
+                return (
+                  <tr key={e.day} className="border-t border-line">
+                    <td className="truncate py-1 text-left">{shortDay(e.day)}</td>
+                    {WELLNESS_ITEMS.map((it) => (
+                      <td key={it.key}>{e.scores[it.key] ?? '—'}</td>
+                    ))}
+                    <td className={max !== null ? `font-bold ${PAIN_TEXT_CLS[painTone(max)]}` : ''} title={e.pains?.map(painLine).join(' ; ')}>
+                      {max !== null ? `${max}/10` : ''}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
+        )}
+        {withPain.length > 0 && (
+          <div data-testid="bulle-douleurs">
+            <div className="text-[10px] font-bold text-muted">Gênes signalées</div>
+            <ul className="flex flex-col gap-1 text-[11px]">
+              {withPain.map((e) => (
+                <li key={e.day}>
+                  <span className="text-muted">{shortDay(e.day)}</span>
+                  <PainLines pains={e.pains ?? []} />
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {week.length > 0 && (
           <div>
@@ -349,7 +366,7 @@ function PlayerBubble({ p, at, entries, sessions, row, onClose }: { p: Player; a
             <ul className="text-[11px]">
               {week.map((s) => (
                 <li key={s.id}>
-                  {shortDay(s.day)} · intensité {s.rpe}/10{s.minutes ? ` · ${s.minutes} min · charge ${s.rpe * s.minutes}` : ''}
+                  {shortDay(s.day)} · intensité {s.rpe}/10 · {s.minutes} min · charge {sessionLoad(s)}
                 </li>
               ))}
             </ul>

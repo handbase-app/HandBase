@@ -1,6 +1,7 @@
 -- Essais de supabase/073_wellness.sql (lancer.sh) : comptes, fiches et groupes FICTIFS. Toute erreur arrête.
 -- Réglage d'installation fermé : rien ne s'écrit ; ouvert : le jeune d'un groupe activé écrit SON wellness du jour (jamais
--- pour une autre fiche, jamais directement), ses séances (aujourd'hui ou hier, 6 par jour) ; un jeune hors groupe activé,
+-- pour une autre fiche, jamais directement ; douleurs : une ligne par endroit, 1 à 8, toutes valables), ses séances
+-- (aujourd'hui ou hier, durée obligatoire, 6 par jour) ; un jeune hors groupe activé,
 -- hors périmètre du créateur, d'un groupe archivé ou d'un groupe privé d'observateur : refusé ; groupe Pôle : membres par la
 -- période de pôle. Lecture : le jeune les siennes ; le staff du groupe (créateur, participant) s'il lit la fiche ;
 -- administrateurs ; jamais un autre coach, un observateur ou anon. hb_upsert garde la clé « wellness » (créateur seul).
@@ -176,21 +177,44 @@ begin
 
   -- ---------- Le jeune écrit SON wellness du jour ----------
   perform essai.attendu('jeune 1 : son wellness du jour (valeurs nettoyées)',
-    essai.vu(e1, format(ecrire, '{"playerId":"j-2","scores":{"energie":7,"fraicheur":11,"humeur":"8","sommeil":6,"bidule":3},"pain":true,"zones":["f-genou-g","f-genou-g","nimporte","d-mollet-d"],"painText":"  après\u0007 le match  ","painLevel":4}')),
+    essai.vu(e1, format(ecrire, '{"playerId":"j-2","scores":{"energie":7,"fraicheur":11,"humeur":"8","sommeil":6,"bidule":3},"pain":true,"pains":[{"zone":"quadriceps","cote":"d","type":"courbatures","intensite":3,"bidule":1},{"zone":"ischios","cote":"d","type":"contracture","texte":"  en\u0007 sprint  ","intensite":6},{"zone":"lombaires","cote":null,"type":"gene","intensite":2}]}')),
     (select jsonb_build_object('playerId', 'j-1', 'day', to_char(auj, 'YYYY-MM-DD'), 'scores', '{"energie":7,"sommeil":6}'::jsonb, 'pain', true,
-                               'zones', '["f-genou-g","d-mollet-d"]'::jsonb, 'painText', 'après le match', 'painLevel', 4, 'at', public.hb_self_iso(now()))::text));
+                               'pains', '[{"zone":"quadriceps","cote":"d","type":"courbatures","intensite":3},{"zone":"ischios","cote":"d","type":"contracture","texte":"en sprint","intensite":6},{"zone":"lombaires","type":"gene","intensite":2}]'::jsonb,
+                               'at', public.hb_self_iso(now()))::text));
   perform essai.attendu('… une ligne, sur SA fiche (le playerId envoyé est ignoré), compte noté',
     (select string_agg(player_id || ' ' || (user_id::text = e1)::text, ';') from public.hb_wellness), 'j-1 true');
-  perform essai.attendu('modifiable le jour même (une seule ligne par jour), sans douleur : zones et texte retirés',
-    essai.comme(e1, format(ecrire, '{"scores":{"energie":8,"fraicheur":7,"humeur":9,"sommeil":7},"pain":false,"zones":["f-genou-g"],"painText":"x","painLevel":3}')), '1');
+  perform essai.attendu('modifiable le jour même (une seule ligne par jour), sans douleur : lignes envoyées ignorées',
+    essai.comme(e1, format(ecrire, '{"scores":{"energie":8,"fraicheur":7,"humeur":9,"sommeil":7},"pain":false,"pains":[{"zone":"genou","cote":"g","type":"gene","intensite":3}]}')), '1');
   perform essai.attendu('… toujours une ligne, nouvelle version',
-    (select count(*) || ' ' || max(scores::text) || ' ' || bool_or(douleur)::text || ' ' || max(zones::text) || ' ' || coalesce(max(douleur_texte), '-') from public.hb_wellness),
-    '1 {"humeur": 9, "energie": 8, "sommeil": 7, "fraicheur": 7} false [] -');
+    (select count(*) || ' ' || max(scores::text) || ' ' || bool_or(douleur)::text || ' ' || max(douleurs::text) from public.hb_wellness),
+    '1 {"humeur": 9, "energie": 8, "sommeil": 7, "fraicheur": 7} false []');
   perform essai.attendu('rien de valable : refusé', essai.vu(e1, format(ecrire, '{"scores":{"energie":0,"bidule":5}}')), 'ERR P0001 valeurs');
-  perform essai.attendu('douleur seule : acceptée', essai.comme(e2, format(ecrire, '{"pain":true,"painText":"Épaule"}')), '1');
-  perform essai.attendu('entrée trop longue : refusée', essai.vu(e1, format(ecrire, json_build_object('scores', json_build_object('energie', 5), 'painText', repeat('x', 5000)))), 'ERR P0001 trop_long');
-  perform essai.attendu('texte coupé à 120', essai.comme(e2, format(ecrire, json_build_object('pain', true, 'painText', repeat('é', 300)))), '1');
-  perform essai.attendu('… 120', (select length(douleur_texte)::text from public.hb_wellness where player_id = 'j-2'), '120');
+  -- Douleurs : la moindre ligne abîmée refuse tout (jamais une douleur à moitié gardée).
+  perform essai.attendu('douleur sans ligne : refusée', essai.vu(e1, format(ecrire, '{"scores":{"energie":5},"pain":true}')), 'ERR P0001 douleurs');
+  perform essai.attendu('douleur, lignes vides : refusée', essai.vu(e1, format(ecrire, '{"scores":{"energie":5},"pain":true,"pains":[]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('endroit inconnu : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"f-genou-g","type":"gene","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('endroit pair sans côté : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"ischios","type":"gene","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('côté inconnu : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"ischios","cote":"droite","type":"gene","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('côté sur un endroit sans côté : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"lombaires","cote":"g","type":"gene","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('type inconnu : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","type":"blessure","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('type absent : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","intensite":3}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('intensité 11 : refusée', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","type":"coup","intensite":11}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('intensité en texte : refusée', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","type":"coup","intensite":"5"}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('intensité absente : refusée', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","type":"coup"}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('même endroit et côté deux fois : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"genou","cote":"g","type":"gene","intensite":3},{"zone":"genou","cote":"g","type":"douleur","intensite":5}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('autre endroit sans texte : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"autre","type":"gene","intensite":3,"texte":"   "}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('texte qui n''est pas du texte : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":[{"zone":"tete","type":"coup","intensite":3,"texte":12}]}')), 'ERR P0001 douleurs');
+  perform essai.attendu('pas un tableau : refusé', essai.vu(e1, format(ecrire, '{"pain":true,"pains":{"zone":"tete","type":"coup","intensite":3}}')), 'ERR P0001 douleurs');
+  perform essai.attendu('9 endroits : refusé (8 au plus)', essai.vu(e1, format(ecrire, json_build_object('pain', true, 'pains',
+    (select json_agg(json_build_object('zone', z, 'cote', 'g', 'type', 'gene', 'intensite', 2)) from unnest(array['epaule', 'bras', 'coude', 'poignet', 'main', 'hanche', 'aine', 'fessiers', 'quadriceps']) z)))), 'ERR P0001 douleurs');
+  perform essai.attendu('8 endroits : accepté', essai.comme(e2, format(ecrire, json_build_object('pain', true, 'pains',
+    (select json_agg(json_build_object('zone', z, 'cote', 'g', 'type', 'gene', 'intensite', 2)) from unnest(array['epaule', 'bras', 'coude', 'poignet', 'main', 'hanche', 'aine', 'fessiers']) z)))), '1');
+  perform essai.attendu('les deux côtés d''un même endroit : deux lignes', essai.comme(e2, format(ecrire, '{"pain":true,"pains":[{"zone":"quadriceps","cote":"d","type":"courbatures","intensite":3},{"zone":"quadriceps","cote":"g","type":"courbatures","intensite":3}]}')), '1');
+  perform essai.attendu('… gardées dans l''ordre', (select jsonb_path_query_array(douleurs, '$[*].cote')::text from public.hb_wellness where player_id = 'j-2'), '["d", "g"]');
+  perform essai.attendu('douleur seule (autre endroit écrit) : acceptée', essai.comme(e2, format(ecrire, '{"pain":true,"pains":[{"zone":"autre","type":"gene","texte":"Côtes à droite","intensite":2}]}')), '1');
+  perform essai.attendu('entrée trop longue : refusée', essai.vu(e1, format(ecrire, json_build_object('scores', json_build_object('energie', 5), 'pains', json_build_array(json_build_object('zone', 'autre', 'texte', repeat('x', 5000)))))), 'ERR P0001 trop_long');
+  perform essai.attendu('texte coupé à 80', essai.comme(e2, format(ecrire, json_build_object('pain', true, 'pains', json_build_array(json_build_object('zone', 'autre', 'type', 'autre', 'intensite', 4, 'texte', repeat('é', 300)))))), '1');
+  perform essai.attendu('… 80', (select length(douleurs -> 0 ->> 'texte')::text from public.hb_wellness where player_id = 'j-2'), '80');
   perform essai.attendu('jeune 3 (pas demandé) : refusé', essai.vu(e3, format(ecrire, '{"scores":{"energie":5}}')), 'ERR P0001 pas_demande');
   perform essai.attendu('jeune 6 (groupe privé d''observateur) : refusé', essai.vu(e6, format(ecrire, '{"scores":{"energie":5}}')), 'ERR P0001 pas_demande');
   perform essai.attendu('jeune 4 (groupe Pôle) : accepté', essai.comme(e4, format(ecrire, '{"scores":{"energie":6,"humeur":7}}')), '1');
@@ -210,15 +234,19 @@ begin
   -- ---------- « Ma séance » ----------
   sid := essai.vu(e1, format('select public.hb_wellness_seance(%L, 7, 90, null) ->> ''id''', auj));
   perform essai.attendu('séance d''aujourd''hui (RPE 7, 90 min)', (select rpe || ' ' || duree || ' ' || player_id from public.hb_wellness_seances where id::text = sid), '7 90 j-1');
-  perform essai.attendu('séance d''hier, sans durée', essai.comme(e1, format('select public.hb_wellness_seance(%L, 5, null, null)', auj - 1)), '1');
+  perform essai.attendu('séance sans durée : refusée (durée obligatoire)', essai.vu(e1, format(seance, auj - 1, 5, 'null', '')), 'ERR P0001 valeurs');
+  perform essai.attendu('séance sans le paramètre de durée : fonction inconnue', essai.vu(e1, format('select public.hb_wellness_seance(%L, 5)::text', auj - 1)), 'ERR 42883 function public.hb_wellness_seance(unknown, integer) does not exist');
+  perform essai.attendu('séance d''hier (60 min)', essai.comme(e1, format('select public.hb_wellness_seance(%L, 5, 60, null)', auj - 1)), '1');
   perform essai.attendu('il y a deux jours : fermé', essai.vu(e1, format(seance, auj - 2, 5, 'null', '')), 'ERR P0001 jour_ferme');
   perform essai.attendu('demain : fermé', essai.vu(e1, format(seance, auj + 1, 5, 'null', '')), 'ERR P0001 jour_ferme');
   perform essai.attendu('jour illisible : fermé', essai.vu(e1, format(seance, '2026-02-31', 5, 'null', '')), 'ERR P0001 jour_ferme');
-  perform essai.attendu('RPE 11 : refusé', essai.vu(e1, format(seance, auj, 11, 'null', '')), 'ERR P0001 valeurs');
+  perform essai.attendu('RPE 11 : refusé', essai.vu(e1, format(seance, auj, 11, 60, '')), 'ERR P0001 valeurs');
   perform essai.attendu('durée 0 : refusée', essai.vu(e1, format(seance, auj, 5, 0, '')), 'ERR P0001 valeurs');
+  perform essai.attendu('durée 601 : refusée', essai.vu(e1, format(seance, auj, 5, 601, '')), 'ERR P0001 valeurs');
   perform essai.attendu('modifier la sienne par son identifiant', essai.comme(e1, format('select public.hb_wellness_seance(%L, 8, 75, %L)', auj, sid)), '1');
   perform essai.attendu('… une seule ligne modifiée', (select count(*) || ' ' || max(rpe) || ' ' || max(duree) from public.hb_wellness_seances where id::text = sid), '1 8 75');
-  perform essai.attendu('jeune 2 : modifier celle du jeune 1 : inconnue', essai.vu(e2, format(seance, auj, 3, 'null', sid)), 'ERR P0001 seance_inconnue');
+  perform essai.attendu('modifier sans durée : refusé', essai.vu(e1, format(seance, auj, 8, 'null', sid)), 'ERR P0001 valeurs');
+  perform essai.attendu('jeune 2 : modifier celle du jeune 1 : inconnue', essai.vu(e2, format(seance, auj, 3, 60, sid)), 'ERR P0001 seance_inconnue');
   perform essai.attendu('… celle du jeune 1 intacte', (select rpe::text from public.hb_wellness_seances where id::text = sid), '8');
   perform essai.attendu('plusieurs séances le même jour (jusqu''à 6)',
     essai.vu(e1, format('select count(public.hb_wellness_seance(%L, 4, 30, null)) from generate_series(1, 5)', auj)), '5');
@@ -300,7 +328,7 @@ begin
 
   -- ---------- Purge de fin de saison ----------
   insert into public.hb_wellness (player_id, jour, scores) values ('j-1', auj - 500, '{"energie":5}');
-  insert into public.hb_wellness_seances (player_id, jour, rpe) values ('j-1', auj - 500, 5);
+  insert into public.hb_wellness_seances (player_id, jour, rpe, duree) values ('j-1', auj - 500, 5, 60);
   perform essai.attendu('purge : seulement les saisons passées', (select public.hb_wellness_purger()::text), '2');
   perform essai.attendu('… la saison en cours reste', (select count(*)::text from public.hb_wellness where player_id = 'j-1'), '2');
   perform essai.attendu('purge : pas pour un compte connecté', essai.vu(a1, 'select public.hb_wellness_purger()::text'), 'ERR 42501 permission denied for function hb_wellness_purger');
@@ -324,11 +352,32 @@ begin
     raise notice 'ok : note hors échelle refusée par la table';
   end;
   begin
-    insert into public.hb_wellness (player_id, jour, scores, douleur, zones) values ('j-9', current_date, '{"energie":5}', false, '["f-genou-g"]');
-    raise exception 'ÉCHEC : zone sans douleur acceptée';
+    insert into public.hb_wellness (player_id, jour, scores, douleur, douleurs) values ('j-9', current_date, '{"energie":5}', false, '[{"zone":"genou","cote":"g","type":"gene","intensite":3}]');
+    raise exception 'ÉCHEC : ligne de douleur sans douleur acceptée';
   exception when check_violation then
-    raise notice 'ok : zone sans douleur refusée par la table';
+    raise notice 'ok : ligne de douleur sans douleur refusée par la table';
   end;
+  begin
+    insert into public.hb_wellness (player_id, jour, scores, douleur, douleurs) values ('j-9', current_date, '{"energie":5}', true, '[]');
+    raise exception 'ÉCHEC : douleur sans ligne acceptée';
+  exception when check_violation then
+    raise notice 'ok : douleur sans ligne refusée par la table';
+  end;
+  begin
+    insert into public.hb_wellness (player_id, jour, scores, douleur, douleurs) values ('j-9', current_date, '{}', true, '[{"zone":"ischios","type":"gene","intensite":3}]');
+    raise exception 'ÉCHEC : endroit pair sans côté accepté';
+  exception when check_violation then
+    raise notice 'ok : endroit pair sans côté refusé par la table';
+  end;
+  begin
+    insert into public.hb_wellness (player_id, jour, scores, douleur, douleurs) values ('j-9', current_date, '{}', true, '[{"zone":"autre","type":"gene","intensite":3,"texte":"  pas nettoyé  "}]');
+    raise exception 'ÉCHEC : texte pas nettoyé accepté';
+  exception when check_violation then
+    raise notice 'ok : ligne pas nettoyée refusée par la table';
+  end;
+  insert into public.hb_wellness (player_id, jour, scores, douleur, douleurs) values ('j-9', current_date, '{}', true, '[{"zone":"ischios","cote":"d","type":"contracture","intensite":6}]');
+  raise notice 'ok : ligne propre acceptée par la table';
+  delete from public.hb_wellness where player_id = 'j-9';
   begin
     insert into public.hb_wellness (player_id, jour) values ('j-9', current_date);
     raise exception 'ÉCHEC : ligne vide acceptée';
@@ -340,5 +389,11 @@ begin
     raise exception 'ÉCHEC : séance de 900 min acceptée';
   exception when check_violation then
     raise notice 'ok : durée hors bornes refusée par la table';
+  end;
+  begin
+    insert into public.hb_wellness_seances (player_id, jour, rpe) values ('j-9', current_date, 5);
+    raise exception 'ÉCHEC : séance sans durée acceptée';
+  exception when not_null_violation then
+    raise notice 'ok : séance sans durée refusée par la table';
   end;
 end $$;

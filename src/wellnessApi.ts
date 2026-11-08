@@ -127,7 +127,7 @@ export async function saveMyWellness(playerId: string, input: WellnessInput): Pr
 }
 
 /** Ajoute (sans `id`) ou modifie une séance d'aujourd'hui ou d'hier. */
-export async function saveMySession(playerId: string, s: { id?: string; day: string; rpe: number; minutes?: number | null }): Promise<Res<WellnessSession>> {
+export async function saveMySession(playerId: string, s: { id?: string; day: string; rpe: number; minutes: number }): Promise<Res<WellnessSession>> {
   if (isLocalWellness(playerId)) {
     const d = readLocal(playerId)
     const r = saveSessionLocal(d.sessions, s, today(), newId, new Date().toISOString())
@@ -136,7 +136,7 @@ export async function saveMySession(playerId: string, s: { id?: string; day: str
     return { ok: true, value: r.saved }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase!.rpc('hb_wellness_seance', { p_jour: s.day, p_rpe: s.rpe, p_duree: s.minutes ?? null, p_id: s.id ?? null })
+  const { data, error } = await supabase!.rpc('hb_wellness_seance', { p_jour: s.day, p_rpe: s.rpe, p_duree: s.minutes, p_id: s.id ?? null })
   if (error) return fail(error)
   const x = sessionFromRow(data as Record<string, unknown>)
   return x ? { ok: true, value: x } : { ok: false, error: 'Réponse du serveur illisible.' }

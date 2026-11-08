@@ -4,10 +4,12 @@
  * du groupe) ; accès aux données : src/wellnessApi.ts.
  *
  * Champs (responsable du pôle, 08/11) : énergie générale, fraîcheur musculaire, humeur, qualité du sommeil (1 à 10) ;
- * « Douleurs, gênes » oui / non, et si oui : où (points d'une silhouette face / dos, ou texte libre) et intensité (1 à 10).
+ * « Douleurs, gênes » oui / non, et si oui : UNE LIGNE PAR ENDROIT (1 à 8 ; nom anatomique et côté du jeune, choisi sur une
+ * silhouette face / dos, dans une liste, ou écrit), avec pour chacune ce que c'est (courbatures, gêne, douleur, contracture,
+ * coup / choc, autre) et son intensité 1 à 10.
  * Demandé du lundi au vendredi, le matin ; le week-end n'est jamais un jour « demandé » (taux : completionRate).
- * « Ma séance » : intensité ressentie (RPE, 1 à 10) après une séance, plusieurs par jour ; durée FACULTATIVE (à confirmer avec
- * un jeune du pôle) : charge = RPE × durée seulement quand la durée est là.
+ * « Ma séance » : intensité ressentie (RPE, 1 à 10) ET durée (obligatoire, le pôle note les deux) après une séance, plusieurs
+ * par jour ; charge = RPE × durée.
  * Mots toujours positifs ou neutres (jamais d'étiquette négative sur un jeune) ; couleurs du staff par rapport à SA PROPRE
  * moyenne (jamais celle des autres). Données de santé de mineurs : fermé par défaut à l'échelle de l'installation (hb_config
  * « wellness » : { actif }), ouvert seulement en mode essai (données fictives) ; jamais envoyé à une IA.
@@ -25,10 +27,10 @@ export const WELLNESS_GRACE_DAYS = 30
 export const SESSIONS_PER_DAY = 6
 /** Durée d'une séance : minutes, de 1 à 600. */
 export const SESSION_MINUTES_MAX = 600
-/** Texte libre de la douleur : 120 caractères. */
-export const PAIN_TEXT_MAX = 120
-/** Points de la silhouette retenus au plus. */
-export const PAIN_ZONES_MAX = 12
+/** Précision d'une douleur (endroit écrit, ou « Autre ») : 80 caractères. */
+export const PAIN_TEXT_MAX = 80
+/** Endroits douloureux d'un jour : 8 au plus (une ligne chacun). */
+export const PAIN_ENTRIES_MAX = 8
 /** Moyenne personnelle : sur les 28 jours d'avant, avec au moins 3 réponses (sinon pas de couleur). */
 export const OWN_AVERAGE_DAYS = 28
 export const OWN_AVERAGE_MIN = 3
@@ -48,8 +50,8 @@ export type WellnessKey = 'energie' | 'fraicheur' | 'humeur' | 'sommeil'
 
 /** Les quatre notes du matin, dans l'ordre de l'écran (mêmes clés que hb_wl_scores, 073). */
 export const WELLNESS_ITEMS: readonly { key: WellnessKey; label: string; short: string; abbr: string; hint: string }[] = [
-  { key: 'energie', label: 'Énergie générale', short: 'Énergie', abbr: 'Éne.', hint: 'Comment tu te sens ce matin' },
-  { key: 'fraicheur', label: 'Fraîcheur musculaire', short: 'Fraîcheur', abbr: 'Fra.', hint: 'Tes jambes, tes muscles' },
+  { key: 'energie', label: 'Énergie générale', short: 'Énergie', abbr: 'Éne.', hint: 'Ce matin' },
+  { key: 'fraicheur', label: 'Fraîcheur musculaire', short: 'Fraîcheur', abbr: 'Fra.', hint: 'Jambes, muscles' },
   { key: 'humeur', label: 'Humeur', short: 'Humeur', abbr: 'Hum.', hint: 'Ton moral du jour' },
   { key: 'sommeil', label: 'Qualité du sommeil', short: 'Sommeil', abbr: 'Som.', hint: 'Ta nuit' },
 ]
@@ -70,6 +72,9 @@ export function painWord(v: number | undefined | null): string | null {
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 10) return null
   return v <= 3 ? 'Légère' : v <= 6 ? 'Moyenne' : 'Forte'
 }
+/** Niveau d'une intensité de douleur (couleur du staff, mêmes seuils que painWord). */
+export type PainTone = 'light' | 'medium' | 'strong'
+export const painTone = (v: number): PainTone => (v <= 3 ? 'light' : v <= 6 ? 'medium' : 'strong')
 
 /** Intensité ressentie d'une séance (RPE 1 à 10) en mots, comme l'échelle CR-10 simplifiée. */
 export function rpeWord(v: number | undefined | null): string | null {
@@ -77,61 +82,180 @@ export function rpeWord(v: number | undefined | null): string | null {
   return v <= 2 ? 'Très facile' : v <= 4 ? 'Facile' : v <= 6 ? 'Moyenne' : v <= 8 ? 'Difficile' : 'Maximale'
 }
 
-// ---------- Silhouette ----------
+// ---------- Endroits (noms anatomiques) et silhouette ----------
 
-export type BodySide = 'face' | 'dos'
-export interface BodyZone {
+export type PainSide = 'g' | 'd'
+export type BodyView = 'face' | 'dos'
+
+/**
+ * Endroits d'une douleur, du haut vers le bas (mêmes identifiants que hb_wl_zones_connues, 073). `sides` : endroit pair, le
+ * côté (gauche / droite DU JEUNE) est alors obligatoire, avec l'accord du nom ; sinon, pas de côté. `aka` : mots de la
+ * recherche (« cuisse », « talon »…). « autre » : endroit écrit par le jeune (texte obligatoire), en dernier recours.
+ */
+export interface BodyArea {
   id: string
   label: string
-  side: BodySide
-  /** Position du point dans la silhouette (repère 100 × 220). */
-  x: number
-  y: number
+  sides?: { d: string; g: string }
+  aka?: string
+}
+const pair = (d: string, g: string) => ({ d, g })
+export const AREA_OTHER = 'autre'
+export const BODY_AREAS: readonly BodyArea[] = [
+  { id: 'tete', label: 'Tête', aka: 'crane visage machoire' },
+  { id: 'nuque', label: 'Nuque / cou', aka: 'cervicales trapeze' },
+  { id: 'epaule', label: 'Épaule', sides: pair('Épaule droite', 'Épaule gauche'), aka: 'clavicule coiffe' },
+  { id: 'bras', label: 'Bras', sides: pair('Bras droit', 'Bras gauche'), aka: 'biceps triceps' },
+  { id: 'coude', label: 'Coude', sides: pair('Coude droit', 'Coude gauche'), aka: 'avant bras' },
+  { id: 'poignet', label: 'Poignet', sides: pair('Poignet droit', 'Poignet gauche'), aka: 'avant bras' },
+  { id: 'main', label: 'Main / doigts', sides: pair('Main / doigts, côté droit', 'Main / doigts, côté gauche'), aka: 'doigt pouce' },
+  { id: 'poitrine', label: 'Poitrine', aka: 'pectoraux cotes thorax' },
+  { id: 'dos-haut', label: 'Dos (haut)', aka: 'omoplate dorsales' },
+  { id: 'abdos', label: 'Abdominaux', aka: 'ventre abdos obliques' },
+  { id: 'lombaires', label: 'Lombaires (bas du dos)', aka: 'reins lombalgie' },
+  { id: 'hanche', label: 'Hanche', sides: pair('Hanche droite', 'Hanche gauche'), aka: 'bassin' },
+  { id: 'aine', label: 'Aine / pubis', sides: pair('Aine / pubis, côté droit', 'Aine / pubis, côté gauche'), aka: 'pubalgie bassin' },
+  { id: 'fessiers', label: 'Fessiers', sides: pair('Fessier droit', 'Fessier gauche'), aka: 'fesse' },
+  { id: 'quadriceps', label: 'Quadriceps', sides: pair('Quadriceps droit', 'Quadriceps gauche'), aka: 'cuisse avant' },
+  { id: 'ischios', label: 'Ischio-jambiers', sides: pair('Ischio-jambiers droits', 'Ischio-jambiers gauches'), aka: 'cuisse arriere ischios' },
+  { id: 'adducteurs', label: 'Adducteurs', sides: pair('Adducteurs droits', 'Adducteurs gauches'), aka: 'cuisse interieur' },
+  { id: 'genou', label: 'Genou', sides: pair('Genou droit', 'Genou gauche'), aka: 'rotule menisque' },
+  { id: 'tibia', label: 'Tibia', sides: pair('Tibia droit', 'Tibia gauche'), aka: 'jambe periostite' },
+  { id: 'mollet', label: 'Mollet', sides: pair('Mollet droit', 'Mollet gauche'), aka: 'jambe' },
+  { id: 'achille', label: 'Tendon d’Achille', sides: pair('Tendon d’Achille droit', 'Tendon d’Achille gauche'), aka: 'talon' },
+  { id: 'cheville', label: 'Cheville', sides: pair('Cheville droite', 'Cheville gauche'), aka: 'entorse' },
+  { id: 'pied', label: 'Pied', sides: pair('Pied droit', 'Pied gauche'), aka: 'orteil talon voute plante' },
+  { id: AREA_OTHER, label: 'Autre endroit' },
+]
+const AREA_BY_ID = new Map(BODY_AREAS.map((a) => [a.id, a]))
+export const areaOf = (id: string) => AREA_BY_ID.get(id)
+export const isPairedArea = (id: string) => !!AREA_BY_ID.get(id)?.sides
+
+/** Minuscules sans accents (recherche). */
+export const foldText = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+/** Recherche dans la liste des endroits (nom, mots voisins, début de mot) ; vide : tous. « autre » toujours au bout. */
+export function searchAreas(q: string): BodyArea[] {
+  const words = foldText(q).split(' ').filter(Boolean)
+  const hit = (a: BodyArea) => {
+    const hay = foldText(`${a.label} ${a.aka ?? ''}`).split(' ')
+    return words.every((w) => hay.some((h) => h.startsWith(w)))
+  }
+  return [...BODY_AREAS.filter((a) => a.id !== AREA_OTHER && hit(a)), AREA_BY_ID.get(AREA_OTHER)!]
 }
 
 /**
- * Points de la silhouette (mêmes identifiants que hb_wl_zones_connues, 073). « g » / « d » : gauche / droite DU JEUNE ; de
- * face, sa gauche est à droite de l'écran.
+ * Points de la silhouette (repère 120 × 240), un par endroit et par côté. Toucher la silhouette choisit le point le plus
+ * proche (zone de toucher bien plus large que le point). De face, la droite du jeune est à GAUCHE de l'écran ; de dos, à
+ * droite. Le devant de la cuisse est le quadriceps, l'arrière l'ischio-jambiers, l'intérieur les adducteurs.
  */
-export const BODY_ZONES: readonly BodyZone[] = [
-  { id: 'f-tete', label: 'Tête', side: 'face', x: 50, y: 14 },
-  { id: 'f-cou', label: 'Cou', side: 'face', x: 50, y: 31 },
-  { id: 'f-epaule-d', label: 'Épaule droite', side: 'face', x: 31, y: 41 },
-  { id: 'f-epaule-g', label: 'Épaule gauche', side: 'face', x: 69, y: 41 },
-  { id: 'f-poitrine', label: 'Poitrine', side: 'face', x: 50, y: 50 },
-  { id: 'f-ventre', label: 'Ventre', side: 'face', x: 50, y: 74 },
-  { id: 'f-bras-d', label: 'Bras ou coude droit', side: 'face', x: 22, y: 66 },
-  { id: 'f-bras-g', label: 'Bras ou coude gauche', side: 'face', x: 78, y: 66 },
-  { id: 'f-poignet-d', label: 'Poignet ou main droite', side: 'face', x: 16, y: 98 },
-  { id: 'f-poignet-g', label: 'Poignet ou main gauche', side: 'face', x: 84, y: 98 },
-  { id: 'f-hanche-d', label: 'Hanche ou aine droite', side: 'face', x: 41, y: 98 },
-  { id: 'f-hanche-g', label: 'Hanche ou aine gauche', side: 'face', x: 59, y: 98 },
-  { id: 'f-cuisse-d', label: 'Cuisse droite', side: 'face', x: 41, y: 124 },
-  { id: 'f-cuisse-g', label: 'Cuisse gauche', side: 'face', x: 59, y: 124 },
-  { id: 'f-genou-d', label: 'Genou droit', side: 'face', x: 41, y: 148 },
-  { id: 'f-genou-g', label: 'Genou gauche', side: 'face', x: 59, y: 148 },
-  { id: 'f-tibia-d', label: 'Tibia droit', side: 'face', x: 41, y: 172 },
-  { id: 'f-tibia-g', label: 'Tibia gauche', side: 'face', x: 59, y: 172 },
-  { id: 'f-cheville-d', label: 'Cheville ou pied droit', side: 'face', x: 41, y: 200 },
-  { id: 'f-cheville-g', label: 'Cheville ou pied gauche', side: 'face', x: 59, y: 200 },
-  { id: 'd-nuque', label: 'Nuque', side: 'dos', x: 50, y: 31 },
-  { id: 'd-epaule-g', label: 'Épaule gauche (arrière)', side: 'dos', x: 31, y: 41 },
-  { id: 'd-epaule-d', label: 'Épaule droite (arrière)', side: 'dos', x: 69, y: 41 },
-  { id: 'd-haut-dos', label: 'Haut du dos', side: 'dos', x: 50, y: 54 },
-  { id: 'd-bas-dos', label: 'Bas du dos', side: 'dos', x: 50, y: 82 },
-  { id: 'd-coude-g', label: 'Coude gauche (arrière)', side: 'dos', x: 22, y: 66 },
-  { id: 'd-coude-d', label: 'Coude droit (arrière)', side: 'dos', x: 78, y: 66 },
-  { id: 'd-fessier-g', label: 'Fessier gauche', side: 'dos', x: 41, y: 102 },
-  { id: 'd-fessier-d', label: 'Fessier droit', side: 'dos', x: 59, y: 102 },
-  { id: 'd-ischio-g', label: 'Arrière de la cuisse gauche', side: 'dos', x: 41, y: 126 },
-  { id: 'd-ischio-d', label: 'Arrière de la cuisse droite', side: 'dos', x: 59, y: 126 },
-  { id: 'd-mollet-g', label: 'Mollet gauche', side: 'dos', x: 41, y: 170 },
-  { id: 'd-mollet-d', label: 'Mollet droit', side: 'dos', x: 59, y: 170 },
-  { id: 'd-talon-g', label: 'Talon ou tendon d’Achille gauche', side: 'dos', x: 41, y: 202 },
-  { id: 'd-talon-d', label: 'Talon ou tendon d’Achille droit', side: 'dos', x: 59, y: 202 },
+export interface SilhouettePoint {
+  area: string
+  cote?: PainSide
+  view: BodyView
+  x: number
+  y: number
+}
+/** Un endroit pair : `x` est l'abscisse de la droite du jeune vue DE FACE (moitié gauche de l'écran) ; de dos, elle passe de l'autre côté. */
+const both = (area: string, view: BodyView, x: number, y: number): SilhouettePoint[] => {
+  const xr = view === 'face' ? x : 120 - x
+  return [
+    { area, cote: 'd', view, x: xr, y },
+    { area, cote: 'g', view, x: 120 - xr, y },
+  ]
+}
+export const SILHOUETTE_POINTS: readonly SilhouettePoint[] = [
+  { area: 'tete', view: 'face', x: 60, y: 15 },
+  { area: 'nuque', view: 'face', x: 60, y: 32 },
+  ...both('epaule', 'face', 38, 45),
+  { area: 'poitrine', view: 'face', x: 60, y: 55 },
+  ...both('bras', 'face', 28, 62),
+  ...both('coude', 'face', 23, 80),
+  ...both('poignet', 'face', 18, 103),
+  ...both('main', 'face', 16, 122),
+  { area: 'abdos', view: 'face', x: 60, y: 81 },
+  ...both('hanche', 'face', 41, 99),
+  ...both('aine', 'face', 54, 110),
+  ...both('quadriceps', 'face', 45, 133),
+  ...both('adducteurs', 'face', 55, 144),
+  ...both('genou', 'face', 49, 166),
+  ...both('tibia', 'face', 50, 192),
+  ...both('cheville', 'face', 50, 213),
+  ...both('pied', 'face', 48, 228),
+  { area: 'tete', view: 'dos', x: 60, y: 15 },
+  { area: 'nuque', view: 'dos', x: 60, y: 32 },
+  ...both('epaule', 'dos', 38, 45),
+  { area: 'dos-haut', view: 'dos', x: 60, y: 60 },
+  ...both('bras', 'dos', 28, 62),
+  ...both('coude', 'dos', 23, 80),
+  ...both('poignet', 'dos', 18, 103),
+  ...both('main', 'dos', 16, 122),
+  { area: 'lombaires', view: 'dos', x: 60, y: 90 },
+  ...both('fessiers', 'dos', 49, 113),
+  ...both('ischios', 'dos', 49, 140),
+  ...both('genou', 'dos', 49, 166),
+  ...both('mollet', 'dos', 50, 189),
+  ...both('achille', 'dos', 50, 210),
+  ...both('pied', 'dos', 48, 228),
 ]
-const ZONE_BY_ID = new Map(BODY_ZONES.map((z) => [z.id, z]))
-export const zoneLabel = (id: string) => ZONE_BY_ID.get(id)?.label ?? id
+/** Point le plus proche de (x, y) sur une vue, à moins de `max` unités ; sinon null (toucher hors du corps). */
+export function nearestPoint(view: BodyView, x: number, y: number, max = 20): SilhouettePoint | null {
+  let best: SilhouettePoint | null = null
+  let bd = max * max
+  for (const p of SILHOUETTE_POINTS) {
+    if (p.view !== view) continue
+    const d = (p.x - x) ** 2 + (p.y - y) ** 2
+    if (d <= bd) {
+      bd = d
+      best = p
+    }
+  }
+  return best
+}
+
+// ---------- Douleurs : une ligne par endroit ----------
+
+export type PainType = 'courbatures' | 'gene' | 'douleur' | 'contracture' | 'coup' | 'autre'
+/** Ce que c'est (mots neutres ; mêmes identifiants que hb_wl_types, 073). */
+export const PAIN_TYPES: readonly { id: PainType; label: string }[] = [
+  { id: 'courbatures', label: 'Courbatures' },
+  { id: 'gene', label: 'Gêne' },
+  { id: 'douleur', label: 'Douleur' },
+  { id: 'contracture', label: 'Contracture' },
+  { id: 'coup', label: 'Coup / choc' },
+  { id: 'autre', label: 'Autre' },
+]
+const TYPE_BY_ID = new Map(PAIN_TYPES.map((x) => [x.id, x]))
+export const painTypeLabel = (id: string) => TYPE_BY_ID.get(id as PainType)?.label ?? id
+
+/** Une douleur : un endroit (et son côté), ce que c'est, son intensité 1 à 10, une précision facultative. */
+export interface PainEntry {
+  zone: string
+  cote?: PainSide
+  type: PainType
+  texte?: string
+  intensite: number
+}
+
+/** « Ischio-jambiers droits » ; endroit écrit : son texte. */
+export function painPlace(p: Pick<PainEntry, 'zone' | 'cote' | 'texte'>): string {
+  if (p.zone === AREA_OTHER) return p.texte || 'Autre endroit'
+  const a = AREA_BY_ID.get(p.zone)
+  if (!a) return p.zone
+  return a.sides && p.cote ? a.sides[p.cote] : a.label
+}
+/** « Ischio-jambiers droits · Contracture · 6/10 » (précision d'un « Autre » : « Autre : tiraillement »). */
+export function painLine(p: PainEntry): string {
+  const type = p.type === 'autre' && p.texte && p.zone !== AREA_OTHER ? `Autre : ${p.texte}` : painTypeLabel(p.type)
+  return `${painPlace(p)} · ${type} · ${p.intensite}/10`
+}
+/** Clé d'un endroit (une seule ligne par endroit et par côté). */
+export const painKey = (p: Pick<PainEntry, 'zone' | 'cote'>) => `${p.zone}:${p.cote ?? ''}`
 
 // ---------- Ce que le jeune enregistre ----------
 
@@ -143,20 +267,23 @@ export interface WellnessEntry {
   day: string
   scores: Scores
   pain: boolean
-  zones?: string[]
-  painText?: string
-  painLevel?: number
+  /** Douleur : une ligne par endroit (1 à 8), dans l'ordre choisi. */
+  pains?: PainEntry[]
   /** Dernier enregistrement (ISO). */
   at?: string
 }
 
-/** « Ma séance ». */
+/** Intensité la plus forte des douleurs du jour (null : pas de douleur). */
+export const painMax = (e: Pick<WellnessEntry, 'pain' | 'pains'> | null | undefined): number | null =>
+  e?.pain && e.pains?.length ? Math.max(...e.pains.map((p) => p.intensite)) : null
+
+/** « Ma séance » : intensité ressentie ET durée (obligatoire : le pôle note les deux). */
 export interface WellnessSession {
   id: string
   playerId?: string
   day: string
   rpe: number
-  minutes?: number
+  minutes: number
   at?: string
 }
 
@@ -164,14 +291,12 @@ export interface WellnessSession {
 export interface WellnessInput {
   scores?: Record<string, unknown>
   pain?: unknown
-  zones?: unknown
-  painText?: unknown
-  painLevel?: unknown
+  pains?: unknown
 }
 
 const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi
 
-/** Texte de la douleur (une ligne) : caractères de contrôle, retours à la ligne et espaces répétés → une espace, 120 caractères. */
+/** Précision d'une douleur (une ligne) : caractères de contrôle, retours à la ligne et espaces répétés → une espace, 80 caractères. */
 export function cleanPainText(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined
   // eslint-disable-next-line no-control-regex
@@ -179,19 +304,43 @@ export function cleanPainText(v: unknown): string | undefined {
   return s || undefined
 }
 
-/** Zones gardées : connues, sans doublon, dans l'ordre, 12 au plus. */
-export function cleanZones(v: unknown): string[] {
-  if (!Array.isArray(v)) return []
-  const out: string[] = []
-  for (const z of v) if (typeof z === 'string' && ZONE_BY_ID.has(z) && !out.includes(z)) out.push(z)
-  return out.slice(0, PAIN_ZONES_MAX)
+/**
+ * Une douleur valable (même règle que hb_wl_douleurs, 073) : endroit connu ; côté « g » / « d » obligatoire pour un endroit
+ * pair, absent sinon ; type connu ; intensité entière 1 à 10 ; précision nettoyée (obligatoire pour « autre endroit ») ; les
+ * autres clés sont ignorées. Illisible : null.
+ */
+export function cleanPain(v: unknown): PainEntry | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const r = v as Record<string, unknown>
+  if (typeof r.zone !== 'string' || !AREA_BY_ID.has(r.zone)) return null
+  const paired = isPairedArea(r.zone)
+  if (paired ? r.cote !== 'g' && r.cote !== 'd' : r.cote !== undefined && r.cote !== null) return null
+  if (typeof r.type !== 'string' || !TYPE_BY_ID.has(r.type as PainType)) return null
+  if (!isInt(r.intensite, 1, 10)) return null
+  if (r.texte !== undefined && r.texte !== null && typeof r.texte !== 'string') return null
+  const texte = cleanPainText(r.texte)
+  if (r.zone === AREA_OTHER && !texte) return null
+  return { zone: r.zone, ...(paired ? { cote: r.cote as PainSide } : {}), type: r.type as PainType, ...(texte ? { texte } : {}), intensite: r.intensite }
+}
+
+/** Les douleurs d'un jour : 1 à 8, toutes valables, un endroit (et côté) une seule fois ; sinon null (refus « douleurs »). */
+export function cleanPains(v: unknown): PainEntry[] | null {
+  if (!Array.isArray(v) || v.length < 1 || v.length > PAIN_ENTRIES_MAX) return null
+  const out: PainEntry[] = []
+  for (const x of v) {
+    const p = cleanPain(x)
+    if (!p || out.some((o) => painKey(o) === painKey(p))) return null
+    out.push(p)
+  }
+  return out
 }
 
 /**
  * Nettoyage d'un wellness (même règle que hb_wellness_enregistrer, 073) : notes entières de 1 à 10 sur les clés connues ;
- * sans douleur, ni zone, ni texte, ni intensité ; au moins une note ou une douleur (sinon « valeurs »).
+ * douleur : 1 à 8 lignes valables (sinon « douleurs ») ; sans douleur, aucune ligne ; au moins une note ou une douleur
+ * (sinon « valeurs »).
  */
-export function cleanEntry(input: WellnessInput, day: string): { ok: true; entry: WellnessEntry } | { ok: false; error: 'valeurs' } {
+export function cleanEntry(input: WellnessInput, day: string): { ok: true; entry: WellnessEntry } | { ok: false; error: 'valeurs' | 'douleurs' } {
   const scores: Scores = {}
   for (const k of WELLNESS_KEYS) {
     const v = input.scores?.[k]
@@ -200,40 +349,38 @@ export function cleanEntry(input: WellnessInput, day: string): { ok: true; entry
   const pain = input.pain === true
   const entry: WellnessEntry = { day, scores, pain }
   if (pain) {
-    const zones = cleanZones(input.zones)
-    if (zones.length) entry.zones = zones
-    const t = cleanPainText(input.painText)
-    if (t) entry.painText = t
-    if (isInt(input.painLevel, 1, 10)) entry.painLevel = input.painLevel
+    const pains = cleanPains(input.pains)
+    if (!pains) return { ok: false, error: 'douleurs' }
+    entry.pains = pains
   }
   if (!Object.keys(scores).length && !pain) return { ok: false, error: 'valeurs' }
   return { ok: true, entry }
 }
 
-/** Une séance valable ? RPE entier 1 à 10 ; durée absente ou entière de 1 à 600. */
+/** Une séance valable ? RPE entier 1 à 10 ET durée entière de 1 à 600 minutes. */
 export function sessionOk(rpe: unknown, minutes: unknown): boolean {
-  return isInt(rpe, 1, 10) && (minutes === undefined || minutes === null || isInt(minutes, 1, SESSION_MINUTES_MAX))
+  return isInt(rpe, 1, 10) && isInt(minutes, 1, SESSION_MINUTES_MAX)
 }
 
-/** Charge d'une séance (RPE × minutes) ; sans durée : null. */
-export const sessionLoad = (s: Pick<WellnessSession, 'rpe' | 'minutes'>) => (typeof s.minutes === 'number' && s.minutes > 0 ? s.rpe * s.minutes : null)
+/** Charge d'une séance : RPE × minutes. */
+export const sessionLoad = (s: Pick<WellnessSession, 'rpe' | 'minutes'>) => s.rpe * s.minutes
 
 /** Ce que le serveur (ou l'appareil) renvoie → un wellness ; ligne illisible : null. */
 export function entryFromRow(r: Record<string, unknown> | null | undefined): WellnessEntry | null {
   if (!r || typeof r.day !== 'string' || !isDay(r.day)) return null
-  const c = cleanEntry({ scores: (r.scores ?? {}) as Record<string, unknown>, pain: r.pain, zones: r.zones, painText: r.painText, painLevel: r.painLevel }, r.day)
+  const c = cleanEntry({ scores: (r.scores ?? {}) as Record<string, unknown>, pain: r.pain, pains: r.pains }, r.day)
   if (!c.ok) return null
   return { ...c.entry, ...(typeof r.playerId === 'string' ? { playerId: r.playerId } : {}), ...(typeof r.at === 'string' ? { at: r.at } : {}) }
 }
 
-/** Ce que le serveur (ou l'appareil) renvoie → une séance ; ligne illisible : null. */
+/** Ce que le serveur (ou l'appareil) renvoie → une séance ; ligne illisible (sans durée comprise) : null. */
 export function sessionFromRow(r: Record<string, unknown> | null | undefined): WellnessSession | null {
   if (!r || typeof r.id !== 'string' || typeof r.day !== 'string' || !isDay(r.day) || !sessionOk(r.rpe, r.minutes)) return null
   return {
     id: r.id,
     day: r.day,
     rpe: r.rpe as number,
-    ...(typeof r.minutes === 'number' ? { minutes: r.minutes } : {}),
+    minutes: r.minutes as number,
     ...(typeof r.playerId === 'string' ? { playerId: r.playerId } : {}),
     ...(typeof r.at === 'string' ? { at: r.at } : {}),
   }
@@ -325,9 +472,8 @@ export interface ChargeSummary {
   /** Rapport aiguë / chronique (null : pas assez d'historique). */
   ratio: number | null
   tone: ChargeTone
-  /** Séances des 7 derniers jours, et parmi elles celles sans durée (pas de charge calculée). */
+  /** Séances des 7 derniers jours. */
   sessions7: number
-  noMinutes7: number
 }
 export function chargeSummary(sessions: readonly WellnessSession[], today: string): ChargeSummary {
   const fromA = addDays(today, -(ACUTE_DAYS - 1))
@@ -335,20 +481,18 @@ export function chargeSummary(sessions: readonly WellnessSession[], today: strin
   let acute = 0
   let chronic = 0
   let sessions7 = 0
-  let noMinutes7 = 0
   for (const s of sessions) {
     if (s.day > today || s.day < fromC) continue
     const l = sessionLoad(s)
-    if (l !== null) chronic += l
+    chronic += l
     if (s.day >= fromA) {
       sessions7++
-      if (l === null) noMinutes7++
-      else acute += l
+      acute += l
     }
   }
   const chronicWeekly = chronic / (CHRONIC_DAYS / 7)
   const ratio = chronicWeekly > 0 ? acute / chronicWeekly : null
-  return { acute, chronicWeekly, ratio, tone: chargeTone(ratio), sessions7, noMinutes7 }
+  return { acute, chronicWeekly, ratio, tone: chargeTone(ratio), sessions7 }
 }
 export function chargeTone(ratio: number | null): ChargeTone {
   if (ratio === null || !Number.isFinite(ratio)) return 'none'
@@ -362,7 +506,7 @@ export const CHARGE_WORDS: Record<ChargeTone, string> = {
   more: 'plus élevée que d’habitude',
   muchMore: 'nettement plus élevée que d’habitude',
   less: 'plus légère que d’habitude',
-  none: 'pas encore assez de séances avec durée',
+  none: 'pas encore assez de séances',
 }
 
 // ---------- Tableau du staff ----------
@@ -388,11 +532,15 @@ export function staffRow(entries: readonly WellnessEntry[], sessions: readonly W
   return { today: t, avg, tones, charge: chargeSummary(sessions, today), lastDay }
 }
 
-/** Ordre du tableau : douleur signalée d'abord, puis le plus de notes nettement en dessous, puis un peu, puis répondu, puis le nom. */
+/**
+ * Ordre du tableau : douleur signalée d'abord (la plus forte intensité en premier), puis le plus de notes nettement en
+ * dessous, puis un peu, puis répondu, puis le nom (pas encore répondu : 1000).
+ */
 export function staffRank(r: StaffRow): number {
   if (!r.today) return 1000
   const n = (x: Tone) => WELLNESS_KEYS.filter((k) => r.tones[k] === x).length
-  return (r.today.pain ? 0 : 100) - n('wellBelow') * 10 - n('below')
+  const max = painMax(r.today)
+  return (max !== null ? -100 - max * 50 : 100) - n('wellBelow') * 10 - n('below')
 }
 
 // ---------- Historique du jeune (14 jours) ----------
@@ -449,6 +597,7 @@ export const WELLNESS_ERRORS: Record<string, string> = {
   wellness_ferme: 'Réservé aux essais pour l’instant.',
   pas_demande: 'Le wellness n’est pas demandé dans ton groupe.',
   valeurs: 'Choisis au moins une réponse.',
+  douleurs: `Pour chaque endroit, dis ce que c’est et son intensité (${PAIN_ENTRIES_MAX} endroits au plus).`,
   jour_ferme: 'Ce jour-là ne se modifie plus.',
   trop: `${SESSIONS_PER_DAY} séances par jour au plus.`,
   seance_inconnue: 'Séance introuvable (déjà retirée ?).',
@@ -478,17 +627,17 @@ export function saveEntryLocal(list: readonly WellnessEntry[], input: WellnessIn
 /** Ajoute ou modifie une séance d'aujourd'hui ou d'hier (6 par jour au plus). */
 export function saveSessionLocal(
   list: readonly WellnessSession[],
-  s: { id?: string; day: string; rpe: number; minutes?: number | null },
+  s: { id?: string; day: string; rpe: number; minutes: number },
   today: string,
   newId: () => string,
   at: string,
 ): { ok: true; list: WellnessSession[]; saved: WellnessSession } | { ok: false; error: string } {
   if (s.day !== today && s.day !== addDays(today, -1)) return { ok: false, error: 'jour_ferme' }
-  if (!sessionOk(s.rpe, s.minutes ?? undefined)) return { ok: false, error: 'valeurs' }
+  if (!sessionOk(s.rpe, s.minutes)) return { ok: false, error: 'valeurs' }
   const open = (x: WellnessSession) => x.day === today || x.day === addDays(today, -1)
   if (s.id && !list.some((x) => x.id === s.id && open(x))) return { ok: false, error: 'seance_inconnue' }
   if (!s.id && list.filter((x) => x.day === s.day).length >= SESSIONS_PER_DAY) return { ok: false, error: 'trop' }
-  const saved: WellnessSession = { id: s.id ?? newId(), day: s.day, rpe: s.rpe, ...(typeof s.minutes === 'number' ? { minutes: s.minutes } : {}), at }
+  const saved: WellnessSession = { id: s.id ?? newId(), day: s.day, rpe: s.rpe, minutes: s.minutes, at }
   return { ok: true, saved, list: [saved, ...list.filter((x) => x.id !== saved.id)].sort((a, b) => b.day.localeCompare(a.day) || (b.at ?? '').localeCompare(a.at ?? '')) }
 }
 
@@ -514,10 +663,19 @@ export function myWellnessExport(entries: readonly WellnessEntry[], sessions: re
         humeur: e.scores.humeur ?? null,
         qualiteDuSommeil: e.scores.sommeil ?? null,
         douleursGenes: e.pain,
-        ...(e.pain ? { emplacements: (e.zones ?? []).map(zoneLabel), emplacementEcrit: e.painText ?? null, intensiteDeLaDouleur: e.painLevel ?? null } : {}),
+        ...(e.pain
+          ? {
+              douleurs: (e.pains ?? []).map((p) => ({
+                endroit: painPlace(p),
+                ceQueCEst: painTypeLabel(p.type),
+                ...(p.texte && p.zone !== AREA_OTHER ? { precision: p.texte } : {}),
+                intensite: p.intensite,
+              })),
+            }
+          : {}),
       })),
     mesSeances: [...sessions]
       .sort((a, b) => a.day.localeCompare(b.day))
-      .map((s) => ({ jour: s.day, intensiteRessentie: s.rpe, dureeEnMinutes: s.minutes ?? null })),
+      .map((s) => ({ jour: s.day, intensiteRessentie: s.rpe, dureeEnMinutes: s.minutes, charge: sessionLoad(s) })),
   }
 }

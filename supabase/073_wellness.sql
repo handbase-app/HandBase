@@ -38,21 +38,25 @@
 --    le jeune passe par les fonctions ci-dessous, toujours pour SA fiche.
 --
 -- 1) Table hb_wellness : une ligne par jeune et par jour (clé player_id + jour). scores = { energie, fraicheur, humeur,
---    sommeil } : entiers de 1 à 10 (au moins un, ou une douleur) ; douleur (oui / non) ; si oui : zones (points de la
---    silhouette, face ou dos : liste fermée, mêmes identifiants que BODY_ZONES de src/wellness.ts, 12 au plus), douleur_texte
---    (120 caractères) et douleur_intensite (1 à 10), tous facultatifs ; user_id = le compte qui a écrit ; created_at,
---    updated_at (heure du serveur). Jour = date de Paris.
--- 2) Table hb_wellness_seances : « Ma séance », plusieurs par jour (6 au plus) : rpe (intensité ressentie, 1 à 10), duree
---    (minutes, 1 à 600, FACULTATIVE : à confirmer avec un jeune du pôle ; la charge = rpe × durée n'est calculée que si elle
---    est là, côté appli).
+--    sommeil } : entiers de 1 à 10 (au moins un, ou une douleur) ; douleur (oui / non) ; si oui : douleurs, UNE LIGNE PAR
+--    ENDROIT (1 à 8) : [{ zone, cote, type, texte?, intensite }] — zone : endroit anatomique en liste fermée (mêmes
+--    identifiants que BODY_AREAS de src/wellness.ts : quadriceps, ischios, adducteurs…) ; cote : « g » / « d » (côté du
+--    jeune) obligatoire pour un endroit pair (hb_wl_zones_cotes), absent sinon ; type : courbatures, gene, douleur,
+--    contracture, coup, autre (hb_wl_types) ; intensite : entier 1 à 10 ; texte : précision d'une ligne (80 caractères),
+--    obligatoire pour la zone « autre » (endroit écrit par le jeune) ; un endroit (et côté) une seule fois ; forme vérifiée
+--    par la table (hb_wl_douleurs) ; user_id = le compte qui a écrit ; created_at, updated_at (heure du serveur). Jour = date
+--    de Paris.
+-- 2) Table hb_wellness_seances : « Ma séance », plusieurs par jour (6 au plus) : rpe (intensité ressentie, 1 à 10) et duree
+--    (minutes, 1 à 600, OBLIGATOIRE : le pôle note l'intensité et la durée ; charge = rpe × durée, côté appli).
 -- 3) hb_wellness_moi(p_jours) → { actif, demande, jours: [...], seances: [...] } : les siennes des p_jours derniers jours
 --    (1 à 400 ; 400 pour sa copie « Télécharger mes données »).
 -- 4) hb_wellness_enregistrer(p_valeurs) → la ligne du JOUR (aujourd'hui seulement, heure de Paris ; modifiable toute la
---    journée, jamais un autre jour). Refus : wellness_ferme, pas_demande, valeurs (rien de valable), trop_long, pas_joueur,
---    sans_fiche.
+--    journée, jamais un autre jour). p_valeurs = { scores, pain, pains: [...] }. Refus : wellness_ferme, pas_demande, valeurs
+--    (rien de valable), douleurs (douleur sans ligne, ou une ligne abîmée : jamais une douleur à moitié gardée), trop_long,
+--    pas_joueur, sans_fiche.
 -- 5) hb_wellness_seance(p_jour, p_rpe, p_duree, p_id) → une séance d'AUJOURD'HUI ou d'HIER (séance du soir notée le
---    lendemain matin) ; p_id : modifier une des siennes de ces deux jours. Refus : wellness_ferme, pas_demande, jour_ferme,
---    valeurs, trop (6 par jour), seance_inconnue. hb_wellness_seance_retirer(p_id) : retirer une des siennes de ces deux jours
+--    lendemain matin) ; p_duree obligatoire ; p_id : modifier une des siennes de ces deux jours. Refus : wellness_ferme,
+--    pas_demande, jour_ferme, valeurs (RPE ou durée absents ou hors bornes), trop (6 par jour), seance_inconnue. hb_wellness_seance_retirer(p_id) : retirer une des siennes de ces deux jours
 --    (permis même fermé : on retire toujours ses propres données).
 -- 6) hb_wellness_groupe(p_group_id, p_jours) → pour le staff du groupe : { actif, wellness, comptes: [fiches de joueurs du
 --    groupe qui ont un compte joueur relié], jours, seances } des p_jours derniers jours (1 à 120). Refus : groupe_inconnu
@@ -99,32 +103,74 @@ language sql immutable as $$
    where jsonb_typeof(p) = 'object' and jsonb_typeof(p -> k) = 'number' and (p ->> k) ~ '^([1-9]|10)$'
 $$;
 
--- Points de la silhouette (mêmes identifiants que BODY_ZONES, src/wellness.ts) : face « f- », dos « d- » ; g / d = gauche /
--- droite du jeune.
+-- Endroits d'une douleur (mêmes identifiants, dans le même ordre, que BODY_AREAS de src/wellness.ts) : noms anatomiques
+-- (devant de la cuisse = quadriceps, arrière = ischios, intérieur = adducteurs…) ; « autre » : endroit écrit par le jeune.
 create or replace function public.hb_wl_zones_connues() returns text[]
 language sql immutable as $$
-  select array['f-tete', 'f-cou', 'f-epaule-g', 'f-epaule-d', 'f-poitrine', 'f-ventre', 'f-bras-g', 'f-bras-d',
-               'f-poignet-g', 'f-poignet-d', 'f-hanche-g', 'f-hanche-d', 'f-cuisse-g', 'f-cuisse-d', 'f-genou-g', 'f-genou-d',
-               'f-tibia-g', 'f-tibia-d', 'f-cheville-g', 'f-cheville-d',
-               'd-nuque', 'd-epaule-g', 'd-epaule-d', 'd-haut-dos', 'd-bas-dos', 'd-coude-g', 'd-coude-d', 'd-fessier-g',
-               'd-fessier-d', 'd-ischio-g', 'd-ischio-d', 'd-mollet-g', 'd-mollet-d', 'd-talon-g', 'd-talon-d']
+  select array['tete', 'nuque', 'epaule', 'bras', 'coude', 'poignet', 'main', 'poitrine', 'dos-haut', 'abdos', 'lombaires',
+               'hanche', 'aine', 'fessiers', 'quadriceps', 'ischios', 'adducteurs', 'genou', 'tibia', 'mollet', 'achille',
+               'cheville', 'pied', 'autre']
 $$;
-
--- Zones gardées : connues, sans doublon, dans l'ordre reçu, 12 au plus.
-create or replace function public.hb_wl_zones(p jsonb) returns jsonb
+-- Endroits pairs : le côté (g / d, côté du jeune) y est obligatoire ; ailleurs, interdit.
+create or replace function public.hb_wl_zones_cotes() returns text[]
 language sql immutable as $$
-  select coalesce((select jsonb_agg(z order by o) from (
-            select z, min(o) o from jsonb_array_elements_text(case when jsonb_typeof(p) = 'array' then p else '[]'::jsonb end)
-                     with ordinality x(z, o)
-             where z = any (public.hb_wl_zones_connues()) group by z order by min(o) limit 12) s), '[]'::jsonb)
+  select array['epaule', 'bras', 'coude', 'poignet', 'main', 'hanche', 'aine', 'fessiers', 'quadriceps', 'ischios',
+               'adducteurs', 'genou', 'tibia', 'mollet', 'achille', 'cheville', 'pied']
+$$;
+-- Ce que c'est (mêmes identifiants que PAIN_TYPES, src/wellness.ts).
+create or replace function public.hb_wl_types() returns text[]
+language sql immutable as $$
+  select array['courbatures', 'gene', 'douleur', 'contracture', 'coup', 'autre']
 $$;
 
 -- Texte libre (une ligne) : caractères de contrôle, retours à la ligne et espaces répétés → une espace, bords coupés,
--- 120 caractères ; vide → null (même règle que cleanPainText, src/wellness.ts).
+-- 80 caractères ; vide → null (même règle que cleanPainText, src/wellness.ts).
 create or replace function public.hb_wl_text(p text) returns text
 language sql immutable as $$
-  select nullif(btrim(left(btrim(regexp_replace(coalesce(p, ''), '[[:cntrl:][:space:]]+', ' ', 'g')), 120)), '')
+  select nullif(btrim(left(btrim(regexp_replace(coalesce(p, ''), '[[:cntrl:][:space:]]+', ' ', 'g')), 80)), '')
 $$;
+
+-- Douleurs d'un jour (même règle que cleanPains, src/wellness.ts) : tableau de 1 à 8 lignes { zone, cote, type, texte?,
+-- intensite }, toutes valables (zone connue ; côté g / d pour un endroit pair, absent sinon ; type connu ; intensité entière
+-- 1 à 10 ; texte facultatif nettoyé, obligatoire pour « autre ») et un endroit (et côté) une seule fois ; les autres clés
+-- sont ignorées. Rend les lignes nettoyées, dans l'ordre reçu ; la moindre ligne abîmée : null (refus entier).
+create or replace function public.hb_wl_douleurs(p jsonb) returns jsonb
+language plpgsql immutable as $$
+declare
+  e jsonb;
+  v_out jsonb := '[]'::jsonb;
+  v_vus text[] := '{}';
+  v_zone text;
+  v_cote text;
+  v_type text;
+  v_texte text;
+begin
+  if jsonb_typeof(p) is distinct from 'array' or jsonb_array_length(p) not between 1 and 8 then return null; end if;
+  for e in select x from jsonb_array_elements(p) x loop
+    if jsonb_typeof(e) is distinct from 'object' then return null; end if;
+    v_zone := case when jsonb_typeof(e -> 'zone') = 'string' then e ->> 'zone' end;
+    if v_zone is null or not (v_zone = any (public.hb_wl_zones_connues())) then return null; end if;
+    if v_zone = any (public.hb_wl_zones_cotes()) then
+      v_cote := case when jsonb_typeof(e -> 'cote') = 'string' then e ->> 'cote' end;
+      if v_cote is null or v_cote not in ('g', 'd') then return null; end if;
+    elsif coalesce(jsonb_typeof(e -> 'cote'), 'null') <> 'null' then
+      return null;
+    else
+      v_cote := null;
+    end if;
+    v_type := case when jsonb_typeof(e -> 'type') = 'string' then e ->> 'type' end;
+    if v_type is null or not (v_type = any (public.hb_wl_types())) then return null; end if;
+    if jsonb_typeof(e -> 'intensite') is distinct from 'number' or (e ->> 'intensite') !~ '^([1-9]|10)$' then return null; end if;
+    if coalesce(jsonb_typeof(e -> 'texte'), 'null') not in ('null', 'string') then return null; end if;
+    v_texte := public.hb_wl_text(e ->> 'texte');
+    if v_zone = 'autre' and v_texte is null then return null; end if;
+    if (v_zone || ':' || coalesce(v_cote, '')) = any (v_vus) then return null; end if;
+    v_vus := v_vus || (v_zone || ':' || coalesce(v_cote, ''));
+    v_out := v_out || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object('zone', v_zone, 'cote', v_cote, 'type', v_type,
+               'texte', v_texte, 'intensite', (e ->> 'intensite')::int)));
+  end loop;
+  return v_out;
+end $$;
 
 -- Nom de site comparable (comme fold, src/poleSeason.ts) : minuscules, sans accents, autres signes → espace.
 create or replace function public.hb_wl_fold(p text) returns text
@@ -199,20 +245,17 @@ create table if not exists public.hb_wellness (
   user_id uuid,
   scores jsonb not null default '{}'::jsonb,
   douleur boolean not null default false,
-  zones jsonb not null default '[]'::jsonb,
-  douleur_texte text,
-  douleur_intensite smallint,
+  douleurs jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (player_id, jour)
 );
+-- Forme : notes connues ; sans douleur, aucune ligne ; avec douleur, 1 à 8 lignes déjà nettoyées (hb_wl_douleurs les rend
+-- telles quelles) ; au moins une note ou une douleur.
 alter table public.hb_wellness drop constraint if exists hb_wellness_forme;
 alter table public.hb_wellness add constraint hb_wellness_forme check (
   jsonb_typeof(scores) = 'object' and scores = public.hb_wl_scores(scores)
-  and jsonb_typeof(zones) = 'array' and zones = public.hb_wl_zones(zones)
-  and coalesce(length(douleur_texte), 0) <= 120
-  and (douleur_intensite is null or douleur_intensite between 1 and 10)
-  and (douleur or (zones = '[]'::jsonb and douleur_texte is null and douleur_intensite is null))
+  and case when douleur then public.hb_wl_douleurs(douleurs) is not distinct from douleurs else douleurs = '[]'::jsonb end
   and (scores <> '{}'::jsonb or douleur));
 alter table public.hb_wellness enable row level security;
 revoke all on public.hb_wellness from public, anon, authenticated;
@@ -224,13 +267,13 @@ create table if not exists public.hb_wellness_seances (
   jour date not null,
   user_id uuid,
   rpe smallint not null,
-  duree smallint,
+  duree smallint not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 alter table public.hb_wellness_seances drop constraint if exists hb_wellness_seances_forme;
 alter table public.hb_wellness_seances add constraint hb_wellness_seances_forme check (
-  rpe between 1 and 10 and (duree is null or duree between 1 and 600));
+  rpe between 1 and 10 and duree between 1 and 600);
 create index if not exists hb_wellness_seances_jour on public.hb_wellness_seances (player_id, jour);
 alter table public.hb_wellness_seances enable row level security;
 revoke all on public.hb_wellness_seances from public, anon, authenticated;
@@ -258,8 +301,7 @@ create trigger hb_a_player_guard before insert or update or delete on public.hb_
 create or replace function public.hb_wl_json(r public.hb_wellness) returns jsonb
 language sql immutable as $$
   select jsonb_strip_nulls(jsonb_build_object('playerId', r.player_id, 'day', to_char(r.jour, 'YYYY-MM-DD'), 'scores', r.scores,
-           'pain', r.douleur, 'zones', case when r.douleur then r.zones end, 'painText', r.douleur_texte,
-           'painLevel', r.douleur_intensite, 'at', public.hb_self_iso(r.updated_at)))
+           'pain', r.douleur, 'pains', case when r.douleur then r.douleurs end, 'at', public.hb_self_iso(r.updated_at)))
 $$;
 create or replace function public.hb_wl_seance_json(r public.hb_wellness_seances) returns jsonb
 language sql immutable as $$
@@ -293,9 +335,7 @@ declare
   v_jour date := public.hb_wl_auj();
   v_scores jsonb;
   v_douleur boolean;
-  v_zones jsonb;
-  v_texte text;
-  v_int smallint;
+  v_douleurs jsonb;
   r public.hb_wellness;
 begin
   if length(coalesce(p_valeurs::text, '')) > 4000 then raise exception 'trop_long'; end if;
@@ -303,17 +343,16 @@ begin
   if not public.hb_wl_demande(v_pid) then raise exception 'pas_demande'; end if;
   v_scores := public.hb_wl_scores(p_valeurs -> 'scores');
   v_douleur := coalesce(p_valeurs -> 'pain' = 'true'::jsonb, false);
-  v_zones := case when v_douleur then public.hb_wl_zones(p_valeurs -> 'zones') else '[]'::jsonb end;
-  v_texte := case when v_douleur then public.hb_wl_text(p_valeurs ->> 'painText') end;
-  v_int := case when v_douleur and jsonb_typeof(p_valeurs -> 'painLevel') = 'number' and (p_valeurs ->> 'painLevel') ~ '^([1-9]|10)$'
-                then (p_valeurs ->> 'painLevel')::smallint end;
+  -- Douleur : une ligne par endroit, toutes valables (sinon refus entier) ; sans douleur, les lignes envoyées sont ignorées.
+  v_douleurs := case when v_douleur then public.hb_wl_douleurs(p_valeurs -> 'pains') else '[]'::jsonb end;
+  if v_douleurs is null then raise exception 'douleurs'; end if;
   if v_scores = '{}'::jsonb and not v_douleur then raise exception 'valeurs'; end if;
   perform set_config('hb.player_self', '1', true);
-  insert into public.hb_wellness (player_id, jour, user_id, scores, douleur, zones, douleur_texte, douleur_intensite)
-  values (v_pid, v_jour, auth.uid(), v_scores, v_douleur, v_zones, v_texte, v_int)
+  insert into public.hb_wellness (player_id, jour, user_id, scores, douleur, douleurs)
+  values (v_pid, v_jour, auth.uid(), v_scores, v_douleur, v_douleurs)
   on conflict (player_id, jour) do update
-     set user_id = excluded.user_id, scores = excluded.scores, douleur = excluded.douleur, zones = excluded.zones,
-         douleur_texte = excluded.douleur_texte, douleur_intensite = excluded.douleur_intensite, updated_at = now()
+     set user_id = excluded.user_id, scores = excluded.scores, douleur = excluded.douleur, douleurs = excluded.douleurs,
+         updated_at = now()
   returning * into r;
   perform set_config('hb.player_self', '0', true);
   return public.hb_wl_json(r);
@@ -321,7 +360,9 @@ end $$;
 
 -- ---------- 5. Le jeune : « Ma séance » ----------
 
-create or replace function public.hb_wellness_seance(p_jour text, p_rpe int, p_duree int default null, p_id text default null) returns jsonb
+-- Durée obligatoire (plus de valeur par défaut) : une version d'essai avec « p_duree default null » est remplacée.
+drop function if exists public.hb_wellness_seance(text, int, int, text);
+create function public.hb_wellness_seance(p_jour text, p_rpe int, p_duree int, p_id text default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   v_pid text := public.hb_player_self_id();
@@ -339,7 +380,7 @@ begin
   end;
   -- Aujourd'hui ou hier (séance du soir notée le lendemain matin), heure de Paris.
   if v_jour not in (v_auj, v_auj - 1) then raise exception 'jour_ferme'; end if;
-  if p_rpe is null or p_rpe not between 1 and 10 or (p_duree is not null and p_duree not between 1 and 600) then
+  if p_rpe is null or p_rpe not between 1 and 10 or p_duree is null or p_duree not between 1 and 600 then
     raise exception 'valeurs';
   end if;
   perform set_config('hb.player_self', '1', true);
@@ -464,8 +505,8 @@ declare f text;
 begin
   -- Internes : jamais appelées par l'appli.
   foreach f in array array['public.hb_wellness_mois_saison()', 'public.hb_wellness_garde_jours()', 'public.hb_wl_auj()',
-      'public.hb_wellness_actif()', 'public.hb_wl_scores(jsonb)', 'public.hb_wl_zones_connues()', 'public.hb_wl_zones(jsonb)',
-      'public.hb_wl_text(text)', 'public.hb_wl_fold(text)', 'public.hb_wl_contient(jsonb, text, jsonb, date)',
+      'public.hb_wellness_actif()', 'public.hb_wl_scores(jsonb)', 'public.hb_wl_zones_connues()', 'public.hb_wl_zones_cotes()',
+      'public.hb_wl_types()', 'public.hb_wl_douleurs(jsonb)', 'public.hb_wl_text(text)', 'public.hb_wl_fold(text)', 'public.hb_wl_contient(jsonb, text, jsonb, date)',
       'public.hb_wl_groupe_compte(jsonb, boolean, public.hb_players, date)', 'public.hb_wl_demande(text)',
       'public.hb_wl_staff_de(jsonb, uuid)', 'public.hb_wl_json(public.hb_wellness)',
       'public.hb_wl_seance_json(public.hb_wellness_seances)', 'public.hb_wellness_purger()', 'public.hb_wellness_forget()'] loop
@@ -518,8 +559,10 @@ select to_regclass('public.hb_wellness') is not null and to_regclass('public.hb_
 -- drop function if exists public.hb_wl_groupe_compte(jsonb, boolean, public.hb_players, date);
 -- drop function if exists public.hb_wl_contient(jsonb, text, jsonb, date);
 -- drop function if exists public.hb_wl_fold(text);
+-- drop function if exists public.hb_wl_douleurs(jsonb);
 -- drop function if exists public.hb_wl_text(text);
--- drop function if exists public.hb_wl_zones(jsonb);
+-- drop function if exists public.hb_wl_types();
+-- drop function if exists public.hb_wl_zones_cotes();
 -- drop function if exists public.hb_wl_zones_connues();
 -- drop function if exists public.hb_wl_scores(jsonb);
 -- drop function if exists public.hb_wellness_actif();

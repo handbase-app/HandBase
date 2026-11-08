@@ -110,7 +110,7 @@ export function PrivacyText() {
         Wellness du matin (seulement si son groupe le demande ; pas encore ouvert, réservé aux essais avec des données fictives
         tant que l’accord des familles et l’hébergement adapté aux données de santé ne sont pas décidés) : du lundi au vendredi,
         le jeune note lui-même son énergie, sa fraîcheur musculaire, son humeur et la qualité de son sommeil (de 1 à 10), dit s’il
-        a une douleur ou une gêne (où, et son intensité) et, après une séance, l’intensité ressentie et, s’il le veut, la durée.
+        a une douleur ou une gêne (pour chaque endroit : ce que c’est et son intensité) et, après une séance, l’intensité ressentie et la durée.
         Ce sont des données de santé : elles ne sont lues que par le staff de ce groupe (son responsable et ses encadrants) et les
         administrateurs, jamais par les autres coachs ni par les observateurs. Elles ne sont jamais envoyées à une IA, n’entrent
         dans aucun export du staff (tableur, PDF) et ne sont pas gardées sur les appareils du staff. Elles sont gardées le temps
