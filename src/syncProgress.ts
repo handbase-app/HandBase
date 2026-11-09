@@ -63,8 +63,12 @@ export const showProgress = (p: SyncProgress | null): p is SyncProgress => !!p &
  */
 export const BUSY_LABEL = 'Beaucoup de monde en ce moment — vos joueurs arrivent…'
 
-/** Sous la barre du premier chargement : l'écran reste allumé (src/wakeLock.ts), mais l'appli doit rester devant. */
-export const KEEP_OPEN_LABEL = 'Garde Nextar ouvert pendant le chargement : l’écran reste allumé.'
+/**
+ * ÉCRITEAU pendant un gros chargement (Geoffroy, 09/11 : « écrire de ne pas sortir de l'application pendant la synchronisation ») :
+ * l'écran reste allumé (src/wakeLock.ts), mais une appli web passée en arrière-plan est mise en pause. Montré sous la barre
+ * (src/components/SyncProgress.tsx) et sur l'écran d'ouverture du premier chargement (src/splashScreen.ts). Sans tu ni vous.
+ */
+export const KEEP_OPEN_LABEL = 'Ne pas quitter Nextar pendant le chargement (l’écran reste allumé)'
 
 export const percent = (p: SyncProgress) => Math.min(100, Math.floor(p.share * 100))
 
