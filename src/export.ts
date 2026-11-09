@@ -10,7 +10,7 @@ import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
 import { sportProfile } from './sportConfig'
 import { appName, appSlug } from './appBrand'
-import { clubYears, journalDay, letterQuestions, markFields, moodLabel } from './playerSpace'
+import { clubYears, journalDay, letterQuestions, markFields, moodLabel, noteMoods } from './playerSpace'
 import { fetchNotes } from './playerJournal'
 import { withPoleMembers } from './poleMembers'
 import { fmtPlayingTime, playingTimeOf, superPowerOf } from './avisMatch'
@@ -246,7 +246,7 @@ export async function exportPlayer(id: string) {
       .map((q) => [fmtDate(dayOf(v.at)), q.label, v.letter[q.key]]),
   )
   const shared = await fetchNotes(id, true)
-  const sharedRows = shared.ok ? shared.value.map((n) => [journalDay(n.at), moodLabel(n.mood, p.sex), n.text]) : []
+  const sharedRows = shared.ok ? shared.value.map((n) => [journalDay(n.at), noteMoods(n).map((m) => moodLabel(m, p.sex)).join(', '), n.text]) : []
   const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, momentsOf(v).map(momentLabel).join(' ; '), v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
@@ -268,7 +268,7 @@ table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4p
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
 <h2>Écrit par le joueur (espace joueur)</h2>${self.length ? table(['Rubrique', 'Texte'], self) : '<p class="m">Rien.</p>'}
 ${versions.length ? `<h2>Versions précédentes de sa lettre</h2>${table(['Version du', 'Question', 'Texte'], versions)}` : ''}
-<h2>Journal du ${h(sportProfile().word)} : notes partagées (${sharedRows.length})</h2>${shared.ok ? table(['Date', 'Humeur', 'Note'], sharedRows) : `<p class="m">Non lues : ${h(shared.error)}</p>`}
+<h2>Journal du ${h(sportProfile().word)} : notes partagées (${sharedRows.length})</h2>${shared.ok ? table(['Date', 'Humeurs', 'Note'], sharedRows) : `<p class="m">Non lues : ${h(shared.error)}</p>`}
 <p class="m">Notes privées du journal : téléchargeables uniquement par le joueur ou la joueuse depuis sa page.</p>
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')

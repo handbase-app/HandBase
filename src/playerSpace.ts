@@ -294,6 +294,23 @@ export type JournalMood = (typeof JOURNAL_MOODS)[number]['id']
 
 /** Humeur connue, sinon rien (comme le serveur : toute autre valeur est ignorée). */
 export const cleanMood = (x: unknown): JournalMood | undefined => (JOURNAL_MOODS.some((m) => m.id === x) ? (x as JournalMood) : undefined)
+/** Humeurs au plus par note (076 : « on peut être content et motivé, fier et concentré… »). */
+export const MAX_MOODS = 3
+const MOOD_ORDER: readonly string[] = JOURNAL_MOODS.map((m) => m.id)
+/**
+ * Humeurs d'une note, nettoyées comme le serveur (hb_self_moods, supabase/076) : connues seulement, sans doublon, dans l'ordre
+ * de JOURNAL_MOODS, MAX_MOODS au plus ; [] si aucune. Accepte une liste ou une seule humeur (notes d'avant 076).
+ */
+export function cleanMoods(x: unknown): JournalMood[] {
+  const list = Array.isArray(x) ? x : x == null ? [] : [x]
+  const known = new Set(list.map(cleanMood).filter((m): m is JournalMood => !!m))
+  return [...known].sort((a, b) => MOOD_ORDER.indexOf(a) - MOOD_ORDER.indexOf(b)).slice(0, MAX_MOODS)
+}
+/** Humeurs d'une note : `moods` (076), sinon `mood` seule (notes d'avant, serveur pas encore passé à 076). */
+export const noteMoods = (n: Pick<JournalNote, 'mood' | 'moods'> | null | undefined): JournalMood[] =>
+  cleanMoods(n?.moods?.length ? n.moods : n?.mood)
+/** Champs d'humeur d'une note : `moods` et `mood` (la première, lue par les anciennes versions), rien s'il n'y en a pas. */
+export const moodFields = (moods: readonly JournalMood[]): Pick<JournalNote, 'mood' | 'moods'> => (moods.length ? { mood: moods[0], moods: [...moods] } : {})
 export const moodOf = (id: string | null | undefined) => JOURNAL_MOODS.find((m) => m.id === id)
 /** « motivée » quand on sait que c'est une fille ; masculin sinon. '' si inconnue. */
 export const moodLabel = (id: string | null | undefined, sex?: string | null) => {
@@ -306,7 +323,10 @@ export interface JournalNote {
   id: string
   at: string
   text: string
+  /** Première humeur (052 ; gardée pour les anciennes versions de l'appli). Lire les humeurs avec noteMoods. */
   mood?: JournalMood
+  /** Humeurs (076) : 1 à MAX_MOODS, dans l'ordre de JOURNAL_MOODS ; absentes : pas d'humeur, ou note d'avant 076 (`mood`). */
+  moods?: JournalMood[]
   /** Partagée avec son encadrant (sinon : lue par le jeune seul). */
   shared?: boolean
   editedAt?: string
@@ -350,23 +370,22 @@ export type JournalResult = { ok: true; notes: JournalNote[]; note?: JournalNote
 /** Les notes, la plus récente en premier. */
 export const sortNotes = (notes: readonly JournalNote[]) => [...notes].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
 
-/** Ajout sur l'appareil (mode essai), même règle que hb_player_journal_add : note privée, en tête, 200 au plus. */
-export function journalAdd(notes: readonly JournalNote[], text: unknown, mood: unknown, now: string, id = newNoteId()): JournalResult {
+/** Ajout sur l'appareil (mode essai), même règle que hb_player_journal_add : note privée, en tête, 200 au plus. `moods` : une
+ *  liste (ou une seule humeur), nettoyée comme le serveur (cleanMoods). */
+export function journalAdd(notes: readonly JournalNote[], text: unknown, moods: unknown, now: string, id = newNoteId()): JournalResult {
   const t = cleanNoteText(text)
   if (!t) return { ok: false, error: 'note_vide' }
-  const m = cleanMood(mood)
-  const note: JournalNote = { id, at: now, text: t, ...(m ? { mood: m } : {}), shared: false }
+  const note: JournalNote = { id, at: now, text: t, ...moodFields(cleanMoods(moods)), shared: false }
   return { ok: true, note, notes: sortNotes([note, ...notes]).slice(0, SELF_LIMITS.notes) }
 }
 
-/** Correction (texte, humeur) : la date reste, editedAt posé, le partage ne change pas. */
-export function journalEdit(notes: readonly JournalNote[], id: string, text: unknown, mood: unknown, now: string): JournalResult {
+/** Correction (texte, humeurs) : la date reste, editedAt posé, le partage ne change pas. */
+export function journalEdit(notes: readonly JournalNote[], id: string, text: unknown, moods: unknown, now: string): JournalResult {
   const t = cleanNoteText(text)
   if (!t) return { ok: false, error: 'note_vide' }
   const old = notes.find((n) => n.id === id)
   if (!old) return { ok: false, error: 'note_introuvable' }
-  const m = cleanMood(mood)
-  const note: JournalNote = { id, at: old.at, text: t, ...(m ? { mood: m } : {}), shared: !!old.shared, editedAt: now }
+  const note: JournalNote = { id, at: old.at, text: t, ...moodFields(cleanMoods(moods)), shared: !!old.shared, editedAt: now }
   return { ok: true, note, notes: notes.map((n) => (n.id === id ? note : n)) }
 }
 
@@ -414,8 +433,9 @@ function mondayOf(d: Date): Date {
   return x
 }
 
-/** Tendance calculée sur l'appareil (mode essai), même forme que hb_player_mood_trend : toutes les notes, jamais de texte. */
-export function moodTrend(notes: readonly Pick<JournalNote, 'at' | 'mood'>[], now: Date = new Date(), weeks = 8): MoodTrend {
+/** Tendance calculée sur l'appareil (mode essai), même forme que hb_player_mood_trend : toutes les notes, jamais de texte ;
+ *  chaque humeur d'une note compte une fois (076), le nombre de notes ne change pas. */
+export function moodTrend(notes: readonly Pick<JournalNote, 'at' | 'mood' | 'moods'>[], now: Date = new Date(), weeks = 8): MoodTrend {
   const monday = mondayOf(now)
   const out: MoodWeek[] = []
   for (let i = weeks - 1; i >= 0; i--) {
@@ -428,8 +448,7 @@ export function moodTrend(notes: readonly Pick<JournalNote, 'at' | 'mood'>[], no
     const w = [...out].reverse().find((x) => x.from <= day)
     if (!w || day >= localDay(new Date(new Date(monday).setDate(monday.getDate() + 7)))) continue
     w.notes++
-    const m = cleanMood(n.mood)
-    if (m) w.moods[m] = (w.moods[m] ?? 0) + 1
+    for (const m of noteMoods(n)) w.moods[m] = (w.moods[m] ?? 0) + 1
   }
   return { weeks: out }
 }
@@ -536,7 +555,7 @@ export function myDataExport(
     parcours: self?.path ?? {},
     journal: sortNotes(notes).map((n) => ({
       date: n.at,
-      humeur: n.mood ?? null,
+      humeurs: noteMoods(n),
       texte: n.text,
       partageeAvecMonEncadrant: !!n.shared,
       ...(n.editedAt ? { corrigeeLe: n.editedAt } : {}),

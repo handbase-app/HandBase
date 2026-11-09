@@ -227,7 +227,7 @@ const NOW = '2026-10-20T08:00:00.000Z'
 t('note : texte nettoyé, vide refusé, 1 000 caractères, humeur hors liste ignorée, privée, en tête', () => {
   let r = journalAdd([], '  Super match\r\n ce week-end \u0001 ', 'fier', NOW, 'n1')
   assert.ok(r.ok)
-  assert.deepEqual(r.ok && r.note, { id: 'n1', at: NOW, text: 'Super match\n ce week-end', mood: 'fier', shared: false })
+  assert.deepEqual(r.ok && r.note, { id: 'n1', at: NOW, text: 'Super match\n ce week-end', mood: 'fier', moods: ['fier'], shared: false })
   assert.equal(journalAdd([], '   ', 'fier', NOW).ok, false)
   assert.equal((journalAdd([], '  ', null, NOW) as { error: string }).error, 'note_vide')
   r = journalAdd([], 'x'.repeat(1500), 'triste', NOW, 'n2')
@@ -326,7 +326,7 @@ t('« Télécharger mes données » : tout ce que le jeune a écrit, notes priv�
   const d = myDataExport({ prenom: 'Alix', nom: 'Fictif', club: undefined }, { letter: { why: 'Le plaisir' }, marks: { favTeam: 'X' }, letterHistory: [{ at: NOW, letter: { why: 'Avant' } }] }, notes, NOW)
   assert.deepEqual(d.identite, { prenom: 'Alix', nom: 'Fictif' })
   assert.equal(d.journal.length, 2)
-  assert.deepEqual(d.journal[0], { date: '2026-10-02T08:00:00.000Z', humeur: null, texte: 'Partagée', partageeAvecMonEncadrant: true, corrigeeLe: NOW })
+  assert.deepEqual(d.journal[0], { date: '2026-10-02T08:00:00.000Z', humeurs: [], texte: 'Partagée', partageeAvecMonEncadrant: true, corrigeeLe: NOW })
   assert.equal(d.journal[1].partageeAvecMonEncadrant, false)
   assert.equal(d.versionsPrecedentesDeLaLettre.length, 1)
   assert.equal(myDataFileName('nextar', '2026-10-20'), 'mes-donnees-nextar-2026-10-20.json')
