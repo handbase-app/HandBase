@@ -4,6 +4,7 @@ import { db, SYNC_TABLES, today, TRIAL, type Assignment, type SyncTable } from '
 import { disablePush } from './push'
 import { retireUnpublishedCriteria } from './criteriaImport'
 import { aggregate, forward, startTable, type SyncProgress, type TableProgress } from './syncProgress'
+import { keepScreenOn } from './wakeLock'
 import { retryingFetch } from './retry'
 import { CHARGE_REGLES, delaiEnvoi, delaiFilet, heureSignal, LoadMeter, lireAnnonce, premiereVerifVisibles, prochaineVerifVisibles, regroupement, type Niveau } from './charge'
 import { eventDayPlayers, planPriorite, PRIORITE_TABLES } from './priorite'
@@ -791,6 +792,8 @@ const EPOCH = '1970-01-01T00:00:00Z'
  */
 const setProgress = (p: SyncProgress | null) => {
   progress = p
+  // Gros chargement en cours : l'écran reste allumé (la mise en veille coupait le premier chargement d'un téléphone).
+  keepScreenOn(!!p)
   listeners.forEach((l) => l())
 }
 /** Avancement recalculé après une page (jamais en arrière pendant le même téléchargement). */
