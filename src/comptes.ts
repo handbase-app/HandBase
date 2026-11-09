@@ -5,6 +5,7 @@ import { REFRESH_GATE_KEY, readGate, tokenMark, webLock } from './authRefresh'
 import { db, TRIAL } from './db'
 import { realRole, realUserId, useRole } from './roles'
 import { GATE_MIRROR_KEY, parseSession } from './sessionStore'
+import { spyTarget } from './spy'
 import { accountHooks, authStorage, authStorageKey, freezeSync, serverConfig, sessionKv, supabase } from './sync'
 import {
   accountsView,
@@ -16,6 +17,15 @@ import {
   CHANNEL,
   firstName,
   HOME_DB,
+  homeUidOf,
+  linkedUids,
+  parseRemote,
+  placeFor,
+  REMOTE_KEY,
+  remoteErrorText,
+  remoteFromRows,
+  remoteText,
+  type RemoteAccount,
   realDbName,
   isAccountKey,
   isTestDb,
@@ -50,6 +60,20 @@ import {
  * Ajouter un compte : connexion sur un client à part (persistSession false), puis passage sur lui. La session de
  * l'administrateur n'est jamais fermée. Déconnexion complète (src/sync.ts wipeDevice) : tout part (forgetAll).
  * Notifications : l'abonnement de l'appareil reste au compte maison (pas réenregistré pendant un compte de test, src/App.tsx).
+ *
+ * COMPTES GARDÉS SUR LE COMPTE ADMINISTRATEUR (« ça marche de partout », supabase/076_comptes_test.sql, fonction edge
+ * comptes-test ; règles pures dans src/comptesCore.ts) :
+ *  - Ajout avec mot de passe : le jeton d'accès du compte de test (preuve du mot de passe) part UNE fois à la fonction
+ *    (« lier ») avec celui de l'administrateur ; rien n'est gardé au serveur que l'e-mail, le nom et le rôle.
+ *  - Liste lue par l'administrateur actif (table, ses lignes seulement), copiée sur l'appareil (REMOTE_KEY) pour rester
+ *    visible pendant un compte de test.
+ *  - Compte de la liste absent de l'appareil : « ouvrir » (fonction, jeton de l'administrateur, actif ou garé) rend un jeton
+ *    de connexion à usage unique, échangé sur un client à part (verifyOtp) ; puis passage sur lui comme après un ajout.
+ *  - Appareil plein : le compte enregistré utilisé le moins récemment laisse sa place (releaseCandidate).
+ *  - « Retirer » : de l'appareil ET du serveur. Comptes ajoutés avant cette version : liés sans mot de passe tant que leur
+ *    session est gardée (« Garder sur tous mes appareils »).
+ *  - Avant 076 ou sans la fonction (base pas à jour, essai sans serveur) : copie absente, rien de nouveau, aucun message.
+ *    Jamais pendant « Voir comme… ».
  */
 
 const kv = sessionKv
@@ -98,6 +122,61 @@ async function writeList(next: SavedAccount[]) {
 }
 if (accountsAvailable()) void readList()
 
+// ---------- Liste du serveur (copie locale) ----------
+
+let remoteRaw: string | null = null
+async function readRemote() {
+  try {
+    remoteRaw = (await kv?.get(REMOTE_KEY)) ?? null
+  } catch {
+    /* illisible : la copie connue reste */
+  }
+  emit()
+}
+async function writeRemote(admin: string, rows: RemoteAccount[] | null) {
+  if (rows) await kv!.set(REMOTE_KEY, remoteText(admin, rows))
+  else await kv!.del(REMOTE_KEY)
+  remoteRaw = rows ? remoteText(admin, rows) : null
+  emit()
+}
+if (accountsAvailable()) void readRemote()
+
+/** Administrateur de l'appareil (maison, ou compte actif administrateur). */
+const homeUid = () => homeUidOf(list, realUserId(), realRole())
+/** Liste du serveur connue pour l'administrateur de l'appareil ; null : inconnue (ou « Voir comme… » : rien du serveur). */
+const remoteList = () => (spyTarget() ? null : parseRemote(remoteRaw, homeUid()))
+
+let remoteReadAt = 0
+/**
+ * Relit la liste du serveur (administrateur actif, en ligne, hors « Voir comme… », au plus une fois par minute). Table absente
+ * (avant 076) : copie effacée, sans message ; autre échec : copie gardée.
+ */
+export async function refreshRemote(force = false) {
+  if (!accountsAvailable() || spyTarget() || realRole() !== 'admin' || onTestAccount() || !navigator.onLine) return
+  const me = realUserId()
+  if (!me || (!force && Date.now() - remoteReadAt < 60_000)) return
+  remoteReadAt = Date.now()
+  try {
+    const token = await activeToken()
+    if (!token) return
+    // Fonction présente ? Une demande vide lui fait répondre « demande » (400) sans rien lire ni écrire ; absente, le serveur
+    // répond autre chose (404, 503…) : rien du serveur n'est montré (on ne propose pas ce qu'on ne peut pas faire).
+    const [probe, read] = await Promise.all([
+      callRemote(token, {}),
+      timeout(Promise.resolve(supabase!.from('hb_comptes_test').select('test_uid, email, libelle, role, ajoute_le')), 10_000),
+    ])
+    if (!probe) return
+    const { data, error } = read
+    if (error) {
+      if (/PGRST205|42P01|does not exist|schema cache/i.test(`${error.code} ${error.message}`)) await writeRemote(me, null)
+      return
+    }
+    await writeRemote(me, functionHere(probe) ? remoteFromRows(data) : null)
+  } catch {
+    /* réseau : plus tard */
+  }
+}
+
 /** Base de l'espace actif (src/db.ts). */
 export const activeDb = () => db.name
 /** Un compte de test est actif (bandeau, pas de réabonnement aux notifications). */
@@ -116,8 +195,12 @@ export function useAccountsView() {
       listeners.delete(l)
     }
   }, [])
+  const admin = accountsAvailable() && realRole() === 'admin' && !onTestAccount()
+  useEffect(() => {
+    if (admin) void refreshRemote()
+  }, [admin])
   if (!accountsAvailable()) return accountsView([], null, HOME_DB, '')
-  return accountsView(list, realUserId(), activeDb(), realRole())
+  return accountsView(list, realUserId(), activeDb(), realRole(), remoteList())
 }
 
 // ---------- Client de connexion à part (aucun stockage : rien n'écrase la session active) ----------
@@ -169,6 +252,82 @@ const identity = (s: Pick<Session, 'user'>, role: string): Identity => ({
   email: s.user.email ?? '',
   role,
 })
+
+// ---------- Fonction comptes-test (serveur) ----------
+
+type Reply = { status: number; body: Record<string, unknown> }
+
+/** Appel de la fonction ; null : injoignable (hors ligne, fonction absente du serveur, délai). Rien n'est journalisé. */
+async function callRemote(adminToken: string, body: Record<string, unknown>): Promise<Reply | null> {
+  try {
+    const res = await timeout(
+      fetch(`${serverConfig!.url.replace(/\/+$/, '')}/functions/v1/comptes-test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminToken}`, apikey: serverConfig!.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      15_000,
+    )
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    return { status: res.status, body: json && typeof json === 'object' ? json : {} }
+  } catch {
+    return null
+  }
+}
+
+/** Réponse de la fonction à une demande vide : elle est déployée (sinon : 404, 503… du serveur des fonctions). */
+const functionHere = (r: Reply) => r.status === 400 && r.body.error === 'demande'
+
+/** Jeton d'accès valable d'un compte garé (rafraîchi à part et regardé si besoin) ; null : pas possible maintenant. */
+async function parkedToken(uid: string): Promise<string | null> {
+  const a = list.find((x) => x.uid === uid)
+  if (!a?.session) return null
+  if (sessionFresh(a.session, Date.now())) return tokensOf(a.session)?.access_token ?? null
+  if (!navigator.onLine) return null
+  const r = await refreshParked(a.session)
+  if (!r.text) return null
+  await writeList(parseList(await kv!.get(LIST_KEY)).map((x) => (x.uid === uid && x.session ? { ...x, session: r.text! } : x)))
+  return tokensOf(r.text)?.access_token ?? null
+}
+
+/** Jeton du compte actif (supabase-js). */
+async function activeToken(): Promise<string | null> {
+  const { data } = await timeout(supabase!.auth.getSession(), 5000).catch(() => ({ data: { session: null } }))
+  return data.session?.access_token ?? null
+}
+
+/** Jeton de l'administrateur de l'appareil : actif, ou garé (maison). Jamais pendant « Voir comme… ». */
+async function adminToken(): Promise<string | null> {
+  if (spyTarget()) return null
+  if (realRole() === 'admin' && !onTestAccount()) return activeToken()
+  await readList()
+  const home = list.find((a) => a.home && a.session)
+  return home ? parkedToken(home.uid) : null
+}
+
+/** Enregistre un compte de test sur le compte administrateur (preuve : son jeton d'accès). Au mieux, sans message. */
+async function linkRemote(testToken: string): Promise<boolean> {
+  if (!accountsAvailable() || spyTarget() || !navigator.onLine) return false
+  const admin = await adminToken()
+  const me = homeUid()
+  if (!admin || !me) return false
+  const r = await callRemote(admin, { action: 'lier', jeton_test: testToken })
+  const row = r?.status === 200 ? remoteFromRows([r.body.compte])[0] : undefined
+  if (!row) return false
+  const known = parseRemote(remoteRaw, me) ?? []
+  await writeRemote(me, [...known.filter((k) => k.uid !== row.uid), row])
+  return true
+}
+
+/** Retire un compte de test du compte administrateur. Au mieux : hors ligne, il reste au serveur (réapparaît dans la liste). */
+async function unlinkRemote(uid: string) {
+  const me = homeUid()
+  const known = parseRemote(remoteRaw, me)
+  if (!me || !known?.some((k) => k.uid === uid)) return
+  const admin = await adminToken()
+  const r = admin ? await callRemote(admin, { action: 'retirer', test_uid: uid }) : null
+  if (r?.status === 200) await writeRemote(me, known.filter((k) => k.uid !== uid))
+}
 
 // ---------- Autres onglets ----------
 
@@ -252,7 +411,7 @@ export async function switchTo(uid: string, opts: { incoming?: { acc: Identity; 
       }
       const dest = next.find((a) => a.uid === uid)
       if (!dest) return 'Ce compte n’est plus gardé sur l’appareil.'
-      next = unpark(next, uid)
+      next = unpark(next, uid, now)
       const bundle = parseBundle(await kv!.get(bundleKey(uid)))
       // Session du compte choisi d'abord (une seule écriture) ; puis la liste (il n'y est plus garé : jamais deux copies).
       await authStorage.setItem(authStorageKey, target!)
@@ -309,28 +468,110 @@ export async function addAccount(email: string, password: string): Promise<Switc
   const acc = identity(s, (prof as { role?: string } | null)?.role ?? '')
   await readList()
   const check = addTest(list, acc, '', realUserId(), Date.now())
-  if (check.error) {
+  if (check.error === 'actif') {
     await c.auth.signOut({ scope: 'local' }).catch(() => {})
     return fail(addErrorText(check.error))
   }
+  // Compte de test (pas l'administrateur reconnecté) : enregistré sur le compte administrateur, pour tous ses appareils.
+  if (acc.role !== 'admin' && !list.find((a) => a.uid === acc.uid)?.home) await linkRemote(s.access_token).catch(() => false)
+  const place = placeFor(list, acc.uid, realUserId(), linkedUids(remoteList()))
+  if ('error' in place) {
+    await c.auth.signOut({ scope: 'local' }).catch(() => {})
+    return fail(addErrorText(place.error))
+  }
+  if ('release' in place) await releaseLocal(place.release.uid)
   return switchTo(acc.uid, { incoming: { acc, session: JSON.stringify(s) } })
 }
 
-/** « Retirer ce compte de l'appareil » : sa session fermée, son espace effacé. Le compte actif : retour sur la maison. */
-export async function removeAccount(uid: string): Promise<SwitchResult> {
-  if (!accountsAvailable()) return fail('Changement de compte indisponible sur cet appareil.')
+/**
+ * Compte enregistré sur le compte administrateur mais pas sur cet appareil : ouvert au serveur (jeton de connexion à usage
+ * unique, aucun e-mail), échangé sur un client à part, puis passage sur lui (il devient un compte gardé de l'appareil).
+ */
+export async function openRemote(uid: string): Promise<SwitchResult> {
+  if (!accountsAvailable() || spyTarget()) return fail('Changement de compte indisponible pour l’instant.')
+  if (!navigator.onLine) return fail('Pas de connexion internet : il faut être en ligne pour ouvrir ce compte.')
   await readList()
-  const acc = list.find((a) => a.uid === uid)
-  if (!acc || acc.home) return fail('Ce compte n’est pas un compte de test de l’appareil.')
-  if (uid === realUserId() || acc.db === activeDb()) {
-    const home = list.find((a) => a.home && a.session)
-    if (!home) return fail('Le compte administrateur n’est plus gardé : utilise « Se déconnecter ».')
-    return switchTo(home.uid, { dropCurrent: true })
+  const row = remoteList()?.find((r) => r.uid === uid)
+  if (!row) return fail('Ce compte de test n’est plus gardé sur ton compte.')
+  const place = placeFor(list, uid, realUserId(), linkedUids(remoteList()))
+  if ('error' in place) return fail(addErrorText(place.error))
+  const admin = await adminToken()
+  if (!admin) return fail('Reviens sur ton compte administrateur pour ouvrir ce compte.')
+  const r = await callRemote(admin, { action: 'ouvrir', test_uid: uid })
+  const hash = typeof r?.body.token_hash === 'string' ? r.body.token_hash : ''
+  if (!hash) {
+    const code = typeof r?.body.error === 'string' ? r.body.error : ''
+    // Ligne ou compte disparus au serveur : retirés de la copie locale.
+    if (code === 'inconnu' || code === 'cible_absente') {
+      const me = homeUid()
+      if (me) await writeRemote(me, (parseRemote(remoteRaw, me) ?? []).filter((k) => k.uid !== uid))
+    }
+    return fail(remoteErrorText(code))
   }
+  const c = tempClient()
+  let v = await c.auth.verifyOtp({ token_hash: hash, type: 'magiclink' }).catch(() => ({ data: { session: null } }))
+  // Serveur d'authentification plus récent (type « magiclink » retiré) : même jeton, type « email ».
+  if (!v.data.session) v = await c.auth.verifyOtp({ token_hash: hash, type: 'email' }).catch(() => ({ data: { session: null } }))
+  const s = v.data.session
+  if (!s || s.user.id !== uid) return fail(remoteErrorText(''))
+  const { data: prof } = await c.from('hb_profiles').select('role').eq('user_id', s.user.id).maybeSingle()
+  const acc = identity(s, (prof as { role?: string } | null)?.role ?? row.role)
+  if (acc.role === 'admin') {
+    await c.auth.signOut({ scope: 'local' }).catch(() => {})
+    return fail(remoteErrorText('cible_admin'))
+  }
+  if ('release' in place) await releaseLocal(place.release.uid)
+  return switchTo(uid, { incoming: { acc, session: JSON.stringify(s) } })
+}
+
+/**
+ * Comptes de test de l'appareil ajoutés AVANT cette version (ou hors ligne) : enregistrés sur le compte administrateur sans
+ * retaper leur mot de passe, tant que leur session est gardée (jeton d'accès rafraîchi = preuve). Rend le nombre enregistré.
+ */
+export async function linkKept(): Promise<number> {
+  if (!accountsAvailable() || spyTarget() || !navigator.onLine) return 0
+  await readList()
+  const known = linkedUids(remoteList())
+  const activeUid = realUserId()
+  let n = 0
+  for (const a of list.filter((x) => !x.home && !known.includes(x.uid))) {
+    const token = a.uid === activeUid && !a.session ? await activeToken() : await parkedToken(a.uid)
+    if (token && (await linkRemote(token).catch(() => false))) n++
+  }
+  return n
+}
+
+/** Compte de test libéré de l'appareil seulement (session fermée, espace effacé) ; il reste enregistré au serveur. */
+async function releaseLocal(uid: string) {
+  const acc = list.find((a) => a.uid === uid)
+  if (!acc || acc.home || uid === realUserId() || acc.db === activeDb()) return
   await timeout(revoke(acc.session), 4000).catch(() => {})
   await deleteDb(acc.db)
   await kv!.del(bundleKey(uid))
   await writeList(removeTest(parseList(await kv!.get(LIST_KEY)), uid))
+}
+
+/**
+ * « Retirer ce compte » : de l'appareil (sa session fermée, son espace effacé) ET du compte administrateur (tous ses
+ * appareils). Le compte actif : retour sur la maison. Compte seulement au serveur : retiré du serveur.
+ */
+export async function removeAccount(uid: string): Promise<SwitchResult> {
+  if (!accountsAvailable()) return fail('Changement de compte indisponible sur cet appareil.')
+  await readList()
+  const acc = list.find((a) => a.uid === uid)
+  if (!acc && remoteList()?.some((r) => r.uid === uid)) {
+    await unlinkRemote(uid)
+    return remoteList()?.some((r) => r.uid === uid) ? fail('Pas de connexion au serveur : réessaie dans un moment.') : { ok: true }
+  }
+  if (!acc || acc.home) return fail('Ce compte n’est pas un compte de test de l’appareil.')
+  if (uid === realUserId() || acc.db === activeDb()) {
+    const home = list.find((a) => a.home && a.session)
+    if (!home) return fail('Le compte administrateur n’est plus gardé : utilise « Se déconnecter ».')
+    await timeout(unlinkRemote(uid), 8000).catch(() => {})
+    return switchTo(home.uid, { dropCurrent: true })
+  }
+  await timeout(unlinkRemote(uid), 8000).catch(() => {})
+  await releaseLocal(uid)
   return { ok: true }
 }
 
@@ -348,6 +589,8 @@ async function forgetAll() {
   }
   await kv.del(LIST_KEY).catch(() => {})
   await kv.del(BASE_KEY).catch(() => {})
+  await kv.del(REMOTE_KEY).catch(() => {})
+  remoteRaw = null
   try {
     ls?.removeItem(BASE_KEY)
   } catch {

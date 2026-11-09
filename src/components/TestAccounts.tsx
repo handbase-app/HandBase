@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { accountLabel, firstName, type AccountsView, type SavedAccount } from '../comptesCore'
-import { addAccount, removeAccount, switchTo, useAccountsView } from '../comptes'
+import { accountLabel, firstName, type AccountsView, type RemoteAccount, type SavedAccount } from '../comptesCore'
+import { addAccount, linkKept, openRemote, removeAccount, switchTo, useAccountsView } from '../comptes'
 import { ask } from './Confirm'
 import { afterWindow, FormActions, FormWindow } from './FormWindow'
 import { flash, type MenuItem } from './ItemMenu'
@@ -11,6 +11,9 @@ import { Icon } from './ui'
  * fenêtre « Ajouter un compte de test » (ou reconnecter un compte dont la session ne vaut plus), « Retirer un compte de test ».
  * Rien ne s'affiche pour un compte qui n'est pas administrateur sur un appareil sans compte administrateur gardé (un vrai jeune
  * sur son téléphone ne voit rien de nouveau : src/comptesCore.ts accountsView).
+ * Comptes gardés aussi sur le compte administrateur (076, fonction comptes-test) : ceux des autres appareils apparaissent
+ * (« Passer sur … », ouverts en un toucher, sans mot de passe), « Retirer » les retire partout, et ceux ajoutés avant cette
+ * version se gardent partout sans retaper leur mot de passe (« Garder sur tous mes appareils »).
  */
 
 type WindowAsk = { kind: 'ajouter'; email?: string; note?: string } | { kind: 'retirer' }
@@ -26,11 +29,24 @@ export async function goToAccount(a: SavedAccount) {
   else flash(r.message)
 }
 
-async function removeActive(a: SavedAccount, home: SavedAccount | null) {
+/** Compte gardé sur le compte administrateur, pas encore sur cet appareil : ouvert au serveur, sans mot de passe. */
+async function goToRemote(a: RemoteAccount) {
+  flash(`Ouverture de ${firstName(a)}…`)
+  const r = await openRemote(a.uid)
+  if (!r.ok) flash(r.message)
+}
+
+async function linkAll(n: number) {
+  flash(n > 1 ? 'Enregistrement des comptes…' : 'Enregistrement du compte…')
+  const done = await linkKept()
+  flash(done ? (done > 1 ? `${done} comptes gardés sur tous tes appareils.` : 'Compte gardé sur tous tes appareils.') : 'Pas possible pour l’instant : réessaie en ligne.')
+}
+
+async function removeActive(a: SavedAccount, home: SavedAccount | null, everywhere: boolean) {
   // Le menu se referme (son entrée d'historique part) : la question vient après, sinon le même retour la fermerait.
   await new Promise<void>((r) => afterWindow(r))
   const ok = await ask(
-    `Retirer le compte de ${firstName(a)} de cet appareil ? Sa session est fermée ici et ses données locales sont effacées${home ? ` ; retour sur ${firstName(home)}` : ''}. Le compte lui-même n’est pas touché.`,
+    `Retirer le compte de ${firstName(a)} ${everywhere ? 'de tous tes appareils' : 'de cet appareil'} ? Sa session est fermée ici et ses données locales sont effacées${home ? ` ; retour sur ${firstName(home)}` : ''}. Le compte lui-même n’est pas touché.`,
     { ok: 'Retirer' },
   )
   if (!ok) return
@@ -47,11 +63,22 @@ export function accountMenuItems(v: AccountsView): MenuItem[] {
     items.push({ label: `Revenir sur ${accountLabel(home)}`, icon: 'undo', onSelect: () => void goToAccount(home) })
   }
   for (const o of v.others) items.push({ label: `Passer sur ${accountLabel(o)}`, icon: 'user', hint: 'Compte de test', onSelect: () => void goToAccount(o) })
+  for (const o of v.remote) items.push({ label: `Passer sur ${accountLabel(o)}`, icon: 'user', hint: 'Compte de test · ton compte', onSelect: () => void goToRemote(o) })
   if (v.canAdd) items.push({ label: 'Ajouter un compte de test…', icon: 'userPlus', onSelect: () => openWindow({ kind: 'ajouter' }) })
+  if (v.toLink.length) {
+    const n = v.toLink.length
+    items.push({
+      label: n > 1 ? `Garder ces ${n} comptes sur tous mes appareils` : `Garder ${firstName(v.toLink[0])} sur tous mes appareils`,
+      hint: 'Sans retaper le mot de passe',
+      icon: 'sync',
+      onSelect: () => void linkAll(n),
+    })
+  }
   if (v.onTest && v.active) {
     const me = v.active
-    items.push({ label: 'Retirer ce compte', hint: 'De cet appareil', icon: 'trash', onSelect: () => void removeActive(me, v.home) })
-  } else if (v.others.length) items.push({ label: 'Retirer un compte de test…', icon: 'trash', onSelect: () => openWindow({ kind: 'retirer' }) })
+    const everywhere = v.linked.includes(me.uid)
+    items.push({ label: 'Retirer ce compte', hint: everywhere ? 'De tous tes appareils' : 'De cet appareil', icon: 'trash', onSelect: () => void removeActive(me, v.home, everywhere) })
+  } else if (v.others.length || v.remote.length) items.push({ label: 'Retirer un compte de test…', icon: 'trash', onSelect: () => openWindow({ kind: 'retirer' }) })
   if (items.length) items[0] = { ...items[0], separated: true }
   return items
 }
@@ -106,6 +133,7 @@ export function AccountWindows() {
 }
 
 function AddWindow({ email: initial = '', note, onClose }: { email?: string; note?: string; onClose: () => void }) {
+  const { everywhere } = useAccountsView()
   const [email, setEmail] = useState(initial)
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
@@ -134,6 +162,7 @@ function AddWindow({ email: initial = '', note, onClose }: { email?: string; not
         <p className="text-[11px] text-muted">
           Pour essayer l’appli avec un autre compte (la page d’un jeune…). Ton compte reste ouvert sur cet appareil : tu y reviens en un toucher depuis la
           bulle de profil, sans retaper ton mot de passe. Chaque compte garde ses données à part.
+          {everywhere && ' Le compte ajouté est gardé sur ton compte : tu le retrouves sur tes autres appareils, sans retaper son mot de passe.'}
         </p>
         <div>
           <span className="label">E-mail</span>
@@ -160,10 +189,17 @@ function AddWindow({ email: initial = '', note, onClose }: { email?: string; not
 
 function RemoveWindow({ onClose }: { onClose: () => void }) {
   const v = useAccountsView()
+  const rows: { a: SavedAccount | RemoteAccount; everywhere: boolean }[] = [
+    ...v.others.map((a) => ({ a, everywhere: v.linked.includes(a.uid) })),
+    ...v.remote.map((a) => ({ a, everywhere: true })),
+  ]
   return (
     <FormWindow title="Retirer un compte de test" onClose={onClose} width={440} phoneFull={false} guard={false}>
-      <p className="text-[11px] text-muted">Sa session est fermée sur cet appareil et ses données locales sont effacées. Le compte lui-même n’est pas touché.</p>
-      {v.others.map((a) => (
+      <p className="text-[11px] text-muted">
+        Sa session est fermée sur cet appareil et ses données locales sont effacées
+        {v.everywhere ? ' ; il est aussi retiré de ton compte (tous tes appareils)' : ''}. Le compte lui-même n’est pas touché.
+      </p>
+      {rows.map(({ a, everywhere }) => (
         <div key={a.uid} className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-bold">{accountLabel(a)}</span>
           <button
@@ -171,14 +207,14 @@ function RemoveWindow({ onClose }: { onClose: () => void }) {
             className="btn-ghost text-xs"
             onClick={async () => {
               const r = await removeAccount(a.uid)
-              flash(r.ok ? `Compte de ${firstName(a)} retiré de l’appareil.` : r.message)
+              flash(r.ok ? `Compte de ${firstName(a)} retiré ${everywhere ? 'de tous tes appareils' : 'de l’appareil'}.` : r.message)
             }}
           >
             Retirer
           </button>
         </div>
       ))}
-      {!v.others.length && <p className="text-xs">Aucun compte de test sur cet appareil.</p>}
+      {!rows.length && <p className="text-xs">Aucun compte de test sur cet appareil.</p>}
       <FormActions>
         <button type="button" className="btn-ghost" onClick={onClose}>
           Fermer
