@@ -1063,11 +1063,28 @@ const BATCH = 500
 const lots = <T>(xs: readonly T[]) => Array.from({ length: Math.ceil(xs.length / BATCH) }, (_, i) => xs.slice(i * BATCH, (i + 1) * BATCH))
 
 /** Début de chaque fichier : transaction ouverte par l'appelant (outils/appliquer-sql.sh, apply.sql) ; déclencheurs coupés. */
-/** Fin de passage : registre (061) incomplet pour tous les curseurs d'avant → filet (059) sur chaque appareil. */
-export const RESYNC_SQL = `do $$ begin
-  if to_regclass('public.hb_registre_etat') is not null then
-    update public.hb_registre_etat set depuis_x = pg_current_xact_id() where id = 1;
-  end if;
+/**
+ * Fin de passage : les fichiers écrivent déclencheurs coupés, donc sans ligne dans le registre des changements (061), et à
+ * une heure serveur qui peut être plus ancienne que le curseur d'un appareil déjà synchronisé : ni le filet (059) ni le
+ * registre ne lui diraient rien (constaté le 09/11 sur la maison : groupes Pôle, clé wellness et avis jamais reçus, réparé à la
+ * main). On note donc ici, comme hb_registre_noter, chaque ligne écrite dans cette transaction (heure serveur ≥ son début).
+ */
+export const RESYNC_SQL = `do $$
+declare t text;
+begin
+  if to_regclass('public.hb_registre') is null or to_regprocedure('public.hb_canaux_ligne(text, jsonb)') is null then return; end if;
+  foreach t in array array['players', 'measurements', 'evaluations', 'groups', 'config'] loop
+    execute format($f$
+      insert into public.hb_registre (x, canal, tbl, ligne, us, h, perte)
+      select pg_current_xact_id(), c.canal, %1$L, r.id, n.us,
+             case when %1$L in ('players', 'measurements', 'evaluations') and not r.deleted
+                  then left(encode(sha256(convert_to(r.id || E'\\n' || n.us::text || E'\\n' || r.data::text, 'UTF8')), 'hex'), 16) end,
+             r.deleted
+        from public.%2$I r
+        cross join lateral (select (extract(epoch from r.server_updated_at) * 1000000)::bigint as us) n
+        cross join lateral unnest(public.hb_canaux_ligne(%3$L, to_jsonb(r))) c(canal)
+       where r.server_updated_at >= now()$f$, t, 'hb_' || t, 'hb_' || t);
+  end loop;
 end $$;
 `
 
@@ -1450,9 +1467,8 @@ export function ecrireSql(a: Activite, dir: string, opts: { empreinte?: string }
     ['06_journal.sql', sqlJournal(a)],
     ...(opts.empreinte ? ([['08_comptes_joueurs.sql', sqlComptes(a, opts.empreinte)]] as [string, string][]) : []),
   ]
-  // Déclencheurs coupés = registre (061) muet : les appareils déjà synchronisés ne verraient ni les groupes, ni les fiches,
-  // ni la clé wellness. On remet le curseur de départ du registre à cette transaction : chaque appareil fait une fois le filet
-  // de 059 et récupère tout (oubli constaté le 09/11 sur la maison, réparé à la main).
+  // Déclencheurs coupés = registre (061) muet : lignes écrites notées à la fin (RESYNC_SQL), sinon les appareils déjà
+  // synchronisés ne les reçoivent jamais.
   files.push(['09_appareils.sql', RESYNC_SQL])
   for (const [n, s] of files) writeFileSync(join(dir, n), s)
   writeFileSync(join(dir, '03_reglage_wellness.sql'), REGLAGE_SQL)
