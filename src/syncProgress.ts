@@ -63,6 +63,9 @@ export const showProgress = (p: SyncProgress | null): p is SyncProgress => !!p &
  */
 export const BUSY_LABEL = 'Beaucoup de monde en ce moment — vos joueurs arrivent…'
 
+/** Sous la barre du premier chargement : l'écran reste allumé (src/wakeLock.ts), mais l'appli doit rester devant. */
+export const KEEP_OPEN_LABEL = 'Garde Nextar ouvert pendant le chargement : l’écran reste allumé.'
+
 export const percent = (p: SyncProgress) => Math.min(100, Math.floor(p.share * 100))
 
 export const TABLE_LABELS: Record<SyncTable, string> = {

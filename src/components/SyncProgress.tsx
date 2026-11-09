@@ -1,5 +1,5 @@
 import { useSyncState } from '../sync'
-import { BUSY_LABEL, percent, progressLabel, showProgress } from '../syncProgress'
+import { BUSY_LABEL, KEEP_OPEN_LABEL, percent, progressLabel, showProgress } from '../syncProgress'
 
 /**
  * Gros téléchargement (premier chargement, entré dès les premiers joueurs reçus ; gros retard) : barre fine sous l'en-tête,
@@ -18,6 +18,7 @@ export function SyncProgressBar() {
       )}
       {/* Message d'attente en couleur du texte (contraste 13:1 au moins dans tous les thèmes ; l'atténué descend à 4,6:1). */}
       <p className={`truncate px-4 py-1 text-[10px] font-bold ${busy ? 'text-fg' : 'text-muted'}`}>{busy ? BUSY_LABEL : bar ? `${progressLabel(progress)}…` : ''}</p>
+      {bar && progress.first && !busy && <p className="truncate px-4 pb-1 text-[10px] text-muted">{KEEP_OPEN_LABEL}</p>}
     </div>
   )
 }
