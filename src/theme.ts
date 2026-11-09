@@ -3,6 +3,7 @@ import { DEFAULT_SCALE, scaleFloor } from './mapScale'
 import { BRAND_NEON, neonVars, type Neon } from './neon'
 import { levelVars } from './levels'
 import { positionVars } from './positionColors'
+import { prefsChanged } from './prefsBus'
 import { DEFAULT_APPEARANCE, cleanAppearance, paletteOf, STYLE_ATTRS, styleById, styleLook, type Appearance, type StyleId } from './uiStyle'
 
 /*
@@ -94,6 +95,8 @@ export function setPersonalStyle(id: StyleId | null) {
     /* stockage indisponible */
   }
   applyTheme()
+  // Lié au compte (src/preferences.ts) : même style sur tous ses appareils.
+  prefsChanged()
 }
 
 /** Apparence affichée : l'aperçu en cours, sinon celle de l'installation avec le style choisi par la personne. */
@@ -205,6 +208,8 @@ export function setThemeChoice(choice: string) {
     /* stockage indisponible */
   }
   applyTheme(choice)
+  // Lié au compte (src/preferences.ts) : même thème sur tous ses appareils.
+  prefsChanged()
 }
 
 // « Auto » : suivre le téléphone quand il passe du clair au sombre.
