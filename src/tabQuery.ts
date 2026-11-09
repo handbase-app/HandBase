@@ -16,6 +16,30 @@ export type PlayerTab = (typeof PLAYER_TABS)[number]
 export const PLAYER_TAB_DEFAULT: PlayerTab = 'profil'
 
 /**
+ * Onglets de « Ma page » du jeune (/moi, src/pages/Me.tsx, 09/11), dans l'ordre affiché : Aujourd'hui (wellness, séance,
+ * objectifs, « Comment ça s'est passé ? » à remplir), Mes tests, Mes matchs (sport avec feuilles de match), Mon cahier
+ * (journal), Ma lampe, Moi (lettre, repères, parcours, équipe). Toujours écrit dans l'adresse (?onglet=…, aperçu :
+ * ?joueur=…&onglet=…) dès qu'on en choisit un : « Retour » ramène au même onglet ; sans paramètre (menu), le dernier ouvert
+ * sur l'appareil, sinon « Aujourd'hui ».
+ */
+export const ME_TABS = ['aujourdhui', 'tests', 'matchs', 'cahier', 'lampe', 'moi'] as const
+export type MeTab = (typeof ME_TABS)[number]
+export const ME_TAB_DEFAULT: MeTab = 'aujourdhui'
+
+/**
+ * Onglet ouvert de « Ma page » : celui de l'adresse s'il y en a un ; sinon `remembered` (le dernier ouvert sur l'appareil).
+ * Onglet inconnu ou caché (`hidden` : Mes matchs pour un sport sans match…) : « Aujourd'hui », jamais caché.
+ */
+export function meTabOf(search: string, remembered: string | null | undefined, hidden: readonly string[] = []): MeTab {
+  const asked = new URLSearchParams(search).get('onglet')
+  const pick = asked ?? remembered
+  return ME_TABS.find((t) => t === pick && (t === ME_TAB_DEFAULT || !hidden.includes(t))) ?? ME_TAB_DEFAULT
+}
+
+/** `search` de « Ma page » avec l'onglet `tab`, toujours écrit (même « Aujourd'hui ») ; autres paramètres (?joueur=…) gardés. */
+export const withMeTab = (search: string, tab: MeTab) => withTab(search, tab, ME_TABS, '')
+
+/**
  * Paramètre de l'onglet de la fiche d'un joueur. Sous /bilan/joueurs, `onglet` est déjà celui du bilan (licenciés, vus…),
  * gardé d'un joueur à l'autre pour la liste de gauche et le retour : la fiche y prend `fiche`.
  */

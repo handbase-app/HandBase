@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { PictoTabs } from '../components/PictoTabs'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton, useBack } from '../backNav'
 import { stampOf, StampWindow } from '../components/ActivityLog'
@@ -58,60 +59,11 @@ const TABS: readonly { id: PlayerTab; label: string; icon: IconName }[] = [
 type TabId = PlayerTab
 
 /**
- * Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler. Un pictogramme par onglet ; le nom écrit
- * seulement dans l'onglet ouvert (pastille teintée, comme la barre du bas), nom complet en title et pour les lecteurs
- * d'écran (choix du 30/10 : les six tiennent sur 375 px). `counts` : nombre d'avis, de vidéos (petite pastille sur le
- * pictogramme, à côté du nom dans l'onglet ouvert). `hidden` : onglets absents (Compte joueur sans droit).
+ * Onglets de la fiche, collés sous l'en-tête de l'appli quand on fait défiler (src/components/PictoTabs.tsx, mêmes onglets
+ * que « Ma page » du jeune). `counts` : nombre d'avis, de vidéos. `hidden` : onglets absents (Compte joueur sans droit).
  */
 function Tabs({ tab, setTab, counts, hidden }: { tab: TabId; setTab: (t: TabId) => void; counts: Partial<Record<TabId, number>>; hidden: TabId[] }) {
-  // Hauteur réelle de l'en-tête (bandeau d'essai, encoche des iPhone…) ; dans le panneau de droite
-  // (ordinateur), le panneau défile seul : les onglets se collent en haut du panneau.
-  const inPanel = !!usePanel()
-  const [top, setTop] = useState(50)
-  // Remesurée quand l'écran tourne (en-tête plus compact sur téléphone couché).
-  useLayoutEffect(() => {
-    const measure = () => setTop(document.querySelector('header')?.getBoundingClientRect().height ?? 50)
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [])
-  return (
-    // Dans le panneau de droite (marge haute pt-3), les onglets collent au bord même du cadre : sinon une bande
-    // de 0,75 rem laisse voir le contenu qui défile au-dessus d'eux.
-    <div data-fiche-onglets className={`sticky z-10 -mx-4 border-b border-line px-4 ${inPanel ? 'bg-bg' : 'bg-bg/95 backdrop-blur'}`} style={{ top: inPanel ? '-0.75rem' : top }}>
-      <div className="flex items-center gap-1 py-1.5">
-        {TABS.filter((t) => !hidden.includes(t.id)).map((t) => {
-          const on = tab === t.id
-          const n = counts[t.id] ?? 0
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              aria-label={n ? `${t.label} (${n})` : t.label}
-              aria-current={on ? 'true' : undefined}
-              title={t.label}
-              className={`flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full text-xs font-bold transition ${on ? 'flex-none bg-accent/15 px-3 text-accent' : 'flex-1 text-muted hover:text-fg'}`}
-            >
-              <span className="relative shrink-0">
-                <Icon name={t.icon} className="h-[18px] w-[18px]" />
-                {!on && n > 0 && (
-                  <span aria-hidden className="absolute -top-1.5 -right-2.5 min-w-4 rounded-full bg-line px-1 text-center text-[9px] leading-4 font-bold text-fg">
-                    {n}
-                  </span>
-                )}
-              </span>
-              {on && (
-                <span aria-hidden className="whitespace-nowrap">
-                  {t.label}
-                  {n > 0 && <span className="ml-1 text-[10px] opacity-70">{n}</span>}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
+  return <PictoTabs tabs={TABS} tab={tab} setTab={setTab} counts={counts} hidden={hidden} />
 }
 
 /**

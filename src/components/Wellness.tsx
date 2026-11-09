@@ -663,7 +663,11 @@ function History({ entries }: { entries: WellnessEntry[] }) {
 
 // ---------- La carte de la page du jeune ----------
 
-export function MyWellnessCard({ player: p, canWrite }: { player: Player; canWrite: boolean }) {
+/**
+ * `onPending` (« Ma page » en onglets) : prévenu à chaque changement, vrai quand le questionnaire du jour est demandé et pas
+ * encore rempli (jour de semaine, qui peut l'enregistrer) : petit point sur l'onglet Aujourd'hui.
+ */
+export function MyWellnessCard({ player: p, canWrite, onPending }: { player: Player; canWrite: boolean; onPending?: (pending: boolean) => void }) {
   const role = useRole()
   const g = w(p.sex)
   // Son compte, l'essai ou une fiche de démonstration : ses données ; aperçu d'un administrateur avec le serveur : rien.
@@ -682,6 +686,8 @@ export function MyWellnessCard({ player: p, canWrite }: { player: Player; canWri
       live = false
     }
   }, [p.id, mine])
+  const pending = mine && canWrite && !!data?.enabled && data.requested && isWeekday(today()) && !data.entries.some((e) => e.day === today())
+  useEffect(() => onPending?.(pending), [pending, onPending])
 
   if (!mine) {
     return (

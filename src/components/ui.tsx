@@ -458,6 +458,12 @@ export const ICONS = {
   /** Médaille (repères des tests, Réglages). */
   medal: 'M8 3h8l-2.5 6h-3zM12 21a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12 13.5v4',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  /** Onglets de « Ma page » (src/pages/Me.tsx) : chronomètre (Mes tests), ballon (Mes matchs), cahier (Mon cahier), lampe à
+   *  huile et sa flamme (Ma lampe). */
+  stopwatch: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 1.5M10 2h4M12 2v3M18.5 6.5L20 5',
+  ball: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3c-2.5 3-2.5 6 0 9s2.5 6 0 9M3.5 9c3 1.5 5.5 1.5 8.5 3s5.5 1.5 8.5 3',
+  book: 'M6 3h12v18H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM4 17a2 2 0 0 1 2-2h12M9 7h6M9 10h4',
+  lamp: 'M3 14h13c0 2.8-2.9 4-6.5 4S3 16.8 3 14zM16 14l5-3.5M7 21h5M9.5 18v3M9.5 14v-2M9.5 9.5c-1.3-1.2-1.3-3 0-4.5 1.3 1.5 1.3 3.3 0 4.5z',
   ruler: 'M3 17L17 3l4 4L7 21zM7 13l2 2M10 10l2 2M13 7l2 2',
   /** Familles de tests (blocs de « Tous les tests », src/components/AllTests.tsx) : gabarit (double flèche verticale), mensurations
    *  (mètre ruban), vitesse (éclair), puissance (haltère), mobilité (flèche en cercle), stabilité (balance), sauts (flèche au-dessus du sol). */

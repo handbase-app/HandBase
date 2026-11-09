@@ -1,10 +1,10 @@
 // Test de l'onglet gardé d'un élément à l'autre (src/tabQuery.ts) : fiche d'un joueur (?onglet=…, ?fiche=… sous
 // /bilan/joueurs où `onglet` est celui du bilan), onglet par défaut sans paramètre, onglet inconnu => défaut,
-// autres paramètres (état de la liste d'origine) gardés.
+// autres paramètres (état de la liste d'origine) gardés ; « Ma page » du jeune (/moi?onglet=…).
 //
 //   npx jiti tools/test-onglets.ts
 import assert from 'node:assert/strict'
-import { avisViewOf, keepPlayerTab, keepTab, playerTabParam, PLAYER_TABS, radarViewOf, tabOf, withAvisView, withRadarView, withTab } from '../src/tabQuery'
+import { avisViewOf, keepPlayerTab, keepTab, ME_TABS, meTabOf, playerTabParam, PLAYER_TABS, radarViewOf, tabOf, withAvisView, withMeTab, withRadarView, withTab } from '../src/tabQuery'
 
 // Lecture
 assert.equal(tabOf('?onglet=croissance', PLAYER_TABS, 'profil'), 'croissance')
@@ -56,5 +56,26 @@ assert.equal(avisViewOf('?onglet=avis&radar=tableau', true), 'tableau')
 assert.equal(withAvisView('?onglet=avis&radar=familles', 'tableau'), '?onglet=avis&radar=tableau')
 assert.equal(radarViewOf('?radar=tableau', true), 'familles')
 assert.equal(keepPlayerTab('', '/joueurs', '?onglet=avis&radar=tableau'), '?onglet=avis&radar=tableau')
+
+// « Ma page » du jeune (/moi, 09/11) : six onglets ; adresse d'abord, sinon le dernier ouvert sur l'appareil, sinon
+// Aujourd'hui ; onglet inconnu ou caché (Mes matchs pour un sport sans match) : Aujourd'hui, jamais caché.
+assert.deepEqual([...ME_TABS], ['aujourdhui', 'tests', 'matchs', 'cahier', 'lampe', 'moi'])
+assert.equal(meTabOf('', null), 'aujourdhui')
+assert.equal(meTabOf('', 'cahier'), 'cahier')
+assert.equal(meTabOf('?onglet=tests', 'cahier'), 'tests')
+assert.equal(meTabOf('?onglet=aujourdhui', 'moi'), 'aujourdhui')
+assert.equal(meTabOf('?joueur=demo-p-6&onglet=lampe', null), 'lampe')
+assert.equal(meTabOf('?joueur=demo-p-6', 'moi'), 'moi')
+assert.equal(meTabOf('?onglet=zzz', 'moi'), 'aujourdhui')
+assert.equal(meTabOf('', 'zzz'), 'aujourdhui')
+assert.equal(meTabOf('?onglet=matchs', null, ['matchs']), 'aujourdhui')
+assert.equal(meTabOf('', 'matchs', ['matchs']), 'aujourdhui')
+assert.equal(meTabOf('?onglet=matchs', null, []), 'matchs')
+assert.equal(meTabOf('?onglet=aujourdhui', null, ['aujourdhui']), 'aujourdhui')
+// Écriture : toujours écrit (même Aujourd'hui, pour que « Retour » rouvre le même onglet), ?joueur= de l'aperçu gardé
+assert.equal(withMeTab('', 'moi'), '?onglet=moi')
+assert.equal(withMeTab('?onglet=moi', 'aujourdhui'), '?onglet=aujourdhui')
+assert.equal(withMeTab('?joueur=demo-p-6', 'cahier'), '?joueur=demo-p-6&onglet=cahier')
+assert.equal(withMeTab('?joueur=demo-p-6&onglet=cahier', 'tests'), '?joueur=demo-p-6&onglet=tests')
 
 console.log('onglets : ok')

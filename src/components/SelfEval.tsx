@@ -68,7 +68,11 @@ const eventLine = (e: Pick<SelfEvalEvent, 'type' | 'date' | 'place'>) => [selfEv
 
 // ---------- Page du jeune ----------
 
-export function SelfEvalSection({ player: p, canWrite }: { player: Player; canWrite: boolean }) {
+/**
+ * `only` (« Ma page » en onglets, 09/11) : « current », celles à remplir ou encore modifiables (onglet Aujourd'hui) ; « past »,
+ * l'historique « Mes auto-évaluations » (onglet Mes matchs) ; sans : les deux (sport sans onglet Mes matchs).
+ */
+export function SelfEvalSection({ player: p, canWrite, only }: { player: Player; canWrite: boolean; only?: 'current' | 'past' }) {
   const role = useRole()
   const [list, setList] = useState<SelfEvalEvent[] | null>(null)
   const [open, setOpen] = useState<SelfEvalEvent | null>(null)
@@ -84,8 +88,8 @@ export function SelfEvalSection({ player: p, canWrite }: { player: Player; canWr
   }, [p.id, mine])
 
   if (!list) return null
-  const current = list.filter((e) => e.open)
-  const past = list.filter((e) => !e.open && e.mine)
+  const current = only === 'past' ? [] : list.filter((e) => e.open)
+  const past = only === 'current' ? [] : list.filter((e) => !e.open && e.mine)
   if (!current.length && !past.length) return null
 
   return (

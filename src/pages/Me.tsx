@@ -1,6 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { PictoTabs, type PictoTab } from '../components/PictoTabs'
+import { meTabOf, withMeTab, type MeTab } from '../tabQuery'
 import { BackButton } from '../backNav'
 import { Avatar, playerName, SectionTitle } from '../components/ui'
 import { alive, db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
@@ -41,8 +43,17 @@ import { myWellnessExport } from '../wellness'
 
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
- *  - En haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
- *  - « Mon wellness du jour » (073, src/components/Wellness.tsx) : tout en haut, si son groupe le demande et que le réglage
+ * En six onglets à pictogrammes depuis le 09/11 (comme la fiche, src/components/PictoTabs.tsx ; ?onglet=…, src/tabQuery.ts) :
+ *  ♥ Aujourd'hui (par défaut) : wellness du jour et « Ma séance », « Mes objectifs », « Comment ça s'est passé ? » à remplir ;
+ *    point sur l'onglet quand le wellness du jour est demandé et pas encore rempli ; rien de tout ça : une ligne.
+ *  ⏱ Mes tests · 🤾 Mes matchs (sport avec feuilles de match, sinon caché ; plus l'historique des auto-évaluations) ·
+ *  📓 Mon cahier (journal) · 🪔 Ma lampe (en attente : repère LAMPE) · 👤 Moi (identité, équipe, lettre, repères, parcours ;
+ *    point sur l'onglet tant qu'un brouillon n'est pas enregistré).
+ *  Tous les onglets restent montés (cachés) : rien d'une saisie en cours ne se perd en changeant d'onglet. En bas de chaque
+ *  onglet : « J'ai besoin d'en parler », « Télécharger mes données », la charte.
+ * Sections :
+ *  - Onglet Moi, en haut, ce que le staff tient (lecture seule) : prénom, nom, année de naissance, club, poste, passages en pôle.
+ *  - « Mon wellness du jour » (073, src/components/Wellness.tsx) : en haut d’Aujourd’hui, si son groupe le demande et que le réglage
  *    de l'installation est ouvert (mode essai seulement pour l'instant) : questionnaire du matin (lundi → vendredi),
  *    « Ma séance », ses 14 derniers jours.
  *  - « Mes objectifs » (vague 2 « Génération Bleue », liste à cocher avec des étapes depuis le 04/11) : ceux du staff (rangés
@@ -119,6 +130,36 @@ const writeDraft = (id: string, f: Form | null) => {
   }
 }
 
+/** Dernier onglet ouvert de « Ma page » sur cet appareil (sans paramètre dans l'adresse : menu, lien simple). */
+const TAB_KEY = `handbase${TRIAL ? '-essai' : ''}.moi.onglet`
+const readTab = (): string | null => {
+  try {
+    return localStorage.getItem(TAB_KEY)
+  } catch {
+    return null
+  }
+}
+const writeTab = (t: MeTab) => {
+  try {
+    localStorage.setItem(TAB_KEY, t)
+  } catch {
+    /* stockage indisponible : on revient sur « Aujourd'hui » */
+  }
+}
+
+/**
+ * Onglets de « Ma page » (09/11 : « descendre toute la page, c'est pénible »), même allure que ceux de la fiche
+ * (src/components/PictoTabs.tsx) ; mêmes identifiants que l'adresse (src/tabQuery.ts : ME_TABS).
+ */
+const TABS: readonly PictoTab<MeTab>[] = [
+  { id: 'aujourdhui', label: 'Aujourd’hui', icon: 'heart' },
+  { id: 'tests', label: 'Mes tests', icon: 'stopwatch' },
+  { id: 'matchs', label: 'Mes matchs', icon: 'ball' },
+  { id: 'cahier', label: 'Mon cahier', icon: 'book' },
+  { id: 'lampe', label: 'Ma lampe', icon: 'lamp' },
+  { id: 'moi', label: 'Moi', icon: 'user' },
+]
+
 export default function Me() {
   const role = useRole()
   const [params] = useSearchParams()
@@ -155,6 +196,27 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
   const sport = useSportProfile()
   // « Mes matchs » : feuilles de match FFHB (handball seulement, src/sportConfig.ts).
   const sheets = sport.features.includes('feuilleMatchFFHB')
+  // Onglets (09/11, src/tabQuery.ts : ME_TABS) : celui de l'adresse (?onglet=…), sinon le dernier ouvert sur l'appareil ;
+  // Mes matchs caché pour un sport sans match. Changer d'onglet remplace l'adresse (même état : « Retour » ramène à l'écran
+  // d'origine, et revenir sur la page rouvre le même onglet), ?joueur=… de l'aperçu gardé.
+  const [, setParams] = useSearchParams()
+  const { search, state } = useLocation()
+  const hidden: MeTab[] = sheets ? [] : ['matchs']
+  const tab = meTabOf(search, readTab(), hidden)
+  const tabsAnchor = useRef<HTMLHeadingElement>(null)
+  const setTab = (t: MeTab) => {
+    writeTab(t)
+    setParams(new URLSearchParams(withMeTab(search, t)), { replace: true, state })
+    // Onglets collés en haut (page défilée) : le nouvel onglet s'ouvre à son début, juste sous eux (place normale des
+    // onglets : 1 rem sous le titre).
+    const h1 = tabsAnchor.current
+    const header = document.querySelector('header')?.getBoundingClientRect().height ?? 0
+    const natural = h1 ? h1.getBoundingClientRect().bottom + 16 : header
+    if (natural < header) window.scrollTo({ top: window.scrollY + natural - header })
+  }
+  const panel = (t: MeTab) => (t === tab ? 'flex flex-col gap-4' : 'hidden')
+  // Wellness du jour demandé et pas encore rempli : point sur l'onglet Aujourd'hui (prévenu par la carte, toujours montée).
+  const [wellnessPending, setWellnessPending] = useState(false)
   // Un compte joueur écrit (serveur) ; sans serveur (mode local / essai), l'aperçu permet d'essayer, sur l'appareil seulement ;
   // avec le serveur, l'aperçu d'un administrateur est en lecture seule (jamais d'écriture au nom du jeune).
   const canWrite = isPlayerRole(role) || !supabase
@@ -271,180 +333,216 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
           <BackButton fallback={`/joueurs/${p.id}`} label="FICHE" className="shrink-0" />
         </div>
       )}
-      <h1 className="text-lg font-extrabold">{preview ? `La page ${g.duJoueur}` : 'Ma page'}</h1>
+      <h1 ref={tabsAnchor} className="text-lg font-extrabold">{preview ? `La page ${g.duJoueur}` : 'Ma page'}</h1>
 
-      {/* Mon wellness du jour (073) : en haut, ouvert le matin des jours de semaine tant qu'il n'est pas rempli. */}
-      <MyWellnessCard player={p} canWrite={canWrite} />
+      <PictoTabs
+        tabs={TABS}
+        tab={tab}
+        setTab={setTab}
+        hidden={hidden}
+        dots={{ aujourdhui: wellnessPending && 'wellness à remplir', moi: dirty && canWrite && 'pas encore enregistré' }}
+      />
 
-      {/* Identité : tenue par le staff, lecture seule. */}
-      <div className="card p-4">
-        <div className="flex items-center gap-4">
-          <Avatar p={p} size={56} />
-          <div className="min-w-0 flex-1">
-            <div className="text-base font-extrabold">{playerName(p)}</div>
-            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
-              {year && <span>{g.ne} en {year}</span>}
-              {p.club && <span>{p.club}</span>}
-              {p.position && <span>{positionLabel(p.position)}</span>}
-            </div>
-          </div>
+      {/* Onglets : tous gardés montés (cachés quand ils sont fermés), comme quand tout était sur une seule page : rien de ce
+          qui est en cours de saisie (wellness, séance, équipe, note du journal…) ne se perd en changeant d'onglet. */}
+      <div className={panel('aujourdhui')} role="tabpanel" aria-label="Aujourd’hui" data-testid="onglet-aujourdhui">
+        {/* Rien d'autre ce jour-là (wellness pas demandé, pas d'objectif, rien à remplir) : une ligne plutôt qu'un onglet vide. */}
+        <div className="peer flex flex-col gap-4 empty:hidden">
+          {/* Mon wellness du jour (073) : en haut, ouvert le matin des jours de semaine tant qu'il n'est pas rempli ; à remplir :
+              point sur l'onglet. */}
+          <MyWellnessCard player={p} canWrite={canWrite} onPending={setWellnessPending} />
+          {/* Mes objectifs (065 : étapes à cocher, objectifs « à moi ») et « Comment ça s'est passé ? » (064) à remplir. Sport
+              sans onglet Mes matchs : aussi les plus anciennes, ici. */}
+          <MyObjectives player={p} canWrite={canWrite} />
+          <SelfEvalSection player={p} canWrite={canWrite} only={sheets ? 'current' : undefined} />
         </div>
-        {poles && (
-          <div className="mt-3 border-t border-line pt-3 text-xs">
-            <span className="text-muted">Pôle Espoirs : </span>
-            {poles}
-          </div>
-        )}
-        <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>
+        <p className="card hidden p-4 text-xs text-muted peer-empty:block">Rien à remplir aujourd’hui : tes objectifs et tes questionnaires apparaîtront ici.</p>
       </div>
 
-      {/* Mes objectifs (065 : étapes à cocher, objectifs « à moi ») et « Comment ça s'est passé ? » (064) : en haut, comme « Mes
-          objectifs à suivre ». */}
-      <MyObjectives player={p} canWrite={canWrite} />
-      <SelfEvalSection player={p} canWrite={canWrite} />
+      <div className={panel('tests')} role="tabpanel" aria-label="Mes tests">
+        {/* Mes tests (066) : ses tests physiques, lecture seule ; même vue que l'onglet Tests de la fiche. */}
+        <MyTests p={p} />
+      </div>
 
-      {/* Mes tests (066) : ses tests physiques, lecture seule ; même vue que l'onglet Tests de la fiche. */}
-      <MyTests p={p} />
+      {sheets && (
+        <div className={panel('matchs')} role="tabpanel" aria-label="Mes matchs">
+          {/* Mes matchs (feuilles de match, vidéo) et l'historique de ses auto-évaluations (064). */}
+          <PlayerMatches p={p} canWrite={canWrite} />
+          <SelfEvalSection player={p} canWrite={canWrite} only="past" />
+        </div>
+      )}
 
-      {/* Mon équipe (056) : équipe 1, 2 ou 3, niveau, surclassement ; enregistrée à part (hb_player_set_team). */}
-      <MyTeamCard p={p} canWrite={canWrite} />
+      <div className={panel('cahier')} role="tabpanel" aria-label="Mon cahier">
+        {/* Mon journal du hand (052) : privé, partagé note par note. */}
+        <JournalSection player={p} canWrite={canWrite} preview={preview} />
+      </div>
 
-      {/* Mon journal du hand (052) : privé, partagé note par note. */}
-      <JournalSection player={p} canWrite={canWrite} preview={preview} />
+      <div className={panel('lampe')} role="tabpanel" aria-label="Ma lampe">
+        {/* LAMPE : à remplacer par <PlayerLamp … /> (src/components/PlayerLamp.tsx) quand il sera prêt. */}
+        <p className="card p-4 text-sm text-muted" data-testid="lampe-attente">
+          Ta lampe arrive bientôt : chaque jour rempli l’allume un peu plus.
+        </p>
+      </div>
 
-      {/* Ma lettre */}
-      <section className="card flex flex-col gap-3 p-4">
-        <SectionTitle info="Rien n’est obligatoire : tu écris ce que tu veux, quand tu veux, et tu peux changer d’avis. Ton encadrant lit ce que tu enregistres. Pas de classement, pas de jugement.">
-          Ma lettre
-        </SectionTitle>
-        {questions.map((q) => (
-          <label key={q.key} className="block">
-            <span className="label">{q.label}</span>
-            <textarea
-              className="field min-h-11 w-full resize-y"
-              rows={3}
-              placeholder={q.hint}
-              maxLength={SELF_LIMITS.text}
-              value={form.letter[q.key]}
-              readOnly={!canWrite}
-              onChange={(e) => setLetter(q.key, e.target.value)}
-            />
-            <span className="block text-right text-[10px] text-muted">
-              {form.letter[q.key].length} / {SELF_LIMITS.text}
-            </span>
-          </label>
-        ))}
-        {saveBar}
-        {versions.length > 0 && (
-          <details className="rounded-lg border border-line bg-panel-2 p-3" data-testid="versions-lettre">
-            <summary className="min-h-9 cursor-pointer text-xs font-bold">Versions précédentes de ma lettre ({versions.length})</summary>
-            <p className="mt-1 text-[10px] text-muted">Gardées pour voir le chemin parcouru (les 20 dernières). Lecture seule.</p>
-            <ul className="mt-2 flex flex-col gap-3">
-              {versions.map((v, i) => (
-                <li key={i} className="border-l-2 border-line pl-2">
-                  <div className="text-[11px] font-bold">Version du {fmtDate(dayOf(v.at))}</div>
-                  {questions
-                    .filter((q) => v.letter[q.key])
-                    .map((q) => (
-                      <div key={q.key} className="mt-1">
-                        <div className="text-[10px] text-muted">{q.label}</div>
-                        <div className="text-xs break-words whitespace-pre-wrap">{v.letter[q.key]}</div>
-                      </div>
-                    ))}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </section>
-
-      {/* Mes repères (052) */}
-      <section className="card flex flex-col gap-3 p-4" data-testid="mes-reperes">
-        <SectionTitle info={`Quelques mots, si tu veux : ce qui te fait rêver dans le ${sport.word}.`}>Mes repères</SectionTitle>
-        {marks.map((m) => (
-          <label key={m.key} className="block">
-            <span className="label">{m.label}</span>
-            <input
-              className="field min-h-11 w-full"
-              placeholder={m.hint}
-              maxLength={SELF_LIMITS.mark}
-              value={form.marks[m.key]}
-              readOnly={!canWrite}
-              onChange={(e) => setMark(m.key, e.target.value)}
-            />
-          </label>
-        ))}
-        {saveBar}
-      </section>
-
-      {/* Mon parcours */}
-      <section className="card flex flex-col gap-3 p-4">
-        <SectionTitle info="Tes clubs, les postes où tu as joué, tes sélections et ton palmarès, comme tu les connais.">Mon parcours</SectionTitle>
-        <div>
-          <span className="label">Mes clubs</span>
-          <div className="flex flex-col gap-2">
-            {form.clubs.map((c, i) => (
-              <div key={i} className="flex min-w-0 items-center gap-2">
-                <input
-                  className="field min-h-11 min-w-0 flex-1"
-                  placeholder="Nom du club"
-                  maxLength={SELF_LIMITS.clubName}
-                  value={c.name}
-                  readOnly={!canWrite}
-                  onChange={(e) => setClub(i, { name: e.target.value })}
-                />
-                <input className="field min-h-11 w-16 shrink-0 px-1 text-center" placeholder="de" inputMode="numeric" maxLength={4} aria-label="Première année" value={c.from} readOnly={!canWrite} onChange={(e) => setClub(i, { from: e.target.value.replace(/\D/g, '') })} />
-                <input className="field min-h-11 w-16 shrink-0 px-1 text-center" placeholder="à" inputMode="numeric" maxLength={4} aria-label="Dernière année" value={c.to} readOnly={!canWrite} onChange={(e) => setClub(i, { to: e.target.value.replace(/\D/g, '') })} />
-                {canWrite && (
-                  <button className="min-h-11 w-8 shrink-0 text-muted hover:text-red-400" aria-label="Retirer ce club" onClick={() => setForm((f) => ({ ...f, clubs: f.clubs.filter((_, j) => j !== i) }))}>
-                    ✕
-                  </button>
-                )}
+      <div className={panel('moi')} role="tabpanel" aria-label="Moi">
+        {/* Identité : tenue par le staff, lecture seule. */}
+        <div className="card p-4">
+          <div className="flex items-center gap-4">
+            <Avatar p={p} size={56} />
+            <div className="min-w-0 flex-1">
+              <div className="text-base font-extrabold">{playerName(p)}</div>
+              <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+                {year && <span>{g.ne} en {year}</span>}
+                {p.club && <span>{p.club}</span>}
+                {p.position && <span>{positionLabel(p.position)}</span>}
               </div>
-            ))}
-            {!form.clubs.length && !canWrite && <p className="text-xs text-muted">—</p>}
-            {canWrite && form.clubs.length < SELF_LIMITS.clubs && (
-              <button className="btn-ghost min-h-11 w-fit px-3 text-xs" onClick={() => setForm((f) => ({ ...f, clubs: [...f.clubs, { name: '', from: '', to: '' }] }))}>
-                + Ajouter un club
-              </button>
-            )}
+            </div>
           </div>
-          <p className="mt-1 text-[10px] text-muted">Années : la première et la dernière (laisse « à » vide si tu y es encore).</p>
+          {poles && (
+            <div className="mt-3 border-t border-line pt-3 text-xs">
+              <span className="text-muted">Pôle Espoirs : </span>
+              {poles}
+            </div>
+          )}
+          <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>
         </div>
-        <div>
-          <span className="label">Postes où j’ai joué</span>
-          <div className="flex flex-wrap gap-2">
-            {POSITIONS.map((pos) => {
-              const on = form.positions.includes(pos.id)
-              return (
-                <button
-                  key={pos.id}
-                  type="button"
-                  className={`min-h-11 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2 text-muted'}`}
-                  aria-pressed={on}
-                  disabled={!canWrite}
-                  onClick={() => setForm((f) => ({ ...f, positions: on ? f.positions.filter((x) => x !== pos.id) : [...f.positions, pos.id] }))}
-                >
-                  {pos.label}
+
+        {/* Mon équipe (056) : équipe 1, 2 ou 3, niveau, surclassement ; enregistrée à part (hb_player_set_team). */}
+        <MyTeamCard p={p} canWrite={canWrite} />
+
+        {/* Ma lettre */}
+        <section className="card flex flex-col gap-3 p-4">
+          <SectionTitle info="Rien n’est obligatoire : tu écris ce que tu veux, quand tu veux, et tu peux changer d’avis. Ton encadrant lit ce que tu enregistres. Pas de classement, pas de jugement.">
+            Ma lettre
+          </SectionTitle>
+          {questions.map((q) => (
+            <label key={q.key} className="block">
+              <span className="label">{q.label}</span>
+              <textarea
+                className="field min-h-11 w-full resize-y"
+                rows={3}
+                placeholder={q.hint}
+                maxLength={SELF_LIMITS.text}
+                value={form.letter[q.key]}
+                readOnly={!canWrite}
+                onChange={(e) => setLetter(q.key, e.target.value)}
+              />
+              <span className="block text-right text-[10px] text-muted">
+                {form.letter[q.key].length} / {SELF_LIMITS.text}
+              </span>
+            </label>
+          ))}
+          {saveBar}
+          {versions.length > 0 && (
+            <details className="rounded-lg border border-line bg-panel-2 p-3" data-testid="versions-lettre">
+              <summary className="min-h-9 cursor-pointer text-xs font-bold">Versions précédentes de ma lettre ({versions.length})</summary>
+              <p className="mt-1 text-[10px] text-muted">Gardées pour voir le chemin parcouru (les 20 dernières). Lecture seule.</p>
+              <ul className="mt-2 flex flex-col gap-3">
+                {versions.map((v, i) => (
+                  <li key={i} className="border-l-2 border-line pl-2">
+                    <div className="text-[11px] font-bold">Version du {fmtDate(dayOf(v.at))}</div>
+                    {questions
+                      .filter((q) => v.letter[q.key])
+                      .map((q) => (
+                        <div key={q.key} className="mt-1">
+                          <div className="text-[10px] text-muted">{q.label}</div>
+                          <div className="text-xs break-words whitespace-pre-wrap">{v.letter[q.key]}</div>
+                        </div>
+                      ))}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </section>
+
+        {/* Mes repères (052) */}
+        <section className="card flex flex-col gap-3 p-4" data-testid="mes-reperes">
+          <SectionTitle info={`Quelques mots, si tu veux : ce qui te fait rêver dans le ${sport.word}.`}>Mes repères</SectionTitle>
+          {marks.map((m) => (
+            <label key={m.key} className="block">
+              <span className="label">{m.label}</span>
+              <input
+                className="field min-h-11 w-full"
+                placeholder={m.hint}
+                maxLength={SELF_LIMITS.mark}
+                value={form.marks[m.key]}
+                readOnly={!canWrite}
+                onChange={(e) => setMark(m.key, e.target.value)}
+              />
+            </label>
+          ))}
+          {saveBar}
+        </section>
+
+        {/* Mon parcours */}
+        <section className="card flex flex-col gap-3 p-4">
+          <SectionTitle info="Tes clubs, les postes où tu as joué, tes sélections et ton palmarès, comme tu les connais.">Mon parcours</SectionTitle>
+          <div>
+            <span className="label">Mes clubs</span>
+            <div className="flex flex-col gap-2">
+              {form.clubs.map((c, i) => (
+                <div key={i} className="flex min-w-0 items-center gap-2">
+                  <input
+                    className="field min-h-11 min-w-0 flex-1"
+                    placeholder="Nom du club"
+                    maxLength={SELF_LIMITS.clubName}
+                    value={c.name}
+                    readOnly={!canWrite}
+                    onChange={(e) => setClub(i, { name: e.target.value })}
+                  />
+                  <input className="field min-h-11 w-16 shrink-0 px-1 text-center" placeholder="de" inputMode="numeric" maxLength={4} aria-label="Première année" value={c.from} readOnly={!canWrite} onChange={(e) => setClub(i, { from: e.target.value.replace(/\D/g, '') })} />
+                  <input className="field min-h-11 w-16 shrink-0 px-1 text-center" placeholder="à" inputMode="numeric" maxLength={4} aria-label="Dernière année" value={c.to} readOnly={!canWrite} onChange={(e) => setClub(i, { to: e.target.value.replace(/\D/g, '') })} />
+                  {canWrite && (
+                    <button className="min-h-11 w-8 shrink-0 text-muted hover:text-red-400" aria-label="Retirer ce club" onClick={() => setForm((f) => ({ ...f, clubs: f.clubs.filter((_, j) => j !== i) }))}>
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              {!form.clubs.length && !canWrite && <p className="text-xs text-muted">—</p>}
+              {canWrite && form.clubs.length < SELF_LIMITS.clubs && (
+                <button className="btn-ghost min-h-11 w-fit px-3 text-xs" onClick={() => setForm((f) => ({ ...f, clubs: [...f.clubs, { name: '', from: '', to: '' }] }))}>
+                  + Ajouter un club
                 </button>
-              )
-            })}
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-muted">Années : la première et la dernière (laisse « à » vide si tu y es encore).</p>
           </div>
-        </div>
-        <label className="block">
-          <span className="label">Mes sélections</span>
-          <textarea className="field min-h-11 w-full resize-y" rows={3} placeholder="Une par ligne : comité, ligue, stage…" value={form.selections} readOnly={!canWrite} onChange={(e) => setForm((f) => ({ ...f, selections: e.target.value }))} />
-        </label>
-        <label className="block">
-          <span className="label">Mon palmarès</span>
-          <textarea className="field min-h-11 w-full resize-y" rows={3} placeholder="Une par ligne : titre, tournoi, finale…" value={form.honours} readOnly={!canWrite} onChange={(e) => setForm((f) => ({ ...f, honours: e.target.value }))} />
-        </label>
-        {saveBar}
-      </section>
+          <div>
+            <span className="label">Postes où j’ai joué</span>
+            <div className="flex flex-wrap gap-2">
+              {POSITIONS.map((pos) => {
+                const on = form.positions.includes(pos.id)
+                return (
+                  <button
+                    key={pos.id}
+                    type="button"
+                    className={`min-h-11 rounded-full border px-3 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2 text-muted'}`}
+                    aria-pressed={on}
+                    disabled={!canWrite}
+                    onClick={() => setForm((f) => ({ ...f, positions: on ? f.positions.filter((x) => x !== pos.id) : [...f.positions, pos.id] }))}
+                  >
+                    {pos.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <label className="block">
+            <span className="label">Mes sélections</span>
+            <textarea className="field min-h-11 w-full resize-y" rows={3} placeholder="Une par ligne : comité, ligue, stage…" value={form.selections} readOnly={!canWrite} onChange={(e) => setForm((f) => ({ ...f, selections: e.target.value }))} />
+          </label>
+          <label className="block">
+            <span className="label">Mon palmarès</span>
+            <textarea className="field min-h-11 w-full resize-y" rows={3} placeholder="Une par ligne : titre, tournoi, finale…" value={form.honours} readOnly={!canWrite} onChange={(e) => setForm((f) => ({ ...f, honours: e.target.value }))} />
+          </label>
+          {saveBar}
+        </section>
+        {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
+      </div>
 
-      {sheets && <PlayerMatches p={p} canWrite={canWrite} />}
-
-      {p.self?.updatedAt && !dirty && <p className="text-[10px] text-muted">Dernier enregistrement : {fmtDate(dayOf(p.self.updatedAt))}.</p>}
+      {/* Toujours visible, sous chaque onglet : « J'ai besoin d'en parler », mes données, la charte. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <TalkLink sex={p.sex} />
         {!(preview && supabase) && (
