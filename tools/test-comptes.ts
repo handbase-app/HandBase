@@ -1,5 +1,5 @@
 // Test de « Changer de compte » en un toucher (04/11 ; src/comptesCore.ts, src/comptes.ts, src/components/TestAccounts.tsx) ;
-// comptes gardés aussi sur le compte administrateur (09/11 : supabase/076_comptes_test.sql, fonction comptes-test : fusion des
+// comptes gardés aussi sur le compte administrateur (09/11 : supabase/077_comptes_test.sql, fonction comptes-test : fusion des
 // listes, place sur l'appareil, liaison sans mot de passe des comptes déjà gardés, règles de la fonction) :
 // liste des comptes gardés (ajout, remplacement, retrait, au plus 2 comptes de test, une seule maison), session jamais gardée
 // en double (le compte actif n'est jamais garé), réglages handbase.* rangés par compte (thème exclu), base par compte, qui
@@ -301,7 +301,7 @@ t('branchements : base Dexie et service worker sur la base active, effacement co
   assert.match(src('src/logout.ts'), /keptAccounts\(\)/)
 })
 
-// ---------- Comptes gardés sur le compte administrateur (076, fonction comptes-test) ----------
+// ---------- Comptes gardés sur le compte administrateur (077, fonction comptes-test) ----------
 
 const rEmma: RemoteAccount = { uid: EMMA, name: '', email: 'emma@exemple.test', role: 'joueur', at: NOW }
 const rTom: RemoteAccount = { uid: TOM, name: 'Tom Essai', email: 'tom@exemple.test', role: 'observateur', at: NOW }
@@ -345,7 +345,7 @@ t('fusion : comptes du serveur absents de l’appareil proposés, ceux de l’ap
     [EMMA, TOM],
   )
   assert.deepEqual(phone.toLink, [])
-  // Avant 076 (null) : exactement comme avant.
+  // Avant 077 (null) : exactement comme avant.
   const before = accountsView([], ADMIN, HOME_DB, 'admin', null)
   assert.ok(!before.everywhere)
   assert.deepEqual(before.remote, [])
@@ -469,7 +469,7 @@ t('fonction comptes-test : demandes lues, décisions (administrateur seulement, 
   for (const c of ['pas_admin', 'cible_admin', 'inconnu', 'trop', 'non_connecte', '', 'serveur']) assert.ok(!/eyJ|token|jeton/i.test(remoteErrorText(c)), c)
 })
 
-t('fonction comptes-test : jamais de jeton stocké ni journalisé, generateLink sans envoi, 076 sans colonne secrète', () => {
+t('fonction comptes-test : jamais de jeton stocké ni journalisé, generateLink sans envoi, 077 sans colonne secrète', () => {
   const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
   const fn = src('supabase/functions/comptes-test/index.ts')
   assert.doesNotMatch(fn.replace(/^\s*\/\/.*$/gm, ''), /console\./)
@@ -478,7 +478,7 @@ t('fonction comptes-test : jamais de jeton stocké ni journalisé, generateLink 
   // La ligne enregistrée : e-mail, libellé, rôle ; jamais le jeton.
   const ligne = fn.slice(fn.indexOf('const ligne = {'), fn.indexOf('}', fn.indexOf('const ligne = {')))
   assert.doesNotMatch(ligne, /jeton|token/)
-  const sql = src('supabase/076_comptes_test.sql')
+  const sql = src('supabase/077_comptes_test.sql')
   const table = sql.slice(sql.indexOf('create table'), sql.indexOf(');', sql.indexOf('create table')))
   assert.doesNotMatch(table, /pass|jeton|token|secret/i)
   assert.match(sql, /revoke all on public\.hb_comptes_test from public, anon, authenticated;/)

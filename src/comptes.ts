@@ -61,7 +61,7 @@ import {
  * l'administrateur n'est jamais fermée. Déconnexion complète (src/sync.ts wipeDevice) : tout part (forgetAll).
  * Notifications : l'abonnement de l'appareil reste au compte maison (pas réenregistré pendant un compte de test, src/App.tsx).
  *
- * COMPTES GARDÉS SUR LE COMPTE ADMINISTRATEUR (« ça marche de partout », supabase/076_comptes_test.sql, fonction edge
+ * COMPTES GARDÉS SUR LE COMPTE ADMINISTRATEUR (« ça marche de partout », supabase/077_comptes_test.sql, fonction edge
  * comptes-test ; règles pures dans src/comptesCore.ts) :
  *  - Ajout avec mot de passe : le jeton d'accès du compte de test (preuve du mot de passe) part UNE fois à la fonction
  *    (« lier ») avec celui de l'administrateur ; rien n'est gardé au serveur que l'e-mail, le nom et le rôle.
@@ -72,7 +72,7 @@ import {
  *  - Appareil plein : le compte enregistré utilisé le moins récemment laisse sa place (releaseCandidate).
  *  - « Retirer » : de l'appareil ET du serveur. Comptes ajoutés avant cette version : liés sans mot de passe tant que leur
  *    session est gardée (« Garder sur tous mes appareils »).
- *  - Avant 076 ou sans la fonction (base pas à jour, essai sans serveur) : copie absente, rien de nouveau, aucun message.
+ *  - Avant 077 ou sans la fonction (base pas à jour, essai sans serveur) : copie absente, rien de nouveau, aucun message.
  *    Jamais pendant « Voir comme… ».
  */
 
@@ -149,7 +149,7 @@ const remoteList = () => (spyTarget() ? null : parseRemote(remoteRaw, homeUid())
 let remoteReadAt = 0
 /**
  * Relit la liste du serveur (administrateur actif, en ligne, hors « Voir comme… », au plus une fois par minute). Table absente
- * (avant 076) : copie effacée, sans message ; autre échec : copie gardée.
+ * (avant 077) : copie effacée, sans message ; autre échec : copie gardée.
  */
 export async function refreshRemote(force = false) {
   if (!accountsAvailable() || spyTarget() || realRole() !== 'admin' || onTestAccount() || !navigator.onLine) return

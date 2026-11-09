@@ -2,8 +2,9 @@
 -- gardait chaque compte de test sur UN appareil : sur le téléphone, il fallait retaper l'e-mail et le mot de passe du compte
 -- déjà ajouté sur l'ordinateur. Demandé par Geoffroy le 09/11/2026 : « je veux que ça marche de partout ». Règle choisie :
 -- seulement les comptes AJOUTÉS UNE FOIS avec leur mot de passe (sur n'importe quel appareil).
--- À passer APRÈS 075_preferences.sql, avec outils/appliquer-sql.sh (serveur maison) : base hand d'abord (vérifier avec la
--- requête de contrôle en fin de fichier), puis volley si voulu. Peut être relancé sans risque (if not exists, drop policy if
+-- Numéro 077 (076 = humeurs du journal, indépendant de celui-ci). À passer APRÈS 075_preferences.sql, avec
+-- outils/appliquer-sql.sh (serveur maison) : base hand d'abord (vérifier avec la requête de contrôle en fin de fichier),
+-- puis volley si voulu. Peut être relancé sans risque (if not exists, drop policy if
 -- exists). Va avec la fonction edge « comptes-test » (supabase/functions/comptes-test) : déployer les deux.
 -- Additif : une table nouvelle ; rien d'autre n'est modifié (ni hb_upsert, ni la synchronisation, ni hb_profiles, ni les
 -- droits des autres tables ou fonctions). La table n'est pas synchronisée sur les appareils (aucune donnée de joueur).
