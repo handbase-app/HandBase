@@ -4,6 +4,7 @@ import { sportProfile } from './sportConfig'
 import { GROUP_VIS } from './staffLabels'
 import { clearSpy, spyTarget } from './spy'
 import { applyAccountAffichage, forgetAccountAffichage } from './affichage'
+import { applyAccountPreferences, forgetAccountPreferences } from './preferences'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -116,8 +117,9 @@ export async function refreshRole() {
   if (!uid) return
   if (uid !== userId) set('observateur', uid) // autre compte : on repart du rôle minimal
   // player_id : colonne de 051 ; affichage (pictogrammes et « Sous le nom » des listes, src/affichage.ts) : colonne de 063.
+  // preferences (thème, style, filtre Garçons / Filles, src/preferences.ts) : colonne de 075.
   // Avant ces scripts, la requête échoue (colonne inconnue) : on relit sans la colonne en cause.
-  let cols = ['role', 'departments', 'player_id', 'affichage']
+  let cols = ['role', 'departments', 'player_id', 'affichage', 'preferences']
   let row: Record<string, unknown> | null = null
   for (;;) {
     const { data, error } = await supabase.from('hb_profiles').select(cols.join(', ')).eq('user_id', uid).maybeSingle()
@@ -132,11 +134,13 @@ export async function refreshRole() {
   if (!row?.role) return
   set(row.role as Role, uid, (row.departments as string[] | null) ?? [], (row.player_id as string | null | undefined) ?? null)
   applyAccountAffichage(uid, row.affichage, cols.includes('affichage'))
+  applyAccountPreferences(uid, row.preferences, cols.includes('preferences'))
 }
 
 export function clearRole() {
   clearSpy()
   forgetAccountAffichage()
+  forgetAccountPreferences()
   set('observateur', null)
 }
 

@@ -79,6 +79,7 @@ import { RecipeChips, SaveForm, type RecipeModel } from '../components/RecipeChi
 import { YearPicker } from '../components/YearPicker'
 import { parseYearsParam, sortYearStrings, yearsParam, yearsPhrase, yearsShort } from '../birthYears'
 import { WaitBar } from '../components/Attente'
+import { prefsChanged } from '../prefsBus'
 
 /*
  * Bilan de détection (/bilan) : UNE carte de France (src/components/FranceMap.tsx) et des onglets de mesure, dans l'adresse
@@ -746,6 +747,8 @@ export function useBilanState() {
         } catch {
           /* stockage indisponible */
         }
+    // Filtre Garçons / Filles : lié au compte (src/preferences.ts).
+    if (patch.sex !== undefined) prefsChanged()
     const next = { ...st, ...patch }
     // Des années choisies au menu du bilan remplacent des années posées dans la barre (une seule commande par notion).
     if (patch.years?.length && !('f' in patch)) next.f = withoutYears(next.f)

@@ -7,6 +7,7 @@ import type { Player } from '../db'
 import { nameTokens, playerHaystack } from '../nameMatch'
 import { JOUEURS_KEYS, type JoueursQuery } from '../playerQuery'
 import { playerDepartment } from '../perimeter'
+import { prefsChanged } from '../prefsBus'
 
 // Textes de recherche de chaque joueur, calculés à la première recherche et gardés tant que la fiche ne change pas.
 const hays = new WeakMap<Player, string>()
@@ -55,6 +56,8 @@ export function writeSex(v: SexFilter) {
   } catch {
     /* stockage indisponible */
   }
+  // Lié au compte (src/preferences.ts) : même filtre sur tous ses appareils.
+  prefsChanged()
 }
 
 /**
