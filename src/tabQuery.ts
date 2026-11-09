@@ -8,9 +8,10 @@ import { POLE_VIEW_DEFAULT, POLE_VIEWS, type PoleView } from './poleSeason'
 /**
  * Onglets de la fiche d'un joueur (src/pages/PlayerDetail.tsx), dans l'ordre affiché, « profil » par défaut. Depuis le
  * 30/10 : « videos » (avant : une carte de « Profil ») et « compte » (Compte joueur : l'accès à l'espace joueur, pour qui
- * peut s'en servir ; avant : une carte de « Profil »).
+ * peut s'en servir ; avant : une carte de « Profil »). Depuis le 09/11 : « wellness » (staff du groupe qui le demande,
+ * src/components/PlayerWellness.tsx).
  */
-export const PLAYER_TABS = ['profil', 'croissance', 'tests', 'videos', 'avis', 'compte'] as const
+export const PLAYER_TABS = ['profil', 'croissance', 'tests', 'videos', 'avis', 'wellness', 'compte'] as const
 export type PlayerTab = (typeof PLAYER_TABS)[number]
 export const PLAYER_TAB_DEFAULT: PlayerTab = 'profil'
 

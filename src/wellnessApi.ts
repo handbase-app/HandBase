@@ -202,6 +202,44 @@ export async function fetchGroupWellness(groupId: string, playerIds: readonly st
   return { ok: true, value: { enabled, accounts, entries, sessions } }
 }
 
+export interface PlayerWellnessData {
+  enabled: boolean
+  /** La fiche a un espace joueur (sinon rien ne lui est demandé). */
+  account: boolean
+  entries: WellnessEntry[]
+  sessions: WellnessSession[]
+}
+
+/*
+ * Onglet Wellness de la fiche (staff) : par hb_wellness_groupe du groupe choisi (le groupe Pôle d'abord), filtré sur la fiche,
+ * plutôt qu'un select direct sur hb_wellness / hb_wellness_seances. La règle de lecture (073, staff_read) le permettrait,
+ * mais elle évalue hb_wellness_staff_lit (fonction security definer, périmètres compris) pour CHAQUE ligne lue ; la fonction
+ * du groupe calcule les droits et les périmètres une fois (~0,15 s par groupe Pôle, essai du 09/11 : commit b88f534) et dit en plus si la fiche
+ * a un espace joueur. Gardé en mémoire 60 s seulement (glisser d'un joueur à l'autre du même groupe sans relire), jamais sur
+ * le disque : rien dans les exports, ni dans « Demander », ni vers une IA.
+ */
+const PLAYER_TTL = 60_000
+const groupMemo = new Map<string, { at: number; value: GroupWellness }>()
+
+export async function fetchPlayerWellness(playerId: string, groupId: string, days = 35): Promise<Res<PlayerWellnessData>> {
+  if (isLocalWellness(playerId)) {
+    const d = readLocal(playerId)
+    const from = new Date(Date.now() - (days - 1) * 86400000).toLocaleDateString('sv')
+    return { ok: true, value: { enabled: await wellnessEnabled(), account: true, entries: d.entries.filter((e) => e.day >= from), sessions: d.sessions.filter((s) => s.day >= from) } }
+  }
+  const key = `${groupId}:${days}`
+  const hit = groupMemo.get(key)
+  let gw: GroupWellness
+  if (hit && Date.now() - hit.at < PLAYER_TTL) gw = hit.value
+  else {
+    const r = await fetchGroupWellness(groupId, [playerId], days)
+    if (!r.ok) return r
+    gw = r.value
+    groupMemo.set(key, { at: Date.now(), value: gw })
+  }
+  return { ok: true, value: { enabled: gw.enabled, account: gw.accounts.has(playerId), entries: gw.entries.get(playerId) ?? [], sessions: gw.sessions.get(playerId) ?? [] } }
+}
+
 /** Démonstration : wellness et séances fictifs posés sur l'appareil (fiches « demo-… »). */
 export function seedDemoWellness(byPlayer: Record<string, { entries: WellnessEntry[]; sessions: WellnessSession[] }>) {
   for (const [id, d] of Object.entries(byPlayer)) writeLocal(id, d)

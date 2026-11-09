@@ -24,6 +24,10 @@ import {
   myHistory,
   myWellnessExport,
   nearestPoint,
+  orderWellnessGroups,
+  playerWellnessView,
+  rateLine,
+  FICHE_DAYS,
   ownAverage,
   painLine,
   painMax,
@@ -427,6 +431,69 @@ t('démonstration : deux à 100 %, douleurs à plusieurs endroits, un pas encore
   assert.equal(sun[ids[3]].entries.some((e) => e.day === '2026-11-06'), false)
   // Toujours les mêmes données (aucun hasard).
   assert.deepEqual(buildDemoWellness(ids, MON), d)
+})
+
+t('fiche, onglet Wellness : réponse du jour ou la dernière, 4 semaines, taux sur les jours de semaine, séances, charge', () => {
+  // Lundi 9 novembre : réponses du lundi 12 octobre au vendredi 6 novembre (jours de semaine), énergie 7.
+  const list: WellnessEntry[] = []
+  for (let d = '2026-10-12'; d <= '2026-11-06'; d = addDays(d, 1)) if (isWeekday(d)) list.push(entry(d, { energie: 7, sommeil: 6 }))
+  // Pas encore répondu ce lundi : la dernière réponse (vendredi) est mise en avant, colorée par rapport à SA moyenne d'avant.
+  let v = playerWellnessView(list, [], MON)
+  assert.equal(v.days.length, FICHE_DAYS)
+  assert.equal(v.days[0].day, addDays(MON, -27))
+  assert.equal(v.days[FICHE_DAYS - 1].day, MON)
+  assert.equal(v.days.filter((d) => !d.weekday).length, 8) // 4 week-ends, jamais « manquants »
+  assert.equal(v.focus?.day, '2026-11-06')
+  assert.equal(v.focus?.isToday, false)
+  assert.equal(v.focus?.tones.energie, 'usual')
+  assert.equal(v.focus?.tones.humeur, 'none')
+  assert.equal(v.avg.energie, 7)
+  assert.equal(v.avg.humeur, null)
+  // Taux : la matinée de ce lundi ne compte pas encore (jusqu'à hier) ; tous les jours de semaine de la période répondus.
+  assert.equal(v.rate.to, '2026-11-08')
+  assert.equal(v.rate.from, addDays(MON, -27))
+  assert.equal(v.rate.answered, v.rate.requested)
+  assert.equal(v.rate.rate, 1)
+  // Répondu ce matin (énergie 3 : nettement en dessous de sa moyenne de 7), avec une gêne : aujourd'hui compte.
+  const withToday = [...list, entry(MON, { energie: 3, sommeil: 6 }, [ischio])]
+  v = playerWellnessView(withToday, [], MON)
+  assert.equal(v.focus?.isToday, true)
+  assert.equal(v.focus?.tones.energie, 'wellBelow')
+  assert.equal(v.focus?.tones.sommeil, 'usual')
+  assert.equal(v.days[FICHE_DAYS - 1].pain, 6)
+  assert.equal(v.rate.to, MON)
+  assert.equal(v.rate.answered, v.rate.requested)
+  // Wellness activé le mercredi 4 novembre : le taux part de là (avant, rien n'était demandé).
+  v = playerWellnessView(withToday, [], MON, { since: '2026-11-04' })
+  assert.deepEqual([v.rate.from, v.rate.requested, v.rate.answered], ['2026-11-04', 4, 4])
+  // Un jour de semaine sans réponse : compté demandé, pas répondu ; le week-end jamais.
+  v = playerWellnessView(withToday.filter((e) => e.day !== '2026-11-05'), [], MON, { since: '2026-11-04' })
+  assert.deepEqual([v.rate.requested, v.rate.answered], [4, 3])
+  // Le dimanche : rien n'est demandé, la période va jusqu'au dimanche, mise en avant du vendredi.
+  v = playerWellnessView(list, [], '2026-11-08')
+  assert.equal(v.rate.to, '2026-11-08')
+  assert.equal(v.focus?.day, '2026-11-06')
+  // Réponse future ignorée ; aucune réponse : pas de mise en avant.
+  assert.equal(playerWellnessView([entry('2026-11-10', { energie: 5 })], [], MON).focus, null)
+  assert.equal(playerWellnessView([], [], MON).rate.answered, 0)
+  // Séances de la période, la plus récente d'abord ; charge comme le tableau du groupe.
+  const ss: WellnessSession[] = [
+    { id: 'a', day: '2026-10-01', rpe: 5, minutes: 60 }, // hors des 28 jours
+    { id: 'b', day: '2026-11-02', rpe: 6, minutes: 90 },
+    { id: 'c', day: '2026-11-09', rpe: 7, minutes: 60 },
+    { id: 'd', day: '2026-11-05', rpe: 8, minutes: 100 },
+  ]
+  v = playerWellnessView(list, ss, MON)
+  assert.deepEqual(v.sessions.map((s) => s.id), ['c', 'd', 'b'])
+  assert.deepEqual(v.charge, chargeSummary(ss, MON))
+})
+
+t('fiche, onglet Wellness : groupe Pôle d’abord, puis par nom ; phrase du taux', () => {
+  const gs = [{ name: 'U15 stage' }, { name: 'Pôle Lyon', poleUnitId: 'u1' }, { name: 'Avenir' }]
+  assert.deepEqual(orderWellnessGroups(gs).map((g) => g.name), ['Pôle Lyon', 'Avenir', 'U15 stage'])
+  assert.equal(rateLine({ requested: 20, answered: 18 }), '18 jours sur 20 demandés (lundi → vendredi)')
+  assert.equal(rateLine({ requested: 1, answered: 1 }), '1 jour sur 1 demandé (lundi → vendredi)')
+  assert.equal(rateLine({ requested: 0, answered: 0 }), 'Aucun jour demandé sur la période.')
 })
 
 console.log(`\n${n} essais réussis`)

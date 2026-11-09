@@ -543,6 +543,84 @@ export function staffRank(r: StaffRow): number {
   return (max !== null ? -100 - max * 50 : 100) - n('wellBelow') * 10 - n('below')
 }
 
+// ---------- Fiche du joueur, côté staff (onglet Wellness, src/components/PlayerWellness.tsx) ----------
+
+/** Jours montrés dans l'onglet Wellness de la fiche (4 semaines). */
+export const FICHE_DAYS = 28
+
+export interface FicheDay {
+  day: string
+  /** Lundi → vendredi (le week-end, rien n'est demandé : jamais « manquant »). */
+  weekday: boolean
+  entry: WellnessEntry | null
+  /** Intensité la plus forte d'une douleur ce jour-là (null : aucune). */
+  pain: number | null
+}
+
+export interface PlayerWellnessView {
+  /** Réponse mise en avant : celle d'aujourd'hui, sinon la dernière (null : aucune sur la période lue). */
+  focus: { day: string; isToday: boolean; entry: WellnessEntry; tones: Record<WellnessKey, Tone>; avg: Record<WellnessKey, number | null> } | null
+  /** Les `days` derniers jours, du plus ancien à aujourd'hui (tous les jours du calendrier). */
+  days: FicheDay[]
+  /** Sa moyenne de chaque note sur ces jours (null : aucune réponse). */
+  avg: Record<WellnessKey, number | null>
+  /**
+   * Taux de réponse sur les jours de semaine de la période (completionRate) : depuis le début de la période ou l'activation
+   * du wellness (`since`) ; jusqu'à aujourd'hui s'il a déjà répondu (ou le week-end), sinon hier (la matinée n'est pas finie).
+   */
+  rate: { requested: number; answered: number; rate: number | null; from: string; to: string }
+  /** Ses séances de la période, la plus récente en premier. */
+  sessions: WellnessSession[]
+  /** Charge des 7 derniers jours comparée à sa moyenne par semaine sur 28 jours (mêmes mots que le tableau du groupe). */
+  charge: ChargeSummary
+}
+
+/** Onglet Wellness de la fiche : réponse du jour (ou la dernière), 4 semaines, séances, charge, taux de réponse. Pur. */
+export function playerWellnessView(
+  entries: readonly WellnessEntry[],
+  sessions: readonly WellnessSession[],
+  today: string,
+  opts: { days?: number; since?: string } = {},
+): PlayerWellnessView {
+  const n = Math.max(1, opts.days ?? FICHE_DAYS)
+  const from = addDays(today, -(n - 1))
+  const known = entries.filter((e) => e.day <= today)
+  const byDay = new Map(known.map((e) => [e.day, e]))
+  const days: FicheDay[] = []
+  for (let d = from; d <= today; d = addDays(d, 1)) {
+    const entry = byDay.get(d) ?? null
+    days.push({ day: d, weekday: isWeekday(d), entry, pain: painMax(entry) })
+  }
+  const avg = {} as Record<WellnessKey, number | null>
+  for (const k of WELLNESS_KEYS) {
+    const vs = days.map((x) => x.entry?.scores[k]).filter((v): v is number => typeof v === 'number')
+    avg[k] = vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null
+  }
+  const row = staffRow(known, [], today)
+  const focusDay = row.today ? today : row.lastDay
+  let focus: PlayerWellnessView['focus'] = null
+  if (focusDay) {
+    const r = focusDay === today ? row : staffRow(known, [], focusDay)
+    focus = { day: focusDay, isToday: focusDay === today, entry: r.today!, tones: r.tones, avg: r.avg }
+  }
+  const rFrom = opts.since && isDay(opts.since) && opts.since > from ? opts.since : from
+  const rTo = byDay.has(today) || !isWeekday(today) ? today : addDays(today, -1)
+  const rate = { ...completionRate(byDay.keys(), rFrom, rTo), from: rFrom, to: rTo }
+  const list = sessions.filter((s) => s.day >= from && s.day <= today).sort((a, b) => b.day.localeCompare(a.day) || (b.at ?? '').localeCompare(a.at ?? ''))
+  return { focus, days, avg, rate, sessions: list, charge: chargeSummary(sessions, today) }
+}
+
+/** Groupes du wellness d'une fiche, dans l'ordre de l'onglet : le groupe Pôle d'abord, puis par nom. */
+export function orderWellnessGroups<G extends { name: string; poleUnitId?: string }>(groups: readonly G[]): G[] {
+  return [...groups].sort((a, b) => Number(!a.poleUnitId) - Number(!b.poleUnitId) || a.name.localeCompare(b.name, 'fr'))
+}
+
+/** Phrase neutre du taux de réponse : « 18 jours sur 20 demandés (lundi → vendredi) ». */
+export function rateLine(r: Pick<PlayerWellnessView['rate'], 'requested' | 'answered'>): string {
+  if (!r.requested) return 'Aucun jour demandé sur la période.'
+  return `${r.answered} jour${r.answered > 1 ? 's' : ''} sur ${r.requested} demandé${r.requested > 1 ? 's' : ''} (lundi → vendredi)`
+}
+
 // ---------- Historique du jeune (14 jours) ----------
 
 export interface MyHistory {

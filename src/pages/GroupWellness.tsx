@@ -8,13 +8,12 @@ import { FilterField, pillClass } from '../components/FilterWindow'
 import { RosterQueryBar, type OwnFilters } from '../components/PlayersQuery'
 import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { Empty, playerName, Avatar } from '../components/ui'
-import { canReadWellness, canToggleWellness, PainLines, PainSummary, PAIN_TEXT_CLS, shortDay, useWellnessEnabled } from '../components/Wellness'
+import { canReadWellness, canToggleWellness, ChargeLine, PainLines, PainSummary, PAIN_TEXT_CLS, ScoreChip, shortDay, useWellnessEnabled } from '../components/Wellness'
 import type { AxisAnchor } from '../components/ZoneRadar'
 import { alive, db, positionLabel, save, today, type Player, type PlayerGroup } from '../db'
 import { setGender, w } from '../gender'
 import { can, useRole } from '../roles'
 import {
-  CHARGE_WORDS,
   fmt1,
   painLine,
   painMax,
@@ -23,11 +22,8 @@ import {
   staffDay,
   staffRank,
   staffRow,
-  TONE_WORDS,
   WELLNESS_ITEMS,
-  type ChargeTone,
   type StaffRow,
-  type Tone,
   type WellnessEntry,
   type WellnessSession,
 } from '../wellness'
@@ -41,19 +37,12 @@ import { fetchGroupWellness, type GroupWellness as GW } from '../wellnessApi'
  *    vert comme d'habitude ou mieux, ambre un peu en dessous, rouge doux nettement en dessous), gênes signalées (une ligne par
  *    endroit : « Ischio-jambiers droits · Contracture · 6/10 », pastille colorée par l'intensité la plus forte), charge
  *    des 7 derniers jours comparée à sa moyenne par semaine sur 28 jours ; « pas encore répondu aujourd'hui » neutre. Barre
- *    « Demander » commune (RosterQueryBar) et deux filtres de la page. Toucher une ligne : bulle accrochée au doigt (fond
- *    flouté) avec ses 14 derniers jours et ses séances.
+ *    « Demander » commune (RosterQueryBar) et deux filtres de la page. Toucher les notes : bulle accrochée au doigt (fond
+ *    flouté) avec ses 14 derniers jours et ses séances ; toucher le nom : sa fiche, sur l'onglet Wellness
+ *    (src/components/PlayerWellness.tsx ; « Retour » revient ici). Notes et charge : composants communs (components/Wellness.tsx).
  * Lu à la demande (jamais gardé sur l'appareil, dans aucun export, jamais envoyé à une IA). Staff du groupe seulement : son
  * créateur et ses participants encadrants, les administrateurs (le serveur vérifie, hb_wellness_groupe).
  */
-
-const TONE_CLS: Record<Tone, string> = {
-  usual: 'border-gain/50 bg-gain/15 text-gain',
-  below: 'border-spread-lo/50 bg-spread-lo/15 text-spread-lo',
-  wellBelow: 'border-loss/50 bg-loss/15 text-loss',
-  none: 'border-line bg-panel-2 text-fg',
-}
-const CHARGE_CLS: Record<ChargeTone, string> = { usual: 'text-gain', more: 'text-spread-lo', muchMore: 'text-loss', less: 'text-muted', none: 'text-muted' }
 
 type Filter = 'pain' | 'missing'
 
@@ -237,7 +226,7 @@ function WellnessRow({ p, groupId, row, account, isToday, onOpen }: { p: Player;
   return (
     <div className="card flex min-w-0 flex-col gap-1.5 p-2.5" data-testid="wellness-ligne">
       <div className="flex min-w-0 items-center gap-2">
-        <Link to={`/groupes/${groupId}/joueurs/${p.id}`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2">
+        <Link to={`/groupes/${groupId}/joueurs/${p.id}?onglet=wellness`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2">
           <Avatar p={p} size={32} />
           <span className="min-w-0">
             <span className="block truncate text-sm font-bold">{playerName(p)}</span>
@@ -254,16 +243,9 @@ function WellnessRow({ p, groupId, row, account, isToday, onOpen }: { p: Player;
               onOpen({ x: r.left + r.width / 2, top: r.top, bottom: r.bottom })
             }}
           >
-            {WELLNESS_ITEMS.map((it) => {
-              const v = e.scores[it.key]
-              const tone = row!.tones[it.key]
-              return (
-                <span key={it.key} className={`flex w-9 flex-col items-center rounded-md border py-0.5 ${typeof v === 'number' ? TONE_CLS[tone] : 'border-line text-muted'}`} title={`${it.label} : ${v ?? '—'} (${TONE_WORDS[tone]})`}>
-                  <span className="text-[8px] leading-tight opacity-80">{it.abbr}</span>
-                  <span className="text-sm leading-tight font-extrabold tabular-nums">{v ?? '—'}</span>
-                </span>
-              )
-            })}
+            {WELLNESS_ITEMS.map((it) => (
+              <ScoreChip key={it.key} item={it} value={e.scores[it.key]} tone={row!.tones[it.key]} />
+            ))}
           </button>
         )}
       </div>
@@ -283,13 +265,7 @@ function WellnessRow({ p, groupId, row, account, isToday, onOpen }: { p: Player;
       ) : (
         <PainSummary entry={e} />
       )}
-      {account && row && (row.charge.sessions7 > 0 || row.charge.chronicWeekly > 0) && (
-        <span className="text-[10px] text-muted">
-          Charge 7 j : <b className="text-fg tabular-nums">{Math.round(row.charge.acute).toLocaleString('fr-FR')}</b>
-          {row.charge.chronicWeekly > 0 && ` · moyenne ${Math.round(row.charge.chronicWeekly).toLocaleString('fr-FR')} / sem.`} ·{' '}
-          <span className={CHARGE_CLS[row.charge.tone]}>{CHARGE_WORDS[row.charge.tone]}</span>
-        </span>
-      )}
+      {account && row && <ChargeLine charge={row.charge} />}
     </div>
   )
 }

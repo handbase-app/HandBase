@@ -7,6 +7,11 @@ import { supabase } from '../sync'
 import {
   addDays,
   AREA_OTHER,
+  CHARGE_WORDS,
+  TONE_WORDS,
+  type ChargeSummary,
+  type ChargeTone,
+  type Tone,
   areaOf,
   fmt1,
   isWeekday,
@@ -71,6 +76,49 @@ export const canReadWellness = (role: Role, g: Pick<PlayerGroup, 'createdBy' | '
   role === 'admin' || (role === 'preparateur' && (!g.createdBy || g.createdBy === currentUserId() || isParticipant(g)))
 /** Active ou désactive : créateur (encadrant) ou administrateur, comme pour modifier le groupe. */
 export const canToggleWellness = (role: Role, g: PlayerGroup) => (role === 'admin' || role === 'preparateur') && can.editGroup(role, g)
+
+// ---------- Couleurs du staff (tableau du groupe, onglet Wellness de la fiche) ----------
+
+/** Note colorée par rapport à SA moyenne : vert comme d'habitude ou mieux, ambre un peu en dessous, rouge doux nettement. */
+export const TONE_CLS: Record<Tone, string> = {
+  usual: 'border-gain/50 bg-gain/15 text-gain',
+  below: 'border-spread-lo/50 bg-spread-lo/15 text-spread-lo',
+  wellBelow: 'border-loss/50 bg-loss/15 text-loss',
+  none: 'border-line bg-panel-2 text-fg',
+}
+export const CHARGE_CLS: Record<ChargeTone, string> = { usual: 'text-gain', more: 'text-spread-lo', muchMore: 'text-loss', less: 'text-muted', none: 'text-muted' }
+
+/** Une note du jour (abréviation, valeur), colorée par rapport à sa moyenne ; `big` : onglet de la fiche. */
+export function ScoreChip({ item, value, tone, avg, big }: { item: (typeof WELLNESS_ITEMS)[number]; value?: number; tone: Tone; avg?: number | null; big?: boolean }) {
+  const has = typeof value === 'number'
+  const title = `${item.label} : ${value ?? '—'} (${TONE_WORDS[tone]})`
+  if (!big)
+    return (
+      <span className={`flex w-9 flex-col items-center rounded-md border py-0.5 ${has ? TONE_CLS[tone] : 'border-line text-muted'}`} title={title}>
+        <span className="text-[8px] leading-tight opacity-80">{item.abbr}</span>
+        <span className="text-sm leading-tight font-extrabold tabular-nums">{value ?? '—'}</span>
+      </span>
+    )
+  return (
+    <div className={`flex min-w-0 flex-col items-center rounded-lg border px-1 py-1.5 ${has ? TONE_CLS[tone] : 'border-line text-muted'}`} title={title} data-testid="note-wellness">
+      <span className="w-full truncate text-center text-[10px] leading-tight font-bold">{item.short}</span>
+      <span className="text-xl leading-tight font-extrabold tabular-nums">{value ?? '—'}</span>
+      <span className="text-[9px] leading-tight text-muted">{typeof avg === 'number' ? `moy. ${fmt1(avg)}` : 'pas de moy.'}</span>
+    </div>
+  )
+}
+
+/** « Charge 7 j : 1 890 · moyenne 1 650 / sem. · habituelle » (rien sans séance sur 28 jours). */
+export function ChargeLine({ charge, className = 'text-[10px] text-muted' }: { charge: ChargeSummary; className?: string }) {
+  if (!(charge.sessions7 > 0 || charge.chronicWeekly > 0)) return null
+  return (
+    <span className={className}>
+      Charge 7 j : <b className="text-fg tabular-nums">{Math.round(charge.acute).toLocaleString('fr-FR')}</b>
+      {charge.chronicWeekly > 0 && ` · moyenne ${Math.round(charge.chronicWeekly).toLocaleString('fr-FR')} / sem.`} ·{' '}
+      <span className={CHARGE_CLS[charge.tone]}>{CHARGE_WORDS[charge.tone]}</span>
+    </span>
+  )
+}
 
 // ---------- Douleurs : affichage commun (jeune, staff) ----------
 

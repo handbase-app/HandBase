@@ -12,6 +12,7 @@ assert.equal(tabOf('', PLAYER_TABS, 'profil'), 'profil')
 assert.equal(tabOf('?onglet=video', PLAYER_TABS, 'profil'), 'profil')
 assert.equal(tabOf('?onglet=videos', PLAYER_TABS, 'profil'), 'videos')
 assert.equal(tabOf('?onglet=compte', PLAYER_TABS, 'profil'), 'compte')
+assert.equal(tabOf('?onglet=wellness', PLAYER_TABS, 'profil'), 'wellness')
 assert.equal(tabOf('?onglet=vus&fiche=tests', PLAYER_TABS, 'profil', 'fiche'), 'tests')
 
 // Écriture : défaut et inconnu sans paramètre, les autres paramètres restent

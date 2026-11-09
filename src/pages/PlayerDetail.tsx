@@ -39,17 +39,20 @@ import { FamilyReport } from '../components/FamilyReport'
 import { AllTests } from '../components/AllTests'
 import { ObjectivesCard } from '../components/Objectives'
 import { SelfEvalStaff, usePlayerSelfEvals } from '../components/SelfEval'
+import { PlayerWellnessTab, usePlayerWellnessGroups } from '../components/PlayerWellness'
 import { FOCUS_KEY, FOCUS_TAB, focusAttr, parseFocus, withoutFocus, type PlayerFocus } from '../playerFocus'
 
 // Mêmes identifiants que l'adresse (src/tabQuery.ts : PLAYER_TABS).
 // Ordre choisi le 30/10 : Profil · Croissance · Tests · Vidéos · Avis · Compte joueur (vidéos et accès à l'espace joueur :
-// onglets à part, plus dans « Profil » ; « Compte joueur » seulement pour qui peut s'en servir).
+// onglets à part, plus dans « Profil » ; « Compte joueur » seulement pour qui peut s'en servir). « Wellness » (09/11) avant
+// « Compte joueur » : seulement pour le staff qui le lit, fiche dans un groupe qui le demande (src/components/PlayerWellness.tsx).
 const TABS: readonly { id: PlayerTab; label: string; icon: IconName }[] = [
   { id: 'profil', label: 'Profil', icon: 'user' },
   { id: 'croissance', label: 'Croissance', icon: 'growth' },
   { id: 'tests', label: 'Tests', icon: 'ruler' },
   { id: 'videos', label: 'Vidéos', icon: 'video' },
   { id: 'avis', label: 'Avis', icon: 'chat' },
+  { id: 'wellness', label: 'Wellness', icon: 'heart' },
   { id: 'compte', label: 'Compte joueur', icon: 'key' },
 ]
 type TabId = PlayerTab
@@ -187,6 +190,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const [printing, setPrinting] = useState(false)
   // « Son regard » (auto-évaluations du jeune, supabase/064) : lu à la demande, en ligne, quand l'onglet Avis est ouvert.
   const selfEvals = usePlayerSelfEvals(id!, tab === 'avis')
+  // Onglet « Wellness » : groupes qui le demandent à cette fiche et dont ce compte lit le wellness (Pôle d'abord) ; aucun : pas d'onglet.
+  const wellnessGroups = usePlayerWellnessGroups(id!)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data?.player.mergedInto)
@@ -251,7 +256,9 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   const stamp = stampOf(p)
   // Onglet « Compte joueur » (accès à l'espace joueur) : pour qui peut s'en servir ; sinon ?onglet=compte ouvre « Profil ».
   const account = canInvite(role, p) || canPreviewPlayerPage(role)
-  const view: TabId = tab === 'compte' && !account ? 'profil' : tab
+  const wellness = !!wellnessGroups?.length
+  // ?onglet=wellness sans droit (ou fiche hors des groupes) : « Profil » ; pendant la lecture des groupes, rien (pas d'éclair de « Profil »).
+  const view: TabId = (tab === 'compte' && !account) || (tab === 'wellness' && wellnessGroups && !wellness) ? 'profil' : tab
   return (
     // data-fiche : la fiche de ce joueur est affichée (le glisser de ContextBar attend qu'elle le soit pour la faire arriver).
     <div className="flex flex-col gap-4" data-fiche={p.id}>
@@ -386,7 +393,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         />
       )}
 
-      <Tabs tab={view} setTab={setTab} counts={{ avis: evaluations.length, videos: data.videos }} hidden={account ? [] : ['compte']} />
+      <Tabs tab={view} setTab={setTab} counts={{ avis: evaluations.length, videos: data.videos }} hidden={[...(account ? [] : ['compte' as const]), ...(wellness || view === 'wellness' ? [] : ['wellness' as const])]} />
 
       {view === 'profil' && (
         <>
@@ -510,6 +517,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {view === 'videos' && <VideoSection kind="player" targetId={p.id} dept={department(p)} sex={p.sex} focus={focus?.kind === 'video' ? focus : undefined} />}
 
       {view === 'compte' && <PlayerSpaceCard player={p} />}
+
+      {view === 'wellness' && (wellnessGroups ? wellness && <PlayerWellnessTab player={p} groups={wellnessGroups} /> : <div className="py-10 text-center text-sm text-muted">Chargement…</div>)}
     </div>
   )
 }
