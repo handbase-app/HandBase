@@ -38,6 +38,7 @@ import { SelfEvalSection } from '../components/SelfEval'
 import { AllTests } from '../components/AllTests'
 import { useReperes } from '../components/Medal'
 import { MyWellnessCard } from '../components/Wellness'
+import { PlayerLamp } from '../components/PlayerLamp'
 import { fetchMyWellness } from '../wellnessApi'
 import { myWellnessExport } from '../wellness'
 
@@ -47,7 +48,7 @@ import { myWellnessExport } from '../wellness'
  *  ♥ Aujourd'hui (par défaut) : wellness du jour et « Ma séance », « Mes objectifs », « Comment ça s'est passé ? » à remplir ;
  *    point sur l'onglet quand le wellness du jour est demandé et pas encore rempli ; rien de tout ça : une ligne.
  *  ⏱ Mes tests · 🤾 Mes matchs (sport avec feuilles de match, sinon caché ; plus l'historique des auto-évaluations) ·
- *  📓 Mon cahier (journal) · 🪔 Ma lampe (en attente : repère LAMPE) · 👤 Moi (identité, équipe, lettre, repères, parcours ;
+ *  📓 Mon cahier (journal) · 🪔 Ma lampe (src/components/PlayerLamp.tsx) · 👤 Moi (identité, équipe, lettre, repères, parcours ;
  *    point sur l'onglet tant qu'un brouillon n'est pas enregistré).
  *  Tous les onglets restent montés (cachés) : rien d'une saisie en cours ne se perd en changeant d'onglet. En bas de chaque
  *  onglet : « J'ai besoin d'en parler », « Télécharger mes données », la charte.
@@ -378,10 +379,9 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
       </div>
 
       <div className={panel('lampe')} role="tabpanel" aria-label="Ma lampe">
-        {/* LAMPE : à remplacer par <PlayerLamp … /> (src/components/PlayerLamp.tsx) quand il sera prêt. */}
-        <p className="card p-4 text-sm text-muted" data-testid="lampe-attente">
-          Ta lampe arrive bientôt : chaque jour rempli l’allume un peu plus.
-        </p>
+        {/* Lampe d'Aladin (074, src/components/PlayerLamp.tsx) : jauge de la saison, cahier du hand, cahier de match, 3 vœux ;
+            relue chaque fois que l'onglet s'ouvre (wellness ou séance remplis dans « Aujourd'hui »). */}
+        <PlayerLamp playerId={p.id} preview={preview} canWrite={canWrite} active={tab === 'lampe'} onGo={setTab} />
       </div>
 
       <div className={panel('moi')} role="tabpanel" aria-label="Moi">

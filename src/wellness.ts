@@ -423,12 +423,18 @@ export const purgeBefore = (today: string) => seasonStart(addDays(today, -WELLNE
  * jours répondus (jours de semaine distincts de la période), taux (null s'il n'y a aucun jour demandé). Pur et réutilisable
  * (jauge de la saison plus tard) ; aucun écran de récompense ici.
  */
-export function completionRate(answeredDays: Iterable<string>, from: string, to: string): { requested: number; answered: number; rate: number | null } {
+export function completionRate(
+  answeredDays: Iterable<string>,
+  from: string,
+  to: string,
+  /** Jour demandé (par défaut lundi → vendredi) ; la lampe passe isRequestedDay (src/lamp.ts : vacances scolaires et fériés retirés). */
+  requestedDay: (day: string) => boolean = isWeekday,
+): { requested: number; answered: number; rate: number | null } {
   if (!isDay(from) || !isDay(to) || to < from) return { requested: 0, answered: 0, rate: null }
   let requested = 0
-  for (let d = from; d <= to; d = addDays(d, 1)) if (isWeekday(d)) requested++
+  for (let d = from; d <= to; d = addDays(d, 1)) if (requestedDay(d)) requested++
   const seen = new Set<string>()
-  for (const d of answeredDays) if (isDay(d) && d >= from && d <= to && isWeekday(d)) seen.add(d)
+  for (const d of answeredDays) if (isDay(d) && d >= from && d <= to && requestedDay(d)) seen.add(d)
   return { requested, answered: seen.size, rate: requested ? seen.size / requested : null }
 }
 
@@ -580,7 +586,9 @@ export function playerWellnessView(
   entries: readonly WellnessEntry[],
   sessions: readonly WellnessSession[],
   today: string,
-  opts: { days?: number; since?: string } = {},
+  /** `requestedDay` : jours demandés du taux (par défaut lundi → vendredi ; la fiche passe aussi les vacances scolaires et
+   *  les jours fériés de la zone du pôle, src/lamp.ts : isRequestedDay). */
+  opts: { days?: number; since?: string; requestedDay?: (day: string) => boolean } = {},
 ): PlayerWellnessView {
   const n = Math.max(1, opts.days ?? FICHE_DAYS)
   const from = addDays(today, -(n - 1))
@@ -605,7 +613,7 @@ export function playerWellnessView(
   }
   const rFrom = opts.since && isDay(opts.since) && opts.since > from ? opts.since : from
   const rTo = byDay.has(today) || !isWeekday(today) ? today : addDays(today, -1)
-  const rate = { ...completionRate(byDay.keys(), rFrom, rTo), from: rFrom, to: rTo }
+  const rate = { ...completionRate(byDay.keys(), rFrom, rTo, opts.requestedDay), from: rFrom, to: rTo }
   const list = sessions.filter((s) => s.day >= from && s.day <= today).sort((a, b) => b.day.localeCompare(a.day) || (b.at ?? '').localeCompare(a.at ?? ''))
   return { focus, days, avg, rate, sessions: list, charge: chargeSummary(sessions, today) }
 }
@@ -616,9 +624,9 @@ export function orderWellnessGroups<G extends { name: string; poleUnitId?: strin
 }
 
 /** Phrase neutre du taux de réponse : « 18 jours sur 20 demandés (lundi → vendredi) ». */
-export function rateLine(r: Pick<PlayerWellnessView['rate'], 'requested' | 'answered'>): string {
+export function rateLine(r: Pick<PlayerWellnessView['rate'], 'requested' | 'answered'>, schoolDays = false): string {
   if (!r.requested) return 'Aucun jour demandé sur la période.'
-  return `${r.answered} jour${r.answered > 1 ? 's' : ''} sur ${r.requested} demandé${r.requested > 1 ? 's' : ''} (lundi → vendredi)`
+  return `${r.answered} jour${r.answered > 1 ? 's' : ''} sur ${r.requested} demandé${r.requested > 1 ? 's' : ''} (${schoolDays ? 'jours de classe, hors vacances et jours fériés' : 'lundi → vendredi'})`
 }
 
 // ---------- Historique du jeune (14 jours) ----------

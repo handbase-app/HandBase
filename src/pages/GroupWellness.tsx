@@ -10,6 +10,7 @@ import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { Empty, playerName, Avatar } from '../components/ui'
 import { canReadWellness, canToggleWellness, ChargeLine, PainLines, PainSummary, PAIN_TEXT_CLS, ScoreChip, shortDay, useWellnessEnabled } from '../components/Wellness'
 import type { AxisAnchor } from '../components/ZoneRadar'
+import { useLampSettings } from '../components/LampStaff'
 import { alive, db, positionLabel, save, today, type Player, type PlayerGroup } from '../db'
 import { setGender, w } from '../gender'
 import { can, useRole } from '../roles'
@@ -50,6 +51,7 @@ export default function GroupWellnessPage() {
   const { id } = useParams()
   const role = useRole()
   const enabled = useWellnessEnabled()
+  const lamp = useLampSettings()
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id!)
     const got = (await db.players.bulkGet(g?.playerIds ?? [])).filter((p): p is Player => !!p)
@@ -136,6 +138,11 @@ export default function GroupWellnessPage() {
         <h1 className="text-lg font-extrabold">Wellness</h1>
         <div className="text-xs font-bold text-accent">{g.name}</div>
       </div>
+      {active && readable && lamp.actif && (
+        <Link to={`/groupes/${g.id}/lampes`} className="-mt-2 self-start py-1 text-xs font-bold text-accent" data-testid="lien-lampes">
+          🪔 Lampes du groupe ›
+        </Link>
+      )}
 
       {!enabled ? (
         <div className="card p-4 text-sm" data-testid="wellness-ferme">

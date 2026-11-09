@@ -19,13 +19,20 @@ import type { PolePeriod } from '../src/db'
 import { POLE_SITES } from '../src/poles'
 import { SPORT_CONTENT } from '../src/sportContent'
 import { chargeSummary, cleanPains, completionRate } from '../src/wellness'
+import { partsCount } from '../src/cahiers'
+import { DEFAULT_COACH_CRITERIA, DEFAULT_WISHES } from '../src/lamp'
 import { buildSeed, FAMOUS } from './seed-hand'
 import { fold } from './seed-volley'
 import { ANNEE_SORTIS, ANNEES_POLE, appliquerPlan, ciblesClasses, planifierPoles, regionOfDept, tailleSite } from './poles-saison'
 import {
   candidats,
   csvComptes,
+  DEBUT,
   dow,
+  LAMPE_AT,
+  REGLAGE_LAMPE_RETOUR_SQL,
+  REGLAGE_LAMPE_SQL,
+  sqlLampe,
   ecrireSql,
   emailCompte,
   formeVacances,
@@ -354,6 +361,56 @@ t('journal : notes courtes et positives ou neutres, humeurs connues, une partie 
   const part = a.journal.filter((x) => x.shared).length / a.journal.length
   assert.ok(part > 0.25 && part < 0.65)
   assert.equal(new Set(a.journal.map((x) => x.id)).size, a.journal.length)
+})
+
+t('lampe (074) : cahiers du hand les jours demandés (taux variés, quelques jeunes très assidus), cahiers de match le samedi, points et vœux pour une partie, textes positifs sans nom', () => {
+  const cahiers = a.cahiers.filter((c) => c.kind === 'cahier')
+  const matchs = a.cahiers.filter((c) => c.kind === 'match')
+  assert.ok(cahiers.length > 500 && matchs.length > 50, `${cahiers.length} cahiers, ${matchs.length} matchs`)
+  assert.equal(new Set(a.cahiers.map((c) => c.id)).size, a.cahiers.length)
+  assert.equal(new Set(a.cahiers.map((c) => `${c.player_id}:${c.kind}:${c.jour}`)).size, a.cahiers.length, 'un cahier par jour et par sorte')
+  for (const c of cahiers) {
+    assert.ok(jourDemande(c.jour) && c.jour >= DEBUT && c.jour <= FIN, c.jour)
+    assert.ok(partsCount('cahier', c.parts), 'les 3 questions remplies')
+    assert.equal(c.id.length, 11)
+  }
+  for (const m of matchs) {
+    assert.equal(new Date(`${m.jour}T12:00:00Z`).getUTCDay(), 6)
+    assert.ok(partsCount('match', m.parts))
+    assert.ok(['super', 'correct', 'complique'].includes(String(m.parts.sensation)))
+    assert.match(String(m.parts.adversaire), /^Club fictif [A-K]$/)
+  }
+  // Taux de remplissage par jeune : variés, quelques-uns à 90 % et plus.
+  const par = new Map<string, number>()
+  for (const c of cahiers) par.set(c.player_id, (par.get(c.player_id) ?? 0) + 1)
+  const taux = [...a.vies.values()].map((v) => (par.get(v.id) ?? 0) / v.demandes)
+  const hauts = taux.filter((x) => x >= 0.9).length / taux.length
+  assert.ok(hauts > 0.05 && hauts < 0.3, `jeunes à 90 % et plus : ${hauts}`)
+  assert.ok(taux.filter((x) => x < 0.5).length / taux.length > 0.2)
+  // Points des encadrants (1 ou 2, critères connus) et vœux (catalogue par défaut, 3 au plus, sans doublon) pour une partie.
+  const avecPoints = a.lampes.filter((l) => Object.keys(l.coach).length).length / a.vies.size
+  const avecVoeux = a.lampes.filter((l) => l.voeux.length).length / a.vies.size
+  assert.ok(avecPoints > 0.2 && avecPoints < 0.6 && avecVoeux > 0.4 && avecVoeux < 0.8, `${avecPoints} / ${avecVoeux}`)
+  for (const l of a.lampes) {
+    for (const [k, v] of Object.entries(l.coach)) assert.ok(DEFAULT_COACH_CRITERIA.some((c) => c.key === k) && (v === 1 || v === 2))
+    assert.ok(l.voeux.length <= 3 && new Set(l.voeux).size === l.voeux.length && l.voeux.every((w) => DEFAULT_WISHES.some((x) => x.id === w)))
+  }
+  // Textes : positifs ou neutres, sans nom de famille de la base.
+  const noms = new Set(seed.players.flatMap((p) => [fold(String(p.data.lastName ?? ''))]).filter((x) => x.length > 3))
+  for (const c of a.cahiers.slice(0, 400)) for (const mot of c.text.split(/[\s:,.’'()-]+/)) assert.ok(!noms.has(fold(mot)), mot)
+  assert.doesNotMatch(JSON.stringify(a.cahiers), /pas bien|nul à|raté|mauvais|décevant|médiocre/i)
+  // SQL : garde 074, jamais par-dessus le cahier d'un vrai compte ni une ligne hb_lampe existante, marque, retour arrière.
+  const s = sqlLampe(a)
+  assert.match(s, /10_lampe\.sql demande supabase\/074_lampe\.sql/)
+  assert.match(s, /where not exists \(select 1 from public\.hb_player_journal x where x\.player_id = v\.pid and x\.kind = v\.k and x\.jour = v\.j::date/)
+  assert.match(s, /on conflict \(player_id, saison\) do nothing/)
+  assert.match(s, new RegExp(`'${LAMPE_AT}'`))
+  const r = sqlRetour(a)
+  assert.match(r, new RegExp(`l\\.coach_by is null and l\\.updated_at = '${LAMPE_AT}'`))
+  assert.match(r, /to_regclass\('public\.hb_lampe'\) is not null/)
+  assert.match(REGLAGE_LAMPE_SQL, /'\{"actif": true\}'::jsonb/)
+  assert.match(REGLAGE_LAMPE_RETOUR_SQL, /'\{"actif": false\}'::jsonb/)
+  assert.match(verifySql(FIN), /to_jsonb\(j\) ->> 'kind' = 'cahier'/)
 })
 
 // ---------- Comptes joueurs ----------

@@ -53,6 +53,7 @@ import { BarActions, BelowBar, HeaderMenu, MoreActions, PageHeader } from '../co
 import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { useGiveObjective } from '../components/GroupObjectives'
 import { canReadWellness, canToggleWellness, useWellnessEnabled } from '../components/Wellness'
+import { useLampSettings } from '../components/LampStaff'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { Demander, postAsk } from '../components/Demander'
@@ -1001,6 +1002,7 @@ function PlayerGroupDetail() {
   useEffect(() => setPoleMsg(''), [id])
   // Wellness (073) : réglage de l'installation (fermé hors mode essai).
   const wellnessOn = useWellnessEnabled()
+  const lampSettings = useLampSettings()
 
   // Retour d'une fiche ouverte depuis le groupe : la liste reprend sa position.
   useRestoreScroll(`groupe.${id}`, !!data && data.g?.id === id)
@@ -1043,6 +1045,14 @@ function PlayerGroupDetail() {
     icon: 'heart' as const,
     hint: !wellnessOn ? 'Réservé aux essais pour l’instant' : g.wellness ? 'questionnaire du matin, tableau du jour' : 'questionnaire du matin : désactivé',
     onSelect: () => nav(`/groupes/${g.id}/wellness`),
+  }
+  // « Lampes du groupe » (074) : même public que le wellness, groupe qui le demande, lampe ouverte sur l'installation.
+  const lampOn = wellnessOn && lampSettings.actif && !!g.wellness && wellnessRead
+  const lampItem = lampOn && {
+    label: 'Lampes du groupe',
+    icon: 'lamp' as const,
+    hint: 'Lampe d’Aladin : jauges de la saison, lots, vœux',
+    onSelect: () => nav(`/groupes/${g.id}/lampes`),
   }
   const view = positionRosterView(players, sort, posFilter)
   const askIds = askFilter ? new Set(askFilter.ids) : null
@@ -1247,6 +1257,7 @@ function PlayerGroupDetail() {
                   // Plus de boutons « Créer un événement » / « Exporter ▾ » sous le titre (31/10) : ici.
                   can.manageEvents(role) && players.length > 0 && { label: 'Créer un événement', icon: 'calendar', hint: `avec ces ${gw.joueurs}`, onSelect: () => nav(`/evenements?groupe=${g.id}`) },
                   wellnessItem,
+                  lampItem,
                   ...groupExportItems({ g, players: view.roster, gender: gg, pole: pole && ref && pm ? { ref, m: pm, view: poleView } : undefined, nav }),
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
                   // Créé par…, modifié par… : plus sous le titre (31/10), comme la fiche joueur.
@@ -1270,6 +1281,11 @@ function PlayerGroupDetail() {
           {wellnessOn && g.wellness && wellnessRead && (
             <Link to={`/groupes/${g.id}/wellness`} className="mt-1 inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-accent" data-testid="lien-wellness">
               <Icon name="heart" className="h-3.5 w-3.5" /> Wellness du jour ›
+            </Link>
+          )}
+          {lampOn && (
+            <Link to={`/groupes/${g.id}/lampes`} className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-accent" data-testid="lien-lampes">
+              <Icon name="lamp" className="h-3.5 w-3.5" /> Lampes du groupe ›
             </Link>
           )}
           <Participants

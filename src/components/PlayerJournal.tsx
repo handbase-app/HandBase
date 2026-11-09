@@ -282,13 +282,17 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-[11px] font-bold">{journalDay(n.at)}</span>
                         <MoodChip mood={n.mood} sex={sex} />
+                        {n.kind && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold">{n.kind === 'cahier' ? 'Cahier du hand' : 'Cahier de match'}</span>}
                         {n.shared && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">Partagée</span>}
                       </div>
                       {canWrite && (
                         <span className="flex shrink-0 gap-1">
-                          <button className="min-h-9 min-w-9 text-muted hover:text-accent" aria-label="Corriger cette note" onClick={() => setEditing({ id: n.id, text: n.text, mood: n.mood })}>
-                            <Icon name="pencil" className="mx-auto h-4 w-4" />
-                          </button>
+                          {/* Un cahier (074) se reprend dans « Ma lampe », qui garde ses champs. */}
+                          {!n.kind && (
+                            <button className="min-h-9 min-w-9 text-muted hover:text-accent" aria-label="Corriger cette note" onClick={() => setEditing({ id: n.id, text: n.text, mood: n.mood })}>
+                              <Icon name="pencil" className="mx-auto h-4 w-4" />
+                            </button>
+                          )}
                           <button className="min-h-9 min-w-9 text-muted hover:text-red-400" aria-label="Supprimer cette note" onClick={() => void remove(n)}>
                             <Icon name="trash" className="mx-auto h-4 w-4" />
                           </button>
@@ -311,7 +315,7 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
               {all ? 'Seulement les plus récentes' : `Voir les ${notes.length - 10} plus anciennes`}
             </button>
           )}
-          <p className="text-[10px] text-muted">Les 200 notes les plus récentes sont gardées : au-delà, les plus anciennes ne le sont plus.</p>
+          <p className="text-[10px] text-muted">Les 200 notes les plus récentes sont gardées (les cahiers du hand et de match à part, qui se reprennent dans « Ma lampe ») : au-delà, les plus anciennes ne le sont plus.</p>
         </>
       )}
     </section>

@@ -23,6 +23,8 @@ import {
 } from '../wellness'
 import { fetchPlayerWellness, type PlayerWellnessData, type Res } from '../wellnessApi'
 import { AnchoredBubble } from './AnchoredBubble'
+import { LampStaffCard, useGroupZone } from './LampStaff'
+import { isRequestedDay, lampContext } from '../lamp'
 import { canReadWellness, ChargeLine, PainLines, PainSummary, ScoreChip, shortDay } from './Wellness'
 import type { AxisAnchor } from './ZoneRadar'
 import { Empty } from './ui'
@@ -65,6 +67,7 @@ export function PlayerWellnessTab({ player: p, groups }: { player: Player; group
   const main = groups[0]
   const [res, setRes] = useState<Res<PlayerWellnessData> | null>(null)
   const [bubble, setBubble] = useState<Bubble | null>(null)
+  const groupZone = useGroupZone(main)
   useEffect(() => {
     let live = true
     setRes(null)
@@ -104,13 +107,17 @@ export function PlayerWellnessTab({ player: p, groups }: { player: Player; group
   const t = today()
   // Début du taux : la première activation parmi ses groupes (avant, rien n'était demandé).
   const since = groups.map((g) => g.wellnessSince).filter((d): d is string => !!d).sort()[0]
-  const v = playerWellnessView(res.value.entries, res.value.sessions, t, { days: FICHE_DAYS, since })
+  // Taux sans les vacances scolaires ni les jours fériés quand la zone du pôle est connue (src/lamp.ts, comme la lampe).
+  const zone = lampContext(p, t, { zone: groupZone }).zone
+  const v = playerWellnessView(res.value.entries, res.value.sessions, t, { days: FICHE_DAYS, since, ...(zone ? { requestedDay: (d: string) => isRequestedDay(d, zone) } : {}) })
   return (
     <div className="flex flex-col gap-3" data-testid="fiche-wellness">
       <TodayCard v={v} today={t} />
       <WeeksCard v={v} onDay={(day, at) => setBubble({ day, at })} />
       <SessionsCard v={v} />
-      <RateCard v={v} />
+      <RateCard v={v} schoolDays={!!zone} />
+      {/* Lampe d'Aladin (074) : sa jauge, les points des encadrants, ses vœux ; rien si la lampe n'est pas ouverte. */}
+      <LampStaffCard player={p} group={main} />
       {links}
       <p className="text-[10px] text-muted">Lu à la demande pour le staff du groupe : rien n’est gardé sur l’appareil, ni mis dans les exports, ni envoyé à une IA.</p>
       {bubble && <DayBubble day={bubble.day} at={bubble.at} entries={res.value.entries} sessions={v.sessions} onClose={() => setBubble(null)} />}
@@ -269,7 +276,7 @@ function SessionsCard({ v }: { v: PlayerWellnessView }) {
 }
 
 /** Taux de réponse sur les jours de semaine, neutre. */
-function RateCard({ v }: { v: PlayerWellnessView }) {
+function RateCard({ v, schoolDays }: { v: PlayerWellnessView; schoolDays: boolean }) {
   const r = v.rate
   const pct = r.rate !== null ? Math.round(r.rate * 100) : null
   return (
@@ -284,7 +291,7 @@ function RateCard({ v }: { v: PlayerWellnessView }) {
         </div>
       )}
       <p className="text-[11px] text-muted">
-        {rateLine(r)}
+        {rateLine(r, schoolDays)}
         {r.requested > 0 && ` · du ${shortDay(r.from)} au ${shortDay(r.to)}`}
         <span className="mt-0.5 block text-[10px]">Le week-end n’est jamais compté ; aujourd’hui compte dès sa réponse.</span>
       </p>

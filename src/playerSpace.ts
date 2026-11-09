@@ -310,6 +310,12 @@ export interface JournalNote {
   /** Partagée avec son encadrant (sinon : lue par le jeune seul). */
   shared?: boolean
   editedAt?: string
+  /** Cahier (supabase/074, src/cahiers.ts) : « cahier » (cahier du hand) ou « match » (cahier de match) ; absent : note simple. */
+  kind?: 'cahier' | 'match'
+  /** Cahier : le jour raconté (AAAA-MM-JJ). */
+  day?: string
+  /** Cahier : ses champs nettoyés (le texte de la note en est tiré). */
+  parts?: Record<string, string | number>
 }
 
 /** Texte d'une note : caractères de contrôle retirés, bords coupés, 1 000 caractères ; vide → undefined. */

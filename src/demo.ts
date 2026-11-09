@@ -7,8 +7,10 @@ import type { MyGoals } from './myGoals'
 import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
 import type { ObjectiveStep, WorkObjective } from './objectives'
 import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
-import { clearDemoWellness, seedDemoWellness } from './wellnessApi'
+import { clearDemoWellness } from './wellnessApi'
 import { buildDemoWellness } from './demoWellness'
+import { buildDemoLamp } from './demoLamp'
+import { clearDemoLamp, seedDemoLamp } from './lampApi'
 import { scoutId } from './scouting'
 import { currentSport, type HandballPosition } from './sportConfig'
 
@@ -326,7 +328,9 @@ export async function loadDemo() {
     await db.videos.bulkPut(videos)
   })
   // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
-  seedDemoWellness(buildDemoWellness(wellnessIds, localDay(now)))
+  // Lampe d'Aladin (supabase/074, src/demoLamp.ts) : le même wellness, prolongé jusqu'à la rentrée, plus cahiers du hand,
+  // cahiers de match, points des encadrants et vœux (deux joueurs en route vers 100 %).
+  seedDemoLamp(buildDemoLamp(wellnessIds, localDay(now), buildDemoWellness(wellnessIds, localDay(now))))
   seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
   // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
   seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
@@ -584,6 +588,7 @@ export async function clearDemo() {
   clearDemoSelfEvals()
   clearDemoGoals()
   clearDemoWellness()
+  clearDemoLamp()
   // Modèles d'objectifs de la démo (jamais ceux qu'un administrateur a enregistrés).
   const tpl = await db.config.get(GOAL_TEMPLATES_KEY)
   if (tpl && isDemoTemplatesValue(tpl.value)) await db.config.delete(GOAL_TEMPLATES_KEY)

@@ -24,6 +24,12 @@
  *    nextar-serveur, la liste des comptes (adresse, site, classe, fiche ; aucun nom) écrite à côté.
  * Le réglage d'installation (hb_config « wellness » : { actif: true }, comme une installation réelle) est un fichier à part
  * (interrupteur et retour).
+ * Lampe d'Aladin (supabase/074, À PASSER AVANT 10_lampe.sql) : cahiers du hand (jours demandés, environ 15 % de jeunes
+ * très assidus, les autres de 30 à 85 %, plus souvent les jours où ils ont répondu au wellness), cahiers de match (samedis),
+ * points des encadrants pour une partie des jeunes, vœux (catalogue par défaut) : 10_lampe.sql, à part (il demande 074) ;
+ * cahiers dans hb_player_journal (user_id vide, comme le journal ; jamais là où un vrai compte a déjà un cahier ce jour-là),
+ * lignes hb_lampe marquées (coach_by vide et updated_at = LAMPE_AT ; jamais par-dessus une ligne existante). Réglage
+ * « lampe » : 11_reglage_lampe.sql (+ _retour). Textes courts, positifs, sans aucun nom.
  * Vacances de la Toussaint : environ la moitié des jeunes restent actifs (club, stage, footing ; formeVacances), pour que le
  * rapport de charge aiguë / chronique à la reprise soit varié.
  * Données de santé FICTIVES seulement (aucun jeune réel) ; aucun nom réel ; marqueurs positifs ou neutres (sorties : « fin de
@@ -34,6 +40,7 @@
  *   psql … -X -q -t -A -f <dossier>/extrait.sql > <dossier>/extrait.json        (ou sur une sauvegarde restaurée)
  *   npx jiti tools/seed-activite-poles.ts <dossier>/extrait.json <dossier> [--jusqu-au AAAA-MM-JJ] [--comptes <secrets/comptes-hand.env>]
  *       → 01_poles_joueurs.sql, 02_groupes_wellness.sql, 03_reglage_wellness.sql (+ _retour), 04_tests_avis.sql,
+ *         10_lampe.sql et 11_reglage_lampe.sql (+ _retour) (après 074, à part),
  *         05_wellness_seances.sql, 06_journal.sql, 08_comptes_joueurs.sql (avec --comptes), activite-poles.sql (01 + 02 +
  *         04 + 05 + 06 + 08 en un seul fichier, pour outils/appliquer-sql.sh qui ajoute begin / commit),
  *         07_retour_arriere.sql, dry-run.sql / apply.sql (essai local avec \ir), verify.sql ; avec --comptes, aussi
@@ -49,6 +56,9 @@ import { fileURLToPath } from 'node:url'
 import type { PolePeriod } from '../src/db'
 import { accord } from '../src/gender'
 import { chargeSummary, chargeTone } from '../src/wellness'
+import { cahierText, cleanCahier, cleanMatch, type CahierKind } from '../src/cahiers'
+import { DEMO_AMELIORER, DEMO_BIEN, DEMO_DIFFICILE, DEMO_OBJECTIF, DEMO_TRAVAIL } from '../src/demoLamp'
+import { DEFAULT_COACH_CRITERIA, DEFAULT_WISHES } from '../src/lamp'
 import { POLE_SITES, type PoleSite } from '../src/poles'
 import { categoryOf, FAMOUS, RANGES, type Cat } from './seed-hand'
 import { insideRepo } from './seed-rencontres'
@@ -80,6 +90,10 @@ export const FIN_DEFAUT = '2026-11-08'
 /** Vacances de la Toussaint 2026 (toutes zones) : du samedi 17 octobre au lundi 2 novembre (reprise). */
 export const VACANCES: [string, string] = ['2026-10-17', '2026-11-01']
 const SEED = 'nextar-activite-poles-2026'
+/** Marque des lignes hb_lampe de ce jeu (074) : updated_at (et coach_at / voeux_at) à cette heure, coach_by vide. */
+export const LAMPE_AT = '2026-08-31T22:00:00.000Z'
+/** Saison de la lampe (année de la rentrée). */
+export const LAMPE_SAISON = 2026
 
 // ---------- Outils ----------
 
@@ -841,6 +855,23 @@ export interface LigneJournal {
   mood: string
   shared: boolean
 }
+/** Cahier du hand ou cahier de match (074 : note du journal avec kind, jour, parts). */
+export interface LigneCahier {
+  id: string
+  player_id: string
+  kind: CahierKind
+  jour: string
+  parts: Record<string, string | number>
+  text: string
+  at: string
+  shared: boolean
+}
+/** Ligne hb_lampe (074) : points des encadrants et vœux d'un jeune pour la saison. */
+export interface LigneLampe {
+  player_id: string
+  coach: Record<string, number>
+  voeux: string[]
+}
 /** Compte joueur fictif d'un jeune du pôle (vrai compte du service de connexion, relié à sa fiche). */
 export interface CompteJoueur {
   user_id: string
@@ -886,6 +917,8 @@ export interface Activite {
   wellness: LigneWellness[]
   seances: LigneSeance[]
   journal: LigneJournal[]
+  cahiers: LigneCahier[]
+  lampes: LigneLampe[]
   comptes: CompteJoueur[]
   vies: Map<string, VieJoueur>
 }
@@ -931,6 +964,8 @@ export function preparer(e: Entree, opts: { fin?: string } = {}): Activite {
   const wellness: LigneWellness[] = []
   const seances: LigneSeance[] = []
   const journal: LigneJournal[] = []
+  const cahiers: LigneCahier[] = []
+  const lampes: LigneLampe[] = []
   const comptes: CompteJoueur[] = []
   const vies = new Map<string, VieJoueur>()
   const grille = e.criteres
@@ -977,6 +1012,9 @@ export function preparer(e: Entree, opts: { fin?: string } = {}): Activite {
           journal.push({ id: idCourt(`journal:${j.id}:${i}`), player_id: j.id, at: parisIso(d, tj.int(20, 22), tj.int(0, 59)), text: x.texte, mood: x.humeur, shared: tj.chance(0.45) })
         }
       }
+      const l = lampeDe(j.id, v, fin)
+      cahiers.push(...l.cahiers)
+      if (l.lampe) lampes.push(l.lampe)
     }
     // Tests : rentrée (taille, poids et une partie des tests), point d'octobre (thème du site), reprise après les vacances.
     const theme = [['sprint_10', 'sprint_30', 'cmj_hauteur'], ['vift'], ['t_test', 'cmj_hauteur', 'medball_conc'], ['sprint_10', 'vift']][hash32(`theme:${sp.key}`) % 4] as TestId[]
@@ -1052,7 +1090,58 @@ export function preparer(e: Entree, opts: { fin?: string } = {}): Activite {
     }
   }
   if (new Set(comptes.map((c) => c.email)).size !== comptes.length) throw new Error('Deux comptes joueurs auraient la même adresse')
-  return { fin, plan, fiches, figees, nouveauxGroupes, groupesWellness, sitesSansUnite, mesures, avis, wellness, seances, journal, comptes, vies }
+  return { fin, plan, fiches, figees, nouveauxGroupes, groupesWellness, sitesSansUnite, mesures, avis, wellness, seances, journal, cahiers, lampes, comptes, vies }
+}
+
+/**
+ * Lampe d'Aladin d'un jeune (074) : cahiers du hand les jours demandés (taux propre au jeune : environ 15 % très assidus, 97
+ * à 100 % ; les autres 30 à 85 %, et trois fois moins les jours sans wellness), cahiers de match le samedi (une partie des
+ * semaines), points des encadrants (40 % des jeunes : 1 ou 2 sur une partie des critères), vœux (60 % : 1 à 3 du catalogue
+ * par défaut). Déterministe (Tirage), textes courts et positifs, sans nom.
+ */
+export function lampeDe(id: string, v: Pick<VieJoueur, 'reponses'>, fin: string): { cahiers: LigneCahier[]; lampe: LigneLampe | null } {
+  const t = new Tirage('lampe', id)
+  const assidu = t.chance(0.15)
+  const taux = assidu ? t.between(0.97, 1) : t.between(0.3, 0.85)
+  const repondu = new Set(v.reponses.map((r) => r.jour))
+  const out: LigneCahier[] = []
+  const cahier = (kind: CahierKind, jour: string, parts: Record<string, string | number>, tc: Tirage) =>
+    out.push({ id: idCourt(`cahier:${kind}:${id}:${jour}`), player_id: id, kind, jour, parts, text: cahierText(kind, parts), at: parisIso(jour, tc.int(18, 22), tc.int(0, 59)), shared: tc.chance(0.25) })
+  for (const d of jours(DEBUT, fin)) {
+    if (!jourDemande(d)) continue
+    const tc = new Tirage('cahier', id, d)
+    if (!tc.chance(repondu.has(d) ? taux : taux / 3)) continue
+    cahier('cahier', d, cleanCahier({ travail: tc.pick(DEMO_TRAVAIL), difficile: tc.pick(DEMO_DIFFICILE), objectif: tc.pick(DEMO_OBJECTIF) }) as Record<string, string>, tc)
+  }
+  for (const d of jours(DEBUT, fin)) {
+    if (dow(d) !== 6) continue
+    const tm = new Tirage('match', id, d)
+    if (!tm.chance(assidu ? 0.9 : taux * 0.6)) continue
+    const parts = cleanMatch({
+      adversaire: `Club fictif ${'ABCDEFGHJK'[tm.int(0, 9)]}`,
+      nous: tm.int(18, 34),
+      eux: tm.int(18, 34),
+      sensation: tm.pick(['super', 'correct', 'complique'] as const),
+      mt1: tm.int(8, 30),
+      mt2: tm.int(5, 30),
+      bienAtt: tm.pick(DEMO_BIEN),
+      ...(tm.chance(0.7) ? { bienDef: tm.pick(DEMO_BIEN) } : {}),
+      amelAtt: tm.pick(DEMO_AMELIORER),
+      ...(tm.chance(0.6) ? { amelDef: tm.pick(DEMO_AMELIORER) } : {}),
+    })
+    cahier('match', d, parts as Record<string, string | number>, tm)
+  }
+  const coach: Record<string, number> = {}
+  if (t.chance(0.4)) for (const c of DEFAULT_COACH_CRITERIA) if (t.chance(0.6)) coach[c.key] = t.int(1, 2)
+  const voeux: string[] = []
+  if (t.chance(0.6)) {
+    const n = t.int(1, 3)
+    while (voeux.length < n) {
+      const w = t.pick(DEFAULT_WISHES).id
+      if (!voeux.includes(w)) voeux.push(w)
+    }
+  }
+  return { cahiers: out, lampe: Object.keys(coach).length || voeux.length ? { player_id: id, coach, voeux } : null }
 }
 
 // ---------- SQL ----------
@@ -1229,6 +1318,59 @@ on conflict (id) do nothing;`)
   return out.join('\n\n')
 }
 
+/**
+ * Lampe d'Aladin (074) : cahiers (notes du journal avec kind / jour / parts, user_id vide ; jamais là où un vrai compte a
+ * déjà un cahier ce jour-là) et lignes hb_lampe marquées (coach_by vide, updated_at = LAMPE_AT ; jamais par-dessus une ligne
+ * existante). Demande 074 (sinon : arrêt clair, rien n'est écrit). Tables du jeune, pas synchronisées : rien à noter au
+ * registre (RESYNC_SQL inutile ici).
+ */
+export function sqlLampe(a: Activite): string {
+  const out = [
+    `-- Lampe d'Aladin (supabase/074) : ${a.cahiers.filter((c) => c.kind === 'cahier').length} cahier(s) du hand, ${a.cahiers.filter((c) => c.kind === 'match').length} cahier(s) de match,`,
+    `-- ${a.lampes.length} ligne(s) hb_lampe (points des encadrants, vœux). Données fictives. À passer APRÈS 074_lampe.sql.`,
+    `do $$
+begin
+  if to_regclass('public.hb_lampe') is null or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'hb_player_journal' and column_name = 'kind') then
+    raise exception '10_lampe.sql demande supabase/074_lampe.sql : le passer d''abord.';
+  end if;
+end $$;`,
+    PRELUDE,
+  ]
+  for (const lot of lots(a.cahiers))
+    out.push(`insert into public.hb_player_journal as t (id, player_id, user_id, at, text, mood, shared, shared_at, deleted, updated_at, kind, jour, parts)
+select v.id, v.pid, null, v.at::timestamptz, v.txt, null, v.sh, case when v.sh then v.at::timestamptz end, false, v.at::timestamptz, v.k, v.j::date, v.p::jsonb
+  from (values
+${lot.map((c) => `(${q(c.id)},${q(c.player_id)},${q(c.at)},${q(c.text)},${c.shared},${q(c.kind)},${q(c.jour)},${q(JSON.stringify(c.parts))})`).join(',\n')}
+) v(id, pid, at, txt, sh, k, j, p)
+ where not exists (select 1 from public.hb_player_journal x where x.player_id = v.pid and x.kind = v.k and x.jour = v.j::date and not x.deleted and x.id <> v.id)
+on conflict (id) do nothing;`)
+  for (const lot of lots(a.lampes))
+    out.push(`insert into public.hb_lampe (player_id, saison, coach, coach_by, coach_at, voeux, voeux_at, updated_at) values
+${lot.map((l) => `(${q(l.player_id)},${LAMPE_SAISON},${qj(l.coach)},null,${Object.keys(l.coach).length ? q(LAMPE_AT) : 'null'},${qj(l.voeux)},${l.voeux.length ? q(LAMPE_AT) : 'null'},${q(LAMPE_AT)})`).join(',\n')}
+on conflict (player_id, saison) do nothing;`)
+  out.push(`select 'cahiers du hand' as quoi, count(*) from public.hb_player_journal where user_id is null and kind = 'cahier' and not deleted
+union all select 'cahiers de match', count(*) from public.hb_player_journal where user_id is null and kind = 'match' and not deleted
+union all select 'lampes (fictives)', count(*) from public.hb_lampe where coach_by is null and updated_at = ${q(LAMPE_AT)};
+`)
+  return out.join('\n\n')
+}
+
+export const REGLAGE_LAMPE_SQL = `-- Réglage d'installation de la lampe (supabase/074) : ouverte, { "actif": true } ajouté au réglage existant (catalogue et
+-- critères d'un administrateur gardés). Retour : 11_reglage_lampe_retour.sql.
+insert into public.hb_config as t (id, data, updated_at_client, deleted, server_updated_at)
+values ('lampe', jsonb_build_object('id', 'lampe', 'key', 'lampe', 'value', jsonb_build_object('actif', true),
+        'updatedAt', (extract(epoch from now()) * 1000)::bigint, 'updatedByName', ${q(AUTEUR)}), (extract(epoch from now()) * 1000)::bigint, false, clock_timestamp())
+on conflict (id) do update set data = t.data || jsonb_build_object('value', case when jsonb_typeof(t.data -> 'value') = 'object' then t.data -> 'value' else '{}'::jsonb end || '{"actif": true}'::jsonb,
+       'updatedAt', (extract(epoch from now()) * 1000)::bigint), updated_at_client = excluded.updated_at_client, deleted = false, server_updated_at = excluded.server_updated_at;
+select id, data -> 'value' as reglage from public.hb_config where id = 'lampe';
+`
+export const REGLAGE_LAMPE_RETOUR_SQL = `-- Retour : lampe refermée sur l'installation (le reste du réglage est gardé).
+update public.hb_config set data = data || jsonb_build_object('value', case when jsonb_typeof(data -> 'value') = 'object' then data -> 'value' else '{}'::jsonb end || '{"actif": false}'::jsonb,
+       'updatedAt', (extract(epoch from now()) * 1000)::bigint), updated_at_client = (extract(epoch from now()) * 1000)::bigint, server_updated_at = clock_timestamp()
+ where id = 'lampe';
+select id, data -> 'value' as reglage from public.hb_config where id = 'lampe';
+`
+
 /** Fiche au pôle à la date de fin (une période qui la couvre), au moment du passage. */
 const AU_POLE_SQL = (p: string, fin: string) =>
   `exists (select 1 from jsonb_array_elements(case when jsonb_typeof(${p}.data -> 'poles') = 'array' then ${p}.data -> 'poles' else '[]'::jsonb end) x
@@ -1357,6 +1499,13 @@ create temp table act_retour_joueurs (id text primary key) on commit drop;`)
   out.push(`delete from public.hb_wellness w using act_retour_joueurs j where w.player_id = j.id and w.user_id is null;
 delete from public.hb_wellness_seances w using act_retour_joueurs j where w.player_id = j.id and w.user_id is null;
 delete from public.hb_player_journal w using act_retour_joueurs j where w.player_id = j.id and w.user_id is null;
+-- Lampe (074, si passé) : lignes de ce jeu seulement (coach_by vide, updated_at = LAMPE_AT : jamais touchées par un vrai compte).
+do $$
+begin
+  if to_regclass('public.hb_lampe') is not null then
+    delete from public.hb_lampe l using act_retour_joueurs j where l.player_id = j.id and l.coach_by is null and l.updated_at = ${q(LAMPE_AT)};
+  end if;
+end $$;
 `)
   // Comptes joueurs de ce jeu (identifiants de ce jeu ou marque app_metadata.demoSeed) : ce qu'on a pu écrire en essayant
   // avec ces comptes (wellness, séances, journal du hand) part avec eux ; puis toutes les lignes du journal de ces comptes
@@ -1370,6 +1519,14 @@ delete from act_retour_comptes c where not exists (select 1 from auth.users u wh
 delete from public.hb_wellness w using act_retour_comptes c where w.user_id = c.user_id;
 delete from public.hb_wellness_seances w using act_retour_comptes c where w.user_id = c.user_id;
 delete from public.hb_player_journal w using act_retour_comptes c where w.user_id = c.user_id;
+-- Vœux écrits en essayant avec ces comptes (074, si passé) : la ligne de la saison de leur fiche, sans point d'un encadrant.
+do $$
+begin
+  if to_regclass('public.hb_lampe') is not null then
+    delete from public.hb_lampe l using public.hb_profiles pr, act_retour_comptes c
+     where pr.user_id = c.user_id and l.player_id = pr.player_id and l.coach_by is null;
+  end if;
+end $$;
 delete from public.hb_audit x using act_retour_comptes c where (x.table_name = 'profiles' and x.row_id = c.user_id::text)
    or (x.user_id is null and x.user_name = ${q(AUTEUR)} and x.table_name = 'players' and x.action = 'accès joueur'
        and x.row_id = (select pr.player_id from public.hb_profiles pr where pr.user_id = c.user_id));
@@ -1398,7 +1555,12 @@ union all select 'wellness', count(*) from public.hb_wellness
 union all select 'séances', count(*) from public.hb_wellness_seances
 union all select 'journal', count(*) from public.hb_player_journal where user_id is null
 union all select 'journal (vos lignes)', count(*) from public.hb_player_journal where user_id is not null
-union all select 'journal hb_audit', count(*) from public.hb_audit;
+union all select 'journal hb_audit', count(*) from public.hb_audit
+-- Lampe (074) : colonnes et table lues sans erreur avant le script.
+union all select 'cahiers du hand', count(*) from public.hb_player_journal j where to_jsonb(j) ->> 'kind' = 'cahier' and not j.deleted
+union all select 'cahiers de match', count(*) from public.hb_player_journal j where to_jsonb(j) ->> 'kind' = 'match' and not j.deleted
+union all select 'lampes (074)', case when to_regclass('public.hb_lampe') is null then null
+                                      else (xpath('/row/c/text()', query_to_xml('select count(*) as c from public.hb_lampe', false, true, '')))[1]::text::bigint end;
 
 \\echo '--- Effectifs au ${fin} par groupe Pôle (classe = âge scolaire 2026 : 14 = 3e … 17 = Tle) et entrées en 3e'
 with m as (
@@ -1474,6 +1636,10 @@ export function ecrireSql(a: Activite, dir: string, opts: { empreinte?: string }
   writeFileSync(join(dir, '03_reglage_wellness.sql'), REGLAGE_SQL)
   writeFileSync(join(dir, '03_reglage_wellness_retour.sql'), REGLAGE_RETOUR_SQL)
   writeFileSync(join(dir, '07_retour_arriere.sql'), sqlRetour(a) + '\n' + RESYNC_SQL)
+  // Lampe d'Aladin : à part (demande 074), réglage et son retour.
+  writeFileSync(join(dir, '10_lampe.sql'), sqlLampe(a))
+  writeFileSync(join(dir, '11_reglage_lampe.sql'), REGLAGE_LAMPE_SQL)
+  writeFileSync(join(dir, '11_reglage_lampe_retour.sql'), REGLAGE_LAMPE_RETOUR_SQL)
   // Un seul fichier pour outils/appliquer-sql.sh (il ajoute begin / commit ; pas de \\ir par l'entrée standard).
   writeFileSync(join(dir, 'activite-poles.sql'), files.map(([n, s]) => `-- ===== ${n} =====\n${s}`).join('\n'))
   const inc = (ns: string[]) => ns.map((n) => `\\echo '${n}'\n\\ir ${n}`).join('\n')
@@ -1488,7 +1654,7 @@ export function ecrireSql(a: Activite, dir: string, opts: { empreinte?: string }
     join(dir, 'essai-a-blanc.sql'),
     `-- Essai à blanc (rien n'est gardé) : 03 + activite-poles.sql, puis rollback.\n${REGLAGE_SQL}\n${readFileSync(join(dir, 'activite-poles.sql'), 'utf8')}\n\\echo 'Essai à blanc terminé : tout est annulé.'\nrollback;\n`,
   )
-  return [...noms, '03_reglage_wellness.sql', '03_reglage_wellness_retour.sql', '07_retour_arriere.sql', 'activite-poles.sql', 'essai-a-blanc.sql', 'apply.sql', 'dry-run.sql', 'verify.sql']
+  return [...noms, '03_reglage_wellness.sql', '03_reglage_wellness_retour.sql', '07_retour_arriere.sql', '10_lampe.sql', '11_reglage_lampe.sql', '11_reglage_lampe_retour.sql', 'activite-poles.sql', 'essai-a-blanc.sql', 'apply.sql', 'dry-run.sql', 'verify.sql']
 }
 
 // ---------- Chiffres clés ----------
@@ -1536,6 +1702,19 @@ export function chiffres(e: Entree, a: Activite) {
     wellness: a.wellness.length,
     seances: a.seances.length,
     journal: a.journal.length,
+    lampe: (() => {
+      const parJeune = new Map<string, number>()
+      for (const c of a.cahiers) if (c.kind === 'cahier') parJeune.set(c.player_id, (parJeune.get(c.player_id) ?? 0) + 1)
+      const taux = [...a.vies.values()].map((v) => (v.demandes ? (parJeune.get(v.id) ?? 0) / v.demandes : 0))
+      return {
+        cahiers: a.cahiers.filter((c) => c.kind === 'cahier').length,
+        cahiersDeMatch: a.cahiers.filter((c) => c.kind === 'match').length,
+        lignesLampe: a.lampes.length,
+        avecPoints: a.lampes.filter((l) => Object.keys(l.coach).length).length,
+        avecVoeux: a.lampes.filter((l) => l.voeux.length).length,
+        cahierAuMoins90: taux.filter((x) => x >= 0.9).length,
+      }
+    })(),
     remplissage: {
       '100 %': taux.filter((x) => x >= 0.999).length,
       '75-99 %': taux.filter((x) => x >= 0.75 && x < 0.999).length,

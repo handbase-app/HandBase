@@ -21,6 +21,7 @@ import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
 import { ReperesSettings } from '../components/ReperesSettings'
 import { GoalTemplatesSettings } from '../components/GoalTemplatesSettings'
+import { LampSettingsEditor } from '../components/LampSettings'
 import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
 import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
@@ -170,6 +171,11 @@ export default function Settings() {
               modèle » ; configuration partagée (hb_config, clé « modeles_objectifs »), administrateurs. */}
           <Fold id="modeles-objectifs" icon="target" title="Modèles d’objectifs" summary="Objectifs types et leurs étapes, à reprendre sur la fiche">
             <GoalTemplatesSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Lampe d'Aladin (src/lamp.ts, supabase/074) : ouverture, début, zone, critères des encadrants, catalogue des vœux ;
+              configuration partagée (hb_config, clé « lampe »), administrateurs. */}
+          <Fold id="lampe" icon="lamp" title="Lampe d’Aladin" summary="Jauge de la saison de l’espace joueur : critères des encadrants, catalogue des vœux">
+            <LampSettingsEditor editable={can.editStructure(role)} />
           </Fold>
           <Fold id="imports" icon="download" title="Imports et sauvegarde" summary={gestHand ? 'Gest’Hand, sauvegarde, démo' : 'Sauvegarde, démo'}>
             {/* Import des licences Gest'Hand : handball seulement (src/sportConfig.ts, sportHas). */}

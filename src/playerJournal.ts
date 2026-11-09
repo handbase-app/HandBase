@@ -28,7 +28,10 @@ type Res<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const LOCAL_KEY = (playerId: string) => `handbase${TRIAL ? '-essai' : ''}.journal.${playerId}`
 
-function readLocal(playerId: string): JournalNote[] {
+/** Sur l'appareil : pas de serveur, ou fiche de démonstration (« demo-… », jamais envoyée ; comme le wellness). */
+export const isLocalJournal = (playerId: string) => !supabase || playerId.startsWith('demo-')
+
+export function readLocal(playerId: string): JournalNote[] {
   try {
     const raw = localStorage.getItem(LOCAL_KEY(playerId))
     const v = raw ? (JSON.parse(raw) as unknown) : []
@@ -37,7 +40,7 @@ function readLocal(playerId: string): JournalNote[] {
     return []
   }
 }
-function writeLocal(playerId: string, notes: JournalNote[]) {
+export function writeLocal(playerId: string, notes: JournalNote[]) {
   try {
     if (notes.length) localStorage.setItem(LOCAL_KEY(playerId), JSON.stringify(notes))
     else localStorage.removeItem(LOCAL_KEY(playerId))
@@ -53,14 +56,19 @@ interface Row {
   mood: string | null
   shared: boolean
   edited_at: string | null
+  /** Cahiers (074) : absents avant le script. */
+  kind?: string | null
+  jour?: string | null
+  parts?: Record<string, string | number> | null
 }
-const fromRow = (r: Row): JournalNote => ({
+export const fromRow = (r: Row): JournalNote => ({
   id: r.id,
   at: new Date(r.at).toISOString(),
   text: r.text,
   ...(r.mood ? { mood: r.mood as JournalMood } : {}),
   shared: !!r.shared,
   ...(r.edited_at ? { editedAt: new Date(r.edited_at).toISOString() } : {}),
+  ...(r.kind === 'cahier' || r.kind === 'match' ? { kind: r.kind, ...(r.jour ? { day: r.jour } : {}), ...(r.parts ? { parts: r.parts } : {}) } : {}),
 })
 const fromRpc = (v: unknown) => v as JournalNote
 
@@ -69,56 +77,58 @@ const fail = (e: { message?: string; code?: string }): Res<never> => ({ ok: fals
 
 /** Notes d'une fiche, la plus récente en premier. `onlyShared` : celles que le jeune a partagées (ce que le staff lit). */
 export async function fetchNotes(playerId: string, onlyShared = false): Promise<Res<JournalNote[]>> {
-  if (!supabase) {
+  if (isLocalJournal(playerId)) {
     const all = readLocal(playerId)
     return { ok: true, value: onlyShared ? all.filter((n) => n.shared) : all }
   }
   if (!navigator.onLine) return offline()
-  let q = supabase.from('hb_player_journal').select('id, at, text, mood, shared, edited_at').eq('player_id', playerId).eq('deleted', false)
+  // « * » : les colonnes des cahiers (074) quand elles existent, sans casser la lecture avant le script. 200 notes simples
+  // au plus, plus les cahiers (un par jour et par sorte) : 600.
+  let q = supabase!.from('hb_player_journal').select('*').eq('player_id', playerId).eq('deleted', false)
   if (onlyShared) q = q.eq('shared', true)
-  const { data, error } = await q.order('at', { ascending: false }).limit(200)
+  const { data, error } = await q.order('at', { ascending: false }).limit(600)
   if (error) return fail(error)
   return { ok: true, value: (data as Row[]).map(fromRow) }
 }
 
 /** Nouvelle note (privée). Renvoie la liste à afficher. */
 export async function addNote(playerId: string, notes: JournalNote[], text: string, mood?: JournalMood): Promise<Res<JournalNote[]>> {
-  if (!supabase) {
+  if (isLocalJournal(playerId)) {
     const r = journalAdd(notes, text, mood, new Date().toISOString())
     if (!r.ok) return { ok: false, error: journalErrorText(r.error) }
     writeLocal(playerId, r.notes)
     return { ok: true, value: r.notes }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase.rpc('hb_player_journal_add', { p_text: text, p_mood: mood ?? null })
+  const { data, error } = await supabase!.rpc('hb_player_journal_add', { p_text: text, p_mood: mood ?? null })
   if (error) return fail(error)
   return { ok: true, value: withNote(notes, fromRpc(data)) }
 }
 
 /** Correction d'une note (texte, humeur). */
 export async function editNote(playerId: string, notes: JournalNote[], id: string, text: string, mood?: JournalMood): Promise<Res<JournalNote[]>> {
-  if (!supabase) {
+  if (isLocalJournal(playerId)) {
     const r = journalEdit(notes, id, text, mood, new Date().toISOString())
     if (!r.ok) return { ok: false, error: journalErrorText(r.error) }
     writeLocal(playerId, r.notes)
     return { ok: true, value: r.notes }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase.rpc('hb_player_journal_edit', { p_id: id, p_text: text, p_mood: mood ?? null })
+  const { data, error } = await supabase!.rpc('hb_player_journal_edit', { p_id: id, p_text: text, p_mood: mood ?? null })
   if (error) return fail(error)
   return { ok: true, value: withNote(notes, fromRpc(data)) }
 }
 
 /** Partager avec son encadrant (ou reprendre). */
 export async function shareNote(playerId: string, notes: JournalNote[], id: string, shared: boolean): Promise<Res<JournalNote[]>> {
-  if (!supabase) {
+  if (isLocalJournal(playerId)) {
     const r = journalShare(notes, id, shared)
     if (!r.ok) return { ok: false, error: journalErrorText(r.error) }
     writeLocal(playerId, r.notes)
     return { ok: true, value: r.notes }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase.rpc('hb_player_journal_share', { p_id: id, p_shared: shared })
+  const { data, error } = await supabase!.rpc('hb_player_journal_share', { p_id: id, p_shared: shared })
   if (error) return fail(error)
   return { ok: true, value: withNote(notes, fromRpc(data)) }
 }
@@ -126,21 +136,21 @@ export async function shareNote(playerId: string, notes: JournalNote[], id: stri
 /** Suppression d'une note (son texte est effacé tout de suite sur le serveur). */
 export async function deleteNote(playerId: string, notes: JournalNote[], id: string): Promise<Res<JournalNote[]>> {
   const next = journalDelete(notes, id)
-  if (!supabase) {
+  if (isLocalJournal(playerId)) {
     writeLocal(playerId, next)
     return { ok: true, value: next }
   }
   if (!navigator.onLine) return offline()
-  const { error } = await supabase.rpc('hb_player_journal_delete', { p_id: id })
+  const { error } = await supabase!.rpc('hb_player_journal_delete', { p_id: id })
   if (error) return fail(error)
   return { ok: true, value: next }
 }
 
 /** Tendance des humeurs (staff) : 8 semaines, des nombres seulement. null : rien à montrer (script pas passé, droits…). */
 export async function fetchTrend(playerId: string): Promise<MoodTrend | null> {
-  if (!supabase) return moodTrend(readLocal(playerId))
+  if (isLocalJournal(playerId)) return moodTrend(readLocal(playerId))
   if (!navigator.onLine) return null
-  const { data, error } = await supabase.rpc('hb_player_mood_trend', { p_player_id: playerId })
+  const { data, error } = await supabase!.rpc('hb_player_mood_trend', { p_player_id: playerId })
   if (error || !data) return null
   return data as MoodTrend
 }
