@@ -1,4 +1,6 @@
-// Test de « Changer de compte » en un toucher (04/11 ; src/comptesCore.ts, src/comptes.ts, src/components/TestAccounts.tsx) :
+// Test de « Changer de compte » en un toucher (04/11 ; src/comptesCore.ts, src/comptes.ts, src/components/TestAccounts.tsx) ;
+// comptes gardés aussi sur le compte administrateur (09/11 : supabase/076_comptes_test.sql, fonction comptes-test : fusion des
+// listes, place sur l'appareil, liaison sans mot de passe des comptes déjà gardés, règles de la fonction) :
 // liste des comptes gardés (ajout, remplacement, retrait, au plus 2 comptes de test, une seule maison), session jamais gardée
 // en double (le compte actif n'est jamais garé), réglages handbase.* rangés par compte (thème exclu), base par compte, qui
 // voit quoi (un vrai jeune sur son téléphone : rien ; l'administrateur : ajouter ; compte de test : revenir), aucun jeton dans
@@ -32,7 +34,16 @@ import {
   tokensOf,
   unpark,
   type SavedAccount,
+  type RemoteAccount,
+  parseRemote,
+  remoteFromRows,
+  remoteText,
+  releaseCandidate,
+  placeFor,
+  homeUidOf,
+  remoteErrorText,
 } from '../src/comptesCore'
+import { decisionLier, decisionOuvrir, libelleDe, lireDemande, MAX_LIGNES, roleTest, statutRefus } from '../supabase/functions/comptes-test/regles'
 
 let n = 0
 let chain: Promise<void> = Promise.resolve()
@@ -179,7 +190,9 @@ t('réglages par compte : clés handbase.* seulement, thème et clés des compte
 t('qui voit quoi : vrai jeune → rien ; administrateur → ajouter ; compte de test → revenir, passer, retirer', () => {
   // Un vrai jeune sur son téléphone : aucune liste, pas administrateur.
   const young = accountsView([], LEO, HOME_DB, 'joueur')
-  assert.deepEqual(young, { show: false, onTest: false, active: null, home: null, others: [], canAdd: false })
+  assert.deepEqual(young, { show: false, onTest: false, active: null, home: null, others: [], canAdd: false, remote: [], toLink: [], linked: [], everywhere: false })
+  // Même avec une liste du serveur (copie d'un autre compte) : rien.
+  assert.deepEqual(accountsView([], LEO, HOME_DB, 'joueur', [{ uid: EMMA, name: '', email: 'emma@exemple.test', role: 'joueur', at: 0 }]).remote, [])
   // Un encadrant ordinaire : rien non plus.
   assert.equal(accountsView([], TOM, HOME_DB, 'preparateur').show, false)
   // L'administrateur, appareil sans compte de test : « Ajouter un compte de test… ».
@@ -286,6 +299,230 @@ t('branchements : base Dexie et service worker sur la base active, effacement co
   assert.match(src('src/App.tsx'), /!player && !onTestAccount\(\)\) void syncSubscription\(\)/)
   assert.match(src('src/components/ProfileMenu.tsx'), /accountMenuItems\(accounts\)/)
   assert.match(src('src/logout.ts'), /keptAccounts\(\)/)
+})
+
+// ---------- Comptes gardés sur le compte administrateur (076, fonction comptes-test) ----------
+
+const rEmma: RemoteAccount = { uid: EMMA, name: '', email: 'emma@exemple.test', role: 'joueur', at: NOW }
+const rTom: RemoteAccount = { uid: TOM, name: 'Tom Essai', email: 'tom@exemple.test', role: 'observateur', at: NOW }
+const rLeo: RemoteAccount = { uid: LEO, name: 'Léo Essai', email: 'leo@exemple.test', role: 'joueur', at: NOW }
+
+t('liste du serveur : lignes valables seulement, copie locale lue par CET administrateur seulement', () => {
+  const rows = [
+    { test_uid: EMMA.toUpperCase(), email: 'emma@exemple.test', libelle: '', role: 'joueur', ajoute_le: '2026-11-04T18:00:00Z' },
+    { test_uid: EMMA, email: 'double@exemple.test' },
+    { test_uid: 'pas-un-id' },
+    null,
+    { test_uid: TOM, email: 'tom@exemple.test', libelle: 'Tom Essai', role: 'admin', ajoute_le: 'cassé' },
+  ]
+  const r = remoteFromRows(rows)
+  assert.deepEqual(r, [
+    { uid: EMMA, name: '', email: 'emma@exemple.test', role: 'joueur', at: NOW },
+    // Rôle administrateur jamais montré comme tel (la fonction le refuse de toute façon).
+    { uid: TOM, name: 'Tom Essai', email: 'tom@exemple.test', role: '', at: 0 },
+  ])
+  assert.deepEqual(remoteFromRows('pas une liste'), [])
+  const text = remoteText(ADMIN, r)
+  assert.deepEqual(parseRemote(text, ADMIN), r)
+  assert.deepEqual(parseRemote(text, ADMIN.toUpperCase()), r)
+  // Un autre administrateur sur le même appareil : rien (pas la liste d'un autre).
+  assert.equal(parseRemote(text, LEO), null)
+  assert.equal(parseRemote(text, null), null)
+  assert.equal(parseRemote('cassé', ADMIN), null)
+  assert.equal(parseRemote(null, ADMIN), null)
+  // Administrateur de l'appareil : la maison ; sans liste, le compte actif s'il est administrateur.
+  assert.equal(homeUidOf(firstSwitch(), LEO, 'joueur'), ADMIN)
+  assert.equal(homeUidOf([], ADMIN, 'admin'), ADMIN)
+  assert.equal(homeUidOf([], LEO, 'joueur'), null)
+})
+
+t('fusion : comptes du serveur absents de l’appareil proposés, ceux de l’appareil pas en double, à lier sans mot de passe', () => {
+  // Administrateur seul sur un nouvel appareil (téléphone) : Emma et Tom ajoutés ailleurs → « Passer sur … ».
+  const phone = accountsView([], ADMIN, HOME_DB, 'admin', [rEmma, rTom])
+  assert.ok(phone.everywhere && phone.canAdd)
+  assert.deepEqual(
+    phone.remote.map((r) => r.uid),
+    [EMMA, TOM],
+  )
+  assert.deepEqual(phone.toLink, [])
+  // Avant 076 (null) : exactement comme avant.
+  const before = accountsView([], ADMIN, HOME_DB, 'admin', null)
+  assert.ok(!before.everywhere)
+  assert.deepEqual(before.remote, [])
+  // Sur l'ordinateur : Léo gardé (garé) et enregistré, Emma au serveur seulement.
+  const back = unpark(park(firstSwitch(), leo, sess('l2', LEO), testDbName(LEO), NOW), ADMIN)
+  const pc = accountsView(back, ADMIN, HOME_DB, 'admin', [rLeo, rEmma])
+  assert.deepEqual(
+    pc.others.map((a) => a.uid),
+    [LEO],
+  )
+  assert.deepEqual(
+    pc.remote.map((r) => r.uid),
+    [EMMA],
+  )
+  assert.deepEqual(pc.linked, [LEO])
+  assert.deepEqual(pc.toLink, [])
+  // Léo ajouté avant cette version (pas au serveur) : proposé à la liaison (sa session est gardée).
+  const old = accountsView(back, ADMIN, HOME_DB, 'admin', [rEmma])
+  assert.deepEqual(
+    old.toLink.map((a) => a.uid),
+    [LEO],
+  )
+  assert.deepEqual(old.linked, [])
+  // Sur Léo (compte de test actif, pas au serveur) : liste du serveur visible (administrateur garé), Léo à lier, pas en double.
+  const l = firstSwitch()
+  const onLeo = accountsView(l, LEO, testDbName(LEO), 'joueur', [rEmma, rTom])
+  assert.ok(onLeo.everywhere)
+  assert.deepEqual(
+    onLeo.remote.map((r) => r.uid),
+    [EMMA, TOM],
+  )
+  assert.deepEqual(
+    onLeo.toLink.map((a) => a.uid),
+    [LEO],
+  )
+  const onLeoLinked = accountsView(l, LEO, testDbName(LEO), 'joueur', [rLeo, rEmma])
+  assert.deepEqual(
+    onLeoLinked.remote.map((r) => r.uid),
+    [EMMA],
+  )
+  assert.deepEqual(onLeoLinked.linked, [LEO])
+  // Maison sans session garée : pas de jeton administrateur → rien du serveur.
+  const noHome = accountsView(
+    l.map((a) => ({ ...a, session: null })),
+    LEO,
+    testDbName(LEO),
+    'joueur',
+    [rEmma],
+  )
+  assert.ok(!noHome.everywhere)
+  assert.deepEqual(noHome.remote, [])
+  // La maison elle-même n'est jamais proposée comme compte de test.
+  const self = accountsView(back, ADMIN, HOME_DB, 'admin', [{ ...rEmma, uid: ADMIN }])
+  assert.deepEqual(self.remote, [])
+})
+
+t('appareil plein : le compte enregistré utilisé le moins récemment laisse sa place ; sinon « plein »', () => {
+  // Maison + Léo + Emma (2 comptes de test), administrateur actif.
+  let l = unpark(park(firstSwitch(), leo, sess('l2', LEO), testDbName(LEO), NOW), ADMIN)
+  l = addTest(l, emma, sess('e1', EMMA), ADMIN, NOW + 5000).list!
+  // Léo utilisé avant Emma.
+  assert.ok(l.find((a) => a.uid === LEO)!.used < l.find((a) => a.uid === EMMA)!.used)
+  // Tom (au serveur) à ouvrir : aucun enregistré → plein.
+  assert.deepEqual(placeFor(l, TOM, ADMIN, [TOM]), { error: 'plein' })
+  // Léo et Emma enregistrés : Léo (le moins récent) laisse sa place.
+  const p = placeFor(l, TOM, ADMIN, [TOM, LEO, EMMA])
+  assert.ok('release' in p && p.release.uid === LEO)
+  // Emma seule enregistrée : c'est elle.
+  const p2 = placeFor(l, TOM, ADMIN, [EMMA])
+  assert.ok('release' in p2 && p2.release.uid === EMMA)
+  // Compte déjà sur l'appareil, ou place libre : rien à libérer.
+  assert.deepEqual(placeFor(l, LEO, ADMIN, []), { ok: true })
+  assert.deepEqual(placeFor(firstSwitch(), TOM, LEO, []), { ok: true })
+  // Jamais le compte actif ni la maison.
+  assert.equal(releaseCandidate(l, LEO, [LEO]), null)
+  assert.equal(releaseCandidate(l, EMMA, [ADMIN]), null)
+  // Passage sur un compte : sa date d'usage avance (unpark avec la date).
+  const used = unpark(l, LEO, NOW + 9000)
+  assert.equal(used.find((a) => a.uid === LEO)!.used, NOW + 9000)
+  const p3 = placeFor(used, TOM, ADMIN, [LEO, EMMA])
+  assert.ok('release' in p3 && p3.release.uid === EMMA)
+  // Ajout possible quand l'appareil est plein mais qu'un compte enregistré peut laisser sa place.
+  assert.equal(accountsView(l, ADMIN, HOME_DB, 'admin', [rLeo]).canAdd, true)
+  assert.equal(accountsView(l, ADMIN, HOME_DB, 'admin', []).canAdd, false)
+  // Liste d'avant (sans « used ») : relue avec la date d'ajout.
+  const legacy = parseList(JSON.stringify(l.map(({ used: _u, ...a }) => a)))
+  assert.equal(legacy.find((a) => a.uid === EMMA)!.used, NOW + 5000)
+})
+
+t('fonction comptes-test : demandes lues, décisions (administrateur seulement, jamais un administrateur comme cible)', () => {
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl'
+  assert.deepEqual(lireDemande(JSON.stringify({ action: 'lier', jeton_test: jwt })), { action: 'lier', jeton_test: jwt })
+  assert.deepEqual(lireDemande(JSON.stringify({ action: 'ouvrir', test_uid: EMMA.toUpperCase() })), { action: 'ouvrir', test_uid: EMMA })
+  assert.deepEqual(lireDemande(JSON.stringify({ action: 'retirer', test_uid: TOM })), { action: 'retirer', test_uid: TOM })
+  for (const bad of ['', 'cassé', '[]', '{}', JSON.stringify({ action: 'lier' }), JSON.stringify({ action: 'lier', jeton_test: 'pas un jeton' }), JSON.stringify({ action: 'ouvrir', test_uid: 'x' }), JSON.stringify({ action: 'supprimer', test_uid: TOM }), 'x'.repeat(9000)])
+    assert.equal(lireDemande(bad), null, bad.slice(0, 40))
+  const base = { appelant: ADMIN, roleAppelant: 'admin', cible: LEO, roleCible: 'joueur', lignes: 0, dejaLie: false }
+  assert.equal(decisionLier(base), null)
+  assert.equal(decisionLier({ ...base, roleAppelant: 'preparateur' }), 'pas_admin')
+  assert.equal(decisionLier({ ...base, cible: ADMIN.toUpperCase() }), 'meme_compte')
+  assert.equal(decisionLier({ ...base, roleCible: 'admin' }), 'cible_admin')
+  assert.equal(decisionLier({ ...base, lignes: MAX_LIGNES }), 'trop')
+  assert.equal(decisionLier({ ...base, lignes: MAX_LIGNES, dejaLie: true }), null)
+  const o = { roleAppelant: 'admin', ligne: true, cibleExiste: true, email: 'leo@exemple.test', bloqueeJusqua: null, roleCible: 'joueur', maintenant: NOW }
+  assert.equal(decisionOuvrir(o), null)
+  assert.equal(decisionOuvrir({ ...o, roleAppelant: 'joueur' }), 'pas_admin')
+  assert.equal(decisionOuvrir({ ...o, ligne: false }), 'inconnu')
+  assert.equal(decisionOuvrir({ ...o, cibleExiste: false }), 'cible_absente')
+  assert.equal(decisionOuvrir({ ...o, email: '' }), 'cible_absente')
+  assert.equal(decisionOuvrir({ ...o, bloqueeJusqua: '2026-12-01T00:00:00Z' }), 'cible_bloquee')
+  assert.equal(decisionOuvrir({ ...o, bloqueeJusqua: '2026-01-01T00:00:00Z' }), null)
+  assert.equal(decisionOuvrir({ ...o, roleCible: 'admin' }), 'cible_admin')
+  assert.equal(statutRefus('pas_admin'), 403)
+  assert.equal(statutRefus('trop'), 409)
+  assert.equal(statutRefus('inconnu'), 404)
+  assert.equal(roleTest('admin'), '')
+  assert.equal(roleTest('joueur'), 'joueur')
+  assert.equal(libelleDe({ full_name: '  Léo Essai ' }), 'Léo Essai')
+  assert.equal(libelleDe(null), '')
+  // Messages clairs, sans jeton.
+  for (const c of ['pas_admin', 'cible_admin', 'inconnu', 'trop', 'non_connecte', '', 'serveur']) assert.ok(!/eyJ|token|jeton/i.test(remoteErrorText(c)), c)
+})
+
+t('fonction comptes-test : jamais de jeton stocké ni journalisé, generateLink sans envoi, 076 sans colonne secrète', () => {
+  const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  const fn = src('supabase/functions/comptes-test/index.ts')
+  assert.doesNotMatch(fn.replace(/^\s*\/\/.*$/gm, ''), /console\./)
+  assert.match(fn, /generateLink\(\{ type: 'magiclink', email/)
+  assert.match(fn, /return json\(\{ token_hash: tokenHash \}\)/)
+  // La ligne enregistrée : e-mail, libellé, rôle ; jamais le jeton.
+  const ligne = fn.slice(fn.indexOf('const ligne = {'), fn.indexOf('}', fn.indexOf('const ligne = {')))
+  assert.doesNotMatch(ligne, /jeton|token/)
+  const sql = src('supabase/076_comptes_test.sql')
+  const table = sql.slice(sql.indexOf('create table'), sql.indexOf(');', sql.indexOf('create table')))
+  assert.doesNotMatch(table, /pass|jeton|token|secret/i)
+  assert.match(sql, /revoke all on public\.hb_comptes_test from public, anon, authenticated;/)
+  assert.match(sql, /grant select on public\.hb_comptes_test to authenticated;/)
+  assert.match(sql, /using \(admin_uid = \(select auth\.uid\(\)\) and \(select public\.hb_is_admin\(\)\)\)/)
+  // Appli : rien du serveur pendant « Voir comme… », liaison après la connexion avec mot de passe, échange sur un client à part.
+  const comptes = src('src/comptes.ts')
+  assert.match(comptes, /const remoteList = \(\) => \(spyTarget\(\) \? null/)
+  assert.match(comptes, /async function adminToken\(\)[^]*?if \(spyTarget\(\)\) return null/)
+  assert.match(comptes, /linkRemote\(s\.access_token\)/)
+  assert.match(comptes, /tempClient\(\)\s*\n\s*let v = await c\.auth\.verifyOtp\(\{ token_hash: hash, type: 'magiclink' \}\)/)
+  assert.match(comptes, /await kv\.del\(REMOTE_KEY\)/)
+})
+
+t('ouverture : jeton à usage unique échangé (verify, type magiclink) sur un client à part, sans rien écrire dans le stockage', async () => {
+  const writes: string[] = []
+  const g = globalThis as { localStorage?: unknown }
+  const before = g.localStorage
+  g.localStorage = { getItem: () => null, setItem: (k: string) => void writes.push(k), removeItem: () => {}, key: () => null, length: 0 }
+  try {
+    const user = { id: EMMA, email: 'emma@exemple.test', user_metadata: {}, aud: 'authenticated', app_metadata: {}, created_at: '' }
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), body: JSON.parse(String(init?.body ?? '{}')) })
+      return new Response(JSON.stringify({ access_token: 'a1', refresh_token: 'r1', expires_in: 3600, token_type: 'bearer', user }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const c = createClient('https://abcdefgh.supabase.co', 'cle-publique', {
+      global: { fetch },
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'hb-compte-2' },
+      realtime: { transport: class {} as unknown as never },
+    })
+    const { data } = await c.auth.verifyOtp({ token_hash: 'hache-fictif', type: 'magiclink' })
+    assert.equal(data.session?.user.id, EMMA)
+    assert.equal(seen.length, 1)
+    assert.match(seen[0].url, /\/auth\/v1\/verify$/)
+    assert.equal(seen[0].body.token_hash, 'hache-fictif')
+    assert.equal(seen[0].body.type, 'magiclink')
+    assert.deepEqual(writes, [])
+  } finally {
+    g.localStorage = before
+  }
 })
 
 void chain.then(() => console.log(`\n${n} tests passés`))
