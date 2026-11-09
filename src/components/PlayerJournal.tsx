@@ -4,12 +4,15 @@ import { w } from '../gender'
 import { useConfigRows } from '../installation'
 import { addNote, deleteNote, editNote, fetchNotes, fetchTrend, shareNote } from '../playerJournal'
 import {
+  cleanMoods,
   HELP_CONTACTS,
   JOURNAL_MOODS,
   journalDay,
+  MAX_MOODS,
   moodLabel,
   moodOf,
   moodTrendSummary,
+  noteMoods,
   playerContactOf,
   SELF_LIMITS,
   type JournalMood,
@@ -23,7 +26,7 @@ import { Icon, SectionTitle } from './ui'
 
 /*
  * « Mon journal du hand » (supabase/052_journal_joueur.sql, src/playerJournal.ts) :
- *  - JournalSection (page /moi) : écrire une note (texte + humeur facultative), la corriger, la supprimer, la partager avec
+ *  - JournalSection (page /moi) : écrire une note (texte + jusqu’à 3 humeurs, facultatives), la corriger, la supprimer, la partager avec
  *    son encadrant ou la reprendre ; privée par défaut ;
  *  - TalkDialog / TalkLink : « J'ai besoin d'en parler » (personne à contacter de l'installation + numéros officiels) ;
  *  - StaffJournal (fiche du staff) : tendance des humeurs (nombres, jamais de texte) et notes partagées, en lecture seule.
@@ -103,24 +106,41 @@ export function TalkLink({ className = '', sex }: { className?: string; sex?: st
 
 // ---------- Humeurs ----------
 
-/** Pastilles d'humeur (une seule à la fois ; toucher la pastille choisie la retire). */
-function MoodPicker({ value, onChange, sex }: { value?: JournalMood; onChange: (m?: JournalMood) => void; sex?: string | null }) {
+/**
+ * Pastilles d'humeur : jusqu'à MAX_MOODS (3) à la fois (« on peut être content et motivé, fier et concentré… ») ; toucher une
+ * pastille la choisit ou la retire. Quand 3 sont choisies, les autres restent visibles mais ne s'ajoutent pas (petite
+ * indication). Gardées dans l'ordre de la liste (cleanMoods), comme le serveur.
+ */
+function MoodPicker({ value, onChange, sex }: { value: readonly JournalMood[]; onChange: (m: JournalMood[]) => void; sex?: string | null }) {
+  const full = value.length >= MAX_MOODS
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Humeur (facultatif)">
-      {JOURNAL_MOODS.map((m) => {
-        const on = value === m.id
-        return (
-          <button
-            key={m.id}
-            type="button"
-            aria-pressed={on}
-            className={`min-h-9 rounded-full border px-2.5 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2 text-muted'}`}
-            onClick={() => onChange(on ? undefined : m.id)}
-          >
-            <span aria-hidden>{m.emoji}</span> {sex === 'F' ? m.f : m.m}
-          </button>
-        )
-      })}
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Humeurs (facultatif, ${MAX_MOODS} au plus)`}>
+        {JOURNAL_MOODS.map((m) => {
+          const on = value.includes(m.id)
+          const locked = full && !on
+          return (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={on}
+              aria-disabled={locked || undefined}
+              className={`min-h-9 rounded-full border px-2.5 text-xs font-bold ${on ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-panel-2 text-muted'} ${locked ? 'opacity-50' : ''}`}
+              onClick={() => {
+                if (on) onChange(value.filter((x) => x !== m.id))
+                else if (!locked) onChange(cleanMoods([...value, m.id]))
+              }}
+            >
+              <span aria-hidden>{m.emoji}</span> {sex === 'F' ? m.f : m.m}
+            </button>
+          )
+        })}
+      </div>
+      {full && (
+        <span className="text-[10px] text-muted" role="status">
+          {MAX_MOODS} humeurs au plus : touche-en une pour la retirer.
+        </span>
+      )}
     </div>
   )
 }
@@ -133,6 +153,17 @@ export function MoodChip({ mood, sex }: { mood?: string; sex?: string | null }) 
     <span className="rounded-full bg-panel-2 px-2 py-0.5 text-[11px] font-bold">
       <span aria-hidden>{m.emoji}</span> {moodLabel(m.id, sex)}
     </span>
+  )
+}
+
+/** Les humeurs d'une note (lecture) : une pastille par humeur, dans l'ordre de la liste ; rien s'il n'y en a pas. */
+export function MoodChips({ note, sex }: { note: Pick<JournalNote, 'mood' | 'moods'>; sex?: string | null }) {
+  return (
+    <>
+      {noteMoods(note).map((m) => (
+        <MoodChip key={m} mood={m} sex={sex} />
+      ))}
+    </>
   )
 }
 
@@ -149,10 +180,10 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
   const [notes, setNotes] = useState<JournalNote[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [text, setText] = useState('')
-  const [mood, setMood] = useState<JournalMood>()
+  const [moods, setMoods] = useState<JournalMood[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  const [editing, setEditing] = useState<{ id: string; text: string; mood?: JournalMood } | null>(null)
+  const [editing, setEditing] = useState<{ id: string; text: string; moods: JournalMood[] } | null>(null)
   const [all, setAll] = useState(false)
 
   useEffect(() => {
@@ -187,13 +218,13 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
   }
 
   async function add() {
-    if (!(await run(() => addNote(player.id, notes ?? [], text, mood), 'Ajoutée à ton journal (privée).'))) return
+    if (!(await run(() => addNote(player.id, notes ?? [], text, moods), 'Ajoutée à ton journal (privée).'))) return
     setText('')
-    setMood(undefined)
+    setMoods([])
   }
   async function saveEdit() {
     if (!editing) return
-    if (await run(() => editNote(player.id, notes ?? [], editing.id, editing.text, editing.mood), 'Note corrigée.')) setEditing(null)
+    if (await run(() => editNote(player.id, notes ?? [], editing.id, editing.text, editing.moods), 'Note corrigée.')) setEditing(null)
   }
   async function remove(n: JournalNote) {
     if (!(await ask('Supprimer cette note ? Elle sera effacée pour de bon.', { ok: 'Supprimer', danger: true, focusCancel: true }))) return
@@ -238,8 +269,8 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                   {text.length} / {SELF_LIMITS.note}
                 </span>
               </label>
-              <span className="text-[11px] text-muted">Comment tu te sens ? (facultatif)</span>
-              <MoodPicker value={mood} onChange={setMood} sex={sex} />
+              <span className="text-[11px] text-muted">Comment tu te sens ? (facultatif, jusqu’à {MAX_MOODS} humeurs)</span>
+              <MoodPicker value={moods} onChange={setMoods} sex={sex} />
               <div className="flex flex-wrap items-center gap-3">
                 <button className="btn-primary min-h-11 px-5" disabled={busy || !text.trim()} onClick={() => void add()}>
                   {busy ? '…' : 'Ajouter'}
@@ -266,7 +297,7 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                       value={editing.text}
                       onChange={(e) => setEditing({ ...editing, text: e.target.value })}
                     />
-                    <MoodPicker value={editing.mood} onChange={(m) => setEditing({ ...editing, mood: m })} sex={sex} />
+                    <MoodPicker value={editing.moods} onChange={(m) => setEditing({ ...editing, moods: m })} sex={sex} />
                     <div className="flex flex-wrap gap-2">
                       <button className="btn-primary min-h-11 px-4 text-xs" disabled={busy || !editing.text.trim()} onClick={() => void saveEdit()}>
                         Enregistrer
@@ -281,7 +312,7 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                     <div className="flex items-start gap-2">
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-[11px] font-bold">{journalDay(n.at)}</span>
-                        <MoodChip mood={n.mood} sex={sex} />
+                        <MoodChips note={n} sex={sex} />
                         {n.kind && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold">{n.kind === 'cahier' ? 'Cahier du hand' : 'Cahier de match'}</span>}
                         {n.shared && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">Partagée</span>}
                       </div>
@@ -289,7 +320,7 @@ export function JournalSection({ player, canWrite, preview }: { player: Player; 
                         <span className="flex shrink-0 gap-1">
                           {/* Un cahier (074) se reprend dans « Ma lampe », qui garde ses champs. */}
                           {!n.kind && (
-                            <button className="min-h-9 min-w-9 text-muted hover:text-accent" aria-label="Corriger cette note" onClick={() => setEditing({ id: n.id, text: n.text, mood: n.mood })}>
+                            <button className="min-h-9 min-w-9 text-muted hover:text-accent" aria-label="Corriger cette note" onClick={() => setEditing({ id: n.id, text: n.text, moods: noteMoods(n) })}>
                               <Icon name="pencil" className="mx-auto h-4 w-4" />
                             </button>
                           )}
@@ -391,7 +422,7 @@ export function StaffJournal({ player }: { player: Player }) {
               <li key={n.id} className="border-l-2 border-line pl-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] font-bold">{journalDay(n.at)}</span>
-                  <MoodChip mood={n.mood} sex={player.sex} />
+                  <MoodChips note={n} sex={player.sex} />
                 </div>
                 <p className="text-sm break-words whitespace-pre-wrap">{n.text}</p>
               </li>

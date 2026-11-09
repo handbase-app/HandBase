@@ -32,6 +32,7 @@ import {
   LAMPE_AT,
   REGLAGE_LAMPE_RETOUR_SQL,
   REGLAGE_LAMPE_SQL,
+  sqlJournal,
   sqlLampe,
   ecrireSql,
   emailCompte,
@@ -355,9 +356,20 @@ t('avis : grille du poste (gardiens à part), notes 1-5, textes positifs ou « �
 t('journal : notes courtes et positives ou neutres, humeurs connues, une partie partagée', () => {
   assert.ok(a.journal.length > 50)
   for (const x of a.journal) {
-    assert.ok(x.text.length <= 300 && ['motive', 'content', 'fier', 'concentre', 'serein', 'pensif', 'decu', 'fatigue'].includes(x.mood))
+    const ordre = ['motive', 'content', 'fier', 'concentre', 'serein', 'pensif', 'decu', 'fatigue']
+    assert.ok(x.text.length <= 300 && ordre.includes(x.mood))
+    // 076 : 1 à 3 humeurs connues, sans doublon, dans l'ordre de la liste ; mood = la première.
+    assert.ok(x.moods.length >= 1 && x.moods.length <= 3 && x.moods.every((m) => ordre.includes(m)))
+    assert.deepEqual(x.moods, [...new Set(x.moods)].sort((p, q) => ordre.indexOf(p) - ordre.indexOf(q)))
+    assert.equal(x.mood, x.moods[0])
     assert.equal(x.id.length, 11)
   }
+  const plusieurs = a.journal.filter((x) => x.moods.length > 1).length / a.journal.length
+  assert.ok(plusieurs > 0.2 && plusieurs < 0.8, `${plusieurs} des notes avec plusieurs humeurs`)
+  assert.ok(a.journal.some((x) => x.moods.length === 3))
+  const s = sqlJournal(a)
+  assert.match(s, /column_name = 'moods'/)
+  assert.match(s, /set moods = v\.m::text\[\], mood = \(v\.m::text\[\]\)\[1\]/)
   const part = a.journal.filter((x) => x.shared).length / a.journal.length
   assert.ok(part > 0.25 && part < 0.65)
   assert.equal(new Set(a.journal.map((x) => x.id)).size, a.journal.length)

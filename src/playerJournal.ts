@@ -1,10 +1,12 @@
 import { TRIAL } from './db'
 import {
+  cleanMoods,
   journalAdd,
   journalDelete,
   journalEdit,
   journalErrorText,
   journalShare,
+  moodFields,
   moodTrend,
   sortNotes,
   withNote,
@@ -19,7 +21,7 @@ import { supabase } from './sync'
  *  - Avec le serveur : table hb_player_journal, lue À LA DEMANDE et en ligne (pas de synchronisation hors ligne) ; le jeune lit
  *    toutes ses notes, le staff seulement les notes partagées (règles du serveur) ; écritures par les fonctions du joueur
  *    (hb_player_journal_add / _edit / _share / _delete) ; tendance des humeurs pour le staff (hb_player_mood_trend : des
- *    nombres, jamais de texte).
+ *    nombres, jamais de texte). Humeurs : jusqu'à 3 par note (076 : p_moods, `moods`) ; avant 076, une seule (p_mood, `mood`).
  *  - Sans serveur (mode essai / local) : sur l'appareil (stockage du navigateur), mêmes règles (src/playerSpace.ts).
  * Rien de ce qui est écrit ici ne part vers une IA.
  */
@@ -54,6 +56,8 @@ interface Row {
   at: string
   text: string
   mood: string | null
+  /** Humeurs (076) : absentes avant le script. */
+  moods?: string[] | null
   shared: boolean
   edited_at: string | null
   /** Cahiers (074) : absents avant le script. */
@@ -65,12 +69,30 @@ export const fromRow = (r: Row): JournalNote => ({
   id: r.id,
   at: new Date(r.at).toISOString(),
   text: r.text,
-  ...(r.mood ? { mood: r.mood as JournalMood } : {}),
+  ...moodFields(cleanMoods(r.moods?.length ? r.moods : r.mood)),
   shared: !!r.shared,
   ...(r.edited_at ? { editedAt: new Date(r.edited_at).toISOString() } : {}),
   ...(r.kind === 'cahier' || r.kind === 'match' ? { kind: r.kind, ...(r.jour ? { day: r.jour } : {}), ...(r.parts ? { parts: r.parts } : {}) } : {}),
 })
-const fromRpc = (v: unknown) => v as JournalNote
+/** Note renvoyée par une fonction du journal : humeurs remises en forme (`moods` de 076, sinon `mood` seule). */
+const fromRpc = (v: unknown): JournalNote => {
+  const n: JournalNote = { ...(v as JournalNote) }
+  const ms = cleanMoods(n.moods?.length ? n.moods : n.mood)
+  delete n.mood
+  delete n.moods
+  return { ...n, ...moodFields(ms) }
+}
+
+/**
+ * Appel d'une fonction du journal avec la liste des humeurs (076 : p_moods) et la première (p_mood, que les serveurs d'avant
+ * 076 connaissent). Serveur d'avant 076 (fonction à p_moods inconnue : PGRST202) : de nouveau, avec p_mood seul (une humeur
+ * gardée, comme avant).
+ */
+async function rpcWithMoods(fn: string, args: Record<string, unknown>, moods: readonly JournalMood[]) {
+  const r = await supabase!.rpc(fn, { ...args, p_mood: moods[0] ?? null, p_moods: [...moods] })
+  if (r.error?.code !== 'PGRST202') return r
+  return supabase!.rpc(fn, { ...args, p_mood: moods[0] ?? null })
+}
 
 const offline = (): Res<never> => ({ ok: false, error: 'Il faut être en ligne pour ton journal : il n’est pas gardé sur l’appareil.' })
 const fail = (e: { message?: string; code?: string }): Res<never> => ({ ok: false, error: journalErrorText(e.message, e.code) })
@@ -91,30 +113,32 @@ export async function fetchNotes(playerId: string, onlyShared = false): Promise<
   return { ok: true, value: (data as Row[]).map(fromRow) }
 }
 
-/** Nouvelle note (privée). Renvoie la liste à afficher. */
-export async function addNote(playerId: string, notes: JournalNote[], text: string, mood?: JournalMood): Promise<Res<JournalNote[]>> {
+/** Nouvelle note (privée), avec 0 à 3 humeurs. Renvoie la liste à afficher. */
+export async function addNote(playerId: string, notes: JournalNote[], text: string, moods: readonly JournalMood[] = []): Promise<Res<JournalNote[]>> {
+  const ms = cleanMoods(moods)
   if (isLocalJournal(playerId)) {
-    const r = journalAdd(notes, text, mood, new Date().toISOString())
+    const r = journalAdd(notes, text, ms, new Date().toISOString())
     if (!r.ok) return { ok: false, error: journalErrorText(r.error) }
     writeLocal(playerId, r.notes)
     return { ok: true, value: r.notes }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase!.rpc('hb_player_journal_add', { p_text: text, p_mood: mood ?? null })
+  const { data, error } = await rpcWithMoods('hb_player_journal_add', { p_text: text }, ms)
   if (error) return fail(error)
   return { ok: true, value: withNote(notes, fromRpc(data)) }
 }
 
-/** Correction d'une note (texte, humeur). */
-export async function editNote(playerId: string, notes: JournalNote[], id: string, text: string, mood?: JournalMood): Promise<Res<JournalNote[]>> {
+/** Correction d'une note (texte, humeurs). */
+export async function editNote(playerId: string, notes: JournalNote[], id: string, text: string, moods: readonly JournalMood[] = []): Promise<Res<JournalNote[]>> {
+  const ms = cleanMoods(moods)
   if (isLocalJournal(playerId)) {
-    const r = journalEdit(notes, id, text, mood, new Date().toISOString())
+    const r = journalEdit(notes, id, text, ms, new Date().toISOString())
     if (!r.ok) return { ok: false, error: journalErrorText(r.error) }
     writeLocal(playerId, r.notes)
     return { ok: true, value: r.notes }
   }
   if (!navigator.onLine) return offline()
-  const { data, error } = await supabase!.rpc('hb_player_journal_edit', { p_id: id, p_text: text, p_mood: mood ?? null })
+  const { data, error } = await rpcWithMoods('hb_player_journal_edit', { p_id: id, p_text: text }, ms)
   if (error) return fail(error)
   return { ok: true, value: withNote(notes, fromRpc(data)) }
 }

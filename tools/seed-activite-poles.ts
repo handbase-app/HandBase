@@ -807,22 +807,30 @@ const AXES_GB = ['À travailler : les sorties sur les ailiers', 'À travailler :
 
 // ---------- Journal ----------
 
-const JOURNAL: { texte: string; humeur: string }[] = [
-  { texte: 'Bonne séance de tirs ce soir, je me sens de plus en plus à l’aise.', humeur: 'content' },
-  { texte: 'Premier match de la saison avec le club, on a gagné ! J’ai marqué 4 buts.', humeur: 'fier' },
-  { texte: 'Grosse semaine de préparation physique, les jambes sont lourdes mais ça va passer.', humeur: 'fatigue' },
-  { texte: 'Objectif du mois : mieux communiquer en défense.', humeur: 'motive' },
-  { texte: 'Séance vidéo intéressante sur nos replis défensifs.', humeur: 'concentre' },
-  { texte: 'Contrôle de maths réussi, et entraînement au top derrière.', humeur: 'content' },
-  { texte: 'Pas mon meilleur match, je retiens qu’il faut rester calme sur les fins de match.', humeur: 'pensif' },
-  { texte: 'Les tests de vitesse se sont bien passés, j’ai gagné quelques centièmes.', humeur: 'fier' },
-  { texte: 'Retour des vacances, content de retrouver le groupe.', humeur: 'motive' },
-  { texte: 'J’ai bien récupéré ce week-end, prêt pour la semaine.', humeur: 'serein' },
-  { texte: 'Travail spécifique au poste avec le coach : plein de choses à essayer.', humeur: 'motive' },
-  { texte: 'Un peu de fatigue avec les devoirs, je vais mieux m’organiser.', humeur: 'pensif' },
-  { texte: 'Défaite de peu avec le club, mais on a bien joué ensemble.', humeur: 'decu' },
-  { texte: 'Bonne ambiance à l’internat cette semaine.', humeur: 'content' },
+// Humeurs du jeune (liste fermée, 052 / 076) : jusqu'à 3 par note, rangées dans l'ordre de la liste (JOURNAL_MOODS,
+// src/playerSpace.ts), comme le serveur les garde (hb_self_moods). Une partie des notes en a 2 ou 3, cohérentes avec le texte.
+const ORDRE_HUMEURS = ['motive', 'content', 'fier', 'concentre', 'serein', 'pensif', 'decu', 'fatigue']
+const JOURNAL: { texte: string; humeurs: string[] }[] = [
+  { texte: 'Bonne séance de tirs ce soir, je me sens de plus en plus à l’aise.', humeurs: ['content', 'serein'] },
+  { texte: 'Premier match de la saison avec le club, on a gagné ! J’ai marqué 4 buts.', humeurs: ['content', 'fier'] },
+  { texte: 'Grosse semaine de préparation physique, les jambes sont lourdes mais ça va passer.', humeurs: ['motive', 'fatigue'] },
+  { texte: 'Objectif du mois : mieux communiquer en défense.', humeurs: ['motive'] },
+  { texte: 'Séance vidéo intéressante sur nos replis défensifs.', humeurs: ['concentre'] },
+  { texte: 'Contrôle de maths réussi, et entraînement au top derrière.', humeurs: ['content'] },
+  { texte: 'Pas mon meilleur match, je retiens qu’il faut rester calme sur les fins de match.', humeurs: ['pensif'] },
+  { texte: 'Les tests de vitesse se sont bien passés, j’ai gagné quelques centièmes.', humeurs: ['fier', 'concentre'] },
+  { texte: 'Retour des vacances, content de retrouver le groupe.', humeurs: ['motive', 'content'] },
+  { texte: 'J’ai bien récupéré ce week-end, prêt pour la semaine.', humeurs: ['serein'] },
+  { texte: 'Travail spécifique au poste avec le coach : plein de choses à essayer.', humeurs: ['motive', 'concentre'] },
+  { texte: 'Un peu de fatigue avec les devoirs, je vais mieux m’organiser.', humeurs: ['pensif'] },
+  { texte: 'Défaite de peu avec le club, mais on a bien joué ensemble.', humeurs: ['fier', 'pensif', 'fatigue'] },
+  { texte: 'Bonne ambiance à l’internat cette semaine.', humeurs: ['content'] },
 ]
+/** Humeurs nettoyées comme le serveur (connues, sans doublon, ordre de la liste, 3 au plus) ; mood = la première. */
+const humeursDe = (h: string[]) => {
+  const moods = [...new Set(h)].filter((m) => ORDRE_HUMEURS.includes(m)).sort((a, b) => ORDRE_HUMEURS.indexOf(a) - ORDRE_HUMEURS.indexOf(b)).slice(0, 3)
+  return { mood: moods[0], moods }
+}
 
 // ---------- Préparation de tout le jeu ----------
 
@@ -852,7 +860,10 @@ export interface LigneJournal {
   player_id: string
   at: string
   text: string
+  /** Première humeur (colonne mood de 052, lue par les anciennes versions de l'appli). */
   mood: string
+  /** Toutes les humeurs (1 à 3, dans l'ordre de la liste ; colonne moods de 076). */
+  moods: string[]
   shared: boolean
 }
 /** Cahier du hand ou cahier de match (074 : note du journal avec kind, jour, parts). */
@@ -1009,7 +1020,7 @@ export function preparer(e: Entree, opts: { fin?: string } = {}): Activite {
           if (x.texte.startsWith('Retour des vacances')) d = '2026-11-02'
           if (x.texte.startsWith('Premier match')) d = '2026-09-20'
           if (d >= fin) continue
-          journal.push({ id: idCourt(`journal:${j.id}:${i}`), player_id: j.id, at: parisIso(d, tj.int(20, 22), tj.int(0, 59)), text: x.texte, mood: x.humeur, shared: tj.chance(0.45) })
+          journal.push({ id: idCourt(`journal:${j.id}:${i}`), player_id: j.id, at: parisIso(d, tj.int(20, 22), tj.int(0, 59)), text: x.texte, ...humeursDe(x.humeurs), shared: tj.chance(0.45) })
         }
       }
       const l = lampeDe(j.id, v, fin)
@@ -1310,11 +1321,28 @@ union all select 'séances', count(*) from public.hb_wellness_seances where user
 }
 
 export function sqlJournal(a: Activite): string {
-  const out = [`-- « Mon journal du hand » : ${a.journal.length} note(s) fictive(s) (user_id vide), partagées avec le staff pour une partie.`, PRELUDE]
+  const out = [
+    `-- « Mon journal du hand » : ${a.journal.length} note(s) fictive(s) (user_id vide), partagées avec le staff pour une partie ;
+-- ${a.journal.filter((x) => x.moods.length > 1).length} avec 2 ou 3 humeurs (colonne moods de 076, posée seulement si elle existe ; avant 076 : la première dans mood).`,
+    PRELUDE,
+  ]
   for (const lot of lots(a.journal))
     out.push(`insert into public.hb_player_journal as t (id, player_id, user_id, at, text, mood, shared, shared_at, deleted, updated_at) values
 ${lot.map((x) => `(${q(x.id)},${q(x.player_id)},null,${q(x.at)},${q(x.text)},${q(x.mood)},${x.shared},${x.shared ? q(x.at) : 'null'},false,${q(x.at)})`).join(',\n')}
 on conflict (id) do nothing;`)
+  // Humeurs multiples (076) : déclencheurs coupés (PRELUDE), donc mood et moods écrits ensemble, dans l'ordre de la liste.
+  // Seulement les notes de ce jeu (user_id vide) ; rejouable (rien ne change la seconde fois).
+  for (const lot of lots(a.journal))
+    out.push(`do $humeurs$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'hb_player_journal' and column_name = 'moods') then
+    execute $q$update public.hb_player_journal as t set moods = v.m::text[], mood = (v.m::text[])[1]
+  from (values
+${lot.map((x) => `(${q(x.id)},${q(`{${x.moods.join(',')}}`)})`).join(',\n')}
+) v(id, m)
+ where t.id = v.id and t.user_id is null and not t.deleted and t.moods is distinct from v.m::text[]$q$;
+  end if;
+end $humeurs$;`)
   return out.join('\n\n')
 }
 
