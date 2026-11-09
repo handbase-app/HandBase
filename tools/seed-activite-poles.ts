@@ -1063,6 +1063,14 @@ const BATCH = 500
 const lots = <T>(xs: readonly T[]) => Array.from({ length: Math.ceil(xs.length / BATCH) }, (_, i) => xs.slice(i * BATCH, (i + 1) * BATCH))
 
 /** Début de chaque fichier : transaction ouverte par l'appelant (outils/appliquer-sql.sh, apply.sql) ; déclencheurs coupés. */
+/** Fin de passage : registre (061) incomplet pour tous les curseurs d'avant → filet (059) sur chaque appareil. */
+export const RESYNC_SQL = `do $$ begin
+  if to_regclass('public.hb_registre_etat') is not null then
+    update public.hb_registre_etat set depuis_x = pg_current_xact_id() where id = 1;
+  end if;
+end $$;
+`
+
 const PRELUDE = `set local session_replication_role = replica;
 set local statement_timeout = 0;
 set local client_min_messages = warning;
@@ -1442,10 +1450,14 @@ export function ecrireSql(a: Activite, dir: string, opts: { empreinte?: string }
     ['06_journal.sql', sqlJournal(a)],
     ...(opts.empreinte ? ([['08_comptes_joueurs.sql', sqlComptes(a, opts.empreinte)]] as [string, string][]) : []),
   ]
+  // Déclencheurs coupés = registre (061) muet : les appareils déjà synchronisés ne verraient ni les groupes, ni les fiches,
+  // ni la clé wellness. On remet le curseur de départ du registre à cette transaction : chaque appareil fait une fois le filet
+  // de 059 et récupère tout (oubli constaté le 09/11 sur la maison, réparé à la main).
+  files.push(['09_appareils.sql', RESYNC_SQL])
   for (const [n, s] of files) writeFileSync(join(dir, n), s)
   writeFileSync(join(dir, '03_reglage_wellness.sql'), REGLAGE_SQL)
   writeFileSync(join(dir, '03_reglage_wellness_retour.sql'), REGLAGE_RETOUR_SQL)
-  writeFileSync(join(dir, '07_retour_arriere.sql'), sqlRetour(a))
+  writeFileSync(join(dir, '07_retour_arriere.sql'), sqlRetour(a) + '\n' + RESYNC_SQL)
   // Un seul fichier pour outils/appliquer-sql.sh (il ajoute begin / commit ; pas de \\ir par l'entrée standard).
   writeFileSync(join(dir, 'activite-poles.sql'), files.map(([n, s]) => `-- ===== ${n} =====\n${s}`).join('\n'))
   const inc = (ns: string[]) => ns.map((n) => `\\echo '${n}'\n\\ir ${n}`).join('\n')
