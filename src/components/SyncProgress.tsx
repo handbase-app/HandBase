@@ -18,7 +18,7 @@ export function SyncProgressBar() {
       )}
       {/* Message d'attente en couleur du texte (contraste 13:1 au moins dans tous les thèmes ; l'atténué descend à 4,6:1). */}
       <p className={`truncate px-4 py-1 text-[10px] font-bold ${busy ? 'text-fg' : 'text-muted'}`}>{busy ? BUSY_LABEL : bar ? `${progressLabel(progress)}…` : ''}</p>
-      {bar && progress.first && !busy && <p className="truncate px-4 pb-1 text-[10px] text-muted">{KEEP_OPEN_LABEL}</p>}
+      {bar && !busy && <p className="px-4 pb-1 text-[11px] font-bold leading-tight text-fg">📱 {KEEP_OPEN_LABEL}</p>}
     </div>
   )
 }

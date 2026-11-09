@@ -1,5 +1,6 @@
 import { deviceEmpty, subscribeSync, syncEnabled, syncSnapshot } from './sync'
 import { splashBar, splashDecision, splashText, type SplashSync } from './splash'
+import { KEEP_OPEN_LABEL } from './syncProgress'
 
 /*
  * Écran d'ouverture : posé par index.html avant tout script (logo animé, pas d'écran blanc), piloté ici une fois l'appli
@@ -40,6 +41,9 @@ export function startSplash() {
   const fill = el.querySelector<HTMLElement>('.sp-bar i')
   const txt = el.querySelector<HTMLElement>('.sp-txt')
   const btn = el.querySelector<HTMLButtonElement>('.sp-btn')
+  // Écriteau du premier chargement : ne pas quitter l'appli (mise en pause en arrière-plan).
+  const hint = el.querySelector<HTMLElement>('.sp-hint')
+  if (hint) hint.textContent = `📱 ${KEEP_OPEN_LABEL}`
 
   const firstLoad = syncEnabled && deviceEmpty()
   let lastActivity = performance.now() - t0
@@ -94,6 +98,7 @@ export function startSplash() {
       const text = splashText(sync, progress, syncEnabled, navigator.onLine, busy)
       if (txt && txt.textContent !== text) txt.textContent = text
       btn?.classList.toggle('sp-show', d.button)
+      hint?.classList.toggle('sp-show', firstLoad && sync === 'pending')
       el!.title = d.skippable ? 'Toucher pour passer' : ''
       if (!d.enter) return
       // Appli encore vide derrière : on attend son premier affichage, un court instant au plus.
