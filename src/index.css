@@ -494,3 +494,53 @@ main[tabindex='-1']:focus { outline: none; }
 .lamp-flame { transform-box: fill-box; transform-origin: 50% 100%; animation: lamp-flicker 2.4s ease-in-out infinite; }
 .lamp-glow { animation: lamp-breathe 3.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .lamp-flame, .lamp-glow { animation: none; } }
+
+/* « Tableau de bord de jeu » de « Ma page » du jeune (onglet Aujourd'hui, src/components/TodayHud.tsx ; saisie de la forme et
+   de la séance, src/components/Wellness.tsx). Maquette validée par Geoffroy le 09/11 (« les jeunes, ça les fait chier de
+   lire… un truc plus péchu ») : thème NEXTAR (couleurs du logo et de l'écran de chargement, index.html), bleu nuit en mode
+   clair comme en sombre (comme les bandes emph), à part des thèmes de l'appli et des styles d'installation (src/uiStyle.ts).
+   Pas de dégradé. Formes obliques : .hud-skew sur le bloc, .hud-unskew sur son contenu (texte droit), coins de 4 px. */
+:root {
+  --hud-bg: #0a182d;
+  --hud-panel: #13304a;
+  --hud-off: #1a3c46;
+  --hud-fg: #f9f9fa;
+  --hud-muted: #8fb3bd;
+  --hud-accent: #61d0d1;
+  --hud-top: #89f7b3;
+  --hud-on-accent: #0a182d;
+  --hud-radius: 4px;
+  --hud-skew: -12deg;
+}
+/* Dans un bloc .hud, les classes de l'appli (text-muted, bg-panel, border-line, bg-accent…) prennent les couleurs du HUD :
+   la saisie des douleurs (silhouette, liste, lignes) garde ses composants et s'habille aux couleurs du thème. */
+.hud {
+  --color-fg: var(--hud-fg);
+  --color-muted: var(--hud-muted);
+  --color-line: color-mix(in srgb, var(--hud-muted) 35%, var(--hud-off));
+  --color-panel: var(--hud-panel);
+  --color-panel-2: var(--hud-off);
+  --color-accent: var(--hud-accent);
+  --color-accent-text: var(--hud-accent);
+  --color-on-accent: var(--hud-on-accent);
+  --color-primary: var(--hud-accent);
+  --color-on-primary: var(--hud-on-accent);
+  background-color: var(--hud-bg);
+  color: var(--hud-fg);
+  border-radius: var(--hud-radius);
+  color-scheme: dark;
+}
+.hud .bg-accent { color: var(--hud-on-accent); }
+.hud .fill-white { fill: var(--hud-on-accent); }
+.hud-skew { transform: skewX(var(--hud-skew)); border-radius: var(--hud-radius); }
+.hud-unskew { transform: skewX(calc(-1 * var(--hud-skew))); }
+.hud-label { font-size: 10px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--hud-muted); }
+.hud-big { font-weight: 900; font-style: italic; letter-spacing: -0.01em; line-height: 1.05; }
+.hud-on { background-color: var(--hud-accent); color: var(--hud-on-accent); }
+.hud-top { background-color: var(--hud-top); color: var(--hud-on-accent); }
+.hud-off { background-color: var(--hud-off); }
+.hud-tile { background-color: var(--hud-panel); color: var(--hud-fg); }
+.hud :is(button, a).hud-skew { transition: transform 0.12s ease, filter 0.12s ease; }
+.hud :is(button, a).hud-skew:active { transform: skewX(var(--hud-skew)) scale(0.97); }
+.hud :is(button, a).hud-skew:focus-visible { outline: 2px solid var(--hud-top); outline-offset: 2px; }
+.hud button.hud-skew:disabled { opacity: 0.45; }

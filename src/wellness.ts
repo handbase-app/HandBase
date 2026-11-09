@@ -67,6 +67,85 @@ export function scaleWord(v: number | undefined | null): { emoji: string; word: 
   return { emoji: '🤩', word: 'Au top' }
 }
 
+// ---------- Mots du « tableau de bord de jeu » (Ma page du jeune, maquette du 09/11) ----------
+
+/** Un niveau de jauge : gros émoji, mot en gros (toujours positif ou neutre). */
+export interface LevelWord {
+  emoji: string
+  word: string
+}
+/** Tranche d'une note de 1 à 10 : 0 (1-2), 1 (3-4), 2 (5-6), 3 (7-8), 4 (9-10) ; hors échelle : -1. */
+export const levelBand = (v: number | undefined | null): number => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 10 ? Math.floor((v - 1) / 2) : -1)
+const lw = (rows: readonly (readonly [string, string])[]): readonly LevelWord[] => rows.map(([emoji, word]) => ({ emoji, word }))
+
+/** Les 4 notes du matin, en jauge : petite question fun au-dessus, mot et émoji par tranche (1-2, 3-4, 5-6, 7-8, 9-10). */
+export const LEVEL_WORDS: Record<WellnessKey, { question: string; levels: readonly LevelWord[] }> = {
+  energie: {
+    question: 'Ta batterie ce matin ?',
+    levels: lw([
+      ['🪫', 'À recharger'],
+      ['🔋', 'En charge'],
+      ['🔋', 'Batterie OK'],
+      ['🔋', 'Bien chargé'],
+      ['⚡', 'Full charge'],
+    ]),
+  },
+  fraicheur: {
+    question: 'Tes jambes, elles disent quoi ?',
+    levels: lw([
+      ['🦵', 'Jambes à reposer'],
+      ['🦵', 'Ça tourne doucement'],
+      ['🦵', 'Jambes OK'],
+      ['💨', 'Jambes légères'],
+      ['🔥', 'Jambes de feu'],
+    ]),
+  },
+  humeur: {
+    question: 'Ton mood du jour ?',
+    levels: lw([
+      ['😐', 'Mood tranquille'],
+      ['🙂', 'Ça va'],
+      ['😄', 'Good vibes'],
+      ['😁', 'Grosse vibe'],
+      ['🤩', 'Au max'],
+    ]),
+  },
+  sommeil: {
+    question: 'Ta nuit, c’était comment ?',
+    levels: lw([
+      ['🌙', 'Nuit courte'],
+      ['🌙', 'Nuit moyenne'],
+      ['😴', 'Bonne nuit'],
+      ['😴', 'Grosse nuit'],
+      ['👑', 'Nuit de champion'],
+    ]),
+  },
+}
+/** Jauge pas encore touchée : le mot invite. */
+export const LEVEL_INVITE: LevelWord = { emoji: '👆', word: 'Touche ta jauge' }
+
+/** Mot et émoji d'une note du matin (null : pas de note, ou hors échelle). */
+export function levelWord(key: WellnessKey, v: number | undefined | null): LevelWord | null {
+  const b = levelBand(v)
+  return b < 0 ? null : LEVEL_WORDS[key].levels[b]
+}
+
+/** « Ma séance » en jauge : la question, puis le mot de l'intensité ressentie (RPE) par tranche. */
+export const RPE_QUESTION = 'Ta séance, ça a chauffé comment ?'
+export const RPE_LEVELS: readonly LevelWord[] = lw([
+  ['🛋️', 'Chill'],
+  ['🚶', 'Tranquille'],
+  ['🏃', 'Ça chauffe'],
+  ['🔥', 'Grosse séance'],
+  ['⚡', 'Hardcore'],
+])
+export function rpeLevel(v: number | undefined | null): LevelWord | null {
+  const b = levelBand(v)
+  return b < 0 ? null : RPE_LEVELS[b]
+}
+/** Note « top » de la jauge (9 ou 10) : segments en menthe. */
+export const isTopLevel = (v: number | undefined | null) => levelBand(v) === 4
+
 /** Intensité de la douleur (1 à 10) en mots. */
 export function painWord(v: number | undefined | null): string | null {
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 10) return null
