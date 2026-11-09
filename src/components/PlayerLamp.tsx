@@ -107,6 +107,42 @@ export function LampSvg({ pct, size = 220, label }: { pct: number; size?: number
   )
 }
 
+// ---------- Données de la lampe (onglet Ma lampe, et missions du jour de l'onglet Aujourd'hui : src/components/TodayHud.tsx) ----------
+
+/**
+ * Lampe du jeune et ses cahiers, lus quand `enabled` (son compte, l'essai ou une fiche de démonstration) ; relus par
+ * `reload()`. `view` : la lampe calculée (src/lamp.ts : lampView), mêmes règles partout (journée allumée, série, jours demandés).
+ */
+export function useMyLamp(playerId: string, enabled: boolean) {
+  const p = useLiveQuery(() => db.players.get(playerId), [playerId])
+  const [data, setData] = useState<MyLamp | null>(null)
+  const [err, setErr] = useState('')
+  const [cahiers, setCahiers] = useState<JournalNote[]>([])
+  const [seq, setSeq] = useState(0)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!enabled) return
+    let live = true
+    void Promise.all([fetchMyLamp(playerId), fetchMyCahiers(playerId)]).then(([r, c]) => {
+      if (!live) return
+      setLoaded(true)
+      if (r.ok) setData(r.value)
+      else (setData(null), setErr(r.missing ? '' : r.error))
+      if (c.ok) setCahiers(c.value)
+    })
+    return () => {
+      live = false
+    }
+  }, [playerId, enabled, seq])
+
+  const view: LampView | null = useMemo(() => {
+    if (!data) return null
+    const ctx = lampContext(p, data.today, { setting: data.settings.zone, fallback: TRIAL || !supabase ? DEMO_LAMP_ZONE : undefined })
+    return lampView({ today: data.today, start: ctx.start, days: data.days, coach: data.coach, zone: ctx.zone, settings: data.settings })
+  }, [data, p])
+  return { p, data, setData, err, cahiers, setCahiers, view, loaded, reload: () => setSeq((n) => n + 1) }
+}
+
 // ---------- Section ----------
 
 const shortDay = (day: string) => new Date(day + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -129,36 +165,13 @@ export function PlayerLamp({
   onGo?: (tab: 'aujourdhui') => void
 }) {
   const role = useRole()
-  const p = useLiveQuery(() => db.players.get(playerId), [playerId])
   // Son compte, l'essai ou une fiche de démonstration : ses données ; aperçu d'un administrateur avec le serveur : rien.
   const mine = isPlayerRole(role) || isLocalWellness(playerId)
   const canWrite = canWriteProp ?? ((isPlayerRole(role) || !supabase) && !(preview && !!supabase))
-  const [data, setData] = useState<MyLamp | null>(null)
-  const [err, setErr] = useState('')
-  const [cahiers, setCahiers] = useState<JournalNote[]>([])
+  const { p, data, setData, err, cahiers, setCahiers, view, reload } = useMyLamp(playerId, mine && active)
   const [open, setOpen] = useState<{ kind: CahierKind; day: string } | null>(null)
   const [wishOpen, setWishOpen] = useState(false)
   const [msg, setMsg] = useState('')
-  const [seq, setSeq] = useState(0)
-  useEffect(() => {
-    if (!mine || !active) return
-    let live = true
-    void Promise.all([fetchMyLamp(playerId), fetchMyCahiers(playerId)]).then(([r, c]) => {
-      if (!live) return
-      if (r.ok) setData(r.value)
-      else (setData(null), setErr(r.missing ? '' : r.error))
-      if (c.ok) setCahiers(c.value)
-    })
-    return () => {
-      live = false
-    }
-  }, [playerId, mine, seq, active])
-
-  const view: LampView | null = useMemo(() => {
-    if (!data) return null
-    const ctx = lampContext(p, data.today, { setting: data.settings.zone, fallback: TRIAL || !supabase ? DEMO_LAMP_ZONE : undefined })
-    return lampView({ today: data.today, start: ctx.start, days: data.days, coach: data.coach, zone: ctx.zone, settings: data.settings })
-  }, [data, p])
 
   if (!mine)
     return (
@@ -179,7 +192,6 @@ export function PlayerLamp({
   const cahierToday = cahiers.find((n) => n.kind === 'cahier' && n.day === t)
   const matchDays = writableDays('match', t)
   const weekendDay = matchDays.find((d) => dow(d) === 6 || dow(d) === 0)
-  const reload = () => setSeq((n) => n + 1)
   const doneChip = (k: TaskKey) => !!(view.today.bits & TASK[k])
 
   return (
@@ -411,7 +423,7 @@ function CahiersList({
 
 // ---------- Fenêtre d'un cahier ----------
 
-function CahierWindow({
+export function CahierWindow({
   playerId,
   kind,
   day: day0,
