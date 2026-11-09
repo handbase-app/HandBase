@@ -11,7 +11,7 @@ import { Icon } from './ui'
  * fenêtre « Ajouter un compte de test » (ou reconnecter un compte dont la session ne vaut plus), « Retirer un compte de test ».
  * Rien ne s'affiche pour un compte qui n'est pas administrateur sur un appareil sans compte administrateur gardé (un vrai jeune
  * sur son téléphone ne voit rien de nouveau : src/comptesCore.ts accountsView).
- * Comptes gardés aussi sur le compte administrateur (076, fonction comptes-test) : ceux des autres appareils apparaissent
+ * Comptes gardés aussi sur le compte administrateur (077, fonction comptes-test) : ceux des autres appareils apparaissent
  * (« Passer sur … », ouverts en un toucher, sans mot de passe), « Retirer » les retire partout, et ceux ajoutés avant cette
  * version se gardent partout sans retaper leur mot de passe (« Garder sur tous mes appareils »).
  */

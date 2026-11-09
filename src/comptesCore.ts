@@ -183,7 +183,7 @@ export function tokensOf(text: string | null | undefined): { access_token: strin
   }
 }
 
-// ---------- Comptes de test gardés sur le compte administrateur (supabase/076_comptes_test.sql, fonction comptes-test) ----------
+// ---------- Comptes de test gardés sur le compte administrateur (supabase/077_comptes_test.sql, fonction comptes-test) ----------
 /*
  * « Ça marche de partout » (Geoffroy, 09/11) : un compte de test ajouté UNE FOIS avec son mot de passe, sur n'importe quel
  * appareil, est enregistré sur le compte administrateur (au serveur : e-mail, nom, rôle ; jamais de mot de passe ni de
@@ -191,7 +191,7 @@ export function tokensOf(text: string | null | undefined): { access_token: strin
  * au serveur, sans e-mail), puis devient un compte gardé normal de cet appareil.
  * Copie locale de la liste du serveur (IndexedDB « hb-session », clé REMOTE_KEY), marquée du compte administrateur qui l'a
  * lue : visible aussi pendant un compte de test (qui ne peut pas la lire lui-même), jamais pour un autre administrateur.
- * Sans 076 ou sans la fonction : copie absente (null), tout marche comme avant, appareil seul.
+ * Sans 077 ou sans la fonction : copie absente (null), tout marche comme avant, appareil seul.
  */
 
 /** Liste du serveur gardée sur l'appareil. */
@@ -288,13 +288,13 @@ export interface AccountsView {
   toLink: SavedAccount[]
   /** Comptes de test de l'appareil enregistrés sur le compte administrateur (retirés : partout). */
   linked: string[]
-  /** Comptes de test gardés aussi sur le compte administrateur (076 et fonction en place, liste lue) : textes « partout ». */
+  /** Comptes de test gardés aussi sur le compte administrateur (077 et fonction en place, liste lue) : textes « partout ». */
   everywhere: boolean
 }
 
 /**
  * Règle d'affichage. realRole : rôle RÉEL du compte connecté (src/roles.ts realRole : jamais celui de « Voir comme… »).
- * remote : liste du serveur lue par l'administrateur de l'appareil (null : inconnue, avant 076, sans serveur, ou pendant
+ * remote : liste du serveur lue par l'administrateur de l'appareil (null : inconnue, avant 077, sans serveur, ou pendant
  * « Voir comme… ») : rien de plus qu'avant. Un vrai jeune sur son téléphone : liste vide, pas administrateur : rien de nouveau.
  */
 export function accountsView(list: SavedAccount[], activeUid: string | null, activeDb: string, realRole: string, remote: RemoteAccount[] | null = null): AccountsView {

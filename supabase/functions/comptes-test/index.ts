@@ -1,7 +1,7 @@
 // HandBase : fonction Supabase « comptes-test » : comptes de test gardés sur le COMPTE ADMINISTRATEUR, pour les retrouver
 // sur tous ses appareils (« Changer de compte », src/comptes.ts) sans retaper leur mot de passe. Règle (Geoffroy, 09/11/2026) :
 // seulement les comptes AJOUTÉS UNE FOIS avec leur mot de passe, sur n'importe quel appareil. Table :
-// supabase/076_comptes_test.sql (lecture par l'administrateur, ses lignes seulement ; écriture ici seulement).
+// supabase/077_comptes_test.sql (lecture par l'administrateur, ses lignes seulement ; écriture ici seulement).
 //
 // POST JSON, en-tête Authorization: Bearer <jeton de l'administrateur connecté> :
 // - { action: "lier", jeton_test } : jeton_test = jeton d'accès du compte de test, obtenu par la connexion AVEC SON MOT DE
@@ -18,7 +18,7 @@
 //   → { token_hash }.
 // - { action: "retirer", test_uid } : la ligne de CET appelant part (toujours permis : on retire ce qu'on a). → { ok }.
 // Erreurs (JSON error) : non_connecte (401), demande (400), meme_compte (400), pas_admin / cible_admin / cible_bloquee (403),
-// inconnu / cible_absente (404), trop (409), table_absente (503, 076 pas encore passé), serveur (500).
+// inconnu / cible_absente (404), trop (409), table_absente (503, 077 pas encore passé), serveur (500).
 //
 // JAMAIS de mot de passe ni de jeton du compte de test stocké ou journalisé : ni dans la table, ni dans les journaux (aucun
 // console.log de la demande ; seuls des codes d'erreur sortent).
@@ -48,7 +48,7 @@ function cors(req: Request): Record<string, string> {
   }
 }
 
-// Table absente (076 pas passé) : PostgREST rend PGRST205 (ou 42P01 selon la version).
+// Table absente (077 pas passé) : PostgREST rend PGRST205 (ou 42P01 selon la version).
 const tableAbsente = (e: { code?: string } | null) => !!e && (e.code === 'PGRST205' || e.code === '42P01')
 
 Deno.serve(async (req) => {
