@@ -444,6 +444,11 @@ export interface PlayerGroup extends Syncable {
    */
   wellness?: boolean
   wellnessSince?: string
+  /**
+   * Réglage de l'alerte du wellness (src/wellnessAlert.ts : seuil `max`, jours de suite `days`, note suivie `note`, absente :
+   * la moyenne) ; absent : 5 ou moins, 3 jours, la moyenne. Changé par ceux qui activent le wellness du groupe.
+   */
+  wellnessAlert?: { max?: number; days?: number; note?: string }
   /** Ancienne couleur de repère (« Repérer des groupes », retiré le 03/11) : reste sur de vieux groupes, plus lue ni écrite. */
   color?: string
 }

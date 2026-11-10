@@ -2,6 +2,7 @@ import { detectAction, type Detected } from './askAction'
 import { isNameQuery } from './playerQuery'
 import { nameKey, queryWords, searchByName } from './nameMatch'
 import { currentSport, isHandball, POSITIONS } from './sportConfig'
+import { criterionParam, criterionText, wellnessAsk, type WellnessCriterion } from './wellnessAlert'
 
 /*
  * « Demander » : une seule porte pour tout demander (src/components/Demander.tsx), comme la barre d'adresse d'un
@@ -125,7 +126,7 @@ export function suggestionsFor(page: AskPage, ctx: { today: string }): string[] 
 
 // ---------- Où envoyer une demande faite depuis l'en-tête ----------
 
-export type AskKind = 'name' | 'open-player' | 'open-event' | 'open-group' | 'players' | 'events' | 'groups' | 'bilan' | 'select' | 'action'
+export type AskKind = 'name' | 'open-player' | 'open-event' | 'open-group' | 'players' | 'events' | 'groups' | 'bilan' | 'select' | 'action' | 'wellness'
 
 /** Ce que la page de destination doit faire en arrivant (rien n'est créé : `select` prépare seulement la sélection). */
 export type AskApply = { page: AskPage; phrase: string; select?: 'groupe' | 'evenement' }
@@ -150,6 +151,11 @@ export type AskContext = {
   players?: readonly Named[]
   events?: readonly Named[]
   groups?: readonly Named[]
+  /**
+   * Groupes dont le compte lit le wellness (activé, staff du groupe ou administrateur : mêmes droits que le tableau), le
+   * groupe Pôle d'abord : « les joueurs en dessous de 6 dans le wellness » ouvre leur tableau filtré (src/wellnessAlert.ts).
+   */
+  wellnessGroups?: readonly Named[]
 }
 
 const MAX_NAMED = 3
@@ -286,6 +292,10 @@ function actionRoute(phrase: string, d: Detected): AskRoute {
 export function routeAsk(phrase: string, ctx: AskContext = {}): AskRoute[] {
   const text = cleanText(phrase)
   if (!text) return []
+  // Wellness (« les joueurs en dessous de 6 dans le wellness », « sommeil sous 5 ») : compris ici, sur l'appareil ; le
+  // tableau du groupe lit les réponses à la demande (jamais gardées, jamais envoyées à une IA). Interrupteur : WELLNESS_IN_ASK.
+  const wc = wellnessAsk(text)
+  if (wc) return wellnessRoutes(text, wc, ctx)
   const d = detectAction(text)
   if (d && !(d.kind === 'plan' && d.plan.action === 'filtrer_createur')) return [actionRoute(text, d), ...routePhrase(text, ctx)]
   return routePhrase(text, ctx)
@@ -346,6 +356,15 @@ function routePhrase(text: string, ctx: AskContext): AskRoute[] {
   // Un texte court qui est le nom d'un événement ou d'un groupe (« Sélection U15 », « Intercomités 83 ») : à ouvrir aussi.
   const named = n.split(' ').length <= 6 ? [...namedMatches(ctx.events, text).map((e) => open('open-event', e)), ...namedMatches(ctx.groups, text).map((g) => open('open-group', g))] : []
   return [out[0], ...named, ...out.slice(1)]
+}
+
+/** Tableau du wellness filtré, groupe par groupe (3 au plus) ; aucun groupe lisible : la liste des groupes. */
+function wellnessRoutes(text: string, c: WellnessCriterion, ctx: AskContext): AskRoute[] {
+  const gs = (ctx.wellnessGroups ?? []).slice(0, MAX_NAMED)
+  const hint = `${criterionText(c)} · dernière réponse de chacun`
+  if (!gs.length)
+    return [{ kind: 'wellness', label: 'Wellness : ouvrir un groupe où il est activé', hint: `« ${text} » · le wellness se lit dans le tableau d’un groupe`, to: ASK_PATH.groupes }]
+  return gs.map((g) => ({ kind: 'wellness', label: `Wellness de « ${g.name} »`, hint, to: `/groupes/${g.id}/wellness?wl=${criterionParam(c)}` }))
 }
 
 /** Page d'une adresse de l'appli (l'en-tête montre les suggestions de la page affichée ; sinon celles de Joueurs). */
