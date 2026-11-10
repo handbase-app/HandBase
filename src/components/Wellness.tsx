@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { db, today, TRIAL, type PlayerGroup } from '../db'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { db, today, TRIAL, type Player, type PlayerGroup } from '../db'
+import { w } from '../gender'
 import { can, currentUserId, isParticipant, isPlayerRole, useRole, type Role } from '../roles'
 import { supabase } from '../sync'
 import {
@@ -13,15 +14,8 @@ import {
   type Tone,
   areaOf,
   fmt1,
-  isTopLevel,
   isWeekday,
-  LEVEL_INVITE,
-  LEVEL_WORDS,
-  levelWord,
   myHistory,
-  RPE_QUESTION,
-  rpeLevel,
-  type LevelWord,
   nearestPoint,
   painKey,
   painLine,
@@ -32,6 +26,8 @@ import {
   PAIN_ENTRIES_MAX,
   PAIN_TEXT_MAX,
   PAIN_TYPES,
+  rpeWord,
+  scaleWord,
   searchAreas,
   sessionLoad,
   SESSIONS_PER_DAY,
@@ -51,20 +47,21 @@ import {
 } from '../wellness'
 import { fetchMyWellness, isLocalWellness, removeMySession, saveMySession, saveMyWellness, type MyWellness } from '../wellnessApi'
 import { ask } from './Confirm'
+import { SectionTitle } from './ui'
 
 /*
- * Wellness, côté JEUNE (page /moi, onglet Aujourd'hui : src/components/TodayHud.tsx ; src/wellness.ts, supabase/073_wellness.sql).
- * Style « jeu vidéo » au thème NEXTAR depuis le 09/11 (maquette validée par Geoffroy : « les jeunes, ça les fait chier de
- * lire… un truc plus péchu »), dans un bloc .hud (src/index.css) :
- *  - « Ma forme » (MorningForm) : chaque note de 1 à 10 en jauge à toucher (HudGauge : question fun, gros émoji et mot positif
- *    de la tranche, 10 segments obliques) ; « Une douleur quelque part ? » « Nan, frais » / « Oui, là », et si oui : une ligne
- *    par endroit (silhouette face / dos où l'on touche près de l'endroit, liste cherchable des mêmes noms, ou endroit écrit),
- *    chacune avec ce que c'est et son intensité 1 à 10. « Envoyer » ; modifiable toute la journée. Résumé : WellnessSummary.
- *  - « Ma séance » (SessionForm) : intensité ressentie 1 à 10 en jauge ET durée, obligatoire ; aujourd'hui ou hier ;
- *    plusieurs par jour (RecentSessions) ; « Mes 14 derniers jours » (History : comparés à SA moyenne, ton positif).
+ * Wellness, côté JEUNE (page /moi ; src/wellness.ts, supabase/073_wellness.sql) :
+ *  - « Mon wellness du jour » : en haut de la page, ouvert, du lundi au vendredi tant qu'il n'est pas rempli ; un seul écran,
+ *    chaque note de 1 à 10 sur UNE ligne (10 segments joints, le mot positif de la valeur à côté du titre) ; « Douleurs,
+ *    gênes » oui / non, et si oui : une ligne par endroit (silhouette face / dos où l'on touche près de l'endroit, liste
+ *    cherchable des mêmes noms, ou endroit écrit), chacune avec ce que c'est et son intensité 1 à 10. Modifiable toute la journée.
+ *  - Une fois rempli (ou le week-end) : une ligne repliée, « Modifier », « Ma séance » (intensité ressentie 1 à 10 ET durée,
+ *    obligatoire ; aujourd'hui ou hier ; plusieurs par jour) et « Mes 14 derniers jours » (comparés à SA moyenne, ton positif).
  * Demandé seulement si le réglage de l'installation est ouvert, le compte relié et la fiche dans un groupe activé ; sinon rien
- * ne s'affiche. Aperçu d'un administrateur avec le serveur : une ligne d'explication, aucune donnée lue (useMyWellness).
- * Clavier seulement : rien ne part vers une IA.
+ * ne s'affiche. Aperçu d'un administrateur avec le serveur : une ligne d'explication, aucune donnée lue. Clavier seulement :
+ * rien ne part vers une IA.
+ * Partagés avec la version « tableau de bord de jeu » (coupée, src/components/WellnessHud.tsx) : PainPicker, PainDraft,
+ * draftComplete, draftToPain, Form, fromEntry, History.
  */
 
 /** « lun. 3 nov. » */
@@ -221,6 +218,11 @@ function Scale({ label, hint, value, onChange, word, small }: { label: string; h
   )
 }
 
+const scoreWord = (v?: number) => {
+  const s = scaleWord(v)
+  return s ? `${s.emoji} ${s.word}` : null
+}
+
 // ---------- Où ? Silhouette, liste ----------
 
 /** Silhouette simple (repère 120 × 240) : tête, buste, bras et mains, jambes et pieds ; de dos, la colonne. */
@@ -350,15 +352,15 @@ function AreaList({ pains, onToggle }: { pains: readonly PainDraft[]; onToggle: 
 }
 
 /** Une ligne de douleur en cours de saisie (type et intensité à choisir). */
-interface PainDraft {
+export interface PainDraft {
   zone: string
   cote?: PainSide
   type?: PainType
   texte: string
   intensite?: number
 }
-const draftComplete = (d: PainDraft) => !!d.type && !!d.intensite && (d.zone !== AREA_OTHER || !!d.texte.trim())
-const draftToPain = (d: PainDraft): PainEntry => {
+export const draftComplete = (d: PainDraft) => !!d.type && !!d.intensite && (d.zone !== AREA_OTHER || !!d.texte.trim())
+export const draftToPain = (d: PainDraft): PainEntry => {
   const keepText = d.zone === AREA_OTHER || d.type === 'autre'
   return { zone: d.zone, ...(d.cote ? { cote: d.cote } : {}), type: d.type!, ...(keepText && d.texte.trim() ? { texte: d.texte.trim() } : {}), intensite: d.intensite! }
 }
@@ -399,7 +401,7 @@ function PainLineEditor({ n, d, onChange, onRemove }: { n: number; d: PainDraft;
 }
 
 /** Où ? Trois onglets (de face, de dos, liste), puis une ligne par endroit choisi. */
-function PainPicker({ pains, update }: { pains: PainDraft[]; update: (fn: (list: PainDraft[]) => PainDraft[]) => void }) {
+export function PainPicker({ pains, update }: { pains: PainDraft[]; update: (fn: (list: PainDraft[]) => PainDraft[]) => void }) {
   const [view, setView] = useState<BodyView | 'liste'>('face')
   const [note, setNote] = useState('')
   function toggle(area: string, cote?: PainSide) {
@@ -445,114 +447,32 @@ function PainPicker({ pains, update }: { pains: PainDraft[]; update: (fn: (list:
   )
 }
 
-// ---------- Jauge du « tableau de bord de jeu » (Ma page du jeune) ----------
+// ---------- Questionnaire du matin ----------
 
-/**
- * Jauge à toucher (maquette du 09/11, thème NEXTAR, dans un bloc .hud) : petite question fun, gros émoji et mot de la tranche,
- * le chiffre à droite ; 10 segments obliques, toucher le k-ième met la note à k (remplis en turquoise, en menthe à 9 ou 10).
- * Segments de 32 px de haut, sur toute la largeur (≈ 26 px de large à 360 px). Clavier : flèches, Début / Fin.
- */
-export function HudGauge({
-  label,
-  question,
-  value,
-  onChange,
-  level,
-  invite = LEVEL_INVITE,
-}: {
-  label: string
-  question: string
-  value?: number
-  onChange: (v: number) => void
-  level: (v?: number) => LevelWord | null
-  invite?: LevelWord
-}) {
-  const group = useRef<HTMLDivElement>(null)
-  const lv = level(value)
-  const shown = lv ?? invite
-  const top = isTopLevel(value)
-  const pick = (v: number) => {
-    onChange(v)
-    ;(group.current?.children[v - 1] as HTMLElement | undefined)?.focus()
-  }
-  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const cur = value ?? 0
-    const next = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? Math.min(10, cur + 1) : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? Math.max(1, cur - 1) : e.key === 'Home' ? 1 : e.key === 'End' ? 10 : 0
-    if (!next) return
-    e.preventDefault()
-    pick(next)
-  }
-  return (
-    <fieldset className="min-w-0" data-testid="jauge">
-      <legend className="sr-only">{label}</legend>
-      <div className="text-xs font-bold text-muted" aria-hidden>
-        {question}
-      </div>
-      <div className="mt-1 flex min-w-0 items-center gap-2.5" aria-live="polite">
-        <span className="text-[32px] leading-none" aria-hidden>
-          {shown.emoji}
-        </span>
-        <span className={`hud-big min-w-0 flex-1 text-[22px] break-words ${lv ? '' : 'text-muted'}`}>{shown.word}</span>
-        <span className="hud-big shrink-0 text-[30px] tabular-nums" style={{ color: top ? 'var(--hud-top)' : 'var(--hud-accent)' }}>
-          {value ?? '–'}
-          <span className="text-xs font-bold text-muted not-italic">/10</span>
-        </span>
-      </div>
-      <div ref={group} role="radiogroup" aria-label={label} onKeyDown={onKey} className="mt-2 flex gap-1 px-1.5">
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => {
-          const on = typeof value === 'number' && v <= value
-          return (
-            <button
-              key={v}
-              type="button"
-              role="radio"
-              aria-checked={value === v}
-              aria-label={`${label} : ${v} sur 10`}
-              tabIndex={value === v || (value === undefined && v === 1) ? 0 : -1}
-              className={`hud-skew h-8 min-w-0 flex-1 touch-manipulation ${on ? (top ? 'hud-top' : 'hud-on') : 'hud-off'}`}
-              onClick={() => onChange(v)}
-            />
-          )
-        })}
-      </div>
-    </fieldset>
-  )
-}
-
-/** Gros bouton oblique (choix, envoi) : `tone` « on » turquoise, « top » menthe, sinon fond panneau. */
-function HudButton({ tone, className = '', children, ...rest }: { tone?: 'on' | 'top' | null; className?: string; children: ReactNode } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'>) {
-  return (
-    <button type="button" className={`hud-skew touch-manipulation ${tone === 'on' ? 'hud-on' : tone === 'top' ? 'hud-top' : 'hud-tile'} ${className}`} {...rest}>
-      <span className="hud-unskew flex items-center justify-center gap-1.5">{children}</span>
-    </button>
-  )
-}
-
-// ---------- Questionnaire du matin (« Ma forme ») ----------
-
-interface Form {
+export interface Form {
   scores: Scores
   pain: boolean | null
   pains: PainDraft[]
 }
-const fromEntry = (e: WellnessEntry | null | undefined): Form => ({
+export const fromEntry = (e: WellnessEntry | null | undefined): Form => ({
   scores: { ...(e?.scores ?? {}) },
   pain: e ? e.pain : null,
   pains: (e?.pains ?? []).map((p) => ({ zone: p.zone, ...(p.cote ? { cote: p.cote } : {}), type: p.type, texte: p.texte ?? '', intensite: p.intensite })),
 })
 
-/**
- * Saisie de la forme, dans le bloc .hud de l'onglet Aujourd'hui : une jauge par note, « Une douleur quelque part ? » (« Nan,
- * frais » / « Oui, là », qui ouvre la saisie des endroits, types et intensités), « Envoyer ». Même envoi qu'avant
- * (saveMyWellness → hb_wellness_enregistrer) ; un wellness déjà envoyé se reprend tel quel (Modifier).
- */
-export function MorningForm({ initial, onSaved, onCancel, playerId }: { initial: WellnessEntry | null; onSaved: (e: WellnessEntry) => void; onCancel?: () => void; playerId: string }) {
+function MorningForm({ initial, onSaved, onCancel, playerId }: { initial: WellnessEntry | null; onSaved: (e: WellnessEntry) => void; onCancel?: () => void; playerId: string }) {
   const [f, setF] = useState<Form>(() => fromEntry(initial))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const painOk = f.pain !== true || (f.pains.length > 0 && f.pains.every(draftComplete))
   const answered = Object.keys(f.scores).length > 0 || f.pain === true
-  const setScore = (k: WellnessKey, v: number) => setF((x) => ({ ...x, scores: { ...x.scores, [k]: v } }))
+  const setScore = (k: WellnessKey, v: number | undefined) =>
+    setF((x) => {
+      const scores = { ...x.scores }
+      if (v === undefined) delete scores[k]
+      else scores[k] = v
+      return { ...x, scores }
+    })
   async function submit() {
     if (busy || !answered || !painOk) return
     setBusy(true)
@@ -563,25 +483,29 @@ export function MorningForm({ initial, onSaved, onCancel, playerId }: { initial:
     onSaved(r.value)
   }
   return (
-    <div className="flex flex-col gap-5" data-testid="saisie-forme">
+    <div className="flex flex-col gap-3.5">
       {WELLNESS_ITEMS.map((it) => (
-        <HudGauge key={it.key} label={it.label} question={LEVEL_WORDS[it.key].question} value={f.scores[it.key]} onChange={(v) => setScore(it.key, v)} level={(v) => levelWord(it.key, v)} />
+        <Scale key={it.key} label={it.label} hint={it.hint} value={f.scores[it.key]} onChange={(v) => setScore(it.key, v)} word={scoreWord} />
       ))}
       <fieldset className="min-w-0">
-        <legend className="text-xs font-bold text-muted">Une douleur quelque part ?</legend>
-        <div className="mt-2 grid grid-cols-2 gap-3 px-1.5" role="radiogroup" aria-label="Une douleur quelque part ?">
-          <HudButton role="radio" aria-checked={f.pain === false} tone={f.pain === false ? 'on' : null} className="min-h-14" onClick={() => setF((x) => ({ ...x, pain: false }))}>
-            <span aria-hidden className="text-xl">😎</span>
-            <span className="hud-big text-lg">Nan, frais</span>
-          </HudButton>
-          <HudButton role="radio" aria-checked={f.pain === true} tone={f.pain === true ? 'top' : null} className="min-h-14" onClick={() => setF((x) => ({ ...x, pain: true }))}>
-            <span aria-hidden className="text-xl">📍</span>
-            <span className="hud-big text-lg">Oui, là</span>
-          </HudButton>
+        <legend className="text-sm font-bold">Douleurs, gênes</legend>
+        <div className="mt-1 grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-panel-2" role="radiogroup" aria-label="Douleurs, gênes">
+          {([false, true] as const).map((v) => (
+            <button
+              key={String(v)}
+              type="button"
+              role="radio"
+              aria-checked={f.pain === v}
+              className={`min-h-11 border-l border-line text-sm font-bold first:border-l-0 ${f.pain === v ? 'bg-accent text-white' : ''}`}
+              onClick={() => setF((x) => ({ ...x, pain: v }))}
+            >
+              {v ? 'Oui' : 'Non'}
+            </button>
+          ))}
         </div>
       </fieldset>
       {f.pain && (
-        <div className="flex flex-col gap-2 rounded-[4px] border border-line bg-panel/60 p-2.5" data-testid="douleur">
+        <div className="flex flex-col gap-2 rounded-xl border border-line bg-panel-2/50 p-2.5" data-testid="douleur">
           <div>
             <div className="text-sm font-bold">Où ?</div>
             <p className="text-[11px] text-muted">Un ou plusieurs endroits ; pour chacun, ce que c’est et son intensité.</p>
@@ -589,83 +513,28 @@ export function MorningForm({ initial, onSaved, onCancel, playerId }: { initial:
           <PainPicker pains={f.pains} update={(fn) => setF((x) => ({ ...x, pains: fn(x.pains) }))} />
         </div>
       )}
-      <div className="flex flex-col gap-2 px-1.5">
-        <HudButton tone="on" className="min-h-14 w-full" disabled={busy || !answered || !painOk} onClick={() => void submit()} data-testid="envoyer-forme">
-          <span className="hud-big text-xl">{busy ? 'Envoi…' : 'Envoyer'}</span>
-          {!busy && (
-            <span aria-hidden className="text-xl">
-              🚀
-            </span>
-          )}
-        </HudButton>
-        <div className="flex flex-wrap items-center justify-center gap-x-3 text-center">
-          {onCancel && (
-            <button type="button" className="min-h-9 text-xs font-bold text-muted underline underline-offset-2" onClick={onCancel}>
-              Annuler
-            </button>
-          )}
-          {!answered && <span className="text-[11px] text-muted">Touche une jauge, puis envoie.</span>}
-          {answered && !painOk && (
-            <span className="text-[11px] text-muted">{f.pains.length ? 'Pour chaque endroit : ce que c’est et l’intensité.' : 'Choisis au moins un endroit, ou « Nan, frais ».'}</span>
-          )}
-          {err && <span className="text-[11px] text-red-300">{err}</span>}
-        </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="btn-primary min-h-11 px-5" disabled={busy || !answered || !painOk} onClick={() => void submit()}>
+          {busy ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+        {onCancel && (
+          <button className="btn-ghost min-h-11 px-4 text-sm" onClick={onCancel}>
+            Annuler
+          </button>
+        )}
+        {!answered && <span className="text-[11px] text-muted">Réponds à ce que tu veux, puis enregistre.</span>}
+        {answered && !painOk && (
+          <span className="text-[11px] text-muted">{f.pains.length ? 'Pour chaque endroit : ce que c’est et l’intensité.' : 'Choisis au moins un endroit, ou réponds « Non ».'}</span>
+        )}
+        {err && <span className="text-[11px] text-red-300">{err}</span>}
       </div>
-    </div>
-  )
-}
-
-/** Résumé visuel du wellness envoyé : 4 petites cases (émoji, mot, mini-jauge) ; la gêne signalée en dessous. */
-export function WellnessSummary({ entry }: { entry: WellnessEntry }) {
-  const items = WELLNESS_ITEMS.filter((it) => typeof entry.scores[it.key] === 'number')
-  return (
-    <div className="flex flex-col gap-2" data-testid="resume-forme">
-      {items.length > 0 && (
-        <ul className="grid grid-cols-2 gap-2 px-1.5">
-          {items.map((it) => {
-            const v = entry.scores[it.key] as number
-            const lv = levelWord(it.key, v)
-            const top = isTopLevel(v)
-            return (
-              <li key={it.key} className="hud-skew hud-tile min-w-0 px-2.5 py-1.5" title={`${it.label} : ${v}/10`}>
-                <div className="hud-unskew flex min-w-0 items-center gap-1.5">
-                  <span aria-hidden className="text-lg leading-none">
-                    {lv?.emoji}
-                  </span>
-                  <span className="min-w-0 flex-1 text-[11px] leading-tight font-extrabold break-words italic">
-                    <span className="sr-only">{it.short} : </span>
-                    {lv?.word}
-                  </span>
-                  <span className="text-xs font-extrabold tabular-nums" style={{ color: top ? 'var(--hud-top)' : 'var(--hud-accent)' }}>
-                    {v}
-                  </span>
-                </div>
-                <div className="hud-unskew mt-1 flex gap-[2px]" aria-hidden>
-                  {Array.from({ length: 10 }, (_, i) => (
-                    <span key={i} className={`h-1 flex-1 rounded-[1px] ${i < v ? (top ? 'hud-top' : 'hud-on') : 'hud-off'}`} />
-                  ))}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {entry.pain && entry.pains?.length ? (
-        <div className="px-1.5 text-xs text-muted">
-          <span aria-hidden>📍 </span>Gêne signalée :
-          <PainLines pains={entry.pains} className="text-fg" />
-        </div>
-      ) : null}
     </div>
   )
 }
 
 // ---------- « Ma séance » ----------
 
-const MINUTE_CHOICES = [60, 90, 120]
-
-/** Saisie d'une séance (dans le bloc .hud) : jour, jauge de l'intensité ressentie, durée OBLIGATOIRE (choix ou minutes). */
-export function SessionForm({ playerId, sessions, edit, onDone }: { playerId: string; sessions: WellnessSession[]; edit: WellnessSession | null; onDone: (changed: boolean) => void }) {
+function SessionForm({ playerId, sessions, edit, onDone }: { playerId: string; sessions: WellnessSession[]; edit: WellnessSession | null; onDone: (changed: boolean) => void }) {
   const t = today()
   const [day, setDay] = useState(edit?.day ?? t)
   const [rpe, setRpe] = useState<number | undefined>(edit?.rpe)
@@ -685,108 +554,47 @@ export function SessionForm({ playerId, sessions, edit, onDone }: { playerId: st
     onDone(true)
   }
   return (
-    <div className="flex flex-col gap-5" data-testid="ma-seance">
-      <div className="grid grid-cols-2 gap-3 px-1.5" role="radiogroup" aria-label="Jour de la séance">
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-panel-2/50 p-3" data-testid="ma-seance">
+      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-panel" role="radiogroup" aria-label="Jour de la séance">
         {[t, addDays(t, -1)].map((d, i) => (
-          <HudButton key={d} role="radio" aria-checked={day === d} tone={day === d ? 'on' : null} className="min-h-11" onClick={() => setDay(d)}>
-            <span className="text-sm font-extrabold italic">{i === 0 ? 'Aujourd’hui' : 'Hier'}</span>
-          </HudButton>
+          <button key={d} type="button" role="radio" aria-checked={day === d} className={`min-h-11 border-l border-line text-sm font-bold first:border-l-0 ${day === d ? 'bg-accent text-white' : ''}`} onClick={() => setDay(d)}>
+            {i === 0 ? 'Aujourd’hui' : 'Hier'}
+          </button>
         ))}
       </div>
-      <HudGauge label="Intensité ressentie" question={RPE_QUESTION} value={rpe} onChange={setRpe} level={(v) => rpeLevel(v)} />
-      <fieldset className="min-w-0">
-        <legend className="flex w-full items-baseline justify-between gap-2 text-xs font-bold text-muted">
-          <span>Ça a duré combien ?</span>
-          <span className="font-normal">{minsOk && rpe ? `charge ${sessionLoad({ rpe, minutes: mins })}` : 'obligatoire'}</span>
-        </legend>
-        <div className="mt-2 grid grid-cols-4 gap-2.5 px-1.5">
-          {MINUTE_CHOICES.map((m) => (
-            <HudButton key={m} aria-pressed={mins === m} tone={mins === m ? 'on' : null} className="min-h-14 min-w-0" onClick={() => setMinutes(String(m))}>
-              <span className="flex flex-col items-center leading-none">
-                <span className="hud-big text-2xl tabular-nums">{m}</span>
-                <span className="text-[10px] font-bold">min</span>
-              </span>
-            </HudButton>
+      <Scale label="Intensité ressentie" hint="de 1 à 10" value={rpe} onChange={setRpe} word={(v) => rpeWord(v)} />
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-sm font-bold">Durée</span>
+          <span className="text-xs text-muted">{minsOk && rpe ? `charge ${sessionLoad({ rpe, minutes: mins })}` : 'en minutes'}</span>
+        </div>
+        <div className="mt-1 grid grid-cols-4 gap-1.5">
+          <input className="field min-h-11 w-full min-w-0 text-center" inputMode="numeric" maxLength={3} placeholder="min" value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/\D/g, ''))} aria-label="Durée en minutes" aria-required="true" />
+          {[60, 90, 120].map((m) => (
+            <button key={m} type="button" className={`min-h-11 min-w-0 rounded-lg border px-1 text-xs font-bold whitespace-nowrap ${mins === m ? 'border-accent bg-accent text-white' : 'border-line bg-panel'}`} onClick={() => setMinutes(String(m))}>
+              {m} min
+            </button>
           ))}
-          <div className={`hud-skew min-h-14 min-w-0 ${mins !== undefined && !MINUTE_CHOICES.includes(mins) ? 'hud-on' : 'hud-tile'}`}>
-            <input
-              className="hud-unskew h-full w-full min-w-0 bg-transparent text-center text-xl font-extrabold italic tabular-nums outline-none placeholder:text-sm placeholder:font-bold placeholder:text-[var(--hud-muted)]"
-              inputMode="numeric"
-              maxLength={3}
-              placeholder="autre"
-              value={mins !== undefined && MINUTE_CHOICES.includes(mins) ? '' : minutes}
-              onChange={(e) => setMinutes(e.target.value.replace(/\D/g, ''))}
-              aria-label="Durée en minutes"
-              aria-required="true"
-            />
-          </div>
         </div>
-      </fieldset>
-      <div className="flex flex-col gap-2 px-1.5">
-        <HudButton tone="on" className="min-h-14 w-full" disabled={busy || !rpe || !minsOk || full} onClick={() => void submit()} data-testid="envoyer-seance">
-          <span className="hud-big text-xl">{busy ? 'Envoi…' : edit ? 'Enregistrer' : 'Envoyer'}</span>
-          {!busy && (
-            <span aria-hidden className="text-xl">
-              💪
-            </span>
-          )}
-        </HudButton>
-        <div className="flex flex-wrap items-center justify-center gap-x-3 text-center">
-          <button type="button" className="min-h-9 text-xs font-bold text-muted underline underline-offset-2" onClick={() => onDone(false)}>
-            Annuler
-          </button>
-          {mins !== undefined && !minsOk && <span className="text-[11px] text-red-300">Durée : de 1 à {SESSION_MINUTES_MAX} minutes.</span>}
-          {(!rpe || mins === undefined) && !full && <span className="text-[11px] text-muted">L’intensité et la durée, pour calculer ta charge.</span>}
-          {full && <span className="text-[11px] text-muted">{SESSIONS_PER_DAY} séances ce jour-là : c’est le maximum.</span>}
-          {err && <span className="text-[11px] text-red-300">{err}</span>}
-        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="btn-primary min-h-11 px-5" disabled={busy || !rpe || !minsOk || full} onClick={() => void submit()}>
+          {busy ? 'Enregistrement…' : edit ? 'Enregistrer' : 'Ajouter ma séance'}
+        </button>
+        <button className="btn-ghost min-h-11 px-4 text-sm" onClick={() => onDone(false)}>
+          Annuler
+        </button>
+        {mins !== undefined && !minsOk && <span className="text-[11px] text-red-300">Durée : de 1 à {SESSION_MINUTES_MAX} minutes.</span>}
+        {(!rpe || mins === undefined) && !full && <span className="text-[11px] text-muted">L’intensité et la durée, pour calculer ta charge.</span>}
+        {full && <span className="text-[11px] text-muted">{SESSIONS_PER_DAY} séances ce jour-là : c’est le maximum.</span>}
+        {err && <span className="text-[11px] text-red-300">{err}</span>}
       </div>
     </div>
   )
 }
 
-/** Séances d'hier et d'aujourd'hui (« Modifier », « Retirer ») : émoji et mot de l'intensité, durée, charge. */
-export function RecentSessions({ sessions, canWrite, playerId, onEdit, onChanged }: { sessions: WellnessSession[]; canWrite: boolean; playerId: string; onEdit: (s: WellnessSession) => void; onChanged: (msg?: string) => void }) {
-  const t = today()
-  const list = sessions.filter((s) => s.day === t || s.day === addDays(t, -1))
-  if (!list.length) return null
-  return (
-    <ul className="flex flex-col gap-2 px-1.5" data-testid="mes-seances-recentes">
-      {list.map((s) => {
-        const lv = rpeLevel(s.rpe)
-        return (
-          <li key={s.id} className="hud-skew hud-tile px-3 py-1.5">
-            <div className="hud-unskew flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span aria-hidden className="text-xl leading-none">
-                {lv?.emoji}
-              </span>
-              <span className="min-w-0 flex-1 text-xs">
-                <b className="italic">{lv?.word}</b> <span className="text-muted">· {s.day === t ? 'aujourd’hui' : 'hier'} · {s.rpe}/10 · {s.minutes} min · charge {sessionLoad(s)}</span>
-              </span>
-              {canWrite && (
-                <span className="flex gap-1">
-                  <button className="min-h-9 px-1.5 text-[11px] text-muted underline underline-offset-2" onClick={() => onEdit(s)}>
-                    Modifier
-                  </button>
-                  <button
-                    className="min-h-9 px-1.5 text-[11px] text-muted underline underline-offset-2"
-                    onClick={async () => {
-                      if (!(await ask('Retirer cette séance ?', { ok: 'Retirer', focusCancel: true }))) return
-                      const r = await removeMySession(playerId, s.id)
-                      onChanged(r.ok ? undefined : r.error)
-                    }}
-                  >
-                    Retirer
-                  </button>
-                </span>
-              )}
-            </div>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
+/** « Intensité 7/10 (Difficile) · 90 min · charge 630 ». */
+const sessionLine = (s: WellnessSession) => `Intensité ${s.rpe}/10 (${rpeWord(s.rpe)}) · ${s.minutes} min · charge ${sessionLoad(s)}`
 
 // ---------- 14 derniers jours ----------
 
@@ -855,32 +663,163 @@ export function History({ entries }: { entries: WellnessEntry[] }) {
   )
 }
 
-// ---------- Données du jeune ----------
+// ---------- La carte de la page du jeune ----------
 
 /**
- * Wellness du jeune pour l'onglet Aujourd'hui (src/components/TodayHud.tsx) : `mine` (son compte, l'essai ou une fiche de
- * démonstration ; aperçu d'un administrateur avec le serveur : rien n'est lu), ses 28 derniers jours (`data`, undefined tant
- * que ce n'est pas lu), `pending` : questionnaire du jour demandé et pas encore rempli (jour de semaine, qui peut
- * l'enregistrer) : petit point sur l'onglet.
+ * `onPending` (« Ma page » en onglets) : prévenu à chaque changement, vrai quand le questionnaire du jour est demandé et pas
+ * encore rempli (jour de semaine, qui peut l'enregistrer) : petit point sur l'onglet Aujourd'hui.
  */
-export function useMyWellness(playerId: string, canWrite: boolean) {
+export function MyWellnessCard({ player: p, canWrite, onPending }: { player: Player; canWrite: boolean; onPending?: (pending: boolean) => void }) {
   const role = useRole()
-  const mine = isPlayerRole(role) || isLocalWellness(playerId)
-  const [data, setData] = useState<MyWellness | null | undefined>(undefined)
+  const g = w(p.sex)
+  // Son compte, l'essai ou une fiche de démonstration : ses données ; aperçu d'un administrateur avec le serveur : rien.
+  const mine = isPlayerRole(role) || isLocalWellness(p.id)
+  const [data, setData] = useState<MyWellness | null>(null)
+  const [mode, setMode] = useState<'idle' | 'edit' | 'session' | 'history'>('idle')
+  const [editSession, setEditSession] = useState<WellnessSession | null>(null)
+  const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
-  const load = () => fetchMyWellness(playerId, 28).then((r) => (r.ok ? setData(r.value) : (setData(null), setErr(r.missing ? '' : r.error))))
+  const load = () => fetchMyWellness(p.id, 28).then((r) => (r.ok ? setData(r.value) : (setData(null), !r.missing && setErr(r.error))))
   useEffect(() => {
     if (!mine) return
     let live = true
-    void fetchMyWellness(playerId, 28).then((r) => {
-      if (!live) return
-      if (r.ok) setData(r.value)
-      else (setData(null), setErr(r.missing ? '' : r.error))
-    })
+    void fetchMyWellness(p.id, 28).then((r) => live && (r.ok ? setData(r.value) : setData(null)))
     return () => {
       live = false
     }
-  }, [playerId, mine])
+  }, [p.id, mine])
   const pending = mine && canWrite && !!data?.enabled && data.requested && isWeekday(today()) && !data.entries.some((e) => e.day === today())
-  return { mine, data, setData, err, load, pending }
+  useEffect(() => onPending?.(pending), [pending, onPending])
+
+  if (!mine) {
+    return (
+      <p className="text-[11px] text-muted" data-testid="wellness-apercu">
+        Wellness : si son groupe le demande, le questionnaire du matin s’affiche ici pour {g.leJoueur} (ses réponses ne sont lues que par le staff du groupe).
+      </p>
+    )
+  }
+  if (!data || !data.enabled || !data.requested) return err ? <p className="text-[11px] text-muted">{err}</p> : null
+
+  const t = today()
+  const entry = data.entries.find((e) => e.day === t) ?? null
+  const weekday = isWeekday(t)
+  // Ouvert en haut : jour de semaine, pas encore rempli ; ou « Modifier ».
+  const open = canWrite && ((weekday && !entry && mode === 'idle') || mode === 'edit')
+  const recentSessions = data.sessions.filter((s) => s.day === t || s.day === addDays(t, -1))
+
+  return (
+    <section className="card flex flex-col gap-3 p-4" data-testid="mon-wellness">
+      <SectionTitle info="Chaque matin du lundi au vendredi, quelques secondes pour dire comment tu te sens. Pas de bonne ou de mauvaise réponse : ça aide ton encadrant à adapter l’entraînement. Seul le staff de ton groupe le lit.">
+        Mon wellness du jour
+      </SectionTitle>
+      {open ? (
+        <MorningForm
+          playerId={p.id}
+          initial={entry}
+          onCancel={entry ? () => setMode('idle') : undefined}
+          onSaved={(e) => {
+            setData((d) => (d ? { ...d, entries: [e, ...d.entries.filter((x) => x.day !== e.day)] } : d))
+            setMode('idle')
+            setMsg('Enregistré, ton encadrant peut le lire.')
+          }}
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm">
+            {entry ? (
+              <>
+                <b>Merci !</b> Ton wellness d’aujourd’hui est enregistré
+                {Object.keys(entry.scores).length > 0 && (
+                  <span className="text-muted">
+                    {' '}
+                    · {WELLNESS_ITEMS.filter((it) => entry.scores[it.key]).map((it) => `${it.short} ${entry.scores[it.key]}`).join(' · ')}
+                  </span>
+                )}
+              </>
+            ) : weekday ? (
+              'Pas encore rempli aujourd’hui.'
+            ) : (
+              'C’est le week-end : pas de questionnaire, profite bien.'
+            )}
+          </p>
+          {entry?.pain && entry.pains?.length ? (
+            <div className="text-xs text-muted">
+              Gêne signalée :
+              <PainLines pains={entry.pains} className="text-fg" />
+            </div>
+          ) : null}
+          {msg && (
+            <p role="status" className="text-[11px] text-emerald-300">
+              {msg}
+            </p>
+          )}
+          {canWrite && (
+            <div className="flex flex-wrap gap-2">
+              {/* Le week-end, rien n'est demandé (aucun taux ne le compte) ; le jeune peut quand même répondre. */}
+              <button className={`${entry || weekday ? 'btn-soft' : 'btn-ghost'} min-h-11 px-4 text-sm`} onClick={() => (setMsg(''), setMode('edit'))}>
+                {entry ? 'Modifier' : weekday ? 'Remplir' : 'Le remplir quand même'}
+              </button>
+              <button className="btn-soft min-h-11 px-4 text-sm" onClick={() => (setMsg(''), setEditSession(null), setMode(mode === 'session' ? 'idle' : 'session'))} aria-expanded={mode === 'session'}>
+                + Ma séance
+              </button>
+              <button className="btn-ghost min-h-11 px-4 text-sm" onClick={() => setMode(mode === 'history' ? 'idle' : 'history')} aria-expanded={mode === 'history'}>
+                Mes 14 derniers jours
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'session' && (
+        <SessionForm
+          key={editSession?.id ?? 'nouvelle'}
+          playerId={p.id}
+          sessions={data.sessions}
+          edit={editSession}
+          onDone={(changed) => {
+            setMode('idle')
+            setEditSession(null)
+            if (changed) {
+              setMsg('Séance enregistrée, ton encadrant peut la lire.')
+              void load()
+            }
+          }}
+        />
+      )}
+      {recentSessions.length > 0 && mode !== 'session' && (
+        <div className="flex flex-col gap-1">
+          <div className="text-[11px] font-bold text-muted">Mes séances d’hier et d’aujourd’hui</div>
+          <ul className="flex flex-col gap-1">
+            {recentSessions.map((s) => (
+              <li key={s.id} className="flex min-w-0 flex-col text-xs">
+                <span className="break-words">
+                  <span className="text-muted">{s.day === t ? 'Aujourd’hui' : 'Hier'} · </span>
+                  {sessionLine(s)}
+                </span>
+                {canWrite && (
+                  <span className="-ml-2 flex gap-1">
+                    <button className="min-h-9 px-2 text-[11px] text-muted underline underline-offset-2" onClick={() => (setEditSession(s), setMode('session'))}>
+                      Modifier
+                    </button>
+                    <button
+                      className="min-h-9 px-2 text-[11px] text-muted underline underline-offset-2"
+                      onClick={async () => {
+                        if (!(await ask('Retirer cette séance ?', { ok: 'Retirer', focusCancel: true }))) return
+                        const r = await removeMySession(p.id, s.id)
+                        if (!r.ok) return setMsg(r.error)
+                        void load()
+                      }}
+                    >
+                      Retirer
+                    </button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {mode === 'history' && <History entries={data.entries} />}
+    </section>
+  )
 }

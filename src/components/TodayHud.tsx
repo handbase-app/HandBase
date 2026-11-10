@@ -7,10 +7,26 @@ import { MyObjectives } from './Objectives'
 import { CahierWindow, useMyLamp } from './PlayerLamp'
 import { TalkLink } from './PlayerJournal'
 import { SelfEvalSection } from './SelfEval'
-import { History, MorningForm, RecentSessions, SessionForm, useMyWellness, WellnessSummary } from './Wellness'
+import { SelfEvalHudSection } from './SelfEvalHud'
+import { History } from './Wellness'
+import { HudMorningForm, HudRecentSessions, HudSessionForm, HudWellnessSummary, useMyWellness } from './WellnessHud'
+
+/**
+ * INTERRUPTEUR du « tableau de bord de jeu » de l'onglet Aujourd'hui (Ma page du jeune, src/pages/Me.tsx).
+ * COUPÉ le 10/11 : Geoffroy, « ça va pas dans le thème… il vaut mieux revenir à l'apparence d'avant », mais « ne l'efface
+ * pas, garde-le au cas où ». À false (aujourd'hui) : l'écran d'avant, en cartes (« Mon wellness du jour » de
+ * src/components/Wellness.tsx, « Mes objectifs », « Comment ça s'est passé ? » de src/components/SelfEval.tsx).
+ * Pour le RALLUMER : mettre true ici, c'est tout (Me.tsx monte alors TodayHud à la place des cartes). Le code du HUD est
+ * gardé à part : ce fichier, src/components/WellnessHud.tsx (jauges, saisie de la forme et de la séance),
+ * src/components/SelfEvalHud.tsx (matchs à raconter), le bloc .hud et les variables --hud-* de src/index.css, les mots des
+ * jauges de src/wellness.ts (LEVEL_WORDS, RPE_LEVELS… ; test : npx jiti tools/test-jauges.ts), useMyLamp et CahierWindow de
+ * src/components/PlayerLamp.tsx. Vérifier que ça compile encore (npx tsc -b) après un changement du wellness ou de la lampe.
+ */
+export const TODAY_HUD: boolean = false
 
 /*
- * Onglet « Aujourd'hui » de « Ma page » du jeune (src/pages/Me.tsx), en « tableau de bord de jeu » depuis le 09/11 :
+ * Onglet « Aujourd'hui » de « Ma page » du jeune (src/pages/Me.tsx), en « tableau de bord de jeu » du 09/11 au 10/11 (COUPÉ
+ * depuis, voir TODAY_HUD ci-dessus ; gardé au cas où) :
  * maquette validée par Geoffroy (« les jeunes, ça les fait chier de lire… un truc plus péchu, je comprends de suite ce qui
  * se passe »), style jeu vidéo au thème NEXTAR (bloc .hud de src/index.css : bleu nuit en clair comme en sombre, formes
  * obliques, gros mots en italique, émojis). Pour des jeunes de 10 à 18 ans : on comprend sans lire.
@@ -20,7 +36,7 @@ import { History, MorningForm, RecentSessions, SessionForm, useMyWellness, Welln
  *     les missions qui existent (forme, séance), sans série. Jour non demandé (week-end, vacances, férié) : un mot neutre.
  *  2. Trois grosses tuiles : ⚡ Forme (saisie de la forme), 🏃 Séance, ✏️ Cahier (fenêtre du cahier du hand du jour, la même
  *     que dans Ma lampe) ; faite : turquoise et ✓.
- *  3. Les matchs à raconter (src/components/SelfEval.tsx, variante hud : mêmes délais).
+ *  3. Les matchs à raconter (src/components/SelfEvalHud.tsx : mêmes délais que la carte).
  *  4. Plus discrets : 🎯 Mes objectifs (déplie la liste), 💬 J'ai besoin d'en parler, 📈 Mes 14 jours.
  * Wellness pas demandé (réglage fermé, groupe pas activé) ou aperçu d'un administrateur avec le serveur : l'écran d'avant
  * (objectifs et « Comment ça s'est passé ? » en cartes). Les envois (hb_wellness_enregistrer, hb_wellness_seance,
@@ -69,7 +85,8 @@ export function TodayHud({
     if (panel) panelRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }, [panel])
 
-  const selfEval = <SelfEvalSection player={p} canWrite={canWrite} only={sheets ? 'current' : undefined} hud={hud} />
+  const only = sheets ? 'current' : undefined
+  const selfEval = hud ? <SelfEvalHudSection player={p} canWrite={canWrite} only={only} /> : <SelfEvalSection player={p} canWrite={canWrite} only={only} />
 
   // Aperçu d'un administrateur avec le serveur : rien n'est lu ; l'écran d'avant.
   if (!wl.mine) {
@@ -224,7 +241,7 @@ export function TodayHud({
             onClose={() => toggle(panel)}
           />
           {panel === 'forme' && (
-            <MorningForm
+            <HudMorningForm
               playerId={p.id}
               initial={entry}
               onCancel={() => setPanel(null)}
@@ -237,7 +254,7 @@ export function TodayHud({
           {panel === 'seance' && (
             <div className="flex flex-col gap-4">
               {!editSession && (
-                <RecentSessions
+                <HudRecentSessions
                   sessions={data.sessions}
                   canWrite={canWrite}
                   playerId={p.id}
@@ -249,13 +266,13 @@ export function TodayHud({
                   }}
                 />
               )}
-              <SessionForm key={editSession?.id ?? 'nouvelle'} playerId={p.id} sessions={data.sessions} edit={editSession} onDone={(changed) => (changed ? afterSave('Séance envoyée, ton encadrant peut la lire.') : editSession ? setEditSession(null) : setPanel(null))} />
+              <HudSessionForm key={editSession?.id ?? 'nouvelle'} playerId={p.id} sessions={data.sessions} edit={editSession} onDone={(changed) => (changed ? afterSave('Séance envoyée, ton encadrant peut la lire.') : editSession ? setEditSession(null) : setPanel(null))} />
             </div>
           )}
           {panel === 'historique' && <History entries={data.entries} />}
         </div>
       )}
-      {entry && panel !== 'forme' && <WellnessSummary entry={entry} />}
+      {entry && panel !== 'forme' && <HudWellnessSummary entry={entry} />}
 
       {/* 3. Les matchs à raconter */}
       {selfEval}

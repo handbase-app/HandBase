@@ -33,10 +33,12 @@ import { inform, useUnsaved } from '../components/Confirm'
 import { JournalSection, TalkLink } from '../components/PlayerJournal'
 import { PlayerMatches } from '../components/PlayerMatches'
 import { MyTeamCard } from '../components/MyTeam'
+import { MyObjectives } from '../components/Objectives'
 import { SelfEvalSection } from '../components/SelfEval'
 import { AllTests } from '../components/AllTests'
 import { useReperes } from '../components/Medal'
-import { TodayHud } from '../components/TodayHud'
+import { MyWellnessCard } from '../components/Wellness'
+import { TODAY_HUD, TodayHud } from '../components/TodayHud'
 import { PlayerLamp } from '../components/PlayerLamp'
 import { fetchMyWellness } from '../wellnessApi'
 import { myWellnessExport } from '../wellness'
@@ -44,10 +46,9 @@ import { myWellnessExport } from '../wellness'
 /*
  * « Ma page » (/moi) : la seule page d'un compte joueur (espace joueur, supabase/051_espace_joueur.sql).
  * En six onglets à pictogrammes depuis le 09/11 (comme la fiche, src/components/PictoTabs.tsx ; ?onglet=…, src/tabQuery.ts) :
- *  ♥ Aujourd'hui (par défaut) : depuis le 09/11 en « tableau de bord de jeu » au thème NEXTAR (src/components/TodayHud.tsx :
- *    ta journée et ses missions, tuiles Forme / Séance / Cahier, matchs à raconter, « Mes objectifs ») ; wellness pas
- *    demandé : objectifs et « Comment ça s'est passé ? » en cartes ; point sur l'onglet quand le wellness du jour est demandé
- *    et pas encore rempli ; rien de tout ça : une ligne.
+ *  ♥ Aujourd'hui (par défaut) : wellness du jour et « Ma séance », « Mes objectifs », « Comment ça s'est passé ? » à remplir ;
+ *    point sur l'onglet quand le wellness du jour est demandé et pas encore rempli ; rien de tout ça : une ligne.
+ *    (« Tableau de bord de jeu » au thème NEXTAR du 09/11, coupé le 10/11 et gardé : TODAY_HUD, src/components/TodayHud.tsx.)
  *  ⏱ Mes tests · 🤾 Mes matchs (sport avec feuilles de match, sinon caché ; plus l'historique des auto-évaluations) ·
  *  📓 Mon cahier (journal) · 🪔 Ma lampe (src/components/PlayerLamp.tsx) · 👤 Moi (identité, équipe, lettre, repères, parcours ;
  *    point sur l'onglet tant qu'un brouillon n'est pas enregistré).
@@ -219,7 +220,7 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
   const panel = (t: MeTab) => (t === tab ? 'flex flex-col gap-4' : 'hidden')
   // Wellness du jour demandé et pas encore rempli : point sur l'onglet Aujourd'hui (prévenu par la carte, toujours montée).
   const [wellnessPending, setWellnessPending] = useState(false)
-  // Aujourd'hui en tableau de bord : « J'ai besoin d'en parler » y est déjà (pas une 2e fois en bas de cet onglet).
+  // Aujourd'hui en tableau de bord (TODAY_HUD, coupé) : « J'ai besoin d'en parler » y est déjà (pas une 2e fois en bas de cet onglet).
   const [todayHud, setTodayHud] = useState(false)
   // Un compte joueur écrit (serveur) ; sans serveur (mode local / essai), l'aperçu permet d'essayer, sur l'appareil seulement ;
   // avec le serveur, l'aperçu d'un administrateur est en lecture seule (jamais d'écriture au nom du jeune).
@@ -352,11 +353,20 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
       <div className={panel('aujourdhui')} role="tabpanel" aria-label="Aujourd’hui" data-testid="onglet-aujourdhui">
         {/* Rien d'autre ce jour-là (wellness pas demandé, pas d'objectif, rien à remplir) : une ligne plutôt qu'un onglet vide. */}
         <div className="peer flex flex-col gap-4 empty:hidden">
-          {/* « Tableau de bord de jeu » (maquette du 09/11, src/components/TodayHud.tsx) : ta journée (missions de la lampe),
-              tuiles Forme / Séance / Cahier, matchs à raconter (064), puis objectifs (065), « J'en parle », 14 jours. Wellness
-              pas demandé : objectifs et « Comment ça s'est passé ? » en cartes, comme avant. Wellness à remplir : point sur
-              l'onglet. Sport sans onglet Mes matchs : aussi les auto-évaluations plus anciennes, ici. */}
-          <TodayHud player={p} canWrite={canWrite} sheets={sheets} onPending={setWellnessPending} onHud={setTodayHud} />
+          {TODAY_HUD ? (
+            // « Tableau de bord de jeu » (maquette du 09/11), coupé le 10/11 et gardé au cas où : src/components/TodayHud.tsx.
+            <TodayHud player={p} canWrite={canWrite} sheets={sheets} onPending={setWellnessPending} onHud={setTodayHud} />
+          ) : (
+            <>
+              {/* Mon wellness du jour (073) : en haut, ouvert le matin des jours de semaine tant qu'il n'est pas rempli ; à remplir :
+                  point sur l'onglet. */}
+              <MyWellnessCard player={p} canWrite={canWrite} onPending={setWellnessPending} />
+              {/* Mes objectifs (065 : étapes à cocher, objectifs « à moi ») et « Comment ça s'est passé ? » (064) à remplir. Sport
+                  sans onglet Mes matchs : aussi les plus anciennes, ici. */}
+              <MyObjectives player={p} canWrite={canWrite} />
+              <SelfEvalSection player={p} canWrite={canWrite} only={sheets ? 'current' : undefined} />
+            </>
+          )}
         </div>
         <p className="card hidden p-4 text-xs text-muted peer-empty:block">Rien à remplir aujourd’hui : tes objectifs et tes questionnaires apparaîtront ici.</p>
       </div>

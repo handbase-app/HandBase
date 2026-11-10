@@ -496,7 +496,8 @@ main[tabindex='-1']:focus { outline: none; }
 @media (prefers-reduced-motion: reduce) { .lamp-flame, .lamp-glow { animation: none; } }
 
 /* « Tableau de bord de jeu » de « Ma page » du jeune (onglet Aujourd'hui, src/components/TodayHud.tsx ; saisie de la forme et
-   de la séance, src/components/Wellness.tsx). Maquette validée par Geoffroy le 09/11 (« les jeunes, ça les fait chier de
+   de la séance, src/components/WellnessHud.tsx). COUPÉ le 10/11 et gardé (interrupteur TODAY_HUD de TodayHud.tsx) : sans
+   effet tant qu'aucun bloc .hud n'est affiché. Maquette validée par Geoffroy le 09/11 (« les jeunes, ça les fait chier de
    lire… un truc plus péchu ») : thème NEXTAR (couleurs du logo et de l'écran de chargement, index.html), bleu nuit en mode
    clair comme en sombre (comme les bandes emph), à part des thèmes de l'appli et des styles d'installation (src/uiStyle.ts).
    Pas de dégradé. Formes obliques : .hud-skew sur le bloc, .hud-unskew sur son contenu (texte droit), coins de 4 px. */
