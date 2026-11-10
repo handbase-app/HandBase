@@ -7,7 +7,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncEx
 import { createPortal, flushSync } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useBackCloses } from '../backNav'
-import { alive, db, today } from '../db'
+import { alive, db, today, TRIAL, type PlayerGroup } from '../db'
 import {
   ASK_PATH,
   clearHistory,
@@ -27,7 +27,10 @@ import {
 } from '../demander'
 import { useDictation } from '../dictation/useDictation'
 import { MAX_PHRASE } from '../dictation/transcribe'
-import { can } from '../roles'
+import { can, useRole, type Role } from '../roles'
+import { supabase } from '../sync'
+import { orderWellnessGroups, wellnessEnabledOf } from '../wellness'
+import { WELLNESS_IN_ASK } from '../wellnessAlert'
 import { useSavedQuestions } from '../savedQuestions'
 import type { SavedQuestion } from '../recipe'
 import { loadTeams } from '../teams'
@@ -744,10 +747,28 @@ const LONG_PRESS_MS = 450
  * dans la palette ou qu'on dicte ; jamais envoyés.
  */
 function useAskContext(wanted: boolean): AskContext {
+  const role = useRole()
+  // Droit de lire le wellness d'un groupe (même règle que son tableau) : chargé à part, l'écran du wellness reste hors du
+  // paquet de départ.
+  const [canRead, setCanRead] = useState<((r: Role, g: PlayerGroup) => boolean) | null>(null)
+  useEffect(() => {
+    if (!wanted || canRead || !WELLNESS_IN_ASK) return
+    let live = true
+    void import('./Wellness').then((m) => live && setCanRead(() => m.canReadWellness))
+    return () => {
+      live = false
+    }
+  }, [wanted, canRead])
   const names = useLiveQuery(async () => {
     if (!wanted) return undefined
-    const [players, events, groups] = await Promise.all([db.players.toArray(), db.events.toArray(), loadTeams().then(() => db.groups.toArray())])
+    const [players, events, groups, config] = await Promise.all([db.players.toArray(), db.events.toArray(), loadTeams().then(() => db.groups.toArray()), db.config.toArray()])
+    // Wellness dans « Demander » (src/wellnessAlert.ts) : groupes activés dont ce compte lit le tableau ; rien n'est lu ici.
+    const wellnessOn = WELLNESS_IN_ASK && !!canRead && wellnessEnabledOf(config, { trial: TRIAL, local: !supabase })
+    const wellnessGroups = wellnessOn
+      ? orderWellnessGroups(alive(groups).filter((g) => g.wellness === true && !g.archived && can.seeGroup(g) && canRead(role, g))).map((g) => ({ id: g.id, name: g.name }))
+      : []
     return {
+      wellnessGroups,
       players: alive(players)
         .filter((p) => p.review !== 'refused')
         .map((p) => ({ id: p.id, name: playerName(p) })),
@@ -756,7 +777,7 @@ function useAskContext(wanted: boolean): AskContext {
         .filter((g) => can.seeGroup(g))
         .map((g) => ({ id: g.id, name: g.name })),
     }
-  }, [wanted])
+  }, [wanted, canRead, role])
   return names ?? {}
 }
 

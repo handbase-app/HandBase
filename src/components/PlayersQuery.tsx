@@ -183,7 +183,14 @@ export type HostedBar = {
  * j'en suis, postes). `count` : nombre de joueurs que l'écran affichera, d'après ceux retenus par la barre (ses filtres
  * en plus), dit dans la fenêtre.
  */
-export type OwnFilters = { panel: ReactNode; chips: { key: string; label: string; onRemove: () => void }[]; onReset: (q: JoueursQuery) => void; count?: (filtered: Player[]) => number }
+export type OwnFilters = {
+  panel: ReactNode
+  chips: { key: string; label: string; onRemove: () => void }[]
+  onReset: (q: JoueursQuery) => void
+  count?: (filtered: Player[]) => number
+  /** Phrase comprise par l'écran lui-même, sur l'appareil (tableau du wellness : « sous 6 dans le wellness ») : true, rien ne part. */
+  ask?: (phrase: string) => boolean
+}
 
 /**
  * Filtres d'une liste de joueurs. `scope` : autre liste que Joueurs (ajout de joueurs à un événement ou un groupe :
@@ -395,6 +402,12 @@ export function usePlayersQuery(
     const said = correctQuestionPhrase(phrase.replace(/\s+/g, ' ').trim())
     if (!said || abort.current) return
     setError('')
+    // Phrase de l'écran (filtre propre, compris sur l'appareil) : appliquée là, seul le texte va dans l'historique.
+    if ((hosted?.own ?? opts.own)?.ask?.(said)) {
+      setText('')
+      recordAsk(askPage, said)
+      return
+    }
     // Une action (« crée un groupe avec les gauchers de 2011 », « ajoute … au groupe X ») : la carte de validation
     // (src/components/AskAction.tsx) ; rien n'est fait sans « Accepter ». Liste Joueurs seulement (pas le bilan ni l'ajout).
     const act = !hosted && !opts.scope ? detectAction(said, 'joueurs') : null
