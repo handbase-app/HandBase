@@ -1,11 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { useBack } from '../backNav'
 import { ask, inform, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { CriterionInput, fmtValue, getMe, groupBy, NoCriteria, QuarterBadge } from '../components/ui'
 import { alive, criterionApplies, db, fmtDate, newId, plural, saveMany, today, type Measurement } from '../db'
 import { can, useRole } from '../roles'
 import { latestByPlayer } from './Players'
+import { MeasureMedal, useReperes } from '../components/Medal'
+import { FamIcon } from '../components/FamIcon'
 
 const OPEN_KEY = 'handbase.mesures.open'
 const readOpen = (): string[] => {
@@ -23,7 +26,6 @@ const readOpen = (): string[] => {
  */
 export default function MeasureSession() {
   const { id } = useParams()
-  const nav = useNavigate()
   const role = useRole()
   const data = useLiveQuery(async () => {
     const player = await db.players.get(id!)
@@ -38,6 +40,8 @@ export default function MeasureSession() {
   const [date, setDate] = useState(today())
   const [open, setOpenState] = useState<string[]>(readOpen)
   const [busy, setBusy] = useState(false)
+  // Repères des tests (src/reperes.ts) : médaille dès que la valeur saisie atteint un repère.
+  const reperes = useReperes()
   // Saisie en cours : on prévient avant de quitter l'écran (menu du bas) ou l'onglet.
   const pending = busy ? 0 : Object.values(values).filter((v) => v !== undefined && v !== '').length
   const leaveRef = useRef<() => Promise<boolean>>(async () => true)
@@ -49,6 +53,10 @@ export default function MeasureSession() {
     return () => setLeaveGuard(null)
   }, [])
   useUnsaved(pending > 0)
+  // Enregistrer ou Annuler : l'écran d'où l'on vient (fiche, fiche dans un événement ou un groupe : même onglet, même
+  // position), par l'historique ; adresse ouverte directement : l'onglet Tests de la fiche.
+  const name = data?.player ? `${data.player.lastName} ${data.player.firstName}`.toUpperCase() : 'FICHE DU JOUEUR'
+  const leave = useBack(`/joueurs/${id}?onglet=tests`, name)
 
   if (data === undefined) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   if (data === null || data.player.deleted) return <div className="py-20 text-center text-sm text-muted">Joueur introuvable.</div>
@@ -61,7 +69,7 @@ export default function MeasureSession() {
     (c) => c.category,
   )
   const filled = Object.entries(values).filter(([, v]) => v !== undefined && v !== '')
-  const back = () => nav(`/joueurs/${p.id}?onglet=tests`, { replace: true })
+  const back = leave.exit
 
   const toggle = (cat: string) => {
     const next = open.includes(cat) ? open.filter((x) => x !== cat) : [...open, cat]
@@ -98,9 +106,6 @@ export default function MeasureSession() {
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      <button onClick={() => void cancel()} className="self-start text-xs font-bold text-muted">
-        ← {p.lastName.toUpperCase()} {p.firstName}
-      </button>
       <div>
         <h1 className="text-lg font-extrabold">Séance de tests</h1>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
@@ -121,6 +126,7 @@ export default function MeasureSession() {
         return (
           <div key={cat} className={`card overflow-hidden ${isOpen ? 'border-accent/50' : ''}`}>
             <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => toggle(cat)}>
+              <FamIcon family={cat} size={28} />
               <span className="flex-1 text-sm font-bold">{cat}</span>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${n ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
                 {n}/{cs.length}
@@ -133,9 +139,12 @@ export default function MeasureSession() {
                   const last = latest?.get(c.id)
                   return (
                     <div key={c.id} className={c.scale === 'number' ? '' : 'flex items-center justify-between gap-3'}>
-                      <div>
+                      {/* min-w-0 : le libellé se coupe, la capsule des notes (CriterionInput) garde sa place dans la carte. */}
+                      <div className="min-w-0">
                         <span className={c.scale === 'number' ? 'label mb-0' : 'text-xs font-bold'} title={c.description}>
                           {c.label}
+                          {/* Valeur saisie qui atteint un repère : sa médaille, tout de suite (rien sinon). */}
+                          <MeasureMedal cfg={reperes} c={c} value={values[c.id]} who={p} day={date || today()} size={14} className="ml-1" />
                         </span>
                         {/* Dernière valeur : repère pour éviter une faute de frappe (ligne de hauteur fixe : les champs restent alignés). */}
                         <div className="mb-1 h-4 truncate text-[10px] leading-4 text-muted">
@@ -154,10 +163,11 @@ export default function MeasureSession() {
 
       {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas. */}
       <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex gap-2 border-t border-line bg-bg px-4 py-2">
-        <button className="btn-ghost" onClick={() => void cancel()}>
+        <button className="btn-save-ghost" onClick={() => void cancel()}>
           Annuler
         </button>
-        <button className="btn-primary flex-1 shadow-lg" disabled={!filled.length || !date || busy} onClick={() => void saveAll()}>
+        <button className="btn-save flex-1" disabled={!filled.length || !date || busy} onClick={() => void saveAll()}>
+          {filled.length > 0 && !!date && <span aria-hidden>✓</span>}
           {!date ? 'Date de la séance manquante' : filled.length > 1 ? `Enregistrer les ${filled.length} mesures` : filled.length ? 'Enregistrer la mesure' : 'Aucune mesure saisie'}
         </button>
       </div>

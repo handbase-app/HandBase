@@ -1,6 +1,18 @@
 import { loadDemoCriteria } from './criteriaImport'
-import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Position, type Rewatch, type Seen, type Team, type Video } from './db'
+import { db, localDay, type Evaluation, type HBEvent, type Measurement, type Player, type PlayerGroup, type Rewatch, type Seen, type Team, type Video } from './db'
+import { buildProgressDemo } from './demoProgress'
+import { buildVolleyDemo, GRID_CHAMP, GRID_MENTAL, GRID_PASSEUR } from './demoVolley'
+import { DEMO_TEMPLATES, GOAL_TEMPLATES_KEY, isDemoTemplatesValue } from './goalTemplates'
+import type { MyGoals } from './myGoals'
+import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
+import type { ObjectiveStep, WorkObjective } from './objectives'
+import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
+import { clearDemoWellness } from './wellnessApi'
+import { buildDemoWellness } from './demoWellness'
+import { buildDemoLamp } from './demoLamp'
+import { clearDemoLamp, seedDemoLamp } from './lampApi'
 import { scoutId } from './scouting'
+import { currentSport, type HandballPosition } from './sportConfig'
 
 /*
  * Données de démonstration : joueurs FICTIFS (profil U18), observateurs, événements et avis.
@@ -8,7 +20,14 @@ import { scoutId } from './scouting'
  * Les données ne sont pas mises dans la file de synchro : elles restent sur l'appareil.
  * Critères : l'appli n'en livre aucun ; ceux qui manquent sont lus dans public/demo/criteres-demo.json (mêmes
  * identifiants que les mesures et avis ci-dessous : taille, sprint_10, vision, gb_placement…).
+ * Volley (sport de l'installation) : sa propre démonstration, src/demoVolley.ts, et ses critères (criteres-volley.json).
  */
+
+/** Ce que contient la démonstration du sport de l'installation (Réglages → Données de démonstration). */
+export const demoInfo = () =>
+  currentSport().sport === 'volley'
+    ? '40 joueuses et joueurs fictifs (M13 à M18), 5 observateurs, 6 événements de la filière (détection, stages CDE et CRE, Volleyades, Interpôles), un pôle espoirs fictif et leurs avis (et, pour 4 d’entre eux, une saison passée d’avis : onglet Avis, vue Progression), pour tester l’app. Elles restent sur cet appareil et s’effacent sans toucher à tes vraies données.'
+    : "24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis (et, pour 4 d'entre eux, une saison passée d'avis : onglet Avis, vue Progression), pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données."
 
 const PREFIX = 'demo-'
 
@@ -33,7 +52,7 @@ const LAST = ['Martin', 'Bernard', 'Robert', 'Richard', 'Durand', 'Moreau', 'Lau
 const CLUBS = ['HBC Rhône Sud', 'Entente Drôme-Ardèche', 'AS Vallée Bleue', 'Handball Collines']
 
 // Gabarit typique par poste : [taille min, taille max]
-const HEIGHT: Record<Position, [number, number]> = {
+const HEIGHT: Record<HandballPosition, [number, number]> = {
   GB: [184, 196],
   AG: [171, 181],
   AD: [171, 181],
@@ -43,7 +62,7 @@ const HEIGHT: Record<Position, [number, number]> = {
   PIV: [187, 199],
 }
 // Répartition d'un effectif de 24
-const ROSTER: Position[] = ['GB', 'GB', 'GB', 'AG', 'AG', 'AG', 'AD', 'AD', 'AD', 'ARG', 'ARG', 'ARG', 'ARG', 'ARD', 'ARD', 'ARD', 'DC', 'DC', 'DC', 'DC', 'PIV', 'PIV', 'PIV', 'PIV']
+const ROSTER: HandballPosition[] = ['GB', 'GB', 'GB', 'AG', 'AG', 'AG', 'AD', 'AD', 'AD', 'ARG', 'ARG', 'ARG', 'ARG', 'ARD', 'ARD', 'ARD', 'DC', 'DC', 'DC', 'DC', 'PIV', 'PIV', 'PIV', 'PIV']
 
 const OBSERVERS = [
   { name: 'Coach Paul', bias: 0, noise: 0.5 },
@@ -60,17 +79,27 @@ const EVENTS: Omit<HBEvent, 'updatedAt'>[] = [
   { id: PREFIX + 'ev-4', name: 'J3 — Vallée Bleue vs Rhône Sud', type: 'match', date: '2026-09-27', place: 'Privas' },
 ]
 
-// Staffs (équipes d'encadrants) fictifs, avec des comptes fictifs : le choix des participants en mode local.
+// Groupes de travail (ex-staffs, équipes d'encadrants) fictifs, avec des comptes fictifs : le choix des participants en mode local.
 const STAFF_NAMES = ['Coach Paul', 'Julie Adjointe', 'Sophie Conseillère', 'Karim Gardiens', 'Marc Recruteur']
 const staffId = (i: number) => `${PREFIX}compte-${i + 1}`
 const TEAMS: Omit<Team, 'updatedAt'>[] = [
-  { id: PREFIX + 'staff-1', name: 'Staff Drôme', description: 'Encadrement départemental', members: [0, 1, 2].map(staffId) },
-  { id: PREFIX + 'staff-2', name: 'Staff gardiens', members: [3, 0].map(staffId) },
+  { id: PREFIX + 'staff-1', name: 'ETD Drôme', description: 'Encadrement départemental', members: [0, 1, 2].map(staffId) },
+  { id: PREFIX + 'staff-2', name: 'Entraîneurs des gardiens', members: [3, 0].map(staffId) },
 ].map((t) => ({ ...t, names: Object.fromEntries(t.members.map((u) => [u, STAFF_NAMES[Number(u.split('-').pop()) - 1]])) }))
 
 const GAPS = ['Chaîne P. G ++ / RE hanche', 'Dorsiflexion cheville D limitée', 'Épaule RI G à travailler', 'Squat overhead : buste penché', '', '', '']
 const STRENGTHS = ['Très bonne lecture du jeu', 'Puissant au tir de loin', 'Excellent sur le premier pas', 'Gros volume de course', 'Leader naturel, parle beaucoup', 'Bon jeu à deux avec le pivot', 'Solide en défense 1-1']
 const IMPROVE = ['Repli défensif trop lent', 'Choix de tir précipité', 'Disparaît en fin de match', 'Communication défensive', 'Gestion des émotions après une erreur', 'Jeu sans ballon à développer']
+
+// Super-pouvoirs observés (avis de match enrichi, src/avisMatch.ts) : quelques-uns, toujours positifs.
+const SUPER_POWERS = ['Sa lecture du jeu', 'Son premier pas', 'Sa vision', 'Son volume de course', 'Son sang-froid', 'Sa voix sur le terrain']
+const GB_SUPER_POWERS = ['Ses réflexes', 'Sa relance', 'Son placement']
+/** Petit nombre tiré de l'identifiant (0 à n − 1) : n'utilise pas rand(), la suite des autres données de la démo ne change pas. */
+const hashN = (s: string, n: number) => {
+  let h = 7
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return h % n
+}
 
 const GB_STRENGTHS = ['Réflexes impressionnants', 'Très bon placement sur les tirs à 9 m', 'Relance rapide et précise', 'Organise bien sa défense']
 const GB_IMPROVE = ['Relance trop lente', 'Sorties sur les ailiers', 'Lecture des tirs en appui', 'Communication avec la défense']
@@ -80,6 +109,7 @@ const SUBJ_GB = ['gb_placement', 'gb_reflexes', 'gb_lecture', 'gb_relance', 'gb_
 const QUICK = new Set(['vision', 'decision', 'efficacite_tir', 'agressivite', 'engagement', 'pression', 'gb_placement', 'gb_reflexes'])
 
 export async function loadDemo() {
+  if (currentSport().sport === 'volley') return loadVolleyDemo()
   await clearDemo()
   const criteria = await loadDemoCriteria()
   rand = rng(2026)
@@ -161,7 +191,7 @@ export async function loadDemo() {
       adducteur: Math.round(between(0.8, 3.4)),
     }
     const add = (criterionId: string, value: number, date: string) =>
-      measurements.push({ id: `${id}-${criterionId}-${date}`, playerId: id, criterionId, value, date, author: 'Préparateur (démo)', updatedAt: now })
+      measurements.push({ id: `${id}-${criterionId}-${date}`, playerId: id, criterionId, value, date, author: 'Encadrant (démo)', updatedAt: now })
 
     for (const [k, v] of Object.entries({ ...t1, ...scores })) add(k, v, '2026-06-15')
     // Rentrée : petite progression (croissance, travail estival)
@@ -178,6 +208,8 @@ export async function loadDemo() {
       dorsi_g: t1.dorsi_g + Math.round(prog),
       dorsi_d: t1.dorsi_d + Math.round(prog),
     }
+    // Taille assise reprise le même jour que la taille (Mirwald et Fransen n'associent que des mesures du même jour).
+    t2.taille_assise = round((t1.taille_assise * t2.taille) / t1.taille, 1)
     for (const [k, v] of Object.entries(t2)) add(k, v, '2026-09-21')
 
     // ----- Niveau « réel » pour les avis subjectifs -----
@@ -210,8 +242,10 @@ export async function loadDemo() {
         }
         const vals = Object.values(sc)
         if (!vals.length) continue
+        const id = `${PREFIX}e-${ev.id}-${p.id}-${o.name.split(' ')[0]}`
+        const sp = p.position === 'GB' ? GB_SUPER_POWERS : SUPER_POWERS
         evaluations.push({
-          id: `${PREFIX}e-${ev.id}-${p.id}-${o.name.split(' ')[0]}`,
+          id,
           playerId: p.id,
           eventId: ev.id,
           observer: o.name,
@@ -220,6 +254,9 @@ export async function loadDemo() {
           minutesObserved: ev.type === 'tournoi' ? Math.round(between(40, 120)) : Math.round(between(15, 60)),
           strengths: rand() < 0.5 ? pick(p.position === 'GB' ? GB_STRENGTHS : STRENGTHS) : undefined,
           improvements: rand() < 0.45 ? pick(p.position === 'GB' ? GB_IMPROVE : IMPROVE) : undefined,
+          // Un avis sur quatre environ : super-pouvoir ; match ou tournoi, un sur deux : temps de jeu (par pas de 5 min).
+          superPower: hashN(id, 4) === 0 ? sp[hashN(id + 's', sp.length)] : undefined,
+          playingTime: (ev.type === 'match' || ev.type === 'tournoi') && hashN(id + 't', 2) === 0 ? 10 + 5 * hashN(id + 'm', ev.type === 'tournoi' ? 15 : 9) : undefined,
           updatedAt: now,
         })
       }
@@ -252,19 +289,205 @@ export async function loadDemo() {
   const scout = buildScouting(players, now)
   evaluations.push(...scout.evaluations)
 
+  // ----- Saison passée d'avis pour 4 joueurs de champ (vue « Progression » de l'onglet Avis, src/demoProgress.ts) -----
+  const prog = buildProgressDemo(players, evaluations, (p) => (p.position === 'GB' ? SUBJ_GB : SUBJ_FIELD), ['Coach Paul', 'Sophie (CTF)'], now, (p) => p.position === 'GB', 'Julie (adjointe)')
+  evaluations.push(...prog.evaluations)
+
+  // ----- Objectifs de travail et auto-évaluations (vague 2 « Génération Bleue ») : quelques joueurs choisis par leur rang,
+  // sans rand() (la suite des autres données de la démo ne change pas). -----
+  const demoGoals = buildDemoGoals(now)
+  // Wellness (supabase/073, src/demoWellness.ts) : un groupe « pôle » fictif qui le demande, 10 joueurs de champ, 5 semaines
+  // de réponses et de séances fictives sur l'appareil (deux à 100 %, deux avec des douleurs à plusieurs endroits, un pas encore répondu).
+  const wellnessIds = players.filter((p) => p.position !== 'GB').slice(0, 10).map((p) => p.id)
+  const wellnessGroup: PlayerGroup = {
+    id: PREFIX + 'g-wellness',
+    name: 'Groupe pôle (démonstration)',
+    description: 'Wellness quotidien activé : données fictives',
+    playerIds: wellnessIds,
+    wellness: true,
+    wellnessSince: localDay(now - 35 * 24 * 3600 * 1000),
+    updatedAt: now,
+  }
+  for (const [i, list] of Object.entries(demoGoals.objectives)) players[Number(i)].objectives = list
+  // Objectif donné à toute la liste du « Tournoi de l'Espenon » (src/groupObjectives.ts) : une copie par fiche, identifiants
+  // « demo-don-… », avancement tiré de l'identifiant (hashN, pas rand()) ; section « Objectifs donnés » de l'événement.
+  for (const p of players) p.objectives = [...(p.objectives ?? []), demoGift(p.id, now)]
+
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
     await db.teams.bulkPut(TEAMS.map((t) => ({ ...t, updatedAt: now })))
     await db.events.bulkPut(scout.events)
     await db.seen.bulkPut(scout.seen)
     await db.rewatch.bulkPut(scout.rewatch)
     await db.groups.bulkPut(scout.groups)
+    await db.groups.put(wellnessGroup)
     await db.players.bulkPut(players)
     await db.measurements.bulkPut(measurements)
     await db.events.bulkPut(EVENTS.map((e) => ({ ...e, updatedAt: now })))
+    await db.events.bulkPut(prog.events)
     await db.evaluations.bulkPut(evaluations)
     await db.videos.bulkPut(videos)
   })
-  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length, evaluations: evaluations.length, videos: videos.length }
+  // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
+  // Lampe d'Aladin (supabase/074, src/demoLamp.ts) : le même wellness, prolongé jusqu'à la rentrée, plus cahiers du hand,
+  // cahiers de match, points des encadrants et vœux (deux joueurs en route vers 100 %).
+  seedDemoLamp(buildDemoLamp(wellnessIds, localDay(now), buildDemoWellness(wellnessIds, localDay(now))))
+  seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
+  // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
+  seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
+  await seedDemoTemplates()
+  return { criteria, players: players.length, measurements: measurements.length, events: EVENTS.length + scout.events.length + prog.events.length, evaluations: evaluations.length, videos: videos.length }
+}
+
+/** Copie, pour une fiche, de l'objectif donné à la liste du tournoi de la démo : étapes cochées par le staff selon l'identifiant. */
+function demoGift(playerId: string, now: number): WorkObjective {
+  const day = (n: number) => localDay(now + n * 24 * 3600 * 1000)
+  const k = hashN(playerId, 4)
+  const id = `${PREFIX}don-${playerId.replace(/[^A-Za-z0-9_-]/g, '').slice(-16)}`
+  const steps: ObjectiveStep[] = [
+    { id: `${id}-a`, text: 'Gainage 5 min chaque matin', ...(k >= 1 ? { done: day(-2) } : {}) },
+    { id: `${id}-b`, text: 'Footing 20 min deux fois par semaine', ...(k >= 2 ? { done: day(-1) } : {}) },
+    { id: `${id}-c`, text: 'Noter ses séances dans un carnet', ...(k >= 3 ? { done: day(-1) } : {}) },
+  ]
+  return {
+    id,
+    text: 'Garder la forme jusqu’au prochain stage',
+    status: k >= 3 ? 'atteint' : 'en_cours',
+    ...(k >= 3 ? { doneAt: day(-1) } : {}),
+    eventId: PREFIX + 'ev-espenon',
+    eventName: 'Tournoi de l’Espenon',
+    date: day(-3),
+    // Période : jusqu'au prochain stage (le « Stage de Toussaint », dans 14 jours : buildScouting).
+    due: day(14),
+    steps,
+    source: { kind: 'evenement', id: PREFIX + 'ev-espenon', name: 'Tournoi de l’Espenon', batch: `${PREFIX}don-espenon`, at: day(-2) },
+  }
+}
+
+/**
+ * Objectifs de travail (src/objectives.ts) et auto-évaluations du jeune (src/selfEval.ts) de la démonstration, par rang de
+ * joueur : textes fictifs, toujours positifs. Le « Tournoi de l'Espenon » (il y a 3 jours, tout le monde sur la liste) sert
+ * d'origine et d'événement à évaluer : la page du jeune montre « Comment ça s'est passé ? » (remplie pour deux joueurs,
+ * à remplir pour les autres).
+ */
+function buildDemoGoals(now: number) {
+  const day = (n: number) => localDay(now + n * 24 * 3600 * 1000)
+  const T = PREFIX + 'ev-espenon'
+  const TN = 'Tournoi de l’Espenon'
+  const o = (id: string, text: string, more: Partial<WorkObjective> = {}): WorkObjective => ({ id: `${PREFIX}obj-${id}`, text, status: 'en_cours', ...more })
+  // Étapes (04/11) : identifiants « demo-obj-<objectif>-<lettre> » ; lien vidéo générique (le même que les vidéos de la démo).
+  const st = (id: string, text: string, more: Partial<ObjectiveStep> = {}): ObjectiveStep => ({ id: `${PREFIX}obj-${id}`, text, ...more })
+  const VIDEO = 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
+  const objectives: Record<number, WorkObjective[]> = {
+    // Gardien (rang 0) : étapes, une cochée par le staff ; période en cours (« encore 12 jours »), et une période terminée
+    // (neutre : l'objectif reste, le staff le passe « atteint » ou le prolonge).
+    0: [
+      o('1-1', 'Relancer vite après un arrêt', {
+        eventId: T,
+        eventName: TN,
+        date: day(-3),
+        due: day(12),
+        steps: [
+          st('1-1-a', 'Relances à la main sur 20 m : 10 par séance', { done: day(-1) }),
+          st('1-1-b', 'Lever la tête avant de relancer'),
+          st('1-1-c', 'Revoir les relances du tournoi', { video: VIDEO }),
+        ],
+      }),
+      o('1-2', 'Parler à sa défense sur chaque attaque', { date: day(-30), due: day(-2) }),
+    ],
+    // Ailier gauche (rang 4) : un objectif déjà atteint ; ses objectifs à lui plus bas (mine).
+    4: [
+      o('5-1', 'Gagner en vitesse sur le premier pas', {
+        eventId: T,
+        eventName: TN,
+        date: day(-3),
+        steps: [
+          st('5-1-a', 'Échelle de rythme 10 min avant chaque entraînement'),
+          st('5-1-b', 'Départs arrêtés sur 10 m : 6 répétitions, 2 fois par semaine'),
+          st('5-1-c', 'Refaire le sprint 10 m dans un mois'),
+        ],
+      }),
+      o('5-2', 'Prendre la parole en défense', { eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28' }),
+      o('5-3', 'Enchaîner repli et contre-attaque', { status: 'atteint', eventId: PREFIX + 'ev-1', eventName: 'Stage de rentrée', date: '2026-08-28', doneAt: day(-10) }),
+    ],
+    // Arrière gauche (rang 9) : un objectif qui commence plus tard (les vacances).
+    9: [
+      o('10-1', 'Oser le tir à 9 mètres', { date: day(-20) }),
+      o('10-2', 'Entretenir ses appuis pendant les vacances', {
+        date: day(-1),
+        from: day(46),
+        due: day(60),
+        steps: [st('10-2-a', 'Corde à sauter 10 min, un jour sur deux'), st('10-2-b', 'Gainage 5 min chaque matin')],
+      }),
+    ],
+  }
+  const at = (n: number) => new Date(now + n * 3600 * 1000).toISOString()
+  const selfEvals: Record<number, import('./selfEval').SelfEval[]> = {
+    4: [
+      {
+        eventId: T,
+        eventType: 'tournoi',
+        eventDate: day(-3),
+        eventName: TN,
+        scores: { engagement: 5, plaisir: 4, concentration: 3, collectif: 4, progres: 4 },
+        good: 'Mes courses en contre-attaque, j’ai marqué deux fois en début de match.',
+        work: 'Ma communication en défense.',
+        at: at(-50),
+      },
+    ],
+    1: [{ eventId: T, eventType: 'tournoi', eventDate: day(-3), eventName: TN, scores: { engagement: 4, plaisir: 5, collectif: 5 }, good: 'Mon placement sur les tirs de loin.', at: at(-40) }],
+  }
+  // Objectifs « à moi » et coches du jeune (supabase/065, src/myGoals.ts) : l'ailier gauche (rang 4) a coché une étape du
+  // staff et posé deux objectifs à lui, l'un avec ses étapes et une vidéo, l'autre déjà atteint.
+  const mine: Record<number, MyGoals> = {
+    4: {
+      own: [
+        o('5-m1', 'Le tir en suspension', {
+          date: day(-6),
+          due: day(25),
+          video: VIDEO,
+          steps: [st('5-m1-a', 'Regarder la vidéo du geste', { video: VIDEO, done: day(-5) }), st('5-m1-b', 'Trois appuis et lever le bras haut'), st('5-m1-c', '20 tirs après l’entraînement')],
+        }),
+        o('5-m2', 'Courir 20 minutes deux fois par semaine', { status: 'atteint', date: day(-30), doneAt: day(-8) }),
+      ],
+      checks: { [`${PREFIX}obj-5-1-a`]: day(-2) },
+    },
+  }
+  return { objectives, selfEvals, mine }
+}
+
+/**
+ * Modèles d'objectifs de la démonstration (src/goalTemplates.ts) : posés sur l'appareil, sans file d'envoi, seulement s'il
+ * n'y a pas déjà des modèles ; marqués `demo` pour partir avec la démo (ceux qu'un administrateur enregistre deviennent les
+ * siens).
+ */
+async function seedDemoTemplates() {
+  const row = await db.config.get(GOAL_TEMPLATES_KEY)
+  if (row && !row.deleted) return
+  await db.config.put({ id: GOAL_TEMPLATES_KEY, key: GOAL_TEMPLATES_KEY, value: { demo: true, templates: DEMO_TEMPLATES }, updatedAt: Date.now() })
+}
+
+/** Démonstration du volley (src/demoVolley.ts) : joueurs, mesures, événements, avis, groupes, vidéos, repérage. */
+async function loadVolleyDemo() {
+  await clearDemo()
+  const criteria = await loadDemoCriteria()
+  const d = buildVolleyDemo(Date.now(), scoutId() ?? 'local', localDay)
+  // Saison passée d'avis pour 4 joueuses / joueurs (vue « Progression » de l'onglet Avis, src/demoProgress.ts).
+  const prog = buildProgressDemo(d.players, d.evaluations, (p) => [...(p.position === 'P' ? GRID_PASSEUR : GRID_CHAMP), ...GRID_MENTAL], ['Coach Paul', 'Sophie (CTS)'], Date.now(), (p) => p.position === 'L', 'Julie (adjointe)')
+  d.events.push(...prog.events)
+  d.evaluations.push(...prog.evaluations)
+  await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.seen, db.rewatch, db.groups], async () => {
+    await db.teams.bulkPut(d.teams)
+    await db.groups.bulkPut(d.groups)
+    await db.players.bulkPut(d.players)
+    await db.measurements.bulkPut(d.measurements)
+    await db.events.bulkPut(d.events)
+    await db.seen.bulkPut(d.seen)
+    await db.rewatch.bulkPut(d.rewatch)
+    await db.evaluations.bulkPut(d.evaluations)
+    await db.videos.bulkPut(d.videos)
+  })
+  await seedDemoTemplates()
+  return { criteria, players: d.players.length, measurements: d.measurements.length, events: d.events.length, evaluations: d.evaluations.length, videos: d.videos.length }
 }
 
 /**
@@ -300,7 +523,8 @@ function buildScouting(players: Player[], now: number) {
       tournament: { teams, players: tPlayers, assign: { [me]: ['ta', 'tb'], [staffId(0)]: ['tc'], [staffId(1)]: ['td'], [staffId(2)]: ['tb'] } },
       updatedAt: now,
     },
-    { id: STAGE, name: 'Stage de Toussaint', type: 'entrainement', date: day(14), place: 'Valence', playerIds: [], names, updatedAt: now },
+    // Stage à venir, toute la liste du tournoi convoquée : « Jusqu'au prochain stage » (période d'un objectif, src/period.ts).
+    { id: STAGE, name: 'Stage de Toussaint', type: 'entrainement', date: day(14), place: 'Valence', playerIds: players.map((p) => p.id), names, updatedAt: now },
   ]
   // « Vu » : chaque observateur du staff voit surtout ses équipes, un peu les autres ; moi, quelques joueurs.
   const ago = (h: number) => new Date(now - h * 3600 * 1000).toISOString()
@@ -361,6 +585,13 @@ function buildScouting(players: Player[], now: number) {
 
 export async function clearDemo() {
   const isDemo = (x: { id: string }) => x.id.startsWith(PREFIX)
+  clearDemoSelfEvals()
+  clearDemoGoals()
+  clearDemoWellness()
+  clearDemoLamp()
+  // Modèles d'objectifs de la démo (jamais ceux qu'un administrateur a enregistrés).
+  const tpl = await db.config.get(GOAL_TEMPLATES_KEY)
+  if (tpl && isDemoTemplatesValue(tpl.value)) await db.config.delete(GOAL_TEMPLATES_KEY)
   await db.transaction('rw', [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups, db.seen, db.outbox], async () => {
     for (const t of [db.players, db.measurements, db.events, db.evaluations, db.teams, db.videos, db.rewatch, db.groups] as const) {
       const ids = (await t.toArray()).filter(isDemo).map((x) => x.id)

@@ -127,7 +127,7 @@ export function StaffPicker({
           {hidden > 0 && <p className="text-[11px] text-muted">+ {STAFF.hidden(hidden)}</p>}
           <p className="text-[11px] text-muted">
             {STAFF.pickerHelp}{' '}
-            <Link to={STAFF.route} className="font-bold text-accent underline">
+            <Link to={STAFF.tabRoute} className="font-bold text-accent underline">
               {STAFF.pickerManage}
             </Link>
           </p>

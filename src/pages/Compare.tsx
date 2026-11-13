@@ -3,10 +3,14 @@ import { Fragment, lazy, Suspense, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { COMPARE_MAX } from '../components/ComparePick'
+import { RadarViewTabs, useRadarView } from '../components/RadarViewTabs'
 import { CLEAR, criterionMean, measureDirection, playerScore, TIE } from '../compare'
 import { alive, counts, criterionApplies, db, fmtDate, positionLabel, scaleMax, type Criterion, type Evaluation, type Measurement, type Player } from '../db'
-import { snapshots } from '../components/MaturityCard'
+import { MQ, useMedia } from '../layout'
+import { snapshots } from '../maturitySnapshot'
+import { pahText } from '../maturity'
 import { latestByPlayer } from './Players'
+import { genderOf, w } from '../gender'
 import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../components/ui'
 
 /*
@@ -16,7 +20,7 @@ import { Empty, fmtValue, PosBadges, QuarterBadge, playerName } from '../compone
  * Comme le classement : avis validés seulement.
  */
 
-// Radar chargé à la demande (recharts).
+// Radar par zones, chargé à la demande.
 const CompareRadar = lazy(() => import('../components/CompareRadar'))
 
 // Bleu, orange, violet (comme la palette des avis) : bien distincts, y compris pour les daltoniens, et
@@ -70,6 +74,11 @@ export default function Compare() {
   const eventId = params.get('evenement') ?? undefined
   const all = !eventId || params.get('tous') === '1'
   const [focus, setFocus] = useState<number | null>(null)
+  // Vue du radar (onglets Complet / Par famille) dans l'adresse (?radar=…, src/components/RadarViewTabs.tsx).
+  const [radarView, setRadarView] = useRadarView()
+  // Par famille sur écran large : le radar passe en pleine largeur au-dessus des deux colonnes (dans la colonne de
+  // gauche, une grille de trois radars n'en laisse que de minuscules). Complet : à gauche, comme avant.
+  const radarWide = useMedia(`${MQ.rail}, ${MQ.side}`) && radarView === 'familles'
 
   const data = useLiveQuery(async () => {
     const players = await db.players.bulkGet(ids)
@@ -83,6 +92,20 @@ export default function Compare() {
   }, [ids.join(','), eventId])
 
   const back = <BackButton fallback={eventId ? `/evenements/${eventId}` : '/joueurs'} label={eventId ? 'ÉVÉNEMENT' : 'JOUEURS'} />
+  // Aucun joueur (ou un seul) dans l'adresse : on explique comment en choisir, plutôt qu'une page vide.
+  if (ids.filter(Boolean).length < 2)
+    return (
+      <div className="flex flex-col gap-4">
+        {back}
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">
+          <p className="font-bold text-fg">Choisis 2 ou 3 joueurs pour les comparer.</p>
+          <p className="text-xs">Dans la liste des joueurs, ouvre le menu ⋮ d’un joueur (ou appui long), puis « Comparer » ; une barre en bas de l’écran lance la comparaison.</p>
+          <Link to="/joueurs" className="btn-primary">
+            Choisir dans la liste des joueurs
+          </Link>
+        </div>
+      </div>
+    )
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const found = data.players.filter((p): p is Player => !!p && !p.deleted)
   if (found.length < data.players.length || new Set(ids).size < ids.length)
@@ -95,6 +118,8 @@ export default function Compare() {
   const ps = found
   const n = ps.length
   const nWord = n === 2 ? 'deux' : 'trois'
+  // Accord (src/gender.ts) : « Comparer trois joueuses » si toutes sont des filles ; sinon masculin générique.
+  const gw = w(genderOf(ps))
   const { criteria, evaluations, measurements, event } = data
   const colors = sideColors().slice(0, n)
   const names = ps.map((p) => p.lastName.toUpperCase())
@@ -121,9 +146,7 @@ export default function Compare() {
       .filter((r) => r.win === i && r.gap >= CLEAR)
       .sort((x, y) => y.gap - x.gap)
       .slice(0, 5)
-  const radarData = rows
-    .filter((r) => r.c.scale === 'score5' && r.v.every((x) => x !== null))
-    .map((r) => ({ label: r.c.label, ...Object.fromEntries(r.v.map((x, i) => [`v${i}`, x!])) }))
+  const radarData = rows.filter((r) => r.c.scale === 'score5' && r.v.every((x) => x !== null))
   const overallWin = winner(
     overall.map((o) => r1(o?.avg)),
     TIE,
@@ -160,10 +183,55 @@ export default function Compare() {
     setParams(next, { replace: true })
   }
 
+  // Radar superposé
+  const radarSection = (
+    <section className="card p-3">
+      <div className="section-title">Radar des avis</div>
+      <RadarViewTabs view={radarView} onChange={setRadarView} />
+      <div className="flex flex-wrap gap-2" role="group" aria-label={`Mettre ${gw.unJoueur} en avant`}>
+        {/* « Tous » : revenir aux joueurs superposés (un 2e toucher sur le nom fait pareil, mais ne se devine pas). */}
+        <button
+          onClick={() => setFocus(null)}
+          aria-pressed={focus === null}
+          className={`flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === null ? 'border-fg/40 bg-panel-2' : 'border-line'}`}
+        >
+          {nWord === 'deux' ? 'Les deux' : gw.Tous}
+        </button>
+        {ps.map((p, i) => (
+          <button
+            key={p.id}
+            onClick={() => setFocus((f) => (f === i ? null : i))}
+            aria-pressed={focus === i}
+            title={focus === i ? `Revoir les ${nWord} ${gw.joueurs}` : `Mettre ${w(p.sex).ceJoueur} en avant`}
+            className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === i ? 'border-fg/40 bg-panel-2' : 'border-line'} ${focus !== null && focus !== i ? 'opacity-45' : ''}`}
+          >
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i] }} />
+            <span className="truncate">{playerName(p)}</span>
+          </button>
+        ))}
+      </div>
+      {radarData.length < 3 ? (
+        <p className="py-8 text-center text-[11px] text-muted">
+          Il faut au moins 3 critères notés pour les {nWord} {gw.joueurs} pour tracer le radar
+          {radarData.length ? ` (${radarData.length} pour l’instant)` : ''}.
+        </p>
+      ) : (
+        <>
+          <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
+            <CompareRadar rows={radarData} colors={colors} focus={focus} view={radarView === 'familles' ? 'split' : 'full'} names={ps.map(playerName)} />
+          </Suspense>
+          <p className="text-[10px] text-muted">
+            Critères notés pour les {nWord} {gw.joueurs} ({radarData.length}). Toucher un nom le met en avant ; « {nWord === 'deux' ? 'Les deux' : gw.Tous} » les superpose à nouveau.
+          </p>
+        </>
+      )}
+    </section>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {back}
-      <h1 className="-mt-2 text-lg font-extrabold">Comparer {nWord} joueurs</h1>
+      <h1 className="-mt-2 text-lg font-extrabold">Comparer {nWord} {gw.joueurs}</h1>
 
       {/* Source des notes */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-panel-2 p-2.5 text-[11px]">
@@ -205,41 +273,11 @@ export default function Compare() {
         </p>
       )}
 
+      {radarWide && radarSection}
+
       <div className="flex flex-col gap-4 wide:grid wide:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] wide:items-start">
         <div className="flex flex-col gap-4 side:sticky side:top-[calc(var(--hdr)+1.25rem)]">
-          {/* Radar superposé */}
-          <section className="card p-3">
-            <div className="section-title">Radar des avis</div>
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Mettre un joueur en avant">
-              {ps.map((p, i) => (
-                <button
-                  key={p.id}
-                  onClick={() => setFocus((f) => (f === i ? null : i))}
-                  aria-pressed={focus === i}
-                  title={focus === i ? `Revoir les ${nWord} joueurs` : 'Mettre ce joueur en avant'}
-                  className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${focus === i ? 'border-fg/40 bg-panel-2' : 'border-line'} ${focus !== null && focus !== i ? 'opacity-45' : ''}`}
-                >
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colors[i] }} />
-                  <span className="truncate">{playerName(p)}</span>
-                </button>
-              ))}
-            </div>
-            {radarData.length < 3 ? (
-              <p className="py-8 text-center text-[11px] text-muted">
-                Il faut au moins 3 critères notés pour les {nWord} joueurs pour tracer le radar
-                {radarData.length ? ` (${radarData.length} pour l’instant)` : ''}.
-              </p>
-            ) : (
-              <>
-                <Suspense fallback={<div className="h-72 py-10 text-center text-xs text-muted">Chargement du radar…</div>}>
-                  <CompareRadar data={radarData} colors={colors} focus={focus} />
-                </Suspense>
-                <p className="text-[10px] text-muted">
-                  Critères notés pour les {nWord} joueurs ({radarData.length}). Toucher un nom le met en avant.
-                </p>
-              </>
-            )}
-          </section>
+          {!radarWide && radarSection}
 
           {/* Points forts */}
           {rows.some((r) => r.v.filter((x) => x !== null).length >= 2) && (
@@ -279,7 +317,7 @@ export default function Compare() {
             <div className="section-title">Avis critère par critère</div>
             {rows.length === 0 ? (
               <p className="py-4 text-center text-[11px] text-muted">
-                Aucun avis validé {all ? '' : 'sur cet événement '}pour ces {nWord} joueurs
+                Aucun avis validé {all ? '' : 'sur cet événement '}pour ces {nWord} {gw.joueurs}
                 {!all ? (
                   <>
                     .{' '}
@@ -334,7 +372,7 @@ export default function Compare() {
               </ScrollTable>
             )}
             <p className="mt-2 text-[10px] text-muted">
-              Moyenne de chaque critère : chaque observateur pèse pareil. En <b className="text-emerald-300">vert</b>, le meilleur des {nWord} et son avance
+              Moyenne de chaque critère : chaque personne pèse pareil. En <b className="text-emerald-300">vert</b>, le meilleur des {nWord} et son avance
               {n > 2 ? ' sur le deuxième' : ''} ; écart sous {f1(TIE)} : égalité{n > 2 ? ' en tête, rien en vert' : ''}. Moyenne générale calculée comme le classement.
             </p>
           </section>
@@ -343,7 +381,7 @@ export default function Compare() {
           <section className="card p-3">
             <div className="section-title">Mesures (dernières valeurs)</div>
             {measureRows.length === 0 ? (
-              <p className="py-4 text-center text-[11px] text-muted">Aucune mesure enregistrée pour ces {nWord} joueurs.</p>
+              <p className="py-4 text-center text-[11px] text-muted">Aucune mesure enregistrée pour ces {nWord} {gw.joueurs}.</p>
             ) : (
               <ScrollTable wide={n > 2}>
                 <thead>
@@ -408,7 +446,7 @@ function PlayerHead({ p, color, compact, evs, observers, ms }: { p: Player; colo
       <div className="text-[11px]">
         {evs ? (
           <>
-            <b>{evs}</b> avis · <b>{observers}</b> observateur{observers > 1 ? 's' : ''}
+            <b>{evs}</b> avis · <b>{observers}</b> personne{observers > 1 ? 's' : ''}
           </>
         ) : (
           <span className="text-muted">Aucun avis validé</span>
@@ -416,7 +454,7 @@ function PlayerHead({ p, color, compact, evs, observers, ms }: { p: Player; colo
       </div>
       {kr && (
         <div className="text-[10px] text-muted" title="Khamis-Roche : estimation, pas une certitude">
-          Taille adulte prédite ≈ <b className="text-fg">{Math.round(kr.predicted)} cm</b> · {Math.round(kr.pah)} % atteint
+          Taille adulte prédite ≈ <b className="text-fg">{Math.round(kr.predicted)} cm</b> · {pahText(kr.pah)}
         </div>
       )}
     </div>

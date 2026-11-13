@@ -1,16 +1,20 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useGoBack } from '../backNav'
+import { useBack, useTargetLabel } from '../backNav'
 import { CourtPicker } from '../components/CourtPicker'
 import { department } from '../components/PlayerFilter'
 import { poleSites } from '../poles'
 import { departmentChoices, officialRegions, regionLabel, useRegions } from '../lists'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, resizeImage, Segmented } from '../components/ui'
+import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, playerName, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
+import { SEX_LABEL_ONE, w } from '../gender'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
+import { usePoleLeader } from '../components/PoleGroup'
+import { sportContent } from '../sportContent'
+import { cleanUsualTeam, LEVELS, seasonCategory, TEAM_NUMBERS, teamSummary, upperCategories, type UsualTeam } from '../rencontres'
 
 type Values = Record<string, number | string | undefined>
 
@@ -21,12 +25,16 @@ export default function PlayerForm() {
   const role = useRole()
   const listedRegions = useRegions()
   const regions = listedRegions.length ? listedRegions : officialRegions()
-  // Ouvert depuis la notation : on y revient après l'enregistrement (adresse interne à l'appli uniquement).
-  // Annuler : retour d'où l'on vient (fiche, liste…) ; ouvert directement : la fiche ou la liste.
-  const goBack = useGoBack(id ? `/joueurs/${id}` : '/joueurs')
   const [params] = useSearchParams()
+  // `retour` : écran où revenir quand l'historique ne le connaît pas (adresse interne à l'appli uniquement).
   const retour = params.get('retour')
   const back = retour && retour.startsWith('/') && !retour.startsWith('//') ? retour : null
+  // Annuler, « ← », et Enregistrer d'une fiche existante : l'écran d'où l'on vient, par l'historique, dans le même état
+  // (fiche dans un événement ou un groupe, notation, liste…) ; ouvert directement : `retour`, sinon la fiche ou la liste.
+  // Nom de la fiche telle qu'ouverte (libellé du retour vers elle, pas la saisie en cours).
+  const [shownName, setShownName] = useState('')
+  const backName = useTargetLabel(back?.replace(/[?#].*$/, ''))
+  const leave = useBack(back ?? (id ? `/joueurs/${id}` : '/joueurs'), back ? (backName ?? 'RETOUR') : id ? shownName || 'FICHE DU JOUEUR' : 'JOUEURS')
   const criteria = useLiveQuery(() => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'factual')))
   const [p, setP] = useState<Partial<Player>>({})
   const [values, setValues] = useState<Values>({})
@@ -34,6 +42,10 @@ export default function PlayerForm() {
   const [testDate, setTestDate] = useState(today())
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(!editing)
+  // Bloc « Pôle Espoirs » : modifiable par les dirigeants d'un pôle et les administrateurs seulement (can.editPoles,
+  // src/roles.ts) ; les autres comptes, Ligue comprise, voient les périodes sans pouvoir les changer.
+  const poleLeader = usePoleLeader()
+  const editPoles = can.editPoles(role, poleLeader.any)
 
   useEffect(() => {
     if (!id) return
@@ -45,6 +57,7 @@ export default function PlayerForm() {
       const v: Values = {}
       latest?.forEach((m, cid) => (v[cid] = m.value))
       setP(player)
+      setShownName(playerName(player))
       setValues(v)
       setInitial(v)
       setLoaded(true)
@@ -52,6 +65,14 @@ export default function PlayerForm() {
   }, [id, nav])
 
   const set = <K extends keyof Player>(k: K, v: Player[K]) => setP((x) => ({ ...x, [k]: v }))
+  // « Mon équipe » (src/rencontres.ts, supabase/056) : daté seulement quand on y touche ; sinon la valeur lue repart telle
+  // quelle et le serveur garde la plus récente (le jeune a pu la changer depuis sa page entre-temps).
+  const teamCodes = sportContent().youthCategories.map((c) => c.code)
+  const setTeam = (patch: Partial<Pick<UsualTeam, 'n' | 'level' | 'playsIn'>>) =>
+    setP((x) => {
+      const cur = { n: x.usualTeam?.n, level: x.usualTeam?.level, playsIn: x.usualTeam?.playsIn, ...patch }
+      return { ...x, usualTeam: { ...cleanUsualTeam(cur, teamCodes), at: new Date().toISOString(), src: 'staff' } }
+    })
 
   async function submit() {
     if (!p.firstName?.trim() || !p.lastName?.trim()) {
@@ -72,7 +93,9 @@ export default function PlayerForm() {
       if (v === undefined || v === '' || v === initial[cid]) continue
       await save<Measurement>('measurements', { id: newId(), playerId: player.id, criterionId: cid, value: v, date: testDate, author })
     }
-    nav(back ?? `/joueurs/${player.id}`, { replace: true })
+    // Fiche modifiée : retour à l'écran d'origine ; nouvelle fiche : on l'ouvre, à la place du formulaire.
+    if (editing) leave.exit()
+    else nav(back ?? `/joueurs/${player.id}`, { replace: true })
   }
 
   if (!loaded || !criteria) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
@@ -82,26 +105,24 @@ export default function PlayerForm() {
       return <div className="py-20 text-center text-sm text-muted">Ton rôle (observateur) ne permet pas de modifier cette fiche.</div>
     return (
       <div className="flex flex-col gap-4">
-        <button onClick={() => goBack()} className="self-start text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER MA PROPOSITION' : 'PROPOSER UN JOUEUR'}
-        </button>
-        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl ? nav(`/joueurs/${pl.id}`, { replace: true }) : goBack())} />
+        <h1 className="text-lg font-extrabold">{editing ? 'Modifier ma proposition' : `Proposer ${w(p.sex).unJoueur}`}</h1>
+        <ProposePlayer initial={editing ? p : undefined} onDone={(pl) => (pl && !editing ? nav(`/joueurs/${pl.id}`, { replace: true }) : leave.exit())} />
       </div>
     )
   }
 
   // Profil rapide seulement (gabarit + critères physiologiques) : de quoi repérer un joueur vite.
   // Les tests détaillés se saisissent ensuite, fiche enregistrée, avec « Nouvelle séance de tests ».
-  const shown = criteria.filter((c) => criterionApplies(c, p.position) && (c.category === 'Gabarit' || c.category === 'Critères physiologiques'))
+  // Catégories du profil physique : celles du sport de l'installation (src/sportContent.ts).
+  const content = sportContent()
+  const ownCat = seasonCategory(p.birthDate, today(), content.youthCategories)
+  const upper = upperCategories(ownCat, content.youthCategories, p.usualTeam?.playsIn)
+  const shown = criteria.filter((c) => criterionApplies(c, p.position) && content.profileCategories.includes(c.category))
   const testsFilled = shown.filter((c) => values[c.id] !== undefined && values[c.id] !== '' && values[c.id] !== initial[c.id]).length
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      <div className="flex items-center justify-between">
-        <button onClick={() => goBack()} className="text-xs font-bold text-muted">
-          ← {editing ? 'MODIFIER LA FICHE' : 'NOUVEAU JOUEUR'}
-        </button>
-      </div>
+      <h1 className="text-lg font-extrabold">{editing ? 'Modifier la fiche' : w(p.sex).NouveauJoueur}</h1>
 
       {error && <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
 
@@ -118,7 +139,7 @@ export default function PlayerForm() {
                 <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
                 <circle cx="12" cy="13" r="3.5" />
               </svg>
-              <span className="mt-1 text-[10px]">Photo joueur</span>
+              <span className="mt-1 text-[10px]">Photo {w(p.sex).joueur}</span>
             </>
           )}
           <input
@@ -153,8 +174,8 @@ export default function PlayerForm() {
               value={p.sex}
               onChange={(v) => set('sex', v)}
               options={[
-                { value: 'M', label: 'Garçon' },
-                { value: 'F', label: 'Fille' },
+                { value: 'M', label: SEX_LABEL_ONE.M },
+                { value: 'F', label: SEX_LABEL_ONE.F },
               ]}
             />
           </div>
@@ -197,7 +218,7 @@ export default function PlayerForm() {
           </div>
           <div>
             <span className="label">Catégorie / niveau</span>
-            <input className="field" placeholder="-18 nat" value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
+            <input className="field" placeholder={content.examples.category} value={p.category ?? ''} onChange={(e) => set('category', e.target.value)} />
           </div>
           <div>
             <span className="label">Club</span>
@@ -239,9 +260,57 @@ export default function PlayerForm() {
         </div>
       </Collapsible>
 
+      <Collapsible title="Équipe en championnat" summary={teamSummary(p, today(), content.youthCategories) || 'Équipe 1, 2 ou 3, niveau, surclassement'}>
+        <p className="text-[11px] text-muted">
+          Pour savoir où {w(p.sex).leJoueur} joue le week-end (Événements → « Autour de moi »). {w(p.sex).LeJoueur} peut aussi le dire depuis sa page. Toucher
+          à nouveau un choix l’efface.
+        </p>
+        <div>
+          <span className="label">Équipe</span>
+          <Segmented
+            value={p.usualTeam?.n ? String(p.usualTeam.n) : undefined}
+            onChange={(v) => setTeam({ n: Number(v) === p.usualTeam?.n ? undefined : (Number(v) as UsualTeam['n']) })}
+            options={TEAM_NUMBERS.map((n) => ({ value: String(n), label: `Équipe ${n}` }))}
+          />
+        </div>
+        <div>
+          <span className="label">Niveau</span>
+          <Segmented
+            value={p.usualTeam?.level}
+            onChange={(v) => setTeam({ level: v === p.usualTeam?.level ? undefined : v })}
+            options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+          />
+        </div>
+        {/* Surclassement : seulement les catégories au-dessus de la sienne (ou le choix déjà fait). */}
+        {upper.length > 0 && (
+          <div>
+            <span className="label">Joue en</span>
+            <select className="field" value={p.usualTeam?.playsIn ?? ''} onChange={(e) => setTeam({ playsIn: e.target.value || undefined })}>
+              <option value="">{ownCat ? `Sa catégorie (${ownCat})` : 'Sa catégorie'}</option>
+              {upper.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} (surclassement)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </Collapsible>
+
       <Collapsible title="Pôle Espoirs" summary={poleSummary(p, regionLabel) || 'Périodes en pôle : pour la liste des sportifs de haut niveau'}>
-        <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que le joueur est au pôle.</p>
-        {(p.poles ?? []).map((x, i) => {
+        {!editPoles ? (
+          <>
+            <p className="text-[11px] text-muted">Périodes en pôle : seuls les dirigeants du pôle (affectés à son unité) et les administrateurs les modifient, depuis le groupe Pôle ou ici.</p>
+            {(p.poles ?? []).filter((x) => x.from || x.to || x.regionId || x.site || x.name).length ? (
+              <p className="text-xs">{poleSummary(p, regionLabel)}</p>
+            ) : (
+              <p className="text-xs text-muted">Aucune période.</p>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] text-muted">Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est au pôle ; une sortie se rétablit en effaçant sa date.</p>
+        )}
+        {editPoles && (p.poles ?? []).map((x, i) => {
           const upd = (patch: Partial<PolePeriod>) => set('poles', (p.poles ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
           const rest = (p.poles ?? []).filter((_, k) => k !== i)
           return (
@@ -314,14 +383,16 @@ export default function PlayerForm() {
             </div>
           )
         })}
-        <button type="button" className="btn-ghost text-xs" onClick={() => set('poles', [...(p.poles ?? []), {}])}>
-          + Ajouter une période en pôle
-        </button>
+        {editPoles && (
+          <button type="button" className="btn-ghost text-xs" onClick={() => set('poles', [...(p.poles ?? []), {}])}>
+            + Ajouter une période en pôle
+          </button>
+        )}
       </Collapsible>
 
       <Collapsible
         title="Profil physique"
-        summary="Taille, poids, explosivité, puissance, vitesse, détente, tir"
+        summary={content.profileSummary ?? (shown.map((c) => c.label).join(', ') || 'Taille, poids, tests')}
         count={testsFilled ? `${testsFilled} saisi${testsFilled > 1 ? 's' : ''}` : undefined}
       >
         <div className="flex items-center justify-between gap-3">
@@ -392,10 +463,11 @@ export default function PlayerForm() {
 
       {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas. */}
       <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-3 border-t border-line bg-bg px-4 py-2">
-        <button className="btn-primary flex-1" onClick={() => void submit()}>
+        <button className="btn-save flex-1" onClick={() => void submit()}>
+          <span aria-hidden>✓</span>
           Enregistrer
         </button>
-        <button className="btn text-muted" onClick={() => goBack()}>
+        <button className="btn-save-ghost" onClick={leave.exit}>
           Annuler
         </button>
       </div>

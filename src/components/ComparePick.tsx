@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { db, type Player } from '../db'
 import { Icon, playerName } from './ui'
+import { genderOf, w } from '../gender'
 
 /*
  * Choix des joueurs à comparer (page d'un événement, d'un groupe) : un bouton « Comparer » fait
@@ -154,6 +155,9 @@ export function CompareBar({
 }) {
   if (!pick.on) return null
   const chosen = pick.picked.map((id) => players.find((p) => p.id === id)).filter((p): p is Player => !!p)
+  // Accord (src/gender.ts) : « Comparer 3 joueuses » si toutes les choisies sont des filles.
+  const gw = w(genderOf(chosen))
+  const one = chosen.length ? `${playerName(chosen[0])} ${w(chosen[0].sex).choisi}.` : ''
   return (
     <div
       className={`${floating ? '' : 'sticky bottom-[calc(var(--nav-b)+0.75rem)] z-10'} flex items-center gap-2 rounded-lg border border-accent bg-panel/95 p-2 text-xs shadow-lg backdrop-blur`}
@@ -163,16 +167,16 @@ export function CompareBar({
         {chosen.length >= 2 ? (
           <b className="line-clamp-2">
             {chosen.slice(0, -1).map((p) => playerName(p)).join(', ')} et {playerName(chosen[chosen.length - 1])}
-            {chosen.length < COMPARE_MAX && <span className="font-normal text-muted"> · un 3e est possible</span>}
+            {chosen.length < COMPARE_MAX && <span className="font-normal text-muted"> · {gw.un} 3e est possible</span>}
           </b>
         ) : hint ? (
           <span className="text-muted">
-            {chosen.length ? `${playerName(chosen[0])} choisi. ` : ''}
+            {one ? `${one} ` : ''}
             {hint}
           </span>
         ) : (
           <span className="text-muted">
-            Coche 2 ou {COMPARE_MAX} joueurs ({chosen.length}/{COMPARE_MAX}).{chosen.length ? ` ${playerName(chosen[0])} choisi.` : ''} Une {COMPARE_MAX + 1}e coche
+            Coche 2 ou {COMPARE_MAX} {gw.joueurs} ({chosen.length}/{COMPARE_MAX}).{one ? ` ${one}` : ''} Une {COMPARE_MAX + 1}e coche
             remplace la plus ancienne.
           </span>
         )}
@@ -185,7 +189,7 @@ export function CompareBar({
             </button>
           )}
           <Link to={compareUrl(chosen.map((p) => p.id), eventId)} onClick={onGo} className="btn-primary shrink-0 px-3 py-1.5 text-xs">
-            Comparer {chosen.length} joueurs
+            Comparer {chosen.length} {gw.joueurs}
           </Link>
         </>
       ) : (

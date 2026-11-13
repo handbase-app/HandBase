@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { refreshRole, ROLE_HELP, ROLE_LABEL, type Role } from '../roles'
-import { supabase } from '../sync'
+import { CHARGE_REGLES } from '../charge'
+import { demanderPresence, supabase } from '../sync'
 import { ask } from './Confirm'
+import { fold } from './PlayerFilter'
 import { Icon, SectionTitle, Segmented } from './ui'
 import { ZonePicker } from './ZonePicker'
+import { appName } from '../appBrand'
+import { LoadMore } from './InfiniteList'
 
 /*
  * Membres du staff (administrateurs) : créer, modifier, supprimer des observateurs et des encadrants,
@@ -29,9 +33,13 @@ interface Access {
   isNew: boolean
 }
 
-type StaffRole = 'observateur' | 'preparateur'
+// « joueur » (espace joueur, supabase/051) : le compte d'un jeune, relié ensuite à sa fiche par un code donné depuis la fiche.
+type StaffRole = 'observateur' | 'preparateur' | 'joueur'
 
-/** Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (un toutes les 30 s, supabase/030). */
+/**
+ * Connecté : dernier signe de vie de l'appli il y a moins de 1 min 30 (supabase/030 : un toutes les 30 s ; avec 061, tant que
+ * cet écran est affiché, « qui est là ? » toutes les 45 s et chaque appareil affiché répond en moins de 10 s, src/presence.ts).
+ */
 const ONLINE_MS = 90_000
 const DAY = (t: number) => new Date(t).toDateString()
 
@@ -73,14 +81,17 @@ function ConnectionLog({ userId }: { userId: string }) {
   const [rows, setRows] = useState<Connection[]>([])
   const [more, setMore] = useState(false)
   const [state, setState] = useState<'…' | 'ok' | 'err'>('…')
+  const [busy, setBusy] = useState(false)
 
   async function load(from: number) {
+    setBusy(true)
     const { data, error } = await supabase!
       .from('hb_connections')
       .select('session_id, device, started_at, last_seen_at')
       .eq('user_id', userId)
       .order('started_at', { ascending: false })
       .range(from, from + PAGE) // une ligne de plus : y en a-t-il encore ?
+    setBusy(false)
     if (error) return setState('err')
     setRows((r) => [...r.slice(0, from), ...(data as Connection[]).slice(0, PAGE)])
     setMore(data.length > PAGE)
@@ -107,11 +118,8 @@ function ConnectionLog({ userId }: { userId: string }) {
           </div>
         )
       })}
-      {more && (
-        <button type="button" className="self-start text-accent" onClick={() => void load(rows.length)}>
-          voir plus
-        </button>
-      )}
+      {/* Les connexions plus anciennes arrivent en descendant. */}
+      <LoadMore more={more && state === 'ok'} busy={busy} at={rows.length} onMore={() => void load(rows.length)} label="voir plus" />
     </div>
   )
 }
@@ -132,7 +140,7 @@ function accessMessage(a: Access) {
   return [
     `Bonjour ${first},`,
     '',
-    a.isNew ? 'Voici ton accès à HandBase, l’appli du staff.' : 'Voici un lien pour changer ton mot de passe HandBase.',
+    a.isNew ? `Voici ton accès à ${appName()}, l’appli du staff.` : `Voici un lien pour changer ton mot de passe ${appName()}.`,
     a.isNew
       ? 'Clique sur ce lien pour te connecter (valable 24 h), puis choisis ton mot de passe :'
       : 'Clique dessus (valable 24 h), puis choisis ton nouveau mot de passe :',
@@ -151,7 +159,7 @@ function accessMessage(a: Access) {
 /** Envoyer l'accès avec l'écran de partage du téléphone (le message part de l'appareil de l'administrateur). */
 function AccessShare({ access, onClose }: { access: Access; onClose: () => void }) {
   const text = accessMessage(access)
-  const subject = 'Ton accès à HandBase'
+  const subject = `Ton accès à ${appName()}`
   const canShare = typeof navigator.share === 'function'
   const phone = access.phone.replace(/[^\d+]/g, '')
   const [copied, setCopied] = useState(false)
@@ -213,6 +221,8 @@ export function Members() {
   const [access, setAccess] = useState<Access | null>(null)
   // Dernière connexion de chaque membre (supabase/030 ; absent avant 030 : rien d'affiché).
   const [seen, setSeen] = useState<Record<string, number> | null>(null)
+  // Comptes joueurs (espace joueur) : à part, repliés (un pôle entier, c'est des centaines de comptes).
+  const [showPlayers, setShowPlayers] = useState(false)
 
   async function load() {
     setErr('')
@@ -237,12 +247,28 @@ export function Members() {
       })
     loadSeen()
     const t = setInterval(loadSeen, 20_000)
-    return () => clearInterval(t)
+    // « Qui est là ? » (src/presence.ts) : tant que l'écran est affiché ; les réponses arrivent avant la relecture suivante.
+    const quiEstLa = () => document.visibilityState === 'visible' && demanderPresence()
+    quiEstLa()
+    const q = setInterval(quiEstLa, CHARGE_REGLES.presenceDemandeMs)
+    return () => {
+      clearInterval(t)
+      clearInterval(q)
+    }
   }, [])
   const seenOf = (id: string) => (seen ? (seen[id] ?? null) : undefined)
 
   const admins = list?.filter((p) => p.role === 'admin') ?? []
-  const staff = list?.filter((p) => p.role !== 'admin') ?? []
+  const [q, setQ] = useState('')
+  // Recherche par nom, prénom ou email (tous les mots, sans accents) : des milliers de comptes à terme. Le membre ouvert reste affiché.
+  const words = fold(q).split(/\s+/).filter(Boolean)
+  const matches = (p: Profile) => p.user_id === open || words.every((w) => fold(`${p.full_name ?? ''} ${p.email ?? ''}`).includes(w))
+  const allStaff = list?.filter((p) => p.role !== 'admin' && p.role !== 'joueur') ?? []
+  const staff = allStaff.filter(matches)
+  // Comptes joueurs : sous les membres du staff, dépliés à la demande ou par la recherche.
+  const allPlayers = list?.filter((p) => p.role === 'joueur') ?? []
+  const players = showPlayers || words.length > 0 ? allPlayers.filter(matches) : allPlayers.filter((p) => p.user_id === open)
+  const total = allStaff.length + allPlayers.length
 
   return (
     <section className="card flex flex-col gap-2 p-4">
@@ -287,15 +313,39 @@ export function Members() {
         />
       ) : (
         list && (
-          <button className="btn-primary text-xs" onClick={() => (setOpen('nouveau'), setAccess(null))}>
+          <button className="btn-soft" onClick={() => (setOpen('nouveau'), setAccess(null))}>
             + Membre (observateur ou encadrant)
           </button>
         )
       )}
 
+      {list && total > 8 && (
+        <input
+          className="field min-h-11 py-1 text-xs"
+          type="search"
+          value={q}
+          aria-label="Chercher un membre"
+          placeholder={`Chercher parmi ${total} comptes (nom, prénom, email)…`}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      )}
+      {list && words.length > 0 && !staff.length && !players.length && <p className="text-[11px] text-muted">Aucun compte ne correspond.</p>}
       {list && (
         <div className="divide-y divide-line rounded-lg border border-line">
-          {staff.map((p) =>
+          {[...staff, ...(allPlayers.length > 0 ? ['comptes-joueurs' as const] : []), ...players].map((p) =>
+            p === 'comptes-joueurs' ? (
+              <button
+                key="comptes-joueurs"
+                className="flex min-h-11 w-full items-center justify-between gap-2 bg-panel-2/60 px-3 py-2 text-left text-xs font-bold"
+                aria-expanded={showPlayers || words.length > 0}
+                onClick={() => setShowPlayers(!showPlayers)}
+              >
+                <span>
+                  Comptes joueurs ({words.length > 0 ? `${players.length} / ${allPlayers.length}` : allPlayers.length})
+                </span>
+                <span className="text-[11px] font-normal text-muted">{showPlayers || words.length > 0 ? 'Replier' : 'Afficher'}</span>
+              </button>
+            ) : 
             open === p.user_id ? (
               <div key={p.user_id} className="flex flex-col gap-2 p-2">
                 <MemberForm
@@ -369,12 +419,25 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
   const [name, setName] = useState(member?.full_name ?? '')
   const [email, setEmail] = useState(member?.email ?? '')
   const [phone, setPhone] = useState(member?.phone ?? '')
-  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : 'observateur')
+  const [role, setRole] = useState<StaffRole>(member?.role === 'preparateur' ? 'preparateur' : member?.role === 'joueur' ? 'joueur' : 'observateur')
   const [depts, setDepts] = useState<string[]>(member?.departments ?? [])
   const [password, setPassword] = useState(member ? '' : generatePassword())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const valid = name.trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && (member ? !password || password.length >= 8 : password.length >= 8)
+
+  /** Un membre du staff qui devient joueur : confirmation explicite (il perd tout ce que voit le staff, et son secteur). */
+  async function pickRole(r: StaffRole) {
+    if (r === 'joueur' && member && (member.role === 'preparateur' || member.role === 'observateur') && role !== 'joueur') {
+      const who = member.full_name || member.email || 'Ce compte'
+      const ok = await ask(
+        `${who} ne sera plus membre du staff : il ne verra plus ni joueurs, ni avis, ni événements, et perd son secteur. Ses avis, mesures et groupes restent dans l’appli. Faire de ce compte un compte joueur ?`,
+        { ok: 'En faire un compte joueur', danger: true, focusCancel: true },
+      )
+      if (!ok) return
+    }
+    setRole(r)
+  }
 
   async function submit() {
     setBusy(true)
@@ -385,7 +448,8 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           p_email: email.trim(),
           p_full_name: name.trim(),
           p_role: role,
-          p_departments: depts,
+          // Un compte joueur n'a pas de secteur (le serveur le retire aussi, 052).
+          p_departments: role === 'joueur' ? [] : depts,
           p_password: password || null,
           p_phone: phone.trim(),
         })
@@ -458,13 +522,16 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
         <span className="label">Rôle</span>
         <Segmented<StaffRole>
           value={role}
-          onChange={setRole}
+          onChange={(r) => void pickRole(r)}
           options={[
             { value: 'observateur', label: 'Observateur' },
             { value: 'preparateur', label: 'Encadrant' },
+            { value: 'joueur', label: 'Joueur' },
           ]}
         />
+        {role === 'joueur' && <p className="mt-1 text-[11px] text-muted">Compte d’un jeune (ou de sa famille) : il ne verra que sa fiche, une fois relié par le code donné depuis la fiche (carte « Espace joueur »).</p>}
       </div>
+      {role !== 'joueur' && (
       <div>
         <ZonePicker
           label="Secteur"
@@ -473,6 +540,7 @@ function MemberForm({ member, onDone }: { member?: Profile; onDone: (access?: Ac
           emptyLabel={role === 'preparateur' ? 'Aucun : valide tous les départements' : 'Aucun département'}
         />
       </div>
+      )}
       {/* Mot de passe provisoire : seulement à la création. Ensuite, le bouton « lien » s'en occupe. */}
       {!member && (
         <div>

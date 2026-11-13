@@ -1,22 +1,78 @@
-import { Fragment, lazy, Suspense, useMemo, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { contextLabel, counts, criterionApplies, fmtDate, remove, reviewOf, scaleMax, type Criterion, type Evaluation, type HBEvent, type Player } from '../db'
 import { can, currentUserId, useRole, type Role } from '../roles'
 import { ask } from './Confirm'
 import { department } from './PlayerFilter'
+import { AvisViewTabs, useAvisView } from './RadarViewTabs'
 import { ReviewActions, ReviewBadge, ReviewNote } from './Review'
 import { Empty, Icon, playerName } from './ui'
+import { fmtPlayingTime, playingTimeOf, superPowerOf } from '../avisMatch'
+import { progressSteps } from '../opinionProgress'
+import { bySpread, spreadColor, spreadOf, spreadSummary, spreadTextColor, toDiscuss, type Spread } from '../opinionSpread'
+import type { SelfEval } from '../selfEval'
+import { SelfEvalBeside } from './SelfEval'
 
 // Une couleur par observateur ; plus foncées sur les thèmes clairs.
 const COLORS_DARK = ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#fb923c', '#f472b6', '#22d3ee', '#a3e635']
 const COLORS_LIGHT = ['#0369a1', '#6d28d9', '#047857', '#b45309', '#c2410c', '#be185d', '#0e7490', '#4d7c0f']
-// Radar chargé à la demande (recharts).
+// Radar par zones, vues « Progression » et « Écarts », chargés à la demande.
 const OpinionsRadar = lazy(() => import('./OpinionsRadar'))
+const OpinionsProgress = lazy(() => import('./OpinionsProgress'))
+const OpinionsSpread = lazy(() => import('./OpinionsSpread'))
 const obsColor = (i: number) => {
   const list = document.documentElement.hasAttribute('data-light') ? COLORS_LIGHT : COLORS_DARK
   return list[i % list.length]
 }
-/** Écart (max − min) à partir duquel les avis sont considérés divergents. */
+// « Détail des avis » : cartes repliées par défaut ; « Tout déplier » retenu sur l'appareil.
+const ALL_OPEN_KEY = 'handbase.avis.toutDeplie'
+function readAllOpen() {
+  try {
+    return localStorage.getItem(ALL_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Cartes repliables du « Détail des avis » : chacune s'ouvre seule ; « Tout déplier / Tout replier » change toutes les
+ * cartes et devient le choix par défaut sur l'appareil.
+ */
+function useAvisFold(ids: string[]) {
+  const [allOpen, setAllOpen] = useState(readAllOpen)
+  // Cartes ouvertes ou fermées à la main, à l'inverse du choix général.
+  const [flipped, setFlipped] = useState<Set<string>>(new Set())
+  const isOpen = (id: string) => allOpen !== flipped.has(id)
+  const everyOpen = ids.length > 0 && ids.every(isOpen)
+  return {
+    isOpen,
+    everyOpen,
+    /** Ouvre cette carte (avis visé par ?voir=avis:…), sans toucher aux autres. */
+    show: (id: string) => setFlipped((s) => (allOpen !== s.has(id) ? s : new Set(s).add(id))),
+    toggle: (id: string) =>
+      setFlipped((s) => {
+        const n = new Set(s)
+        if (n.has(id)) n.delete(id)
+        else n.add(id)
+        return n
+      }),
+    setAll: (open: boolean) => {
+      setAllOpen(open)
+      setFlipped(new Set())
+      try {
+        localStorage.setItem(ALL_OPEN_KEY, open ? '1' : '0')
+      } catch {
+        /* stockage indisponible : choix gardé jusqu'à la fermeture */
+      }
+    },
+  }
+}
+
+/**
+ * Classement d'un événement (src/pages/Events.tsx) : écart (max − min) entre les notes globales des évaluateurs (moyenne
+ * de tous leurs critères) à partir duquel la ligne porte un ⚠. Les critères, eux, suivent les seuils des écarts
+ * (src/opinionSpread.ts : 1,5 et 2,5).
+ */
 export const DIVERGENCE = 2
 
 const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)
@@ -32,17 +88,33 @@ interface Row {
   avg?: number | null
   nums?: (number | null)[]
   n: number
+  /** À discuter : écart de 1,5 et plus entre observateurs (src/opinionSpread.ts), ou réponses différentes à un choix. */
   divergent: boolean
+  /** Écart entre observateurs (critères chiffrés). */
+  sp?: Spread
 }
 
 /**
  * Compare et cumule les avis subjectifs sur un joueur.
+ * Vue par défaut de la fiche (04/11) : « Progression » (src/components/OpinionsProgress.tsx), le chemin parcouru d'un avis
+ * à l'autre sur une frise ; la moyenne de tous les avis dans le temps (« Moyenne de tous les avis », en dernier dans le
+ * menu) ne veut rien dire pour un jeune qui progresse. Un événement seul noté par au moins deux observateurs : vue
+ * « Écarts » (src/components/OpinionsSpread.tsx : le radar normal, les écarts en surcouche discrète ; lignes triées et
+ * tableau), aussi sur la page de l'événement ; un seul observateur, les avis spontanés : tableau par observateur et radar.
+ * Toujours le même segment (05/11), quelle que soit la vue et la largeur : « Complet | Par famille | Tableau », un seul
+ * volet à la fois, dans l'adresse (?radar=…, src/components/RadarViewTabs.tsx : Retour revient au même onglet).
+ * « Tableau » : Progression, ses petites lignes ; écarts, les lignes triées puis le tableau par observateur, compact ;
+ * sinon le tableau par observateur.
  * Si un observateur a donné plusieurs avis dans la période, on prend sa moyenne
  * pour qu'il ne pèse pas plus que les autres.
  * Seuls les avis validés comptent ; les avis spontanés en attente peuvent être inclus à la demande,
  * les avis hors cadre jamais (ils restent consultables à part).
  * `lockedEventId` : vue d'un seul événement (page de l'événement), sans sélecteur, radar d'abord, en compact ;
- * `scoreCriteria` : détaille alors les notes de chaque avis.
+ * `scoreCriteria` : critères détaillés dans chaque avis déplié (par défaut `criteria` : fiche joueur, 03/11 : la carte
+ *   dépliée ne montrait rien sans eux).
+ * `wide` : colonne large (avis à côté de la liste, ordinateur) : radar plus grand, avis détaillés sur deux colonnes.
+ * `focus` (?voir=avis:<id>, src/playerFocus.ts) : cet avis est listé (toute période) et sa carte dépliée ; la fiche le
+ * fait venir à l'écran (data-voir).
  */
 export function Opinions({
   player,
@@ -51,6 +123,9 @@ export function Opinions({
   events,
   lockedEventId,
   scoreCriteria,
+  wide = false,
+  focus,
+  selfEvals,
 }: {
   player: Player
   criteria: Criterion[]
@@ -58,19 +133,42 @@ export function Opinions({
   events: HBEvent[]
   lockedEventId?: string
   scoreCriteria?: Criterion[]
+  wide?: boolean
+  focus?: { id: string; n: number }
+  /** Auto-évaluations du jeune (supabase/064) : celle de l'événement choisi s'affiche à côté, jamais dans les chiffres. */
+  selfEvals?: SelfEval[]
 }) {
   const locked = lockedEventId !== undefined
-  const [chosenEventId, setEventId] = useState<string>('all')
-  const eventId = lockedEventId ?? chosenEventId
-  const [chosenView, setView] = useState<'table' | 'radar'>(locked ? 'radar' : 'table')
+  // Vue choisie dans le menu (null : celle par défaut, « Progression » dès qu'il y a un avis noté).
+  const [chosenEventId, setEventId] = useState<string | null>(null)
   const [withPending, setWithPending] = useState(false)
+  // Progression : avis comptés (validés, et en attente si la case est cochée), toute période ; un cran par événement.
+  const steps = useMemo(
+    () => (locked ? [] : progressSteps(evaluations.filter((e) => counts(e) || (withPending && reviewOf(e) === 'pending')), events)),
+    [locked, evaluations, events, withPending],
+  )
+  const canProgress = steps.length > 0
+  const picked = chosenEventId === 'progress' && !canProgress ? null : chosenEventId
+  const eventId = lockedEventId ?? picked ?? (canProgress ? 'progress' : 'all')
+  const progress = eventId === 'progress'
+  // Segment « Complet | Par famille | Tableau », dans l'adresse (?radar=…, gardé d'un joueur à l'autre avec l'onglet de
+  // la fiche) ; sans paramètre : complet sur écran large, par famille sur téléphone.
+  const [avisView, setAvisView] = useAvisView()
 
-  const inPeriod = (e: Evaluation) => eventId === 'all' || (e.eventId ?? 'none') === eventId
+  const inPeriod = (e: Evaluation) => eventId === 'all' || progress || (e.eventId ?? 'none') === eventId
   const pending = evaluations.filter((e) => reviewOf(e) === 'pending')
   const refused = evaluations.filter((e) => reviewOf(e) === 'refused')
   // Avis pris en compte dans les chiffres, et avis listés dans le détail (validés + en attente).
   const evs = evaluations.filter((e) => inPeriod(e) && (counts(e) || (withPending && reviewOf(e) === 'pending')))
   const listed = evaluations.filter((e) => inPeriod(e) && reviewOf(e) !== 'refused')
+  // Détail des avis : cartes repliées par défaut (ou toutes dépliées, au choix retenu sur l'appareil).
+  const fold = useAvisFold(listed.map((e) => e.id))
+  useEffect(() => {
+    if (!focus) return
+    // Toute période : Progression ou Moyenne de tous les avis (sinon l'avis visé pourrait ne pas être listé).
+    if (chosenEventId !== 'all') setEventId(null)
+    fold.show(focus.id)
+  }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
   const usedEvents = events.filter((ev) => evaluations.some((e) => e.eventId === ev.id))
   const eventLabel = (e: Evaluation) => {
     if (!e.eventId) return contextLabel(e)
@@ -80,6 +178,16 @@ export function Opinions({
   }
   const role = useRole()
   const observers = [...new Set(evs.map((e) => e.observer))].sort()
+  // Courbes d'observateurs affichées sur le radar (œil des cartes) : aucune par défaut, état de l'écran remis à zéro
+  // quand on change de joueur.
+  const [shownState, setShown] = useState<{ pid: string; set: ReadonlySet<string> }>({ pid: player.id, set: new Set() })
+  const shown = shownState.pid === player.id ? shownState.set : new Set<string>()
+  const toggleShown = (o: string) => {
+    const n = new Set(shown)
+    if (n.has(o)) n.delete(o)
+    else n.add(o)
+    setShown({ pid: player.id, set: n })
+  }
 
   const rows = useMemo(() => {
     return criteria
@@ -98,16 +206,26 @@ export function Opinions({
           return { c, perObs, summary, n, divergent: c.scale === 'choice' && counts.size > 1 }
         }
         const perObs = byObs.map((vs) => mean(vs.filter((x): x is number => typeof x === 'number')))
-        const vals = perObs.filter((x): x is number => x !== null)
-        const avg = mean(vals)
-        const spread = vals.length > 1 ? Math.max(...vals) - Math.min(...vals) : 0
-        return { c, perObs: perObs.map(f1n), nums: perObs, summary: f1(avg), avg, n: vals.length, divergent: spread >= DIVERGENCE }
+        const sp = spreadOf(perObs)
+        return { c, perObs: perObs.map(f1n), nums: perObs, summary: f1(sp.avg), avg: sp.avg, n: sp.n, divergent: toDiscuss(sp), sp }
       })
       .filter((r) => r.n > 0)
   }, [criteria, evs, observers])
   const numericRows = rows.filter((r) => r.nums)
-  // Sur l'événement, radar d'abord… s'il y a de quoi le tracer.
-  const view = locked && chosenView === 'radar' && numericRows.length < 3 ? 'table' : chosenView
+  // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
+  const oneEvent = eventId !== 'all' && eventId !== 'none' && !progress
+  // Un événement, au moins deux observateurs : vue « Écarts » (radar normal à bandes, lignes triées, tableau).
+  const spreadOn = oneEvent && observers.length >= 2 && numericRows.length > 0
+  // Sur l'événement, moins de 3 critères chiffrés : le tableau (pas de radar à tracer). Progression : ses propres critères.
+  const view = !progress && locked && avisView !== 'tableau' && numericRows.length < 3 ? 'tableau' : avisView
+  // L'œil n'a de sens que radar affiché et au moins deux observateurs (un seul : la moyenne est son avis) ; vue
+  // « Écarts » : le détail de chacun est dans la bulle d'un critère.
+  const radarShown = !progress && !spreadOn && view !== 'tableau' && numericRows.length >= 3
+  const curveOf = (e: Evaluation) => {
+    const i = observers.indexOf(e.observer)
+    if (!radarShown || observers.length < 2 || i < 0) return undefined
+    return { color: obsColor(i), on: shown.has(e.observer), toggle: () => toggleShown(e.observer) }
+  }
 
   // Moyenne : pour chaque observateur, moyenne de ses notes de critères ; puis moyenne des observateurs.
   const overall = mean(
@@ -116,8 +234,12 @@ export function Opinions({
       .filter((x): x is number => x !== null),
   )
 
-  // Donner un avis : sur l'événement filtré, sinon avis spontané (il n'y a plus d'onglet Évaluer).
-  const evaluateLink = eventId !== 'all' && eventId !== 'none' ? `/evaluer?joueur=${player.id}&evenement=${eventId}` : `/evaluer?contexte=libre&joueur=${player.id}`
+  const evaluateLink = oneEvent ? `/evaluer?joueur=${player.id}&evenement=${eventId}` : `/evaluer?contexte=libre&joueur=${player.id}`
+  // Progression : critères chiffrés notés au moins une fois (le radar et les lignes n'ont rien à dire des choix et des textes).
+  const progressCriteria = useMemo(
+    () => (progress ? criteria.filter((c) => c.scale !== 'choice' && c.scale !== 'text' && steps.some((st) => c.id in st.scores)) : []),
+    [progress, criteria, steps],
+  )
 
   if (!evaluations.length)
     return (
@@ -130,13 +252,86 @@ export function Opinions({
       </Empty>
     )
 
-  const radarData = numericRows.map((r) => ({
-    label: r.c.label,
-    Moyenne: r.avg,
-    ...Object.fromEntries(observers.map((o, i) => [o, r.nums![i]])),
-  }))
+  // À discuter : écarts entre observateurs d'une même période (pas dans la Progression, où l'écart vient aussi du temps),
+  // du plus gros au plus petit ; réponses différentes à un choix ensuite.
+  const divergent = progress
+    ? []
+    : [
+        ...bySpread(
+          rows.filter((r) => r.divergent && r.sp),
+          (r) => r.sp!,
+        ),
+        ...rows.filter((r) => r.divergent && !r.sp),
+      ]
+  const discuss = spreadSummary(divergent.map((r) => r.c.label))
 
-  const divergent = rows.filter((r) => r.divergent)
+  // Segment commun, quelle que soit la vue (Progression : posé sous la frise, qui pilote les trois volets).
+  const tabs = <AvisViewTabs view={view} onChange={setAvisView} />
+  // Tableau par observateur ; `compact` : sous les lignes des écarts.
+  const obsTable = (compact: boolean) => {
+    const cell = compact ? 'py-1' : 'py-1.5'
+    return (
+      <div className="-mx-1 overflow-x-auto">
+        <table className={`w-full border-separate border-spacing-0 ${compact ? 'text-[11px]' : 'text-xs'}`}>
+          <thead>
+            <tr className="text-[10px] text-muted">
+              <th className={`sticky left-0 bg-panel px-1 ${cell} text-left font-bold`}>Critère</th>
+              <th className={`px-1.5 ${cell} font-bold text-accent`}>Moy.</th>
+              {observers.map((o, i) => (
+                <th key={o} className={`px-1.5 ${cell} font-bold whitespace-nowrap`} style={{ color: obsColor(i) }}>
+                  {o}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, idx) => {
+              const showCat = idx === 0 || rows[idx - 1].c.category !== r.c.category
+              // Écart chiffré : teinte du dégradé (plus rouge quand l'écart grandit) ; réponses différentes à un choix : ambre.
+              const heat = r.sp && toDiscuss(r.sp) ? spreadColor(r.sp.gap) : null
+              return (
+                <Fragment key={r.c.id}>
+                  {showCat && (
+                    <tr>
+                      <td colSpan={observers.length + 2} className={`px-1 ${compact ? 'pt-2' : 'pt-3'} pb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase`}>
+                        {r.c.category}
+                      </td>
+                    </tr>
+                  )}
+                  <tr className={!heat && r.divergent ? 'bg-amber-500/10' : ''} style={heat ? { background: `color-mix(in srgb, ${heat} 12%, transparent)` } : undefined}>
+                    <td className={`sticky left-0 border-t border-line bg-panel px-1 ${cell}`} title={r.c.description}>
+                      {r.c.label}
+                      {r.divergent && (
+                        <span style={r.sp ? { color: spreadTextColor(r.sp) } : undefined} className={r.sp ? '' : 'text-amber-300'}>
+                          <Icon name="alert" className="ml-1 inline h-3.5 w-3.5 -translate-y-px" />
+                        </span>
+                      )}
+                    </td>
+                    <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
+                    {r.perObs.map((v, i) => (
+                      <td key={i} className={`border-t border-line px-1.5 text-center ${r.c.scale === 'text' ? 'min-w-32 text-left text-[11px]' : ''}`}>
+                        {v ?? '—'}
+                      </td>
+                    ))}
+                  </tr>
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  const pendingBox = pending.length > 0 && (
+    <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
+      <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
+      <span>
+        {pending.length} avis spontané{pending.length > 1 ? 's' : ''} en attente de validation
+        {withPending ? ' : inclus dans les chiffres ci-dessous.' : ' : ne compte' + (pending.length > 1 ? 'nt' : '') + ' pas dans les chiffres. Cocher pour les inclure.'}
+      </span>
+    </label>
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -144,7 +339,7 @@ export function Opinions({
         {/* Sur l'événement, la synthèse tient sur une ligne. */}
         {locked && (
           <div className="text-[11px] text-muted">
-            <b className="text-fg">{evs.length}</b> avis · <b className="text-fg">{observers.length}</b> obs.
+            <b className="text-fg">{evs.length}</b> avis · <b className="text-fg">{observers.length}</b> personne{observers.length > 1 ? 's' : ''}
             {overall !== null && (
               <>
                 {' '}
@@ -154,104 +349,105 @@ export function Opinions({
           </div>
         )}
         {!locked && (
-          <select className="field flex-1" value={eventId} onChange={(e) => setEventId(e.target.value)}>
-            <option value="all">Tous les avis (cumul)</option>
+          <select className="field min-w-0 flex-1" value={eventId} onChange={(e) => setEventId(e.target.value)} aria-label="Avis montrés">
+            {canProgress && <option value="progress">Progression</option>}
             {usedEvents.map((ev) => (
               <option key={ev.id} value={ev.id}>
                 {ev.deleted ? `(supprimé) ${ev.name}` : ev.name} · {fmtDate(ev.date)}
               </option>
             ))}
             {evaluations.some((e) => !e.eventId) && <option value="none">Avis spontanés / hors événement</option>}
+            <option value="all">Moyenne de tous les avis</option>
           </select>
         )}
-        <div className="flex shrink-0 overflow-hidden rounded-md border border-line">
-          {(['table', 'radar'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`px-3 ${locked ? 'py-1' : ''} text-xs font-bold ${view === v ? 'bg-accent text-white' : 'bg-panel-2 text-muted'}`}>
-              {v === 'table' ? 'Tableau' : 'Radar'}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {!locked && (
+      {!locked && !progress && (
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="Avis" value={String(evs.length)} />
-          <Stat label="Observateurs" value={String(observers.length)} />
+          <Stat label={observers.length > 1 ? 'Personnes' : 'Personne'} value={String(observers.length)} />
           <Stat label="Moyenne" value={overall === null ? '—' : `${f1(overall)}/5`} />
         </div>
       )}
 
-      {pending.length > 0 && (
-        <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-          <input type="checkbox" className="mt-0.5" checked={withPending} onChange={(e) => setWithPending(e.target.checked)} />
-          <span>
-            {pending.length} avis spontané{pending.length > 1 ? 's' : ''} en attente de validation
-            {withPending ? ' : inclus dans les chiffres ci-dessous.' : ' : ne compte' + (pending.length > 1 ? 'nt' : '') + ' pas dans les chiffres. Cocher pour les inclure.'}
-          </span>
-        </label>
-      )}
+      {!progress && pendingBox}
 
-      {divergent.length > 0 && (
+      {/* Résumé court, mêmes seuils que les écarts (1,5 et plus) : « 3 critères à discuter : … ». */}
+      {discuss && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-200">
-          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Avis divergents sur : <b>{divergent.map((r) => r.c.label).join(', ')}</b> — à discuter en staff.
+          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />
+          {discuss.slice(0, discuss.indexOf(' : ') + 3)}
+          <b>{discuss.slice(discuss.indexOf(' : ') + 3)}</b>
         </div>
       )}
 
-      {view === 'table' ? (
-        <div className="-mx-1 overflow-x-auto">
-          <table className="w-full border-separate border-spacing-0 text-xs">
-            <thead>
-              <tr className="text-[10px] text-muted">
-                <th className="sticky left-0 bg-panel px-1 py-1.5 text-left font-bold">Critère</th>
-                <th className="px-1.5 py-1.5 font-bold text-accent">Moy.</th>
-                {observers.map((o, i) => (
-                  <th key={o} className="px-1.5 py-1.5 font-bold whitespace-nowrap" style={{ color: obsColor(i) }}>
-                    {o}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx) => {
-                const showCat = idx === 0 || rows[idx - 1].c.category !== r.c.category
-                return (
-                  <Fragment key={r.c.id}>
-                    {showCat && (
-                      <tr>
-                        <td colSpan={observers.length + 2} className="px-1 pt-3 pb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">
-                          {r.c.category}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className={r.divergent ? 'bg-amber-500/10' : ''}>
-                      <td className="sticky left-0 border-t border-line bg-panel px-1 py-1.5" title={r.c.description}>
-                        {r.c.label}
-                        {r.divergent && <Icon name="alert" className="ml-1 inline h-3.5 w-3.5 -translate-y-px text-amber-300" />}
-                      </td>
-                      <td className="border-t border-line px-1.5 text-center font-extrabold whitespace-nowrap text-accent">{r.summary}</td>
-                      {r.perObs.map((v, i) => (
-                        <td key={i} className={`border-t border-line px-1.5 text-center ${r.c.scale === 'text' ? 'min-w-32 text-left text-[11px]' : ''}`}>
-                          {v ?? '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+      {progress ? (
+        <Suspense fallback={<div className="h-80 py-10 text-center text-xs text-muted">Chargement de la progression…</div>}>
+          <OpinionsProgress
+            key={player.id}
+            playerId={player.id}
+            steps={steps}
+            criteria={progressCriteria}
+            avisCount={evs.length}
+            observerCount={observers.length}
+            view={view}
+            tabs={tabs}
+            afterStats={pendingBox}
+          />
+        </Suspense>
+      ) : (
+        tabs
+      )}
+      {progress ? null : spreadOn ? (
+        <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement des écarts…</div>}>
+          <OpinionsSpread
+            key={`${player.id}:${eventId}`}
+            criteria={numericRows.map((r) => r.c)}
+            observers={observers}
+            colors={observers.map((_, i) => obsColor(i))}
+            values={numericRows.map((r) => r.nums!)}
+            evs={evs}
+            view={view}
+            table={obsTable(true)}
+            size={wide ? 'large' : locked ? 'compact' : 'normal'}
+          />
+        </Suspense>
+      ) : view === 'tableau' ? (
+        obsTable(false)
       ) : numericRows.length < 3 ? (
         <Empty>Il faut au moins 3 critères notés pour afficher le radar.</Empty>
       ) : (
         <Suspense fallback={<div className={`${locked ? 'h-64' : 'h-80'} py-10 text-center text-xs text-muted`}>Chargement du radar…</div>}>
-          <OpinionsRadar data={radarData} observers={observers} colors={observers.map((_, i) => obsColor(i))} compact={locked} />
+          <OpinionsRadar
+            rows={numericRows}
+            observers={observers}
+            colors={observers.map((_, i) => obsColor(i))}
+            shown={shown}
+            compact={locked && !wide}
+            large={wide}
+            view={view === 'familles' ? 'split' : 'full'}
+          />
         </Suspense>
       )}
 
+      {/* Son regard sur l'événement choisi (auto-évaluation du jeune) : à côté des avis, hors des moyennes et du radar. */}
+      {!locked && oneEvent && <SelfEvalBeside eventId={eventId} list={selfEvals} sex={player.sex} />}
+
       {/* Détail des avis (avec commentaires) */}
       <div className="flex flex-col gap-2">
-        <div className="section-title mt-2">Détail des avis ({listed.length})</div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="section-title m-0">Détail des avis ({listed.length})</div>
+          {listed.length > 0 && (
+            <button
+              className="-my-2 flex min-h-11 shrink-0 items-center px-2 text-[11px] font-bold text-accent"
+              onClick={() => fold.setAll(!fold.everyOpen)}
+              title={fold.everyOpen ? 'Replier toutes les cartes' : 'Déplier toutes les cartes (retenu sur cet appareil)'}
+            >
+              {fold.everyOpen ? 'Tout replier' : 'Tout déplier'}
+            </button>
+          )}
+        </div>
+        <div className={wide ? 'avis-cols flex flex-col gap-2' : 'contents'}>
         {[...listed]
           .sort((a, b) => b.date.localeCompare(a.date))
           .map((e) => (
@@ -262,9 +458,12 @@ export function Opinions({
               role={role}
               dept={department(player)}
               event={events.find((x) => x.id === e.eventId)}
-              criteria={scoreCriteria}
+              criteria={scoreCriteria ?? criteria}
+              fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
+              curve={curveOf(e)}
             />
           ))}
+        </div>
       </div>
 
       {refused.length > 0 && (
@@ -283,7 +482,8 @@ export function Opinions({
                   role={role}
                   dept={department(player)}
                   event={events.find((x) => x.id === e.eventId)}
-                  criteria={scoreCriteria}
+                  criteria={scoreCriteria ?? criteria}
+                  fold={{ open: fold.isOpen(e.id), toggle: () => fold.toggle(e.id) }}
                 />
               ))}
           </div>
@@ -322,6 +522,8 @@ export function AvisCard({
   dept,
   event,
   criteria,
+  fold,
+  curve,
 }: {
   e: Evaluation
   where?: string
@@ -330,12 +532,30 @@ export function AvisCard({
   dept?: string
   event?: HBEvent
   criteria?: Criterion[]
+  /** Carte repliable (« Détail des avis ») : repliée, seulement l'auteur, la date, le nombre de critères et une ligne de commentaire. */
+  fold?: { open: boolean; toggle: () => void }
+  /** Courbe de l'observateur sur le radar : pastille de sa couleur et œil pour l'afficher / la masquer. */
+  curve?: { color: string; on: boolean; toggle: () => void }
 }) {
   const mine = !!e.observerId && e.observerId === currentUserId()
   const mayDelete = role === 'admin' || mine
   const notes = Object.values(e.scores).filter((v) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== ''))
+  const shut = !!fold && !fold.open
   return (
-    <div className="rounded-lg border border-line bg-panel-2 p-2.5 text-xs">
+    <div
+      data-voir={`avis:${e.id}`}
+      className={`rounded-lg border border-line bg-panel-2 p-2.5 text-xs ${fold ? 'cursor-pointer' : ''}`}
+      onClick={
+        fold
+          ? (ev) => {
+              // Liens, ✎, ✕, validation… gardent leur rôle ; un texte sélectionné ne replie pas la carte.
+              if ((ev.target as HTMLElement).closest('a, button, input, select, textarea, label, summary, [role="button"]')) return
+              if (window.getSelection()?.toString()) return
+              fold.toggle()
+            }
+          : undefined
+      }
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="text-[10px] text-muted">
           {player && (
@@ -346,9 +566,19 @@ export function AvisCard({
               <br />
             </>
           )}
+          {curve && <span className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: curve.color }} aria-hidden="true" />}
           <b className="text-fg">{e.observer}</b>
           {where && <> · {where}</>} · {fmtDate(e.date)}
+          {/* Temps de jeu (avis d'un match ou d'un tournoi, src/avisMatch.ts), puis temps observé. */}
+          {playingTimeOf(e) !== undefined && (
+            <>
+              {' · '}
+              <b className="text-fg">{fmtPlayingTime(playingTimeOf(e)!)}</b> de jeu
+            </>
+          )}
           {e.minutesObserved ? ` · ${e.minutesObserved} min observées` : ''}
+          {/* Avis venu de la boîte « À valider » (préparé avec Claude, src/propositionsJoueurs.ts). */}
+          {e.imported && <> · importé, validé par {e.imported.by || e.observer}</>}
           <br />
           {notes.length} critère{notes.length > 1 ? 's' : ''} noté{notes.length > 1 ? 's' : ''}
         </div>
@@ -372,17 +602,44 @@ export function AvisCard({
               ✕
             </button>
           )}
+          {curve && (
+            <button
+              className={`-my-2 flex min-h-11 min-w-11 items-center justify-center ${curve.on ? '' : 'text-muted hover:text-fg'}`}
+              style={curve.on ? { color: curve.color } : undefined}
+              aria-pressed={curve.on}
+              aria-label={curve.on ? `Masquer la courbe de ${e.observer} sur le radar` : `Afficher la courbe de ${e.observer} sur le radar`}
+              title={curve.on ? 'Masquer sa courbe' : 'Afficher sa courbe sur le radar'}
+              onClick={curve.toggle}
+            >
+              <Icon name={curve.on ? 'eye' : 'eyeOff'} className="h-4 w-4" />
+            </button>
+          )}
+          {fold && (
+            <button
+              className="-my-2 -mr-2 flex min-h-11 min-w-11 items-center justify-center text-sm text-muted hover:text-fg"
+              aria-expanded={fold.open}
+              aria-label={fold.open ? 'Replier le détail de cet avis' : 'Déplier le détail de cet avis'}
+              title={fold.open ? 'Replier' : 'Voir les notes critère par critère'}
+              onClick={fold.toggle}
+            >
+              {fold.open ? '▾' : '▸'}
+            </button>
+          )}
         </div>
       </div>
-      {criteria && <ScoreChips e={e} criteria={criteria} />}
+      {/* Portrait (le type de joueur, en une phrase) : en tête de l'avis, en italique. */}
+      {e.portrait && <div className={`italic ${shut ? 'truncate' : ''}`}>{e.portrait}</div>}
+      {/* Super-pouvoir observé : mis en valeur discrètement (✦ menthe du logo, --neon-text : lisible sur les cartes). */}
+      {superPowerOf(e) && <SuperPower text={superPowerOf(e)!} className={shut ? 'truncate' : ''} />}
+      {criteria && !shut && <ScoreChips e={e} criteria={criteria} />}
       {e.strengths && (
-        <div>
+        <div className={shut ? 'truncate' : ''}>
           <span className="text-emerald-300">+ </span>
           {e.strengths}
         </div>
       )}
       {e.improvements && (
-        <div>
+        <div className={shut ? 'truncate' : ''}>
           <span className="text-amber-300">→ </span>
           {e.improvements}
         </div>
@@ -391,6 +648,19 @@ export function AvisCard({
       {/* Les avis spontanés d'un validateur sont validés d'office : on ne se valide pas soi-même. */}
       {/* Décision : dans son secteur seulement (département du joueur). */}
       {e.review && !mine && can.reviewAvis(role, dept, event) && <ReviewActions e={e} compact={!player} />}
+    </div>
+  )
+}
+
+/** « ✦ Sa lecture du jeu » : super-pouvoir observé d'un avis (carte d'avis, vignette de la vue Mosaïque). */
+export function SuperPower({ text, className = '' }: { text: string; className?: string }) {
+  return (
+    <div className={`min-w-0 font-semibold ${className}`} title="Super-pouvoir observé">
+      <span aria-hidden className="mr-1 text-[1.15em] leading-none text-(--neon-text)">
+        ✦
+      </span>
+      <span className="sr-only">Super-pouvoir observé : </span>
+      {text}
     </div>
   )
 }
@@ -445,7 +715,7 @@ function ScoreChips({ e, criteria }: { e: Evaluation; criteria: Criterion[] }) {
  * fiche (tableau / radar, détail, validation), verrouillée sur l'événement. Mêmes avis visibles que la fiche
  * (tous ceux présents sur l'appareil) ; en tête, la note de chaque évaluateur pour comprendre un « avis très partagés ».
  */
-export function EventAvis({ player, evals, criteria, event }: { player: Player; evals: Evaluation[]; criteria: Criterion[]; event: HBEvent }) {
+export function EventAvis({ player, evals, criteria, event, wide }: { player: Player; evals: Evaluation[]; criteria: Criterion[]; event: HBEvent; wide?: boolean }) {
   const list = evals.filter((e) => e.playerId === player.id)
   // Mêmes critères que l'onglet Avis de la fiche : subjectifs, du poste du joueur.
   const subjective = criteria.filter((c) => c.kind === 'subjective' && criterionApplies(c, player.position))
@@ -464,7 +734,7 @@ export function EventAvis({ player, evals, criteria, event }: { player: Player; 
         <span>
           {notes.length > 0 && (
             <>
-              Note par évaluateur :{' '}
+              Note par personne :{' '}
               {notes.map(([o, v], i) => (
                 <Fragment key={o}>
                   {i > 0 && ' · '}
@@ -478,7 +748,7 @@ export function EventAvis({ player, evals, criteria, event }: { player: Player; 
           Voir la fiche →
         </Link>
       </div>
-      <Opinions player={player} criteria={subjective} evaluations={list} events={[event]} lockedEventId={event.id} scoreCriteria={criteria} />
+      <Opinions player={player} criteria={subjective} evaluations={list} events={[event]} lockedEventId={event.id} scoreCriteria={criteria} wide={wide} />
     </div>
   )
 }

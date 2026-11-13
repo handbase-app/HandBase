@@ -69,7 +69,7 @@ export function TransferGroup({
     if (!supabase || !online || list) return
     void supabase.rpc('hb_members').then(({ data, error }) => {
       if (error) setErr(`Liste du staff indisponible : ${error.message}`)
-      else setList((data as Member[]).filter((m) => !!m.role))
+      else setList((data as Member[]).filter((m) => !!m.role && m.role !== 'joueur'))
     })
   }, [online, list])
 
@@ -91,7 +91,7 @@ export function TransferGroup({
       : g.private
       ? ' Groupe privé : tu ne le verras plus, il disparaîtra de cet appareil.'
       : g.team
-        ? ' Groupe « Mon staff » : tu n’y auras plus accès, sauf si tu en es participant.'
+        ? ' Groupe partagé avec des groupes de travail : tu n’y auras plus accès, sauf si tu en es participant.'
         : ''
     if (
       !(await ask(

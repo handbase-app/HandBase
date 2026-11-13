@@ -1,14 +1,35 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { alive, db, fmtDate, plural, save, today, type HBEvent } from '../db'
+import { alive, db, fmtDate, save, today, type HBEvent } from '../db'
+import { accord, genderOf, pluralG, w } from '../gender'
 import { can, currentUserId, useRole } from '../roles'
 import { loadTeams } from '../teams'
 
 // ---------- Ajouter à un événement ----------
 
+/**
+ * Ajoute des joueurs à la liste d'un événement (relu juste avant : sans doublon, ordre conservé). Rend l'événement relu et
+ * les joueurs vraiment ajoutés. Aussi utilisé par les actions de « Demander » (src/components/AskAction.tsx).
+ */
+export async function addPlayersToEvent(ev: HBEvent, playerIds: string[]): Promise<{ cur: HBEvent; added: string[] }> {
+  const cur = (await db.events.get(ev.id)) ?? ev
+  const ids = cur.playerIds ?? []
+  const added = [...new Set(playerIds)].filter((id) => !ids.includes(id))
+  if (added.length) {
+    // « Ajouté par » : posé ici pour l'affichage ; le serveur le refait (supabase/024).
+    const me = currentUserId()
+    await save<HBEvent>('events', {
+      ...cur,
+      playerIds: [...ids, ...added],
+      ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
+    })
+  }
+  return { cur, added }
+}
+
 /** Événements à venir où je peux ajouter des joueurs (organisateur, administrateur, participant) ; un toucher les ajoute. */
-export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; onClose: () => void }) {
+export function AddToEventDialog({ playerIds, onClose, onAdded }: { playerIds: string[]; onClose: () => void; /** Après un ajout : le message (sélection multiple). */ onAdded?: (msg: string, eventId: string) => void }) {
   const role = useRole()
   const [done, setDone] = useState<string | null>(null)
   const events = useLiveQuery(async () => {
@@ -22,27 +43,20 @@ export function AddToEventDialog({ playerIds, onClose }: { playerIds: string[]; 
     return () => window.removeEventListener('keydown', esc)
   }, [onClose])
   const n = playerIds.length
-  const who = n > 1 ? plural(n, 'joueur') : 'ce joueur'
+  // Accord au genre des joueurs à ajouter (src/gender.ts).
+  const pg = useLiveQuery(() => db.players.bulkGet(playerIds).then(genderOf), [playerIds.join(',')])
+  const who = n > 1 ? pluralG(n, pg) : w(pg).ceJoueur
 
   async function add(ev: HBEvent) {
-    const cur = (await db.events.get(ev.id)) ?? ev
-    const ids = cur.playerIds ?? []
-    const added = playerIds.filter((id) => !ids.includes(id))
-    if (added.length) {
-      // « Ajouté par » : posé ici pour l'affichage ; le serveur le refait (supabase/024).
-      const me = currentUserId()
-      await save<HBEvent>('events', {
-        ...cur,
-        playerIds: [...ids, ...added],
-        ...(me && { addedBy: { ...cur.addedBy, ...Object.fromEntries(added.map((id) => [id, me])) } }),
-      })
-    }
-    setDone(added.length ? `${added.length > 1 ? plural(added.length, 'joueur') + ' ajoutés' : 'Joueur ajouté'} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`)
+    const { cur, added } = await addPlayersToEvent(ev, playerIds)
+    const msg = added.length ? `${added.length > 1 ? pluralG(added.length, pg, 'joueur ajouté') : accord('Joueur ajouté', pg)} à « ${cur.name} ».` : `Déjà dans « ${cur.name} ».`
+    setDone(msg)
+    onAdded?.(msg, cur.id)
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" className="card flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-40 flex items-end justify-center scrim p-4 sm:items-center" onClick={onClose}>
+      <div role="dialog" aria-modal="true" className="win flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="text-sm font-extrabold">Ajouter {who} à un événement</div>
         {done ? (
           <p className="text-xs text-emerald-300">{done}</p>

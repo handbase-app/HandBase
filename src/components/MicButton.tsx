@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type TextareaHTMLAttributes } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import { Icon } from './ui'
-import { useDictation, sendDictation } from '../dictation/useDictation'
+import { sendDictation } from '../dictation/useDictation'
 import { DictationError, ERROR_TEXT, MAX_SECONDS, pickMimeType } from '../dictation/transcribe'
-import { insertDictation } from '../dictation/insert'
+import { useWait, WaitLine } from './Attente'
 
 /*
  * Dictée vocale d'un commentaire (essai, Voxtral par la fonction « transcrire ») :
@@ -30,7 +30,7 @@ function micError(e: unknown): string {
 type Rec = { stream: MediaStream; recorder: MediaRecorder; chunks: Blob[]; t0: number; timer: number; discard: boolean }
 
 /** Enregistrement et envoi ; `onText` reçoit le texte nettoyé. */
-function useMicRecorder(onText: (text: string) => void) {
+export function useMicRecorder(onText: (text: string) => void) {
   const [phase, setPhase] = useState<MicPhase>('idle')
   const [seconds, setSeconds] = useState(0)
   const [error, setError] = useState('')
@@ -202,7 +202,9 @@ function useMicRecorder(onText: (text: string) => void) {
     }
   }, [phase])
 
-  return { phase, seconds, error, held, buttonProps, cancel: () => stop(true), clearError: () => setError('') }
+  // `start` : début sans bouton (appui long sur le bouton « Demander » de l'en-tête, qui gère lui-même son appui) ; `cancel` :
+  // jette l'enregistrement, ou interrompt la transcription en cours.
+  return { phase, seconds, error, held, buttonProps, start: () => void start(), finish: () => stop(), cancel: () => (phaseRef.current === 'sending' ? abort.current?.abort() : stop(true)), clearError: () => setError('') }
 }
 
 const fmtSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -249,12 +251,7 @@ export function MicStatus({ mic, dictated }: { mic: ReturnType<typeof useMicReco
         </button>
       </div>
     )
-  if (mic.phase === 'sending')
-    return (
-      <div className="text-xs text-muted" role="status">
-        transcription…
-      </div>
-    )
+  if (mic.phase === 'sending') return <SendingLine cancel={mic.cancel} />
   if (mic.error)
     return (
       <div className="text-[11px] text-red-300" role="alert">
@@ -265,63 +262,9 @@ export function MicStatus({ mic, dictated }: { mic: ReturnType<typeof useMicReco
   return null
 }
 
-type AreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & {
-  value: string
-  onChange: (value: string) => void
+/** Transcription en cours : ✦ qui tourne, « J’écris ce que vous avez dit… », fine barre (durée habituelle), « Annuler ». */
+function SendingLine({ cancel }: { cancel: () => void }) {
+  const wait = useWait(true, 'dictee')
+  return <WaitLine wait={wait} label="J’écris ce que vous avez dit…" onCancel={cancel} />
 }
 
-/**
- * Champ de commentaire avec dictée vocale : un <textarea> ordinaire quand la dictée n'est pas disponible
- * (autre rôle, appareil sans micro, serveur sans la fonction, réglage désactivé, mode local) ; sinon le micro à droite.
- */
-export function DictationTextarea({ value, onChange, maxLength, className = '', ...rest }: AreaProps) {
-  const { ready } = useDictation()
-  const area = useRef<HTMLTextAreaElement>(null)
-  const sel = useRef<{ start: number; end: number } | null>(null)
-  const caret = useRef<number | null>(null)
-  const [dictated, setDictated] = useState<string | null>(null)
-  const latest = useRef({ value, onChange })
-  useEffect(() => {
-    latest.current = { value, onChange }
-  })
-  const mic = useMicRecorder((text) => {
-    const r = insertDictation(latest.current.value, text, sel.current, maxLength)
-    if (r.value === latest.current.value) return
-    caret.current = sel.current ? r.caret : null
-    sel.current = null
-    setDictated(r.value)
-    latest.current.onChange(r.value)
-  })
-  // Curseur remis après le texte dicté (seulement si le champ avait le curseur : pas de clavier qui surgit sinon).
-  useEffect(() => {
-    const el = area.current
-    if (caret.current == null || !el) return
-    const c = caret.current
-    caret.current = null
-    if (document.activeElement === el) el.setSelectionRange(c, c)
-  })
-  const field = <textarea ref={area} className={className} value={value} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} {...rest} />
-  if (!ready) return field
-  const { onPointerDown, ...others } = mic.buttonProps
-  const withSel = {
-    ...mic,
-    buttonProps: {
-      ...others,
-      onPointerDown: (e: PointerEvent<HTMLButtonElement>) => {
-        // Position du curseur notée avant la dictée, si le champ l'avait ; sinon le texte va à la fin.
-        const el = area.current
-        if (mic.phase === 'idle') sel.current = el && document.activeElement === el ? { start: el.selectionStart, end: el.selectionEnd } : null
-        onPointerDown(e)
-      },
-    },
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 [&>textarea]:w-full">{field}</div>
-        <MicButton mic={withSel} />
-      </div>
-      <MicStatus mic={mic} dictated={dictated !== null && dictated === value} />
-    </div>
-  )
-}

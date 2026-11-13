@@ -1,22 +1,26 @@
 import Dexie, { type EntityTable } from 'dexie'
-import { guardWrite } from './spy'
+import { guardWrite, spyTarget } from './spy'
+import { activeDbOf, BASE_KEY, HOME_DB, realDbName } from './comptesCore'
+import { viewAsMiddleware } from './viewAsFilter'
 import type { MatchSheet } from './matchSheet'
+import type { QuestionLogFields } from './questionLogCore'
 
 // ---------- Types ----------
 
-export type Position = 'GB' | 'AG' | 'ARG' | 'DC' | 'ARD' | 'AD' | 'PIV'
-
-export const POSITIONS: { id: Position; label: string; short: string }[] = [
-  { id: 'GB', label: 'Gardien', short: 'Gardien' },
-  { id: 'AG', label: 'Ailier gauche', short: 'Ailier G.' },
-  { id: 'ARG', label: 'Arrière gauche', short: 'Arrière G.' },
-  { id: 'DC', label: 'Demi-centre', short: 'Demi-centre' },
-  { id: 'ARD', label: 'Arrière droit', short: 'Arrière D.' },
-  { id: 'AD', label: 'Ailier droit', short: 'Ailier D.' },
-  { id: 'PIV', label: 'Pivot', short: 'Pivot' },
-]
-
-export const positionLabel = (p?: Position | null) => POSITIONS.find((x) => x.id === p)?.short ?? '—'
+// Postes : configuration de l'installation (src/sportConfig.ts, table hb_config ; handball par défaut). Les codes stockés
+// dans les fiches (GB, AG…) ne changent pas ; POSITIONS est tenu à jour sur place quand la configuration change.
+export { POSITIONS, positionLabel, type Position } from './sportConfig'
+import type { Position } from './sportConfig'
+import { isKeeper } from './sportConfig'
+import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
+// Espace joueur (supabase/051_espace_joueur.sql, src/playerSpace.ts) : ce que le jeune écrit lui-même sur sa fiche.
+export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, SelfMarks, SelfPath } from './playerSpace'
+import type { PlayerSelf } from './playerSpace'
+import type { RewatchOrigin } from './rewatchCore'
+import type { UsualTeam } from './rencontres'
+import type { RencontreSnapshot } from './rencontreEvent'
+import type { ExpressionRow } from './expressionsCore'
+import type { PropositionRow } from './propositionsCore'
 
 export type Laterality = 'droitier' | 'gaucher' | 'ambidextre'
 
@@ -155,6 +159,31 @@ export interface Player extends Syncable {
   mergedFrom?: MergeTrace[]
   /** Fiche supprimée par fusion : celle qui l'a remplacée. */
   mergedInto?: string
+  /**
+   * Espace joueur (supabase/051_espace_joueur.sql, 052_journal_joueur.sql) : ce que le jeune (ou sa famille) a écrit lui-même
+   * depuis son compte joueur (src/playerSpace.ts) : `letter` (« Ma lettre ») et `letterAt` (sa date), `letterHistory` (versions
+   * précédentes, 20 au plus, tenues par le serveur), `marks` (« Mes repères »), `path` (« Mon parcours »). Écrit par le serveur
+   * seul (hb_player_self_update), jamais par hb_upsert ni par le staff (le serveur remet `self` en place, 052). Montré sur la
+   * fiche (section « Ce que dit le joueur ») ; absent des exports CSV / PDF du staff. Le journal du hand n'est PAS ici : table
+   * hb_player_journal, privée, lue à la demande (src/playerJournal.ts).
+   */
+  self?: PlayerSelf
+  /**
+   * « Mon équipe » (supabase/056_rencontres.sql, src/rencontres.ts) : son équipe dans la catégorie (1, 2 ou 3), le niveau,
+   * la catégorie où il joue en cas de surclassement ; `at` (quand) et `src` (joueur ou staff). Posée par le staff (formulaire
+   * de la fiche) ou par le jeune depuis sa page (hb_player_set_team) ; sur le serveur, la plus récente gagne pour cette clé.
+   * Sert à relier le joueur aux rencontres « Autour de moi ».
+   */
+  usualTeam?: UsualTeam
+  /**
+   * Objectifs de travail (vague 2 « Génération Bleue », src/objectives.ts) : 3 en cours au plus, « en cours » ou « atteint »
+   * (jamais « raté »), avec l'événement d'où ils viennent et une date, facultatifs ; depuis le 04/11, des étapes à cocher
+   * (8 au plus) et des liens vidéo facultatifs. Fixés par un encadrant qui peut modifier la fiche (carte « Objectifs de
+   * travail », onglet Profil) ; lus par le jeune sur sa page et dans le bilan à imprimer. Champ libre de data (jsonb), gardé
+   * tel quel par le serveur (hb_upsert) : pas de SQL pour eux. Les coches du jeune et ses objectifs « à moi » sont à part
+   * (supabase/065, src/myGoals.ts).
+   */
+  objectives?: import('./objectives').WorkObjective[]
 }
 
 /** Trace d'une fiche fondue dans une autre : qui l'avait proposée, si elle avait été mise hors cadre… */
@@ -199,6 +228,12 @@ export interface Criterion extends Syncable {
    * partagée tient la liste des critères (règle de transition : retireUnpublishedCriteria).
    */
   importedAt?: number
+  /**
+   * Radar par zones (src/radarZones.ts) : zone et couleur de la catégorie, posées sur tous les critères de la
+   * catégorie depuis les réglages ; absentes = déduites du nom de la catégorie.
+   */
+  radarZone?: import('./radarZones').RadarZone
+  radarColor?: string
 }
 
 /** Valeur factuelle d'un critère pour un joueur à une date. */
@@ -210,6 +245,19 @@ export interface Measurement extends Syncable {
   author?: string
   /** Commentaire du préparateur (« blessé », « D>G »…). */
   note?: string
+  /**
+   * Mesure venue d'un tableau collé (« Coller un tableau de mesures », src/components/ImportMesures.tsx) : qui l'a validée
+   * (`by`, nom de l'appareil, comme `author`) et quand (`at`, ISO). Champ libre de data (jsonb), gardé tel quel par le serveur
+   * (hb_upsert) : pas de SQL. Montré sur la fiche (onglet Tests) : « importé, validé par … ».
+   */
+  imported?: { by?: string; at: string }
+  /**
+   * Provenance (supabase/071_provenance.sql) : « import_fichier » (collage) ou « proposition_validee » (boîte « À valider »),
+   * et le lot (identifiant commun de l'enregistrement, ou de la proposition). Absente : saisie dans l'appli. Champs libres de
+   * data, gardés tels quels par hb_upsert : pas de changement de synchronisation.
+   */
+  source?: 'import_fichier' | 'proposition_validee'
+  lotId?: string
 }
 
 export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
@@ -243,6 +291,28 @@ export interface HBEvent extends Syncable {
    * de la liste, équipes confiées à chaque observateur. Facultative : sans elle, tout le monde voit tout.
    */
   tournament?: Tournament
+  /**
+   * Unité organisatrice (structure, hb_units ; src/eventOrganizer.ts, supabase/048_evenements_organisateur.sql) : décide
+   * qui voit l'événement (son territoire et les unités au-dessus, plus créateur et participants). Facultative : les
+   * événements d'avant n'en ont pas (« Organisateur non précisé », visibles par tout le staff).
+   */
+  organizerUnitId?: string
+  /** Nom de l'unité organisatrice au moment du choix (affichage si l'unité n'est pas sur l'appareil), comme `names`. */
+  organizerName?: string
+  /**
+   * Garçons / Filles / Mixte (facultatif ; affichage accordé, src/gender.ts). Absent : déduit des joueurs de la liste
+   * (setGender). Champ libre de data (jsonb), gardé tel quel par le serveur (hb_upsert) : pas de SQL.
+   */
+  sex?: 'M' | 'F' | 'mixte'
+  /**
+   * Rencontre officielle d'où vient l'événement (« Ajouter à mes événements » depuis « Autour de moi »,
+   * src/rencontreEvent.ts) : un seul événement par rencontre, partagé par le staff (participants = qui y va). Avec un petit
+   * instantané de la rencontre (compétition, niveau, salle, ville, coordonnées, équipes) : la page de l'événement, le
+   * fichier d'agenda et « Itinéraire » marchent sans le serveur. Champs libres de data (jsonb), gardés tels quels par le
+   * serveur (hb_upsert) : pas de SQL. Jamais repris par « Dupliquer l'événement ».
+   */
+  rencontreId?: string
+  rencontre?: RencontreSnapshot
 }
 
 /** Équipe engagée dans un tournoi (identifiant court, propre à l'événement). */
@@ -301,6 +371,24 @@ export interface Evaluation extends Syncable {
   minutesObserved?: number
   strengths?: string
   improvements?: string
+  /** Le type de joueur décrit, en une phrase (proposé par l'avis vocal, modifiable). */
+  portrait?: string
+  /**
+   * « Super-pouvoir observé » (04/11) : une phrase courte et positive (« sa lecture du jeu »), facultative. Temps de jeu
+   * (minutes, entier) : avis d'un match ou d'un tournoi seulement. Champs libres de data (jsonb), gardés tels quels par le
+   * serveur (hb_upsert) : pas de SQL. Lecture : src/avisMatch.ts (superPowerOf, playingTimeOf).
+   */
+  superPower?: string
+  playingTime?: number
+  /**
+   * Avis venu de la boîte « À valider » (préparé par Claude, src/propositionsJoueurs.ts) : qui l'a validé (`by`, nom de
+   * l'appareil, comme `observer`) et quand (`at`, ISO). Champ libre de data (jsonb), gardé tel quel par hb_upsert : pas de SQL.
+   * Montré sur l'avis : « importé, validé par … » (comme les mesures importées).
+   */
+  imported?: { by?: string; at: string }
+  /** Provenance et lot (comme Measurement.source / lotId) : « proposition_validee », lot = identifiant de la proposition. */
+  source?: 'proposition_validee'
+  lotId?: string
 }
 
 /** Groupe de joueurs réutilisable (Intercomités 83, Pôle, Sport-études…) : filtre, export, événements. */
@@ -343,6 +431,26 @@ export interface PlayerGroup extends Syncable {
    * son créateur et ses participants. Seul le créateur le change ; jamais sur un groupe privé.
    */
   teamFollow?: boolean
+  /**
+   * Groupe « Pôle » d'une unité de la structure (src/poleSeason.ts) : permanent (ni archivé ni dupliqué, un seul par
+   * unité), et ses membres ne sont PAS dans playerIds (laissé vide) : ils sont calculés depuis les périodes de pôle des
+   * fiches (Player.poles) qui correspondent à l'unité et couvrent la date de la vue (saison en cours / prochaine).
+   */
+  poleUnitId?: string
+  /**
+   * « Wellness quotidien » (supabase/073_wellness.sql, src/wellness.ts) : questionnaire du matin demandé aux jeunes du groupe
+   * qui ont un espace joueur ; lu par le staff du groupe seulement. Changé par le créateur du groupe ou un administrateur
+   * (hb_upsert, comme le reste du groupe) ; `wellnessSince` : jour de l'activation (AAAA-MM-JJ).
+   */
+  wellness?: boolean
+  wellnessSince?: string
+  /**
+   * Réglage de l'alerte du wellness (src/wellnessAlert.ts : seuil `max`, jours de suite `days`, note suivie `note`, absente :
+   * la moyenne) ; absent : 5 ou moins, 3 jours, la moyenne. Changé par ceux qui activent le wellness du groupe.
+   */
+  wellnessAlert?: { max?: number; days?: number; note?: string }
+  /** Ancienne couleur de repère (« Repérer des groupes », retiré le 03/11) : reste sur de vieux groupes, plus lue ni écrite. */
+  color?: string
 }
 
 /**
@@ -415,6 +523,11 @@ export interface Rewatch extends Syncable {
   playerId: string
   /** Événement où il a été repéré. */
   originEventId?: string
+  /**
+   * D'où il a été posé (supabase/055, src/rewatchCore.ts) : événement, groupe, liste Joueurs (nom du filtre enregistré ou
+   * filtres posés), fiche, bilan… Fixé à la création ; absent sur les « à revoir » d'avant (originEventId suffit alors).
+   */
+  origin?: RewatchOrigin
   /** Événements à venir visés. */
   events?: string[]
   /** Groupes visés (le joueur y est ajouté). */
@@ -473,6 +586,41 @@ export interface ListItem extends Syncable {
   order: number
 }
 
+/**
+ * « Journal des questions avancées » (supabase/043_journal_questions.sql, src/questionLog.ts) : un passage de « Poser une
+ * question » en mode avancé. Phrase et requête anonymisées, jamais de résultat ni de donnée de joueur. Administrateurs seulement.
+ */
+export interface QuestionLog extends Syncable, QuestionLogFields {}
+
+/**
+ * Configuration de l'installation (supabase/044_structure.sql, src/sportConfig.ts) : une ligne par clé (identifiant = clé :
+ * « sport », « postes »…), valeur libre. Table vide : valeurs par défaut handball. Lecture : tous ; écriture : administrateurs.
+ */
+export interface ConfigItem extends Syncable {
+  key: string
+  value: unknown
+}
+
+/** Structure (supabase/044_structure.sql, src/structureTree.ts) : niveaux, unités, affectations. Écriture : administrateurs. */
+export interface Level extends Syncable, LevelFields {}
+export interface Unit extends Syncable, UnitFields {}
+export interface Assignment extends Syncable, AssignmentFields {}
+
+/**
+ * « Mes questions » / « Mes filtres » enregistrés, gardés sur le compte (supabase/054_questions_enregistrees.sql,
+ * src/savedQuestions.ts) : personnels, lus et écrits par leur seul créateur (administrateurs compris : ils ne les voient pas).
+ * Identifiant « <compte>:<identifiant> ». Supprimée : il ne reste que l'identifiant.
+ */
+export interface SavedQuestionRow extends Syncable {
+  name?: string
+  recipe?: unknown
+  vars?: string[]
+  phrase?: string
+  /** Moment de l'enregistrement (horloge de l'appareil). */
+  at?: number
+  sql?: unknown
+}
+
 export interface OutboxItem {
   seq?: number
   table: SyncTable
@@ -481,8 +629,10 @@ export interface OutboxItem {
 
 // Staffs avant les événements et les groupes : envoyés avant les groupes qui les citent, reçus avant eux (droits).
 // Vidéos, « vu » et « à revoir » en dernier : le serveur vérifie que le joueur, l'événement ou le groupe visé existe
-// (envoyé juste avant).
-export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch'] as const
+// (envoyé juste avant). Structure (044) : niveaux avant unités avant affectations (le serveur vérifie que le niveau, le
+// parent, l'unité visés existent). Journal des questions avancées (043) et questions enregistrées (054) : indépendants du
+// reste, à la fin.
+export const SYNC_TABLES = ['players', 'criteria', 'measurements', 'teams', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'follows', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments', 'question_log', 'saved_questions'] as const
 export type SyncTable = (typeof SYNC_TABLES)[number]
 
 // ---------- Base locale ----------
@@ -493,7 +643,20 @@ export const TRIAL = !!import.meta.env.VITE_TRIAL
 export const DEMO = !!import.meta.env.VITE_DEMO
 export const TRIAL_LABEL = DEMO ? 'DÉMONSTRATION · DONNÉES FICTIVES' : 'VERSION D’ESSAI'
 
-export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
+/**
+ * Base de l'espace du compte actif (« Changer de compte », src/comptesCore.ts) : « handbase » sauf quand un compte de test
+ * est actif (sa base à lui, « handbase-compte-<id> ») ; lu ici, avant toute ouverture.
+ */
+const accountDb = (() => {
+  try {
+    return activeDbOf(localStorage.getItem(BASE_KEY))
+  } catch {
+    return HOME_DB
+  }
+})()
+
+// Version d'essai : « handbase-essai » pour la maison, la base à part d'un compte de test sinon (jamais la même pour deux comptes).
+export const db = new Dexie(realDbName(accountDb, TRIAL)) as Dexie & {
   players: EntityTable<Player, 'id'>
   criteria: EntityTable<Criterion, 'id'>
   measurements: EntityTable<Measurement, 'id'>
@@ -507,6 +670,14 @@ export const db = new Dexie(TRIAL ? 'handbase-essai' : 'handbase') as Dexie & {
   videos: EntityTable<Video, 'id'>
   seen: EntityTable<Seen, 'id'>
   rewatch: EntityTable<Rewatch, 'id'>
+  question_log: EntityTable<QuestionLog, 'id'>
+  config: EntityTable<ConfigItem, 'id'>
+  levels: EntityTable<Level, 'id'>
+  units: EntityTable<Unit, 'id'>
+  assignments: EntityTable<Assignment, 'id'>
+  saved_questions: EntityTable<SavedQuestionRow, 'id'>
+  expressions: EntityTable<ExpressionRow, 'id'>
+  propositions: EntityTable<PropositionRow, 'id'>
   outbox: EntityTable<OutboxItem, 'seq'>
 }
 
@@ -569,6 +740,31 @@ db.version(13).stores({ videos: 'id, targetId, updatedAt' })
 
 // v14 : « vu » et « à revoir » (supabase/041_reperage_tournoi.sql).
 db.version(14).stores({ seen: 'id, eventId, playerId, updatedAt', rewatch: 'id, playerId, *events, *groups, updatedAt' })
+
+// v15 : journal des questions avancées (supabase/043_journal_questions.sql).
+db.version(15).stores({ question_log: 'id, at, updatedAt' })
+
+// v16 : configuration de l'installation et structure (supabase/044_structure.sql).
+db.version(16).stores({
+  config: 'id, updatedAt',
+  levels: 'id, updatedAt',
+  units: 'id, parentId, levelId, updatedAt',
+  assignments: 'id, unitId, userId, updatedAt',
+})
+
+// v17 : questions et filtres enregistrés, sur le compte (supabase/054_questions_enregistrees.sql).
+db.version(17).stores({ saved_questions: 'id, updatedAt' })
+
+// v18 : « Mes expressions » (vocabulaire de l'entraîneur pour l'avis vocal, supabase/062_mes_expressions.sql). Hors de la
+// synchronisation générale : src/expressions.ts les envoie et les relit lui-même.
+db.version(18).stores({ expressions: 'id, owner, updatedAt' })
+
+// v19 : boîte « À valider » (propositions de mesures gardées pour plus tard ou déposées par le serveur MCP,
+// supabase/067_propositions.sql). Hors de la synchronisation générale : src/propositions.ts les envoie et les relit lui-même.
+db.version(19).stores({ propositions: 'id, owner, updatedAt' })
+
+// « Voir comme… » : l'écran ne lit que le périmètre du membre simulé (src/viewAsFilter.ts). Hors simulation : rien.
+if (spyTarget()) db.use(viewAsMiddleware)
 
 // ---------- Écritures (toujours via ces fonctions pour alimenter la synchro) ----------
 
@@ -664,10 +860,10 @@ export const fmtDate = (d?: string) => (d ? new Date(d + 'T00:00:00').toLocaleDa
 
 /**
  * Le critère concerne-t-il ce poste ? Joueur sans poste renseigné : on montre tous les critères de joueur de champ
- * (seuls ceux réservés aux gardiens sont écartés), plutôt que de n'en garder que quelques-uns.
+ * (seuls ceux réservés aux gardiens, famille « gardien » de la configuration, sont écartés), plutôt que de n'en garder que quelques-uns.
  */
 export const criterionApplies = (c: Criterion, pos?: Position) =>
-  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : c.positions.some((p) => p !== 'GB'))
+  !c.positions || c.positions.length === 0 || (pos ? c.positions.includes(pos) : c.positions.some((p) => !isKeeper(p)))
 
 export function scaleMax(scale: CriterionScale) {
   return scale === 'score5' ? 5 : scale === 'score3' ? 3 : scale === 'score2' ? 2 : null

@@ -1,18 +1,21 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { BackButton, useGoBack } from '../backNav'
+import { BackButton, useBack, useEntryState } from '../backNav'
 import { computeAlerts, loadAlertContext, markSeen, matches, missingFor, predictedHeight, resetSeen, rulesSummary, seenFor, useSeenVersion, type AlertContext } from '../alerts'
 import { ask } from '../components/Confirm'
 import { Empty, Icon, Segmented } from '../components/ui'
 import { PlayerRow } from '../components/PlayerRow'
+import { PlayerList } from '../components/Pictos'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from '../components/ItemMenu'
-import { FollowStar } from '../components/Follow'
-import { alive, db, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
+import { HeaderMenu, PageHeader } from '../components/PageHeader'
+import { stampOf, StampWindow } from '../components/ActivityLog'
+import { alive, db, lateralityLabel, newId, POSITIONS, remove, save, scaleMax, type AlertRules, type Laterality, type Player, type PlayerAlert, type Position } from '../db'
 import { useDepartments } from '../lists'
 import { department } from '../components/PlayerFilter'
 import { ZonePicker } from '../components/ZonePicker'
 import { can, useRole } from '../roles'
+import { accord, lateralityPlural, listGender, pluralG, SEX_LABELS, w, type Gender } from '../gender'
 
 /*
  * Alertes (supabase/022_alertes.sql) : liste, détail (joueurs qui correspondent, nouveaux en tête) et
@@ -39,11 +42,13 @@ export default function Alerts() {
           + Profil
         </Link>
       </div>
-      <p className="text-[11px] text-muted">
-        Un profil recherché (ex. grand gaucher 2011) : l’appli te signale chaque joueur qui vient d’y entrer — nouvelle fiche, nouvelle mesure
-        ou nouvel avis.
-      </p>
-      {!data.alerts.length && <Empty>Aucun profil recherché pour l’instant. Crée le premier avec « + Profil ».</Empty>}
+      {/* Explication seulement dans l'état vide (31/10), plus sous le titre. */}
+      {!data.alerts.length && (
+        <Empty>
+          Aucun profil recherché pour l’instant. Crée le premier avec «&nbsp;+&nbsp;Profil&nbsp;» (ex. grand gaucher 2011) : l’appli te signalera chaque joueur qui y entre —
+          nouvelle fiche, nouvelle mesure ou nouvel avis.
+        </Empty>
+      )}
       {mine.length > 0 && (
         <>
           <div className="section-title mt-1 mb-0 flex items-center gap-1.5">
@@ -74,6 +79,7 @@ async function deleteAlert(alert: PlayerAlert) {
 
 /** Ligne d'un profil recherché ; menu (appui long, clic droit, « ⋮ ») : ouvrir, modifier, supprimer. */
 function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; players: Player[]; fresh: Player[]; summary: string }) {
+  const gr: Gender = listGender(alert.rules.sex, players)
   const role = useRole()
   const nav = useNavigate()
   const menu = useRowMenu()
@@ -95,9 +101,9 @@ function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; pla
       </div>
       <div className="shrink-0 text-right text-[11px] text-muted">
         <div>
-          <b className="text-fg">{players.length}</b> joueur{players.length > 1 ? 's' : ''}
+          <b className="text-fg">{players.length}</b> {accord('joueur', gr, players.length)}
         </div>
-        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} nouveau{fresh.length > 1 ? 'x' : ''}</div>}
+        {fresh.length > 0 && <div className="font-bold text-accent">{fresh.length} {accord('nouveau', gr, fresh.length)}</div>}
       </div>
       <MenuButton onOpen={menu.open} open={!!menu.anchor} inLink label={`Actions pour « ${alert.name} »`} className="-mr-1.5" />
     </Link>
@@ -109,68 +115,94 @@ function AlertCard({ alert, players, fresh, summary }: { alert: PlayerAlert; pla
 /** Détail d'une alerte : ses joueurs, les nouveaux en tête ; ouvrir l'alerte les marque comme vus. */
 export function AlertDetail() {
   const { id } = useParams()
-  const nav = useNavigate()
   const role = useRole()
   const [params, setParams] = useSearchParams()
   const editing = params.has('modifier')
+  // Après Enregistrer, Annuler ou Supprimer : l'écran d'origine, par l'historique (même état) ; entrée directe : la liste.
+  const leave = useBack('/alertes', 'PROFILS RECHERCHÉS')
+  // Formulaire ouvert depuis un autre écran (« Modifier » du menu d'une ligne de la liste) : on y revient en le fermant.
+  const [editFromOutside] = useState(editing)
+  // « Infos du profil » (création, dernière modification) : fenêtre ouverte depuis le ⋮ (31/10).
+  const [stampOpen, setStampOpen] = useState(false)
   const data = useLiveQuery(async () => {
     const alert = await db.alerts.get(id!)
     return { alert, ctx: await loadAlertContext() }
   }, [id])
   const players = useMemo(() => (data?.alert ? data.ctx.players.filter((p) => matches(p, data.alert!.rules, data.ctx)) : []), [data])
-  // Nouveaux à l'ouverture : gardés pour l'affichage, puis marqués comme vus.
-  const [fresh, setFresh] = useState<Set<string> | null>(null)
+  // Nouveaux à l'ouverture : gardés pour l'affichage, puis marqués comme vus. Gardés avec l'entrée de l'historique : au
+  // retour d'une fiche, les mêmes restent marqués « nouveau », dans le même ordre ; neufs à la visite suivante.
+  const [freshIds, setFreshIds] = useEntryState<string[] | null>(`alerte.${id}.nouveaux`, null)
+  const fresh = useMemo(() => (freshIds ? new Set(freshIds) : null), [freshIds])
   useEffect(() => {
-    if (!data?.alert || fresh) return
+    if (!data?.alert || freshIds) return
     // Première ouverture sur cet appareil : la liste du moment sert de départ (rien de « nouveau »).
     const known = seenFor(data.alert.id, players.map((p) => p.id))
-    setFresh(new Set(players.filter((p) => !known.has(p.id)).map((p) => p.id)))
+    setFreshIds(players.filter((p) => !known.has(p.id)).map((p) => p.id))
     markSeen(data.alert.id, players.map((p) => p.id))
-  }, [data, players, fresh])
+  }, [data, players, freshIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { alert, ctx } = data
   if (!alert || alert.deleted || !can.seeGroup(alert)) return <div className="py-20 text-center text-sm text-muted">Profil recherché introuvable.</div>
-  if (editing) return <AlertForm alert={alert} onDone={() => setParams({}, { replace: true })} />
+  if (editing)
+    return (
+      <AlertForm
+        alert={alert}
+        backLabel={editFromOutside && leave.known ? leave.label : alert.name.toUpperCase()}
+        onDone={() => (editFromOutside && leave.known ? leave.exit() : setParams({}, { replace: true }))}
+      />
+    )
   const manage = can.editGroup(role, alert)
+  const stamp = stampOf(alert)
+  // Accord (src/gender.ts) : profil « Féminin », ou liste faite seulement de filles.
+  const g: Gender = listGender(alert.rules.sex, players)
   const sorted = [...players].sort((a, b) => Number(fresh?.has(b.id) ?? 0) - Number(fresh?.has(a.id) ?? 0) || a.lastName.localeCompare(b.lastName))
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />
-        {manage && (
-          <div className="flex gap-4">
-            <button className="text-xs text-muted hover:text-fg" onClick={() => setParams({ modifier: '' }, { replace: true })}>
-              Modifier
-            </button>
-            <button
-              className="text-xs text-muted hover:text-red-400"
-              onClick={async () => {
-                if (await deleteAlert(alert)) nav('/alertes', { replace: true })
-              }}
-            >
-              Supprimer
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Pas de panneau ici : pas de rangée d'en-tête (le ⋮ est au bout du nom, comme la fiche joueur, 31/10). */}
+      <PageHeader back={<BackButton fallback="/alertes" label="PROFILS RECHERCHÉS" />} />
+      {stampOpen && stamp && <StampWindow stamp={stamp} title="Infos du profil" onClose={() => setStampOpen(false)} />}
       <div>
-        <h1 className="flex items-center gap-2 text-lg font-extrabold">
-          {alert.private && <Icon name="lock" className="h-4 w-4 text-muted" />}
-          {alert.name}
-        </h1>
+        {/* Le nom, et au bout de la rangée le ⋮ (Modifier, Infos du profil, Supprimer en dernier, avec confirmation). */}
+        <div className="flex items-start justify-between gap-2">
+          <h1 className="flex min-w-0 items-center gap-2 text-lg font-extrabold">
+            {alert.private && <Icon name="lock" className="h-4 w-4 text-muted" />}
+            {alert.name}
+          </h1>
+          <div className="flex shrink-0 items-center gap-1">
+            <HeaderMenu
+              title={alert.name}
+              items={[
+                manage && { label: 'Modifier', icon: 'pencil', onSelect: () => setParams({ modifier: '' }, { replace: true }) },
+                // Créée par…, modifiée par… : plus sous le titre (31/10), ici seulement s'il y a quelque chose à dire.
+                stamp && { label: 'Infos du profil', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
+                manage && {
+                  label: 'Supprimer',
+                  icon: 'trash',
+                  danger: true,
+                  onSelect: async () => {
+                    if (await deleteAlert(alert)) leave.exit()
+                  },
+                },
+              ]}
+            />
+          </div>
+        </div>
         <p className="text-xs text-muted">{rulesSummary(alert.rules, ctx.criteria)}</p>
-        {alert.createdByName && <p className="text-[10px] text-muted">Créée par {alert.createdByName}</p>}
       </div>
       <div className="section-title mt-1 mb-0">
-        {players.length} joueur{players.length > 1 ? 's' : ''}
-        {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} nouveau{fresh.size > 1 ? 'x' : ''}</span>}
+        {pluralG(players.length, g)}
+        {fresh && fresh.size > 0 && <span className="ml-2 text-fg normal-case">· {fresh.size} {accord('nouveau', g, fresh.size)}</span>}
       </div>
-      {!players.length && <Empty>Aucun joueur ne correspond pour l’instant : tu seras prévenu dès qu’un joueur y entrera.</Empty>}
-      {sorted.map((p) => (
-        <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
-      ))}
+      {!players.length && <Empty>{w(g).AucunJoueur} ne correspond pour l’instant : tu seras prévenu dès qu’{w(g).unJoueur} y entrera.</Empty>}
+      {sorted.length > 0 && (
+        <PlayerList ids={sorted.map((p) => p.id)}>
+          {sorted.map((p) => (
+            <AlertRow key={p.id} p={p} ctx={ctx} fresh={!!fresh?.has(p.id)} rules={alert.rules} missing={missingFor(p, alert.rules, ctx, ctx.criteria)} />
+          ))}
+        </PlayerList>
+      )}
     </div>
   )
 }
@@ -178,11 +210,11 @@ export function AlertDetail() {
 function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertContext; fresh: boolean; rules: AlertRules; missing: string[] }) {
   const h = ctx.latest.get(p.id)?.get('taille')?.value
   const ph = rules.minPredicted ? predictedHeight(p, ctx) : undefined
-  const more = [p.laterality, typeof h === 'number' && `${h.toLocaleString('fr-FR')} cm`, ph !== undefined && `prédit ${Math.round(ph)} cm`].filter(Boolean).join(' · ')
+  const more = [p.laterality && lateralityLabel(p.laterality, p.sex).toLowerCase(), typeof h === 'number' && `${h.toLocaleString('fr-FR')} cm`, ph !== undefined && `prédit ${Math.round(ph)} cm`].filter(Boolean).join(' · ')
   return (
     <PlayerRow
       p={p}
-      className={fresh ? 'border-accent/70' : ''}
+      marked={fresh}
       link={{ to: `/joueurs/${p.id}` }}
       badges={fresh && <span className="rounded bg-accent px-1.5 py-px text-[9px] text-white">NOUVEAU</span>}
       lines={
@@ -200,7 +232,6 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
           )}
         </>
       }
-      follow={<FollowStar id={p.id} />}
     />
   )
 }
@@ -208,13 +239,14 @@ function AlertRow({ p, ctx, fresh, rules, missing }: { p: Player; ctx: AlertCont
 /** Nouvelle alerte (page « /alertes/nouvelle »). */
 export function NewAlert() {
   const nav = useNavigate()
-  // Annuler : retour d'où l'on vient (liste des profils, accueil…).
-  const goBack = useGoBack('/alertes')
-  return <AlertForm onDone={(a) => (a ? nav(`/alertes/${a.id}`, { replace: true }) : goBack())} />
+  // Annuler : retour d'où l'on vient (liste des profils, accueil…) ; enregistré : le nouveau profil, à la place du formulaire.
+  const leave = useBack('/alertes', 'PROFILS RECHERCHÉS')
+  return <AlertForm backLabel={leave.label} onDone={(a) => (a ? nav(`/alertes/${a.id}`, { replace: true }) : leave.exit())} />
 }
 
 /** Formulaire d'alerte, avec le nombre de joueurs qui correspondent en direct. */
-function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void }) {
+/** `backLabel` : l'écran où ramène Annuler (plus de « ← » en haut depuis le 26/10). */
+function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: PlayerAlert) => void; backLabel: string }) {
   const role = useRole()
   useDepartments()
   const [name, setName] = useState(alert?.name ?? '')
@@ -247,7 +279,7 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
   const keep = (checked: boolean, onChange: (v: boolean) => void, what = 'sans valeur') => (
     <label className="-mt-1 flex items-center gap-1.5 text-[11px] text-muted">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      Garder aussi les joueurs {what} (à vérifier)
+      Garder aussi les {w(r.sex).joueurs} {what} (à vérifier)
     </label>
   )
 
@@ -264,9 +296,6 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
 
   return (
     <div className="flex flex-col gap-3 pb-16">
-      <button onClick={() => onDone(alert)} className="self-start text-xs font-bold text-muted">
-        ← {alert ? alert.name : 'ALERTES'}
-      </button>
       <h1 className="text-lg font-extrabold">{alert ? 'Modifier le profil recherché' : 'Nouveau profil recherché'}</h1>
 
       <div className="card flex flex-col gap-3 p-4">
@@ -296,8 +325,8 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           onChange={(v) => set({ sex: (v || undefined) as AlertRules['sex'] })}
           options={[
             { value: '', label: 'Tous' },
-            { value: 'M', label: 'Garçons' },
-            { value: 'F', label: 'Filles' },
+            { value: 'M', label: SEX_LABELS.M },
+            { value: 'F', label: SEX_LABELS.F },
           ]}
         />
         <div>
@@ -325,8 +354,8 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
           onChange={(v) => set({ laterality: (v || undefined) as Laterality | undefined })}
           options={[
             { value: '', label: 'Toutes' },
-            { value: 'droitier', label: 'Droitiers' },
-            { value: 'gaucher', label: 'Gauchers' },
+            { value: 'droitier', label: lateralityPlural('droitier', r.sex) },
+            { value: 'gaucher', label: lateralityPlural('gaucher', r.sex) },
             { value: 'ambidextre', label: 'Ambi.' },
           ]}
         />
@@ -399,11 +428,11 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
             + Ajouter un test
           </button>
         )}
-        <p className="text-[10px] text-muted">Dernière valeur du joueur. « ≤ » pour les temps (ex. 30 m ≤ 4,3 s).</p>
+        <p className="text-[10px] text-muted">Dernière valeur {w(r.sex).duJoueur}. « ≤ » pour les temps (ex. 30 m ≤ 4,3 s).</p>
       </div>
 
       <div className="card flex flex-col gap-2 p-4">
-        <div className="section-title mb-0">Avis des observateurs</div>
+        <div className="section-title mb-0">Avis du staff</div>
         {(r.avis ?? []).map((a, i) => (
           <div key={i} className="flex items-center gap-2">
             <select
@@ -429,12 +458,12 @@ function AlertForm({ alert, onDone }: { alert?: PlayerAlert; onDone: (a?: Player
             + Ajouter un critère d’avis
           </button>
         )}
-        <p className="text-[10px] text-muted">Moyenne des avis validés du joueur sur ce critère.</p>
+        <p className="text-[10px] text-muted">Moyenne des avis validés {w(r.sex).duJoueur} sur ce critère.</p>
       </div>
 
       <div className="sticky bottom-[var(--nav-b)] z-10 -mx-4 flex items-center gap-2 border-t border-line bg-bg px-4 py-2">
         <span className="shrink-0 text-[11px] text-muted">
-          <b className="text-fg">{count}</b> joueur{count > 1 ? 's' : ''} aujourd’hui
+          <b className="text-fg">{count}</b> {accord('joueur', r.sex, count)} aujourd’hui
         </span>
         <button className="btn-primary flex-1" disabled={!name.trim() || busy} onClick={() => void submit()}>
           {alert ? 'Enregistrer' : 'Créer le profil'}

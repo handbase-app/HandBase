@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { snapshots } from './components/MaturityCard'
+import { snapshots } from './maturitySnapshot'
+import { lateralityPlural, sexLabel } from './gender'
 import { department } from './components/PlayerFilter'
 import { birthQuarter } from './components/ui'
 import { alive, counts, db, positionLabel, type AlertRules, type Criterion, type Evaluation, type Measurement, type Player, type PlayerAlert } from './db'
 import { zoneSummary } from './lists'
 import { sharedQuery, useShared } from './live'
 import { latestByPlayer } from './pages/Players'
+import { loadAllMeasures, loadPlayerRows } from './playersCache'
 import { can, currentUserId, useRole } from './roles'
 
 /*
@@ -31,10 +33,15 @@ const created = (r: { createdAtServer?: string; updatedAt: number }) => {
   return isNaN(t) ? r.updatedAt : t
 }
 
-export async function loadAlertContext(): Promise<AlertContext> {
+/**
+ * `shared` : fiches et mesures prises dans la mémoire de l'appli (src/playersCache.ts : mêmes lignes, même ordre, lues une
+ * fois pour la liste Joueurs, le bilan et les profils) ; pour le calcul partagé (alertsStore), hors useLiveQuery. Sans
+ * (page Profils recherchés, dans un useLiveQuery) : lues ici, pour que Dexie suive ces tables.
+ */
+export async function loadAlertContext(shared = false): Promise<AlertContext> {
   const [players, measurements, evaluations, criteria] = await Promise.all([
-    db.players.toArray().then((ps) => alive(ps).filter((p) => !p.mergedInto && p.review !== 'refused')),
-    db.measurements.toArray().then(alive),
+    (shared ? loadPlayerRows() : db.players.toArray().then(alive)).then((ps) => ps.filter((p) => !p.mergedInto && p.review !== 'refused')),
+    (shared ? loadAllMeasures() : db.measurements.toArray()).then(alive),
     db.evaluations.toArray().then((es) => alive(es)),
     db.criteria.toArray().then(alive),
   ])
@@ -123,14 +130,14 @@ export function missingFor(p: Player, r: AlertRules, ctx: AlertContext, criteria
 
 export const matchAlert = (a: PlayerAlert, ctx: AlertContext) => ctx.players.filter((p) => matches(p, a.rules, ctx))
 
-/** Résumé lisible des conditions : « Garçons · 2010, 2011 · gauchers · taille prédite ≥ 190 cm ». */
+/** Résumé lisible des conditions : « Masculin · 2010, 2011 · gauchers · taille prédite ≥ 190 cm » (« gauchères » si Féminin). */
 export function rulesSummary(r: AlertRules, criteria: Criterion[]) {
   const label = (id: string) => criteria.find((c) => c.id === id)
   return [
-    r.sex === 'M' ? 'Garçons' : r.sex === 'F' ? 'Filles' : '',
+    sexLabel(r.sex),
     r.years?.length ? r.years.join(', ') : '',
     r.quarters?.length ? r.quarters.map((q) => `Q${q}`).join(', ') : '',
-    r.laterality ? { droitier: 'droitiers', gaucher: 'gauchers', ambidextre: 'ambidextres' }[r.laterality] : '',
+    r.laterality ? lateralityPlural(r.laterality, r.sex).toLowerCase() : '',
     r.positions?.length ? r.positions.map((x) => positionLabel(x)).join(', ') + (r.withSecondary ? ' (+ secondaires)' : '') : '',
     r.departments?.length ? zoneSummary(r.departments) : '',
     r.minHeight ? `taille ≥ ${r.minHeight} cm${r.keepMissingHeight ? ' (ou inconnue)' : ''}` : '',
@@ -219,11 +226,11 @@ export function markSeen(alertId: string, ids: string[]) {
 
 const EMPTY_CONTEXT: AlertContext = { players: [], measurements: [], latest: new Map(), byPlayer: new Map(), avis: new Map(), criteria: [], lastActivity: new Map() }
 
-/** Alertes visibles avec leurs joueurs et les nouveaux (entrés depuis la dernière visite). */
-export async function computeAlerts() {
+/** Alertes visibles avec leurs joueurs et les nouveaux (entrés depuis la dernière visite) ; `shared` : voir loadAlertContext. */
+export async function computeAlerts(shared = false) {
   const alerts = await db.alerts.toArray().then((as) => alive(as).filter(can.seeGroup))
   // Aucune alerte : inutile de lire toute la base.
-  const ctx = alerts.length ? await loadAlertContext() : EMPTY_CONTEXT
+  const ctx = alerts.length ? await loadAlertContext(shared) : EMPTY_CONTEXT
   return {
     ctx,
     alerts: alerts
@@ -243,7 +250,7 @@ export async function computeAlerts() {
 let computedFor: string | null | undefined
 const alertsStore = sharedQuery(['players', 'measurements', 'evaluations', 'criteria', 'alerts'], () => {
   computedFor = currentUserId()
-  return computeAlerts()
+  return computeAlerts(true)
 })
 
 export type AlertsResult = Awaited<ReturnType<typeof computeAlerts>>

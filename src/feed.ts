@@ -1,8 +1,11 @@
 import { alive, contextLabel, db, fmtDate, localDay, plural, type HBEvent, type Player } from './db'
+import { genderOf, pluralG, setGender } from './gender'
 import { department } from './components/PlayerFilter'
 import { can, currentUserId, groupTag, myDepartments } from './roles'
 import { loadTeams } from './teams'
+import { withPoleMembers } from './poleMembers'
 import { momentsShort, sourceLabel } from './videos'
+import { focusLink } from './playerFocus'
 import type { IconName } from './components/ui'
 import type { AlertsResult } from './alerts'
 
@@ -93,7 +96,7 @@ export async function buildFeed({
   const me = currentUserId()
   // Staffs relus d'abord : ils comptent dans les participants (can.seeGroup).
   await loadTeams()
-  const [players, measurements, evaluations, events, groups, criteria, videos] = await Promise.all([
+  const [players, measurements, evaluations, events, storedGroups, criteria, videos] = await Promise.all([
     db.players.toArray(),
     db.measurements.toArray().then(alive),
     db.evaluations.toArray().then(alive),
@@ -102,6 +105,8 @@ export async function buildFeed({
     db.criteria.toArray(),
     db.videos.toArray().then(alive),
   ])
+  // Groupe Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée).
+  const groups = await withPoleMembers(storedGroups, players)
   const byId = new Map(players.map((p) => [p.id, p]))
   const evById = new Map<string, HBEvent>(events.map((e) => [e.id, e]))
   const crit = new Map(criteria.map((c) => [c.id, c.label]))
@@ -132,9 +137,10 @@ export async function buildFeed({
       time: latest(rs),
       author: rs[0].createdByName ?? rs[0].author,
       authorId: rs[0].createdBy,
-      text: `${plural(rs.length, 'mesure')} sur ${pids.length === 1 ? nameOf(byId.get(pids[0])) : plural(pids.length, 'joueur')}`,
+      text: `${plural(rs.length, 'mesure')} sur ${pids.length === 1 ? nameOf(byId.get(pids[0])) : pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))}`,
       detail: `${tests.length <= 3 ? tests.join(', ') : plural(tests.length, 'test')} · tests ${dateRange(rs.map((m) => m.date))}`,
-      to: pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
+      // Un seul joueur : sa fiche sur la courbe du test (un seul test) ou sur l'onglet Tests (src/playerFocus.ts).
+      to: pids.length !== 1 ? undefined : tests.length === 1 ? focusLink(pids[0], { kind: 'mesure', id: rs[0].criterionId, row: rs.length === 1 ? rs[0].id : undefined }) : `/joueurs/${pids[0]}?onglet=tests`,
     })
   }
 
@@ -149,11 +155,11 @@ export async function buildFeed({
       key: `e|${k}`,
       kind: 'evaluations',
       time: latest(rs),
-      author: who.length <= 3 ? who.map(([, n]) => n).join(', ') : `${who.length} observateurs`,
+      author: who.length <= 3 ? who.map(([, n]) => n).join(', ') : `${who.length} personnes`,
       authorId: who.length === 1 ? who[0][0] : undefined,
       text: `${plural(rs.length, 'avis', 'avis')} · ${ev ? ev.name : rs.length === 1 ? contextLabel(rs[0]) : 'avis spontanés'}`,
-      detail: [`${plural(pids.length, 'joueur')} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
-      to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? `/joueurs/${pids[0]}` : undefined,
+      detail: [`${pluralG(pids.length, genderOf(pids.map((id) => byId.get(id))))} : ${listNames(pids.map((id) => byId.get(id)))}`, pending && `${pending} à valider`].filter(Boolean).join(' · '),
+      to: ev && !ev.deleted ? `/evenements/${ev.id}` : pids.length === 1 ? focusLink(pids[0], { kind: 'avis', id: rs.length === 1 ? rs[0].id : 'tous' }) : undefined,
     })
   }
 
@@ -175,7 +181,7 @@ export async function buildFeed({
       authorId: v.createdBy,
       text: `${rs.length === 1 ? 'nouvelle vidéo' : `${rs.length} nouvelles vidéos`} : ${subject}`,
       detail: rs.map((x) => [x.title || sourceLabel(x.url), momentsShort(x)].filter(Boolean).join(' ')).join(' · '),
-      to: v.targetKind === 'player' ? `/joueurs/${v.targetId}` : `/evenements/${v.targetId}`,
+      to: v.targetKind === 'player' ? focusLink(v.targetId, { kind: 'video', id: rs.length === 1 ? v.id : 'toutes' }) : `/evenements/${v.targetId}?onglet=video`,
     })
   }
 
@@ -222,7 +228,7 @@ export async function buildFeed({
       author: g.createdByName,
       authorId: g.createdBy,
       text: `nouveau groupe : ${g.name}${groupTag(g)}`,
-      detail: plural(g.playerIds.length, 'joueur'),
+      detail: pluralG(g.playerIds.length, setGender(g.sex, g.playerIds.map((id) => byId.get(id)))),
       to: `/groupes/${g.id}`,
     })
   }
@@ -261,7 +267,7 @@ export async function buildFeed({
       kind: 'alerts',
       time,
       text: `Profil recherché « ${alert.name} » : ${listNames(fresh)}`,
-      detail: `${plural(fresh.length, 'nouveau joueur', 'nouveaux joueurs')} correspond${fresh.length > 1 ? 'ent' : ''}`,
+      detail: `${pluralG(fresh.length, genderOf(fresh), 'nouveau joueur')} correspond${fresh.length > 1 ? 'ent' : ''}`,
       to: `/alertes/${alert.id}`,
     })
   }

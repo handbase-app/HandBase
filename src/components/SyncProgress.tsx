@@ -1,16 +1,24 @@
 import { useSyncState } from '../sync'
-import { percent, progressLabel, showProgress } from '../syncProgress'
+import { BUSY_LABEL, KEEP_OPEN_LABEL, percent, progressLabel, showProgress } from '../syncProgress'
 
-/** Gros téléchargement (premier chargement) : barre fine sous l'en-tête, avec le compte des éléments reçus. */
+/**
+ * Gros téléchargement (premier chargement, entré dès les premiers joueurs reçus ; gros retard) : barre fine sous l'en-tête,
+ * avec le compte des éléments reçus. Serveur très demandé (requête qui attend son tour, src/retry.ts) : une ligne discrète.
+ */
 export function SyncProgressBar() {
-  const { state, progress } = useSyncState()
-  if (state !== 'syncing' || !showProgress(progress)) return null
+  const { state, progress, busy } = useSyncState()
+  const bar = showProgress(progress)
+  if (state !== 'syncing' || (!bar && !busy)) return null
   return (
     <div className="absolute inset-x-0 top-full border-b border-line bg-bg/95 backdrop-blur" role="status">
-      <div className="h-1 bg-line">
-        <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${percent(progress)}%` }} />
-      </div>
-      <p className="truncate px-4 py-1 text-[10px] font-bold text-muted">{progressLabel(progress)}…</p>
+      {bar && (
+        <div className="h-1 bg-line">
+          <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${percent(progress)}%` }} />
+        </div>
+      )}
+      {/* Message d'attente en couleur du texte (contraste 13:1 au moins dans tous les thèmes ; l'atténué descend à 4,6:1). */}
+      <p className={`truncate px-4 py-1 text-[10px] font-bold ${busy ? 'text-fg' : 'text-muted'}`}>{busy ? BUSY_LABEL : bar ? `${progressLabel(progress)}…` : ''}</p>
+      {bar && !busy && <p className="px-4 pb-1 text-[11px] font-bold leading-tight text-fg">📱 {KEEP_OPEN_LABEL}</p>}
     </div>
   )
 }

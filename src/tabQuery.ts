@@ -1,0 +1,107 @@
+/*
+ * Onglet d'une fiche gardé dans l'adresse (?onglet=…, sans paramètre pour l'onglet par défaut), et gardé quand on passe
+ * d'un élément à l'autre (clic dans la liste de gauche, glisser la fiche sur téléphone, ↑ ↓) : on compare la croissance de plusieurs joueurs sans
+ * revenir chaque fois sur « Profil ». Même règle que les onglets d'un événement (src/pages/Events.tsx).
+ */
+import { POLE_VIEW_DEFAULT, POLE_VIEWS, type PoleView } from './poleSeason'
+
+/**
+ * Onglets de la fiche d'un joueur (src/pages/PlayerDetail.tsx), dans l'ordre affiché, « profil » par défaut. Depuis le
+ * 30/10 : « videos » (avant : une carte de « Profil ») et « compte » (Compte joueur : l'accès à l'espace joueur, pour qui
+ * peut s'en servir ; avant : une carte de « Profil »). Depuis le 09/11 : « wellness » (staff du groupe qui le demande,
+ * src/components/PlayerWellness.tsx).
+ */
+export const PLAYER_TABS = ['profil', 'croissance', 'tests', 'videos', 'avis', 'wellness', 'compte'] as const
+export type PlayerTab = (typeof PLAYER_TABS)[number]
+export const PLAYER_TAB_DEFAULT: PlayerTab = 'profil'
+
+/**
+ * Onglets de « Ma page » du jeune (/moi, src/pages/Me.tsx, 09/11), dans l'ordre affiché : Aujourd'hui (wellness, séance,
+ * objectifs, « Comment ça s'est passé ? » à remplir), Mes tests, Mes matchs (sport avec feuilles de match), Mon cahier
+ * (journal), Ma lampe, Moi (lettre, repères, parcours, équipe). Toujours écrit dans l'adresse (?onglet=…, aperçu :
+ * ?joueur=…&onglet=…) dès qu'on en choisit un : « Retour » ramène au même onglet ; sans paramètre (menu), le dernier ouvert
+ * sur l'appareil, sinon « Aujourd'hui ».
+ */
+export const ME_TABS = ['aujourdhui', 'tests', 'matchs', 'cahier', 'lampe', 'moi'] as const
+export type MeTab = (typeof ME_TABS)[number]
+export const ME_TAB_DEFAULT: MeTab = 'aujourdhui'
+
+/**
+ * Onglet ouvert de « Ma page » : celui de l'adresse s'il y en a un ; sinon `remembered` (le dernier ouvert sur l'appareil).
+ * Onglet inconnu ou caché (`hidden` : Mes matchs pour un sport sans match…) : « Aujourd'hui », jamais caché.
+ */
+export function meTabOf(search: string, remembered: string | null | undefined, hidden: readonly string[] = []): MeTab {
+  const asked = new URLSearchParams(search).get('onglet')
+  const pick = asked ?? remembered
+  return ME_TABS.find((t) => t === pick && (t === ME_TAB_DEFAULT || !hidden.includes(t))) ?? ME_TAB_DEFAULT
+}
+
+/** `search` de « Ma page » avec l'onglet `tab`, toujours écrit (même « Aujourd'hui ») ; autres paramètres (?joueur=…) gardés. */
+export const withMeTab = (search: string, tab: MeTab) => withTab(search, tab, ME_TABS, '')
+
+/**
+ * Paramètre de l'onglet de la fiche d'un joueur. Sous /bilan/joueurs, `onglet` est déjà celui du bilan (licenciés, vus…),
+ * gardé d'un joueur à l'autre pour la liste de gauche et le retour : la fiche y prend `fiche`.
+ */
+export const playerTabParam = (pathname: string) => (pathname.startsWith('/bilan/joueurs') ? 'fiche' : 'onglet')
+
+/** Onglet lu dans `search` s'il fait partie de `tabs` ; sinon (absent, inconnu) l'onglet par défaut. */
+export function tabOf<T extends string>(search: string, tabs: readonly T[], def: T, key = 'onglet'): T {
+  const v = new URLSearchParams(search).get(key)
+  return tabs.find((t) => t === v) ?? def
+}
+
+/**
+ * `search` (« ?… » ou vide) avec l'onglet `tab` à la place de celui qu'il porte ; sans paramètre pour l'onglet par
+ * défaut ou un onglet que l'élément n'a pas. Les autres paramètres (état de la liste d'origine) restent tels quels.
+ */
+export function withTab(search: string, tab: string | null | undefined, tabs: readonly string[], def: string, key = 'onglet'): string {
+  const q = new URLSearchParams(search)
+  q.delete(key)
+  if (tab && tab !== def && tabs.includes(tab)) q.set(key, tab)
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+/** `search` de l'élément suivant : celui de la liste (`search`), plus l'onglet ouvert maintenant (`current`). */
+export const keepTab = (search: string, current: string, tabs: readonly string[], def: string, key = 'onglet') =>
+  withTab(search, new URLSearchParams(current).get(key), tabs, def, key)
+
+
+/**
+ * Vue du radar des avis (comparaison, src/pages/Compare.tsx, et fiche d'un joueur, src/components/Opinions.tsx ; ?radar=…) : « complet » ou « familles ». Sans paramètre, selon
+ * l'écran (complet sur écran large, par famille sur téléphone) ; un choix est toujours écrit dans l'adresse, pour que le
+ * lien partagé ouvre la même vue sur un autre écran.
+ */
+export const RADAR_VIEWS = ['complet', 'familles'] as const
+export type RadarView = (typeof RADAR_VIEWS)[number]
+export const RADAR_KEY = 'radar'
+export const radarViewOf = (search: string, phone: boolean): RadarView => tabOf(search, RADAR_VIEWS, phone ? 'familles' : 'complet', RADAR_KEY)
+/** `search` avec la vue `view` (jamais retirée : pas de défaut commun à tous les écrans), autres paramètres gardés. */
+export const withRadarView = (search: string, view: RadarView) => withTab(search, view, RADAR_VIEWS, '', RADAR_KEY)
+/**
+ * Onglet Avis de la fiche (src/components/Opinions.tsx, 05/11) : un seul segment « Complet | Par famille | Tableau »,
+ * même paramètre ?radar=… (« tableau » en plus ; la comparaison, qui n'a pas de tableau, l'ignore : vue de l'écran).
+ */
+export const AVIS_VIEWS = ['complet', 'familles', 'tableau'] as const
+export type AvisView = (typeof AVIS_VIEWS)[number]
+export const avisViewOf = (search: string, phone: boolean): AvisView => tabOf(search, AVIS_VIEWS, phone ? 'familles' : 'complet', RADAR_KEY)
+export const withAvisView = (search: string, view: AvisView) => withTab(search, view, AVIS_VIEWS, '', RADAR_KEY)
+
+/**
+ * Même chose pour la fiche d'un joueur, selon l'adresse ouverte (`pathname`, `current` : la page affichée). La vue du
+ * radar des avis (?radar=…) choisie sur la fiche reste aussi la même d'un joueur à l'autre.
+ */
+export function keepPlayerTab(search: string, pathname: string, current: string) {
+  const s = keepTab(search, current, PLAYER_TABS, PLAYER_TAB_DEFAULT, playerTabParam(pathname))
+  const radar = AVIS_VIEWS.find((v) => v === new URLSearchParams(current).get(RADAR_KEY))
+  return radar ? withAvisView(s, radar) : s
+}
+
+/**
+ * Vue d'un groupe Pôle (src/poleSeason.ts ; page du groupe, fiche ouverte depuis lui, export) : « Saison en cours »
+ * (sans paramètre) ou « Saison prochaine » (?saison=prochaine). Gardée d'un joueur à l'autre et au retour.
+ */
+export const POLE_VIEW_KEY = 'saison'
+export const poleViewOf = (search: string): PoleView => tabOf(search, POLE_VIEWS, POLE_VIEW_DEFAULT, POLE_VIEW_KEY)
+export const withPoleView = (search: string, view: PoleView) => withTab(search, view, POLE_VIEWS, POLE_VIEW_DEFAULT, POLE_VIEW_KEY)

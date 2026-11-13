@@ -2,78 +2,17 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Link } from 'react-router-dom'
 import { db, fmtDate, type Measurement, type Player } from '../db'
 import { Icon, InfoButton } from './ui'
-import {
-  correctedParentHeight,
-  decimalAge,
-  khamisRoche,
-  MEAN_APHV,
-  mirwald,
-  moore,
-  offsetReliable,
-  phase,
-  PHASE_LABEL,
-  round,
-  stage,
-  STAGE_LABEL,
-  timing,
-  TIMING_LABEL,
-  type KRResult,
-} from '../maturity'
+import { MEAN_APHV, offsetReliable, pahShown, phase, PHASE_LABEL, round, sittingPlausible, stage, STAGE_LABEL, timing, TIMING_LABEL, type Sex } from '../maturity'
+import { snapshots, type Snapshot } from '../maturitySnapshot'
+import { accord, w } from '../gender'
+
+/** Gardé pour les imports existants : la logique est dans src/maturitySnapshot.ts (sans JSX). */
+export { snapshots }
 
 const f1 = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const signed = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '') + f1(Math.abs(n))
-
-/** Valeur numérique la plus récente d'un critère à une date donnée (incluse). */
-function valueAt(ms: Measurement[], criterionId: string, date: string): number | undefined {
-  let best: Measurement | undefined
-  for (const m of ms)
-    if (m.criterionId === criterionId && typeof m.value === 'number' && m.date <= date && (!best || m.date > best.date)) best = m
-  return best?.value as number | undefined
-}
-
-interface Snapshot {
-  date: string
-  age: number
-  height: number
-  mirwald: number | null
-  moore: number
-  kr: KRResult | null
-}
-
-/** Une estimation par date de mesure de la taille, pour suivre l'évolution. */
-export function snapshots(p: Player, ms: Measurement[]): Snapshot[] {
-  if (!p.sex || !p.birthDate) return []
-  const sex = p.sex
-  const dates = [...new Set(ms.filter((m) => m.criterionId === 'taille' && typeof m.value === 'number').map((m) => m.date))].sort()
-  const parents =
-    p.motherHeight !== undefined && p.fatherHeight !== undefined
-      ? {
-          mother: correctedParentHeight(p.motherHeight, 'mere', p.motherHeightSource !== 'mesuree'),
-          father: correctedParentHeight(p.fatherHeight, 'pere', p.fatherHeightSource !== 'mesuree'),
-        }
-      : null
-  return dates.flatMap((date) => {
-    const age = decimalAge(p.birthDate!, date)
-    const height = valueAt(ms, 'taille', date)
-    if (age === null || height === undefined) return []
-    const weight = valueAt(ms, 'poids', date)
-    const sitting = valueAt(ms, 'taille_assise', date)
-    const input = { sex, age, height, weight, sitting }
-    return [
-      {
-        date,
-        age,
-        height,
-        mirwald: mirwald(input),
-        moore: moore(input),
-        kr:
-          parents && weight !== undefined
-            ? khamisRoche({ sex, age, height, weight, motherHeight: parents.mother, fatherHeight: parents.father })
-            : null,
-      },
-    ]
-  })
-}
+/** « an » jusqu'à 1,9 (« 1,5 an »), « ans » à partir de 2. */
+const yr = (n: number) => (Math.abs(n) >= 1.95 ? 'ans' : 'an')
 
 export function MaturityCard({ player: p, measurements }: { player: Player; measurements: Measurement[] }) {
   const missing: string[] = []
@@ -82,9 +21,9 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
   if (!measurements.some((m) => m.criterionId === 'taille')) missing.push('la taille')
 
   const snaps = snapshots(p, measurements)
+  const g = w(p.sex)
   const last = snaps[snaps.length - 1]
   const noParents = p.motherHeight === undefined || p.fatherHeight === undefined
-  const noSitting = !measurements.some((m) => m.criterionId === 'taille_assise')
   const noWeight = !measurements.some((m) => m.criterionId === 'poids')
   // Critères taille, poids, taille assise (identifiants fixes) absents de la base : on ne peut pas les saisir.
   const absent = useLiveQuery(
@@ -100,15 +39,27 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
         <InfoButton title="Maturité & croissance">
           <p>Estimations calculées à partir des mesures : pas des certitudes.</p>
           <p>
-            <b>Pic de croissance</b> (Mirwald 2002, Moore 2015) : écart en années avec le moment où le joueur grandit le plus vite. Négatif =
-            pic à venir, positif = pic passé.{p.sex ? ` Âge moyen au pic : ${f1(MEAN_APHV[p.sex])} ans.` : ''} Marge d’environ ±1 an ; ces
-            équations sous-estiment l’écart des joueurs très précoces ou très tardifs (le décalage est ramené vers la moyenne).
+            <b>Âge au pic de croissance</b> : trois modèles (Mirwald 2002, Moore 2015, Fransen 2018 pour les garçons) estiment l’écart en
+            années avec le moment où {g.leJoueur} grandit le plus vite. Négatif = pic à venir, positif = pic passé.
+            {p.sex ? ` Âge moyen au pic : ${f1(MEAN_APHV[p.sex])} ans.` : ''} La <b>moyenne</b> des modèles disponibles sert de repère
+            (précoce, dans la norme, tardif ; avant, autour, après le pic). Marge d’environ ±1 an ; ces équations ramènent vers la moyenne
+            les {g.joueurs} très précoces ou très {accord('tardif', p.sex, 2)}.
           </p>
           <p>
-            <b>Taille adulte prédite</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
-            marge à 90 %. Le pourcentage de taille adulte atteinte situe le joueur dans sa croissance.
+            Mirwald et Fransen demandent la taille, la taille assise (sans le banc) et le poids, pris <b>le même jour</b> (un jeune
+            peut prendre 10 cm en deux mois) ; Moore n’utilise que l’âge et une taille.
           </p>
-          <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter un joueur.</p>
+          <p>
+            <b>Taille adulte sans les parents</b> (garçons) : taille actuelle + croissance restante, lue dans une table selon le décalage
+            et la catégorie de maturité (âge au pic avant 13 ans, de 13 à 15 ans, après 15 ans), méthode de Sherar 2005. Calculée pour chaque
+            modèle avec son propre âge au pic, puis moyennée. Marge d’environ ±5 cm ; la table a été construite avec Mirwald, Moore et
+            Fransen sont indicatifs. Pas de table pour les filles.
+          </p>
+          <p>
+            <b>Taille adulte prédite avec les parents</b> (Khamis-Roche 1994) : à partir de l’âge, de la taille, du poids et de la taille des parents, avec sa
+            marge à 90 %. Le pourcentage de taille adulte atteinte situe {g.leJoueur} dans sa croissance.
+          </p>
+          <p>À utiliser pour adapter l’entraînement et regrouper par maturité, jamais seul pour sélectionner ou écarter {g.unJoueur}.</p>
         </InfoButton>
       </div>
 
@@ -122,51 +73,100 @@ export function MaturityCard({ player: p, measurements }: { player: Player; meas
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <OffsetBlock snap={last} sex={p.sex!} noSitting={noSitting} noWeight={noWeight} />
+          <OffsetBlock snap={last} sex={p.sex!} />
           <AdultHeightBlock snap={last} noParents={noParents} noWeight={noWeight} playerId={p.id} />
-          {snaps.length > 1 && <History snaps={snaps} />}
+          {snaps.length > 1 && <History snaps={snaps} sex={p.sex!} />}
         </div>
       )}
     </div>
   )
 }
 
-function OffsetBlock({ snap, sex, noSitting, noWeight }: { snap: Snapshot; sex: 'M' | 'F'; noSitting: boolean; noWeight: boolean }) {
-  const ref = snap.mirwald ?? snap.moore
-  const ph = phase(ref)
-  const reliable = offsetReliable(snap.age, ref)
-  const methods = [
-    { name: 'Mirwald', offset: snap.mirwald },
-    { name: 'Moore', offset: snap.moore },
+/** Ce qui manque à Mirwald / Fransen pour cette taille. */
+function lacks(snap: Snapshot) {
+  const l = [snap.sitting === undefined && 'taille assise', snap.weight === undefined && 'poids'].filter(Boolean)
+  return `Manque : ${l.join(' / ') || 'mesures cohérentes'}`
+}
+
+function OffsetBlock({ snap, sex }: { snap: Snapshot; sex: Sex }) {
+  const { offset: mean, n } = snap.mean
+  const ph = phase(mean)
+  const reliable = offsetReliable(snap.age, mean)
+  const meanAphv = snap.age - mean
+  const boy = sex === 'M'
+  // Colonne « Taille adulte » (sans les parents) : garçons seulement, la table filles n'existe pas.
+  const grid = boy ? 'grid-cols-[minmax(0,1fr)_auto_auto_auto]' : 'grid-cols-[minmax(0,1fr)_auto_auto]'
+  const rows: { name: string; detail?: string; offset: number | null; adult: number | null; note?: string }[] = [
+    { name: 'Mirwald', detail: '2002', offset: snap.mirwald, adult: snap.adult.mirwald },
+    { name: 'Moore', detail: boy ? (snap.sitting !== undefined ? '2015 · taille assise' : '2015 · taille') : '2015', offset: snap.moore, adult: snap.adult.moore },
+    { name: 'Fransen', detail: '2018', offset: snap.fransen, adult: snap.adult.fransen, note: sex === 'F' ? 'Non applicable aux filles' : undefined },
   ]
+  const cm = (v: number | null) => (v === null ? '—' : `${Math.round(v)} cm`)
   return (
     <div>
-      <div className="section-title">Pic de croissance (au {fmtDate(snap.date)}, {f1(snap.age)} ans)</div>
-      <div className="grid grid-cols-2 gap-2">
-        {methods.map(({ name, offset }) => (
-          <div key={name} className="rounded-lg border border-line bg-panel-2 p-2.5">
-            <div className="text-[10px] text-muted">{name}</div>
+      <div className="section-title">
+        Âge au pic de croissance <span className="font-bold text-muted normal-case">· au {fmtDate(snap.date)}, {f1(snap.age)} ans</span>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-line">
+        <div className={`grid ${grid} items-end gap-x-2 bg-panel-2 px-2.5 py-1.5 text-[10px] text-muted sm:gap-x-3`}>
+          <span>Modèle</span>
+          <span className="w-[4.25rem] text-right">Décalage</span>
+          <span className="w-[4.25rem] text-right">Âge au pic</span>
+          {boy && <span className="w-[3.5rem] text-right leading-tight">Taille adulte</span>}
+        </div>
+        {rows.map(({ name, detail, offset, adult, note }) => (
+          <div key={name} className={`grid ${grid} items-baseline gap-x-2 border-t border-line px-2.5 py-1.5 text-xs sm:gap-x-3`}>
+            <span className="min-w-0">
+              <b>{name}</b> <span className="text-[10px] text-muted">{detail}</span>
+            </span>
             {offset === null ? (
-              <div className="text-[11px] text-muted">
-                Manque {[noSitting && 'la taille assise', noWeight && 'le poids'].filter(Boolean).join(' et ')}
-              </div>
+              <span className={`${boy ? 'col-span-3' : 'col-span-2'} text-right text-[11px] text-muted`}>{note ?? lacks(snap)}</span>
             ) : (
               <>
-                <div className="text-base font-extrabold">{signed(offset)} an</div>
-                <div className="text-[10px] text-muted">
-                  pic estimé à {f1(snap.age - offset)} ans · {TIMING_LABEL[timing(sex, snap.age - offset)].toLowerCase()}
-                </div>
+                <span className="w-[4.25rem] text-right font-bold tabular-nums">{signed(offset)} {yr(offset)}</span>
+                <span className="w-[4.25rem] text-right tabular-nums">{f1(snap.age - offset)} ans</span>
+                {boy && <span className="w-[3.5rem] text-right tabular-nums">{cm(adult)}</span>}
               </>
             )}
           </div>
         ))}
+        <div className={`grid ${grid} items-baseline gap-x-2 border-t border-accent/40 bg-accent-soft px-2.5 py-2 ${boy ? 'text-[13px] sm:text-sm' : 'text-sm'} sm:gap-x-3`}>
+          <span className="min-w-0">
+            <b>Moyenne</b> <span className="text-[10px] text-muted">sur {n} modèle{n > 1 ? 's' : ''}</span>
+          </span>
+          <span className="w-[4.25rem] text-right font-extrabold tabular-nums">{signed(mean)} {yr(mean)}</span>
+          <span className="w-[4.25rem] text-right font-extrabold tabular-nums">{f1(meanAphv)} ans</span>
+          {boy && <span className="w-[3.5rem] text-right font-extrabold tabular-nums">{cm(snap.adult.mean?.height ?? null)}</span>}
+        </div>
+      </div>
+      <div className="mt-1.5 text-[10px] leading-snug text-muted">
+        {boy ? (
+          <>
+            <b>Taille adulte</b> estimée sans les parents
+            {rows.some((r) => r.offset !== null && r.adult === null) && ' (— : décalage hors de la table, −4 à +4 ans)'}
+            {snap.adult.mean && snap.adult.mean.n !== n && ` (moyenne sur ${snap.adult.mean.n} modèle${snap.adult.mean.n > 1 ? 's' : ''})`} : table de croissance restante (Sherar 2005),
+            garçons ; marge ≈ ±5 cm ; Moore et Fransen : indicatif, la table a été construite avec Mirwald.
+          </>
+        ) : (
+          <>Taille adulte sans les parents : table filles non disponible.</>
+        )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
         <span className="rounded border border-accent/50 bg-accent-soft px-1.5 py-0.5 font-bold text-accent">{PHASE_LABEL[ph]}</span>
+        <span className="rounded border border-line bg-panel-2 px-1.5 py-0.5 font-bold">{accord(TIMING_LABEL[timing(sex, meanAphv)], sex)}</span>
+        <span className="text-muted">âge moyen au pic : {f1(MEAN_APHV[sex])} ans</span>
       </div>
+      {snap.sitting !== undefined && !sittingPlausible(snap.height, snap.sitting) && (
+        <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />
+          Taille assise à vérifier : {round(snap.sitting)} cm pour {round(snap.height)} cm debout (d’habitude 48 à 56 %). La hauteur du banc
+          est-elle déduite ?
+        </div>
+      )}
       {!reliable && (
         <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
-          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : 'joueur loin de son pic'}.
+          <Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />
+          Fiabilité réduite : {snap.age > 16.5 || snap.age < 8 ? 'âge hors de la plage des équations (8–16 ans)' : `${w(sex).joueur} loin de son pic`}.
         </div>
       )}
     </div>
@@ -177,7 +177,7 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
   if (!snap.kr) {
     return (
       <div>
-        <div className="section-title">Taille adulte prédite</div>
+        <div className="section-title">Taille adulte prédite avec les parents</div>
         <div className="text-xs text-muted">
           {noParents ? (
             <>
@@ -201,14 +201,14 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
   const pos = (v: number) => `${Math.min(100, Math.max(0, ((v - 80) / 20) * 100))}%`
   return (
     <div>
-      <div className="section-title">Taille adulte prédite (Khamis-Roche)</div>
+      <div className="section-title">Taille adulte prédite avec les parents (Khamis-Roche)</div>
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-lg border border-line bg-panel-2 p-2">
           <div className="text-base font-extrabold">{Math.round(predicted)} cm</div>
           <div className="text-[10px] text-muted">± {Math.round(error90)} cm (90 %)</div>
         </div>
         <div className="rounded-lg border border-line bg-panel-2 p-2">
-          <div className="text-base font-extrabold">{f1(pah)} %</div>
+          <div className="text-base font-extrabold">{f1(pahShown(pah))} %</div>
           <div className="text-[10px] text-muted">taille adulte atteinte</div>
         </div>
         <div className="rounded-lg border border-line bg-panel-2 p-2">
@@ -238,12 +238,13 @@ function AdultHeightBlock({ snap, noParents, noWeight, playerId }: { snap: Snaps
   )
 }
 
-function History({ snaps }: { snaps: Snapshot[] }) {
+function History({ snaps, sex }: { snaps: Snapshot[]; sex: Sex }) {
+  const cell = (v: number | null) => (v === null ? '—' : signed(v))
   return (
     <div>
-      <div className="section-title">Évolution</div>
+      <div className="section-title">Évolution (décalage par rapport au pic, en années)</div>
       <div className="-mx-1 overflow-x-auto">
-        <table className="w-full text-[11px]">
+        <table className="w-full text-[11px] whitespace-nowrap">
           <thead className="text-[10px] text-muted">
             <tr>
               <th className="px-1 py-1 text-left">Date</th>
@@ -251,18 +252,22 @@ function History({ snaps }: { snaps: Snapshot[] }) {
               <th className="px-1">Taille</th>
               <th className="px-1">Mirwald</th>
               <th className="px-1">Moore</th>
+              {sex === 'M' && <th className="px-1">Fransen</th>}
+              <th className="px-1 text-fg">Moyenne</th>
               <th className="px-1">% adulte</th>
             </tr>
           </thead>
           <tbody>
             {[...snaps].reverse().map((s) => (
-              <tr key={s.date} className="border-t border-line text-center">
+              <tr key={s.date} className="border-t border-line text-center tabular-nums">
                 <td className="px-1 py-1 text-left font-bold">{fmtDate(s.date)}</td>
                 <td className="px-1">{f1(s.age)}</td>
-                <td className="px-1">{round(s.height)}</td>
-                <td className="px-1">{s.mirwald === null ? '—' : signed(s.mirwald)}</td>
-                <td className="px-1">{signed(s.moore)}</td>
-                <td className="px-1">{s.kr ? `${f1(s.kr.pah)} %` : '—'}</td>
+                <td className="px-1">{s.height.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td>
+                <td className="px-1">{cell(s.mirwald)}</td>
+                <td className="px-1">{cell(s.moore)}</td>
+                {sex === 'M' && <td className="px-1">{cell(s.fransen)}</td>}
+                <td className="px-1 font-bold">{signed(s.mean.offset)}</td>
+                <td className="px-1">{s.kr ? `${f1(pahShown(s.kr.pah))} %` : '—'}</td>
               </tr>
             ))}
           </tbody>

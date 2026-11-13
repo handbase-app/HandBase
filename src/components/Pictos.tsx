@@ -1,0 +1,614 @@
+import { useLiveQuery } from 'dexie-react-hooks'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useHref, useNavigate } from 'react-router-dom'
+import { db, poleStatus, poleSummary, type Evaluation, type Player, type PlayerGroup, type Rewatch, type Seen } from '../db'
+import { regionLabel } from '../lists'
+import { withPoleMembers } from '../poleMembers'
+import {
+  buildFacts,
+  ficheOnTab,
+  NO_FACTS,
+  PICTO_KINDS,
+  PICTO_LABELS,
+  pictoLines,
+  recentSince,
+  togglePicto,
+  type NameFit,
+  type PictoFacts,
+  type PictoKind,
+} from '../pictos'
+import { currentUserId, isParticipant } from '../roles'
+import { setPictos, usePictos, useSousNom } from '../affichage'
+import { latestSubMeasures, SOUS_NOM_MEASURES, type SousNomKind, type SousNomMeasure } from '../sousNom'
+import { scoutId, sightingNames, sightings, type Sighting } from '../scouting'
+import { PLAYER_TABS, playerTabParam } from '../tabQuery'
+import { accord, w } from '../gender'
+import { FollowStar } from './Follow'
+import { RewatchToggle } from './Scouting'
+import { Icon, type IconName } from './ui'
+import { SelectionBar, SelectionHeader, SelectionProvider, useListSelection, type SelContext } from './Selection'
+
+/*
+ * Pictogrammes au bout des lignes de joueurs (src/pictos.ts pour la partie pure) :
+ * - PictoBar : barre « Afficher » au-dessus de chaque liste, 8 boutons (aria-pressed) ;
+ * - PlayerList : la liste elle-même (barre + lignes) ; lit en lot ce que disent les pictogrammes (une requête par table
+ *   pour toute la liste) et applique la règle de place : si un seul nom serait coupé à cause des pictogrammes, toute la
+ *   liste les passe sur leur propre ligne sous le nom (mesure avant peinture, recalcul au redimensionnement) ;
+ * - RowPictos : les pictogrammes d'une ligne (rendus par PlayerRow).
+ * Un seul réglage pour toutes les listes, changé depuis n'importe laquelle et appliqué partout en direct.
+ */
+
+// ---------- Réglage ----------
+
+// Appareil et compte : src/affichage.ts (un seul réglage, avec « Sous le nom »).
+export { setPictos, usePictos }
+
+// ---------- Barre « Afficher » ----------
+
+/**
+ * Sur les listes qui ont une fenêtre « Filtres » (PlayerList `pictosInFilters`), la barre des pictogrammes est dans cette
+ * fenêtre, section « Affichage » (src/components/PictoDisplay.tsx) : sur téléphone comme sur ordinateur (choix de
+ * Geoffroy, 25/10/2026 : plus de barre au-dessus de la liste).
+ */
+export const usePictosInFilters = () => true
+
+export const PICTO_ICONS: Record<PictoKind, IconName> = {
+  suivi: 'star',
+  vu: 'eye',
+  revoir: 'clock',
+  videos: 'video',
+  avis: 'chat',
+  mesures: 'ruler',
+  pole: 'building',
+  groupes: 'users',
+}
+
+/**
+ * `label` : ce qui précède les pictogrammes. Liste Joueurs : le nombre de joueurs (« 7 joueurs sur 39 988 »), toujours visible
+ * puisque la barre reste collée en haut ; ailleurs, rien (les pictogrammes seuls, calés à droite).
+ * `lead` : filtres placés dans la capsule, à gauche (pastilles des postes d'un événement ou d'un groupe, BarChip). Assez de
+ * place : pastilles et pictogrammes sur la même ligne, la suite des pastilles passant à la ligne à gauche des
+ * pictogrammes. Liste étroite (téléphone, < 30rem) : les pastilles sur leur propre ligne, qui défile de côté (fondu au
+ * bord tant qu'il en reste à voir), les pictogrammes en dessous. Sur deux lignes, la capsule prend les coins des fenêtres.
+ */
+/**
+ * `pictos` faux : seulement le nombre et les pastilles `lead` (postes d'un événement ou d'un groupe) ; les pictogrammes se
+ * règlent dans la fenêtre « Filtres » de la liste Joueurs (section « Affichage », réglage commun à toutes les listes).
+ */
+export function PictoBar({ className = '', label, lead, pictos = true }: { className?: string; label?: ReactNode; lead?: ReactNode; pictos?: boolean }) {
+  const on = usePictos()
+  const box = useRef<HTMLDivElement>(null)
+  const row = useRef<HTMLDivElement>(null)
+  const pics = useRef<HTMLSpanElement>(null)
+  // Plus d'une ligne (mesurée) ; pastilles cachées à gauche / à droite de leur ligne (fondu).
+  const [multi, setMulti] = useState(false)
+  const [fade, setFade] = useState({ l: false, r: false })
+  const measure = useRef(() => {})
+  measure.current = () => {
+    const b = box.current
+    const p = pics.current
+    if (b && p) setMulti(b.clientHeight > p.offsetHeight + 12)
+    const r = row.current
+    // Ligne qui défile seulement sur liste étroite (sinon ses pastilles sont posées dans la capsule : largeur nulle).
+    if (!r) return
+    const l = r.scrollLeft > 1
+    const rt = r.scrollLeft + r.clientWidth < r.scrollWidth - 1
+    setFade((f) => (f.l === l && f.r === rt ? f : { l, r: rt }))
+  }
+  const hasLead = !!lead
+  useLayoutEffect(() => {
+    if (hasLead) measure.current()
+    else setMulti(false)
+  })
+  useEffect(() => {
+    if (!hasLead) return
+    const ro = new ResizeObserver(() => measure.current())
+    if (box.current) ro.observe(box.current)
+    if (row.current) ro.observe(row.current)
+    return () => ro.disconnect()
+  }, [hasLead])
+  const mask = fade.l || fade.r ? `linear-gradient(to right, ${fade.l ? 'transparent, #000 1.5rem' : '#000'}, ${fade.r ? '#000 calc(100% - 2rem), transparent' : '#000'})` : undefined
+  return (
+    <div
+      ref={box}
+      role="group"
+      aria-label="Pictogrammes affichés au bout des lignes"
+      className={`flex flex-wrap items-center gap-1 border border-line bg-panel py-1 pr-1.5 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px] ${
+        lead ? `pl-1 ${multi ? 'rounded-win' : 'rounded-full'}` : 'rounded-full pl-3'
+      } ${className}`}
+    >
+      {/* Plus de mot « Afficher » : le nombre de joueurs quand la liste le donne (Joueurs), sinon rien (la liste a déjà son
+          compte au-dessus : groupe, événement, réponse du bilan…). */}
+      {label && (
+        <span className="mr-1 text-[11px] font-bold whitespace-nowrap text-muted" role="status">
+          {label}
+        </span>
+      )}
+      {lead && (
+        <div
+          ref={row}
+          onScroll={() => measure.current()}
+          style={{ maskImage: mask, WebkitMaskImage: mask }}
+          className="contents @max-[30rem]/plb:flex @max-[30rem]/plb:w-full @max-[30rem]/plb:gap-[3px] @max-[30rem]/plb:overflow-x-auto @max-[30rem]/plb:[scrollbar-width:none] @max-[30rem]/plb:[&::-webkit-scrollbar]:hidden"
+        >
+          {lead}
+        </div>
+      )}
+      {/* Pictogrammes calés à droite de la capsule (le nombre de joueurs ou les filtres à gauche). */}
+      {pictos && <span ref={pics} className="ml-auto flex flex-wrap justify-end gap-1 max-[420px]:gap-[3px] @max-[30rem]/plb:gap-[3px]">
+      {PICTO_KINDS.map((k) => {
+        const pressed = on.includes(k)
+        return (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={pressed}
+            aria-label={PICTO_LABELS[k]}
+            title={`${PICTO_LABELS[k]} : ${pressed ? 'affiché — toucher pour masquer' : 'masqué — toucher pour afficher'}`}
+            onClick={() => setPictos((cur) => togglePicto(cur, k))}
+            className={`flex h-8 w-8 items-center justify-center rounded-full border transition max-[420px]:h-7 max-[420px]:w-7 @max-[30rem]/plb:h-7 @max-[30rem]/plb:w-7 ${
+              pressed ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+            }`}
+          >
+            <Icon name={PICTO_ICONS[k]} filled={pressed && (k === 'suivi')} className="h-4 w-4" />
+          </button>
+        )
+      })}
+      </span>}
+    </div>
+  )
+}
+
+/**
+ * Pastille de filtre dans la capsule (PictoBar `lead`) : hauteur des pictogrammes sur liste étroite (28 px), texte 11 px,
+ * nombre discret après le nom (« Gardien 3 »), active en couleur d'accent.
+ */
+export function BarChip({
+  on,
+  onClick,
+  n,
+  title,
+  label,
+  dot,
+  children,
+}: {
+  on: boolean
+  onClick: () => void
+  n?: number
+  title?: string
+  label?: string
+  /** Rond du terrain de la fiche (poste : GB, AG…) avec le nombre en petite pastille, au lieu d'une pilule. */
+  dot?: boolean
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  // Choisie dans une ligne qui défile (liste étroite) : ramenée dans la ligne, sans faire défiler la page.
+  useEffect(() => {
+    const el = ref.current
+    const row = el?.parentElement
+    if (!on || !el || !row || row.scrollWidth <= row.clientWidth) return
+    const left = el.offsetLeft - row.offsetLeft
+    if (left < row.scrollLeft) row.scrollLeft = left - 24
+    else if (left + el.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left + el.offsetWidth - row.clientWidth + 32
+  }, [on])
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      title={title}
+      onClick={onClick}
+      className={
+        dot
+          ? `relative mt-1.5 mr-2.5 flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border-[1.5px] px-1 text-[9px] font-bold whitespace-nowrap transition ${
+              on ? 'border-[var(--color-on-accent,#fff)] bg-accent text-[var(--color-on-accent,#fff)]' : 'border-muted bg-panel text-fg'
+            }`
+          : `flex h-7 shrink-0 items-center rounded-full border px-2 text-[11px] font-bold whitespace-nowrap transition ${
+              on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'
+            }`
+      }
+    >
+      {children}
+      {n !== undefined &&
+        (dot ? (
+          // Nombre en pastille en haut à droite du rond, comme sur le terrain du filtre des postes.
+          <span
+            aria-hidden
+            className={`absolute -top-1.5 -right-2 flex h-3.5 min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-none font-bold tabular-nums ${
+              on ? 'bg-[var(--color-on-accent,#fff)] text-accent' : 'bg-line text-fg'
+            }`}
+          >
+            {n}
+          </span>
+        ) : (
+          <span className="ml-0.5 text-[10px] font-normal tabular-nums opacity-70">{n}</span>
+        ))}
+    </button>
+  )
+}
+
+// ---------- Liste ----------
+
+interface PictoData {
+  on: readonly PictoKind[]
+  /** Liens des pictogrammes : adresse complète (base de l'appli) et navigation, une seule fois pour toute la liste. */
+  href: (to: string) => string
+  go: (to: string, state?: unknown) => void
+  /** Jour (AAAA-MM-JJ), lu une fois pour toute la liste (pôle en cours). */
+  today: string
+  facts: Map<string, PictoFacts>
+  sight: Map<string, Sighting[]>
+  rewatch: Map<string, Rewatch[]>
+  /** « Sous le nom » (src/sousNom.ts) : choix, et dernières mesures choisies (taille, poids, envergure) des joueurs affichés. */
+  sousNom: readonly SousNomKind[]
+  measures: Map<string, Partial<Record<SousNomMeasure, number | string>>>
+}
+const PictoCtx = createContext<PictoData | null>(null)
+
+/** Groupe « à moi » : créé par moi (ou sur cet appareil, sans serveur) ou dont je suis participant. */
+const myGroup = (g: PlayerGroup) => (g.createdBy ? g.createdBy === currentUserId() || isParticipant(g) : !g.createdAtServer)
+
+/** Au-delà, une table est lue en entier puis filtrée (plus rapide qu'une requête par identifiant). */
+const ANY_OF_MAX = 200
+
+function usePictoData(ids: readonly string[], on: readonly PictoKind[]): Pick<PictoData, 'facts' | 'sight' | 'rewatch'> {
+  const key = ids.join(',')
+  const need = (k: PictoKind) => on.includes(k)
+  const want = PICTO_KINDS.filter(need).join(',')
+  const data = useLiveQuery(
+    async () => {
+      const set = new Set(ids)
+      const big = ids.length > ANY_OF_MAX
+      const byPlayer = async <T extends { playerId: string }>(table: 'evaluations' | 'seen' | 'rewatch'): Promise<T[]> => {
+        const t = db.table<T>(table)
+        const rows = big ? await t.toArray() : await t.where('playerId').anyOf(ids as string[]).toArray()
+        return big ? rows.filter((r) => set.has(r.playerId)) : rows
+      }
+      const since = recentSince(new Date().toLocaleDateString('sv'))
+      const [evals, seen, rewatch, videos, measurements, groups] = await Promise.all([
+        need('vu') || need('avis') ? byPlayer<Evaluation>('evaluations') : [],
+        need('vu') ? byPlayer<Seen>('seen') : [],
+        need('revoir') ? byPlayer<Rewatch>('rewatch') : [],
+        need('videos') ? (big ? db.videos.toArray() : db.videos.where('targetId').anyOf(ids as string[]).toArray()) : [],
+        // Mesures récentes : par date (index), quelle que soit la taille de la liste.
+        need('mesures') ? db.measurements.where('date').aboveOrEqual(since).toArray() : [],
+        // Groupe Pôle : membres en cours calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée).
+        need('groupes') ? db.groups.toArray().then((gs) => withPoleMembers(gs)) : [],
+      ])
+      const rw = new Map<string, Rewatch[]>()
+      for (const r of rewatch) if (!r.deleted) rw.set(r.playerId, [...(rw.get(r.playerId) ?? []), r])
+      return {
+        facts: buildFacts(ids, { videos, evals, measurements, groups, since, isMine: myGroup }),
+        sight: need('vu') ? sightings(seen, evals) : new Map<string, Sighting[]>(),
+        rewatch: rw,
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, want],
+  )
+  return data ?? EMPTY
+}
+
+/**
+ * Dernières mesures montrées sous le nom (taille, poids, envergure, celles qui sont choisies), lues en lot pour les joueurs
+ * affichés : par l'index [joueur + critère] sur une liste courte, par critère au-delà (puis filtrées).
+ */
+function useSubMeasures(ids: readonly string[], on: readonly SousNomKind[]) {
+  const key = ids.join(',')
+  const crits = SOUS_NOM_MEASURES.filter((k) => on.includes(k))
+  const want = crits.join(',')
+  const data = useLiveQuery(
+    async () => {
+      if (!crits.length || !ids.length) return NO_MEASURES
+      const big = ids.length * crits.length > ANY_OF_MAX
+      const rows = big
+        ? await db.measurements.where('criterionId').anyOf(crits).toArray()
+        : await db.measurements.where('[playerId+criterionId]').anyOf(ids.flatMap((id) => crits.map((c) => [id, c]))).toArray()
+      const set = big ? new Set(ids) : null
+      return latestSubMeasures(set ? rows.filter((m) => set.has(m.playerId)) : rows)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key, want],
+  )
+  return data ?? NO_MEASURES
+}
+const NO_MEASURES = new Map<string, Partial<Record<SousNomMeasure, number | string>>>()
+
+/** Ligne secondaire hors d'une PlayerList (ancienne liste) : le réglage seul, sans mesures lues. */
+export function useSubContext(): Pick<PictoData, 'measures' | 'today'> | null {
+  return useContext(PictoCtx)
+}
+
+const EMPTY = { facts: new Map<string, PictoFacts>(), sight: new Map<string, Sighting[]>(), rewatch: new Map<string, Rewatch[]>() }
+
+/**
+ * Liste de joueurs : barre « Afficher » (sauf `bar={false}`) et bouton « Sélectionner » (sélection multiple,
+ * components/Selection.tsx ; sauf `select={false}`), puis les lignes (`children`, des PlayerRow, à n'importe quelle
+ * profondeur). `ids` : joueurs affichés (données des pictogrammes lues pour eux seuls) ; `all` : toute la liste filtrée
+ * quand elle est plus longue (lignes pas encore affichées, plus bas) — c'est ce que coche « Tout » ; `selShown` : ceux que
+ * la sélection compte comme affichés (`ids` par défaut ; toute la liste quand elle défile par fenêtre, components/InfiniteList.tsx) ;
+ * `context` : l'événement ou le groupe de la liste (actions « vu », « à revoir » sur la sélection).
+ */
+export function PlayerList({
+  ids,
+  all = ids,
+  selShown = ids,
+  countLabel,
+  barLead,
+  context,
+  children,
+  className = 'flex flex-col gap-2',
+  bar = true,
+  select = true,
+  sticky = true,
+  selRef,
+}: {
+  ids: readonly string[]
+  all?: readonly string[]
+  selShown?: readonly string[]
+  /** Nombre affiché dans la barre à la place de « Afficher » (liste Joueurs). */
+  countLabel?: ReactNode
+  /** Filtres posés dans la capsule, à gauche des pictogrammes (pastilles des postes : événement, groupe). */
+  barLead?: ReactNode
+  context?: SelContext
+  children: ReactNode
+  className?: string
+  bar?: boolean
+  /** La page affiche le nombre `countLabel` à côté de son titre (liste Joueurs) ; la barre ne sert plus qu'aux pastilles. */
+  pictosInFilters?: boolean
+  select?: boolean
+  /** Barre collée en haut au défilement (faux : colonne de contexte, déjà collée). */
+  sticky?: boolean
+  /** Lecture de la sélection en cours par la page (« Donner un objectif au groupe » : les cochés d'office) ; vide hors sélection. */
+  selRef?: { current: (() => readonly string[]) | null }
+}) {
+  const on = usePictos()
+  // Plus de barre des pictogrammes au-dessus des listes (Geoffroy, 25/10/2026) : ils se règlent dans « Filtres » → « Affichage »
+  // (liste Joueurs ; réglage commun à toutes les listes). La capsule ne reste que pour les pastilles des postes (`barLead`).
+  if (!barLead) bar = false
+  // Sélection : la liste se remet en page quand les cases apparaissent (règle de place recalculée).
+  const sel = useListSelection(all, selShown, select)
+  const selStore = sel.store
+  useEffect(() => {
+    if (!selRef) return
+    selRef.current = () => (selStore.on && selStore.enabled ? [...selStore.ids] : [])
+    return () => {
+      selRef.current = null
+    }
+  }, [selRef, selStore])
+  const data = usePictoData(ids, on)
+  const sousNom = useSousNom()
+  const measures = useSubMeasures(ids, sousNom)
+  // Un lien de react-router par pictogramme coûte cher sur une longue liste : simples <a>, navigation commune.
+  const navigate = useNavigate()
+  const base = useHref('/').replace(/\/$/, '')
+  const value = useMemo(
+    () => ({ on, ...data, sousNom, measures, href: (to: string) => base + to, go: (to: string, state?: unknown) => navigate(to, { state }), today: new Date().toLocaleDateString('sv') }),
+    [on, data, sousNom, measures, base, navigate],
+  )
+  const ref = useRef<HTMLDivElement>(null)
+  const measure = useRef(() => {})
+  measure.current = () => {
+    const el = ref.current
+    if (!el) return
+    const names = [...el.querySelectorAll<HTMLElement>('[data-pn]')].filter((n) => n.closest('[data-plist]') === el)
+    const two = el.dataset.pl === '2'
+    // Calcul sur la mise en page en cours, sans la changer (pas de mise en page de plus, même sur une longue liste) :
+    // pictogrammes de la ligne (même largeur sur une ligne ou sur la leur), place du nom et de ses pastilles (box).
+    // Sur la ligne du nom : box sans eux = box + pictogrammes ; sur leur ligne : box avec eux = box - pictogrammes.
+    // Téléphone étroit (≤ 400 px), où un nom long passe à la ligne : noms sur une ligne le temps de lire leur largeur.
+    const narrow = matchMedia('(max-width: 400px)').matches
+    if (narrow) el.dataset.pm = 'on'
+    const fits: NameFit[] = names.map((n) => {
+      const pics = n.closest('[data-ptop]')?.querySelector<HTMLElement>('[data-pics]')?.offsetWidth ?? 0
+      const box = n.parentElement?.clientWidth ?? n.clientWidth
+      const full = n.scrollWidth
+      return two ? { full, on: Math.min(full, box - pics), off: box } : { full, on: Math.min(full, box), off: box + pics }
+    })
+    edges(el)
+    if (narrow) delete el.dataset.pm
+    const lines = String(pictoLines(fits))
+    if (el.dataset.pl !== lines) el.dataset.pl = lines
+  }
+  // À chaque rendu (lignes ajoutées, pictogrammes changés…), avant peinture : pas de saut visible.
+  useLayoutEffect(() => measure.current())
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let width = el.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      measure.current()
+    })
+    ro.observe(el)
+    void document.fonts?.ready.then(() => measure.current())
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <PictoCtx.Provider value={value}>
+      <SelectionProvider store={sel.store}>
+        <div ref={ref} data-plist data-sel={sel.on ? '' : undefined} className={className}>
+          {/* Barre « Afficher / Sélectionner » (et l'en-tête de la sélection) collée en haut pendant le défilement :
+              sous l'en-tête de l'appli, ou en haut du panneau de droite (.md-panel, index.css) ; pas dans la colonne
+              de contexte, qui a déjà son propre bandeau collé (sticky = false). */}
+          {(bar || sel.on) && (
+            <div className={sticky ? 'plist-sticky sticky top-[calc(var(--hdr)+var(--qbar,0px))] z-[15] -mx-1 flex flex-col gap-1 bg-bg/95 px-1 py-1 backdrop-blur' : 'flex flex-col gap-1'}>
+              {/* Plus de bouton « Sélectionner » : la sélection s'ouvre par le menu d'une ligne (clic droit, appui long, ⋮). */}
+              {bar && (
+                // Conteneur (plb) : la barre se resserre selon la place de la liste (colonne de contexte comprise).
+                <div className="@container/plb mx-auto flex w-full max-w-3xl items-stretch gap-1">
+                  <PictoBar className="min-w-0 flex-1" label={countLabel} lead={barLead} pictos={false} />
+                </div>
+              )}
+              {sel.on && <SelectionHeader store={sel.store} />}
+            </div>
+          )}
+          {children}
+          {sel.on && <SelectionBar store={sel.store} context={context} />}
+        </div>
+      </SelectionProvider>
+    </PictoCtx.Provider>
+  )
+}
+
+/**
+ * Cadre des lignes en deux colonnes (.cols, src/index.css [data-pitem]) : la CSS arrondit le haut de la 1re ligne et le bas
+ * de la dernière ; ici, la 1re ligne de la 2e colonne (haut) et la dernière de l'autre colonne (bas), marquées data-pedge.
+ * Lu sur la mise en page déjà faite (position gauche des deux premières lignes de chaque suite), sans la changer ; écrit
+ * seulement ce qui change.
+ */
+function edges(el: HTMLElement) {
+  const want = new Map<HTMLElement, string>()
+  const seen = new Set<Element>()
+  for (const it of el.querySelectorAll<HTMLElement>('[data-pitem]')) {
+    const box = it.parentElement
+    if (!box || seen.has(box) || it.closest('[data-plist]') !== el) continue
+    seen.add(box)
+    const items = [...box.children].filter((c): c is HTMLElement => c instanceof HTMLElement && c.hasAttribute('data-pitem'))
+    if (items.length < 2 || items[1].offsetLeft === items[0].offsetLeft) continue
+    want.set(items[1], 't')
+    const last = items[items.length - 2]
+    want.set(last, want.has(last) ? 't b' : 'b')
+  }
+  for (const it of el.querySelectorAll<HTMLElement>('[data-pedge]')) if (!want.has(it)) delete it.dataset.pedge
+  for (const [it, v] of want) if (it.dataset.pedge !== v) it.dataset.pedge = v
+}
+
+// ---------- Pictogrammes d'une ligne ----------
+
+/** Case d'un pictogramme : même taille pour tous (icône 16 px, zone 28 × 32 px). */
+export const PICTO_CELL = 'relative -my-2 inline-flex h-8 w-7 shrink-0 items-center justify-center'
+
+const stop = (e: { preventDefault(): void; stopPropagation(): void }) => {
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+/** Nombre posé sur le pictogramme (vidéos, avis). */
+export function Count({ n }: { n: number }) {
+  if (!n) return null
+  return (
+    <span aria-hidden className="absolute -top-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-current px-0.5">
+      <span className="text-[8px] leading-none font-extrabold text-bg">{n > 99 ? '99+' : n}</span>
+    </span>
+  )
+}
+
+/** Pictogramme d'information (pôle, groupes, vu hors événement) : le détail au survol, ou au toucher dans une bulle. */
+function PictoInfo({ icon, label, cls, filled = false }: { icon: IconName; label: string; cls: string; filled?: boolean }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const t = setTimeout(() => setOpen(false), 4000)
+    return () => clearTimeout(t)
+  }, [open])
+  return (
+    <button type="button" className={PICTO_CELL} title={label} aria-label={label} aria-expanded={open} onClick={(e) => (stop(e), setOpen(!open))} onBlur={() => setOpen(false)}>
+      <Icon name={icon} filled={filled} className={`h-4 w-4 ${cls}`} />
+      {open && (
+        <span role="status" className="absolute top-full right-0 z-20 mt-1 w-max max-w-[16rem] rounded-win border border-line bg-panel px-2 py-1 text-left text-[11px] font-normal whitespace-normal text-fg shadow-lg">
+          {label}
+        </span>
+      )}
+    </button>
+  )
+}
+
+/** Pictogramme qui ouvre la fiche sur un onglet (vidéos, avis, mesures). */
+function PictoLink({ to, state, onClick, icon, label, cls, n = 0 }: { to: string; state?: unknown; onClick?: () => void; icon: IconName; label: string; cls: string; n?: number }) {
+  const ctx = useContext(PictoCtx)!
+  return (
+    <a
+      href={ctx.href(to)}
+      onClick={(e) => {
+        // Nouvel onglet (Ctrl, Maj, clic du milieu…) : comportement du navigateur.
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        e.preventDefault()
+        onClick?.()
+        ctx.go(to, state)
+      }}
+      className={PICTO_CELL}
+      title={label}
+      aria-label={label}
+    >
+      <span className={`relative ${cls}`}>
+        <Icon name={icon} className="h-4 w-4" />
+        <Count n={n} />
+      </span>
+    </a>
+  )
+}
+
+const OFF = 'text-muted/60 hover:text-fg'
+/** 2026-09-15 → 15/09/2026 (sans Intl : appelé pour chaque ligne). */
+const dmy = (d?: string) => (d ? d.split('-').reverse().join('/') : '')
+
+/** Œil hors d'un événement : vu (ou noté) par moi, par d'autres, ou pas encore ; information seule. */
+function SeenInfo({ list, sex }: { list: Sighting[]; sex?: string }) {
+  const mine = list.some((s) => s.mine)
+  const label = list.length ? `${accord('Vu', sex)} par ${sightingNames(list)}` : `Pas encore ${w(sex).vu}`
+  return <PictoInfo icon="eye" filled={mine} label={label} cls={mine ? 'text-accent' : list.length ? 'text-accent/70' : OFF} />
+}
+
+export type RowFiche = { to: string; state?: unknown; onClick?: () => void }
+
+/**
+ * Pictogrammes d'une ligne, dans l'ordre de la barre. `seen`, `rewatch`, `follow` : ceux de la liste (œil d'un
+ * événement, horloge d'un groupe…) à la place des communs ; `false` / `null` : rien à cet endroit. Hors d'une
+ * PlayerList (ancienne liste), seulement ceux que la liste donne.
+ */
+export function RowPictos({ p, fiche, seen, rewatch, follow }: { p: Player; fiche: RowFiche; seen?: ReactNode; rewatch?: ReactNode; follow?: ReactNode }) {
+  const ctx = useContext(PictoCtx)
+  if (!ctx) return <>{[follow, seen, rewatch]}</>
+  const f = ctx.facts.get(p.id) ?? NO_FACTS
+  const key = playerTabParam(fiche.to.split('?')[0])
+  const tab = (t: (typeof PLAYER_TABS)[number], hash = '') => ficheOnTab(fiche.to, t, key, 'profil', hash)
+  const pole = poleStatus(p, ctx.today)
+  const out: ReactNode[] = []
+  for (const k of ctx.on) {
+    switch (k) {
+      case 'suivi':
+        out.push(follow === undefined ? <FollowStar key={k} id={p.id} sex={p.sex} /> : follow ? <span key={k} className="contents">{follow}</span> : null)
+        break
+      case 'vu':
+        out.push(seen === undefined ? scoutId() ? <SeenInfo key={k} list={ctx.sight.get(p.id) ?? []} sex={p.sex} /> : null : seen ? <span key={k} className="contents">{seen}</span> : null)
+        break
+      case 'revoir':
+        out.push(rewatch === undefined ? <RewatchToggle key={k} playerId={p.id} rows={ctx.rewatch.get(p.id)} /> : rewatch ? <span key={k} className="contents">{rewatch}</span> : null)
+        break
+      case 'videos':
+        out.push(
+          <PictoLink key={k} to={tab('videos')} state={fiche.state} onClick={fiche.onClick} icon="video" n={f.videos} cls={f.videos ? 'text-violet-300' : OFF}
+            label={f.videos ? `${f.videos} vidéo${f.videos > 1 ? 's' : ''} — ouvrir la fiche` : 'Aucune vidéo — ouvrir la fiche pour en ajouter'} />,
+        )
+        break
+      case 'avis':
+        out.push(
+          <PictoLink key={k} to={tab('avis')} state={fiche.state} onClick={fiche.onClick} icon="chat" n={f.avis} cls={f.avis ? 'text-emerald-300' : OFF}
+            label={f.avis ? `${f.avis} avis — ouvrir les avis` : 'Aucun avis pour l’instant — ouvrir les avis'} />,
+        )
+        break
+      case 'mesures':
+        out.push(
+          <PictoLink key={k} to={tab('tests')} state={fiche.state} onClick={fiche.onClick} icon="ruler" cls={f.recent ? 'text-amber-300' : OFF}
+            label={f.recent ? `${f.recent} mesure${f.recent > 1 ? 's' : ''} ces 90 derniers jours (dernière le ${dmy(f.lastMeasure)}) — ouvrir les tests` : 'Pas de mesure ces 90 derniers jours — ouvrir les tests'} />,
+        )
+        break
+      case 'pole':
+        out.push(
+          <PictoInfo key={k} icon="building" cls={pole === 'current' ? 'text-teal-300' : pole ? 'text-teal-300/60' : OFF}
+            label={pole ? `${pole === 'current' ? 'Au Pôle Espoirs' : 'Passé par le Pôle Espoirs'} : ${poleSummary(p, regionLabel)}` : `Pas de pôle ni de structure renseigné`} />,
+        )
+        break
+      case 'groupes':
+        out.push(
+          <PictoInfo key={k} icon="users" cls={f.groups.length ? 'text-sky-300' : OFF}
+            label={f.groups.length ? `Dans ${f.groups.length > 1 ? 'tes groupes' : 'ton groupe'} : ${f.groups.slice(0, 5).join(', ')}${f.groups.length > 5 ? ` et ${f.groups.length - 5} autres` : ''}` : `Dans aucun de tes groupes`} />,
+        )
+        break
+    }
+  }
+  return <>{out}</>
+}

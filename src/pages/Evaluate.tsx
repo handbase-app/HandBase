@@ -1,19 +1,33 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { RowAvatar } from '../components/PlayerRow'
+import { scoreLegend } from '../sportContent'
+import { Avatar, CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
 import { ProposePlayer } from '../components/ProposePlayer'
-import { filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, useRosterSort } from '../rosterOrder'
+import { useSwipeNav } from '../components/useSwipeNav'
+import { eventSections, filterRoster, groupRoster, sortRoster, useRosterFilter, useRosterGroup, type RosterGroup } from '../rosterOrder'
 import { ReviewBadge, ReviewNote } from '../components/Review'
 import { fold } from './Players'
 import { BackButton } from '../backNav'
 import { StaffPicker, useCanPickStaff } from '../components/StaffPicker'
-import { supabase } from '../sync'
+import { OrganizerField, type OrganizerValue } from '../components/OrganizerField'
+import { supabase, useSyncState } from '../sync'
 import { MQ, useMedia } from '../layout'
-import { DictationTextarea } from '../components/MicButton'
+import { ItemMenu, MenuButton, useRowMenu } from '../components/ItemMenu'
+import { accord, genderOf, pluralG, setGender, SEX_CHOICES, SEX_LABELS, w, type Gender } from '../gender'
+import { setRatingFocus } from '../focusMode'
+import { AvisVocal } from '../components/AvisVocal'
+import { decide, mergeComment, type AvisState } from '../dictation/avis'
+import { withPoleMembers } from '../poleMembers'
+import { usePlayersByName } from '../playersCache'
+import { FormActions, FormWindow } from '../components/FormWindow'
+import type { EventDraft } from '../eventCopy'
+import { hasPlayingTime, parsePlayingTime, stepPlayingTime, SUPER_POWER_MAX } from '../avisMatch'
+import { saveEvaluation } from '../avisSave'
 import {
   alive,
   CONTEXT_TYPES,
@@ -24,6 +38,8 @@ import {
   newId,
   remove,
   save,
+  scaleMax,
+  scaleMin,
   today,
   type ContextType,
   type Evaluation,
@@ -38,6 +54,9 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'entrainement', label: 'Entraînement' },
   { value: 'observation', label: 'Observation' },
 ]
+
+/** Liste vide stable (fiches pas encore lues). */
+const NO_PLAYERS: Player[] = []
 
 /**
  * Saisie d'un avis subjectif. Les avis des autres observateurs ne sont pas
@@ -67,11 +86,11 @@ export default function Evaluate() {
   // Joueur absent de la base : fiche proposée, pré-remplie avec la recherche.
   const [proposing, setProposing] = useState<Partial<Player> | null>(null)
   const [saved, setSaved] = useState(false)
-  // Sens de l'animation au changement de joueur par glissement.
-  // Joueur qui arrive après un glissement (ou une flèche), et de quel côté : seule sa fiche s'anime.
-  const [enter, setEnter] = useState<{ id: string; dir: 'left' | 'right' } | null>(null)
+  // Menu « ⋮ » de l'avis (« Annuler mes modifications », « Retirer mon avis »), loin du bouton « Enregistrer / Suivant ».
+  const avisMenu = useRowMenu()
 
-  const players = useLiveQuery(() => db.players.orderBy('lastName').toArray().then(alive), [], [])
+  // Fiches par nom, gardées en mémoire (src/playersCache.ts).
+  const players = usePlayersByName() ?? NO_PLAYERS
   const events = useLiveQuery(() => db.events.orderBy('date').reverse().toArray().then(alive), [], [])
   const criteria = useLiveQuery(
     () => db.criteria.orderBy('order').toArray().then((cs) => alive(cs).filter((c) => c.active && c.kind === 'subjective')),
@@ -98,6 +117,13 @@ export default function Evaluate() {
   )
 
   const player = players.find((p) => p.id === playerId)
+  // Un joueur à noter : menu du bas caché sur téléphone tenu droit (src/focusMode.ts, App.tsx).
+  const rating = !!player
+  useEffect(() => {
+    if (!rating) return
+    setRatingFocus(true)
+    return () => setRatingFocus(false)
+  }, [rating])
   const event = events.find((e) => e.id === eventId)
   const own = useLiveQuery(() => (avisId ? db.evaluations.get(avisId) : undefined), [avisId])
   const existing = spontaneous
@@ -105,6 +131,16 @@ export default function Evaluate() {
     : mine.find((e) => e.playerId === playerId && (e.eventId ?? '') === eventId && !e.contextType)
 
   const [draft, setDraft] = useState<Partial<Evaluation>>({ scores: {} })
+  // « Avis vocal » : notes et commentaires PROPOSÉS, pas encore acceptés (jamais enregistrés tels quels).
+  const [avis, setAvis] = useState<AvisState | null>(null)
+  // Place du micro de l'avis vocal, à droite de « Enregistrer » (AvisVocal y rend son bouton).
+  const [micSlot, setMicSlot] = useState<HTMLSpanElement | null>(null)
+  // Fenêtre « liste des joueurs de l'événement » (toucher le nom de l'événement).
+  const [rosterOpen, setRosterOpen] = useState(false)
+  // Fenêtre « Explication des critères » (⋮ de l'avis).
+  const [helpOpen, setHelpOpen] = useState(false)
+  // Champ « Portrait » montré à la demande (« + Portrait ») quand il est encore vide.
+  const [portraitOpen, setPortraitOpen] = useState(false)
   // Version de référence de l'avis (dernière enregistrée, ou vierge) : sert à détecter une saisie non enregistrée.
   const [baseline, setBaseline] = useState(() => fingerprint({ scores: {} }))
   // Nouveau couple joueur/événement : on repart d'un brouillon vierge…
@@ -116,6 +152,8 @@ export default function Evaluate() {
     setDraft(init)
     setBaseline(fingerprint(init))
     setSaved(false)
+    setAvis(null)
+    setPortraitOpen(false)
     // Liste à gauche : le joueur choisi s'affiche depuis le haut de sa fiche.
     if (listModeRef.current && window.scrollY > 0) window.scrollTo({ top: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,20 +170,12 @@ export default function Evaluate() {
   const dirty = !!player && fingerprint(draft) !== baseline
   // Avant de quitter l'écran (menu du bas) ou l'onglet : proposer d'enregistrer.
   const leaveRef = useRef<() => Promise<boolean>>(async () => true)
-  // Geste de glisser (voir plus bas) : déclaré ici, avant l'écran « Qui évalue ? », car un hook
-  // doit être appelé à chaque affichage, dans le même ordre.
-  // Glissement en cours : départ du doigt, et sens décidé (horizontal = on fait glisser la fiche).
-  const swipe = useRef<{ x: number; y: number; t: number; horizontal?: boolean; dx: number } | null>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
-  // Nouveau joueur affiché après un changement : on repart en haut de sa fiche si on était descendu plus bas.
-  useEffect(() => {
-    if (!enter || enter.id !== playerId) return
-    const top = cardRef.current?.getBoundingClientRect().top
-    if (top !== undefined && top < 0) window.scrollBy({ top: top - 80 })
-  }, [enter, playerId])
+  // Glisser pour changer de joueur (src/components/useSwipeNav.ts, même geste que la fiche ouverte depuis une liste) :
+  // déclaré ici, avant l'écran « Qui évalue ? », car un hook doit être appelé à chaque affichage, dans le même ordre.
+  const swipeNav = useSwipeNav(playerId)
+  const cardRef = swipeNav.cardRef
 
-  // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis « Nom » par défaut).
-  const [rosterSort] = useRosterSort(eventId || undefined)
+  // Ordre de la liste de l'événement : le même que sur la page de l'événement (par poste, puis par nom).
   const [rosterGroup] = useRosterGroup(eventId || undefined)
   // Filtres posés sur la page de l'événement (un poste, masquer ceux que j'ai notés) : on ne note que ces joueurs-là.
   const rosterFilter = useRosterFilter(eventId || undefined)
@@ -155,9 +185,14 @@ export default function Evaluate() {
   }, [])
   useUnsaved(dirty)
 
+  // Notes proposées par l'avis vocal pour ce joueur : leurs critères s'affichent aussi en mode rapide.
+  const proposed = avis && avis.playerId === playerId ? avis.pending : null
   const shown = useMemo(
-    () => criteria.filter((c) => criterionApplies(c, player?.position) && (mode === 'complet' || c.quick || draft.scores?.[c.id] !== undefined)),
-    [criteria, player, mode, draft.scores],
+    () =>
+      criteria.filter(
+        (c) => criterionApplies(c, player?.position) && (mode === 'complet' || c.quick || draft.scores?.[c.id] !== undefined || !!proposed?.includes(c.id)),
+      ),
+    [criteria, player, mode, draft.scores, proposed],
   )
 
   // ----- Étape 0 : qui évalue ? -----
@@ -165,7 +200,7 @@ export default function Evaluate() {
     return (
       <div className="mx-auto flex max-w-sm flex-col gap-3 pt-10">
         <h1 className="text-lg font-extrabold">Qui évalue ?</h1>
-        <p className="text-xs text-muted">Ton nom sera associé à tes avis pour pouvoir les comparer à ceux des autres observateurs.</p>
+        <p className="text-xs text-muted">Ton nom sera associé à tes avis pour pouvoir les comparer à ceux des autres membres du staff.</p>
         <input className="field" placeholder="Prénom Nom" value={meDraft} onChange={(e) => setMeDraft(e.target.value)} />
         <button className="btn-primary" disabled={!meDraft.trim()} onClick={() => setMe(meDraft.trim())}>
           Continuer
@@ -177,42 +212,47 @@ export default function Evaluate() {
     if (!player || !(event || (spontaneous && draft.contextType))) return
     const scores = Object.fromEntries(Object.entries(draft.scores ?? {}).filter(([, v]) => isFilled(v)))
     const id = existing?.id ?? newId()
-    // Avis spontané : validé d'office pour un encadrant ou un administrateur, sinon en attente
-    // (le serveur applique la même règle, quoi qu'envoie l'appareil).
-    const review = spontaneous
-      ? can.review(role)
-        ? { review: 'validated' as const, reviewedBy: currentUserId() ?? undefined, reviewedByName: me, reviewedAt: new Date().toISOString(), reviewNote: undefined }
-        : { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-      : event && !can.editEvent(role, event) && !can.contributeEvent(role, event) && !(event.playerIds ?? []).includes(player.id)
-        ? // Joueur hors liste noté par un autre que l'organisateur : à valider (supabase/021_avis_hors_liste.sql).
-          { review: 'pending' as const, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-        : { review: undefined, reviewedBy: undefined, reviewedByName: undefined, reviewedAt: undefined, reviewNote: undefined }
-    await save<Evaluation>('evaluations', {
-      ...draft,
-      ...review,
-      id,
-      playerId: player.id,
-      eventId: spontaneous ? undefined : eventId || undefined,
-      contextType: spontaneous ? draft.contextType : undefined,
-      contextPlace: spontaneous ? draft.contextPlace?.trim() || undefined : undefined,
-      observer: me,
-      observerId: currentUserId() ?? draft.observerId,
-      date: draft.date ?? today(),
-      scores,
-    } as Evaluation)
+    // Validation (avis spontané, joueur hors liste), auteur, puis le joueur noté rejoint la liste de l'événement si on peut la
+    // modifier : src/avisSave.ts (même chemin que la boîte « À valider »).
+    await saveEvaluation(
+      {
+        ...draft,
+        id,
+        playerId: player.id,
+        date: draft.date ?? today(),
+        scores,
+        // Super-pouvoir (une phrase, vide : rien) ; temps de jeu seulement sur un match ou un tournoi (src/avisMatch.ts).
+        superPower: draft.superPower?.replace(/\s+/g, ' ').trim() || undefined,
+        playingTime: playTime ? draft.playingTime : undefined,
+      },
+      { spontaneous, role, me, event: event && !spontaneous && eventId ? event : undefined },
+    )
     if (spontaneous) setAvisId(id)
-    // Le joueur noté rejoint la liste de l'événement (si on peut modifier l'événement).
-    if (event && !spontaneous && (can.editEvent(role, event) || can.contributeEvent(role, event)) && !(event.playerIds ?? []).includes(player.id)) {
-      const me = currentUserId()
-      await save<HBEvent>('events', {
-        ...event,
-        playerIds: [...(event.playerIds ?? []), player.id],
-        ...(me && { addedBy: { ...event.addedBy, [player.id]: me } }),
-      })
-    }
     setBaseline(fingerprint({ ...draft, scores }))
     setSaved(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  /** Note d'un critère choisie par le coach ; une note proposée pour ce critère est alors acceptée ou remplacée. */
+  function setScore(id: string, v: number | string | undefined) {
+    setDraft((d) => {
+      const scores = { ...(d.scores ?? {}) }
+      if (isFilled(v)) scores[id] = v!
+      else delete scores[id]
+      return { ...d, scores }
+    })
+    setAvis((a) => (a && a.pending.includes(id) ? decide(a, id, { value: isFilled(v) ? v : undefined }) : a))
+  }
+
+  /** Propositions acceptées dans la fenêtre de l'avis vocal : notes posées, commentaires ajoutés, portrait posé (à relire avant d'enregistrer). */
+  function applyAvis(picked: Record<string, number>, comments: { strengths?: string; improvements?: string; portrait?: string }) {
+    setDraft((d) => ({
+      ...d,
+      scores: { ...(d.scores ?? {}), ...picked },
+      ...(comments.strengths && { strengths: mergeComment(d.strengths, comments.strengths) }),
+      ...(comments.improvements && { improvements: mergeComment(d.improvements, comments.improvements) }),
+      ...(comments.portrait && { portrait: comments.portrait }),
+    }))
   }
 
   /** Brouillon vierge pour ce joueur (on garde le contexte d'un avis spontané : lieu, date…). */
@@ -274,7 +314,7 @@ export default function Evaluate() {
   const fullRoster = groupRoster(
     sortRoster(
       (event?.playerIds ?? []).map((id) => byId.get(id)).filter((p): p is Player => !!p),
-      rosterSort,
+      'nom',
     ),
     event,
     rosterGroup,
@@ -282,77 +322,32 @@ export default function Evaluate() {
   // Le joueur en cours reste dans la liste même s'il vient d'être noté (sinon « → » ne saurait plus où il en est).
   const roster = filterRoster(fullRoster, rosterFilter, evaluatedHere, playerId)
   const posLabel = POSITIONS.find((x) => x.id === rosterFilter.pos)?.label
+  // Accord au genre (src/gender.ts) : la personne évaluée (pw) ; la liste de l'événement (eg : déclaré, sinon déduit).
+  const pw = w(player?.sex)
+  const eg = setGender(event?.sex, fullRoster)
+  const ew = w(eg)
   const idx = roster.findIndex((p) => p.id === playerId)
   const prev = idx > 0 ? roster[idx - 1] : undefined
   const next = idx >= 0 && idx < roster.length - 1 ? roster[idx + 1] : undefined
   const nextTodo = roster.slice(idx + 1).find((p) => !evaluatedHere.has(p.id)) ?? roster.find((p) => !evaluatedHere.has(p.id) && p.id !== playerId)
   const filled = Object.values(draft.scores ?? {}).filter(isFilled).length
+  // Temps de jeu : avis rattaché à un match ou à un tournoi (jamais un avis spontané).
+  const playTime = !spontaneous && !!event && hasPlayingTime(event.type)
   // Liste des joueurs à gauche (ordinateur, téléphone couché) : seulement pour un événement qui a une liste.
   const listMode = split && !spontaneous && !!event && fullRoster.length > 0
   listModeRef.current = listMode
   const inList = !!player && !!event && (event.playerIds ?? []).includes(player.id)
+  // Événement, un joueur ouvert (téléphone, ordinateur sans liste à gauche) : plus de bloc « Joueur » (31/10, il prenait trop
+  // de place) ; ‹ › de part et d'autre du nom, compteur dessous, liste des joueurs en touchant le nom de l'événement.
+  const compact = !listMode && !!event && !spontaneous && !!player && !proposing
+  const notedCount = roster.filter((p) => evaluatedHere.has(p.id)).length
 
-  // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement).
-  // La fiche suit le doigt ; au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté,
-  // ou elle revient en place si le geste est trop court. Pas dans un champ de saisie (qui garde son propre geste).
+  // Glisser vers la gauche : joueur suivant ; vers la droite : précédent (liste de l'événement). La fiche suit le doigt ;
+  // au lâcher, elle part sur le côté et le joueur suivant arrive de l'autre côté, ou elle revient en place si le geste est
+  // trop court (src/components/useSwipeNav.ts). Avis pas enregistré : la question est posée avant de partir.
   const canSwipe = !spontaneous && roster.length > 0 && idx >= 0
-  const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  const setCard = (x: number, transition = '', opacity = 1) => {
-    const el = cardRef.current
-    if (!el) return
-    el.style.transition = transition
-    el.style.transform = x ? `translateX(${x}px)` : ''
-    el.style.opacity = opacity === 1 ? '' : String(opacity)
-  }
-  const springBack = () => setCard(0, 'transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)')
-
-  /** Passe au joueur `target` : la fiche actuelle sort du côté `dir`, la nouvelle arrive de l'autre côté. */
-  async function changePlayer(target: Player, dir: 'left' | 'right') {
-    if (dirty) {
-      // Avis pas enregistré : la fiche revient en place, la question est posée (et « Rester » ne bouge rien).
-      springBack()
-      setEnter({ id: target.id, dir })
-      return void go('joueur', target.id)
-    }
-    if (!reduceMotion && cardRef.current) {
-      const w = cardRef.current.offsetWidth
-      setCard(dir === 'left' ? -w : w, 'transform 0.16s ease-in, opacity 0.16s ease-in', 0)
-      await new Promise((r) => setTimeout(r, 160))
-    }
-    setEnter({ id: target.id, dir })
-    void go('joueur', target.id)
-  }
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    const el = e.target as HTMLElement
-    swipe.current =
-      !canSwipe || el.closest('input, textarea, select, [data-noswipe]') ? null : { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), dx: 0 }
-  }
-  const onTouchMove = (e: React.TouchEvent) => {
-    const s = swipe.current
-    if (!s) return
-    const dx = e.touches[0].clientX - s.x
-    const dy = e.touches[0].clientY - s.y
-    // On décide du sens dès que le doigt a un peu bougé : vertical = défilement normal, on laisse faire.
-    if (s.horizontal === undefined) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
-      s.horizontal = Math.abs(dx) > Math.abs(dy) * 1.2
-      if (!s.horizontal) return void (swipe.current = null)
-    }
-    // Résistance au bout de la liste (pas de joueur de ce côté).
-    s.dx = (dx < 0 && !next) || (dx > 0 && !prev) ? dx * 0.25 : dx
-    setCard(s.dx)
-  }
-  const onTouchEnd = () => {
-    const s = swipe.current
-    swipe.current = null
-    if (!s?.horizontal) return
-    const w = cardRef.current?.offsetWidth ?? 360
-    const speed = Math.abs(s.dx) / Math.max(1, Date.now() - s.t) // px/ms
-    const target = s.dx < 0 ? next : prev
-    if (target && (Math.abs(s.dx) > w * 0.28 || (speed > 0.5 && Math.abs(s.dx) > 30))) void changePlayer(target, s.dx < 0 ? 'left' : 'right')
-    else springBack()
-  }
+  const swipe = swipeNav.handlers({ enabled: canSwipe, prev: prev?.id, next: next?.id, go: (id) => go('joueur', id), hold: () => dirty })
+  const changePlayer = (target: Player, dir: 'left' | 'right') => swipe.change(target.id, dir)
 
   // Ordinateur, un joueur ouvert : joueur et contexte à gauche, grille de notation à droite.
   // Ailleurs, les deux blocs s'effacent (display: contents) : même colonne qu'avant.
@@ -361,24 +356,36 @@ export default function Evaluate() {
       <div className={duo ? 'sticky top-[calc(var(--hdr)+1.25rem)] flex flex-col gap-4' : 'contents'}>
       {/* Plus d'onglet « Évaluer » : on arrive ici depuis un événement, une fiche joueur ou Propositions. */}
       {!listMode && (
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 empty:hidden">
         {/* Retour d'où l'on vient (événement, fiche dans l'événement, fiche, propositions…) ; sans historique : le parent. */}
         {event && !spontaneous ? (
           <BackButton fallback={`/evenements/${event.id}`} label={event.name.toUpperCase()} />
         ) : spontaneous && playerId ? (
-          <BackButton fallback={`/joueurs/${playerId}?onglet=avis`} label="FICHE DU JOUEUR" />
+          <BackButton fallback={`/joueurs/${playerId}?onglet=avis`} label={`FICHE ${player ? pw.duJoueur.toUpperCase() : 'DU JOUEUR'}`} />
         ) : (
           <BackButton fallback="/avis-spontanes" label="PROPOSITIONS" />
         )}
-        <span className="shrink-0 text-[11px] text-muted">
-          Observateur : <b className="text-fg">{me}</b>
-        </span>
       </div>
       )}
 
       {listMode ? null : event && !spontaneous ? (
         <div>
-          <h1 className="text-lg font-extrabold">{event.name}</h1>
+          {compact ? (
+            <div className="flex items-start justify-between gap-2">
+              <button data-noswipe className="flex min-w-0 items-center gap-1.5 text-left" onClick={() => setRosterOpen(true)} title={`Liste des ${ew.joueurs} de l’événement`}>
+                <h1 className="min-w-0 text-lg font-extrabold">{event.name}</h1>
+                <span aria-hidden className="shrink-0 text-sm text-muted">
+                  ▾
+                </span>
+              </button>
+              {/* Options de l'avis : explication des critères, expressions, annuler, retirer (le menu est rendu avec la fiche). */}
+              <span data-noswipe className="contents">
+                <MenuButton label="Options de l’avis" open={!!avisMenu.anchor} className="-mr-2 shrink-0" onOpen={avisMenu.open} />
+              </span>
+            </div>
+          ) : (
+            <h1 className="text-lg font-extrabold">{event.name}</h1>
+          )}
           <div className="text-xs text-muted">
             {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
             {event.place ? ` · ${event.place}` : ''}
@@ -408,11 +415,44 @@ export default function Evaluate() {
       )}
 
       {/* Joueur (liste à gauche : seulement pour choisir un joueur hors liste, ou s'il en est un) */}
-      {(event || spontaneous) && (!listMode || !player || !!proposing || !inList) && (
+      {compact && rosterOpen && (
+        <FormWindow title={`${ew.Joueurs} · ${notedCount} / ${roster.length} ${accord('noté', eg, 2)}`} onClose={() => setRosterOpen(false)} phoneFull={false} guard={false} width={520}>
+          <PlayerPicker
+            players={players}
+            roster={roster}
+            value=""
+            done={evaluatedHere}
+            onChange={(id) => {
+              setRosterOpen(false)
+              if (id) void go('joueur', id)
+            }}
+            onPropose={(q) => {
+              setRosterOpen(false)
+              const [lastName, ...rest] = q.trim().split(/\s+/)
+              setProposing({ lastName, firstName: rest.join(' ') || undefined })
+            }}
+          />
+        </FormWindow>
+      )}
+      {compact && !inList && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
+          {can.editEvent(role, event) || can.contributeEvent(role, event) ? (
+            <>
+              <b>{pw.Joueur} hors liste.</b> Tu organises cet événement : en enregistrant ton avis, {pw.il} sera {pw.ajoute} à la liste.
+            </>
+          ) : (
+            <>
+              <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />{pw.Joueur} hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+              administrateur : il ne comptera qu’une fois validé, et {pw.leJoueur} sera alors {pw.ajoute} à la liste.
+            </>
+          )}
+        </div>
+      )}
+      {(event || spontaneous) && !compact && (!listMode || !player || !!proposing || !inList) && (
       <div className="card flex flex-col gap-2 p-3">
-        <span className="label">{listMode && !player ? 'Joueur hors liste' : 'Joueur'}</span>
+        <span className="label">{listMode && !player ? `${ew.Joueur} hors liste` : player ? pw.Joueur : ew.Joueur}</span>
         {listMode && !player && !proposing && (
-          <p className="-mt-1 text-[11px] text-muted">Choisis un joueur dans la liste, ou cherche ici un joueur absent de la liste de l’événement.</p>
+          <p className="-mt-1 text-[11px] text-muted">Choisis {ew.unJoueur} dans la liste, ou cherche ici {ew.unJoueur} {accord('absent', eg)} de la liste de l’événement.</p>
         )}
         {proposing ? (
           <ProposePlayer
@@ -442,12 +482,12 @@ export default function Evaluate() {
           <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-[11px] text-amber-100">
             {can.editEvent(role, event) || can.contributeEvent(role, event) ? (
               <>
-                <b>Joueur hors liste.</b> Tu organises cet événement : en enregistrant ton avis, il sera ajouté à la liste.
+                <b>{pw.Joueur} hors liste.</b> Tu organises cet événement : en enregistrant ton avis, {pw.il} sera {pw.ajoute} à la liste.
               </>
             ) : (
               <>
-                <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />Joueur hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
-                administrateur : il ne comptera qu’une fois validé, et le joueur sera alors ajouté à la liste.
+                <b><Icon name="alert" className="mr-1 inline h-3.5 w-3.5 -translate-y-px" />{pw.Joueur} hors liste de l’événement.</b> Ton avis sera soumis à la décision de l’organisateur, d’un encadrant ou d’un
+                administrateur : il ne comptera qu’une fois validé, et {pw.leJoueur} sera alors {pw.ajoute} à la liste.
               </>
             )}
           </div>
@@ -455,8 +495,8 @@ export default function Evaluate() {
         {!spontaneous && !listMode && rosterFilter.active && fullRoster.length > 0 && (
           <div className="flex items-center justify-between gap-2 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11px]">
             <span>
-              Filtre : <b>{[posLabel, rosterFilter.hideNoted && 'pas encore notés par moi'].filter(Boolean).join(' · ')}</b> —{' '}
-              {roster.length} joueur{roster.length > 1 ? 's' : ''} sur {fullRoster.length}
+              Filtre : <b>{[posLabel, rosterFilter.hideNoted && `${accord('pas encore noté', eg, 2)} par moi`].filter(Boolean).join(' · ')}</b> —{' '}
+              {pluralG(roster.length, eg)} sur {fullRoster.length}
             </span>
             <button
               className="shrink-0 font-bold text-accent"
@@ -475,9 +515,9 @@ export default function Evaluate() {
               ←
             </button>
             <span className="text-center text-[11px] whitespace-nowrap text-muted">
-              <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : `${roster.length} joueurs`}</b> ·{' '}
-              {roster.filter((p) => evaluatedHere.has(p.id)).length} noté{roster.filter((p) => evaluatedHere.has(p.id)).length > 1 ? 's' : ''}
-              {idx >= 0 && <span className="block text-[10px] font-normal">glisse ← → pour changer de joueur</span>}
+              <b className="text-fg">{idx >= 0 ? `${idx + 1} / ${roster.length}` : pluralG(roster.length, eg)}</b> ·{' '}
+              {roster.filter((p) => evaluatedHere.has(p.id)).length} {accord('noté', eg, roster.filter((p) => evaluatedHere.has(p.id)).length)}
+              {idx >= 0 && <span className="block text-[10px] font-normal">glisse ← → pour changer de {ew.joueur}</span>}
             </span>
             <button className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap" disabled={idx >= 0 ? !next : false} onClick={() => void changePlayer(next ?? roster[0], 'left')}>
               →
@@ -496,13 +536,13 @@ export default function Evaluate() {
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs text-emerald-200">
           ✓ Avis enregistré{event && !spontaneous ? ` pour « ${event.name} »` : ''}
           {spontaneous && !can.review(role) ? ', en attente de validation par un encadrant' : ''}
-          {existing?.review === 'pending' && !spontaneous ? ', en attente de validation (joueur hors liste)' : ''}.{' '}
+          {existing?.review === 'pending' && !spontaneous ? `, en attente de validation (${pw.joueur} hors liste)` : ''}.{' '}
           {nextTodo ? (
             <button className="font-bold underline" onClick={() => void go('joueur', nextTodo.id)}>
-              Joueur suivant à noter : {playerName(nextTodo)} →
+              {accord('Joueur suivant', nextTodo.sex)} à noter : {playerName(nextTodo)} →
             </button>
           ) : roster.length ? (
-            <b>Tous les joueurs de la liste sont notés.</b>
+            <b>{ew.TousLesJoueurs} de la liste sont {accord('noté', eg, 2)}.</b>
           ) : (
             <button className="font-bold underline" onClick={() => void go('joueur', '')}>
               Évaluer un autre joueur
@@ -529,11 +569,11 @@ export default function Evaluate() {
           key={player.id}
           ref={cardRef}
           style={{ touchAction: 'pan-y' }}
-          className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'} ${enter?.id === player.id ? (enter.dir === 'left' ? 'animate-slide-left' : 'animate-slide-right') : ''}`}
+          className={`flex flex-col ${listMode ? 'gap-3 rail:gap-2' : 'gap-4'}`}
         >
-          {/* Voir la fiche du joueur (mesures, avis, maturité…) ; le bouton retour ramène ici. Sans poste, les encadrants
-              et admins sont invités à la compléter directement. */}
-          {listMode ? null : !player.position && can.editPlayers(role) ? (
+          {/* Sans poste, les encadrants et admins sont invités à compléter la fiche directement. La fiche elle-même s'ouvre
+              d'un toucher sur le nom (plus de lien « Voir la fiche », 31/10). */}
+          {!listMode && !player.position && can.editPlayers(role) && (
             <button
               data-noswipe
               className="self-start text-[11px] font-bold text-amber-300"
@@ -544,52 +584,135 @@ export default function Evaluate() {
             >
               ✎ Pas de poste : compléter la fiche
             </button>
-          ) : (
-            <button
-              data-noswipe
-              className="flex items-center gap-1.5 self-start text-[11px] font-bold text-muted hover:text-fg"
-              onClick={async () => {
-                if (!(await confirmLeave())) return
-                navigate(`/joueurs/${player.id}`)
-              }}
-            >
-              <Icon name="user" className="h-3.5 w-3.5" />
-              Voir la fiche
-            </button>
           )}
-          <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
-            <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
-              {playerName(player)} <PosBadges p={player} /> <QuarterBadge birthDate={player.birthDate} />
-              {/* Liste à gauche : en-tête compact, « Voir la fiche » sur la ligne du nom. */}
-              {listMode && (
+          {compact && (
+            // Gélule « ‹ joueur › » (31/10) : au milieu, photo, nom, poste et « 2 / 29 · 3 notés » ; un toucher sur le joueur ouvre
+            // sa fiche, les flèches passent au précédent / suivant (glisser marche toujours). Remplace le bloc « Joueur ».
+            <div className="flex items-center gap-1 rounded-full border-[1.5px] border-line bg-panel p-1">
+              {roster.length > 0 && (
                 <button
                   data-noswipe
-                  className={`flex items-center gap-1 text-[11px] font-bold ${!player.position && can.editPlayers(role) ? 'text-amber-300' : 'text-muted hover:text-fg'}`}
-                  onClick={async () => {
-                    if (!(await confirmLeave())) return
-                    navigate(
-                      !player.position && can.editPlayers(role)
-                        ? `/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`
-                        : `/joueurs/${player.id}`,
-                    )
-                  }}
+                  aria-label={`${accord('Joueur précédent', eg)}`}
+                  disabled={!prev}
+                  onClick={() => prev && void changePlayer(prev, 'right')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-fg hover:bg-panel-2 active:bg-panel-2 disabled:opacity-30"
                 >
-                  <Icon name="user" className="h-3.5 w-3.5" />
-                  {!player.position && can.editPlayers(role) ? 'Compléter le poste' : 'Voir la fiche'}
+                  ‹
+                </button>
+              )}
+              <button
+                data-noswipe
+                className="group flex min-w-0 flex-1 items-center justify-center gap-2.5 py-0.5 text-left"
+                title={`Voir la fiche de ${playerName(player)}`}
+                onClick={async () => {
+                  if (!(await confirmLeave())) return
+                  navigate(`/joueurs/${player.id}`)
+                }}
+              >
+                <RowAvatar p={player} size={38} />
+                {/* Nom, puis poste et compteur juste en dessous. */}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <b className="truncate text-sm underline-offset-2 group-hover:underline">{playerName(player)}</b>
+                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted">
+                    <PosBadges p={player} />
+                    {roster.length > 0 && (
+                      <span>
+                        {idx >= 0 ? `${idx + 1} / ${roster.length}` : pluralG(roster.length, eg)} · {notedCount} {accord('noté', eg, notedCount)}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </button>
+              {roster.length > 0 && (
+                <button
+                  data-noswipe
+                  aria-label={`${accord('Joueur suivant', eg)}`}
+                  disabled={idx >= 0 ? !next : false}
+                  onClick={() => void changePlayer(next ?? roster[0], 'left')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-fg hover:bg-panel-2 active:bg-panel-2 disabled:opacity-30"
+                >
+                  ›
                 </button>
               )}
             </div>
-            <div className={listMode ? 'w-36 shrink-0' : 'w-44'}>
-              <Segmented
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: 'rapide', label: 'Rapide' },
-                  { value: 'complet', label: 'Complet' },
-                ]}
-              />
+          )}
+          {!compact && (
+          <div className={`flex items-center justify-between ${listMode ? 'gap-2' : ''}`}>
+            <div className={`flex items-center gap-2 text-sm font-bold ${listMode ? 'min-w-0 flex-wrap' : ''}`}>
+              {/* Photo (ou initiales) et nom : un toucher ouvre la fiche (mesures, avis, maturité…) ; le retour ramène ici. */}
+              <button
+                data-noswipe
+                className="group flex min-w-0 items-center gap-2.5 text-left"
+                title={`Voir la fiche de ${playerName(player)}`}
+                onClick={async () => {
+                  if (!(await confirmLeave())) return
+                  navigate(`/joueurs/${player.id}`)
+                }}
+              >
+                <Avatar p={player} size={listMode ? 32 : 40} />
+                <span className="underline-offset-2 group-hover:underline">{playerName(player)}</span>
+              </button>{' '}
+              <PosBadges p={player} />
+              {/* Liste à gauche, sans poste : « Compléter le poste » sur la ligne du nom. */}
+              {listMode && !player.position && can.editPlayers(role) && (
+                <button
+                  data-noswipe
+                  className="flex items-center gap-1 text-[11px] font-bold text-amber-300"
+                  onClick={async () => {
+                    if (!(await confirmLeave())) return
+                    navigate(`/joueurs/${player.id}/modifier?retour=${encodeURIComponent(location.pathname + location.search)}&ouvrir=poste`)
+                  }}
+                >
+                  <Icon name="user" className="h-3.5 w-3.5" />
+                  Compléter le poste
+                </button>
+              )}
+            </div>
+            <div className={`flex items-center gap-1 ${listMode ? 'shrink-0' : ''}`}>
+              <span data-noswipe className="contents">
+                <MenuButton label="Options de l’avis" open={!!avisMenu.anchor} className="-mr-2" onOpen={avisMenu.open} />
+              </span>
             </div>
           </div>
+          )}
+          {avisMenu.anchor && (
+            <ItemMenu
+              anchor={avisMenu.anchor}
+              title={`Mon avis sur ${playerName(player)}`}
+              items={[
+                { label: 'Explication des critères', icon: 'info' as const, onSelect: () => setHelpOpen(true) },
+                // Vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx) ; Retour ramène ici, saisie gardée.
+                { label: 'Mes expressions', icon: 'chat' as const, onSelect: () => void confirmLeave().then((ok) => ok && navigate('/expressions')) },
+                // « Annuler » n'est plus dans la barre du bas (Enregistrer + micro seulement, 31/10) : ici, avec « Retirer ».
+                ...(dirty ? [{ label: 'Annuler mes modifications', icon: 'undo' as const, onSelect: revert }] : []),
+                ...(existing ? [{ label: 'Retirer mon avis', icon: 'trash' as const, danger: true, onSelect: () => void withdraw() }] : []),
+              ]}
+              onClose={avisMenu.close}
+            />
+          )}
+          {helpOpen && (
+            // Tous les critères de la fiche de ce joueur (selon son poste), rangés par famille, avec leur description et l'échelle.
+            <FormWindow title="Les critères" onClose={() => setHelpOpen(false)} phoneFull={false} guard={false} width={520}>
+              {groupBy(
+                criteria.filter((c) => criterionApplies(c, player.position)),
+                (c) => c.category,
+              ).map(([cat, cs]) => (
+                <div key={cat} className="flex flex-col gap-1.5">
+                  <div className="section-title mb-0">{cat}</div>
+                  {cs.map((c) => (
+                    <div key={c.id} className="text-xs">
+                      <b>{c.label}</b>
+                      {c.description && <div className="text-muted">{c.description}</div>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="flex flex-col gap-1">
+                <div className="section-title mb-0">Échelle</div>
+                <div className="text-xs text-muted">{scoreLegend()}. Laisse vide ce que tu n’as pas vu.</div>
+              </div>
+            </FormWindow>
+          )}
           {existing && !saved && (
             <div className="text-[11px] text-muted">
               {spontaneous ? (
@@ -597,7 +720,7 @@ export default function Evaluate() {
                   Tu modifies ton avis spontané du {fmtDate(existing.date)}. <ReviewBadge e={existing} />
                 </span>
               ) : (
-                'Tu as déjà évalué ce joueur ici : tu modifies ton avis.'
+                `Tu as déjà ${pw.evalue} ${pw.ceJoueur} ici : tu modifies ton avis.`
               )}
               {spontaneous && <ReviewNote e={existing} />}
               {spontaneous && existing.review && existing.review !== 'pending' && !can.review(role) && (
@@ -605,40 +728,77 @@ export default function Evaluate() {
               )}
             </div>
           )}
-          <div className="text-[11px] text-muted">1 = très insuffisant · 3 = niveau attendu · 5 = remarquable. Laisse vide ce que tu n'as pas vu.</div>
+          <AvisVocal
+            playerId={player.id}
+            position={player.position}
+            criteria={criteria}
+            current={draft}
+            state={avis}
+            setState={setAvis}
+            onApply={applyAvis}
+            slot={micSlot}
+          />
 
           {noCriteria && <NoCriteria kind="subjective" />}
-          {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
-            <div key={cat} className="card p-3">
-              <div className="section-title">{cat}</div>
-              <div className="flex flex-col gap-3">
-                {cs.map((c) => (
-                  // Notes toujours sous le libellé : alignées de la même façon d'un critère à l'autre.
-                  <div key={c.id} className="flex flex-col items-start gap-1.5">
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold">{c.label}</div>
-                      {c.description && <div className="text-[10px] text-muted">{c.description}</div>}
-                    </div>
-                    <CriterionInput
-                      c={c}
-                      value={draft.scores?.[c.id]}
-                      onChange={(v) =>
-                        setDraft((d) => {
-                          const scores = { ...(d.scores ?? {}) }
-                          if (isFilled(v)) scores[c.id] = v!
-                          else delete scores[c.id]
-                          return { ...d, scores }
-                        })
-                      }
-                    />
-                  </div>
-                ))}
+          {/* Rapide / Complet (03/11) : de retour à l'écran, au-dessus des critères (le ⋮ obligeait à chercher). Rapide : critères
+              essentiels, plus ceux déjà notés ou proposés par l'avis vocal ; Complet : tous ceux du poste. Boutons de 40 px. */}
+          {!noCriteria && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted">
+                {shown.length} critère{shown.length > 1 ? 's' : ''}
+              </span>
+              <div data-noswipe className="w-48 shrink-0 [&_button]:min-h-10">
+                <Segmented
+                  look="capsule"
+                  label="Fiche rapide ou complète"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'rapide', label: 'Rapide' },
+                    { value: 'complet', label: 'Complet' },
+                  ]}
+                />
               </div>
             </div>
-          ))}
+          )}
+          {/* Une carte par famille ; chaque critère sur une ligne : libellé à gauche, notes à droite (31/10, fiche plus compacte).
+              Les cartes partagent la même grille (subgrid) : la colonne des libellés prend la largeur du plus long (au plus
+              40 %, au-delà il passe à la ligne), un petit espace, puis toutes les échelles ont la même largeur et prennent toute la place restante.
+              Échelle longue, choix, texte ou nombre : sous le libellé, sur toute la largeur. Descriptions : « Explication des
+              critères » dans le ⋮. */}
+          {shown.length > 0 && (
+            <div className={`grid grid-cols-[fit-content(40%)_minmax(0,1fr)] gap-x-2 ${listMode ? 'gap-y-3' : 'gap-y-4'}`}>
+              {groupBy(shown, (c) => c.category).map(([cat, cs]) => (
+                <div key={cat} className="card col-span-2 grid grid-cols-subgrid gap-y-0 px-3 pt-2.5 pb-1.5">
+                  <div className="section-title col-span-2 mb-0.5">{cat}</div>
+                  {cs.map((c, i) => {
+                    const max = scaleMax(c.scale)
+                    const inline = max !== null && max - scaleMin(c.scale) <= 5
+                    return (
+                      <div key={c.id} className={`col-span-2 grid grid-cols-subgrid items-center gap-y-1.5 py-1.5 ${i ? 'border-t border-line' : ''}`}>
+                        <div className={`min-w-0 text-xs leading-tight font-bold ${inline ? '' : 'col-span-2'}`}>{c.label}</div>
+                        <div className={inline ? '' : 'col-span-2'}>
+                          <CriterionInput c={c} value={draft.scores?.[c.id]} wide onChange={(v) => setScore(c.id, v)} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="card flex flex-col gap-3 p-3">
             <div className="grid grid-cols-2 gap-3">
+              {/* Temps de jeu : sur toute la ligne (− / minutes / +), Temps observé et Date en dessous. */}
+              {playTime && (
+                <div className="col-span-2">
+                  <span className="label" id="temps-de-jeu">
+                    Temps de jeu
+                  </span>
+                  <PlayingTimeField value={draft.playingTime} onChange={(v) => setDraft((d) => ({ ...d, playingTime: v }))} />
+                </div>
+              )}
               <div>
                 <span className="label">Temps observé</span>
                 <NumberField value={draft.minutesObserved} unit="min" onChange={(v) => setDraft((d) => ({ ...d, minutesObserved: v }))} />
@@ -650,49 +810,94 @@ export default function Evaluate() {
                 </div>
               )}
             </div>
+            {/* Super-pouvoir observé (04/11) : une phrase courte, positive par construction ; ✦ menthe, comme sur la carte d'avis. */}
+            <div>
+              <label htmlFor="super-pouvoir" className="label flex items-center gap-1">
+                <span aria-hidden className="text-sm leading-none text-(--neon-text)">
+                  ✦
+                </span>
+                Super-pouvoir observé
+              </label>
+              <input
+                id="super-pouvoir"
+                className="field"
+                maxLength={SUPER_POWER_MAX}
+                enterKeyHint="done"
+                placeholder="Sa lecture du jeu, son premier pas…"
+                aria-describedby="super-pouvoir-aide"
+                value={draft.superPower ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, superPower: e.target.value }))}
+              />
+              <p id="super-pouvoir-aide" className="mt-1 text-[11px] text-muted">
+                Ce qu’{pw.il} fait de mieux, en quelques mots. Facultatif.
+              </p>
+            </div>
+            {draft.portrait?.trim() || portraitOpen ? (
+              <div>
+                <span className="label">Portrait</span>
+                <textarea
+                  className="field min-h-14"
+                  maxLength={300}
+                  autoFocus={portraitOpen && !draft.portrait}
+                  placeholder="Le type de joueur, en une phrase"
+                  value={draft.portrait ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, portrait: e.target.value }))}
+                />
+              </div>
+            ) : (
+              <button type="button" className="-mb-1 inline-flex min-h-8 items-center self-start rounded-full border border-line px-3 text-xs font-bold text-muted hover:text-fg" onClick={() => setPortraitOpen(true)}>
+                + Portrait
+              </button>
+            )}
             <div>
               <span className="label">Points forts</span>
-              <DictationTextarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(v) => setDraft((d) => ({ ...d, strengths: v }))} />
+              <textarea className="field min-h-14" value={draft.strengths ?? ''} onChange={(e) => setDraft((d) => ({ ...d, strengths: e.target.value }))} />
             </div>
             <div>
               <span className="label">Axes de progression</span>
-              <DictationTextarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(v) => setDraft((d) => ({ ...d, improvements: v }))} />
+              <textarea className="field min-h-14" value={draft.improvements ?? ''} onChange={(e) => setDraft((d) => ({ ...d, improvements: e.target.value }))} />
             </div>
           </div>
 
           {spontaneous && !draft.contextType && <div className="text-[11px] text-amber-200">Indique le contexte (UNSS, entraînement club…) en haut de l’écran.</div>}
         </div>
-          {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur) ; ne glisse pas avec la fiche. */}
-          <div className={`sticky bottom-[var(--nav-b)] z-10 flex items-center gap-2 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
-            <button
-              className="btn-primary flex-1"
-              disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
-              onClick={() => void submit()}
-            >
-              {existing ? (dirty ? 'Mettre à jour' : 'Enregistré ✓') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
-            </button>
-            {dirty ? (
-              <button className="btn shrink-0 text-xs text-muted" onClick={revert} title="Oublier les modifications">
-                Annuler
+          {/* Enregistrer : toujours visible, collé au-dessus de la barre du bas (comme la fiche joueur), ou tout en bas sur téléphone
+              tenu droit, où le menu est caché pendant la notation (App.tsx) ; ne glisse pas avec la fiche. */}
+          <div className={`save-bar sticky bottom-[var(--nav-b)] z-10 flex flex-col gap-1 border-t border-line bg-bg py-2 ${listMode ? '-mx-2 px-2' : '-mx-4 px-4'}`}>
+          <div className="flex items-center gap-2">
+            {existing && !dirty && nextTodo ? (
+              // Avis enregistré et rien de modifié : le bouton principal passe au joueur suivant à noter.
+              <button className="btn-save min-w-0 flex-1" onClick={() => void go('joueur', nextTodo.id)}>
+                <span className="truncate">
+                  Suivant : {nextTodo.firstName} {(nextTodo.lastName ?? '').charAt(0).toUpperCase()}
+                  {nextTodo.lastName ? '.' : ''} →
+                </span>
               </button>
             ) : (
-              existing && (
-                <button className="btn shrink-0 text-xs text-muted hover:text-red-400" onClick={() => void withdraw()}>
-                  Retirer mon avis
-                </button>
-              )
+              <button
+                className="btn-save flex-1"
+                disabled={filled === 0 || (spontaneous && !draft.contextType) || (!!existing && !dirty)}
+                onClick={() => void submit()}
+              >
+                <span aria-hidden>✓</span>
+                {existing ? (dirty ? 'Mettre à jour' : 'Enregistré') : 'Enregistrer'} · {filled} critère{filled > 1 ? 's' : ''}
+              </button>
             )}
+            {/* Micro de l'avis vocal (src/components/AvisVocal.tsx), à droite. */}
+            <span ref={setMicSlot} className="contents" />
+          </div>
+          <OfflineNote show={dirty || !!existing} />
           </div>
         </div>
   )
 
-  const touch = { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: springBack }
+  const touch = swipe.touch
   if (listMode && event)
     return (
       <div className="grid items-start gap-5 rail:gap-2" style={{ gridTemplateColumns: 'minmax(0, var(--md-col)) minmax(0, 1fr)' }} {...touch}>
         <RosterList
           event={event}
-          me={me}
+          g={eg}
           roster={roster}
           total={fullRoster.length}
           noted={fullRoster.filter((p) => evaluatedHere.has(p.id)).length}
@@ -700,6 +905,7 @@ export default function Evaluate() {
           done={evaluatedHere}
           dirty={dirty}
           filter={rosterFilter}
+          group={rosterGroup}
           posLabel={posLabel}
           onPick={(id) => void go('joueur', id)}
           onOther={() => void go('joueur', '')}
@@ -729,7 +935,7 @@ export default function Evaluate() {
  */
 function RosterList({
   event,
-  me,
+  g,
   roster,
   total,
   noted,
@@ -737,12 +943,14 @@ function RosterList({
   done,
   dirty,
   filter,
+  group,
   posLabel,
   onPick,
   onOther,
 }: {
   event: HBEvent
-  me: string
+  /** Genre de la liste (src/gender.ts). */
+  g: Gender
   roster: Player[]
   total: number
   noted: number
@@ -750,6 +958,8 @@ function RosterList({
   done: Set<string>
   dirty: boolean
   filter: ReturnType<typeof useRosterFilter>
+  /** Événement réparti en équipes : rangement choisi sur sa page (bandeaux d'équipe). */
+  group: RosterGroup
   posLabel?: string
   onPick: (id: string) => void
   onOther: () => void
@@ -784,14 +994,14 @@ function RosterList({
   return (
     <aside
       data-noswipe
-      aria-label="Joueurs de l’événement"
+      aria-label={`${w(g).Joueurs} de l’événement`}
       className="sticky top-[calc(var(--hdr)+1.25rem)] flex max-h-[calc(100dvh-var(--hdr)-2.5rem)] min-w-0 flex-col gap-2 rounded-xl border border-line bg-panel p-2.5 rail:top-[calc(var(--hdr)+0.5rem)] rail:max-h-[calc(100dvh-var(--hdr)-1rem)] rail:gap-1.5 rail:p-1.5"
     >
       <div className="min-w-0">
         <BackButton fallback={`/evenements/${event.id}`} label={event.name} className="block w-full hover:text-fg" />
         <div className="truncate text-[10px] text-muted rail:hidden">
           {EVENT_TYPES.find((t) => t.value === event.type)?.label} · {fmtDate(event.date)}
-          {event.place ? ` · ${event.place}` : ''} · Observateur : <b className="text-fg">{me}</b>
+          {event.place ? ` · ${event.place}` : ''}
         </div>
       </div>
       <div className="flex items-center justify-between gap-2 text-[11px]">
@@ -799,12 +1009,12 @@ function RosterList({
           <b className={noted === total ? 'text-emerald-300' : ''}>
             {noted} / {total}
           </b>{' '}
-          <span className="text-muted">noté{noted > 1 ? 's' : ''}</span>
+          <span className="text-muted">{accord('noté', g, noted)}</span>
         </span>
         {(noted > 0 || filter.hideNoted) && (
           <label className="flex min-w-0 cursor-pointer items-center gap-1 text-[10px] text-muted">
             <input type="checkbox" className="accent-accent" checked={filter.hideNoted} onChange={(e) => filter.setHideNoted(e.target.checked)} />
-            <span className="truncate">Masquer les notés</span>
+            <span className="truncate">Masquer les {accord('noté', g, 2)}</span>
           </label>
         )}
       </div>
@@ -822,7 +1032,7 @@ function RosterList({
         <input
           type="search"
           className="field py-1 text-xs"
-          placeholder="Chercher un joueur…"
+          placeholder={`Chercher ${w(g).unJoueur}…`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -835,18 +1045,20 @@ function RosterList({
         />
       )}
       <div ref={boxRef} className="-mx-1 flex min-h-0 flex-col gap-1.5 overflow-y-auto overscroll-contain px-1 pb-1" onKeyDown={onKeyDown}>
-        {/* Une capsule par poste (même présentation que la liste de l'événement), les joueurs dans l'ordre de notation. */}
-        {items
-          .reduce<{ pos: string; players: typeof items }[]>((acc, p) => {
-            const pos = p.position ?? ''
-            const last = acc[acc.length - 1]
-            if (last && last.pos === pos) last.players.push(p)
-            else acc.push({ pos, players: [p] })
-            return acc
-          }, [])
+        {/* Découpage de la page de l'événement (eventSections) : par équipe (bandeau) puis poste, sinon par poste ; les joueurs dans l'ordre de notation. */}
+        {eventSections(items, event, group)
           .map((sec, si) => (
-            <div key={sec.pos + si} className="flex flex-col gap-1">
-              <div className="section-title mt-1.5 mb-0 px-0.5 text-[10px]">{POSITIONS.find((x) => x.id === sec.pos)?.label ?? 'Sans poste'}</div>
+            <div key={si} className="flex flex-col gap-1">
+              {sec.heading && sec.team && (
+                <div
+                  className={`mt-2 truncate rounded border-l-4 bg-panel-2 px-1.5 py-1 text-[11px] font-extrabold tracking-wide uppercase first:mt-0.5 ${sec.mine ? 'border-accent text-accent' : 'border-fg/40'}`}
+                >
+                  {sec.heading}
+                  {sec.mine && <span className="ml-1.5 rounded bg-accent px-1 align-middle text-[9px] text-white normal-case">mon équipe</span>}
+                </div>
+              )}
+              {sec.heading && !sec.team && <div className="section-title mt-1.5 mb-0 px-0.5 text-[10px]">{sec.heading}</div>}
+              {sec.sub && <div className="mt-0.5 px-0.5 text-[10px] font-bold tracking-wide text-muted uppercase">{sec.sub}</div>}
               {sec.players.map((p) => {
                 const on = p.id === value
                 const ok = done.has(p.id)
@@ -855,7 +1067,7 @@ function RosterList({
                     key={p.id}
                     data-pid={p.id}
                     aria-current={on || undefined}
-                    title={ok ? 'Noté par moi' : 'Pas encore noté par moi'}
+                    title={ok ? `${accord('Noté', p.sex)} par moi` : `Pas encore ${w(p.sex).note} par moi`}
                     onClick={() => !on && onPick(p.id)}
                     className={`card flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-left text-xs transition rail:py-1 ${
                       on ? 'border-accent bg-accent/10 ring-1 ring-accent' : 'hover:border-accent'
@@ -879,10 +1091,10 @@ function RosterList({
               })}
             </div>
           ))}
-        {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Aucun joueur ne correspond.</p>}
+        {words.length > 0 && items.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">{w(g).AucunJoueur} ne correspond.</p>}
       </div>
       <button className="self-start px-1 text-[11px] font-bold text-accent" onClick={onOther}>
-        + Joueur hors liste…
+        + {w(g).Joueur} hors liste…
       </button>
     </aside>
   )
@@ -911,6 +1123,8 @@ function SpontaneousContext({
         )}
       </p>
       <Segmented<ContextType>
+        look="capsule"
+        label="Contexte de l’avis spontané"
         value={draft.contextType}
         onChange={(v) => setDraft((d) => ({ ...d, contextType: v }))}
         options={CONTEXT_TYPES}
@@ -932,33 +1146,93 @@ function SpontaneousContext({
 /** Une valeur d'avis renseignée : note, option choisie ou texte non vide. */
 const isFilled = (v: unknown): v is number | string => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')
 
-/** Création d'un événement, ou modification de `event` (nom, type, date, lieu). */
-export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; groupId?: string; onDone: (ev?: HBEvent) => void }) {
-  // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite).
-  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => alive(gs).filter((g) => !g.archived && can.seeGroup(g)))), [], [])
+/**
+ * Création d'un événement, ou modification de `event` (nom, type, date, lieu). `extra` : actions rangées au bas du
+ * formulaire de modification (ex. « + Importer une feuille de match (PDF) » sur la page de l'événement).
+ * `copy` : création pré-remplie par « Dupliquer l'événement » (src/eventCopy.ts) : champs, liste des joueurs et équipes
+ * copiés, enregistrés comme une création normale à « Créer ».
+ * Boutons dans <FormActions> : dans le pied de la fenêtre (src/components/FormWindow.tsx), sinon sous le formulaire.
+ */
+export function NewEventForm({
+  event,
+  groupId,
+  playerIds,
+  copy,
+  onDone,
+  extra,
+}: {
+  event?: HBEvent
+  groupId?: string
+  /** Création avec ces joueurs déjà dans la liste (sélection multiple d'une liste de joueurs) ; sexe déduit d'eux. */
+  playerIds?: string[]
+  /** Création à partir d'une copie (« Dupliquer l'événement »). */
+  copy?: EventDraft
+  onDone: (ev?: HBEvent) => void
+  extra?: ReactNode
+}) {
+  const from = event ? undefined : copy
+  // À la création : la liste de l'événement peut partir d'un groupe (copie, modifiable ensuite). Groupe Pôle : ses membres
+  // en cours, calculés depuis les fiches (src/poleMembers.ts ; copie jamais enregistrée comme groupe).
+  const groups = useLiveQuery(() => loadTeams().then(() => db.groups.orderBy('name').toArray().then((gs) => withPoleMembers(alive(gs).filter((g) => !g.archived && can.seeGroup(g))))), [], [])
   const [group, setGroup] = useState(groupId ?? '')
   const picked = groups.find((g) => g.id === group)
-  const [name, setName] = useState(event?.name ?? '')
-  const [type, setType] = useState<EventType>(event?.type ?? 'match')
-  const [date, setDate] = useState(event?.date ?? today())
-  const [place, setPlace] = useState(event?.place ?? '')
+  const init = event ?? from
+  const [name, setName] = useState(init?.name ?? '')
+  const [type, setType] = useState<EventType>(init?.type ?? 'match')
+  const [date, setDate] = useState(init?.date ?? today())
+  const [place, setPlace] = useState(init?.place ?? '')
+  // Garçons / Filles / Mixte (facultatif, src/gender.ts) : sans choix, déduit des joueurs de la liste (toutes des filles → féminin).
+  const [sex, setSex] = useState<HBEvent['sex']>(init?.sex)
+  // Copie : sa liste, comme une liste choisie (mais chaque joueur garde celui qui l'avait ajouté).
+  const copied = from?.playerIds?.length ? from.playerIds : undefined
+  const chosen = !event && (copied ?? playerIds)?.length ? [...new Set(copied ?? playerIds)] : undefined
+  const rosterIds = event ? (event.playerIds ?? []) : (chosen ?? picked?.playerIds ?? [])
+  const guessed = useLiveQuery(async () => genderOf(await db.players.bulkGet(rosterIds)), [rosterIds.join(',')])
+  const auto: Gender = (!event && picked?.sex) || guessed
+  // Unité organisatrice (src/eventOrganizer.ts) : à la création, celle du créateur, posée d'office ; modifiable.
+  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: init?.organizerUnitId ?? '', name: init?.organizerName })
   // Participants (supabase/024_participants_evenements.sql) : encadrants qui co-organisent.
-  const [editors, setEditors] = useState<string[]>(event?.editors ?? [])
+  const [editors, setEditors] = useState<string[]>(init?.editors ?? [])
   // Staffs choisis (supabase/034) : leurs membres du moment co-organisent. Ceux que je ne vois pas restent tels quels.
-  const [teams, setTeams] = useState<string[]>(event?.teams ?? [])
+  const [teams, setTeams] = useState<string[]>(init?.teams ?? [])
   const canPick = useCanPickStaff()
   const [staffNames, setStaffNames] = useState<Record<string, string>>({})
   const chip = (on: boolean) =>
     `rounded-md border px-2.5 py-1.5 text-xs font-bold ${on ? 'border-accent bg-accent text-white' : 'border-line bg-panel-2 text-muted hover:text-fg'}`
   return (
     <div className="flex flex-col gap-2">
-      <input className="field" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
-      <Segmented value={type} onChange={setType} options={EVENT_TYPES} columns={2} />
+      <input className="field" autoFocus={!!playerIds?.length} aria-label="Nom de l’événement" placeholder="Ex. Tournoi de Pâques, Lyon – Valence…" value={name} onChange={(e) => setName(e.target.value)} />
+      {/* 2 colonnes (téléphone, formulaire étroit), 4 de front dès que la place le permet (fenêtre d'ordinateur). */}
+      <div className="@container">
+        <Segmented value={type} onChange={setType} options={EVENT_TYPES} className="grid grid-cols-2 gap-[3px] @lg:grid-cols-4" />
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <input type="date" className="field" value={date} onChange={(e) => setDate(e.target.value)} />
         <input className="field" placeholder="Lieu" value={place} onChange={(e) => setPlace(e.target.value)} />
       </div>
-      {!event && groups.length > 0 && (
+      <OrganizerField value={organizer} onChange={setOrganizer} auto={!event && !from} />
+      <span className="label mt-1">{SEX_LABELS.M} / {SEX_LABELS.F.toLowerCase()}</span>
+      {/* Style commun des choix (Segmented, 31/10) ; toucher le choix retenu le retire (facultatif). */}
+      <Segmented
+        label={`${SEX_LABELS.M} / ${SEX_LABELS.F.toLowerCase()}`}
+        value={sex}
+        onChange={(v) => setSex(sex === v ? undefined : v)}
+        options={EVENT_SEXES}
+      />
+      {!sex && <p className="-mt-1 text-[11px] text-muted">Facultatif : sans choix, déduit des joueurs de la liste{auto ? ` (${EVENT_SEXES.find((x) => x.value === auto)?.label.toLowerCase()})` : ''}.</p>}
+      {chosen && (
+        <p className="text-[11px] text-muted">
+          Liste : {pluralG(chosen.length, guessed, copied ? 'joueur copié' : 'joueur choisi')}
+          {copied ? ` de « ${from!.from} »` : ''} (modifiable ensuite){copied ? ', sans leurs avis' : ''}.
+        </p>
+      )}
+      {from?.tournament && (
+        <p className="text-[11px] text-muted">
+          Équipes : {from.tournament.teams.length > 1 ? `${from.tournament.teams.length} équipes copiées` : '1 équipe copiée'}
+          {from.tournament.players ? ', avec les numéros de maillot' : ''} (sans résultats).
+        </p>
+      )}
+      {!event && !chosen && groups.length > 0 && (
         <select className={`field ${group ? 'border-accent font-bold' : ''}`} value={group} onChange={(e) => setGroup(e.target.value)}>
           <option value="">Joueurs : aucun pour l’instant (à ajouter ensuite)</option>
           {groups.map((g) => (
@@ -986,7 +1260,7 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
           />
         </>
       )}
-      <div className="flex gap-2">
+      <FormActions>
         <button
           className="btn-primary flex-1"
           disabled={!name.trim()}
@@ -996,10 +1270,15 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
               type,
               date,
               place: place || undefined,
+              sex: sex || (!event && picked?.sex ? picked.sex : undefined),
+              organizerUnitId: organizer.id || undefined,
+              organizerName: organizer.id ? organizer.name : undefined,
               editors,
               teams: teams.length ? teams : undefined,
               names: { ...event?.names, ...Object.fromEntries(editors.filter((u) => staffNames[u]).map((u) => [u, staffNames[u]])) },
             }
+            // « Ajouté par » des joueurs choisis : posé ici pour l'affichage ; le serveur le refait (supabase/024).
+            const me = currentUserId()
             // Relit l'événement au moment d'enregistrer : la liste des joueurs a pu changer entre-temps.
             const current = event && (await db.events.get(event.id))
             onDone(
@@ -1010,10 +1289,14 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
                   : {
                       id: newId(),
                       ...fields,
-                      playerIds: picked ? [...picked.playerIds] : undefined,
+                      playerIds: chosen ? [...chosen] : picked ? [...picked.playerIds] : undefined,
+                      ...(chosen && me ? { addedBy: Object.fromEntries(chosen.map((id) => [id, me])) } : {}),
                       // Depuis un groupe : chaque joueur garde celui qui l'avait ajouté au groupe.
-                      addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined,
-                      names: { ...picked?.names, ...fields.names },
+                      ...(!chosen && { addedBy: picked?.addedBy ? { ...picked.addedBy } : undefined }),
+                      names: { ...picked?.names, ...from?.names, ...fields.names },
+                      // Copie (« Dupliquer l'événement ») : chacun garde celui qui l'avait ajouté ; équipes et numéros.
+                      ...(copied && { addedBy: { ...(me ? Object.fromEntries(copied.map((id) => [id, me])) : {}), ...from!.addedBy } }),
+                      ...(from?.tournament && { tournament: from.tournament }),
                     },
               ),
             )
@@ -1024,10 +1307,14 @@ export function NewEventForm({ event, groupId, onDone }: { event?: HBEvent; grou
         <button className="btn text-muted" onClick={() => onDone()}>
           Annuler
         </button>
-      </div>
+      </FormActions>
+      {extra}
     </div>
   )
 }
+
+/** Garçons / Filles / Mixte : libellés partagés (src/gender.ts). */
+const EVENT_SEXES = SEX_CHOICES
 
 /** Choix d'un joueur par recherche (la base peut contenir des milliers de joueurs). */
 function PlayerPicker({
@@ -1121,7 +1408,7 @@ function PlayerPicker({
             <b>
               {p.lastName.toUpperCase()} {p.firstName}
             </b>
-            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>} <QuarterBadge birthDate={p.birthDate} />
+            {p.birthDate && <span className="text-muted"> · {p.birthDate.slice(0, 4)}</span>}
             {p.review === 'pending' && <span className="text-amber-300"> · proposée</span>}
             {p.review === 'refused' && <span className="text-muted"> · hors cadre</span>}
           </span>
@@ -1152,5 +1439,77 @@ function fingerprint(d: Partial<Evaluation>) {
     .filter(([, v]) => isFilled(v))
     .sort(([a], [b]) => a.localeCompare(b))
   const txt = (v?: string) => v?.trim() || ''
-  return JSON.stringify([scores, d.minutesObserved ?? null, txt(d.strengths), txt(d.improvements), d.date ?? '', d.contextType ?? '', txt(d.contextPlace)])
+  return JSON.stringify([
+    scores,
+    d.minutesObserved ?? null,
+    txt(d.strengths),
+    txt(d.improvements),
+    d.date ?? '',
+    d.contextType ?? '',
+    txt(d.contextPlace),
+    txt(d.portrait),
+    txt(d.superPower),
+    d.playingTime ?? null,
+  ])
+}
+
+/**
+ * Temps de jeu (minutes, entier) : − / pavé numérique / + (pas de 5 min, src/avisMatch.ts) ; vide = non renseigné.
+ * Boutons de 40 px ; le champ garde ce qui est tapé (chiffres seulement).
+ */
+function PlayingTimeField({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+  const btn = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-base font-bold text-muted hover:text-fg disabled:opacity-40'
+  return (
+    <div data-noswipe className="flex max-w-64 items-center gap-2" role="group" aria-labelledby="temps-de-jeu">
+      <button type="button" className={btn} aria-label="Moins 5 minutes" disabled={value === undefined || value <= 0} onClick={() => onChange(stepPlayingTime(value, -1))}>
+        −
+      </button>
+      <div className="relative min-w-0 flex-1">
+        <input
+          className="field px-2 pr-9 text-center tabular-nums"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          aria-label="Temps de jeu en minutes"
+          placeholder="–"
+          value={value === undefined ? '' : String(value)}
+          onChange={(e) => onChange(parsePlayingTime(e.target.value))}
+        />
+        <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted">min</span>
+      </div>
+      <button type="button" className={btn} aria-label="Plus 5 minutes" onClick={() => onChange(stepPlayingTime(value, 1))}>
+        +
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Hors ligne, avis en cours ou enregistré : une ligne discrète sous « Enregistrer / Suivant » rassure (l'avis part
+ * tout seul au retour du réseau, sync.ts). Sa hauteur est publiée dans --save-extra : les boutons flottants de l'avis
+ * vocal (AvisVocal.tsx) remontent d'autant et ne la recouvrent pas.
+ */
+function OfflineNote({ show }: { show: boolean }) {
+  const { state } = useSyncState()
+  const on = show && state === 'offline'
+  const ref = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    const root = document.documentElement.style
+    if (!on || !el) return
+    const set = () => root.setProperty('--save-extra', `${el.offsetHeight + 4}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.removeProperty('--save-extra')
+    }
+  }, [on])
+  if (!on) return null
+  return (
+    <p ref={ref} className="text-xs leading-snug text-muted" role="status">
+      <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-400 align-middle" aria-hidden />
+      Hors ligne : ton avis est gardé sur le téléphone et partira tout seul.
+    </p>
+  )
 }

@@ -1,3 +1,4 @@
+import { useRowSelectItem } from './Selection'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { createContext, useContext, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -13,12 +14,15 @@ import { ItemMenu, type MenuAnchor, type MenuItem } from './ItemMenu'
 import type { RowLink } from './PlayerRow'
 import { RewatchDialog } from './Scouting'
 import { playerName } from './ui'
+import { genderOf, pluralG, w } from '../gender'
 
 /*
  * Menu d'une ligne de joueur (toutes les listes passent par PlayerRow) : voir la fiche, évaluer, à revoir, suivre,
  * ajouter à un événement ou à un groupe, comparer, modifier la fiche, actions propres à la liste (retirer de
- * l'événement, du groupe), supprimer la fiche (administrateurs, après confirmation). Seulement ce que les droits
- * permettent (can.*), avec les fenêtres existantes.
+ * l'événement, du groupe, du pôle), supprimer la fiche (administrateurs, après confirmation, et seulement si la liste le
+ * demande : `deletable`, la liste générale Joueurs ; jamais dans un groupe, un événement ou le changement de saison, où
+ * « Supprimer » à côté de « Retirer » fait effacer des fiches au lieu de les retirer de la liste). Seulement ce que les
+ * droits permettent (can.*), avec les fenêtres existantes.
  */
 
 /** Action propre à la liste (« Retirer de cet événement »…), après les actions communes. */
@@ -29,7 +33,22 @@ export const PlayerMenuScope = createContext<{ pick?: ComparePick; eventId?: str
 
 type Phase = 'menu' | 'rewatch' | 'event' | 'group'
 
-export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Player; anchor: MenuAnchor; fiche: RowLink; extras?: MenuExtra[]; onClose: () => void }) {
+export function PlayerMenu({
+  p,
+  anchor,
+  fiche,
+  extras = [],
+  deletable = false,
+  onClose,
+}: {
+  p: Player
+  anchor: MenuAnchor
+  fiche: RowLink
+  extras?: MenuExtra[]
+  /** « Supprimer la fiche » proposé (liste générale Joueurs seulement) ; absent par défaut. */
+  deletable?: boolean
+  onClose: () => void
+}) {
   const role = useRole()
   const nav = useNavigate()
   const { pathname } = useLocation()
@@ -42,7 +61,11 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
   // Événement de la page (liste d'un événement, fiche ouverte depuis un événement).
   const eventId = scope.eventId ?? pathname.match(/^\/evenements\/([^/?#]+)/)?.[1]
   const pick = scope.pick ?? globalPick
+  // Joueurs déjà choisis pour comparer : « 2 joueuses choisies » si ce sont toutes des filles (src/gender.ts).
+  const pickedSex = useLiveQuery(() => db.players.bulkGet(pick.picked).then((ps) => genderOf(ps)), [pick.picked.join(',')])
   const name = playerName(p)
+  // Dans une liste : « Sélectionner » (mode sélection avec ce joueur coché).
+  const selectItem = useRowSelectItem(p.id)
 
   if (phase === 'rewatch') return <RewatchDialog playerId={p.id} originEventId={eventId} onClose={onClose} />
   if (phase === 'event') return <AddToEventDialog playerIds={[p.id]} onClose={onClose} />
@@ -65,6 +88,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
       hint: eventId ? 'dans cet événement' : 'avis spontané',
       onSelect: () => nav(eventId ? `/evaluer?evenement=${eventId}&joueur=${p.id}` : `/evaluer?contexte=libre&joueur=${p.id}`),
     },
+    !!selectItem && { label: selectItem.label, icon: 'check', onSelect: selectItem.onSelect },
     !!scoutId() && { label: mineOpen ? 'Modifier mon « à revoir »…' : 'À revoir…', icon: 'clock', stay: true, onSelect: () => setPhase('rewatch') },
     canFollow() && !!follows && { label: followed ? 'Ne plus suivre' : 'Suivre', icon: 'star', filled: followed, onSelect: () => void setFollow('player', p.id, !followed) },
     can.manageEvents(role) && { label: 'Ajouter à un événement…', icon: 'calendar', stay: true, onSelect: () => setPhase('event') },
@@ -72,7 +96,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
     {
       label: picked ? 'Retirer de la comparaison' : 'Comparer',
       icon: 'target',
-      hint: picked ? undefined : pick.picked.length ? `avec ${pick.picked.length > 1 ? `${pick.picked.length} joueurs choisis` : 'le joueur choisi'}` : 'choisir ensuite 1 ou 2 autres joueurs',
+      hint: picked ? undefined : pick.picked.length ? `avec ${pick.picked.length > 1 ? pluralG(pick.picked.length, pickedSex, 'joueur choisi') : `${w(pickedSex).leJoueur} ${w(pickedSex).choisi}`}` : 'choisir ensuite 1 ou 2 autres joueurs',
       onSelect: () => {
         if (!pick.on) pick.setOn(true)
         pick.toggle(p.id)
@@ -80,7 +104,7 @@ export function PlayerMenu({ p, anchor, fiche, extras = [], onClose }: { p: Play
     },
     can.editPlayer(role, p) && { label: can.editPlayers(role) ? 'Modifier la fiche' : 'Modifier ma proposition', icon: 'pencil', onSelect: () => nav(`/joueurs/${p.id}/modifier`) },
     ...extras.map((x, i) => (i === 0 ? { ...x, separated: true } : x)),
-    can.deletePlayers(role) && {
+    deletable && can.deletePlayers(role) && {
       label: 'Supprimer la fiche',
       icon: 'trash',
       danger: true,

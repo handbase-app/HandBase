@@ -1,5 +1,8 @@
-// HandBase : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
-// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag }.
+// Nextar : réception des notifications (ajouté au service worker de l'appli, vite.config.ts).
+// Message envoyé par la fonction Supabase « notify » : { title, body, url, tag } ; sans titre : « Nextar ». Même format pour les
+// propositions à valider (fonction « veille », supabase/067) : { body, url: "/?propositions=1", tag: "propositions", calme? }.
+// Message de la veille (fonction « veille », { type: "veille", … }) : confié à veille-sw.js (src/veilleSw.ts, chargé avant ce
+// fichier), qui affiche la notification et prépare les événements du lendemain hors ligne.
 self.addEventListener('push', (event) => {
   let d = {}
   try {
@@ -7,12 +10,21 @@ self.addEventListener('push', (event) => {
   } catch {
     d = { body: event.data ? event.data.text() : '' }
   }
+  if (d && d.type === 'veille') {
+    const p = self.HBVeille && self.HBVeille.push(d)
+    if (p) return event.waitUntil(p)
+    // veille-sw.js absent (ancienne version en cache) : une notification simple, toujours visible.
+    d = { title: 'Nextar', body: 'Événements demain : ouvre l’appli pour préparer tes joueurs hors ligne.', url: '/evenements', tag: 'veille' }
+    return event.waitUntil(self.registration.showNotification(d.title, { body: d.body, tag: d.tag, icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url } }))
+  }
   event.waitUntil(
-    Promise.all([bumpBadge(), self.registration.showNotification(d.title || 'HandBase', {
+    Promise.all([bumpBadge(), self.registration.showNotification(d.title || 'Nextar', {
       body: d.body || '',
       // Même sujet : la nouvelle remplace l'ancienne au lieu de s'empiler.
       tag: d.tag,
-      renotify: !!d.tag,
+      renotify: !!d.tag && !d.calme,
+      // Créneau « ne pas déranger » de la personne (propositions à valider, fonction « veille ») : sans son ni vibration.
+      silent: !!d.calme,
       icon: 'icon-192.png',
       badge: 'icon-192.png',
       data: { url: d.url || '/' },

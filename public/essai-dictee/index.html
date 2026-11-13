@@ -94,6 +94,32 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .apt { font-size: 1.1rem; font-weight: 700; }
 table { border-collapse: collapse; font-size: .9rem; }
 td, th { padding: 2px 8px 2px 0; text-align: left; }
+.tabs { display: flex; gap: 8px; margin: 14px 0 0; }
+.tabs button { flex: 1 1 0; font-weight: 600; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.cal-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.cal-n { font-weight: 700; font-size: 1.05rem; }
+.cal-text { font-size: 1.35rem; line-height: 1.6; padding: 14px; border-radius: 10px; background: var(--soft); border: 2px solid var(--line); margin: 8px 0; }
+.cal-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cal-nav button { min-height: 52px; font-size: 1.05rem; }
+#calTalk { display: block; width: 100%; min-height: 110px; margin: 12px 0 8px; font-size: 1.3rem; font-weight: 700; border-radius: 16px;
+  background: var(--accent); color: var(--accent-text); border: none; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#calTalk.rec { background: var(--rec); color: #fff; }
+#calTalk.busy { opacity: .7; }
+#calStatus { min-height: 1.5em; font-weight: 600; }
+#calStatus.err { color: var(--bad); }
+.align { font-size: 1.15rem; line-height: 2; padding: 10px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.align del { color: var(--bad); text-decoration: line-through 2px; background: color-mix(in srgb, var(--bad) 12%, transparent); padding: 1px 3px; border-radius: 4px; }
+.align ins { color: var(--ok); text-decoration: underline 2px; text-underline-offset: 3px; background: color-mix(in srgb, var(--ok) 14%, transparent); padding: 1px 3px; border-radius: 4px; font-weight: 600; }
+.wer-line { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0; font-weight: 600; }
+.legend { font-size: .9rem; color: var(--muted); margin: 6px 0; }
+.sugg-group { margin: 12px 0 0; }
+.sugg-group h3 { font-size: 1rem; margin: 0 0 4px; }
+.sugg { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 4px; border-top: 1px solid var(--line); }
+.sugg input { width: 24px; height: 24px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.sugg .why { display: block; font-size: .88rem; color: var(--muted); }
+details.raw { margin-top: 8px; }
+details.raw summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
 .hidden { display: none !important; }
 </style>
 </head>
@@ -160,7 +186,51 @@ td, th { padding: 2px 8px 2px 0; text-align: left; }
     </div>
   </section>
 
-  <section id="speak">
+  <div class="tabs" role="tablist" aria-label="Mode d'essai">
+    <button type="button" role="tab" id="tabPhrases" aria-selected="true" aria-controls="speak">Phrases</button>
+    <button type="button" role="tab" id="tabCalib" aria-selected="false" aria-controls="calib">Texte de calibration</button>
+  </div>
+
+  <section id="calib" class="hidden" role="tabpanel" aria-labelledby="tabCalib">
+    <h2>Texte de calibration</h2>
+    <p class="muted">Lisez le texte paragraphe par paragraphe, à voix normale. Après chaque lecture, la page montre mot à mot ce que le moteur a compris, puis, à la fin, les erreurs qui reviennent et des propositions de corrections à coller dans la conversation. Rien n'est enregistré dans l'application ni dans la base.</p>
+    <p class="note">Texte fictif (numéros de maillot seulement, aucun nom) : lisez-le tel quel, sans rien ajouter, ni nom ni autre information. Avec Voxtral, le son est envoyé à Mistral AI (offre gratuite : données pouvant servir à l'entraînement), par le serveur HandBase (administrateurs seulement) ; avec Whisper, il reste sur l'appareil.</p>
+    <label class="field">Moteur</label>
+    <div class="seg">
+      <label><input type="radio" name="calEngine" value="voxtral"> Voxtral (Mistral, en ligne)</label>
+      <label><input type="radio" name="calEngine" value="whisper"> Whisper sur l'appareil</label>
+    </div>
+    <p id="calEngineNote" class="muted"></p>
+
+    <div class="cal-head" style="margin-top:12px">
+      <span class="cal-n" id="calN">Paragraphe 1 / 8</span>
+      <span class="muted" id="calDone"></span>
+    </div>
+    <div class="progress"><div id="calProg"></div></div>
+    <div class="cal-text" id="calText" lang="fr"></div>
+    <div class="cal-nav">
+      <button type="button" id="calPrev">‹ Précédent</button>
+      <button type="button" id="calNext">Suivant ›</button>
+    </div>
+    <button id="calTalk" type="button">Maintenir pour lire</button>
+    <div id="calStatus" aria-live="polite"></div>
+    <div class="row" style="margin-top:6px">
+      <button type="button" id="calAgain">Relire ce paragraphe</button>
+    </div>
+
+    <div id="calResult" style="margin-top:12px"></div>
+    <div id="calGlobal" style="margin-top:12px"></div>
+
+    <div id="calSugg" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="calCopy" class="primary">Copier les suggestions</button>
+      <button type="button" id="calClear">Effacer la calibration</button>
+    </div>
+    <p class="muted" id="calCopyMsg" aria-live="polite"></p>
+    <p class="muted">Classement des erreurs : (a) correction possible, une erreur nette sur un mot peu courant, avec une règle « faux → juste » ; (b) terme du hand absent des mots de contexte de Voxtral, à ajouter ; (c) ambiguë (homophone comme « sert / serre », accord, mot courant, nombre, mot oublié ou ajouté) : aucune règle, ce serait risqué pour d'autres phrases. Une correction vue une seule fois est à confirmer : elle n'est pas cochée d'office. Les suggestions sont à relire dans la conversation avant d'être ajoutées à HandBase.</p>
+  </section>
+
+  <section id="speak" role="tabpanel" aria-labelledby="tabPhrases">
     <h2>Dicter</h2>
     <label class="field" for="phrase">Phrase n°</label>
     <select id="phrase"></select>

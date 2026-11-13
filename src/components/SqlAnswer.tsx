@@ -1,0 +1,449 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { POSITIONS, today, type Player } from '../db'
+import { sendSqlRequest } from '../dictation/useDictation'
+import { DictationError, ERROR_TEXT } from '../dictation/transcribe'
+import { saveSqlQuestion } from '../savedQuestions'
+import { holdMirror, runSql, SqlRunError, type SqlResult } from '../sqlClient'
+import { cleanSqlSpec, columnLabel, guardSql, type SqlSpec } from '../sqlGuard'
+import { buildSqlSchema, type MirrorInput } from '../sqlMirror'
+import { logQuestion, type QuestionTrace } from '../questionLog'
+import type { AdvancedStatus, RecipeStatus } from '../questionLogCore'
+import { clubsInRows, type AnswerClub } from '../answerClubs'
+import { ClubAnswerMap, useClubPlaces, useOpenClub } from './ClubAnswerMap'
+import { PlayerRow } from './PlayerRow'
+import { PlayerList } from './Pictos'
+import { Empty, Icon, SectionTitle } from './ui'
+import { sexLabel } from '../gender'
+import { Spark, useWait, WaitBar } from './Attente'
+import { SavedNotice, savedKeptText } from './RecipeChips'
+
+/*
+ * « Poser une question », MODE AVANCÉ (secours de la recette, src/recipe.ts) : la phrase et la DESCRIPTION des tables de la
+ * copie locale (src/sqlMirror.ts) partent à la fonction « transcrire » (?mode=sql) ; elle rend une requête SQLite, que
+ * l'appli recontrôle (src/sqlGuard.ts) et exécute UNIQUEMENT dans le navigateur, sur une copie jetable en lecture seule de
+ * ses données locales (src/sqlClient.ts, Web Worker). Jamais de SQL sur Supabase ; aucune donnée ne part, même pour la
+ * correction (la requête et le message d'erreur de SQLite seulement, une fois).
+ *  - useAdvancedAsk : demande, contrôle, essai sur la copie, une correction au plus ; rend la requête prête à afficher ;
+ *  - SqlExplain : « Ce que j'ai calculé : … », « Voir la requête », « Enregistrer cette question » ;
+ *  - SqlAnswerView : nombre, joueurs (lignes standard, fiche dans le contexte de la réponse) ou tableau générique ; clubs
+ *    nommés dans le tableau : carte des clubs, et chaque ligne de club ouvre le bilan sur lui (src/answerClubs.ts).
+ */
+
+/** Source de la copie (données déjà lues par l'écran) ; null tant qu'elles se chargent. */
+export type MirrorSource = (() => MirrorInput) | null
+
+const fr = (n: number, d = 2) => n.toLocaleString('fr-FR', { maximumFractionDigits: d })
+const POS = new Map(POSITIONS.map((p) => [p.id as string, p.label]))
+
+/** Valeur d'une cellule, en clair (postes et sexe en toutes lettres). */
+export function cellText(col: string, v: unknown): string {
+  if (v === null || v === undefined || v === '') return '–'
+  if (typeof v === 'number') return fr(v)
+  const s = String(v)
+  const c = col.toLowerCase()
+  if ((c === 'poste' || c.endsWith('_poste')) && POS.has(s)) return POS.get(s)!
+  if (c === 'sexe' && (s === 'M' || s === 'F')) return sexLabel(s)
+  return s
+}
+
+/** Colonnes montrées sous le nom d'un joueur (tout sauf l'identifiant et le nom). */
+const HIDDEN = new Set(['joueur_id', 'id', 'nom', 'prenom'])
+
+/** Joueurs du résultat (colonne joueur_id), dans l'ordre, avec les autres colonnes en clair. */
+export function sqlPlayers(res: SqlResult | null, byId: Map<string, Player>): { players: Player[]; extra: Map<string, string> } {
+  const players: Player[] = []
+  const extra = new Map<string, string>()
+  const i = res?.columns.findIndex((c) => c.toLowerCase() === 'joueur_id') ?? -1
+  if (!res || i < 0) return { players, extra }
+  for (const r of res.rows) {
+    const p = byId.get(String(r[i]))
+    if (!p || extra.has(p.id)) continue
+    players.push(p)
+    extra.set(
+      p.id,
+      res.columns
+        .map((c, k) => (HIDDEN.has(c.toLowerCase()) ? '' : `${columnLabel(c)} : ${cellText(c, r[k])}`))
+        .filter(Boolean)
+        .join(' · '),
+    )
+  }
+  return { players, extra }
+}
+
+/** Exécute la requête sur la copie (construite à la première fois) ; relancée quand la requête ou les données changent. */
+export function useSqlResult(spec: SqlSpec | null, source: MirrorSource) {
+  const [state, setState] = useState<{ key: string; res?: SqlResult; error?: string; slow?: boolean }>({ key: '' })
+  // La copie reste en mémoire tant qu'on est dans le bilan (src/sqlClient.ts).
+  useEffect(() => holdMirror(), [])
+  const key = spec && source ? spec.sql : ''
+  useEffect(() => {
+    if (!spec || !source) return
+    let live = true
+    const slow = window.setTimeout(() => live && setState((s) => (s.key === spec.sql && !s.res ? { ...s, slow: true } : s)), 400)
+    runSql(spec.sql, source)
+      .then((res) => live && setState({ key: spec.sql, res }))
+      .catch((e) => live && setState({ key: spec.sql, error: e instanceof SqlRunError ? e.message : 'Calcul impossible sur cet appareil.' }))
+      .finally(() => window.clearTimeout(slow))
+    return () => {
+      live = false
+      window.clearTimeout(slow)
+    }
+  }, [key, source]) // eslint-disable-line react-hooks/exhaustive-deps
+  return state.key === key ? state : { key, slow: false }
+}
+
+// ---------- Demande au modèle, contrôle, essai, correction ----------
+
+const isNegative = (s: string) => /pas retenu|mauvais|faible/i.test(s)
+
+/** Statut du journal pour une erreur qui interrompt le mode avancé. */
+function failStatus(e: unknown): AdvancedStatus {
+  if (e instanceof SqlRunError) return e.kind === 'delai' ? 'delai' : e.kind === 'invalide' ? 'refus' : 'erreur'
+  if (e instanceof DictationError) return e.code === 'annule' ? 'annule' : e.code === 'reseau' ? 'reseau' : 'erreur'
+  return 'erreur'
+}
+
+/** Ce qu'avait fait la recette avant le mode avancé (pour le journal des questions). */
+export type RecipeInfo = { recipe: RecipeStatus; missing?: string[] }
+
+export function useAdvancedAsk(
+  source: MirrorSource,
+  criteria: Parameters<typeof buildSqlSchema>[0]['criteria'],
+  zoneOf?: (c: string) => string | null | undefined,
+  /** Où la question est posée (journal des questions). */
+  page?: string,
+) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // Ligne du journal de la dernière question (avis sur la réponse, src/components/AnswerFeedback.tsx).
+  const [logId, setLogId] = useState<string | undefined>()
+  const lastLog = useRef<string | undefined>(undefined)
+  const abort = useRef<AbortController | null>(null)
+  useEffect(() => () => abort.current?.abort(), [])
+  useEffect(() => holdMirror(), [])
+
+  /**
+   * Requête prête (essayée sur la copie), ou null (message dans `error`). how et recipe (ce qu'avait fait la recette) : pour
+   * le journal des questions (src/questionLog.ts), qui garde chaque question, anonymisée, avec le résultat du mode avancé.
+   */
+  async function ask(phrase: string | undefined, how: 'auto' | 'button' = 'button', recipe: RecipeInfo = { recipe: 'pas_comprise' }): Promise<SqlSpec | null> {
+    const said = (phrase ?? '').replace(/\s+/g, ' ').trim()
+    if (!said || !source || abort.current) return null
+    setBusy(true)
+    setError('')
+    const ctrl = new AbortController()
+    abort.current = ctrl
+    // Ce qui part au journal : jamais le résultat, seulement le nombre de lignes.
+    const trace: QuestionTrace = { how, phrase: said, recipe: recipe.recipe, recipeMissing: recipe.missing, status: 'erreur', page }
+    try {
+      const schema = buildSqlSchema({ criteria, positions: POSITIONS, zoneOf, today: today() })
+      let ans = await sendSqlRequest(said, schema, undefined, ctrl.signal)
+      for (let attempt = 0; ; attempt++) {
+        if (attempt === 0) trace.sql = ans.sql
+        else trace.sqlRetry = ans.sql
+        if (ans.nonGere.length) trace.modelMissing = [...new Set([...(trace.modelMissing ?? []), ...ans.nonGere])]
+        trace.display = ans.affichage
+        if (!ans.sql.trim()) {
+          // Pas de requête proposée (le modèle dit ne pas savoir) : un refus.
+          trace.status = 'refus'
+          trace.detail = 'pas de requête proposée'
+          const why = ans.nonGere.filter((x) => !isNegative(x)).join(' ; ')
+          setError(`Je ne sais pas encore répondre à cette question, même en mode avancé${why ? ` (${why})` : ''}.`)
+          return null
+        }
+        const g = guardSql(ans.sql)
+        let problem = g.ok ? '' : g.error
+        trace.status = g.ok ? 'erreur' : 'refus'
+        if (g.ok)
+          try {
+            const res = await runSql(g.sql, source)
+            trace.status = 'ok'
+            trace.rows = res.rows.length
+            trace.detail = undefined
+            return cleanSqlSpec({ sql: g.sql, explanation: ans.explication, display: ans.affichage })
+          } catch (e) {
+            if (!(e instanceof SqlRunError) || e.kind !== 'sql') throw e
+            problem = e.message
+          }
+        trace.detail = problem
+        if (attempt >= 1 || ctrl.signal.aborted) {
+          setError('Le mode avancé n’a pas trouvé de requête qui marche pour cette question. Reformulez-la, ou essayez plus simple.')
+          return null
+        }
+        // Une seule correction : la requête et le message de SQLite, jamais de données.
+        ans = await sendSqlRequest(said, schema, { sql: ans.sql, erreur: problem }, ctrl.signal)
+      }
+    } catch (e) {
+      trace.status = failStatus(e)
+      trace.detail = e instanceof DictationError ? e.code : e instanceof SqlRunError ? e.message : 'erreur inattendue'
+      if (e instanceof DictationError && e.code === 'annule') return null
+      setError(e instanceof DictationError ? e.message : e instanceof SqlRunError ? e.message : ERROR_TEXT.mistral_erreur)
+      return null
+    } finally {
+      if (abort.current === ctrl) abort.current = null
+      setBusy(false)
+      const id = logQuestion(trace, source())
+      lastLog.current = id
+      setLogId(id)
+    }
+  }
+  /** lastLogId : la ligne de la question qui vient de finir (lue juste après `await ask(…)`). */
+  return { ask, busy, error, cancel: () => abort.current?.abort(), logId, lastLogId: () => lastLog.current }
+}
+
+/** Attente du mode avancé (bascule automatique ou bouton). */
+export function AdvancedBusy({ heard, onCancel }: { heard?: string; onCancel: () => void }) {
+  // ✦ qui tourne et fine barre d'après la durée habituelle du mode avancé (src/components/Attente.tsx).
+  const wait = useWait(true, 'sql')
+  return (
+    <div className="card flex flex-col gap-2 border-sky-500/40 p-3 text-xs" role="status">
+      <div className="flex items-center gap-2">
+        <Spark busy={wait.on} />
+        <span className="min-w-0 flex-1">
+          {wait.slow ? wait.text : <>Mode avancé{heard ? <> pour « {heard} »</> : null} : je prépare une requête, calculée ensuite sur cet appareil…</>}
+          {wait.eta && <span className="ml-1.5 tabular-nums text-muted">{wait.eta}</span>}
+        </span>
+        <button type="button" className="min-h-11 shrink-0 px-2 text-[11px] font-bold underline" onClick={onCancel}>
+          Annuler
+        </button>
+      </div>
+      <WaitBar wait={wait} />
+    </div>
+  )
+}
+
+// ---------- Explication, requête, enregistrement ----------
+
+/**
+ * simplified : la recette n'avait appliqué qu'une partie de la question (bascule automatique) ; lien discret vers sa réponse
+ * (« Voir la réponse simplifiée »), avec ce qu'elle n'a pas appliqué.
+ */
+export function SqlExplain({
+  spec,
+  advanced,
+  heard,
+  saved,
+  onSimplified,
+}: {
+  spec: SqlSpec
+  advanced?: 'auto' | 'button'
+  heard?: string
+  saved?: string
+  onSimplified?: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [savedName, setSavedName] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  return (
+    <div className="flex flex-col gap-2">
+      {heard && <p className="text-[11px] text-muted">Entendu : « {heard} »</p>}
+      {saved && <p className="text-[11px] text-muted">Ma question : « {saved} »</p>}
+      <p className="rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 text-[11px]" role="note">
+        <b>Réponse en mode avancé</b>
+        {advanced === 'auto' ? ' (la question demandait plus que les réponses habituelles)' : ''} : requête écrite par l’assistant, calculée
+        sur une copie des données de cet appareil (rien d’autre n’est envoyé).
+      </p>
+      {onSimplified && (
+        <button type="button" className="min-h-9 self-start text-[11px] text-muted underline" onClick={onSimplified}>
+          Voir la réponse simplifiée
+        </button>
+      )}
+      <p className="text-xs">
+        <b>Ce que j’ai calculé :</b> {spec.explanation}
+      </p>
+      <details className="text-[11px]">
+        <summary className="min-h-9 cursor-pointer py-1 font-bold text-muted">Voir la requête</summary>
+        <pre className="mt-1 rounded-md border border-line bg-fg/5 p-2 font-mono text-[11px] break-words whitespace-pre-wrap">{spec.sql}</pre>
+      </details>
+      {savedName ? (
+        <SavedNotice name={savedName} filter={false} onDone={() => setSavedName(null)} />
+      ) : saving ? (
+        <form
+          className="card flex flex-col gap-2 border-accent/50 p-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void saveSqlQuestion(name, spec, heard).then((q) => setSavedName(q.name), () => {})
+            setSaving(false)
+          }}
+        >
+          <label className="flex flex-col gap-1 text-xs font-bold">
+            Nom de la question
+            <input className="field min-h-11 text-sm font-normal" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} required />
+          </label>
+          <p className="text-[10px] text-muted">{savedKeptText(false)} Même requête, données du moment.</p>
+          <div className="flex gap-2">
+            <button type="submit" className="btn-primary min-h-11 px-4 text-xs">
+              Enregistrer
+            </button>
+            <button type="button" className="btn-ghost min-h-11 px-4 text-xs" onClick={() => setSaving(false)}>
+              Annuler
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          className="btn-ghost min-h-11 self-start px-3 text-xs"
+          onClick={() => {
+            setName((heard ?? saved ?? spec.explanation).slice(0, 80))
+            setSaving(true)
+          }}
+        >
+          <Icon name="star" className="h-3.5 w-3.5" />
+          Enregistrer cette question
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ---------- Réponse ----------
+
+export function SqlAnswerView({
+  spec,
+  source,
+  byId,
+  search,
+  playerLink = (id) => `/bilan/question/joueurs/${id}${search}`,
+  hidePlayers,
+}: {
+  spec: SqlSpec
+  source: MirrorSource
+  byId: Map<string, Player>
+  search: string
+  /** Fiche d'un joueur du résultat (liste Joueurs : /joueurs/:id). */
+  playerLink?: (id: string) => string
+  /** Résultat en joueurs montré ailleurs (liste Joueurs : la liste elle-même) : rien ici. */
+  hidePlayers?: boolean
+}) {
+  const st = useSqlResult(spec, source)
+  if (st.error) return <Empty>Le calcul n’a pas abouti. {st.error}</Empty>
+  if (!st.res)
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-muted" role="status">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        {st.slow ? 'Préparation d’une copie des données de cet appareil…' : 'Calcul…'}
+      </div>
+    )
+  const res = st.res
+  const n = res.rows.length
+  const meta = (
+    <p className="text-[11px] text-muted">
+      <b className="text-fg">
+        {fr(n)} {n > 1 ? 'lignes' : 'ligne'}
+      </b>
+      {n >= 500 && ' (les 500 premières)'} · calculé sur l’appareil en {fr(res.ms, 0)} ms
+    </p>
+  )
+  if (!n) return <Empty>Aucune ligne ne répond à cette question pour l’instant.</Empty>
+
+  // Une seule valeur : en grand.
+  if (n === 1 && res.columns.length === 1 && (spec.display === 'nombre' || typeof res.rows[0][0] === 'number'))
+    return (
+      <div className="card flex flex-col items-start gap-1 p-4">
+        <span className="text-4xl font-extrabold tabular-nums">{cellText(res.columns[0], res.rows[0][0])}</span>
+        <span className="text-sm">{columnLabel(res.columns[0])}</span>
+        <span className="text-[11px] text-muted">calculé sur l’appareil en {fr(res.ms, 0)} ms</span>
+      </div>
+    )
+
+  // Joueurs : lignes standard, fiche dans le contexte de la réponse (le retour revient ici).
+  const { players, extra } = sqlPlayers(res, byId)
+  if (players.length && hidePlayers) return null
+  if (players.length)
+    return (
+      <div className="flex flex-col gap-2">
+        {meta}
+        <PlayerList ids={players.map((p) => p.id)}>
+          {players.map((p) => (
+            <PlayerRow key={p.id} p={p} link={{ to: playerLink(p.id) }} post={[extra.get(p.id)]} />
+          ))}
+        </PlayerList>
+      </div>
+    )
+
+  // Tableau générique, colonnes renommées lisiblement ; clubs nommés : carte et lignes qui ouvrent le bilan.
+  return <SqlTable spec={spec} res={res} byId={byId} meta={meta} />
+
+}
+
+/**
+ * Tableau générique d'une réponse en mode avancé. Lignes qui nomment un club (colonne de noms ou de n° de club retrouvés
+ * parmi les clubs de l'appareil, src/answerClubs.ts) : carte des clubs au-dessus (src/components/ClubAnswerMap.tsx) et
+ * chaque ligne ouvre le bilan sur son club. Aucun club retrouvé : le tableau seul.
+ */
+function SqlTable({ spec, res, byId, meta }: { spec: SqlSpec; res: SqlResult; byId: Map<string, Player>; meta: ReactNode }) {
+  const places = useClubPlaces(byId)
+  const open = useOpenClub()
+  const found = useMemo(() => clubsInRows(res, places.known, places.units, places.deptOf), [res, places.known, places.units]) // eslint-disable-line react-hooks/exhaustive-deps
+  const numeric = res.columns.map((_, k) => res.rows.every((r) => r[k] === null || typeof r[k] === 'number'))
+  // Clubs de la carte : un par clé, dans l'ordre du résultat, avec la valeur de leur 1re ligne.
+  const clubs: AnswerClub[] = []
+  const values = new Map<string, number>()
+  for (const [i, c] of (found?.rows ?? []).entries()) {
+    if (!c || clubs.some((x) => x.key === c.key)) continue
+    clubs.push(c)
+    const v = found!.value !== undefined ? res.rows[i][found!.value] : undefined
+    if (typeof v === 'number') values.set(c.key, v)
+  }
+  const vCol = found?.value !== undefined ? res.columns[found.value] : undefined
+  return (
+    <div className="flex flex-col gap-2">
+      {meta}
+      {spec.display === 'carte' && !clubs.length && <p className="text-[11px] text-muted">Carte pas encore disponible en mode avancé : le résultat est en tableau.</p>}
+      {clubs.length > 0 && (
+        <ClubAnswerMap
+          clubs={clubs}
+          values={values}
+          valueLabel={vCol ? columnLabel(vCol).toLowerCase() : undefined}
+          valueText={(k) => (vCol && values.has(k) ? `${columnLabel(vCol)} : ${cellText(vCol, values.get(k))}` : '')}
+          onOpen={open}
+        />
+      )}
+      <SectionTitle info={clubs.length ? 'Touchez une ligne de club pour l’ouvrir dans le bilan (le retour revient ici).' : undefined}>Résultat</SectionTitle>
+      <div className="card overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr>
+              {res.columns.map((c, k) => (
+                <th key={k} scope="col" className={`px-3 py-2 font-bold text-muted ${numeric[k] ? 'text-right' : 'text-left'}`}>
+                  {columnLabel(c)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {res.rows.map((r, i) => {
+              const c = found?.rows[i]
+              const go = c?.dept ? () => open(c) : undefined
+              return (
+                <tr key={i} className={`border-t border-line ${go ? 'cursor-pointer hover:bg-accent/10' : ''}`} onClick={go}>
+                  {r.map((v, k) => (
+                    <td key={k} className={`px-3 py-2 ${numeric[k] ? 'text-right tabular-nums' : ''}`}>
+                      {go && k === found!.col ? (
+                        // Bouton (clavier, lecteurs d'écran) : la ligne entière s'ouvre aussi d'un toucher.
+                        <button
+                          type="button"
+                          className="min-h-9 text-left font-bold text-accent underline decoration-dotted underline-offset-2"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            go()
+                          }}
+                        >
+                          {cellText(res.columns[k], v)} <span aria-hidden>›</span>
+                          <span className="sr-only"> : ouvrir le club dans le bilan</span>
+                        </button>
+                      ) : (
+                        cellText(res.columns[k], v)
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

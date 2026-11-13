@@ -140,6 +140,58 @@ export function withMoments(list: VideoMoment[]): Pick<Video, 'at' | 'moments'> 
   return moments.length ? { at: moments[0].at, moments } : { at: undefined, moments: undefined }
 }
 
+/** Durée lue pour un moment sans durée : 15 s, ou moins si le moment suivant commence avant. */
+export const DEFAULT_DUR = 15
+
+/** Passage lu pour le moment i (liste triée par début) : de son début à sa fin. */
+export function passage(ms: VideoMoment[], i: number) {
+  const m = ms[i]
+  if (m.dur) return { at: m.at, end: m.at + m.dur }
+  const next = ms[i + 1]
+  return { at: m.at, end: next && next.at > m.at ? Math.min(next.at, m.at + DEFAULT_DUR) : m.at + DEFAULT_DUR }
+}
+
+/** Marge après la fin d'un passage pendant laquelle il reste « le moment en cours » (même marge que le suivi du lecteur). */
+const AFTER = 3
+
+/** Moment en cours au temps t : le plus récent dont le passage contient t (jusqu'à 3 s après sa fin). */
+export function momentAt(ms: VideoMoment[], t: number | undefined): number | undefined {
+  if (t === undefined) return undefined
+  for (let i = ms.length - 1; i >= 0; i--) {
+    const { at, end } = passage(ms, i)
+    // Petite marge avant le début : le lecteur arrondit le temps juste après un saut.
+    if (t >= at - 0.25 && t <= end + AFTER) return i
+  }
+  return undefined
+}
+
+/**
+ * Moment visé par « Action précédente » (dir −1) / « Action suivante » (dir 1), undefined s'il n'y en a pas.
+ * `cur` : moment en cours de lecture (passage ou enchaînement) ; sinon celui dont le passage contient t ; entre deux
+ * moments : suivant = premier qui commence après t, précédent = dernier commencé avant t.
+ */
+export function stepMoment(ms: VideoMoment[], dir: -1 | 1, t: number | undefined, cur?: number): number | undefined {
+  if (!ms.length) return undefined
+  const i = cur ?? momentAt(ms, t)
+  if (i !== undefined) {
+    const j = i + dir
+    return j >= 0 && j < ms.length ? j : undefined
+  }
+  if (t === undefined) return dir > 0 ? 0 : undefined
+  if (dir > 0) {
+    const j = ms.findIndex((m) => m.at > t)
+    return j < 0 ? undefined : j
+  }
+  let j: number | undefined
+  ms.forEach((m, k) => {
+    if (m.at <= t) j = k
+  })
+  return j
+}
+
+/** « But 2-2 · 2/4 » : moment en cours (sa note, sinon son heure) et sa place. */
+export const momentPosition = (ms: VideoMoment[], i: number) => `${ms[i].note || fmtMoment(ms[i].at)} · ${i + 1}/${ms.length}`
+
 /** « 1:00 · 15 s · contre-attaque ». */
 export const momentLabel = (m: VideoMoment) => [fmtMoment(m.at), m.dur && `${m.dur} s`, m.note].filter(Boolean).join(' · ')
 

@@ -20,8 +20,28 @@
   --color-muted: #9a9ab8;
   --color-accent: #f43f5e;
   --color-accent-soft: #f43f5e22;
+  /* Propositions de l'« avis vocal » (écran de notation) : le néon du thème (--neon-*, src/neon.ts ; menthe de la capsule
+     Nextar en thème Nuit), réservé à ce qui vient de l'avis vocal et à la capsule. En texte : sa version lisible sur les
+     cartes (--neon-text) ; fond léger tiré de la fin du dégradé. */
+  --color-suggest: var(--neon-text);
+  --color-suggest-soft: color-mix(in srgb, var(--neon-b) 12%, transparent);
   /* Texte principal (les thèmes clairs le passent en foncé : src/theme.ts). */
   --color-fg: #ececf4;
+  /* Progression des avis (src/components/OpinionsProgress.tsx, ZoneRadar) : gagné en vert, perdu en rouge (jamais côté
+     jeune) ; un peu plus vifs sur les thèmes sombres, ceux de la maquette validée (#1D9E75, #E24B4A) sur les clairs. */
+  --color-gain: #2fbf8c;
+  --color-loss: #f0605e;
+  /* Écarts entre observateurs sur un événement (src/opinionSpread.ts spreadColor, ZoneRadar, petites lignes) : plus
+     l'écart est grand, plus c'est rouge ; orange clair à 1,5, rouge franc à 4 (un peu plus foncés sur les thèmes clairs). */
+  --color-spread-lo: #f6b04a;
+  --color-spread-hi: #ff3b3b;
+  /* « Demander » (src/components/Demander.tsx) : bleu, distinct de l'accent, pour tout ce qui est la barre unique. */
+  --color-ai: #7cacf8;
+  --color-ai-soft: #7cacf826;
+  /* Coins de TOUTES les fenêtres (ce qui s'ouvre par-dessus la page : bulle ✦, Filtres, menus, confirmations, listes à
+     cocher, infobulles…), ordinateur et téléphone ; feuilles du bas : coins du haut seulement. Réglage unique (décidé le
+     20/10/2026), à part des styles de l'installation (src/uiStyle.ts) : utilitaires rounded-win, rounded-t-win, win. */
+  --radius-win: 10px;
   /* Changement de joueur par glissement (écran de notation). */
   /* Le joueur suivant arrive du côté opposé au geste (l'ancien vient de partir de l'autre côté). */
   --animate-slide-left: slide-left 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -37,11 +57,43 @@
 }
 
 html, body, #root { min-height: 100%; }
+/* Pas de zoom à deux doigts ni de double appui (appli de terrain) : le défilement reste. Voir aussi index.html et main.tsx (iPhone). */
+html { touch-action: pan-x pan-y; }
+/* Place de la barre de défilement toujours réservée (ordinateur) : en passant d'une page courte à une longue, l'en-tête,
+   « Nextar » et la colonne ne se décalent plus de quelques pixels (31/10). Sans effet là où la barre flotte (téléphone). */
+html { scrollbar-gutter: stable; }
 
-/* Place prise par la navigation : en bas (barre d'onglets) ou à gauche (colonne). Les barres d'action
-   collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
+/* Teinte de l'échelle de la carte du bilan (src/pages/Coverage.tsx) ; les styles de l'installation la changent. */
+:root { --color-scale: #14b8a6; }
+
+/* Familles de tests (« Tous les tests », src/components/AllTests.tsx ; famille d'une catégorie : src/allTests.ts familyKey) :
+   couleur du picto, du fond teinté du carré (color-mix, même formule partout) et du dernier point des petites courbes.
+   Plus claires sur les thèmes sombres, celles de la maquette validée (variante A, 05/11) sur les clairs. Inconnue : neutre. */
 :root {
-  --nav-b: calc(52px + env(safe-area-inset-bottom));
+  --fam-gabarit: #8fa1ff;
+  --fam-mensurations: #b69cff;
+  --fam-vitesse: #ff9a5c;
+  --fam-puissance: #ff7eab;
+  --fam-mobilite: #3fd4a2;
+  --fam-stabilite: #62b0ff;
+  --fam-sauts: #ffc247;
+  --fam-autre: var(--color-muted);
+}
+:root[data-light] {
+  --fam-gabarit: #4f6bed;
+  --fam-mensurations: #7c4ddb;
+  --fam-vitesse: #e8590c;
+  --fam-puissance: #d6336c;
+  --fam-mobilite: #0a9a6f;
+  --fam-stabilite: #1c7ed6;
+  --fam-sauts: #d98e00;
+}
+.fam-ic { color: var(--fam); background-color: color-mix(in srgb, var(--fam) 15%, transparent); }
+
+/* Place prise par la navigation : en bas (capsule d'onglets de 52 px posée à 10 px du bord) ou à gauche (colonne). Les
+   barres d'action collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */
+:root {
+  --nav-b: calc(62px + env(safe-area-inset-bottom));
   --nav-l: 0px;
 }
 @media (orientation: landscape) and (max-height: 520px) {
@@ -50,15 +102,18 @@ html, body, #root { min-height: 100%; }
 @media (min-width: 1024px) and (min-height: 521px) {
   :root { --nav-b: 0px; --nav-l: 13rem; }
 }
+/* Écran de notation sur téléphone tenu droit : menu du bas caché (App.tsx, data-nonav) ; la barre « Enregistrer » descend
+   tout en bas et garde la marge du bord du téléphone (barre de gestes). */
+:root[data-nonav] { --nav-b: 0px; }
+:root[data-nonav] .save-bar { padding-bottom: calc(0.5rem + env(safe-area-inset-bottom)); }
 
-/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 puis 3 colonnes en paysage et sur
-   ordinateur, selon la largeur disponible (à réserver aux pages larges, voir PAGE_W dans App.tsx).
-   Les éléments qui doivent prendre toute la ligne (« Afficher plus »…) portent col-span-full. */
+/* Listes de cartes : une colonne sur téléphone tenu droit ; 2 colonnes AU PLUS en paysage et sur ordinateur, quelle que
+   soit la largeur (à trois, les cartes deviennent étroites et illisibles : décidé le 20/10/2026).
+   Les éléments qui doivent prendre toute la ligne (repère de fin de liste, message…) portent col-span-full. */
 @media (orientation: landscape) and (max-height: 520px) and (min-width: 640px), (min-width: 1024px) and (min-height: 521px) {
   .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) and (min-height: 521px) {
-  .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -80,15 +135,68 @@ html, body, #root { min-height: 100%; }
 @container (min-width: 40rem) {
   .md-panel .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-/* Trois colonnes seulement sur un panneau très large : en dessous, nom, poste et club seraient coupés. */
-@container (min-width: 100rem) {
-  .md-panel .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Avis d'un joueur à côté de la liste (événement, components/Opinions.tsx) : avis détaillés sur deux colonnes si la place le permet. */
+@container (min-width: 44rem) {
+  .avis-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+/* Pictogrammes au bout des lignes de joueurs (components/Pictos.tsx, PlayerRow.tsx). La liste (data-plist) pose
+   data-pl="2" quand un nom serait coupé à cause d'eux : toute la liste les passe sur leur propre ligne, sous le nom
+   (« ⋮ » reste sur la ligne du nom ; carte trop étroite pour tous : ils vont à la ligne, jamais au-delà). data-pm : mesure en cours, noms sur une seule ligne. */
+/* Carte en grille (PlayerRow : data-pcol ; data-ptop sans boîte) : par défaut, pictogrammes en bloc de 4 colonnes à droite
+   du nom et du texte. data-pl="2" : ils passent sur leur ligne sous le texte, tous côte à côte (à la ligne si la carte est
+   trop étroite), « ⋮ » reste à droite du nom. */
+[data-pl="2"] [data-pics] { grid-column: 1 / 3; grid-row: 3; justify-self: start; align-self: start; margin-left: -0.375rem; padding-block: 3px 1px; grid-template-columns: repeat(8, auto); }
+[data-pl="2"] [data-pmenu] { grid-row: 1; }
+[data-pl="2"] [data-plines] { grid-row: 4; }
+[data-pm] [data-pn] { white-space: nowrap !important; overflow-wrap: normal !important; }
+/* Sélection multiple (components/Selection.tsx) : la case à cocher prend la place du « ⋮ » (le menu de la ligne reste
+   au clic droit et à l'appui long ; les actions de la sélection sont dans la barre du bas). Règle de place recalculée. */
+[data-sel] [data-pmenu] { display: none; }
+/* Listes de joueurs, style « liste épurée » (components/PlayerRow.tsx, choisi le 27/10/2026) : les lignes d'une liste
+   (data-pitem : une ligne, ou une ligne et ce qui s'ouvre dessous) forment UN cadre de la couleur des cartes, aux coins
+   des fenêtres, séparées par un filet fin ; plus de carte par joueur. Une suite de lignes = un cadre : une section (poste,
+   équipe) ou une colonne a le sien. Pas d'écart entre les lignes ; un écart avant et après le cadre (barre de la liste,
+   message…). Le menu d'une ligne (div.contents) ne compte pas. Deux colonnes (.cols) : chaque colonne a son
+   cadre ; la 1re et la dernière ligne de la 2e colonne sont marquées par la liste (data-pedge, components/Pictos.tsx). */
+:has(> [data-pitem]) { row-gap: 0; }
+[data-pitem] + :not([data-pitem], .contents),
+:not([data-pitem], .contents) + [data-pitem] { margin-top: 0.5rem; }
+@layer components {
+  [data-pitem] {
+    background-color: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-top-color: color-mix(in srgb, var(--color-line) 60%, transparent);
+    border-bottom-width: 0;
+    border-radius: 0;
+  }
+  [data-pitem]:nth-child(1 of [data-pitem]),
+  :not([data-pitem], .contents) + [data-pitem],
+  [data-pitem][data-pedge~="t"] {
+    border-top-color: var(--color-line);
+    border-top-left-radius: var(--radius-win);
+    border-top-right-radius: var(--radius-win);
+  }
+  [data-pitem]:nth-last-child(1 of [data-pitem]),
+  [data-pitem]:has(+ :not([data-pitem], .contents)),
+  [data-pitem][data-pedge~="b"] {
+    border-bottom-width: 1px;
+    border-bottom-left-radius: var(--radius-win);
+    border-bottom-right-radius: var(--radius-win);
+  }
+  /* Ligne dans un élément plus grand (page d'un événement) : sa teinte suit les coins de l'élément. */
+  [data-pitem] > [data-prow] { border-radius: inherit; }
+  /* Survol, appui, focus clavier : fond légèrement teinté, posé sur la couleur des cartes. Ligne ouverte, cochée ou mise
+     en avant : teinte de l'accent. */
+  .prow-hit:hover, .prow-hit:has(:focus-visible) { background-image: linear-gradient(color-mix(in srgb, var(--color-fg) 4%, transparent) 0 0); }
+  .prow-hit:active { background-image: linear-gradient(color-mix(in srgb, var(--color-fg) 7%, transparent) 0 0); }
+  .prow-on, .prow-on:is(:hover, :active, :has(:focus-visible)) { background-image: linear-gradient(color-mix(in srgb, var(--color-accent) 11%, transparent) 0 0); }
 }
 body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-fg);
-  font-family: var(--font-mono);
+  /* Police du texte : celle du style de l'installation (src/uiStyle.ts), sinon celle d'origine. */
+  font-family: var(--font-body, var(--font-mono));
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -98,15 +206,37 @@ body {
 }
 @utility label { @apply mb-1 block text-[11px] font-bold uppercase tracking-wider text-muted; }
 @utility card { @apply rounded-xl border border-line bg-panel; }
-@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-bold transition active:scale-[.98] disabled:opacity-40; }
+/* Fenêtre au look de carte (confirmations, fenêtres de choix…) : comme « card », avec les coins des fenêtres (--radius-win). */
+@utility win { @apply rounded-win border border-line bg-panel; }
+/* Fond des fenêtres et des bulles (31/10, « marque de fabrique » voulue par Geoffroy et Stef) : dès qu'une fenêtre, une bulle ou
+   un menu s'ouvre, l'arrière-plan est assombri et flouté. scrim : fenêtres (formulaires, filtres, confirmations, feuilles du
+   bas) ; scrim-light : bulles et menus accrochés à l'endroit touché (parcours, ⋮, choix multiples, Demander). */
+@utility scrim { @apply bg-black/40 backdrop-blur-[3px]; }
+@utility scrim-light { @apply bg-black/25 backdrop-blur-[2px]; }
+/* Tous les boutons en gélule (31/10 : l'appli homogène, plus de boutons à coins carrés). */
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition active:scale-[.98] disabled:opacity-40; }
 @utility btn-primary { @apply btn bg-accent text-white hover:brightness-110; }
 @utility btn-ghost { @apply btn border border-line bg-panel-2 text-fg hover:border-accent; }
+/* Action en tête d'un contenu (« + Ajouter des joueurs », « + Nouvelle séance de tests », « + Donner un avis », « Évaluer les
+   joueurs ») : pastille teintée comme les onglets (31/10), plus légère que le bouton plein ; toute la largeur sur téléphone,
+   largeur de son texte à partir de 640 px. Les validations de formulaire gardent btn-primary / btn-save. */
+@utility btn-soft { @apply btn min-h-10 w-full rounded-full bg-accent/15 text-accent hover:bg-accent/25 sm:w-fit; }
 @utility section-title { @apply mb-2 text-[11px] font-extrabold uppercase tracking-wider text-accent; }
+/* Barres « Enregistrer / Annuler » collées en bas d'un formulaire (écran d'avis, fiche joueur, séance de tests) : capsule
+   pleine dans la couleur du texte du thème (blanche en sombre, foncée en clair ; texte inversé), « Annuler » en capsule fine. */
+@utility btn-save { @apply btn min-h-11 rounded-full bg-fg text-panel hover:brightness-110; }
+@utility btn-save-ghost { @apply btn min-h-11 rounded-full border-[1.5px] border-line bg-transparent px-4 text-fg hover:border-muted; }
 
 /* Thèmes clairs : les couleurs d'état pensées pour un fond sombre (texte orange, vert, rouge clair…)
    passent en version foncée pour rester lisibles (src/theme.ts pose data-light sur <html>). */
 :root[data-light] {
   color-scheme: light;
+  --color-ai: #1f6feb;
+  --color-ai-soft: #e8f0fe;
+  --color-gain: #1d9e75;
+  --color-loss: #e24b4a;
+  --color-spread-lo: #b8730a;
+  --color-spread-hi: #c81e1e;
   .text-amber-100, .text-amber-200, .text-amber-300 { color: #92400e; }
   .text-emerald-200, .text-emerald-300 { color: #047857; }
   .text-red-300, .text-red-400 { color: #b91c1c; }
@@ -118,6 +248,123 @@ body {
   .text-teal-300 { color: #0f766e; }
   .hover\:text-red-400:hover { color: #b91c1c; }
 }
+
+/* Styles de l'installation (src/uiStyle.ts, posés par src/theme.ts) : rien ici ne s'applique au style « Actuel » (aucun
+   attribut data-style), qui reste l'appli d'origine. Règles hors couche (@layer) : elles passent devant les classes Tailwind.
+   Polices : texte (body, plus haut), titres, chiffres. */
+:root[data-style] :is(h1, h2, h3, .section-title, .label) { font-family: var(--font-heading); }
+:root[data-upper] :is(h1, h2, h3) { text-transform: uppercase; letter-spacing: 0.01em; font-weight: 800; }
+:root[data-upper] h1 { font-size: 1.375rem; line-height: 1.1; }
+:root[data-upper] .section-title { font-size: 0.8125rem; letter-spacing: 0.06em; }
+:root[data-style] .tabular-nums { font-family: var(--font-figures); }
+/* Accent : couleur d'encre de la marque (choix sélectionnés, bordures, barres) ; en texte, sa version contrastée. */
+:root[data-style] :is(.text-accent, .section-title) { color: var(--color-accent-text); }
+:root[data-style] .bg-accent { color: var(--color-on-accent); }
+/* Couleur vive de la marque, à quatre endroits seulement : action principale, onglet actif du menu, chiffre clé du
+   bandeau (blocs mis en avant, plus bas) et échelle de la carte (--color-scale). */
+:root[data-style] .btn-primary { background-color: var(--color-primary); color: var(--color-on-primary); }
+:root[data-style] nav[aria-label="Menu principal"] a[aria-current="page"] {
+  --color-accent: var(--color-brand);
+  --color-accent-text: var(--color-brand-text);
+}
+
+/* Blocs mis en avant (bande des chiffres clés du bilan, carte « Bilan de détection » de l'accueil) : fond plein. Les
+   variables sont redéfinies dans le bloc, les classes de l'appli (text-muted, bg-panel, border-accent…) suivent. */
+:root[data-emph] :is(.emph, .emph-band) {
+  --color-fg: var(--emph-fg);
+  --color-muted: var(--emph-muted);
+  --color-line: var(--emph-line);
+  --color-panel: var(--emph-bg2);
+  --color-panel-2: var(--emph-bg2);
+  --color-accent: var(--emph-accent);
+  --color-accent-text: var(--emph-accent);
+  --color-on-accent: var(--emph-on-accent);
+  background: var(--emph-bg);
+  color: var(--emph-fg);
+  border-color: var(--emph-line);
+}
+:root[data-emph] .emph-band { padding: 0.5rem; border-radius: var(--radius-lg); }
+:root[data-emph] .emph-band .card { border-color: transparent; }
+:root[data-emph] .emph-band .card[aria-selected="true"] { border-color: var(--emph-accent); }
+/* Salle (identifiant « sombre ») : tuile active comme un tableau de score, sans voile jaune (qui virait à l'olive). */
+:root[data-style="sombre"] .emph-band .card[aria-selected="true"] { background-color: var(--emph-bg2); }
+
+/* Néon, commun à la capsule de l'en-tête, au bouton « Avis vocal » et aux propositions de l'avis vocal (écran d'avis) :
+   paire de couleurs accordée au thème ou au style de l'installation (src/neon.ts, posée par src/theme.ts : --neon-a,
+   --neon-b, --neon-ink, --neon-text ; ci-dessous, la menthe du logo par défaut). Dégradé à 120°, halo tiré des deux
+   couleurs (en thème Nuit : exactement celui de la capsule d'origine), encre pour un texte posé sur le néon (≥ 4,5:1).
+   Thèmes clairs : halo plus discret autour des capsules, un peu plus marqué autour d'une note proposée (sinon il disparaît). */
+:root {
+  --neon-a: #89f7b3;
+  --neon-b: #61d0d1;
+  --neon-ink: #0a182d;
+  --neon-text: #89f7b3;
+  --neon-grad: linear-gradient(120deg, var(--neon-a), var(--neon-b));
+  --neon-glow: 0 0 0 4px color-mix(in srgb, var(--neon-a) 13%, transparent), 0 0 20px color-mix(in srgb, var(--neon-b) 38%, transparent);
+  --neon-ring-glow: var(--neon-glow);
+}
+:root[data-light] {
+  --neon-glow: 0 0 0 3px color-mix(in srgb, var(--neon-a) 16%, transparent), 0 0 12px color-mix(in srgb, var(--neon-b) 32%, transparent);
+  --neon-ring-glow: 0 0 0 3px color-mix(in srgb, var(--neon-b) 24%, transparent), 0 0 14px color-mix(in srgb, var(--neon-b) 50%, transparent);
+}
+
+/* Bouton « Nextar » de l'en-tête (src/components/Demander.tsx, AskButton) et bouton « Avis vocal » (src/components/AvisVocal.tsx) :
+   couleurs tirées du thème, liseré menthe (1,5 px) et léger halo. Le fond (--ask-bg) dépend du thème : sombre, un cran plus
+   clair que le fond ; clair, la couleur du texte du thème (écriture claire) ; en-tête coloré, blanc translucide posé sur
+   le fond de l'en-tête (--ask-under, opaque : le dégradé du liseré ne transparaît pas). L'étoile garde la menthe du logo.
+   Pendant la dictée, la capsule passe au rouge (classes de Demander.tsx / AvisVocal.tsx, sans .ask-capsule ni liseré). */
+.ask-capsule {
+  --ask-bg: var(--color-panel-2);
+  --ask-under: var(--ask-bg);
+  color: var(--color-fg);
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--ask-bg), var(--ask-bg)) padding-box,
+    linear-gradient(var(--ask-under), var(--ask-under)) padding-box,
+    var(--neon-grad) border-box;
+  box-shadow: var(--neon-glow);
+}
+:root[data-light] .ask-capsule { --ask-bg: var(--color-fg); color: var(--color-panel); }
+.ask-capsule .ask-star { color: var(--neon-a); }
+/* Pastille micro au bout de la capsule (dictée disponible) : ronde, dégradé néon, micro à l'encre du néon ; pendant la dictée,
+   blanche avec un carré rouge (arrêter). */
+.ask-mic { background: var(--neon-grad); color: var(--neon-ink); }
+.ask-mic.ask-mic-rec { background: #fff; color: #dc2626; }
+
+/* Propositions de l'avis vocal (écran d'avis) : sobres, dans la couleur du texte du thème (31/10 : le néon était criard).
+   Proposé = pas encore validé : liseré pointillé autour des notes du critère, note proposée teintée et pointillée ; une
+   fois validée, elle devient pleine comme toute note choisie. Ligne « n propositions en attente » : même teinte légère.
+   Depuis le 31/10, les propositions se valident dans une fenêtre (AvisVocal.tsx, AvisReview), qui garde cet aspect. */
+.sug-ring { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 40%, transparent); background: var(--color-panel); }
+.sug-fill { background: color-mix(in srgb, var(--color-fg) 12%, var(--color-panel)); color: var(--color-fg); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-fg) 45%, transparent); }
+.sug-box { border: 1.5px dashed color-mix(in srgb, var(--color-fg) 30%, transparent); background: color-mix(in srgb, var(--color-fg) 4%, transparent); }
+
+/* Le focus passe au contenu principal à la sortie de l'écran d'ouverture (src/splashScreen.ts, pour les lecteurs
+   d'écran) : pas de contour de focus du navigateur autour de toute la page (cadre blanc en thème sombre). */
+main[tabindex='-1']:focus { outline: none; }
+
+/* Carte du bilan sur fond propre (style Sport : bleu nuit, échelle orange) ; la légende suit. */
+:root[data-map] :is(.map-surface, .map-legend) {
+  --color-bg: var(--map-bg);
+  --color-panel: var(--map-panel);
+  --color-panel-2: var(--map-panel-2);
+  --color-fg: var(--map-fg);
+  --color-muted: var(--map-muted);
+  --color-line: var(--map-line);
+  background: var(--map-bg);
+  color: var(--map-fg);
+  border-radius: var(--radius-lg);
+}
+:root[data-map] .map-surface { padding: 0.5rem; }
+:root[data-map] .map-legend { padding: 0.375rem 0.5rem; }
+
+/* Entrée dans l'appli avant la fin de la synchro (écran d'ouverture, src/splashScreen.ts) : la bulle de profil (point de
+   synchro, src/components/ProfileMenu.tsx) clignote doucement une fois, les chiffres vont encore bouger. */
+@keyframes sync-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  40% { box-shadow: 0 0 0 5px color-mix(in srgb, #38bdf8 45%, transparent); }
+}
+.sync-pulse .sync-badge { animation: sync-pulse 1.4s ease-in-out 0.3s 1; }
 
 /* Téléphone réglé sur « Réduire les animations » : on change de joueur sans glissement. */
 @media (prefers-reduced-motion: reduce) {
@@ -135,4 +382,166 @@ body {
   html, body { background: #fff !important; color: #000 !important; }
   header, nav, .no-print { display: none !important; }
   main { padding: 0 !important; }
+  /* Export d'un groupe (src/pages/GroupReport.tsx) : pages A4 nommées, en-tête des tableaux répété, lignes entières. */
+  .group-report { page: group-report; font-size: 8pt; }
+  .group-report th, .group-report td { padding-left: 2px !important; padding-right: 2px !important; }
+  .group-report thead { display: table-header-group; }
+  .group-report tr, .group-report dl { break-inside: avoid; }
+  .group-report h3 { break-after: avoid; }
+  /* Rapport de la vue du bilan : pages A4 nommées, en-tête des tableaux répété, lignes entières, blocs courts gardés
+     ensemble, sections longues et liste des noms sur une nouvelle page. */
+  .bilan-report { page: bilan-report; font-size: 9pt; }
+  .bilan-report thead { display: table-header-group; }
+  .bilan-report tr { break-inside: avoid; }
+  .bilan-report :is(h3, h4) { break-after: avoid; }
+  .bilan-report .keep { break-inside: avoid; }
+  .bilan-report .page-break { break-before: page; }
+  /* Bilan à imprimer de la fiche (src/components/FamilyReport.tsx), dans sa fenêtre d'aperçu : seule la feuille sort. Tout ce
+     qui n'est ni la feuille, ni dedans, ni autour d'elle est caché (l'appli dessous, le voile, le titre et les boutons de la
+     fenêtre, le mot du staff en cours de saisie) ; les cadres autour d'elle (fenêtre fixe qui défile) redeviennent de simples
+     blocs, pour que la feuille coule sur plusieurs pages. */
+  body:has(.family-report) :not(:has(.family-report)):not(.family-report, .family-report *) { display: none !important; }
+  body:has(.family-report) :has(.family-report) {
+    position: static !important; display: block !important; overflow: visible !important;
+    width: auto !important; max-width: none !important; height: auto !important; max-height: none !important;
+    margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important;
+    background: none !important; backdrop-filter: none !important; transform: none !important; animation: none !important;
+  }
+  .family-report { page: family-report; font-size: 10pt; }
+  .family-report .keep { break-inside: avoid; }
+  .family-report h3 { break-after: avoid; }
+  .family-report thead { display: table-header-group; }
 }
+
+/* Pages du bilan à imprimer de la fiche : A4 portrait, numéro de page en bas à droite. */
+@page family-report {
+  size: A4 portrait;
+  margin: 14mm 14mm 16mm;
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
+}
+
+/* Rapport de la vue du bilan (src/pages/Coverage.tsx, CoverageReport) : feuille blanche à l'écran comme à l'impression ;
+   la carte et sa légende y prennent des couleurs claires (même dessin que le bilan, lisible imprimé en noir et blanc). */
+:root .report-sheet,
+:root .report-sheet :is(.map-surface, .map-legend) {
+  --color-bg: #ffffff;
+  --color-panel: #ffffff;
+  --color-panel-2: #e7e7e7;
+  --color-line: #bdbdbd;
+  --color-fg: #111111;
+  --color-muted: #555555;
+}
+:root .report-sheet :is(.map-surface, .map-legend) { background: transparent; color: #111111; padding: 0; }
+
+/* Pages de l'export d'un groupe : A4 portrait ; à gauche du pied de page, le nom du groupe et la date (posés par la page). */
+@page group-report {
+  size: A4 portrait;
+  margin: 14mm 12mm 16mm;
+  @bottom-left { font-size: 8pt; color: #444; }
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
+}
+
+/* Pages du rapport de la vue du bilan : A4 portrait, numéro de page en bas à droite. */
+@page bilan-report {
+  size: A4 portrait;
+  margin: 12mm 12mm 14mm;
+  @bottom-right { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #444; }
+}
+
+/* Export d'un groupe : police de document administratif (écran et impression). */
+.group-report { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; }
+
+/* Barre « Afficher / Sélectionner » d'une liste de joueurs (Pictos.tsx) : dans le panneau de droite, qui défile seul,
+   collée en haut du panneau (et non sous l'en-tête de l'appli). */
+.md-panel .plist-sticky { top: 0; }
+/* Barre « Demander » d'une liste dans le panneau de droite (joueurs d'un événement, StickyQuery) : même chose. */
+.md-panel .qbar-sticky { top: 0; }
+
+/* Fenêtre « Demander » (bulle ✦, components/Demander.tsx) : apparaît en glissant un peu depuis la bulle. */
+@keyframes ask-pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+.ask-pop { animation: ask-pop 140ms ease-out; transform-origin: top center; }
+@media (prefers-reduced-motion: reduce) { .ask-pop { animation: none; } }
+/* Fenêtre « Filtres » ouverte depuis une pastille : le réglage de ce filtre mis un instant en évidence. */
+@keyframes filter-hl { from { box-shadow: 0 0 0 3px var(--color-accent, #3b82f6); } to { box-shadow: 0 0 0 3px transparent; } }
+.filter-hl { border-radius: 0.5rem; animation: filter-hl 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .filter-hl { animation: none; outline: 2px solid var(--color-accent, #3b82f6); outline-offset: 2px; } }
+/* Fiche ouverte depuis une ligne de « Mes suivis » (?voir=…, src/playerFocus.ts) : l'élément visé (courbe, avis, vidéo)
+   mis un instant en évidence. */
+.voir-hl { animation: filter-hl 2.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .voir-hl { animation: none; outline: 2px solid var(--color-accent, #3b82f6); outline-offset: 2px; } }
+/* Signe d'attente (components/Attente.tsx) : ✦ qui tourne doucement pendant une demande à l'assistant ; fine barre sous la
+   pilule « Demander » (avancée d'après la durée habituelle, ou va-et-vient pendant un calcul de la liste). Animations faites
+   par le navigateur (transform) : elles continuent pendant un calcul qui occupe la page. Réduire les animations : ni rotation
+   ni va-et-vient, la barre change par paliers. */
+@keyframes wait-spin { to { transform: rotate(360deg); } }
+.wait-spin { display: inline-block; animation: wait-spin 1.6s linear infinite; }
+.wait-bar { transform-origin: left center; transition: transform 160ms linear, opacity 200ms ease-out; }
+@keyframes wait-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.wait-slide { animation: wait-slide 1.1s ease-in-out infinite; }
+/* Calcul court : rien ne s'affiche (pas de clignotement) ; au-delà de 150 ms, la barre et le nombre estompé apparaissent. */
+@keyframes wait-show { from { opacity: 0; } to { opacity: 1; } }
+.wait-late { animation: wait-show 120ms ease-out 150ms both; }
+.wait-dim, .wait-busy .wait-count { animation: wait-dim 120ms ease-out 150ms both; }
+@keyframes wait-dim { from { opacity: 1; } to { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .wait-spin, .wait-slide { animation: none; }
+  .wait-bar { transition: none; }
+  .wait-slide { transform: none; width: 100% !important; opacity: 0.5; }
+}
+/* Lampe d'Aladin (components/PlayerLamp.tsx) : la flamme vacille doucement, le halo respire ; réduire les animations : immobiles. */
+@keyframes lamp-flicker { 0%, 100% { transform: scale(1, 1) rotate(0deg); } 30% { transform: scale(0.96, 1.04) rotate(-2deg); } 60% { transform: scale(1.03, 0.97) rotate(1.5deg); } }
+@keyframes lamp-breathe { 0%, 100% { opacity: var(--lamp-glow, 0.6); } 50% { opacity: calc(var(--lamp-glow, 0.6) * 0.82); } }
+.lamp-flame { transform-box: fill-box; transform-origin: 50% 100%; animation: lamp-flicker 2.4s ease-in-out infinite; }
+.lamp-glow { animation: lamp-breathe 3.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .lamp-flame, .lamp-glow { animation: none; } }
+
+/* « Tableau de bord de jeu » de « Ma page » du jeune (onglet Aujourd'hui, src/components/TodayHud.tsx ; saisie de la forme et
+   de la séance, src/components/WellnessHud.tsx). COUPÉ le 10/11 et gardé (interrupteur TODAY_HUD de TodayHud.tsx) : sans
+   effet tant qu'aucun bloc .hud n'est affiché. Maquette validée par Geoffroy le 09/11 (« les jeunes, ça les fait chier de
+   lire… un truc plus péchu ») : thème NEXTAR (couleurs du logo et de l'écran de chargement, index.html), bleu nuit en mode
+   clair comme en sombre (comme les bandes emph), à part des thèmes de l'appli et des styles d'installation (src/uiStyle.ts).
+   Pas de dégradé. Formes obliques : .hud-skew sur le bloc, .hud-unskew sur son contenu (texte droit), coins de 4 px. */
+:root {
+  --hud-bg: #0a182d;
+  --hud-panel: #13304a;
+  --hud-off: #1a3c46;
+  --hud-fg: #f9f9fa;
+  --hud-muted: #8fb3bd;
+  --hud-accent: #61d0d1;
+  --hud-top: #89f7b3;
+  --hud-on-accent: #0a182d;
+  --hud-radius: 4px;
+  --hud-skew: -12deg;
+}
+/* Dans un bloc .hud, les classes de l'appli (text-muted, bg-panel, border-line, bg-accent…) prennent les couleurs du HUD :
+   la saisie des douleurs (silhouette, liste, lignes) garde ses composants et s'habille aux couleurs du thème. */
+.hud {
+  --color-fg: var(--hud-fg);
+  --color-muted: var(--hud-muted);
+  --color-line: color-mix(in srgb, var(--hud-muted) 35%, var(--hud-off));
+  --color-panel: var(--hud-panel);
+  --color-panel-2: var(--hud-off);
+  --color-accent: var(--hud-accent);
+  --color-accent-text: var(--hud-accent);
+  --color-on-accent: var(--hud-on-accent);
+  --color-primary: var(--hud-accent);
+  --color-on-primary: var(--hud-on-accent);
+  background-color: var(--hud-bg);
+  color: var(--hud-fg);
+  border-radius: var(--hud-radius);
+  color-scheme: dark;
+}
+.hud .bg-accent { color: var(--hud-on-accent); }
+.hud .fill-white { fill: var(--hud-on-accent); }
+.hud-skew { transform: skewX(var(--hud-skew)); border-radius: var(--hud-radius); }
+.hud-unskew { transform: skewX(calc(-1 * var(--hud-skew))); }
+.hud-label { font-size: 10px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--hud-muted); }
+.hud-big { font-weight: 900; font-style: italic; letter-spacing: -0.01em; line-height: 1.05; }
+.hud-on { background-color: var(--hud-accent); color: var(--hud-on-accent); }
+.hud-top { background-color: var(--hud-top); color: var(--hud-on-accent); }
+.hud-off { background-color: var(--hud-off); }
+.hud-tile { background-color: var(--hud-panel); color: var(--hud-fg); }
+.hud :is(button, a).hud-skew { transition: transform 0.12s ease, filter 0.12s ease; }
+.hud :is(button, a).hud-skew:active { transform: skewX(var(--hud-skew)) scale(0.97); }
+.hud :is(button, a).hud-skew:focus-visible { outline: 2px solid var(--hud-top); outline-offset: 2px; }
+.hud button.hud-skew:disabled { opacity: 0.45; }

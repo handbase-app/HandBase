@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './sync'
+import { sportProfile } from './sportConfig'
 import { GROUP_VIS } from './staffLabels'
 import { clearSpy, spyTarget } from './spy'
+import { applyAccountAffichage, forgetAccountAffichage } from './affichage'
+import { applyAccountPreferences, forgetAccountPreferences } from './preferences'
 
 /*
  * Rôles du staff. Les droits sont vérifiés par le serveur (supabase/002_roles.sql) ;
@@ -10,23 +13,34 @@ import { clearSpy, spyTarget } from './spy'
  */
 
 // La valeur technique « preparateur » est conservée côté serveur ; seul le libellé affiché change.
-export type Role = 'admin' | 'preparateur' | 'observateur'
+// « joueur » (supabase/051_espace_joueur.sql) : le compte d'un jeune, qui ne voit que sa page (/moi) ; aucun droit du staff.
+export type Role = 'admin' | 'preparateur' | 'observateur' | 'joueur'
+
+/** Compte joueur (espace joueur) : pas un membre du staff. */
+export const isPlayerRole = (r: Role | string | null | undefined) => r === 'joueur'
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: 'Administrateur',
   preparateur: 'Encadrant',
   observateur: 'Observateur',
+  // Sans le sexe, pas d'accord possible ici ; la page du jeune, elle, s'accorde (src/pages/Me.tsx).
+  joueur: 'Joueur',
 }
 
 export const ROLE_HELP: Record<Role, string> = {
   admin: 'Tout, y compris les critères, la suppression de joueurs et les rôles.',
   preparateur: 'Fiches joueurs, tests physiques, événements (création et listes de joueurs), ses propres avis ; valide les avis spontanés et fiches proposées de son secteur.',
-  observateur: 'Consulte tout et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
+  observateur: 'Consulte les joueurs de son périmètre et donne ses propres avis ; propose des fiches joueur. Ses avis spontanés et ses fiches sont soumis à validation.',
+  // Mot du sport de l'installation (« journal du hand », « journal du volley ») : lu à l'affichage.
+  get joueur() {
+    return `Un jeune (ou sa famille) : voit sa propre fiche seulement, y écrit « Ma lettre », ses repères, « Mon parcours » et son journal du ${sportProfile().word} (privé). Rien d’autre : ni avis, ni mesures, ni autres joueurs. Relié à sa fiche par un code donné depuis la fiche (ou compte créé depuis la fiche, déjà relié).`
+  },
 }
 
 const ROLE_KEY = 'handbase.role'
 const UID_KEY = 'handbase.uid'
 const DEPTS_KEY = 'handbase.departments'
+const PLAYER_KEY = 'handbase.playerId'
 
 const read = (k: string) => {
   try {
@@ -47,7 +61,12 @@ const write = (k: string, v: string | null) => {
 // Sans serveur (mode local), l'unique utilisateur a tous les droits.
 let role: Role = supabase ? ((read(ROLE_KEY) as Role | null) ?? 'observateur') : 'admin'
 let userId: string | null = read(UID_KEY)
-/** Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. */
+/**
+ * Départements de mon secteur (supabase/010_secteurs.sql) ; vide = tous. Sert aux VALIDATIONS (avis spontanés, fiches
+ * proposées : can.reviewDept, comme hb_can_review côté serveur) et aux filtres par défaut (fil d'actualité, département
+ * d'une fiche proposée). Ce que le compte VOIT, lui, est son périmètre (supabase/046, src/perimeter.ts) : le serveur
+ * n'envoie que les joueurs du périmètre ; ce secteur ne fait que trier parmi eux.
+ */
 let departments: string[] = (() => {
   try {
     return JSON.parse(read(DEPTS_KEY) ?? '[]') as string[]
@@ -55,17 +74,24 @@ let departments: string[] = (() => {
     return []
   }
 })()
+/** Compte joueur : sa fiche reliée (hb_profiles.player_id) ; null = pas de fiche (écran « Entre ton code »). */
+let playerId: string | null = read(PLAYER_KEY)
 const listeners = new Set<() => void>()
 
-function set(r: Role, uid: string | null, depts: string[] = []) {
+function set(r: Role, uid: string | null, depts: string[] = [], pid: string | null = null) {
   role = r
   userId = uid
   departments = depts
+  playerId = pid
   write(ROLE_KEY, r)
   write(UID_KEY, uid)
   write(DEPTS_KEY, JSON.stringify(depts))
+  write(PLAYER_KEY, pid)
   listeners.forEach((l) => l())
 }
+
+/** Fiche reliée au compte joueur connecté (null sinon). */
+export const myPlayerId = () => playerId
 
 /*
  * Identité effective : la mienne, ou celle du membre simulé par « Voir comme… » (outil administrateur, spy.ts).
@@ -80,6 +106,8 @@ export const currentUserId = () => effUid()
 export const myDepartments = () => effDepts()
 /** Rôle réel du compte connecté (même pendant « Voir comme… ») : outils administrateur, sortie de la simulation. */
 export const realRole = () => role
+/** Compte réellement connecté (même pendant « Voir comme… ») : données personnelles (questions enregistrées). */
+export const realUserId = () => userId
 
 /** Recharge le rôle depuis le serveur (si connecté et en ligne). */
 export async function refreshRole() {
@@ -88,12 +116,31 @@ export async function refreshRole() {
   const uid = s.session?.user.id ?? null
   if (!uid) return
   if (uid !== userId) set('observateur', uid) // autre compte : on repart du rôle minimal
-  const { data, error } = await supabase.from('hb_profiles').select('role, departments').eq('user_id', uid).maybeSingle()
-  if (!error && data?.role) set(data.role as Role, uid, (data.departments as string[] | null) ?? [])
+  // player_id : colonne de 051 ; affichage (pictogrammes et « Sous le nom » des listes, src/affichage.ts) : colonne de 063.
+  // preferences (thème, style, filtre Garçons / Filles, src/preferences.ts) : colonne de 075.
+  // Avant ces scripts, la requête échoue (colonne inconnue) : on relit sans la colonne en cause.
+  let cols = ['role', 'departments', 'player_id', 'affichage', 'preferences']
+  let row: Record<string, unknown> | null = null
+  for (;;) {
+    const { data, error } = await supabase.from('hb_profiles').select(cols.join(', ')).eq('user_id', uid).maybeSingle()
+    const missing = error ? cols.find((c) => c !== 'role' && c !== 'departments' && error.message.includes(c)) : undefined
+    if (missing) {
+      cols = cols.filter((c) => c !== missing)
+      continue
+    }
+    row = error ? null : (data as Record<string, unknown> | null)
+    break
+  }
+  if (!row?.role) return
+  set(row.role as Role, uid, (row.departments as string[] | null) ?? [], (row.player_id as string | null | undefined) ?? null)
+  applyAccountAffichage(uid, row.affichage, cols.includes('affichage'))
+  applyAccountPreferences(uid, row.preferences, cols.includes('preferences'))
 }
 
 export function clearRole() {
   clearSpy()
+  forgetAccountAffichage()
+  forgetAccountPreferences()
   set('observateur', null)
 }
 
@@ -153,8 +200,8 @@ export function participants(x: WithParticipants): string[] {
 export const isParticipant = (x: WithParticipants, uid = effUid()) =>
   !!uid && (!!x.editors?.includes(uid) || !!x.teams?.some((t) => teamMembers.get(t)?.includes(uid)))
 
-/** Ce que chaque rôle peut faire (miroir des règles du serveur). */
-export const can = {
+/** Ce que chaque rôle peut faire (miroir des règles du serveur). Exporté sous `can`, avec le garde du compte joueur. */
+const rules = {
   editPlayers: (r: Role) => r !== 'observateur',
   /**
    * Modifier cette fiche : l'encadrant toutes, l'observateur la fiche qu'il a proposée, tant qu'elle n'est pas traitée
@@ -224,14 +271,32 @@ export const can = {
    */
   calibrateMatch: (r: Role, _ctx?: { eventId?: string; playerId?: string }) => r === 'admin',
   editCriteria: (r: Role) => r === 'admin',
+  /**
+   * Structure et sport (supabase/044_structure.sql : postes, niveaux, unités, affectations) : administrateurs ; les autres
+   * comptes lisent. Les affectations décident du périmètre (joueurs reçus, supabase/046) ; le secteur de validation reste
+   * myDepartments() (profil).
+   */
+  editStructure: (r: Role) => r === 'admin',
+  /**
+   * Pôle Espoirs (src/poleSeason.ts) : créer le groupe Pôle d'une unité, lancer le changement de saison, retirer un
+   * joueur du groupe Pôle, modifier le bloc « Pôle Espoirs » d'une fiche. POINT UNIQUE de décision : l'administrateur de
+   * l'appli, ou un « dirigeant du pôle » (`leader` : affecté à l'unité Pôle avec le rôle encadrant ou administrateur,
+   * isPoleLeader). Les autres comptes, Ligue comprise, lisent seulement.
+   */
+  editPoles: (r: Role, leader: boolean) => r === 'admin' || leader,
   manageRoles: (r: Role) => r === 'admin',
   loadDemo: (r: Role) => r === 'admin',
   /**
    * Bilan de détection (/bilan : joueurs vus par génération et par club, qui reste à voir, rapport chiffré) : POINT UNIQUE
-   * de décision pour la page, sa tuile d'accueil et ses liens. Pour l'instant administrateurs et encadrants ; droits à affiner.
+   * de décision pour la page, sa tuile d'accueil et ses liens. Tous les rôles : chacun ne voit que son périmètre (unités où il
+   * est affecté et en dessous : Fédération → tout, Ligue → ses départements et clubs, Comité → ses clubs ; src/perimeter.ts,
+   * supabase/046_perimetre.sql) ; ce qui est hors périmètre est grisé.
    */
-  viewCoverage: (r: Role) => r === 'admin' || r === 'preparateur',
-  /** Vue nationale (carte des départements) : administrateurs. */
+  viewCoverage: (_r: Role) => true,
+  /**
+   * Onglets « Licenciés », « Mesurés par le staff » et « Profils repérés » du bilan de détection (ancienne vue nationale,
+   * /national y mène) : administrateurs.
+   */
   nationalView: (r: Role) => r === 'admin',
   /** Sauvegarde complète de la base (JSON) : administrateurs seulement. */
   exportAll: (r: Role) => r === 'admin',
@@ -245,3 +310,13 @@ export const can = {
    */
   dictate: (r: Role) => r === 'admin',
 }
+
+/**
+ * Droits effectifs : ceux des règles ci-dessus, sauf pour un compte joueur (espace joueur, supabase/051) qui n'a AUCUN droit du
+ * staff, quelle que soit la règle (les règles testent « pas observateur », « créateur »… : un joueur y passerait). Un seul
+ * garde ici, sur l'identité effective, plutôt qu'un test dans chaque règle.
+ */
+type Rules = typeof rules
+export const can: Rules = Object.fromEntries(
+  Object.entries(rules).map(([k, f]) => [k, (...a: unknown[]) => !isPlayerRole(effRole()) && (f as (...a: unknown[]) => boolean)(...a)]),
+) as Rules

@@ -1,27 +1,48 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { setShowBackArrow, useShowBackArrow } from '../backArrowPref'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { BackButton } from '../backNav'
 import { groupBy, Icon, playerName, SectionTitle, Segmented, useMe, type IconName } from '../components/ui'
-import { alive, db, newId, plural, POSITIONS, remove, save, today, type Criterion, type CriterionScale } from '../db'
-import { clearDemo, loadDemo } from '../demo'
+import { applyUpdate, BUILD_TIME, checkForUpdate, useUpdateReady } from '../pwa'
+import { alive, db, newId, plural, POSITIONS, remove, save, saveMany, today, TRIAL, type ConfigItem, type Criterion, type CriterionScale } from '../db'
+import { categoryStyles, defaultColor, defaultZone, RADAR_PALETTE, RADAR_ZONES, styleOf, type RadarZone } from '../radarZones'
+import { clearDemo, demoInfo, loadDemo } from '../demo'
 import { exportBackup, importBackup } from '../export'
 import { applyCriteria, exportCriteria, planCriteria, readCriteriaFile, unpublishedCount, type CriteriaPlan } from '../criteriaImport'
-import type { ParsedFile } from '../criteriaFormat'
+import { categoryList, resolveCategory, type ParsedFile } from '../criteriaFormat'
 import { applyImport, parseLicenceFile, planImport, type ImportPlan } from '../importLicences'
 import { supabase, syncNow, useSyncState, wipeDevice } from '../sync'
+import { confirmLogout } from '../logout'
 import { ActivityLog } from '../components/ActivityLog'
+import { QuestionLogView } from '../components/QuestionLogView'
+import { canUseQuestionLog } from '../questionLog'
 import { Members } from '../components/Members'
 import { ListEditor } from '../components/ListEditor'
+import { ReperesSettings } from '../components/ReperesSettings'
+import { GoalTemplatesSettings } from '../components/GoalTemplatesSettings'
+import { LampSettingsEditor } from '../components/LampSettings'
+import { StructureSettings } from '../components/Structure'
 import { ask, inform } from '../components/Confirm'
-import { can, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { can, isPlayerRole, myDepartments, realRole, ROLE_HELP, ROLE_LABEL, useRole } from '../roles'
+import { useConfigRows, useSportHas } from '../installation'
+import { isHandball } from '../sportConfig'
+import { DEFAULT_PLAYER_MIN_AGE, PLAYER_CONTACT_MAX, PLAYER_SPACE_KEY, playerContactOf, playerMinAgeOf } from '../playerSpace'
 import { AdminTools } from '../components/ViewAs'
+import { AllGroupsToggle } from '../components/AdminGroups'
 import { departmentLabel } from '../lists'
+import { usePerimeter } from '../installation'
+import { perimeterText } from '../perimeter'
 import { STAFF } from '../staffLabels'
-import { useTeams } from '../teams'
 import { useSessionState } from '../components/PlayerFilter'
 import { disablePush, enablePush, NOTIF_KINDS, pushSupport, readNotifPrefs, saveNotifPrefs, sendTestNotification, syncSubscription } from '../push'
+import { VEILLE_EXPLICATION } from '../components/VeillePrep'
 import { useDictation } from '../dictation/useDictation'
-import { AUTO, readThemeChoice, resolveTheme, setThemeChoice, THEMES, useThemeVersion, type Theme } from '../theme'
+import { useExpressions } from '../expressions'
+import { useThemeVersion } from '../theme'
+import { AppearanceSettings, appearanceSummary, InstallationStyle } from '../components/StyleSettings'
+import { appName } from '../appBrand'
+import { ConnectedApps } from '../components/ConnectedApps'
 
 const SCALES: { value: CriterionScale; label: string }[] = [
   { value: 'score5', label: 'Note 1 à 5' },
@@ -37,19 +58,23 @@ export default function Settings() {
   const [draft, setDraft] = useState(me)
   const [msg, setMsg] = useState('')
   const role = useRole()
+  const gestHand = useSportHas('licencesGestHand')
 
   const admin = can.manageRoles(role)
-  const teams = useTeams() ?? []
+  // Compte joueur (espace joueur) : apparence, déconnexion, confidentialité ; rien du staff.
+  if (isPlayerRole(role)) return <PlayerSettings />
   return (
     // Ordinateur (administrateur) : « Mon espace » à gauche, « Administration » à droite.
     <div className={`flex flex-col gap-3 ${admin ? 'side:grid side:grid-cols-2 side:items-start side:gap-x-6' : ''}`}>
+      {/* Plus un onglet : ouvert depuis le menu de la bulle de profil (en-tête), retour à l'écran d'où l'on vient. */}
+      <BackButton fallback="/" label="ACCUEIL" className="self-start side:col-span-full" />
       <h1 className="text-lg font-extrabold side:col-span-full">Réglages</h1>
 
       <div className="flex flex-col gap-3">
       <div className="mt-1 text-[10px] font-extrabold tracking-wider text-muted uppercase">Mon espace</div>
       <Fold id="compte" icon="user" title="Mon compte" summary={[me, ROLE_LABEL[role]].filter(Boolean).join(' · ')}>
         <section className="card flex flex-col gap-2 p-4">
-          <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les évaluations. Avec un compte, il est lié à ce compte.">
+          <SectionTitle info="Ton nom signe tes avis et tes mesures, pour que le staff puisse comparer les avis. Avec un compte, il est lié à ce compte.">
             Mon nom (observateur)
           </SectionTitle>
           {supabase ? (
@@ -68,17 +93,31 @@ export default function Settings() {
           )}
         </section>
         <Account />
+        <PerimeterInfo />
         {supabase && <PasswordChange />}
       </Fold>
       {supabase && (
-        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, rappels, suivis">
+        <Fold id="notifications" icon="bell" title="Notifications" summary="Sur ce téléphone : avis, fiches, participants, la veille (détections préparées), suivis">
           <NotificationSettings />
         </Fold>
       )}
+      {/* Ordre voulu (20/10) : compte, notifications, apparence, dictée, puis le reste, confidentialité ; la version de l'appli
+          en dernier. */}
+      <ApparenceFold />
       <DictationSetting />
-      <Fold id="apparence" icon="palette" title="Apparence" summary={themeSummary()}>
-        <ThemePicker />
-      </Fold>
+      {/* Serveur MCP Nextar : brancher Claude, autorisations données, rapports en codes (src/components/ConnectedApps.tsx). */}
+      {supabase && (
+        <Fold id="applications" icon="key" title="Applications connectées" summary="Brancher Claude (lecture en codes, propositions à valider), autorisations, rapports">
+          <ConnectedApps />
+        </Fold>
+      )}
+
+      {/* Structure et sport (supabase/044) : lecture seule pour les comptes qui ne sont pas administrateurs. */}
+      {!admin && (
+        <Fold id="structure" icon="globe" title="Structure et sport" summary="Niveaux, unités, postes (lecture seule)">
+          <StructureSettings editable={false} />
+        </Fold>
+      )}
       <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Droits des familles, charte du staff">
   <div className="flex gap-2">
           <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
@@ -89,42 +128,58 @@ export default function Settings() {
           </Link>
         </div>
       </Fold>
-
-      {(can.manageTeams(role) || teams.length > 0) && <TeamsLink />}
+      <UpdateCheck />
       </div>
 
       {admin && (
         <div className="flex flex-col gap-3">
           <div className="mt-3 text-[10px] side:mt-1 font-extrabold tracking-wider text-muted uppercase">Administration</div>
-          <Link to="/national" className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
-              <Icon name="map" className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold">Vue nationale</span>
-              <span className="block truncate text-[11px] text-muted">Carte des départements, chiffres clés</span>
-            </span>
-            <span className="text-muted">›</span>
-          </Link>
           {supabase && (
             <Fold id="membres" icon="users" title="Utilisateurs" summary="Comptes, rôles, secteurs">
               <p className="text-[11px] text-muted">
                 {STAFF.settingsHelp}{' '}
-                <Link to={STAFF.route} className="font-bold text-accent underline">
+                <Link to={STAFF.tabRoute} className="font-bold text-accent underline">
                   {STAFF.title}
                 </Link>
               </p>
               <Members />
             </Fold>
           )}
+          <Fold id="structure" icon="globe" title="Structure et sport" summary="Postes, niveaux, unités, affectations">
+            <StructureSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Style de l'installation (polices, arrondis, couleurs ; nom et logo de l'organisation) : configuration partagée, src/uiStyle.ts. */}
+          <Fold id="style" icon="palette" title="Style de l’installation" summary="Actuel, Sport, Officiel, Salle · nom et logo de l’organisation">
+            <InstallationStyle editable={can.editStructure(role)} />
+          </Fold>
+          {/* Espace joueur (supabase/051) : âge minimum pour relier un compte à une fiche ; aperçu en mode essai. */}
+          <Fold id="espace-joueur" icon="key" title="Espace joueur" summary="Âge minimum pour qu’un jeune ait son accès ; aperçu">
+            <PlayerSpaceSettings />
+          </Fold>
           <Fold id="referentiel" icon="list" title="Critères et listes" summary="Critères, départements, régions">
             {can.editCriteria(role) && <CriteriaTransfer />}
             <CriteriaEditor />
             <ListEditor kind="department" />
             <ListEditor kind="region" />
           </Fold>
-          <Fold id="imports" icon="download" title="Imports et sauvegarde" summary="Gest’Hand, sauvegarde, démo">
-            <LicenceImport />
+          {/* Repères des tests (src/reperes.ts) : médailles Bronze / Argent / Or quand un résultat atteint un repère ; configuration
+              partagée (hb_config, clé « reperes »), administrateurs. */}
+          <Fold id="reperes" icon="medal" title="Repères des tests" summary="Médailles Bronze, Argent, Or par test, sexe et âge">
+            <ReperesSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Modèles d'objectifs (src/goalTemplates.ts) : objectifs types avec leurs étapes, repris sur la fiche par « Depuis un
+              modèle » ; configuration partagée (hb_config, clé « modeles_objectifs »), administrateurs. */}
+          <Fold id="modeles-objectifs" icon="target" title="Modèles d’objectifs" summary="Objectifs types et leurs étapes, à reprendre sur la fiche">
+            <GoalTemplatesSettings editable={can.editStructure(role)} />
+          </Fold>
+          {/* Lampe d'Aladin (src/lamp.ts, supabase/074) : ouverture, début, zone, critères des encadrants, catalogue des vœux ;
+              configuration partagée (hb_config, clé « lampe »), administrateurs. */}
+          <Fold id="lampe" icon="lamp" title="Lampe d’Aladin" summary="Jauge de la saison de l’espace joueur : critères des encadrants, catalogue des vœux">
+            <LampSettingsEditor editable={can.editStructure(role)} />
+          </Fold>
+          <Fold id="imports" icon="download" title="Imports et sauvegarde" summary={gestHand ? 'Gest’Hand, sauvegarde, démo' : 'Sauvegarde, démo'}>
+            {/* Import des licences Gest'Hand : handball seulement (src/sportConfig.ts, sportHas). */}
+            {gestHand && <LicenceImport />}
               {/* Sauvegarde complète : administrateurs seulement (une copie de toute la base sort de l'appli). */}
               {can.exportAll(role) && (
               <section className="card flex flex-col gap-2 p-4">
@@ -158,7 +213,7 @@ export default function Settings() {
               )}
               {can.loadDemo(role) && (
               <section className="card flex flex-col gap-2 p-4">
-                <SectionTitle info="24 joueurs fictifs (U18), 5 observateurs, 4 matchs / tournois et leurs avis, pour tester l'app. Elles restent sur cet appareil et s'effacent sans toucher à tes vraies données.">
+                <SectionTitle info={demoInfo()}>
                   Données de démonstration
                 </SectionTitle>
                 <div className="flex gap-2">
@@ -185,6 +240,12 @@ export default function Settings() {
               </section>
               )}
           </Fold>
+          {/* Administrateur réel seulement (lecture réservée aux administrateurs), absent pendant « Voir comme… ». */}
+          {canUseQuestionLog() && (
+            <Fold id="questions-avancees" icon="message" title="Journal des questions" summary="Questions posées (ratées, sauvées, comprises), avis sur les réponses et évaluations vocales, pour écrire de nouvelles recettes">
+              <QuestionLogView />
+            </Fold>
+          )}
           {supabase && (
             <Fold id="journal" icon="clock" title="Historique" summary="Qui a créé, modifié ou supprimé quoi">
               <ActivityLog />
@@ -192,12 +253,165 @@ export default function Settings() {
           )}
           {/* Outils administrateur (« Voir comme… ») : selon le vrai rôle, absents pendant la simulation (bandeau « Quitter »). */}
           {realRole() === 'admin' && (
-            <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff">
+            <Fold id="outils" icon="eye" title="Outils administrateur" summary="Voir l’appli comme un membre du staff, voir tous les groupes">
               <AdminTools />
+              {/* « Voir tous les groupes » (supabase/039) : réglé ici ; la section « Groupes des autres » s'affiche sur la page Groupes. */}
+              <AllGroupsToggle role={role} />
             </Fold>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Espace joueur (administrateurs) : âge minimum (réglage de l'installation, hb_config « espace_joueur » ; lu par le serveur au
+ * moment où un jeune entre son code : hb_claim_invite, ou quand on crée son compte depuis la fiche), personne à contacter
+ * (affichée par « J'ai besoin d'en parler » sur la page du jeune, 052), et aperçu de la page d'un joueur sans compte réel
+ * (mode essai / local).
+ */
+function PlayerSpaceSettings() {
+  const rows = useConfigRows()
+  const current = playerMinAgeOf(rows)
+  const currentContact = playerContactOf(rows)
+  const [age, setAge] = useState(String(current))
+  const [contact, setContact] = useState(currentContact)
+  const [msg, setMsg] = useState('')
+  const [contactMsg, setContactMsg] = useState('')
+  useEffect(() => setAge(String(current)), [current])
+  useEffect(() => setContact(currentContact), [currentContact])
+  // Les deux réglages vivent dans la même valeur : chacun garde l'autre.
+  const value = () => {
+    const row = rows.find((r) => (r.key ?? r.id) === PLAYER_SPACE_KEY)
+    return row?.value && typeof row.value === 'object' && !Array.isArray(row.value) ? (row.value as Record<string, unknown>) : {}
+  }
+  const n = Number(age)
+  const valid = Number.isInteger(n) && n >= 6 && n <= 18
+  const demo = useLiveQuery(() => db.players.filter((p) => !p.deleted).first(), [])
+  return (
+    <section className="card flex flex-col gap-3 p-4" data-testid="reglage-espace-joueur">
+      <SectionTitle
+        info={
+          <>
+            <p>
+              Un jeune (ou sa famille) relie son compte à sa fiche avec un code donné depuis la fiche (onglet Profil, carte « Espace joueur »). Le serveur
+              refuse le code si la fiche n’a pas de date de naissance ou si l’âge est en dessous de ce minimum.
+            </p>
+            <p>La fédération tranchera ; on monte ou on baisse. Par défaut : {DEFAULT_PLAYER_MIN_AGE} ans.</p>
+          </>
+        }
+      >
+        Âge minimum
+      </SectionTitle>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className="field min-h-11 w-20 text-center" inputMode="numeric" min={6} max={18} type="number" aria-label="Âge minimum (ans)" value={age} onChange={(e) => setAge(e.target.value)} />
+        <span className="text-xs text-muted">ans (entre 6 et 18)</span>
+        <button
+          className="btn-primary min-h-11 px-4 text-xs"
+          disabled={!valid || n === current}
+          onClick={async () => {
+            await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: { ...value(), playerMinAge: n } })
+            setMsg(`Enregistré : ${n} ans.`)
+          }}
+        >
+          Enregistrer
+        </button>
+        {msg && <span className="text-[11px] text-emerald-300">{msg}</span>}
+      </div>
+      <div className="border-t border-line pt-3">
+        <SectionTitle info="Affichée au jeune quand il touche « J’ai besoin d’en parler » sur sa page, avec les numéros officiels gratuits et anonymes (3018, 119, 3114, Fil Santé Jeunes, Signal-sports). Rien n’est envoyé : c’est le jeune qui choisit d’appeler.">
+          Personne à contacter
+        </SectionTitle>
+        <input
+          className="field min-h-11 w-full"
+          placeholder="Personne à contacter (nom, téléphone)"
+          aria-label="Personne à contacter (nom, téléphone)"
+          maxLength={PLAYER_CONTACT_MAX}
+          value={contact}
+          onChange={(e) => setContact(e.target.value)}
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            className="btn-primary min-h-11 px-4 text-xs"
+            disabled={contact.trim() === currentContact}
+            onClick={async () => {
+              const v = { ...value() }
+              if (contact.trim()) v.contact = contact.trim()
+              else delete v.contact
+              await save<ConfigItem>('config', { id: PLAYER_SPACE_KEY, key: PLAYER_SPACE_KEY, value: v })
+              setContactMsg(contact.trim() ? 'Enregistré.' : 'Retiré.')
+            }}
+          >
+            Enregistrer
+          </button>
+          {contactMsg && <span className="text-[11px] text-emerald-300">{contactMsg}</span>}
+        </div>
+      </div>
+      {(TRIAL || !supabase) && (
+        <div className="border-t border-line pt-3">
+          <p className="mb-2 text-[11px] text-muted">
+            {supabase ? 'Mode essai' : 'Mode local'} : voir la page telle qu’un jeune la voit, sans compte réel (lecture seule avec le serveur ; sur cet appareil seulement sans serveur).
+          </p>
+          {demo ? (
+            <Link to={`/moi?joueur=${demo.id}`} className="btn-ghost inline-block px-3 py-2 text-xs">
+              Voir l’espace joueur (essai) : {playerName(demo)}
+            </Link>
+          ) : (
+            <p className="text-[11px] text-muted">Aucune fiche sur l’appareil : charge la démonstration (Imports et sauvegarde) ou crée un joueur.</p>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Réglages d'un compte joueur : apparence, compte (déconnexion), confidentialité. Rien du staff. */
+function PlayerSettings() {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
+  }, [])
+  return (
+    <div className="flex flex-col gap-3" data-testid="reglages-joueur">
+      <h1 className="text-lg font-extrabold">Réglages</h1>
+      <ApparenceFold />
+      <Fold id="compte" icon="user" title="Mon compte" summary={email || 'Compte joueur'}>
+        <section className="card flex flex-col gap-2 p-4">
+          {email && (
+            <p className="text-xs">
+              Connecté : <b>{email}</b>
+            </p>
+          )}
+          <p className="text-[11px] text-muted">Se déconnecter efface ta page de cet appareil ; elle revient à la prochaine connexion.</p>
+          {supabase && (
+            <button
+              className="btn-ghost min-h-11 text-xs"
+              disabled={busy}
+              onClick={async () => {
+                if (!(await ask('Se déconnecter ?', { ok: 'Se déconnecter' }))) return
+                setBusy(true)
+                await wipeDevice({ signOut: true })
+              }}
+            >
+              Se déconnecter
+            </button>
+          )}
+        </section>
+        {supabase && <PasswordChange />}
+      </Fold>
+      <Fold id="confidentialite" icon="lock" title="Confidentialité" summary="Ta page, comment ça marche">
+        <div className="flex gap-2">
+          <Link to="/confidentialite#charte-joueur" className="btn-ghost flex-1 text-center text-xs">
+            Ta page, comment ça marche
+          </Link>
+          <Link to="/confidentialite" className="btn-ghost flex-1 text-center text-xs">
+            Données et droits
+          </Link>
+        </div>
+      </Fold>
+      <UpdateCheck />
     </div>
   )
 }
@@ -219,8 +433,9 @@ function NotificationSettings() {
   if (support === 'ios-install')
     return (
       <p className="text-xs">
-        Sur iPhone, les notifications marchent seulement dans l’appli <b>ajoutée à l’écran d’accueil</b> (Safari → Partager → « Sur l’écran
-        d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite HandBase depuis l’écran d’accueil et reviens ici.
+        Sur iPhone, les notifications (et la préparation des détections la veille) marchent seulement dans l’appli <b>ajoutée à l’écran
+        d’accueil</b> (Safari → Partager → « Sur l’écran d’accueil »), avec iOS 16.4 ou plus récent. Ouvre ensuite {appName()} depuis l’écran
+        d’accueil et reviens ici.
       </p>
     )
   if (support === 'unsupported') return <p className="text-xs text-muted">Ce navigateur ne permet pas les notifications.</p>
@@ -258,6 +473,13 @@ function NotificationSettings() {
           {subscribed ? 'Désactiver' : 'Activer'}
         </button>
       </div>
+      {/* Push de la veille (supabase/060, src/components/VeillePrep.tsx) : l'abonnement de cet appareil sert aussi à préparer les
+          détections ; « Désactiver » le retire. */}
+      <p className="text-[11px] text-muted" data-testid="veille-reglages">
+        {subscribed
+          ? 'Détections préparées la veille sur ce téléphone : joueurs, mesures, avis et grille de notation, hors ligne.'
+          : `« Activer » prépare aussi tes détections la veille. ${VEILLE_EXPLICATION}`}
+      </p>
       <div className="flex flex-col gap-2">
         <span className="label mb-0">Ce que je reçois (sur tous mes appareils)</span>
         {NOTIF_KINDS.map((k) => (
@@ -325,64 +547,98 @@ function NotificationSettings() {
  */
 function DictationSetting() {
   const { available, enabled, setEnabled, access } = useDictation()
+  const expressions = useExpressions()
+  const search = !!access?.filtres
   if (!available) return null
   return (
-    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? 'Activée sur cet appareil : micro à côté des commentaires' : 'Désactivée sur cet appareil'}>
+    <Fold id="dictee" icon="mic" title="Dictée vocale (essai)" summary={enabled ? `Activée sur cet appareil : avis vocal${search ? ', recherches (joueurs, bilan…)' : ''}` : 'Désactivée sur cet appareil'}>
       <section className="flex flex-col gap-2">
         <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <b>Dictée vocale (essai)</b>
         </label>
+        {/* Vocabulaire de l'entraîneur pour l'avis vocal (src/pages/Expressions.tsx). */}
+        <Link to="/expressions" className="-mx-1 flex min-h-11 items-center justify-between gap-2 rounded-lg px-1 text-xs font-bold hover:bg-panel-2">
+          <span>
+            Mes expressions{expressions?.length ? ` (${expressions.length})` : ''}
+          </span>
+          <span className="text-muted" aria-hidden>
+            ›
+          </span>
+        </Link>
         <p className="text-[11px] text-muted">
           Le son est envoyé à Mistral AI (France) pour être transcrit, puis effacé ; seul le texte est gardé. Pendant l'essai (offre
           gratuite), évitez de dicter des noms.
         </p>
         <p className="text-[11px] text-muted">
-          Touchez le micro pour commencer et pour finir (ou maintenez-le pendant que vous parlez), 1 minute au plus. Le texte s'ajoute au
-          commentaire : relisez-le avant d'enregistrer.
+          Touchez le micro pour commencer et pour finir (ou maintenez-le pendant que vous parlez), 1 minute au plus.
           {access?.restantMois != null && ` Restant : ${access.restantMois} dictées ce mois-ci, ${access.restantJour ?? '?'} aujourd'hui pour vous.`}
         </p>
+        {search && (
+          <p className="text-[11px] text-muted">
+            Recherche de joueurs : dans Joueurs, touchez le bouton micro ✨ à côté de « Rechercher… », dites par exemple « les gauchers
+            nés en 2010 qui mesurent plus d'1 m 80 » ou « trouve Lucas Martin », puis touchez-le à nouveau ; ensuite « ajoute le Var »,
+            « enlève la taille » ou « efface la sélection ». Les filtres restent modifiables à la main ; « Annuler » remet les précédents. Seuls la phrase, la
+            liste des filtres possibles et les filtres choisis (sans le nom cherché) sont envoyés à Mistral AI, avec les noms de vos groupes et de vos profils
+            recherchés ; aucune donnée de joueur. « Efface tout », « réinitialise »… se font sur l'appareil, sans envoi. Chaque phrase
+            compte comme deux dictées : la transcription, puis la recherche.
+          </p>
+        )}
+        {search && (
+          <p className="text-[11px] text-muted">
+            Le même bouton (« Filtrer ») se trouve dans le bilan de détection (« les filles de 2011 dans le Var », « depuis
+            toujours », « le club de Toulon »){access?.modes?.includes('question_evenements') ? ' ; le champ « Filtrer ou poser une question… » et son micro ✨, dans Événements (« les tournois de cette saison », « combien par mois ? »)' : ''}
+            {access?.modes?.includes('question_groupes') ? ' et dans Groupes (« les groupes de filles du Var »)' : ''}. Une phrase s’ajoute aux filtres posés ; les noms d’événements, de
+            groupes, de lieux et de clubs ne sont pas envoyés : ce que vous dites est retrouvé sur l’appareil.
+          </p>
+        )}
+        {access?.avis && (
+          <p className="text-[11px] text-muted">
+            Avis vocal : sur l’écran de notation, touchez le micro à droite de « Enregistrer » et parlez librement du joueur. Une
+            fenêtre propose les notes (« déduit » : tirée de votre description d’ensemble), un portrait en une phrase et les
+            commentaires : cochez, changez une note si besoin, puis « Accepter ». Rien n’est enregistré avant « Enregistrer », l’avis reste le vôtre. Seuls
+            le texte dicté, la liste des critères et vos expressions (« Mes expressions ») sont envoyés ; deux dictées comptées par avis.
+          </p>
+        )}
+        {search && access?.modes?.includes('question') && (
+          <p className="text-[11px] text-muted">
+            Poser une question : dans le bilan de détection, touchez « Poser une question » et dites par exemple « les joueuses 2011
+            vues une seule fois cette saison, par département » ou « combien de {isHandball() ? 'gardiens' : 'joueurs'} 2009 mesurent plus de 1 m 85 » (ou tapez-la).
+            La réponse est calculée sur l’appareil : seuls la phrase et la description des questions possibles (postes, critères,
+            date du jour) sont envoyées, jamais les données des joueurs. La question s’affiche en pastilles modifiables ;
+            « Enregistrer cette question » la garde dans « Mes questions », à relancer sans envoi : sur votre compte (tous vos
+            appareils, vous seul la voyez), ou sur cet appareil tant que le serveur ne les garde pas encore.
+          </p>
+        )}
       </section>
     </Fold>
   )
 }
 
-const themeSummary = () => {
-  const c = readThemeChoice()
-  return c === AUTO ? `Auto (${resolveTheme(c).label})` : resolveTheme(c).label
+/** Apparence (chacun) : thème, ou Clair / Sombre / Auto selon le style de l'installation. */
+function ApparenceFold() {
+  useThemeVersion()
+  return (
+    <Fold id="apparence" icon="palette" title="Apparence" summary={appearanceSummary()}>
+      <AppearanceSettings />
+      <BackArrowToggle />
+      {/* Pictogrammes et « Sous le nom » des lignes : réglés depuis les listes (src/affichage.ts), gardés sur le compte. */}
+      <p className="text-[11px] text-muted">Affichage des listes : dans « Filtres » de n’importe quelle liste de joueurs.</p>
+    </Fold>
+  )
 }
 
-/** Choix du thème : chaque vignette montre ses couleurs. Gardé sur cet appareil. */
-function ThemePicker() {
-  useThemeVersion()
-  const choice = readThemeChoice()
-  const tile = (id: string, label: string, t: Theme) => (
-    <button
-      key={id}
-      onClick={() => setThemeChoice(id)}
-      className={`flex items-center gap-2 rounded-lg border p-2 text-left text-xs ${choice === id ? 'border-accent ring-1 ring-accent' : 'border-line'}`}
-    >
-      <span className="flex h-9 w-12 shrink-0 flex-col justify-between overflow-hidden rounded-md border p-1" style={{ background: t.colors.bg, borderColor: t.colors.line }}>
-        <span className="h-2 rounded-sm" style={{ background: t.colors.panel }} />
-        <span className="flex items-center gap-1">
-          <span className="h-2 w-4 rounded-sm" style={{ background: t.colors.accent }} />
-          <span className="h-1 flex-1 rounded-sm" style={{ background: t.colors.muted }} />
-        </span>
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate font-bold">{label}</span>
-        <span className="text-[10px] text-muted">{id === AUTO ? 'suit le téléphone' : [t.light ? 'clair' : 'sombre', t.note].filter(Boolean).join(' · ')}</span>
-      </span>
-    </button>
-  )
+/** Flèche ← de l'en-tête sur les écrans hors onglets (src/backArrowPref.ts) : affichée par défaut, au choix sur cet appareil. */
+function BackArrowToggle() {
+  const on = useShowBackArrow()
   return (
-    <section className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        {tile(AUTO, 'Auto', resolveTheme(AUTO))}
-        {THEMES.map((t) => tile(t.id, t.label, t))}
-      </div>
-      <p className="text-[11px] text-muted">Le thème est gardé sur cet appareil. « Auto » passe en Clair ou en Nuit selon le réglage du téléphone.</p>
-    </section>
+    <label className="flex cursor-pointer items-start gap-3 text-sm">
+      <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--color-accent)]" checked={on} onChange={(e) => setShowBackArrow(e.target.checked)} />
+      <span>
+        <span className="block font-bold">Afficher la flèche de retour</span>
+        <span className="block text-[11px] text-muted">En haut à gauche, sur les écrans qui ne sont pas un onglet du menu. Réglage de cet appareil.</span>
+      </span>
+    </label>
   )
 }
 
@@ -390,22 +646,6 @@ function ThemePicker() {
  * Rubrique repliable des réglages : une ligne (icône, titre, résumé) qui s'ouvre sur ses réglages.
  * Les cartes des réglages s'y fondent (séparées par un trait) ; l'état ouvert est gardé pendant la session.
  */
-/** Lien vers « Mes staffs » (équipes d'encadrants, supabase/034). */
-function TeamsLink() {
-  return (
-    <Link to={STAFF.route} className="card flex items-center gap-3 px-4 py-3 transition hover:border-accent">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
-        <Icon name="users" className="h-5 w-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold">{STAFF.title}</span>
-        <span className="block truncate text-[11px] text-muted">{STAFF.settingsHelp}</span>
-      </span>
-      <span className="text-muted">›</span>
-    </Link>
-  )
-}
-
 function Fold({ id, icon, title, summary, children }: { id: string; icon: IconName; title: string; summary?: string; children: ReactNode }) {
   const [open, setOpen] = useSessionState(`handbase.settings.${id}`, false)
   return (
@@ -429,27 +669,48 @@ function Fold({ id, icon, title, summary, children }: { id: string; icon: IconNa
   )
 }
 
+/**
+ * Périmètre du compte (supabase/046_perimetre.sql) : les joueurs reçus sur l'appareil. Lu dans la structure (unités où il est
+ * affecté + sous-unités), comme le serveur.
+ */
+function PerimeterInfo() {
+  const per = usePerimeter()
+  if (!per) return null
+  const text = perimeterText(per)
+  return (
+    <section className="card flex flex-col gap-2 p-4" data-testid="perimetre">
+      <SectionTitle
+        info={
+          <>
+            <p>
+              Les joueurs que tu reçois sur cet appareil, avec leurs avis, mesures, « vu » et « à revoir » : ceux des unités où un administrateur t’a
+              affecté (Structure et sport) et de leurs sous-unités. Les fiches que tu as créées restent toujours visibles.
+            </p>
+            <p>Événements et groupes restent communs à tout le staff : un joueur hors de ton périmètre y est compté, sans son nom.</p>
+          </>
+        }
+      >
+        Mon périmètre
+      </SectionTitle>
+      {text ? (
+        <p className="text-xs">
+          <b className="text-accent">{text}</b>
+        </p>
+      ) : (
+        <p className="text-xs text-muted">Pas encore de périmètre : un administrateur doit t’affecter à une unité (Réglages → Structure et sport). En attendant, aucun joueur n’est visible.</p>
+      )}
+    </section>
+  )
+}
+
 function Account() {
   const { state, lastError } = useSyncState()
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const role = useRole()
 
-  /** Déconnexion : les données de l'appareil sont effacées ; on prévient s'il reste des modifications pas envoyées. */
-  async function logout() {
-    setBusy(true)
-    // Dernière chance d'envoyer ce qui attend.
-    if (navigator.onLine) await syncNow({ retry: true })
-    const pending = new Set((await db.outbox.toArray()).map((i) => `${i.table}:${i.rowId}`)).size
-    setBusy(false)
-    const ok = await ask(
-      pending
-        ? `${pending} modification(s) pas encore envoyée(s) au serveur (hors ligne, ou refusée(s)) seront PERDUES. Pour les garder, reste connecté et synchronise une fois en ligne (voir l’état de la synchronisation). Se déconnecter quand même ?`
-        : 'Se déconnecter ? Les données HandBase seront effacées de cet appareil ; elles restent sur le serveur et reviendront à la prochaine connexion.',
-      { ok: pending ? 'Perdre et se déconnecter' : 'Se déconnecter' },
-    )
-    if (ok) await wipeDevice({ signOut: true })
-  }
+  /** Déconnexion : logique partagée avec le menu de la bulle de profil de l'en-tête (src/logout.ts). */
+  const logout = () => confirmLogout(setBusy)
 
   useEffect(() => {
     void supabase?.auth.getSession().then(({ data }) => setEmail(data.session?.user.email ?? ''))
@@ -489,7 +750,7 @@ function Account() {
       </p>
       {role !== 'admin' && (
         <p className="text-xs">
-          Secteur :{' '}
+          Secteur (validations) :{' '}
           <b>{myDepartments().length ? myDepartments().map(departmentLabel).join(', ') : role === 'preparateur' ? 'tous les départements' : 'non attribué'}</b>
         </p>
       )}
@@ -498,9 +759,6 @@ function Account() {
         {lastError && ` — ${lastError}`}
       </p>
       <div className="flex gap-2">
-        <button className="btn-ghost flex-1 text-xs" onClick={() => void syncNow({ retry: true })}>
-          Synchroniser maintenant
-        </button>
         <button className="btn-ghost flex-1 text-xs" disabled={busy} onClick={() => void logout()}>
           {busy ? 'Envoi…' : 'Se déconnecter'}
         </button>
@@ -535,7 +793,7 @@ function useImportBlock(): string | null {
   if (state === 'local') return null // pas de serveur : la base de l'appareil est la seule
   if (state === 'offline') return 'Import impossible hors ligne : connecte-toi à internet pour que la base soit à jour avant d’importer.'
   if (state === 'login') return 'Connecte-toi d’abord : l’import doit partir de la base à jour.'
-  if (state === 'error') return 'La synchronisation a échoué : utilise « Synchroniser maintenant » et attends qu’elle réussisse avant d’importer.'
+  if (state === 'error') return 'La synchronisation a échoué : touche ta bulle de profil en haut à droite, puis l’état de la synchronisation, et attends qu’elle réussisse avant d’importer.'
   if (state === 'syncing' || !caughtUp) return 'Synchronisation en cours… L’import sera possible dès que toute la base sera à jour sur cet appareil.'
   if (outbox > 0)
     return `${plural(outbox, 'modification attend', 'modifications attendent')} d’être envoyée${outbox > 1 ? 's' : ''} au serveur : garde l’appli ouverte et en ligne, l’import sera possible ensuite.`
@@ -970,19 +1228,43 @@ function CriteriaEditor() {
   const [kind, setKind] = useState<'factual' | 'subjective'>('subjective')
   const [open, setOpen] = useState<string | null>(null)
   const list = criteria.filter((c) => c.kind === kind)
+  const role = useRole()
+  // Critère en cours d'ajout : pas enregistré avant « Enregistrer » ; `at` = catégorie d'où l'on ajoute (sinon en bas).
+  const [draft, setDraft] = useState<{ c: Criterion; at: string | null } | null>(null)
+  const cats = categoryList(criteria, kind)
 
-  async function add() {
-    const c = await save<Criterion>('criteria', {
-      id: newId(),
-      label: 'Nouveau critère',
-      category: list[list.length - 1]?.category ?? 'Divers',
-      kind,
-      scale: kind === 'subjective' ? 'score5' : 'number',
-      active: true,
-      order: (criteria[criteria.length - 1]?.order ?? 0) + 1,
+  function add(category: string | null) {
+    setOpen(null)
+    setDraft({
+      at: category,
+      c: {
+        id: newId(),
+        label: '',
+        // Depuis une catégorie : celle-ci ; sinon la première ; aucune : nouvelle catégorie à saisir.
+        category: category ?? cats[0] ?? '',
+        kind,
+        scale: kind === 'subjective' ? 'score5' : 'number',
+        active: true,
+        order: (criteria[criteria.length - 1]?.order ?? 0) + 1,
+        updatedAt: 0,
+      },
     })
-    setOpen(c.id)
   }
+  const draftEditor = draft && (
+    <div className="rounded-lg border border-accent/60">
+      <div className="px-3 pt-2 text-[11px] font-bold text-accent">Nouveau critère {kind === 'subjective' ? 'subjectif' : 'factuel'}</div>
+      <CriterionEdit
+        key={draft.c.id}
+        c={draft.c}
+        categories={categoryList(criteria, draft.c.kind)}
+        isNew
+        onDone={(saved) => {
+          setDraft(null)
+          if (saved) setOpen(saved.id)
+        }}
+      />
+    </div>
+  )
 
   return (
     <section className="card flex flex-col gap-3 p-4">
@@ -993,7 +1275,7 @@ function CriteriaEditor() {
               <b>Subjectifs</b> : notés par chaque observateur ; « Mode rapide » = inclus dans l’évaluation rapide.
             </p>
             <p>
-              <b>Factuels</b> : une seule valeur par date, saisie par le préparateur physique, avec historique.
+              <b>Factuels</b> : une seule valeur par date, saisie par un encadrant (préparateur physique…), avec historique.
             </p>
             <p>Masquer un critère (décocher « Actif ») conserve son historique.</p>
           </>
@@ -1006,13 +1288,16 @@ function CriteriaEditor() {
         onChange={setKind}
         options={[
           { value: 'subjective', label: 'Subjectifs (plusieurs avis)' },
-          { value: 'factual', label: 'Factuels (préparateur)' },
+          { value: 'factual', label: 'Factuels (encadrant)' },
         ]}
       />
 
       {groupBy(list, (c) => c.category).map(([cat, cs]) => (
         <div key={cat}>
-          <div className="mb-1 text-[10px] font-extrabold tracking-wider text-accent uppercase">{cat}</div>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="text-[10px] font-extrabold tracking-wider text-accent uppercase">{cat}</span>
+            <RadarPlacement category={cat} criteria={criteria} editable={can.editCriteria(role)} />
+          </div>
           <div className="divide-y divide-line rounded-lg border border-line">
             {cs.map((c) => (
               <div key={c.id} className={c.active ? '' : 'opacity-50'}>
@@ -1028,25 +1313,124 @@ function CriteriaEditor() {
                     <span>{open === c.id ? '▴' : '▾'}</span>
                   </span>
                 </button>
-                {open === c.id && <CriterionEdit c={c} />}
+                {open === c.id && <CriterionEdit c={c} categories={categoryList(criteria, c.kind)} />}
               </div>
             ))}
           </div>
+          {draft?.at === cat && draft.c.kind === kind ? (
+            <div className="mt-2">{draftEditor}</div>
+          ) : (
+            <button className="mt-1 min-h-11 w-full rounded-md text-left text-[11px] font-bold text-muted hover:text-accent" onClick={() => add(cat)}>
+              + Ajouter dans « {cat} »
+            </button>
+          )}
         </div>
       ))}
 
-      <button className="btn-ghost text-xs" onClick={() => void add()}>
-        + Ajouter un critère {kind === 'subjective' ? 'subjectif' : 'factuel'}
-      </button>
+      {draft && draft.c.kind === kind && (draft.at === null || !list.some((c) => c.category === draft.at)) ? (
+        draftEditor
+      ) : (
+        <button className="btn-ghost min-h-11 text-xs" onClick={() => add(null)}>
+          + Ajouter un critère {kind === 'subjective' ? 'subjectif' : 'factuel'}
+        </button>
+      )}
     </section>
   )
 }
 
-function CriterionEdit({ c }: { c: Criterion }) {
+/**
+ * Place de la catégorie sur le radar des avis (src/radarZones.ts) : zone du cadran et couleur, posées sur tous ses
+ * critères (synchronisés comme le reste). « Auto » : déduites du nom de la catégorie.
+ */
+function RadarPlacement({ category, criteria, editable }: { category: string; criteria: Criterion[]; editable: boolean }) {
+  const st = styleOf(categoryStyles(criteria), category)
+  const auto = defaultZone(category)
+  const zoneText = (z: RadarZone | null) => (z ? RADAR_ZONES.find((x) => x.id === z)!.label.toLowerCase() : 'dans l’espace libre')
+  async function apply(patch: { radarZone?: RadarZone | null; radarColor?: string | null }) {
+    const rows = criteria
+      .filter((c) => c.category === category)
+      .map((c) => {
+        const next = { ...c }
+        if (patch.radarZone !== undefined) next.radarZone = patch.radarZone ?? undefined
+        if (patch.radarColor !== undefined) next.radarColor = patch.radarColor ?? undefined
+        return next
+      })
+    await saveMany<Criterion>('criteria', rows)
+  }
+  if (!editable)
+    return (
+      <span className="flex items-center gap-1 text-[10px] text-muted">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: st.color }} />
+        Radar : {zoneText(st.zone)}
+      </span>
+    )
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
+      <label className="flex items-center gap-1">
+        Radar
+        <select
+          className="rounded border border-line bg-panel-2 px-1 py-1 text-[11px] text-fg"
+          aria-label={`Zone du radar pour ${category}`}
+          value={st.setZone ? st.zone! : ''}
+          onChange={(e) => void apply({ radarZone: (e.target.value || null) as RadarZone | null })}
+        >
+          <option value="">Auto ({zoneText(auto)})</option>
+          {RADAR_ZONES.map((z) => (
+            <option key={z.id} value={z.id}>
+              {z.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="flex items-center" role="radiogroup" aria-label={`Couleur du radar pour ${category}`}>
+        {RADAR_PALETTE.map((p) => {
+          const on = st.color.toLowerCase() === p.color.toLowerCase()
+          return (
+            <button
+              key={p.color}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={p.label + (!st.setColor && p.color === defaultColor(category) ? ' (auto)' : '')}
+              onClick={() => void apply({ radarColor: p.color === defaultColor(category) ? null : p.color })}
+              className="flex h-8 w-6 items-center justify-center"
+            >
+              <span className={`block h-4 w-4 rounded-full ${on ? 'ring-2 ring-fg ring-offset-1 ring-offset-panel' : ''}`} style={{ background: p.color }} />
+            </button>
+          )
+        })}
+      </span>
+    </span>
+  )
+}
+
+const NEW_CATEGORY = '\u0000nouvelle'
+
+/**
+ * Fiche d'un critère (modification, ou ajout : `isNew`, rien n'est enregistré avant « Enregistrer »).
+ * Catégorie choisie dans la liste des catégories existantes, ou « + Nouvelle catégorie… » (tapée ; si elle existe
+ * déjà à la casse et aux espaces près, l'existante est reprise).
+ */
+function CriterionEdit({ c, categories, isNew, onDone }: { c: Criterion; categories: string[]; isNew?: boolean; onDone?: (saved: Criterion | null) => void }) {
   const [d, setD] = useState(c)
   // Texte brut des options (une par ligne), pour pouvoir taper librement.
   const [optText, setOptText] = useState((c.options ?? []).join('\n'))
-  const dirty = JSON.stringify({ ...d, updatedAt: 0 }) !== JSON.stringify({ ...c, updatedAt: 0 })
+  // Nouvelle catégorie en cours de saisie (null : catégorie choisie dans la liste).
+  const [newCat, setNewCat] = useState<string | null>(categories.includes(c.category) ? null : c.category)
+  const category = newCat === null ? d.category : resolveCategory(newCat, categories)
+  const known = categories.includes(category)
+  const eff = { ...d, category }
+  // Zone / couleur du radar : réglées pour toute la catégorie (RadarPlacement), jamais par cette copie.
+  const radar = (x: Criterion) => ({ ...x, updatedAt: 0, radarZone: undefined, radarColor: undefined })
+  const dirty = isNew || JSON.stringify(radar(eff)) !== JSON.stringify(radar(c))
+  const uid = useId()
+  async function submit() {
+    // Même catégorie : réglage du radar gardé ; autre catégorie : celui de la nouvelle (ou déduit de son nom).
+    const saved = await save<Criterion>('criteria', category === c.category ? { ...eff, radarZone: c.radarZone, radarColor: c.radarColor } : { ...eff, radarZone: undefined, radarColor: undefined })
+    if (isNew) return onDone?.(saved)
+    setD(saved)
+    setNewCat(null)
+  }
   const set = <K extends keyof Criterion>(k: K, v: Criterion[K]) => setD((x) => ({ ...x, [k]: v }))
   const togglePos = (p: (typeof POSITIONS)[number]['id']) =>
     set('positions', d.positions?.includes(p) ? d.positions.filter((x) => x !== p) : [...(d.positions ?? []), p])
@@ -1055,14 +1439,73 @@ function CriterionEdit({ c }: { c: Criterion }) {
     <div className="flex flex-col gap-2 bg-panel-2 p-3">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <span className="label">Nom</span>
-          <input className="field" value={d.label} onChange={(e) => set('label', e.target.value)} />
+          <label className="label" htmlFor={`${uid}-nom`}>
+            Nom
+          </label>
+          <input id={`${uid}-nom`} className="field min-h-11" autoFocus={isNew && newCat === null} placeholder="Nom du critère" value={d.label} onChange={(e) => set('label', e.target.value)} />
         </div>
         <div>
-          <span className="label">Catégorie</span>
-          <input className="field" value={d.category} onChange={(e) => set('category', e.target.value)} />
+          <label className="label" htmlFor={`${uid}-cat`}>
+            Catégorie
+          </label>
+          <select
+            id={`${uid}-cat`}
+            className="field min-h-11"
+            value={newCat === null ? d.category : NEW_CATEGORY}
+            onChange={(e) => {
+              if (e.target.value === NEW_CATEGORY) setNewCat('')
+              else {
+                setNewCat(null)
+                set('category', e.target.value)
+              }
+            }}
+          >
+            {categories.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+            <option value={NEW_CATEGORY}>+ Nouvelle catégorie…</option>
+          </select>
         </div>
       </div>
+      {newCat !== null && (
+        <div>
+          <label className="label" htmlFor={`${uid}-new`}>
+            Nouvelle catégorie
+          </label>
+          <input
+            id={`${uid}-new`}
+            className="field min-h-11"
+            autoFocus
+            placeholder="Nom de la catégorie"
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => {
+              // Échap : retour à la liste (catégorie d'avant).
+              if (e.key === 'Escape' && categories.length) {
+                e.stopPropagation()
+                setNewCat(null)
+              }
+            }}
+          />
+          {category && (
+            <p className="mt-1 text-[11px] text-muted">
+              {known ? (
+                <>« {category} » existe déjà : le critère y sera rangé.</>
+              ) : (
+                <>
+                  Nouvelle catégorie · sur le radar : {(() => {
+                    const z = defaultZone(category)
+                    return z ? RADAR_ZONES.find((x) => x.id === z)!.label.toLowerCase() : 'dans l’espace libre'
+                  })()}
+                  <span className="ml-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: defaultColor(category) }} />
+                </>
+              )}
+            </p>
+          )}
+        </div>
+      )}
       <div>
         <span className="label">Définition (ce qu'on observe)</span>
         <input className="field" value={d.description ?? ''} onChange={(e) => set('description', e.target.value || undefined)} />
@@ -1136,9 +1579,14 @@ function CriterionEdit({ c }: { c: Criterion }) {
         </label>
       </div>
       <div className="flex gap-2">
-        <button className="btn-primary flex-1 text-xs" disabled={!dirty || !d.label.trim() || (d.scale === 'choice' && (d.options?.length ?? 0) < 2)} onClick={async () => setD(await save<Criterion>('criteria', d))}>
+        <button className="btn-primary min-h-11 flex-1 text-xs" disabled={!dirty || !d.label.trim() || !category || (d.scale === 'choice' && (d.options?.length ?? 0) < 2)} onClick={() => void submit()}>
           Enregistrer
         </button>
+        {isNew ? (
+          <button className="btn min-h-11 text-xs text-muted" onClick={() => onDone?.(null)}>
+            Annuler
+          </button>
+        ) : (
         <button
           className="btn text-xs text-muted hover:text-red-400"
           onClick={async () => {
@@ -1149,7 +1597,56 @@ function CriterionEdit({ c }: { c: Criterion }) {
         >
           Supprimer
         </button>
+        )}
       </div>
     </div>
+  )
+}
+
+/** Version de l'appli et « Vérifier les mises à jour » (src/pwa.ts) : savoir tout de suite si on a la dernière version. */
+function UpdateCheck() {
+  const readyNow = useUpdateReady()
+  const [state, setState] = useState<'idle' | 'busy' | 'ready' | 'latest' | 'offline' | 'unavailable'>('idle')
+  const built = BUILD_TIME ? new Date(BUILD_TIME) : null
+  const when = built && !Number.isNaN(built.getTime())
+    ? `${built.toLocaleDateString('fr-FR')} à ${built.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    : ''
+  const ready = readyNow || state === 'ready'
+  const check = async () => {
+    setState('busy')
+    setState(await checkForUpdate())
+  }
+  return (
+    <section className="card flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-muted">
+          <Icon name="download" className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold">Version de l’appli</span>
+          <span className="block text-[11px] text-muted">{when ? `Version du ${when}` : 'Version de développement'}</span>
+        </span>
+        {ready ? (
+          <button type="button" className="btn-primary shrink-0 px-3 py-2 text-xs" onClick={applyUpdate}>
+            Mettre à jour
+          </button>
+        ) : (
+          <button type="button" className="btn-ghost shrink-0 px-3 py-2 text-xs" disabled={state === 'busy'} onClick={() => void check()}>
+            {state === 'busy' ? 'Vérification…' : 'Vérifier'}
+          </button>
+        )}
+      </div>
+      {(ready || state !== 'idle') && state !== 'busy' && (
+        <p className="text-[11px] text-muted" role="status">
+          {ready
+            ? 'Une nouvelle version est prête : « Mettre à jour » la charge sans rien perdre.'
+            : state === 'latest'
+              ? 'Tu as la dernière version.'
+              : state === 'offline'
+                ? 'Hors ligne : impossible de vérifier pour l’instant.'
+                : 'Vérification impossible ici (version de développement ou navigateur sans appli installée).'}
+        </p>
+      )}
+    </section>
   )
 }
