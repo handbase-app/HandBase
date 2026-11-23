@@ -140,7 +140,7 @@ export const NOTIF_KINDS = [
   {
     id: 'wellness',
     label: 'Alertes wellness',
-    help: 'Encadrants : le matin des jours demandés, le nombre d’alertes wellness en cours sur tes suivis (réglées dans « Mes suivis »), sans nom ni note.',
+    help: 'Encadrants : le matin des jours demandés, le nombre d’alertes wellness en cours sur tes suivis (réglées sur la page « Alertes wellness » : le cœur en haut de l’écran), sans nom ni note.',
   },
 ] as const
 

@@ -292,3 +292,14 @@ export const notSharedText = (n: number, g: Gender) => `${pluralG(n, g, 'joueur 
 export const morningText = (n: number) => `${n} alerte${n > 1 ? 's' : ''} wellness sur tes suivis`
 /** « Aucun joueur suivi n'est concerné pour l'instant », accordé. */
 export const noneText = (g: Gender) => `${cap(accord('aucun joueur suivi', g))} concerné${g === 'F' ? 'e' : ''} pour l’instant.`
+
+/** Suivis en alerte, avec chaque alerte connue qui sonne pour eux (alerte supprimée entre-temps, joueur plus suivi : ignorés). */
+export function alertsByPlayer(defs: readonly WellnessAlertDef[], hits: readonly AlertHit[], followed: ReadonlySet<string>): Map<string, { def: WellnessAlertDef; jours: number }[]> {
+  const by = new Map<string, { def: WellnessAlertDef; jours: number }[]>()
+  for (const h of hits) {
+    const def = defs.find((d) => d.id === h.alerte)
+    if (!def || !followed.has(h.playerId)) continue
+    by.set(h.playerId, [...(by.get(h.playerId) ?? []), { def, jours: h.jours }])
+  }
+  return by
+}

@@ -42,6 +42,7 @@ import { AskButton } from './components/Demander'
 import { AskActionHost } from './components/AskAction'
 import { openPropositions, PropositionsHost, PropositionsPill } from './components/Propositions'
 import { usePendingPropositionCount } from './propositions'
+import { useWellnessAlertCount, wellnessStaff, WellnessAlertsFeeder } from './wellnessAlertsStore'
 
 // Écrans moins fréquents ou lourds (graphiques) : chargés à la demande, pour un démarrage plus rapide.
 // Le service worker les garde tous en cache : ils restent disponibles hors ligne.
@@ -86,6 +87,8 @@ const OAuthConsent = lazy(() => import('./pages/OAuthConsent'))
 const Me = lazy(() => import('./pages/Me'))
 const PoleSeason = lazy(() => import('./pages/PoleSeason'))
 const Expressions = lazy(() => import('./pages/Expressions'))
+// Alertes wellness en cours sur mes suivis (supabase/080), ouvertes par le cœur de l'en-tête.
+const WellnessAlertsPage = lazy(() => import('./pages/WellnessAlerts'))
 
 /**
  * Raccourci de l'en-tête (à gauche, en face de la bulle de profil) : pictogramme et nom (« Mes suivis ») dès que la place
@@ -148,6 +151,31 @@ function HeaderBack({ split }: { split: boolean }) {
         <path d="M15 5l-7 7 7 7" />
       </svg>
     </button>
+  )
+}
+
+/**
+ * Alertes wellness (staff qui lit le wellness ; src/wellnessAlertsStore.ts) : le cœur seul, sans texte (tient sur téléphone),
+ * entre le micro et « Mes suivis » ; gris au repos, rouge avec le nombre de suivis en alerte en pastille quand ça sonne.
+ * Ouvre la page « Alertes wellness ». `n` null : pas de bouton.
+ */
+function WellnessHeart({ n, compact }: { n: number | null; compact?: boolean }) {
+  if (n === null) return null
+  return (
+    <GuardedLink
+      to="/alertes-wellness"
+      aria-label={n ? `Alertes wellness (${n})` : 'Alertes wellness'}
+      title="Alertes wellness"
+      data-testid="coeur-alertes-wellness"
+      className={`relative flex shrink-0 items-center justify-center rounded-full ${compact ? 'h-11 w-11' : 'h-9 w-9'} ${n ? 'text-red-400 hover:text-red-300' : 'text-muted hover:text-fg'}`}
+    >
+      <Icon name="heartAlert" className={compact ? 'h-6 w-6' : 'h-6 w-6 side:h-5 side:w-5'} />
+      {n > 0 && (
+        <span aria-hidden className="absolute top-0 right-0 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] leading-4 font-bold text-white">
+          {n > 99 ? '99+' : n}
+        </span>
+      )}
+    </GuardedLink>
   )
 }
 
@@ -275,6 +303,8 @@ export default function App() {
   const followNews = useFollowNewsCount()
   // Boîte « À valider » (propositions de mesures en attente) : repère de l'en-tête, entrée du menu de profil, icône de l'appli.
   const toValidate = usePendingPropositionCount()
+  // Alertes wellness en cours sur mes suivis (staff qui lit le wellness) : null = pas de cœur dans l'en-tête.
+  const wellnessAlerts = useWellnessAlertCount()
   // Pastille sur l'icône de l'appli : tout ce qui attend (propositions à valider, nouvelles alertes, mesures à valider).
   useEffect(() => {
     void setIconBadge(toReview + alerts + toValidate)
@@ -326,6 +356,9 @@ export default function App() {
       ? [
           { label: followNews ? `Mes suivis · ${followNews} nouveauté${followNews > 1 ? 's' : ''}` : 'Mes suivis', icon: 'star' as const, onSelect: goGuarded('/suivis') },
           { label: alerts ? `Profils recherchés · ${alerts}` : 'Profils recherchés', icon: 'target' as const, onSelect: goGuarded('/alertes') },
+          ...(wellnessAlerts !== null
+            ? [{ label: wellnessAlerts ? `Alertes wellness · ${wellnessAlerts}` : 'Alertes wellness', icon: 'heartAlert' as const, onSelect: goGuarded('/alertes-wellness') }]
+            : []),
           ...(toValidate ? [{ label: `À valider · ${toValidate}`, icon: 'check' as const, onSelect: openPropositions }] : []),
         ]
       : []
@@ -359,6 +392,7 @@ export default function App() {
             <AskButton bar />
             {/* Boîte « À valider » : un petit repère seulement quand des propositions de mesures attendent (src/components/Propositions.tsx). */}
             <PropositionsPill />
+            <WellnessHeart n={wellnessAlerts} />
             <FollowStar n={followNews} compact={!side} />
             <ProfileButton />
           </div>
@@ -420,6 +454,7 @@ export default function App() {
           {/* Aperçu de l'espace joueur (?joueur=<id>) : administrateurs, mode essai. */}
           <Route path="/moi" element={<Me />} />
           <Route path="/suivis" element={<Follows />} />
+          <Route path="/alertes-wellness" element={<WellnessAlertsPage />} />
           {/* Listes en maître-détail : /joueurs/:id = liste + fiche sur ordinateur, fiche seule sur téléphone. */}
           <Route path="/joueurs" element={<MasterDetail base="/joueurs" list={<Players />} listCol={PLAYERS_COL} />}>
             <Route index element={null} />
@@ -548,9 +583,10 @@ export default function App() {
         {rail && (
           <div className="flex shrink-0 flex-col items-center gap-3.5 pt-1 pb-2.5">
             {!player && !railShort && <PropositionsPill compact />}
+            {!player && !railShort && <WellnessHeart n={wellnessAlerts} compact />}
             {!player && !railShort && <FollowStar n={followNews} compact />}
             {!player && !railShort && <AlertBell n={alerts} />}
-            <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts + toValidate : 0} />
+            <ProfileButton rail extra={railExtra} badge={railShort && !player ? followNews + alerts + toValidate + (wellnessAlerts ?? 0) : 0} />
           </div>
         )}
       </nav>
@@ -562,6 +598,8 @@ export default function App() {
       {!player && <VideoDock />}
       {!player && <GlobalCompareBar />}
       <ConfirmHost />
+      {/* Alertes wellness : un seul calcul pour le cœur et la page (au démarrage, au retour sur l'appli), staff seulement. */}
+      {!player && wellnessStaff(role) && <WellnessAlertsFeeder />}
       <AccountWindows />
       <AskActionHost />
       {!player && <PropositionsHost />}

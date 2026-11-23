@@ -285,6 +285,7 @@ const STATIC: Record<string, string> = {
   '/confidentialite': 'CONFIDENTIALITÉ',
   '/evaluer': 'ÉVALUER',
   '/suivis': 'MES SUIVIS',
+  '/alertes-wellness': 'ALERTES WELLNESS',
   '/staffs': 'MES STAFFS',
   '/comparer': 'COMPARAISON',
   '/a-revoir': 'MES À REVOIR',

@@ -12,6 +12,7 @@ import {
   ALERT_KINDS,
   ALERT_NOTES,
   alertDefOf,
+  alertsByPlayer,
   cleanRule,
   cleanRuleName,
   concernedText,
@@ -259,7 +260,7 @@ ok('module pur (ni base, ni réseau, ni IA, ni stockage) et mots neutres', () =>
   const imports = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1])
   assert.deepEqual(imports, ['./gender', './lamp', './wellness', './wellnessAlert'])
   assert.doesNotMatch(src, /fetch\(|supabase\.|mistral|localStorage|sessionStorage|indexedDB|dexie/i)
-  const page = readFileSync(new URL('../src/pages/Follows.tsx', import.meta.url), 'utf8')
+  const page = readFileSync(new URL('../src/pages/WellnessAlerts.tsx', import.meta.url), 'utf8')
   const box = readFileSync(new URL('../src/components/WellnessAlerts.tsx', import.meta.url), 'utf8')
   for (const t of [src, page, box]) for (const bad of ['mauvais', 'faible', 'pas retenu', 'inquiétant', 'inquietant', 'alarmant', 'nul ']) assert.ok(!t.toLowerCase().includes(bad), bad)
 })
@@ -271,9 +272,53 @@ ok('l’appareil ne garde jamais de wellness : réglages seulement, résultats e
   assert.doesNotMatch(api, /db\.(table|[a-z]+)\.(put|add|bulkPut|bulkAdd)/)
   assert.match(api, /hb_wellness_alertes_moi/)
   const box = readFileSync(new URL('../src/components/WellnessAlerts.tsx', import.meta.url), 'utf8')
-  assert.doesNotMatch(box, /localStorage|sessionStorage|useSessionState/)
+  const page = readFileSync(new URL('../src/pages/WellnessAlerts.tsx', import.meta.url), 'utf8')
+  const store = readFileSync(new URL('../src/wellnessAlertsStore.ts', import.meta.url), 'utf8')
+  for (const t of [box, page, store]) assert.doesNotMatch(t, /localStorage|sessionStorage|useSessionState|indexedDB|db\.[a-z]+\.(put|add|bulkPut|bulkAdd|update)/)
   // Fenêtre des réglages : accrochée là où on a touché, fond flouté.
   assert.match(box, /<AnchoredBubble/)
+})
+
+// ---------- Cœur de l'en-tête et page « Alertes wellness » (plus de carte sur « Mes suivis ») ----------
+
+ok('cœur de l’en-tête : staff seulement, un seul calcul partagé, page /alertes-wellness', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const store = readFileSync(new URL('../src/wellnessAlertsStore.ts', import.meta.url), 'utf8')
+  const follows = readFileSync(new URL('../src/pages/Follows.tsx', import.meta.url), 'utf8')
+  const page = readFileSync(new URL('../src/pages/WellnessAlerts.tsx', import.meta.url), 'utf8')
+  // « Mes suivis » ne montre plus la carte, ni pleine ni vide.
+  assert.doesNotMatch(follows, /WellnessAlerts|alertes-wellness/)
+  // En-tête : le cœur entre le micro (AskButton) et « Mes suivis », titre et nom lisibles, vers la page.
+  const row = app.slice(app.indexOf('<AskButton bar />'), app.indexOf('<ProfileButton />', app.indexOf('<AskButton bar />')))
+  assert.ok(row.indexOf('<WellnessHeart') > 0 && row.indexOf('<WellnessHeart') < row.indexOf('<FollowStar'), 'cœur avant « Mes suivis »')
+  assert.match(app, /title="Alertes wellness"/)
+  assert.match(app, /aria-label=\{n \? `Alertes wellness \(\$\{n\}\)` : 'Alertes wellness'\}/)
+  assert.match(app, /n \? 'text-red-400/)
+  assert.match(app, /<Route path="\/alertes-wellness" element=\{<WellnessAlertsPage \/>\} \/>/)
+  // Un seul chargeur, pour le staff seulement ; le serveur appelé par le magasin partagé, pas par le cœur ni la page.
+  assert.match(app, /!player && wellnessStaff\(role\) && <WellnessAlertsFeeder \/>/)
+  assert.match(store, /export const wellnessStaff = \(r: Role\) => r === 'admin' \|\| r === 'preparateur'/)
+  assert.doesNotMatch(page, /fetchMyAlerts|listAlertDefs/)
+  assert.doesNotMatch(app, /fetchMyAlerts|listAlertDefs/)
+  // Retour sur l'appli : relecture limitée (pas en boucle).
+  assert.match(store, /visibilitychange[\s\S]{0,200}Date\.now\(\) - lastLoad > 30_000/)
+})
+
+ok('suivis en alerte : alertes connues et suivis seulement, regroupés par joueur', () => {
+  const defs: WellnessAlertDef[] = [
+    { id: 'a1', nom: 'Batterie', actif: true, regle: DEFAULT_RULE, cible: null },
+    { id: 'a2', nom: 'Douleur', actif: true, regle: { type: 'douleur', jours: 1 }, cible: null },
+  ]
+  const hits = [
+    { alerte: 'a1', playerId: 'j1', jours: 2 },
+    { alerte: 'a2', playerId: 'j1', jours: 1 },
+    { alerte: 'a1', playerId: 'j2', jours: 3 },
+    { alerte: 'supprimee', playerId: 'j3', jours: 1 },
+    { alerte: 'a1', playerId: 'plus-suivi', jours: 1 },
+  ]
+  const by = alertsByPlayer(defs, hits, new Set(['j1', 'j2', 'j3']))
+  assert.deepEqual([...by.keys()], ['j1', 'j2'])
+  assert.deepEqual(by.get('j1')!.map((h) => h.def.id), ['a1', 'a2'])
 })
 
 console.log(`\n${n} tests OK`)
