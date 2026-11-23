@@ -645,6 +645,12 @@ function FormeBadge({ f, size = 'md', title, faded = false }: { f: Forme | null;
   )
 }
 
+/**
+ * Couleur de la jauge des réponses selon son remplissage (mêmes couleurs que les notes) : rouge sous 30 %, orange sous 50 %,
+ * ambre sous 70 %, vert sous 90 %, turquoise à 90 % et plus. Presque tout le monde a répondu : vert ; peu de réponses : rouge.
+ */
+const answeredBand = (pct: number): number => (pct >= 90 ? 4 : pct >= 70 ? 3 : pct >= 50 ? 2 : pct >= 30 ? 1 : 0)
+
 /** Résumé du jour dans l'en-tête : forme moyenne, réponses (jauge), gênes. Les notes du groupe : jauges (GroupGauges). */
 function DaySummary({ gday, concerned, pains, waiting }: { gday: ReturnType<typeof groupDay>; concerned: number; pains: number; waiting: boolean }) {
   const pct = concerned ? Math.round((gday.answered / concerned) * 100) : 0
@@ -677,7 +683,7 @@ function DaySummary({ gday, concerned, pains, waiting }: { gday: ReturnType<type
               aria-valuenow={gday.answered}
               aria-label="Réponses du jour"
             >
-              <div className="h-full rounded-full bg-gradient-to-r from-orange-400 to-rose-500 transition-[width]" style={{ width: `${pct}%` }} />
+              <div className={`h-full rounded-full transition-[width] ${GAUGE_FILL[answeredBand(pct)]}`} style={{ width: `${pct}%` }} data-testid="jauge-reponses" />
             </div>
             <span className="shrink-0 text-[11px] font-bold tabular-nums">
               {gday.answered}/{concerned} <span className="font-normal text-muted">réponse{gday.answered > 1 ? 's' : ''}</span>
