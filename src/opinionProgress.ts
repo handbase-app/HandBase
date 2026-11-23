@@ -29,7 +29,15 @@ export interface ProgressStep {
 }
 
 /** Type d'événement, en court, pour la frise. */
-export const STEP_TAG: Record<EventType, string> = { match: 'Match', tournoi: 'Tournoi', entrainement: 'Entraîn.', observation: 'Observ.' }
+export const STEP_TAG: Record<EventType, string> = {
+  match: 'Match',
+  tournoi: 'Tournoi',
+  entrainement: 'Entraîn.',
+  observation: 'Observ.',
+  stage_comite: 'Stage CD',
+  stage_ligue: 'Stage lig.',
+  stage_national: 'Stage nat.',
+}
 const SPONTANEOUS = 'l’avis spontané'
 
 const mean = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)

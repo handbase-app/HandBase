@@ -223,6 +223,10 @@ export async function appliquerActions(
           fin(false, 'groupe Pôle : passe d’une saison à l’autre par « Changement de saison »')
           continue
         }
+        if (x.quoi === 'groupe' && (row as { selection?: unknown }).selection) {
+          fin(false, 'groupe de sélection : permanent, ses membres se lisent par saison')
+          continue
+        }
         await d.save(x.quoi === 'groupe' ? 'groups' : 'events', { ...row, archived: true })
         retours.push({ i, k: 'archiver', quoi: x.quoi, id: x.id })
         fin(true, 'fait')

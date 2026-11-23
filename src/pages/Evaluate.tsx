@@ -53,6 +53,10 @@ export const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'tournoi', label: 'Tournoi' },
   { value: 'entrainement', label: 'Entraînement' },
   { value: 'observation', label: 'Observation' },
+  // Stages (src/selections.ts, STAGE_TYPES) : palier Comité / Ligue / France du parcours, distincts des sélections.
+  { value: 'stage_comite', label: 'Stage comité' },
+  { value: 'stage_ligue', label: 'Stage ligue' },
+  { value: 'stage_national', label: 'Stage national' },
 ]
 
 /** Liste vide stable (fiches pas encore lues). */

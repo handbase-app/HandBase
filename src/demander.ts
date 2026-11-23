@@ -162,7 +162,7 @@ const MAX_NAMED = 3
 
 // Mots qui disent de quoi parle la phrase. Les mots de joueurs l'emportent (« les joueurs du tournoi de Cannes » : Joueurs).
 const PLAYER_WORDS =
-  /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demi|demis|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|n(?:e|es|ee|ees) en|licencies?|licenciees?|garcons?|filles?|taille|mesurent|suivis|cm|metre|metres|fiche|fiches|(?:19|20)\d\d|revoir|grands?|grandes?|meilleurs?|meilleures?|rapides?|vus|vues|avis)\b/
+  /\b(joueurs?|joueuses?|gardiens?|gardiennes?|pivots?|ailiers?|ailieres?|arrieres?|demi|demis|centres?|gauchers?|gaucheres?|droitiers?|droitieres?|ambidextres?|n(?:e|es|ee|ees) en|licencies?|licenciees?|garcons?|filles?|taille|mesurent|suivis|cm|metre|metres|fiche|fiches|(?:19|20)\d\d|revoir|grands?|grandes?|meilleurs?|meilleures?|rapides?|vus|vues|avis|selectionnes?|selectionnees?|passes par|passees par)\b/
 /** Postes d'un autre sport (selon l'installation) : des mots de joueurs aussi (« les passeuses du stage CRE » : Joueurs). */
 const PLAYER_WORDS_SPORT: Record<string, RegExp> = {
   volley: /\b(passeurs?|passeuses?|central|centraux|centrales?|pointus?|pointues?|opposes?|opposees?|liberos?|receptionneurs?|receptionneuses?|attaquants?|attaquantes?|r4)\b/,

@@ -4,6 +4,8 @@ import { currentSport } from '../sportConfig'
 import { useLocation, useParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { Segmented, useMe } from '../components/ui'
+import { useSelectionMembers } from '../components/SelectionGroup'
+import { selectionViewOf, withSelectionView } from '../selections'
 import { alive, db, poleName, today, type Measurement, type Player } from '../db'
 import { accord, setGender, SEX_LABELS, w } from '../gender'
 import {
@@ -134,7 +136,10 @@ export function GroupReport() {
   const grp = useLiveQuery(() => db.groups.get(id), [id])
   const ref = usePoleRef(grp?.poleUnitId)
   const pm = usePoleMembers(grp?.poleUnitId ? ref : null, poleView)
-  const poleIds = grp?.poleUnitId ? (pm?.shown.map((p) => p.id) ?? []) : undefined
+  // Groupe de sélection (src/selections.ts) : les membres de la vue de l'adresse (?saison=2024-2025 ; sans : aujourd'hui).
+  const selView = selectionViewOf(loc.search)
+  const sm = useSelectionMembers(grp?.selection ?? null, selView)
+  const poleIds = grp?.poleUnitId ? (pm?.shown.map((p) => p.id) ?? []) : grp?.selection ? (sm?.shown.map((p) => p.id) ?? []) : undefined
   const poleKeyIds = poleIds?.join(',')
   const data = useLiveQuery(async () => {
     const g = await db.groups.get(id)
@@ -207,7 +212,7 @@ export function GroupReport() {
       <style>{`@page group-report { @bottom-left { content: ${cssString(`${g.name} — édité le ${edited}`)}; } }`}</style>
 
       <div className="no-print flex flex-col gap-3">
-        <BackButton fallback={`/groupes/${g.id}${isPole ? withPoleView('', poleView) : ''}`} label={g.name.toUpperCase()} className="self-start" />
+        <BackButton fallback={`/groupes/${g.id}${isPole ? withPoleView('', poleView) : g.selection ? withSelectionView('', selView) : ''}`} label={g.name.toUpperCase()} className="self-start" />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <h1 className="min-w-0 flex-1 text-lg font-extrabold">Exporter en PDF</h1>
           <button className="btn-primary min-h-11 px-4 py-2 text-xs" onClick={() => window.print()}>
@@ -291,6 +296,7 @@ export function GroupReport() {
             {opts.dest.trim() && <Line label="À l’attention de">{opts.dest.trim()}</Line>}
             {opts.split && targetLabel && <Line label="Pôle">{targetLabel}</Line>}
             {isPole && pm && <Line label="Vue">{viewLabel(poleView, pm.s)}</Line>}
+            {g.selection && <Line label="Vue">{selView === 'courante' ? 'Sélection du jour' : `Saison ${selView}`}</Line>}
             {isPole && ref?.psqsRef && <Line label="Référence PSQS">{ref.psqsRef}</Line>}
             <Line label="Effectif">
               {plural(players.length, t.one, t.many)}

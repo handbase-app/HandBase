@@ -35,7 +35,7 @@ import { uniqYears } from '../birthYears'
 
 export type EventStats = { avis: number; players: Set<string> }
 
-const SHORT: Record<string, string> = { entrainement: 'Entraîn.', observation: 'Observ.' }
+const SHORT: Record<string, string> = { entrainement: 'Entraîn.', observation: 'Observ.', stage_comite: 'Stage CD', stage_ligue: 'Stage lig.', stage_national: 'Stage nat.' }
 const WHEN: { value: string; label: string }[] = [
   { value: 'upcoming', label: 'À venir' },
   { value: 'past', label: 'Passés' },

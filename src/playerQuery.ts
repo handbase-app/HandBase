@@ -114,6 +114,8 @@ export type FilterKey =
   | 'groups'
   | 'events'
   | 'pole'
+  | 'selection'
+  | 'stage'
   | 'followed'
   | 'video'
   | 'profiles'
@@ -140,6 +142,8 @@ export const MODEL_KEYS: Record<FilterKey, string> = {
   groups: 'groupes',
   events: 'evenements',
   pole: 'pole',
+  selection: 'selection',
+  stage: 'stage',
   followed: 'suivis',
   video: 'avecVideo',
   profiles: 'profils',
@@ -167,6 +171,8 @@ export const KEY_LABEL: Record<FilterKey, string> = {
   groups: 'groupe',
   events: 'événement',
   pole: 'Pôle Espoirs',
+  selection: 'sélection',
+  stage: 'stage',
   followed: 'suivis',
   video: 'vidéo',
   profiles: 'profil',
@@ -195,6 +201,8 @@ const KEY_WORDS: Record<string, FilterKey[]> = {
   groupes: ['groups'], groupe: ['groups'],
   evenements: ['events'], evenement: ['events'],
   pole: ['pole'],
+  selection: ['selection'], selections: ['selection'], selectionnes: ['selection'], selectionnees: ['selection'],
+  stage: ['stage'], stages: ['stage'],
   suivis: ['followed'],
   avecvideo: ['video'], video: ['video'], videos: ['video'],
   profils: ['profiles'], profil: ['profiles'],
@@ -234,6 +242,8 @@ export function activeKeys(qy: JoueursQuery): FilterKey[] {
   if (p.groups) k.push('groups')
   if (p.events) k.push('events')
   if (p.pole) k.push('pole')
+  if (p.selection) k.push('selection')
+  if (p.stage) k.push('stage')
   if (p.followed) k.push('followed')
   if (p.video) k.push('video')
   if (p.profiles) k.push('profiles')
@@ -318,7 +328,7 @@ const NOT_NAME = new Set(
     'departement departements et en dans montre affiche cherche trouve liste seulement uniquement recommence reinitialise mesurent mesure ' +
     'mesurant ont a sont est nombre annee annees trimestre poste postes lateralite generation generations sexe priorite prioritaires progression ' +
     'evenement evenements tournoi stage saison depuis cm metre metres dis donne revoir revu revus revue revues repere reperes reperee reperees mois ' +
-    'prochain prochaine dernier derniere'
+    'prochain prochaine dernier derniere selection selections selectionne selectionnes selectionnee selectionnees stages national nationaux'
   ).split(' '),
 )
 // Postes d'un autre sport que le handball (selon le sport de l'installation) : des mots de critère aussi, pas des noms.
@@ -444,7 +454,7 @@ export function mergeQuery(
   const set = <K extends keyof Population>(k: K) => {
     if (n[k] !== undefined) p[k] = structuredClone(n[k])
   }
-  for (const k of ['sex', 'names', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'followed', 'video', 'profiles', 'rewatch'] as const) set(k)
+  for (const k of ['sex', 'names', 'quarter', 'clubs', 'hand', 'groups', 'events', 'pole', 'selection', 'stage', 'followed', 'video', 'profiles', 'rewatch'] as const) set(k)
   // Années dites : remplacent les années d'avant (bornes et années exactes ensemble, src/birthYears.ts).
   if (n.years) putYears(p, yearsOf(n))
   if (n.positions || n.noPosition) {
@@ -709,7 +719,7 @@ export const buildPlayersIndex = <P extends QPlayer>(data: QData<P>) => buildInd
  */
 export function needsFullData(qy: JoueursQuery): boolean {
   const r = qy.recipe
-  if (r.seen || r.avis.length || r.nbAvis || r.pop.events || qy.calc) return true
+  if (r.seen || r.avis.length || r.nbAvis || r.pop.events || r.pop.stage || qy.calc) return true
   if (r.measures.some((m) => m.id !== 'taille' && m.id !== 'poids')) return true
   const by = r.out.sort?.by
   return !!by && !['name', 'year', 'height'].includes(by)

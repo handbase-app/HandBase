@@ -15,6 +15,8 @@ import { isKeeper } from './sportConfig'
 import type { AssignmentFields, LevelFields, UnitFields } from './structureTree'
 // Espace joueur (supabase/051_espace_joueur.sql, src/playerSpace.ts) : ce que le jeune écrit lui-même sur sa fiche.
 export type { JournalNote, LetterVersion, PlayerSelf, SelfClub, SelfLetter, SelfMarks, SelfPath } from './playerSpace'
+import type { SelectionPeriod, SelectionRef } from './selections'
+export type { SelectionPeriod, SelectionRef } from './selections'
 import type { PlayerSelf } from './playerSpace'
 import type { RewatchOrigin } from './rewatchCore'
 import type { UsualTeam } from './rencontres'
@@ -140,6 +142,12 @@ export interface Player extends Syncable {
   boarding?: boolean | null
   /** Passages en Pôle Espoirs (une ligne par période) : liste des sportifs de haut niveau pour le ministère. */
   poles?: PolePeriod[]
+  /**
+   * Sélections comité, ligue, équipe de France (src/selections.ts) : une ligne par période, comme les pôles. Alimentent les
+   * groupes de sélection (membres calculés), le parcours, les niveaux de l'anneau et les filtres. Champ libre de data (jsonb),
+   * gardé tel quel par le serveur (hb_upsert) : pas de SQL.
+   */
+  selections?: SelectionPeriod[]
   laterality?: Laterality
   photo?: string
   gaps?: string
@@ -260,7 +268,8 @@ export interface Measurement extends Syncable {
   lotId?: string
 }
 
-export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
+/** Stages comité, ligue, national (src/selections.ts, STAGE_TYPES) : des événements, pas des groupes (23/11). */
+export type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation' | 'stage_comite' | 'stage_ligue' | 'stage_national'
 
 export interface HBEvent extends Syncable {
   name: string
@@ -437,6 +446,12 @@ export interface PlayerGroup extends Syncable {
    * fiches (Player.poles) qui correspondent à l'unité et couvrent la date de la vue (saison en cours / prochaine).
    */
   poleUnitId?: string
+  /**
+   * Groupe de SÉLECTION (comité, ligue, équipe de France U17/U19/U21, src/selections.ts) : permanent (ni archivé ni dupliqué,
+   * identifiant fixe selectionGroupId), et ses membres ne sont PAS dans playerIds (laissé vide) : ils sont calculés depuis les
+   * périodes de sélection des fiches (Player.selections). `scope` suit le niveau (France → federation).
+   */
+  selection?: SelectionRef
   /**
    * « Wellness quotidien » (supabase/073_wellness.sql, src/wellness.ts) : questionnaire du matin demandé aux jeunes du groupe
    * qui ont un espace joueur ; lu par le staff du groupe seulement. Changé par le créateur du groupe ou un administrateur

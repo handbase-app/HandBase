@@ -24,10 +24,20 @@
  * Pôle : depuis les périodes de pôle de la fiche (Player.poles, les mêmes que la carte « Pôle Espoirs » et les groupes Pôle),
  * jamais depuis les événements.
  *
+ * Sélections et stages (23/11, src/selections.ts) :
+ *  - les périodes de sélection de la fiche (Player.selections : comité, ligue, équipe de France) sont des étapes datées des
+ *    paliers Comité, Ligue et France (entrée → sortie, « en cours »), comme les périodes de pôle ;
+ *  - un événement de type « Stage comité / ligue / national » va toujours à son palier (Comité / Ligue / France), quel que
+ *    soit son organisateur ou son nom, et l'étape est marquée « stage » ;
+ *  - libellé du palier : « Sélection du comité », « Sélection de ligue », « Équipe de France » quand il y a une sélection ;
+ *    sinon, que des stages : « Stage(s) de comité », « Stage(s) de ligue », « Stage(s) national / nationaux » ; sinon
+ *    comme avant (src/sportContent.ts).
+ *
  * Fichier pur (ni Dexie ni React) : testé par tools/test-parcours.ts.
  */
 import type { EventType, PolePeriod } from './db'
 import { accord } from './gender'
+import { filledSelection, isStageType, selectionBaseName, STAGE_LEVEL, type SelectionLevel, type SelectionPeriod } from './selections'
 import { SPORT_CONTENT, type SportContent } from './sportContent'
 import type { LevelRow, UnitRow } from './structureTree'
 
@@ -76,6 +86,10 @@ export interface ParcoursInput {
   sport?: string
   /** Nom d'une période de pôle (src/db.ts, poleName) ; défaut « Pôle Espoirs ». */
   poleName?: (p: PolePeriod) => string
+  /** Périodes de sélection de la fiche (src/selections.ts). */
+  selections?: readonly SelectionPeriod[]
+  /** Nom d'une période de sélection (« Comité du Var », « Équipe de France U17 ») ; défaut : selectionBaseName. */
+  selectionName?: (x: SelectionPeriod) => string
 }
 
 /** Une étape : un événement (ou une période de pôle). */
@@ -97,6 +111,8 @@ export interface ParcoursStep {
   current?: boolean
   /** Sur la liste de l'événement (convoqué), sans y avoir été vu, noté ni mesuré. */
   listed?: boolean
+  /** Étape d'une période de sélection, ou d'un événement « stage » (libellés). */
+  kind?: 'selection' | 'stage'
 }
 
 export interface Palier {
@@ -114,9 +130,12 @@ export interface Palier {
   /** Années de la première et de la dernière étape. */
   from: string
   to: string
-  /** Pôle : en cours aujourd'hui. */
+  /** Pôle ou sélection : en cours aujourd'hui. */
   current?: boolean
 }
+
+/** Palier d'une sélection ou d'un stage. */
+const LEVEL_PALIER: Record<SelectionLevel, Exclude<PalierId, 'pole' | 'repere'>> = { comite: 'comite', ligue: 'ligue', france: 'france' }
 
 /** Minuscules, sans accents, ponctuation en espaces : « Inter-Comités 83 » → « inter comites 83 ». */
 export const foldName = (s: string) =>
@@ -144,7 +163,7 @@ export function palierFromWords(name: string | undefined): PalierId | undefined 
 }
 
 /** Niveau de la structure → palier, par l'identifiant (niveau-ligue…) ou le début du nom (Ligue, Comité…). */
-const LEVEL_PALIER: [string, PalierId][] = [
+const UNIT_PALIER: [string, PalierId][] = [
   ['federation', 'france'],
   ['ligue', 'ligue'],
   ['comite', 'comite'],
@@ -157,7 +176,7 @@ function palierOfUnit(unitId: string, units: readonly UnitRow[], levels: readonl
   const lv = levels.find((l) => l.id === u.levelId)
   const keys = [u.levelId.replace(/^niveau-/, ''), lv ? foldName(lv.name).trim() : '']
   for (const k of keys) {
-    const hit = LEVEL_PALIER.find(([p]) => k.startsWith(p))
+    const hit = UNIT_PALIER.find(([p]) => k.startsWith(p))
     if (hit) return hit[1]
   }
   // Niveau inconnu (structure maison) : le nom de l'unité.
@@ -167,6 +186,8 @@ function palierOfUnit(unitId: string, units: readonly UnitRow[], levels: readonl
 /** Palier d'un événement (règles : en-tête du fichier). Jamais « pole ». */
 export function palierOf(ev: ParcoursEvent, units: readonly UnitRow[], levels: readonly LevelRow[]): Exclude<PalierId, 'pole'> {
   if (ev.type === 'match') return 'repere'
+  // Stage comité / ligue / national : son palier, toujours (23/11).
+  if (isStageType(ev.type)) return LEVEL_PALIER[STAGE_LEVEL[ev.type]]
   const byUnit = ev.organizerUnitId ? (palierOfUnit(ev.organizerUnitId, units, levels) ?? palierFromWords(ev.organizerName)) : undefined
   const p = byUnit ?? palierFromWords(ev.name) ?? 'repere'
   return p === 'pole' ? 'ligue' : p
@@ -180,6 +201,13 @@ export function monthYear(d: string): string {
   return m >= 1 && m <= 12 ? `${MONTHS[m - 1]} ${year(d)}` : year(d)
 }
 
+const SELECTION_LABEL: Record<'comite' | 'ligue' | 'france', string> = { comite: 'Sélection du comité', ligue: 'Sélection de ligue', france: 'Équipe de France' }
+const STAGE_PALIER_LABEL: Record<'comite' | 'ligue' | 'france', readonly [string, string]> = {
+  comite: ['Stage de comité', 'Stages de comité'],
+  ligue: ['Stage de ligue', 'Stages de ligue'],
+  france: ['Stage national', 'Stages nationaux'],
+}
+
 /** Libellé d'un palier, accordé au nombre d'étapes (et au sexe pour « Repéré »). */
 function labelOf(id: PalierId, steps: ParcoursStep[], sex: string | null | undefined, content: SportContent): { label: string; short: string } {
   const L = content.parcours
@@ -191,8 +219,14 @@ function labelOf(id: PalierId, steps: ParcoursStep[], sex: string | null | undef
     return { label: r + where, short: r }
   }
   if (id === 'pole') return { label: L.pole, short: 'Pôle' }
+  const short = id === 'comite' ? 'Comité' : id === 'ligue' ? 'Ligue' : 'France'
+  if (steps.some((s) => s.kind === 'selection')) return { label: SELECTION_LABEL[id], short }
+  if (steps.every((s) => s.kind === 'stage')) {
+    const [a, b] = STAGE_PALIER_LABEL[id]
+    return { label: n > 1 ? b : a, short }
+  }
   const [one, many] = L[id]
-  return { label: n > 1 ? many : one, short: id === 'comite' ? 'Comité' : id === 'ligue' ? 'Ligue' : 'France' }
+  return { label: n > 1 ? many : one, short }
 }
 
 /** Parcours par palier, dans l'ordre fixe ; vide si le joueur n'a aucune étape. */
@@ -232,7 +266,19 @@ export function parcours(input: ParcoursInput): Palier[] {
     const p = palierOf(ev, input.units, input.levels)
     const who = obs.get(eid) ?? new Set<string>()
     observersOf.set(p, new Set([...(observersOf.get(p) ?? []), ...who]))
-    push(p, { key: `e${eid}`, eventId: eid, name: ev.name, date: ev.date, type: ev.type, gone: ev.deleted || undefined, avis: avis.get(eid) ?? 0, mesures: mesures.get(eid) ?? 0, observers: who.size, listed: (!who.size && !mesures.has(eid)) || undefined })
+    push(p, {
+      key: `e${eid}`,
+      eventId: eid,
+      name: ev.name,
+      date: ev.date,
+      type: ev.type,
+      gone: ev.deleted || undefined,
+      avis: avis.get(eid) ?? 0,
+      mesures: mesures.get(eid) ?? 0,
+      observers: who.size,
+      listed: (!who.size && !mesures.has(eid)) || undefined,
+      ...(isStageType(ev.type) && { kind: 'stage' as const }),
+    })
   }
   // Pôle : une étape par période renseignée.
   for (const [i, x] of (input.poles ?? []).entries()) {
@@ -241,14 +287,25 @@ export function parcours(input: ParcoursInput): Palier[] {
     push('pole', { key: `p${i}`, name: input.poleName?.(x) ?? 'Pôle Espoirs', date: x.from ?? x.to ?? '', end: x.to, avis: 0, mesures: 0, observers: 0, current })
   }
 
+  // Sélections : une étape par période renseignée et commencée (une entrée à venir n'est pas encore une étape).
+  for (const [i, x] of (input.selections ?? []).entries()) {
+    if (!filledSelection(x) || !LEVEL_PALIER[x.level]) continue
+    if (x.from && x.from > input.today) continue
+    const current = !x.to || x.to >= input.today
+    push(LEVEL_PALIER[x.level], { key: `s${i}`, name: input.selectionName?.(x) ?? selectionBaseName(x), date: x.from ?? x.to ?? '', end: x.to, avis: 0, mesures: 0, observers: 0, current, kind: 'selection' })
+  }
+
   const out: Palier[] = []
   for (const id of PALIER_ORDER) {
     const list = steps.get(id)
     if (!list?.length) continue
     list.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'fr'))
     const dated = list.filter((s) => s.date)
-    // Dernière année : la plus tardive des étapes (sortie du pôle comprise).
-    const last = dated.reduce((m, s) => ((s.end ?? s.date) > m ? (s.end ?? s.date) : m), '')
+    // Dernière année : la plus tardive des étapes (sortie du pôle ou de la sélection comprise ; en cours : aujourd'hui).
+    const last = dated.reduce((m, s) => {
+      const e = s.kind === 'selection' && s.current ? input.today : (s.end ?? s.date)
+      return e > m ? e : m
+    }, '')
     out.push({
       id,
       ...labelOf(id, list, input.sex, content),
@@ -258,7 +315,7 @@ export function parcours(input: ParcoursInput): Palier[] {
       observers: observersOf.get(id)?.size ?? 0,
       from: dated.length ? year(dated[0].date) : '',
       to: year(last),
-      current: id === 'pole' ? list.some((s) => s.current) : undefined,
+      current: id === 'pole' || list.some((s) => s.kind === 'selection') ? list.some((s) => s.current) : undefined,
     })
   }
   return out

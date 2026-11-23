@@ -7,6 +7,7 @@ import { alive, db, poleName, today, type HBEvent, type Player, type Unit } from
 import { useSportConfig } from '../installation'
 import { regionLabel } from '../lists'
 import { dotCount, foldSteps, monthYear, palierFacts, parcours, periodLabel, stripTag, type Palier, type PalierId, type ParcoursStep } from '../parcours'
+import { selectionBaseName } from '../selections'
 
 /*
  * « Parcours » d'un joueur sur sa fiche (calcul : src/parcours.ts ; décidé avec Geoffroy et Stef le 31/10, d'après les
@@ -21,6 +22,7 @@ import { dotCount, foldSteps, monthYear, palierFacts, parcours, periodLabel, str
 export function usePlayerParcours(p: Player | undefined | null): Palier[] | undefined {
   const sport = useSportConfig().sport
   const poles = JSON.stringify(p?.poles ?? [])
+  const selections = JSON.stringify(p?.selections ?? [])
   return useLiveQuery(async () => {
     if (!p) return []
     const [seen, evaluations, measurements] = await Promise.all([
@@ -39,8 +41,11 @@ export function usePlayerParcours(p: Player | undefined | null): Palier[] | unde
     ])
     const events = new Map<string, HBEvent>()
     for (const e of [...found, ...sameDay, ...onList]) if (e) events.set(e.id, e)
-    const orgIds = [...new Set([...events.values()].map((e) => e.organizerUnitId).filter((x): x is string => !!x))]
+    // Unités des organisateurs et des sélections (comité, ligue) : niveau et nom.
+    const selUnits = (p.selections ?? []).map((x) => x.unitId).filter((x): x is string => !!x)
+    const orgIds = [...new Set([...[...events.values()].map((e) => e.organizerUnitId).filter((x): x is string => !!x), ...selUnits])]
     const [units, levels] = await Promise.all([db.units.bulkGet(orgIds), db.levels.toArray()])
+    const unitName = new Map(units.filter((u): u is Unit => !!u && !u.deleted).map((u) => [u.id, u.name]))
     return parcours({
       playerId: p.id,
       events: [...events.values()],
@@ -54,8 +59,10 @@ export function usePlayerParcours(p: Player | undefined | null): Palier[] | unde
       sex: p.sex,
       sport,
       poleName: (x) => poleName(x, regionLabel),
+      selections: p.selections,
+      selectionName: (x) => selectionBaseName(x, (x.unitId && unitName.get(x.unitId)) || x.unitName),
     })
-  }, [p?.id, p?.sex, poles, sport])
+  }, [p?.id, p?.sex, poles, selections, sport])
 }
 
 const total = (ps: Palier[]) => ps.reduce((n, p) => n + p.steps.length, 0)
@@ -298,7 +305,10 @@ function Steps({ p }: { p: Palier }) {
 function StepRow({ s }: { s: ParcoursStep }) {
   // Période de pôle : entrée → sortie ; événement : mois et année.
   const when = s.eventId ? monthYear(s.date) : s.current ? (s.date ? `depuis ${monthYear(s.date)}` : 'en cours') : [s.date && monthYear(s.date), s.end && monthYear(s.end)].filter(Boolean).join(' → ')
-  const extra = [s.observers > 0 && `${s.observers} obs.`, s.avis > 0 && `${s.avis} avis`, s.mesures > 0 && 'mesures', s.listed && 'sur la liste'].filter(Boolean).join(' · ')
+  // Stages et sélections libellés comme tels (23/11).
+  const extra = [s.kind === 'stage' && 'stage', s.kind === 'selection' && 'sélection', s.observers > 0 && `${s.observers} obs.`, s.avis > 0 && `${s.avis} avis`, s.mesures > 0 && 'mesures', s.listed && 'sur la liste']
+    .filter(Boolean)
+    .join(' · ')
   return (
     <li className="flex items-baseline justify-between gap-2 py-0.5">
       <span className="min-w-0">

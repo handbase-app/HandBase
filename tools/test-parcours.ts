@@ -1,6 +1,7 @@
 // Test du parcours d'un joueur par palier (src/parcours.ts) : palier par unité organisatrice, par mots du nom (accents,
 // majuscules), match toujours « Repéré », ordre fixe Repéré → Comité → Ligue → Pôle → France, palier absent masqué, comptes
-// (avis, mesures, observateurs distincts) et période, repli « ⋯ N autres », joueur sans rien, volley (FFVB, ligue, comité).
+// (avis, mesures, observateurs distincts) et période, repli « ⋯ N autres », joueur sans rien, volley (FFVB, ligue, comité),
+// périodes de sélection et stages (palier par le type, libellés « Sélection du comité », « Stages nationaux »…).
 // Données fictives seulement.
 //
 //   npx jiti tools/test-parcours.ts
@@ -242,6 +243,67 @@ t('volley : FFVB, ligue, comité ; libellés du volley', () => {
   assert.equal(vol[0].label, 'Sélection départementale')
   assert.equal(vol[1].label, 'Stage de ligue')
   assert.equal(vol[2].label, 'Stage équipe de France')
+})
+
+// ---------- Sélections et stages (23/11, src/selections.ts) ----------
+
+t('stage comité / ligue / national : toujours son palier, quel que soit l’organisateur ou le nom', () => {
+  assert.equal(palierOf(ev('a', 'Regroupement', '2025-01-01', { type: 'stage_comite', organizerUnitId: 'lig' }), units, levels), 'comite')
+  assert.equal(palierOf(ev('a', 'Stage intercomités', '2025-01-01', { type: 'stage_ligue' }), units, levels), 'ligue')
+  assert.equal(palierOf(ev('a', 'Stage de Toussaint', '2025-01-01', { type: 'stage_national', organizerUnitId: 'clu' }), units, levels), 'france')
+})
+
+t('périodes de sélection : étapes datées des paliers Comité, Ligue, France ; en cours ; entrée à venir ignorée ; libellés', () => {
+  const ps = parcours(
+    base({
+      events: [ev('st', 'Stage d’hiver', '2025-02-15', { type: 'stage_national', playerIds: ['j1'] }), ev('ic', 'Intercomités 2024', '2024-04-10', { type: 'tournoi' })],
+      seen: [seen('ic', 'o1')],
+      selections: [
+        { level: 'comite', unitId: 'cd', from: '2023-09-01', to: '2024-06-30', exitReason: 'fin_saison' },
+        { level: 'ligue', unitId: 'lig', from: '2024-09-01' },
+        { level: 'france', category: 'U17', from: '2025-01-10', to: '2025-06-30' },
+        { level: 'france', category: 'U19', from: '2027-01-01' },
+      ],
+      selectionName: (x) => (x.level === 'france' ? `Équipe de France ${x.category}` : x.level === 'ligue' ? 'Ligue fictive' : 'Comité fictif'),
+    }),
+  )
+  assert.deepEqual(ps.map((p) => p.id), ['comite', 'ligue', 'france'])
+  const [cd, lig, fra] = ps
+  assert.equal(cd.label, 'Sélection du comité')
+  assert.deepEqual(cd.steps.map((s) => [s.name, s.kind ?? 'evenement', s.date, s.end ?? '']), [
+    ['Comité fictif', 'selection', '2023-09-01', '2024-06-30'],
+    ['Intercomités 2024', 'evenement', '2024-04-10', ''],
+  ])
+  assert.equal(cd.current, false)
+  assert.equal(lig.label, 'Sélection de ligue')
+  assert.equal(lig.current, true)
+  assert.equal(periodLabel(lig), '2024 → 2026', 'en cours : jusqu’à aujourd’hui')
+  assert.equal(fra.label, 'Équipe de France')
+  assert.deepEqual(fra.steps.map((s) => [s.name, s.kind]), [
+    ['Équipe de France U17', 'selection'],
+    ['Stage d’hiver', 'stage'],
+  ])
+  assert.equal(fra.current, false)
+})
+
+t('que des stages : « Stage(s) de comité / de ligue / national(aux) » ; mêlés à d’autres événements : comme avant', () => {
+  const only = parcours(
+    base({
+      events: [
+        ev('c1', 'Regroupement A', '2025-01-10', { type: 'stage_comite', playerIds: ['j1'] }),
+        ev('l1', 'Regroupement B', '2025-02-10', { type: 'stage_ligue', playerIds: ['j1'] }),
+        ev('l2', 'Regroupement C', '2025-03-10', { type: 'stage_ligue', playerIds: ['j1'] }),
+        ev('n1', 'Regroupement D', '2025-04-10', { type: 'stage_national', playerIds: ['j1'] }),
+        ev('n2', 'Regroupement E', '2025-05-10', { type: 'stage_national', playerIds: ['j1'] }),
+      ],
+    }),
+  )
+  assert.deepEqual(only.map((p) => p.label), ['Stage de comité', 'Stages de ligue', 'Stages nationaux'])
+  assert.ok(only.every((p) => p.steps.every((s) => s.kind === 'stage' && s.listed)))
+  const mixed = parcours(base({ events: [ev('c1', 'A', '2025-01-10', { type: 'stage_comite', playerIds: ['j1'] }), ev('c2', 'Intercomités', '2025-02-10', { playerIds: ['j1'] })] }))
+  assert.equal(mixed[0].label, 'Stages intercomités')
+  // Stage à venir : pas encore une étape.
+  assert.deepEqual(parcours(base({ events: [ev('f', 'A', '2027-01-10', { type: 'stage_national', playerIds: ['j1'] })] })), [])
 })
 
 console.log(`\n${n} tests passés`)

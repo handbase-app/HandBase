@@ -100,12 +100,19 @@ export const EVENT_TYPE_LIST: { value: string; label: string }[] = [
   { value: 'tournoi', label: 'Tournoi' },
   { value: 'entrainement', label: 'Entraînement' },
   { value: 'observation', label: 'Observation' },
+  // Stages comité, ligue, national (src/selections.ts) : des événements, distincts des sélections (23/11).
+  { value: 'stage_comite', label: 'Stage comité' },
+  { value: 'stage_ligue', label: 'Stage ligue' },
+  { value: 'stage_national', label: 'Stage national' },
 ]
 const TYPE_ALIASES: Record<string, string[]> = {
   match: ['matchs', 'rencontre', 'rencontres'],
   tournoi: ['tournois', 'plateau', 'plateaux'],
   entrainement: ['entrainements', 'stage', 'stages', 'seance', 'seances'],
   observation: ['observations', 'detection', 'detections', 'journee de selection', 'selection'],
+  stage_comite: ['stage de comite', 'stages comite', 'stages de comite', 'stage departemental', 'stages departementaux', 'stage cd'],
+  stage_ligue: ['stage de ligue', 'stages ligue', 'stages de ligue', 'stage regional', 'stages regionaux'],
+  stage_national: ['stages nationaux', 'stage equipe de france', 'stages equipe de france', 'stage france', 'stage federal'],
 }
 const typeLabel = (t: string) => EVENT_TYPE_LIST.find((x) => x.value === t)?.label ?? t
 

@@ -392,6 +392,7 @@ function ActionDialog({ req, onClose }: { req: Request; onClose: () => void }) {
     if (k === 'groupe') {
       if (!g) return { ok: false }
       if (g.poleUnitId) return { ok: false, why: 'Groupe Pôle : l’arrivée s’écrit sur la fiche ; ajoute ces joueurs depuis la page du groupe.' }
+      if (g.selection) return { ok: false, why: 'Groupe de sélection : la période s’écrit sur la fiche ; ajoute ces joueurs depuis la page du groupe.' }
       if (g.archived) return { ok: false, why: 'Ce groupe est archivé : désarchive-le d’abord.' }
       return can.editGroup(role, g) || can.contributeGroup(role, g) ? { ok: true } : { ok: false, why: 'Tu ne peux pas ajouter de joueurs à ce groupe (ni créateur ni participant).' }
     }

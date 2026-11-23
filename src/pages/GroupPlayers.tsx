@@ -7,7 +7,7 @@ import { playerSub } from '../components/PlayerRow'
 import { GroupRewatchLine, RewatchToggle, useGroupRewatch } from '../components/Scouting'
 import { GroupMark } from '../components/ui'
 import { alive, db, type Player } from '../db'
-import { pluralG, setGender, w } from '../gender'
+import { accord, pluralG, setGender, w } from '../gender'
 import { MQ, useMedia } from '../layout'
 import { can } from '../roles'
 import { groupRosterKey, positionRosterView, useRosterSort } from '../rosterOrder'
@@ -17,6 +17,8 @@ import { groupAddedBy } from './Groups'
 import { PoleChip, usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { isMemberAt } from '../poleSeason'
 import { poleViewOf, withPoleView } from '../tabQuery'
+import { SelectionChip, useSelectionMembers } from '../components/SelectionGroup'
+import { selectionViewOf, withSelectionView, type SelectionView } from '../selections'
 
 /*
  * Fiche d'un joueur ouverte depuis un groupe : /groupes/:id/joueurs/:pid (partageable), comme depuis un événement
@@ -30,7 +32,7 @@ import { poleViewOf, withPoleView } from '../tabQuery'
  * Groupe et ses joueurs, dans l'ordre et par poste comme sur sa page. null : groupe introuvable ou pas visible.
  * Groupe Pôle (src/poleSeason.ts) : membres calculés depuis les fiches, pour la vue de l'adresse (?saison=prochaine).
  */
-function useGroupRoster(id: string, view: ReturnType<typeof poleViewOf>) {
+function useGroupRoster(id: string, view: ReturnType<typeof poleViewOf>, selView: SelectionView) {
   const [sort] = useRosterSort(groupRosterKey(id))
   const data = useLiveQuery(async () => {
     await loadTeams()
@@ -40,9 +42,11 @@ function useGroupRoster(id: string, view: ReturnType<typeof poleViewOf>) {
   }, [id])
   const ref = usePoleRef(data?.g?.poleUnitId)
   const pm = usePoleMembers(data?.g?.poleUnitId ? ref : null, view)
+  // Groupe de sélection (src/selections.ts) : membres calculés pour la vue de l'adresse (?saison=2024-2025).
+  const sm = useSelectionMembers(data?.g?.selection ?? null, selView)
   if (!data?.g) return data
-  if (data.g.poleUnitId && !pm) return undefined
-  const players = data.g.poleUnitId ? pm!.shown : data.players
+  if ((data.g.poleUnitId && !pm) || (data.g.selection && !sm)) return undefined
+  const players = data.g.poleUnitId ? pm!.shown : data.g.selection ? sm!.shown : data.players
   const { roster, sections } = positionRosterView(players, sort)
   return { g: data.g, sections, ids: roster.map((p) => p.id), gender: setGender(ref?.sex ?? data.g.sex, players) }
 }
@@ -53,9 +57,10 @@ export default function GroupPlayers() {
   const base = `/groupes/${id}/joueurs`
   const loc = useLocation()
   const view = poleViewOf(loc.search)
-  const data = useGroupRoster(id, view)
-  // Retour au groupe Pôle sur la même vue.
-  const search = data?.g?.poleUnitId ? withPoleView('', view) : ''
+  const selView = selectionViewOf(loc.search)
+  const data = useGroupRoster(id, view, selView)
+  // Retour au groupe Pôle ou de sélection sur la même vue.
+  const search = data?.g?.poleUnitId ? withPoleView('', view) : data?.g?.selection ? withSelectionView('', selView) : ''
   const leave = useLeaveTo(`/groupes/${id}${search}`, data?.g?.name ?? '')
   const rewatch = useGroupRewatch(id)
 
@@ -103,13 +108,20 @@ export function GroupPlayer() {
   const rewatch = useGroupRewatch(id)
   const split = useMedia(MQ.split)
   // Groupe Pôle : membre si une période de ce pôle couvre la date de la vue (?saison=…).
-  const view = poleViewOf(useLocation().search)
+  const search = useLocation().search
+  const view = poleViewOf(search)
+  const selView = selectionViewOf(search)
   const ref = usePoleRef(g?.poleUnitId)
   const pm = usePoleMembers(g?.poleUnitId ? ref : null, view)
+  const sm = useSelectionMembers(g?.selection ?? null, selView)
   const player = useLiveQuery(() => db.players.get(pid), [pid])
-  const member = g?.poleUnitId ? !!(ref && pm && player && isMemberAt(player, ref, view === 'prochaine' ? pm.s.refNext : pm.s.refCurrent)) : !!g?.playerIds.includes(pid)
+  const member = g?.poleUnitId
+    ? !!(ref && pm && player && isMemberAt(player, ref, view === 'prochaine' ? pm.s.refNext : pm.s.refCurrent))
+    : g?.selection
+      ? !!sm?.shown.some((p) => p.id === pid)
+      : !!g?.playerIds.includes(pid)
   const visible = g && !g.deleted && can.seeGroup(g) && member
-  const by = visible && !g.poleUnitId ? groupAddedBy(g, pid) : undefined
+  const by = visible && !g.poleUnitId && !g.selection ? groupAddedBy(g, pid) : undefined
   const rows = rewatch.by.get(pid) ?? []
   return (
     <div key={pid} className="flex flex-col gap-3">
@@ -121,10 +133,19 @@ export function GroupPlayer() {
               <GroupMark g={g} />
               {g.name}
               {g.poleUnitId && <PoleChip />}
+              {g.selection && <SelectionChip />}
             </span>
           )}
           <span className="text-[11px] text-muted">
-            {by ? `Dans ce groupe, ${w(sex).ajoute} par ${by}` : g.poleUnitId ? `Au pôle (${view === 'prochaine' ? 'saison prochaine' : 'saison en cours'})` : 'Dans ce groupe'}
+            {by
+              ? `Dans ce groupe, ${w(sex).ajoute} par ${by}`
+              : g.poleUnitId
+                ? `Au pôle (${view === 'prochaine' ? 'saison prochaine' : 'saison en cours'})`
+                : g.selection
+                  ? selView === 'courante'
+                    ? `${accord('Sélectionné', sex)} en ce moment`
+                    : `${accord('Sélectionné', sex)} pendant la saison ${selView}`
+                  : 'Dans ce groupe'}
           </span>
           <GroupRewatchLine rows={rows} events={rewatch.events} sex={sex} />
         </div>

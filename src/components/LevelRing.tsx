@@ -1,20 +1,26 @@
 import type { ReactNode } from 'react'
-import { alive, db, poleStatus, type Player } from '../db'
+import { alive, db, poleStatus, today, type Player } from '../db'
 import { allPlayerLevels, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
 import { sharedQuery, useShared } from '../live'
 import { can } from '../roles'
 import { loadTeams } from '../teams'
+import { loadPlayerRows } from '../playersCache'
+import { materializeSelectionGroups } from '../selections'
 
 /*
  * Anneau des niveaux autour de la photo (src/levels.ts) : la table joueur → niveaux des groupes, une seule pour toute
  * l'appli (relue quand les groupes changent), et le Pôle tiré de la fiche (comme l'étiquette « Pôle » de la ligne).
+ * Groupes de sélection (src/selections.ts) : membres d'aujourd'hui calculés depuis les périodes des fiches (fiches déjà en
+ * mémoire, src/playersCache.ts) ; une sélection en cours compte comme un groupe de sa portée (France, Ligue, Comité).
  */
 
 const levelQuery = sharedQuery(
-  ['groups', 'teams'],
+  ['groups', 'teams', 'players'],
   async () => {
     await loadTeams()
-    return scopeLevelMap(alive(await db.groups.toArray()).filter(can.seeGroup))
+    const groups = alive(await db.groups.toArray()).filter(can.seeGroup)
+    const sel = groups.some((g) => g.selection) ? materializeSelectionGroups(groups, await loadPlayerRows(), today()) : groups
+    return scopeLevelMap(sel)
   },
   800,
 )

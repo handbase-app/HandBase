@@ -247,7 +247,7 @@ export function RewatchDialog({ playerId, originEventId, onClose }: { playerId: 
         .filter((e) => !e.archived && e.id !== originEventId)
         .sort((a, b) => a.date.localeCompare(b.date)),
       // Pas de groupe Pôle : ses membres viennent des périodes des fiches (« Ajouter à un groupe »), jamais de playerIds.
-      groups: alive(groups).filter((g) => !g.archived && !g.poleUnitId && (can.editGroup(role, g) || can.contributeGroup(role, g))),
+      groups: alive(groups).filter((g) => !g.archived && !g.poleUnitId && !g.selection && (can.editGroup(role, g) || can.contributeGroup(role, g))),
       existing,
     }
   }, [playerId, role])

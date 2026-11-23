@@ -89,7 +89,7 @@ const listStore = sharedQuery(
     const [criteria, groups, events] = await Promise.all([db.criteria.toArray(), loadTeams().then(() => db.groups.orderBy('name').toArray()), db.events.toArray()])
     const live = alive(groups)
     // Groupes Pôle : membres lus dans les fiches déjà en mémoire (pas de deuxième lecture des 40 000 fiches).
-    const players = live.some((g) => g.poleUnitId) ? (await playersStore.load()).rows : undefined
+    const players = live.some((g) => g.poleUnitId || g.selection) ? (await playersStore.load()).rows : undefined
     return { criteria: alive(criteria), groups: await withPoleMembers(live, players), events: alive(events) }
   },
   DELAY,

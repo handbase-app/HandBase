@@ -88,6 +88,8 @@ import { lateralityPlural, listGender, SEX_LABELS, w, type Gender } from '../gen
 import { listOrigin, type RewatchOrigin } from '../rewatchCore'
 import { RewatchOptions } from './RewatchFilter'
 import { StickyQuery } from './StickyQuery'
+import { seasonOf } from '../coverage'
+import { periodText, seasonBounds, selectionWantedText, stageWantedText, type SelectionWanted, type StageWanted } from '../selections'
 
 /*
  * Filtres de la liste Joueurs = ÉDITEUR DE RECETTE (src/playerQuery.ts, même moteur que « Poser une question », src/recipe.ts).
@@ -121,6 +123,35 @@ const QUARTER_LABELS = ['Q1 · janv.–mars', 'Q2 · avril–juin', 'Q3 · juil.
 const WINDOW_KEYS = new Set(['sex', 'years', 'quarter', 'positions', 'secondary', 'noPosition', 'hand', 'regions', 'depts', 'clubs', 'height', 'pole', 'video', 'followed', 'profiles', 'rewatch', 'groups', 'events', 'sort'])
 /** Filtres de la partie simple de la fenêtre (toujours visibles) ; les autres sont sous « Plus de filtres ». */
 const SIMPLE_KEYS = new Set<FilterKey>(['sex', 'years', 'groups', 'regions', 'depts'])
+/**
+ * Filtre « Sélections » de la fenêtre (src/selections.ts) : une valeur par choix du menu ; la saison choisie à côté s'y ajoute.
+ * « any » : passés par une sélection ; « current » : sélectionnés en ce moment ; un niveau ; une catégorie France.
+ */
+const SEL_CHOICES: { value: string; w: SelectionWanted }[] = [
+  { value: 'any', w: {} },
+  { value: 'current', w: { current: true } },
+  { value: 'comite', w: { level: 'comite' } },
+  { value: 'ligue', w: { level: 'ligue' } },
+  { value: 'france', w: { level: 'france' } },
+  { value: 'U17', w: { level: 'france', category: 'U17' } },
+  { value: 'U19', w: { level: 'france', category: 'U19' } },
+  { value: 'U21', w: { level: 'france', category: 'U21' } },
+]
+/** Libellé d'un choix, accordé (src/gender.ts) : « Passées par l'équipe de France U17 », « Sélectionnés en ce moment ». */
+const choiceLabel = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+const selValue = (w?: SelectionWanted) => (!w ? '' : w.current ? 'current' : (w.category ?? w.level ?? 'any'))
+const STAGE_CHOICES: { value: string; w: StageWanted }[] = [
+  { value: 'any', w: {} },
+  { value: 'comite', w: { level: 'comite' } },
+  { value: 'ligue', w: { level: 'ligue' } },
+  { value: 'france', w: { level: 'france' } },
+]
+/** Saisons proposées pour les sélections et les stages : la saison en cours et les cinq d'avant. */
+const recentSeasons = (day: string) => {
+  const y = Number(seasonOf(day).from.slice(0, 4))
+  return Array.from({ length: 6 }, (_, i) => `${y - i}-${y - i + 1}`)
+}
+
 const POLE_LABEL: Record<string, string> = { current: 'Au Pôle Espoirs (en cours)', past: 'Sortis du Pôle Espoirs', any: 'Passés par le Pôle Espoirs (en cours ou sortis)' }
 /** Exemples du champ (aide du micro). */
 const HINT = 'nés en 2010 de plus d’1 m 85 », « quelle est leur taille moyenne ? », « enlève la taille'
@@ -839,6 +870,77 @@ export function usePlayersQuery(
                 />
               </FilterField>
             </div>
+            {/* Sélections (comité, ligue, équipe de France : périodes des fiches) et stages (événements), distincts ; une saison
+                facultative pour les deux (« sélectionnés France U17 en 2024-2025 »). */}
+            {(() => {
+              const period = p.selection?.from ? p.selection : p.stage?.from ? p.stage : undefined
+              const seasonVal = period?.from && period.to ? `${period.from.slice(0, 4)}-${period.to.slice(0, 4)}` : ''
+              const seasons = recentSeasons(today())
+              const custom = period?.from && period.to && !seasons.includes(seasonVal) ? periodText(period.from, period.to) : ''
+              const withSeason = <T extends { from?: string; to?: string }>(w: T, label: string): T => {
+                if (!label) {
+                  const { from: _f, to: _t, ...rest } = w
+                  return rest as T
+                }
+                const b = seasonBounds(label)
+                return { ...w, from: b.from, to: b.to }
+              }
+              return (
+                <div className="grid grid-cols-2 gap-2">
+                  <FilterField label="Sélections" k="selection">
+                    <CompactSelect
+                      className={`${ctl} ${p.selection ? 'border-accent font-bold' : ''}`}
+                      label="Sélections"
+                      value={selValue(p.selection)}
+                      onChange={(v) => {
+                        const c = SEL_CHOICES.find((x) => x.value === v)
+                        setPop({ selection: c ? withSeason(c.w, seasonVal && !c.w.current ? seasonVal : '') : undefined })
+                      }}
+                      options={[
+                        { value: '', label: gw.tousLesJoueurs[0].toUpperCase() + gw.tousLesJoueurs.slice(1) },
+                        ...SEL_CHOICES.map(({ value, w: x }) => ({ value, label: choiceLabel(selectionWantedText(x, gender)) })),
+                      ]}
+                    />
+                  </FilterField>
+                  <FilterField label="Stages" k="stage">
+                    <CompactSelect
+                      className={`${ctl} ${p.stage ? 'border-accent font-bold' : ''}`}
+                      label="Stages"
+                      value={p.stage ? (p.stage.level ?? 'any') : ''}
+                      onChange={(v) => {
+                        const c = STAGE_CHOICES.find((x) => x.value === v)
+                        setPop({ stage: c ? withSeason(c.w, seasonVal) : undefined })
+                      }}
+                      options={[
+                        { value: '', label: gw.tousLesJoueurs[0].toUpperCase() + gw.tousLesJoueurs.slice(1) },
+                        ...STAGE_CHOICES.map(({ value, w: x }) => ({ value, label: choiceLabel(stageWantedText(x, gender)) })),
+                      ]}
+                    />
+                  </FilterField>
+                  {(p.selection || p.stage) && (
+                    <FilterField label="Saison (sélections, stages)" k="selection-saison">
+                      <CompactSelect
+                        className={`${ctl} ${seasonVal ? 'border-accent font-bold' : ''}`}
+                        label="Saison"
+                        value={custom ? 'custom' : seasonVal}
+                        onChange={(v) => {
+                          if (v === 'custom') return
+                          setPop({
+                            ...(p.selection && { selection: withSeason({ ...p.selection, ...(v && { current: undefined }) }, v) }),
+                            ...(p.stage && { stage: withSeason(p.stage, v) }),
+                          })
+                        }}
+                        options={[
+                          { value: '', label: 'Toutes les saisons' },
+                          ...(custom ? [{ value: 'custom', label: custom }] : []),
+                          ...seasons.map((x) => ({ value: x, label: `Saison ${x}` })),
+                        ]}
+                      />
+                    </FilterField>
+                  )}
+                </div>
+              )
+            })()}
             <div className="flex flex-col gap-3 border-t border-line pt-3">
               <div className="flex flex-col gap-2">
                 <button type="button" className="flex min-h-9 w-full items-center gap-2 text-left text-xs font-bold" aria-expanded={more} onClick={() => setMore(!more)}>

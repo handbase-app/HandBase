@@ -85,6 +85,23 @@ import {
 } from '../components/PoleGroup'
 import { exportGaps, periodIndexAt, seasonStatus, seasonStatusLabel, type PoleRef, type PoleView } from '../poleSeason'
 import { poleViewOf, withPoleView } from '../tabQuery'
+import {
+  addMessage,
+  addToSelection,
+  canManageSelection,
+  ConvertGroupDialog,
+  currentPeriod,
+  leaveSelection,
+  SelectionChip,
+  SelectionExitDialog,
+  selectionViewOptions,
+  useEnsureSelectionGroups,
+  useSelectionCount,
+  useSelectionCounts,
+  useSelectionMembers,
+  useUnitName,
+} from '../components/SelectionGroup'
+import { periodsIn, seasonBounds, selectionExitLabel, selectionViewOf, withSelectionView, type SelectionRef, type SelectionView } from '../selections'
 
 /** Onglets de la page Groupes (?onglet=travail ; groupes de joueurs par défaut, sans paramètre). */
 type GroupsTab = 'joueurs' | typeof STAFF.tab
@@ -149,13 +166,21 @@ export default function Groups() {
   const leader = usePoleLeader()
   const refs = usePoleRefs()
   const poleGroups = usePoleGroups()
+  // Groupes de sélection (src/selections.ts) : ceux de la structure qui manquent, créés par un administrateur ; effectifs du jour.
+  useEnsureSelectionGroups(role)
+  const selCounts = useSelectionCounts(groups)
   // Premier chargement en cours : les groupes ne sont peut-être pas encore arrivés, on ne dit pas « Aucun groupe ».
   const { state: syncState, progress } = useSyncState()
   const firstLoading = syncState === 'syncing' && !!progress?.first
   if (!groups) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const pinned = shown.filter((g) => !!g.poleUnitId && !g.archived)
-  const active = shown.filter((g) => !g.archived && !g.poleUnitId)
-  const archived = shown.filter((g) => g.archived)
+  const active = shown.filter((g) => !g.archived && !g.poleUnitId && !g.selection)
+  const archived = shown.filter((g) => g.archived && !g.selection)
+  // Sélections : la France et celles qui ont des membres aujourd'hui en tête ; les autres (une par comité et par ligue)
+  // derrière « Autres sélections… » ; une recherche les montre toutes.
+  const selAll = shown.filter((g) => !!g.selection)
+  const selShown = filtering ? selAll : selAll.filter((g) => g.selection!.level === 'france' || (selCounts.get(g.id) ?? 0) > 0)
+  const selOthers = filtering ? [] : selAll.filter((g) => !selShown.includes(g))
   const toCreate = filtering ? [] : leader.units.filter((u) => !poleGroups.some((g) => g.poleUnitId === u.id))
   const work = tab === STAFF.tab
   const shownTeams = workText.trim() ? teams.filter((t) => workGroupMatches(t, workText)) : teams
@@ -210,7 +235,7 @@ export default function Groups() {
       compact={bar}
       className="w-full"
       items={[
-        { value: 'joueurs', label: STAFF.tabPlayers, count: groups.filter((g) => !g.archived).length },
+        { value: 'joueurs', label: STAFF.tabPlayers, count: groups.filter((g) => !g.archived && (!g.selection || (selCounts.get(g.id) ?? 0) > 0)).length },
         { value: STAFF.tab, label: STAFF.tabWork, count: teams.length },
       ]}
     />
@@ -342,6 +367,22 @@ export default function Groups() {
           </div>
         </FoldSection>
       )}
+      {(selShown.length > 0 || selOthers.length > 0) && (
+        <FoldSection
+          storeKey={foldKey('groupes', 'selections')}
+          defaultOpen={startsOpen('current')}
+          icon={<Icon name="star" className="h-3.5 w-3.5" />}
+          title="Sélections"
+          count={selShown.length}
+        >
+          <div className="cols flex flex-col gap-3">
+            {selShown.map((g) => (
+              <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
+            ))}
+            <OtherSelections groups={selOthers} />
+          </div>
+        </FoldSection>
+      )}
       {SECTIONS.map((sec) => {
         const list = active.filter((g) => groupVisibility(g) === sec.vis)
         return (
@@ -399,6 +440,42 @@ const SECTIONS = [
 /** Pastille « Mon staff » (team) : groupe visible par son créateur et ses participants seulement. */
 /** Sans accents ni majuscules, pour chercher un pôle par son nom. */
 const foldName = (s = '') => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+/**
+ * « Autres sélections… » : les groupes de sélection sans membre aujourd'hui (un par comité et par ligue, masculin et féminin),
+ * dans une seule tuile qui s'ouvre sur une liste avec un champ de recherche, pour ne pas noyer la page.
+ */
+function OtherSelections({ groups }: { groups: PlayerGroup[] }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  if (!groups.length) return null
+  const hits = q.trim() ? groups.filter((g) => foldName(g.name).includes(foldName(q.trim()))) : groups
+  return (
+    <div className="card flex flex-col gap-2 p-3">
+      <button type="button" className="flex items-center gap-3 text-left" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="list" className="h-4 w-4 shrink-0 text-accent" />
+        <span className="min-w-0">
+          <span className="block text-sm font-bold">Autres sélections…</span>
+          <span className="block text-[11px] text-muted">{groups.length} groupes de sélection sans membre aujourd’hui (comités, ligues) ; leurs saisons passées restent consultables.</span>
+        </span>
+      </button>
+      {open && (
+        <>
+          <input className="field text-sm" placeholder="Chercher (comité, ligue, masculin, féminin)…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Chercher une sélection" />
+          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+            {hits.slice(0, 30).map((g) => (
+              <Link key={g.id} to={`/groupes/${g.id}`} className="card flex items-center gap-2 p-2 text-sm font-bold hover:border-accent">
+                {g.name}
+              </Link>
+            ))}
+            {!hits.length && <p className="text-xs text-muted">Aucune sélection ne correspond.</p>}
+            {hits.length > 30 && <p className="text-xs text-muted">… et {hits.length - 30} de plus : précise la recherche.</p>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 /**
  * Tuiles « Créer le groupe Pôle de … » (unités Pôle que je dirige sans groupe). Jusqu'à deux : une tuile par pôle. Au-delà
@@ -505,18 +582,22 @@ function GroupMenu({ g, menu, count }: { g: PlayerGroup; menu: ReturnType<typeof
   if (!menu.anchor) return null
   // Groupe Pôle : ses dirigeants le gèrent ; ni dupliqué ni archivé (permanent, un seul par unité).
   const pole = !!g.poleUnitId
+  // Groupe de sélection : permanent aussi (ni dupliqué, ni archivé, ni supprimé) ; ses membres s'écrivent sur les fiches.
+  const sel = !!g.selection
+  const fixed = pole || sel
   const leads = pole && leader.leads(g.poleUnitId!)
   const manage = can.editGroup(role, g) || leads
   const items: (MenuItem | false)[] = [
     { label: 'Ouvrir', icon: 'users', onSelect: () => nav(`/groupes/${g.id}`) },
-    (pole ? leads : manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
+    (pole ? leads : sel ? canManageSelection(role) : manage || can.contributeGroup(role, g)) && { label: `Ajouter des ${w(g.sex).joueurs}`, icon: 'userPlus', onSelect: () => nav(`/groupes/${g.id}?ajout=1`) },
     pole && leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
-    manage && { label: 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
-    !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
+    manage && { label: fixed ? 'Renommer' : 'Renommer / Modifier', icon: 'pencil', onSelect: () => nav(`/groupes/${g.id}?modifier=1`) },
+    !fixed && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${w(g.sex).joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
+    !fixed && !!g.scope && canManageSelection(role) && g.playerIds.length > 0 && { label: 'Convertir en groupe de sélection', icon: 'star', hint: 'périodes de sélection sur les fiches', onSelect: () => nav(`/groupes/${g.id}?convertir=1`) },
     { label: 'Exporter en PDF', icon: 'download', hint: 'à imprimer', onSelect: () => nav(`/groupes/${g.id}/rapport`) },
-    !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+    !fixed && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
     { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
-    manage && {
+    manage && !sel && {
       label: 'Supprimer',
       icon: 'trash',
       danger: true,
@@ -549,13 +630,16 @@ function GroupRow({ g, teams, pick }: { g: PlayerGroup; teams: Team[]; pick?: { 
   const who = [...ps.teams.map((t) => t.name), ...(ps.hidden ? [STAFF.hidden(ps.hidden)] : []), ...ps.others.map((u) => g.names?.[u] ?? '?')]
   // Ordinateur : groupe ouvert dans le panneau de droite.
   const on = useSelected('/groupes') === g.id
-  // Groupe Pôle : effectif calculé (vue en cours), badge « Pôle ».
-  const count = usePoleCount(g)
+  // Groupe Pôle ou de sélection : effectif calculé (aujourd'hui), badge « Pôle » ou « Sél. ».
+  const poleCount = usePoleCount(g)
+  const selCount = useSelectionCount(g)
+  const count = g.selection ? selCount : poleCount
   const body = (
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
           <span className="truncate">{g.name}</span>
           {g.poleUnitId && <PoleChip />}
+          {g.selection && <SelectionChip />}
           {g.team && <TeamChip />}
           {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
         </div>
@@ -894,6 +978,19 @@ function poleCells(p: Player, pole: { ref: PoleRef; m: PoleMembers; view: PoleVi
   return [seasonStatusLabel(st, p.sex), programmeLabel(i >= 0 ? p.poles?.[i]?.programme : undefined), pole.ref.psqsRef ?? '']
 }
 
+/** Colonnes d'export d'une sélection : nom du groupe, saison, entrée et sortie (périodes de la vue), motif. */
+function selectionCells(p: Player, name: string, sel: { ref: SelectionRef; view: SelectionView }): string[] {
+  const day = new Date().toLocaleDateString('sv')
+  const b = sel.view === 'courante' ? { from: day, to: day, label: seasonOfDay(day) } : seasonBounds(sel.view)
+  const xs = periodsIn(p, sel.ref, b.from, b.to)
+  const x = xs[xs.length - 1]
+  return [name, b.label, xs.map((y) => fmtDay(y.from)).join(' ; '), xs.map((y) => (y.to ? fmtDay(y.to) : '')).join(' ; '), x?.to ? (selectionExitLabel(x.exitReason) ?? '') : '']
+}
+const seasonOfDay = (day: string) => {
+  const y = Number(day.slice(0, 4)) - (Number(day.slice(5, 7)) >= 9 ? 0 : 1)
+  return `${y}-${y + 1}`
+}
+
 /**
  * Export de la page d'un groupe, dans son ⋮ (31/10 : plus de bouton « Exporter ▾ ») : tableur (CSV) ou liste à imprimer
  * (PDF, identité seulement, ex. pour la ligue). Groupe Pôle : la vue affichée, avec « Statut de saison », « Programme » et
@@ -901,7 +998,22 @@ function poleCells(p: Player, pole: { ref: PoleRef; m: PoleMembers; view: PoleVi
  * continuer, ou aller corriger la première.
  * TODO (plus tard) : courriel préparé pour la ligue / le PSQS.
  */
-function groupExportItems({ g, players, gender, pole, nav }: { g: PlayerGroup; players: Player[]; gender?: Gender; pole?: { ref: PoleRef; m: PoleMembers; view: PoleView }; nav: ReturnType<typeof useNavigate> }): MenuItem[] {
+function groupExportItems({
+  g,
+  players,
+  gender,
+  pole,
+  sel,
+  nav,
+}: {
+  g: PlayerGroup
+  players: Player[]
+  gender?: Gender
+  pole?: { ref: PoleRef; m: PoleMembers; view: PoleView }
+  /** Groupe de sélection : la vue affichée (aujourd'hui ou une saison passée) ; colonnes « Saison », « Entrée », « Sortie », « Motif ». */
+  sel?: { ref: SelectionRef; view: SelectionView }
+  nav: ReturnType<typeof useNavigate>
+}): MenuItem[] {
   if (!players.length) return []
   /** Contrôle des fiches incomplètes (groupe Pôle) : vrai pour continuer. */
   async function checked(): Promise<boolean> {
@@ -916,10 +1028,24 @@ function groupExportItems({ g, players, gender, pole, nav }: { g: PlayerGroup; p
     if (r === 'corriger') nav(`/joueurs/${gaps[0].p.id}/modifier?retour=${encodeURIComponent(`/groupes/${g.id}`)}`)
     return r === 'continuer'
   }
-  const extra = pole ? { head: ['Statut de saison', 'Programme', 'Référence PSQS'], row: (p: Player) => poleCells(p, pole) } : undefined
+  const extra = pole
+    ? { head: ['Statut de saison', 'Programme', 'Référence PSQS'], row: (p: Player) => poleCells(p, pole) }
+    : sel
+      ? { head: ['Sélection', 'Saison', 'Entrée', 'Sortie', 'Motif de sortie'], row: (p: Player) => selectionCells(p, g.name, sel) }
+      : undefined
   return [
-    { label: 'Exporter CSV', icon: 'download', hint: 'tableur, toutes les colonnes', onSelect: async () => (await checked()) && void exportCsv(players, gender, extra) },
-    { label: 'Exporter PDF', icon: 'list', hint: 'liste à imprimer (identité seulement)', onSelect: async () => (await checked()) && nav(`/groupes/${g.id}/rapport${pole ? withPoleView('', pole.view) : ''}`) },
+    {
+      label: 'Exporter CSV',
+      icon: 'download',
+      hint: sel ? `tableur, ${sel.view === 'courante' ? 'sélection du jour' : `saison ${sel.view}`}` : 'tableur, toutes les colonnes',
+      onSelect: async () => (await checked()) && void exportCsv(players, gender, extra),
+    },
+    {
+      label: 'Exporter PDF',
+      icon: 'list',
+      hint: 'liste à imprimer (identité seulement)',
+      onSelect: async () => (await checked()) && nav(`/groupes/${g.id}/rapport${pole ? withPoleView('', pole.view) : sel ? withSelectionView('', sel.view) : ''}`),
+    },
   ]
 }
 
@@ -1000,6 +1126,23 @@ function PlayerGroupDetail() {
   const [exiting, setExiting] = useState<Player | null>(null)
   const [poleMsg, setPoleMsg] = useState('')
   useEffect(() => setPoleMsg(''), [id])
+  // Groupe de SÉLECTION (src/selections.ts) : membres calculés depuis les périodes de sélection des fiches, pour la vue de
+  // l'adresse (?saison=2024-2025 ; sans paramètre : aujourd'hui) ; ajout = période ouverte aujourd'hui, retrait = sortie + motif.
+  const sel = data?.g?.selection
+  const selView = selectionViewOf(loc.search)
+  const sm = useSelectionMembers(sel ?? null, selView)
+  const unitNameOf = useUnitName()
+  const [selExiting, setSelExiting] = useState<Player | null>(null)
+  // « Convertir en groupe de sélection » (⋮ d'un groupe ordinaire avec une portée ; aussi ?convertir=1 depuis la liste).
+  const [converting, setConverting] = useState(false)
+  const wantConvert = params.has('convertir')
+  useEffect(() => {
+    if (!wantConvert) return
+    setConverting(true)
+    const next = new URLSearchParams(params)
+    next.delete('convertir')
+    setParams(next, { replace: true })
+  }, [wantConvert]) // eslint-disable-line react-hooks/exhaustive-deps
   // Wellness (073) : réglage de l'installation (fermé hors mode essai).
   const wellnessOn = useWellnessEnabled()
   const lampSettings = useLampSettings()
@@ -1009,7 +1152,7 @@ function PlayerGroupDetail() {
   // « Donner un objectif au groupe » (⋮ du titre) et « Objectifs donnés » (src/components/GroupObjectives.tsx) : les joueurs
   // de la page (groupe Pôle : ceux de la vue), ou la sélection en cours de la liste.
   const selRef = useRef<(() => readonly string[]) | null>(null)
-  const giftPlayers = (data?.g?.poleUnitId ? pm?.shown : data?.players) ?? []
+  const giftPlayers = (data?.g?.poleUnitId ? pm?.shown : data?.g?.selection ? sm?.shown : data?.players) ?? []
   const give = useGiveObjective({
     players: giftPlayers,
     from: { kind: 'groupe', id: id ?? '', name: data?.g?.name ?? '' },
@@ -1018,18 +1161,22 @@ function PlayerGroupDetail() {
   })
 
   // Données encore celles du groupe précédent (navigation d'un groupe à l'autre) : on attend.
-  if (!data || (data.g && data.g.id !== id) || (pole && !pm)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
+  if (!data || (data.g && data.g.id !== id) || (pole && !pm) || (sel && !sm)) return <div className="py-20 text-center text-sm text-muted">Chargement…</div>
   const { g, teams } = data
   if (!g || g.deleted || !can.seeGroup(g)) {
     if (allGroups && id) return <OtherGroupDetail key={id} id={id} info={groupInfo} />
     return <div className="py-20 text-center text-sm text-muted">Groupe introuvable.</div>
   }
-  const players = pole ? pm!.shown : data.players
-  const hidden = pole ? 0 : data.hidden
+  const players = pole ? pm!.shown : sel ? sm!.shown : data.players
+  const hidden = pole || sel ? 0 : data.hidden
   const leads = pole && leader.leads(g.poleUnitId!)
   const manage = can.editGroup(role, g) || leads
+  // Groupe permanent (Pôle ou sélection) : ni dupliqué, ni archivé, ni supprimé, ni réattribué.
+  const fixed = pole || !!sel
+  // Sélection : ceux qui modifient les fiches ajoutent et retirent, dans la vue d'aujourd'hui seulement (une saison passée se lit).
+  const selManage = !!sel && canManageSelection(role) && selView === 'courante'
   // Participant (023) : ajoute des joueurs, retire les siens, peut se retirer du groupe. Groupe Pôle : ses dirigeants seuls.
-  const contribute = !pole && can.contributeGroup(role, g)
+  const contribute = !fixed && can.contributeGroup(role, g)
   const who = (uid?: string) => (uid ? (g.names?.[uid] ?? (uid === g.createdBy ? g.createdByName : undefined)) : undefined)
   const addedByOf = (pid: string) => groupAddedBy(g, pid)
   // Groupe Pôle : le nom de l'unité seulement s'il ne redit pas celui du groupe (« Pôle Aix-en-Provence (garçons) » sous
@@ -1039,8 +1186,9 @@ function PlayerGroupDetail() {
   const stamp = stampOf(g)
   // « Wellness » (073) : le staff du groupe (créateur, participants encadrants, administrateurs) ; fermé sur l'installation :
   // l'entrée reste pour celui qui l'activerait, avec « Réservé aux essais pour l'instant ».
-  const wellnessRead = canReadWellness(role, g)
-  const wellnessItem = (wellnessRead || canToggleWellness(role, g)) && {
+  // Pas de wellness sur un groupe de sélection : le serveur (073, hb_wl_contient) ne lit que playerIds et les groupes Pôle.
+  const wellnessRead = !sel && canReadWellness(role, g)
+  const wellnessItem = !sel && (wellnessRead || canToggleWellness(role, g)) && {
     label: 'Wellness',
     icon: 'heart' as const,
     hint: !wellnessOn ? 'Réservé aux essais pour l’instant' : g.wellness ? 'questionnaire du matin, tableau du jour' : 'questionnaire du matin : désactivé',
@@ -1062,7 +1210,19 @@ function PlayerGroupDetail() {
   // Accord au genre (src/gender.ts) : sexe du groupe (Filles / Garçons / Mixte ; pôle : sexe de l'unité), sinon déduit de ses joueurs.
   const gg = setGender(ref?.sex ?? g.sex, players)
   const gw = w(gg)
-  const fiche = (p: Player) => `/groupes/${g.id}/joueurs/${p.id}${pole ? withPoleView('', poleView) : ''}`
+  const fiche = (p: Player) => `/groupes/${g.id}/joueurs/${p.id}${pole ? withPoleView('', poleView) : sel ? withSelectionView('', selView) : ''}`
+  /** Ligne d'un membre d'une sélection : « depuis le … » (aujourd'hui) ; saison passée : ses périodes de la saison, motif compris. */
+  const selLine = (p: Player) => {
+    if (!sel) return null
+    if (selView === 'courante') {
+      const x = currentPeriod(p, sel)
+      return x?.from ? `depuis le ${fmtDay(x.from)}` : null
+    }
+    const b = seasonBounds(selView)
+    return periodsIn(p, sel, b.from, b.to)
+      .map((x) => [x.to ? `${fmtDay(x.from)} → ${fmtDay(x.to)}` : `depuis le ${fmtDay(x.from)}`, x.to && selectionExitLabel(x.exitReason)].filter(Boolean).join(' · '))
+      .join(' ; ')
+  }
   /** Ligne d'un membre du groupe Pôle : statut de saison (sortie, entrée) ou programme. */
   const poleLine = (p: Player) => {
     if (!pole || !ref || !pm) return null
@@ -1076,8 +1236,8 @@ function PlayerGroupDetail() {
   }
 
   // Actions de la liste, en tête du ⋮ du titre (02/11, comme l'événement) : mêmes droits qu'avant.
-  const canAdd = pole ? leads : manage || contribute
-  const canRemove = !pole && players.some((p) => can.removeFromGroup(role, g, p.id))
+  const canAdd = pole ? leads : sel ? selManage : manage || contribute
+  const canRemove = !fixed && players.some((p) => can.removeFromGroup(role, g, p.id))
   const listActions = ([
     canAdd && { label: `Ajouter des ${gw.joueurs}`, icon: 'userPlus', hint: `par groupe ou ${gw.un} par ${gw.un}`, onSelect: () => setAdding(true) },
     players.length > 1 && !removing && { label: pick.on ? 'Arrêter de comparer' : 'Comparer', icon: 'target', onSelect: () => pick.setOn(!pick.on) },
@@ -1143,8 +1303,8 @@ function PlayerGroupDetail() {
     return (
       <AddPlayers
         g={gg}
-        scope={pole ? 'ajout-pole' : 'ajout-groupe'}
-        current={pole ? pm!.next.map((p) => p.id) : g.playerIds}
+        scope={pole ? 'ajout-pole' : sel ? 'ajout-selection' : 'ajout-groupe'}
+        current={pole ? pm!.next.map((p) => p.id) : sel ? sm!.current.map((p) => p.id) : g.playerIds}
         onCancel={() => (setAdding(false), setParams({}, { replace: true }))}
         onAdd={async (ids) => {
           if (pole && ref && pm) {
@@ -1157,6 +1317,10 @@ function PlayerGroupDetail() {
             // Remplace « ?ajout=1 » par la vue de la saison choisie (effacer tous les paramètres ramenait à la saison en cours).
             setParams(new URLSearchParams(withPoleView('', when === 'next' ? 'prochaine' : 'courante')), { replace: true })
             return
+          } else if (sel) {
+            // Période ouverte aujourd'hui sur chaque fiche (date modifiable ensuite sur la fiche).
+            const r = await addToSelection(sel, ids, undefined, unitNameOf(sel.unitId))
+            setPoleMsg(addMessage(r, g.name, gg))
           } else await addToGroup(g, ids)
           setAdding(false)
           setParams({}, { replace: true })
@@ -1178,6 +1342,7 @@ function PlayerGroupDetail() {
   // Retirer un joueur depuis le menu de sa ligne : toujours après confirmation (groupe Pôle : fenêtre du motif de sortie).
   async function removeOne(p: Player) {
     if (pole) return setExiting(p)
+    if (sel) return setSelExiting(p)
     if (await ask(`Retirer ${p.lastName.toUpperCase()} ${p.firstName} du groupe « ${g!.name} » ? Sa fiche et ses avis ne sont pas touchés.`, { ok: 'Retirer', focusCancel: true }))
       await removeFromGroup(g!, [p.id])
   }
@@ -1227,6 +1392,7 @@ function PlayerGroupDetail() {
               )}
               {g.name}
               {pole && <PoleChip />}
+              {sel && <SelectionChip />}
               {g.team && <TeamChip />}
               {g.teamFollow && !g.private && <TeamFollowChip />}
               {g.archived && <span className="ml-2 text-xs text-muted">archivé</span>}
@@ -1240,11 +1406,13 @@ function PlayerGroupDetail() {
                   items={afterListActions([
                   // Copier le groupe et ses joueurs (ex. le pôle de la saison suivante), puis ajuster la différence.
                   // Groupe Pôle : permanent (ni dupliqué ni archivé) ; « Changement de saison » pour ses dirigeants.
-                  !pole && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
+                  !fixed && { label: 'Dupliquer', icon: 'list', hint: `avec ses ${gw.joueurs}`, onSelect: async () => nav(`/groupes/${(await duplicateGroup(g, role)).id}?modifier=copie`) },
                   leads && { label: 'Changement de saison', icon: 'calendar', onSelect: () => nav(`/groupes/${g.id}/saison`) },
-                  manage && { label: pole ? 'Renommer' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
-                  !pole && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
-                  !pole && canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
+                  manage && { label: fixed ? 'Renommer' : 'Modifier', icon: 'pencil', onSelect: () => setEditing(true) },
+                  // Ancien groupe avec une portée (« Equipe de France »…) : ses membres deviennent des périodes de sélection.
+                  !fixed && !!g.scope && canManageSelection(role) && players.length > 0 && { label: 'Convertir en groupe de sélection', icon: 'star', hint: 'périodes de sélection sur les fiches', onSelect: () => setConverting(true) },
+                  !fixed && manage && { label: g.archived ? 'Désarchiver' : 'Archiver', icon: 'archive', onSelect: () => void save<PlayerGroup>('groups', { ...g, archived: !g.archived }) },
+                  !fixed && canTransferGroup(role) && { label: transferring ? 'Fermer « Réattribuer »' : 'Réattribuer…', icon: 'users', onSelect: () => setTransferring((t) => !t) },
                   players.length > 0 && {
                     label: 'Voir dans Joueurs',
                     icon: 'user',
@@ -1258,11 +1426,11 @@ function PlayerGroupDetail() {
                   can.manageEvents(role) && players.length > 0 && { label: 'Créer un événement', icon: 'calendar', hint: `avec ces ${gw.joueurs}`, onSelect: () => nav(`/evenements?groupe=${g.id}`) },
                   wellnessItem,
                   lampItem,
-                  ...groupExportItems({ g, players: view.roster, gender: gg, pole: pole && ref && pm ? { ref, m: pm, view: poleView } : undefined, nav }),
+                  ...groupExportItems({ g, players: view.roster, gender: gg, pole: pole && ref && pm ? { ref, m: pm, view: poleView } : undefined, sel: sel && sm ? { ref: sel, view: selView } : undefined, nav }),
                   { label: 'Copier le lien', icon: 'copy', onSelect: () => copyLink(`/groupes/${g.id}`) },
                   // Créé par…, modifié par… : plus sous le titre (31/10), comme la fiche joueur.
                   stamp && { label: 'Infos du groupe', icon: 'clock', hint: 'création, dernière modification', onSelect: () => setStampOpen(true) },
-                  manage && {
+                  manage && !sel && {
                     label: 'Supprimer',
                     icon: 'trash',
                     danger: true,
@@ -1318,6 +1486,46 @@ function PlayerGroupDetail() {
             </p>
           )}
         </div>
+      )}
+
+      {/* Groupe de sélection : vue « En ce moment | Saison 2025-2026 | … » dans l'adresse (?saison=), gardée au retour. */}
+      {sel && sm && (
+        <div className="flex flex-col gap-1">
+          {sm.seasons.length > 0 && (
+            <select
+              className="field max-w-xs text-xs"
+              aria-label="Saison"
+              value={selView}
+              onChange={(e) => nav(`${loc.pathname}${withSelectionView(loc.search, e.target.value as SelectionView)}`, { replace: true, state: loc.state })}
+            >
+              {selectionViewOptions(sm).map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="text-[11px] text-muted">
+            {selView === 'courante'
+              ? `Membres calculés depuis les périodes de sélection des fiches.${selManage ? ` Ajouter ${gw.un} ${gw.joueur} ouvre une période aujourd’hui ; « Fin de sélection… » la ferme avec un motif.` : ''}`
+              : `Tous ${gw.ceux} qui ont été ${accord('sélectionné', gg, 2)} pendant la saison ${selView}, même quelques jours.`}
+          </p>
+          {poleMsg && (
+            <p role="status" className="text-[11px] text-emerald-300">
+              {poleMsg}
+            </p>
+          )}
+        </div>
+      )}
+      {converting && (
+        <ConvertGroupDialog
+          g={g}
+          players={players}
+          onClose={(msg, target) => {
+            setConverting(false)
+            if (msg && target) nav(`/groupes/${target}`)
+          }}
+        />
       )}
 
       {/* « + Ajouter des joueurs », « Comparer », « Retirer des joueurs » : en tête du ⋮ du titre (02/11) ; groupe vide :
@@ -1389,6 +1597,7 @@ function PlayerGroupDetail() {
                             <>
                               {!!g.editors?.length && addedByOf(p.id) && <span className="truncate text-[10px] text-muted">{w(p.sex).ajoute} par {addedByOf(p.id)}</span>}
                               {pole && poleLine(p) && <span className="truncate text-[10px] text-muted">{poleLine(p)}</span>}
+                              {sel && selLine(p) && <span className="truncate text-[10px] text-muted">{selLine(p)}</span>}
                               <GroupRewatchLine rows={rewatch.by.get(p.id) ?? []} events={rewatch.events} sex={p.sex} />
                             </>
                           }
@@ -1397,6 +1606,10 @@ function PlayerGroupDetail() {
                               ? leads
                                 ? [poleMenuItem(p)]
                                 : undefined
+                              : sel
+                                ? selManage
+                                  ? [{ label: 'Fin de sélection…', icon: 'close', hint: 'sortie aujourd’hui et motif sur la fiche', onSelect: () => void removeOne(p) }]
+                                  : undefined
                               : can.removeFromGroup(role, g, p.id)
                                 ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
                                 : undefined
@@ -1422,6 +1635,20 @@ function PlayerGroupDetail() {
         </RosterQueryBar>
       )}
       <CompareBar pick={pick} players={players} />
+      {selExiting && sel && (
+        <SelectionExitDialog
+          name={`${selExiting.lastName.toUpperCase()} ${selExiting.firstName}`}
+          group={g.name}
+          sex={selExiting.sex}
+          onClose={async (reason) => {
+            const p = selExiting
+            setSelExiting(null)
+            if (!reason) return
+            const ok = await leaveSelection(p, sel, reason)
+            setPoleMsg(ok ? `${p.lastName.toUpperCase()} ${p.firstName} : fin de sélection enregistrée sur sa fiche (aujourd’hui, ${selectionExitLabel(reason)?.toLowerCase()}).` : `${p.lastName.toUpperCase()} ${p.firstName} n’a pas de période en cours dans ce groupe.`)
+          }}
+        />
+      )}
       {exiting && ref && pm && (
         <ExitReasonDialog
           name={`${exiting.lastName.toUpperCase()} ${exiting.firstName}`}

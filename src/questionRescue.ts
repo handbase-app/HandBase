@@ -32,6 +32,7 @@ import { putYears, yearsOf } from './birthYears'
 import { cleanRecipe, decodeRecipe, encodeRecipe, handsOf, type Interpreted, type Population, type QuestionContext, type Recipe } from './recipe'
 import type { Laterality } from './db'
 import { bestMatch, normalize, REGION_ALIASES } from './voiceFilters'
+import { selectionPhraseIn } from './selections'
 
 // ---------- Dictée ----------
 
@@ -244,6 +245,9 @@ const CLUB_COUNT = /\b(?:combien|nombre)(?: total)?(?: (?:y a t il|il y a|ya t i
 const CLUB_COUNT_NOTE_RE = /\b(?:nombre|combien|total|compter|compte)\b.*\bclubs?\b|^clubs?(?: repertories?)?$/
 const NEG = /\bau moins (\d{1,3}|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b(.*?)\b(?:aucun|aucune|pas de|pas un seul|pas une seule|zero)\b(.*)$/
 
+/** Notes « pas pris en compte » qui parlent de sélection ou de stage. */
+const SEL_NOTE_RE = /\b(?:selection\w*|equipe de france|edf|stages?|national\w*)\b/
+
 export type RescueScope = 'question' | 'liste'
 export type Rescued = Interpreted & { followUp?: boolean }
 
@@ -292,6 +296,17 @@ export function rescueInterpretation(it: Interpreted, phrase: string, ctx: Quest
       else delete r.pop.clubs
     }
     handled.push(new RegExp(`\\b(?:${said.map(escapeRe).join('|')})\\b`))
+  }
+  // « passés par l'équipe de France U17 », « sélectionnés en ce moment », « passés par un stage national » (src/selections.ts) :
+  // appliqués d'après la phrase quand le modèle ne les a pas rendus.
+  const said = selectionPhraseIn(text, ctx.today)
+  if (said.selection && !r.pop.selection) {
+    r.pop.selection = said.selection
+    handled.push(SEL_NOTE_RE)
+  }
+  if (said.stage && !r.pop.stage) {
+    r.pop.stage = said.stage
+    handled.push(SEL_NOTE_RE)
   }
   // « les 10 gauchers les plus grands », « le plus grand joueur » : trié par taille, les N premiers (1 au singulier).
   const top = topBySize(text)

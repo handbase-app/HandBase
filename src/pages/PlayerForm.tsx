@@ -11,6 +11,20 @@ import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, pla
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
 import { SEX_LABEL_ONE, w } from '../gender'
 import { poleBlockMessage, poleIssues } from '../poleChecks'
+import { useLevels, useUnits } from '../installation'
+import {
+  SELECTION_CATEGORIES,
+  SELECTION_EXITS,
+  selectionBlockMessage,
+  selectionIssues,
+  selectionLevelOfUnit,
+  selectionSummary,
+  suggestCategory,
+  type SelectionCategory,
+  type SelectionExit,
+  type SelectionLevel,
+  type SelectionPeriod,
+} from '../selections'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 import { usePoleLeader } from '../components/PoleGroup'
@@ -47,6 +61,11 @@ export default function PlayerForm() {
   // src/roles.ts) ; les autres comptes, Ligue comprise, voient les périodes sans pouvoir les changer.
   const poleLeader = usePoleLeader()
   const editPoles = can.editPoles(role, poleLeader.any)
+  // Bloc « Sélections » (src/selections.ts) : comités et ligues de la structure, rangés par nom.
+  const units = useUnits()
+  const levels = useLevels()
+  const selUnits = (lv: SelectionLevel) => units.filter((u) => selectionLevelOfUnit(u, levels) === lv).sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  const unitNameOf = (id?: string) => (id ? units.find((u) => u.id === id)?.name : undefined)
 
   useEffect(() => {
     if (!id) return
@@ -78,6 +97,9 @@ export default function PlayerForm() {
   // Garde-fou des périodes de pôle (src/poleChecks.ts) : sortie avant l'entrée refusée, le reste en simple avertissement.
   // Seulement pour qui peut modifier les périodes : une date ancienne qu'on ne peut pas corriger ne bloque pas la fiche.
   const poleChecks = editPoles ? poleIssues(p.poles, { today: today(), birthDate: p.birthDate, sex: p.sex }) : []
+  // Même garde-fou pour les sélections : sortie avant l'entrée refusée ; chevauchement dans le même groupe, date à plus d'un
+  // an, comité / ligue / catégorie manquant : avertissements.
+  const selChecks = selectionIssues(p.selections, { today: today(), sex: p.sex })
 
   async function submit() {
     if (!p.firstName?.trim() || !p.lastName?.trim()) {
@@ -85,7 +107,7 @@ export default function PlayerForm() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
-    const poleBlock = poleBlockMessage(poleChecks)
+    const poleBlock = poleBlockMessage(poleChecks) ?? selectionBlockMessage(selChecks)
     if (poleBlock) {
       setError(poleBlock)
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -406,6 +428,107 @@ export default function PlayerForm() {
             + Ajouter une période en pôle
           </button>
         )}
+      </Collapsible>
+
+      <Collapsible
+        title="Sélections"
+        summary={selectionSummary(p, unitNameOf) || 'Comité, ligue, équipe de France : périodes datées'}
+      >
+        <p className="text-[11px] text-muted">
+          Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est dans le groupe ; les groupes de sélection (page Groupes) se remplissent tout seuls à partir de ces périodes.
+        </p>
+        {(p.selections ?? []).map((x, i) => {
+          const upd = (patch: Partial<SelectionPeriod>) => set('selections', (p.selections ?? []).map((y, k) => (k === i ? { ...y, ...patch } : y)))
+          const rest = (p.selections ?? []).filter((_, k) => k !== i)
+          const choices = x.level === 'france' ? [] : selUnits(x.level)
+          return (
+            <div key={i} className="flex flex-col gap-1.5 rounded-md border border-line p-2">
+              <div className="flex items-center gap-2">
+                <select
+                  className="field min-w-0 flex-1"
+                  aria-label="Niveau"
+                  value={x.level}
+                  onChange={(e) => {
+                    const level = e.target.value as SelectionLevel
+                    upd({ level, unitId: undefined, unitName: undefined, category: level === 'france' ? (suggestCategory(p.birthDate, x.from ?? today()) as SelectionCategory | undefined) : undefined })
+                  }}
+                >
+                  <option value="comite">Sélection du comité</option>
+                  <option value="ligue">Sélection de ligue</option>
+                  <option value="france">Équipe de France</option>
+                </select>
+                <button type="button" className="shrink-0 px-1 text-muted hover:text-red-400" title="Retirer cette période" onClick={() => set('selections', rest.length ? rest : undefined)}>
+                  ✕
+                </button>
+              </div>
+              {x.level === 'france' ? (
+                <select className="field" aria-label="Catégorie" value={x.category ?? ''} onChange={(e) => upd({ category: (e.target.value || undefined) as SelectionCategory | undefined })}>
+                  <option value="">Catégorie…</option>
+                  {SELECTION_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      Équipe de France {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  className="field"
+                  aria-label={x.level === 'comite' ? 'Comité' : 'Ligue'}
+                  value={x.unitId ?? ''}
+                  onChange={(e) => upd({ unitId: e.target.value || undefined, unitName: unitNameOf(e.target.value) })}
+                >
+                  <option value="">{x.unitName ? `${x.unitName} (à choisir)` : x.level === 'comite' ? 'Comité…' : 'Ligue…'}</option>
+                  {choices.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!(p.sex === 'M' || p.sex === 'F') && (
+                <select className="field" aria-label="Masculin ou féminin" value={x.sex ?? ''} onChange={(e) => upd({ sex: (e.target.value || undefined) as 'M' | 'F' | undefined })}>
+                  <option value="">Masculin ou féminin…</option>
+                  <option value="M">Masculin</option>
+                  <option value="F">Féminin</option>
+                </select>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-0.5">
+                  <span className="label">Entrée</span>
+                  <input type="date" className="field" value={x.from ?? ''} onChange={(e) => upd({ from: e.target.value || undefined })} />
+                </label>
+                <label className="flex flex-col gap-0.5">
+                  <span className="label">Sortie (vide = en cours)</span>
+                  <input type="date" className="field" value={x.to ?? ''} onChange={(e) => upd({ to: e.target.value || undefined, exitReason: e.target.value ? x.exitReason : undefined })} />
+                </label>
+              </div>
+              {selChecks
+                .filter((c) => c.index === i)
+                .map((c) => (
+                  <p key={c.kind + (c.other ?? '')} role={c.level === 'error' ? 'alert' : undefined} className={`text-[11px] ${c.level === 'error' ? 'text-red-400' : 'text-amber-300'}`}>
+                    {c.message}
+                  </p>
+                ))}
+              {x.to && (
+                <select className="field" aria-label="Motif de sortie" value={x.exitReason ?? ''} onChange={(e) => upd({ exitReason: (e.target.value || undefined) as SelectionExit | undefined })}>
+                  <option value="">Motif de sortie…</option>
+                  {SELECTION_EXITS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )
+        })}
+        <button
+          type="button"
+          className="btn-ghost text-xs"
+          onClick={() => set('selections', [...(p.selections ?? []), { level: 'comite', ...((p.sex === 'M' || p.sex === 'F') && { sex: p.sex }), from: today() }])}
+        >
+          + Ajouter une période de sélection
+        </button>
       </Collapsible>
 
       <Collapsible

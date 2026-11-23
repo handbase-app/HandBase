@@ -30,6 +30,8 @@ import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, RewatchHistory, usePlayerRewatch } from '../components/Scouting'
 import { ParcoursStrip, usePlayerParcours } from '../components/Parcours'
 import { usePerimeter } from '../installation'
+import { useUnitName } from '../components/SelectionGroup'
+import { filledSelection, selectionBaseName, selectionCurrentAt, selectionExitLabel, selectionGroupId } from '../selections'
 import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
 import { PLAYER_TAB_DEFAULT, PLAYER_TABS, playerTabParam, tabOf, withTab, type PlayerTab } from '../tabQuery'
@@ -365,6 +367,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
         </div>
 
         <PoleCard player={p} />
+        <SelectionsCard player={p} />
 
         <PosteCard player={p} canEdit={can.editPlayer(role, p)} />
         {/* Objectifs de travail (vague 2 « Génération Bleue ») : un encadrant qui peut modifier la fiche les fixe ici ; le jeune
@@ -596,6 +599,54 @@ function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
     <div className="flex items-center justify-between gap-3 border-t border-dashed border-line px-3.5 py-2" title="Norme : 0,7 à 0,8. Au-dessus de 1 : déséquilibre abdos / lombaires.">
       <span className="text-xs text-muted">Ratio Shirado / Sorensen</span>
       <span className={`text-[13px] font-extrabold tabular-nums ${r > 1 ? 'text-amber-300' : ''}`}>{r.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span>
+    </div>
+  )
+}
+
+/**
+ * Sélections (comité, ligue, équipe de France ; src/selections.ts) : une ligne par période, la plus récente en haut
+ * (« En cours » ou les dates, motif neutre) ; le nom ouvre le groupe de sélection. Rien sans période.
+ */
+function SelectionsCard({ player }: { player: Player }) {
+  const unitName = useUnitName()
+  const day = new Date().toLocaleDateString('sv')
+  const periods = (player.selections ?? []).filter(filledSelection).sort((a, b) => (b.from ?? '').localeCompare(a.from ?? ''))
+  if (!periods.length) return null
+  const d = (s?: string) => (s ? s.split('-').reverse().join('/') : '?')
+  return (
+    <div className="card p-4" data-testid="fiche-selections">
+      <div className="section-title">Sélections</div>
+      <div className="flex flex-col gap-2">
+        {periods.map((x, i) => {
+          const now = selectionCurrentAt(x, day)
+          const future = !!x.from && x.from > day
+          const why = selectionExitLabel(x.exitReason)
+          const sex = x.sex ?? (player.sex === 'M' || player.sex === 'F' ? player.sex : undefined)
+          const name = selectionBaseName(x, (x.unitId && unitName(x.unitId)) || x.unitName)
+          return (
+            <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel-2 px-3 py-2">
+              <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${now ? 'bg-sky-500/15 text-sky-300' : 'bg-panel text-muted'}`}>
+                {now ? 'En cours' : future ? 'À venir' : 'Passée'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold">
+                  {sex ? (
+                    <Link to={`/groupes/${selectionGroupId({ level: x.level, unitId: x.unitId, category: x.category, sex })}`} className="hover:underline">
+                      {name}
+                    </Link>
+                  ) : (
+                    name
+                  )}
+                </div>
+                <div className="text-[11px] text-muted">
+                  {x.to ? `${d(x.from)} → ${d(x.to)}` : `depuis le ${d(x.from)}`}
+                  {x.to && why ? ` · ${why}` : ''}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

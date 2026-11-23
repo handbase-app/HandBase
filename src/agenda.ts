@@ -167,7 +167,15 @@ export interface AgendaEvent {
   rencontre?: { category?: string; level?: string; competition?: string; lat?: number; lng?: number }
 }
 
-const TYPE_SLUG: Record<string, string> = { match: 'match', tournoi: 'tournoi', entrainement: 'entrainement', observation: 'observation' }
+const TYPE_SLUG: Record<string, string> = {
+  match: 'match',
+  tournoi: 'tournoi',
+  entrainement: 'entrainement',
+  observation: 'observation',
+  stage_comite: 'stage-comite',
+  stage_ligue: 'stage-ligue',
+  stage_national: 'stage-national',
+}
 
 /** Nom du fichier : « match-2026-11-01.ics » (type de l'événement, ASCII seulement). */
 export const agendaFileName = (type: string, day: string) => `${TYPE_SLUG[type] ?? 'evenement'}-${DAY_RE.test(day) ? day : 'agenda'}.ics`

@@ -8,6 +8,8 @@ import { can, currentUserId, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { askArrival, joinMessage, joinPoleMany, PoleChip, usePoleLeader, usePoleRefs, useSeasons } from './PoleGroup'
 import { getMe, GroupMark } from './ui'
+import { addMessage, addToSelection, canManageSelection, SelectionChip, useSelectionCounts, useUnitName } from './SelectionGroup'
+import { isSelectedAt } from '../selections'
 
 /** Ajoute des joueurs au groupe (sans doublon, ordre conservé). Renvoie le nombre de nouveaux. */
 export function addToGroup(g: PlayerGroup, ids: string[]) {
@@ -58,23 +60,36 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
         db.groups
           .orderBy('name')
           .toArray()
-          .then((gs) => alive(gs).filter((g) => !g.archived && (g.poleUnitId ? leader.leads(g.poleUnitId) && refs.has(g.poleUnitId) : can.editGroup(role, g) || can.contributeGroup(role, g)))),
+          .then((gs) =>
+            alive(gs).filter(
+              (g) =>
+                !g.archived &&
+                (g.poleUnitId ? leader.leads(g.poleUnitId) && refs.has(g.poleUnitId) : g.selection ? canManageSelection(role) : can.editGroup(role, g) || can.contributeGroup(role, g)),
+            ),
+          ),
       ),
     [role, leader, refs],
   )
+  // Groupes de sélection (src/selections.ts) : y ajouter = ouvrir une période aujourd'hui sur la fiche. Proposés : la France et
+  // ceux qui ont des membres aujourd'hui (les autres, un par comité et par ligue, depuis leur page), du sexe des joueurs.
+  const selCounts = useSelectionCounts(groups)
+  const unitNameOf = useUnitName()
   const [picked, setPicked] = useState('')
   const n = playerIds.length
   // Accord au genre des joueurs à ajouter (src/gender.ts) : « ces 3 joueuses », « cette joueuse ».
   const chosen = useLiveQuery(() => db.players.bulkGet(playerIds).then((ps) => ps.filter((p): p is Player => !!p)), [playerIds.join(',')])
   const pg = genderOf(chosen ?? [])
   const label = n > 1 ? pluralG(n, pg) : w(pg).ceJoueur
-  const target = groups?.find((g) => g.id === picked)
+  const shown = groups?.filter((g) => !g.selection || ((g.selection.level === 'france' || (selCounts.get(g.id) ?? 0) > 0) && (pg === 'mixte' || !pg || g.selection.sex === pg)))
+  const target = shown?.find((g) => g.id === picked)
   /** Combien des joueurs à ajouter sont déjà dans le groupe (pôle : membres de la saison prochaine). */
   const insideOf = (g: PlayerGroup) => {
+    if (g.selection) return (chosen ?? []).filter((p) => isSelectedAt(p, g.selection!, s.refCurrent)).length
     const ref = g.poleUnitId ? refs.get(g.poleUnitId) : undefined
     return ref ? (chosen ?? []).filter((p) => isMemberAt(p, ref, s.refNext)).length : playerIds.filter((id) => g.playerIds.includes(id)).length
   }
   const countOf = (g: PlayerGroup) => {
+    if (g.selection) return selCounts.get(g.id) ?? 0
     const ref = g.poleUnitId ? refs.get(g.poleUnitId) : undefined
     return ref ? undefined : g.playerIds.length
   }
@@ -89,11 +104,11 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
     <div className="fixed inset-0 z-40 flex items-end justify-center scrim p-4 sm:items-center" onClick={() => onClose()}>
       <div className="win flex max-h-[80dvh] w-full max-w-md flex-col gap-3 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="text-sm font-extrabold">Mettre {label} dans un groupe</div>
-        {groups === undefined ? (
+        {shown === undefined ? (
           <div className="text-xs text-muted">Chargement…</div>
-        ) : groups.length ? (
+        ) : shown.length ? (
           <div className="flex min-h-0 flex-col gap-1 overflow-y-auto">
-            {groups.map((g) => {
+            {shown.map((g) => {
               const inside = insideOf(g)
               const all = inside === n
               const total = countOf(g)
@@ -110,6 +125,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                       <GroupMark g={g} />
                       {g.name}
                       {g.poleUnitId && <PoleChip />}
+                      {g.selection && <SelectionChip />}
                     </span>
                     <span className="block truncate text-[10px] text-muted">
                       {all
@@ -143,6 +159,10 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                 if (!when) return
                 const r = await joinPoleMany(ref, playerIds, s, undefined, when)
                 return onClose(joinMessage(r, target!.name, s, pg, when), target!.id)
+              }
+              if (target!.selection) {
+                const r = await addToSelection(target!.selection, playerIds, undefined, unitNameOf(target!.selection.unitId))
+                return onClose(addMessage(r, target!.name, pg), target!.id)
               }
               const added = await addToGroup(target!, playerIds)
               onClose(added ? `${pluralG(added, pg, 'joueur ajouté')} à « ${target!.name} ».` : `Déjà dans « ${target!.name} ».`, target!.id)
@@ -182,6 +202,8 @@ export function PlayerGroups({ playerId }: { playerId: string }) {
       await loadTeams()
       const p = await db.players.get(playerId)
       const member = (g: PlayerGroup) => {
+        // Groupe de sélection : sélectionné aujourd'hui.
+        if (g.selection) return !!p && isSelectedAt(p, g.selection, s.refCurrent)
         const ref = g.poleUnitId ? refs.get(g.poleUnitId) : undefined
         return ref ? !!p && (isMemberAt(p, ref, s.refCurrent) || isMemberAt(p, ref, s.refNext)) : g.playerIds.includes(playerId)
       }
@@ -202,6 +224,7 @@ export function PlayerGroups({ playerId }: { playerId: string }) {
             <GroupMark g={g} />
             {g.name}
             {g.poleUnitId && <PoleChip className="ml-1" />}
+            {g.selection && <SelectionChip className="ml-1" />}
           </Link>
         ))}
         {!groups.length && <span className="text-[11px] text-muted">aucun</span>}

@@ -6,15 +6,17 @@ import { accord, genderOf, w } from './gender'
  * (groupes de joueurs, barre du bas) et src/pages/Teams.tsx (groupes de travail).
  * Mêmes droits que le menu d'un groupe : un groupe de joueurs se coche si on peut le modifier (can.editGroup, créateur ou
  * administrateur selon sa visibilité), un groupe de travail si on l'a créé (can.editTeam). Les groupes Pôle restent hors
- * sélection : jamais archivés (le menu d'un groupe Pôle ne le propose pas) ni supprimés en lot.
+ * sélection : jamais archivés (le menu d'un groupe Pôle ne le propose pas) ni supprimés en lot ; les groupes de sélection
+ * (src/selections.ts) non plus.
  */
 
 export type PickKind = 'joueurs' | 'travail'
 export type BulkAction = 'archive' | 'unarchive' | 'delete'
 
 /** Raison courte (bulle, ligne sous le nom) pour laquelle ce groupe de joueurs ne se coche pas ; null : il se coche. */
-export function groupPickBlock(g: { poleUnitId?: string; private?: boolean; team?: boolean }, canEdit: boolean): string | null {
+export function groupPickBlock(g: { poleUnitId?: string; selection?: unknown; private?: boolean; team?: boolean }, canEdit: boolean): string | null {
   if (g.poleUnitId) return 'Groupe Pôle : permanent, il se gère depuis sa page'
+  if (g.selection) return 'Groupe de sélection : permanent, il se gère depuis sa page'
   if (!canEdit) return g.private || g.team ? 'Géré par son créateur' : 'Géré par son créateur ou un administrateur'
   return null
 }
