@@ -628,6 +628,79 @@ export function staffRank(r: StaffRow): number {
   return (max !== null ? -100 - max * 50 : 100) - n('wellBelow') * 10 - n('below')
 }
 
+// ---------- Forme du jour (tableau du groupe, src/pages/GroupWellness.tsx ; test : tools/test-forme.ts) ----------
+
+/** Picto de chaque note du matin (tableau du staff) : énergie, fraîcheur musculaire, humeur, sommeil. */
+export const WELLNESS_PICTO: Record<WellnessKey, string> = { energie: '⚡', fraicheur: '🦵', humeur: '😊', sommeil: '🌙' }
+
+/** Poids de la gêne dans la forme du jour : on retire un quart de l'intensité la plus forte (gêne 8/10 : −2). */
+export const FORME_PAIN_WEIGHT = 0.25
+
+/** Forme du jour d'un joueur, sur 10 (une décimale). */
+export interface Forme {
+  /** 1 à 10, une décimale. */
+  value: number
+  /** Moyenne des notes données (sans la gêne). */
+  notes: number
+  /** Nombre de notes données (1 à 4). */
+  count: number
+  /** Gêne la plus forte du jour (null : aucune). */
+  pain: number | null
+  /** Ce que la gêne retire (0 sans gêne). */
+  minus: number
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * « Forme du jour », sur 10 : moyenne des notes du matin données (énergie, fraîcheur, humeur, sommeil ; toutes dans le même
+ * sens : plus haut = mieux), moins un quart de la gêne la plus forte du jour (FORME_PAIN_WEIGHT), bornée à 1 … 10, une
+ * décimale. Aucune note ce jour-là (pas de réponse, ou une gêne seule) : null.
+ */
+export function formeDuJour(e: Pick<WellnessEntry, 'scores' | 'pain' | 'pains'> | null | undefined): Forme | null {
+  if (!e) return null
+  const vs = WELLNESS_KEYS.map((k) => e.scores[k]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  if (!vs.length) return null
+  const notes = vs.reduce((a, b) => a + b, 0) / vs.length
+  const pain = painMax(e)
+  const minus = pain !== null ? pain * FORME_PAIN_WEIGHT : 0
+  return { value: round1(Math.max(1, Math.min(10, notes - minus))), notes: round1(notes), count: vs.length, pain, minus }
+}
+
+/** Tranche d'une forme (décimale permise) : 0 (moins de 3), 1 (3 à 4,9), 2 (5 à 6,9), 3 (7 à 8,9), 4 (9 et plus). */
+export const formeBand = (v: number): number => Math.max(0, Math.min(4, Math.floor((v - 1) / 2)))
+
+/** Mot (et émoji) d'une forme : ceux de la jauge « énergie » du jeune (LEVEL_WORDS), toujours positifs ou neutres. */
+export const formeWord = (v: number): LevelWord => LEVEL_WORDS.energie.levels[formeBand(v)]
+
+/** Comment la forme est calculée (bulle, title, légende). */
+export const FORME_HOW =
+  'Forme du jour, sur 10 : moyenne de ses notes du matin (énergie, fraîcheur, humeur, sommeil), moins un quart de sa gêne la plus forte (gêne 8/10 : −2).'
+
+/** « Forme du jour 6,8/10 · Batterie OK — notes 7,5 de moyenne, gêne 3/10 : −0,8. » (title de la pastille). */
+export function formeTitle(f: Forme): string {
+  const parts = [`notes ${fmt1(f.notes)} de moyenne${f.count < WELLNESS_KEYS.length ? ` (${f.count} sur ${WELLNESS_KEYS.length})` : ''}`]
+  if (f.pain !== null) parts.push(`gêne ${f.pain}/10 : −${fmt1(f.minus)}`)
+  return `Forme du jour ${fmt1(f.value)}/10 · ${formeWord(f.value).word} — ${parts.join(', ')}. ${FORME_HOW}`
+}
+
+/** Le groupe ce jour-là : réponses, forme moyenne, moyenne de chaque note (null : personne ne l'a donnée). */
+export interface GroupDay {
+  answered: number
+  forme: number | null
+  avg: Record<WellnessKey, number | null>
+}
+export function groupDay(entries: readonly (WellnessEntry | null | undefined)[]): GroupDay {
+  const got = entries.filter((e): e is WellnessEntry => !!e)
+  const formes = got.map(formeDuJour).filter((f): f is Forme => !!f)
+  const avg = {} as Record<WellnessKey, number | null>
+  for (const k of WELLNESS_KEYS) {
+    const vs = got.map((e) => e.scores[k]).filter((v): v is number => typeof v === 'number')
+    avg[k] = vs.length ? round1(vs.reduce((a, b) => a + b, 0) / vs.length) : null
+  }
+  return { answered: got.length, forme: formes.length ? round1(formes.reduce((a, f) => a + f.value, 0) / formes.length) : null, avg }
+}
+
 // ---------- Fiche du joueur, côté staff (onglet Wellness, src/components/PlayerWellness.tsx) ----------
 
 /** Jours montrés dans l'onglet Wellness de la fiche (4 semaines). */

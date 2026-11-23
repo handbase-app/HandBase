@@ -54,6 +54,7 @@ import { afterWindow, FormActions, FormWindow } from '../components/FormWindow'
 import { useGiveObjective } from '../components/GroupObjectives'
 import { canReadWellness, canToggleWellness, useWellnessEnabled } from '../components/Wellness'
 import { useLampSettings } from '../components/LampStaff'
+import { GroupTile } from '../components/GroupTile'
 import { WorkGroupDetail, WorkGroupsTab } from './Teams'
 import { CapsuleTabs } from '../components/CapsuleTabs'
 import { Demander, postAsk } from '../components/Demander'
@@ -1456,15 +1457,14 @@ function PlayerGroupDetail() {
           {teamFollowed(g) && <div className="text-[10px] text-muted">{TEAM_FOLLOW.already}</div>}
           {info && <div className="mt-0.5 text-xs font-bold text-accent">{info}</div>}
           {g.description && <div className="text-xs text-muted">{g.description}</div>}
-          {wellnessOn && g.wellness && wellnessRead && (
-            <Link to={`/groupes/${g.id}/wellness`} className="mt-1 inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-accent" data-testid="lien-wellness">
-              <Icon name="heart" className="h-3.5 w-3.5" /> Wellness du jour ›
-            </Link>
-          )}
-          {lampOn && (
-            <Link to={`/groupes/${g.id}/lampes`} className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-accent" data-testid="lien-lampes">
-              <Icon name="lamp" className="h-3.5 w-3.5" /> Lampes du groupe ›
-            </Link>
+          {/* Deux tuiles sous le titre (23/11, « pas assez visible ») : Wellness (cœur, pêche → corail) et Lampe (ambre doré). */}
+          {((wellnessOn && g.wellness && wellnessRead) || lampOn) && (
+            <div className="mt-2 grid max-w-md grid-cols-2 gap-2">
+              {wellnessOn && g.wellness && wellnessRead && (
+                <GroupTile to={`/groupes/${g.id}/wellness`} icon="heart" title="Wellness" sub="Forme du jour" tone="wellness" testId="lien-wellness" />
+              )}
+              {lampOn && <GroupTile to={`/groupes/${g.id}/lampes`} icon="lamp" title="Lampes" sub="Vœux, jauges" tone="lamp" testId="lien-lampes" />}
+            </div>
           )}
           <Participants
             x={g}
