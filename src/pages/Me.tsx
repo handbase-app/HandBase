@@ -4,7 +4,8 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PictoTabs, type PictoTab } from '../components/PictoTabs'
 import { meTabOf, withMeTab, type MeTab } from '../tabQuery'
 import { BackButton } from '../backNav'
-import { Avatar, playerName, SectionTitle } from '../components/ui'
+import { playerName, SectionTitle } from '../components/ui'
+import { PlayerAvatar } from '../components/LevelRing'
 import { selectionSummary } from '../selections'
 import { alive, db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
 import { w } from '../gender'
@@ -402,7 +403,7 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
         {/* Identité : tenue par le staff, lecture seule. */}
         <div className="card p-4">
           <div className="flex items-center gap-4">
-            <Avatar p={p} size={56} />
+            <PlayerAvatar p={p} size={56} />
             <div className="min-w-0 flex-1">
               <div className="text-base font-extrabold">{playerName(p)}</div>
               <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">

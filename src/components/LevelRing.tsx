@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { alive, db, poleStatus, today, type Player } from '../db'
 import { allPlayerLevels, levelCss, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
 import { sharedQuery, useShared } from '../live'
+import { Avatar } from './ui'
 import { can } from '../roles'
 import { loadTeams } from '../teams'
 import { loadPlayerRows } from '../playersCache'
@@ -87,5 +88,17 @@ export function LevelFrame({ levels, size, children }: { levels: readonly Level[
         }}
       />
     </span>
+  )
+}
+
+/**
+ * Carré photo ou initiales d'un joueur (Avatar) avec l'anneau des niveaux : le même partout où les initiales s'affichent
+ * en carré (tête de la fiche, « Moi », wellness et lampes du groupe, évaluation), comme le rond des listes (RowAvatar).
+ */
+export function PlayerAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo'> & Partial<Pick<Player, 'id' | 'poles'>>; size: number }) {
+  return (
+    <LevelFrame levels={usePlayerLevels(p)} size={size}>
+      <Avatar p={p} size={size} />
+    </LevelFrame>
   )
 }

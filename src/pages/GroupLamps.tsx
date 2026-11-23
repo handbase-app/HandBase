@@ -5,7 +5,8 @@ import { BackButton } from '../backNav'
 import { LampDetails, staffLampView, useGroupZone } from '../components/LampStaff'
 import { LampSvg } from '../components/PlayerLamp'
 import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
-import { Avatar, Empty, playerName } from '../components/ui'
+import { Empty, playerName } from '../components/ui'
+import { PlayerAvatar } from '../components/LevelRing'
 import { canReadWellness, useWellnessEnabled } from '../components/Wellness'
 import { alive, db, type Player } from '../db'
 import { setGender, w } from '../gender'
@@ -143,7 +144,7 @@ function LampRow({ p, groupId, v, lot, wishes }: { p: Player; groupId: string; v
     <div className="card flex min-w-0 flex-col gap-2 p-2.5" data-testid="lampe-ligne-staff">
       <div className="flex min-w-0 items-center gap-2">
         <Link to={`/groupes/${groupId}/joueurs/${p.id}?onglet=wellness`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2">
-          <Avatar p={p} size={32} />
+          <PlayerAvatar p={p} size={32} />
           <span className="min-w-0">
             <span className="block truncate text-sm font-bold">{playerName(p)}</span>
             {lot && (

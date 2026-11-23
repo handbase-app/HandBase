@@ -9,7 +9,8 @@ import { RosterQueryBar, type OwnFilters } from '../components/PlayersQuery'
 import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
 import { canReadWellness, canToggleWellness, ChargeLine, PainLines, PainSummary, PAIN_TEXT_CLS, shortDay, useWellnessEnabled } from '../components/Wellness'
 import { GroupTile } from '../components/GroupTile'
-import { Avatar, Empty, Icon, playerName } from '../components/ui'
+import { Empty, Icon, playerName } from '../components/ui'
+import { PlayerAvatar } from '../components/LevelRing'
 import type { AxisAnchor } from '../components/ZoneRadar'
 import { useGroupZone, useLampSettings } from '../components/LampStaff'
 import { isRequestedDay } from '../lamp'
@@ -540,7 +541,7 @@ function WellnessRow({
     <div className={`card flex min-w-0 flex-col gap-2.5 border-l-4 p-3 ${f ? SCALE_EDGE[formeBand(f.value)] : 'border-l-line'} ${account ? '' : 'opacity-70'}`} data-testid="wellness-ligne">
       <div className="flex min-w-0 items-center gap-2.5">
         <Link to={`/groupes/${groupId}/joueurs/${p.id}?onglet=wellness`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2.5">
-          <Avatar p={p} size={40} />
+          <PlayerAvatar p={p} size={40} />
           <span className="min-w-0">
             <span className="block truncate text-sm font-bold">{playerName(p)}</span>
             {p.position && <span className="block truncate text-[10px] text-muted">{positionLabel(p.position)}</span>}

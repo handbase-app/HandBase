@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, t
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { RowAvatar } from '../components/PlayerRow'
 import { scoreLegend } from '../sportContent'
-import { Avatar, CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { CriterionInput, groupBy, Icon, NoCriteria, NumberField, playerName, PosBadge, PosBadges, QuarterBadge, Segmented, useMe } from '../components/ui'
+import { PlayerAvatar } from '../components/LevelRing'
 import { can, currentUserId, groupTag, useRole } from '../roles'
 import { loadTeams } from '../teams'
 import { ask, choose, setLeaveGuard, useUnsaved } from '../components/Confirm'
@@ -653,7 +654,7 @@ export default function Evaluate() {
                   navigate(`/joueurs/${player.id}`)
                 }}
               >
-                <Avatar p={player} size={listMode ? 32 : 40} />
+                <PlayerAvatar p={player} size={listMode ? 32 : 40} />
                 <span className="underline-offset-2 group-hover:underline">{playerName(player)}</span>
               </button>{' '}
               <PosBadges p={player} />
