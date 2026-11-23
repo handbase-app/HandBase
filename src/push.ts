@@ -136,7 +136,7 @@ export const NOTIF_KINDS = [
     label: 'Joueurs suivis',
     help: 'Nouvelles mesures et nouveaux avis sur les joueurs que tu suis (directement ou par un groupe), regroupés.',
   },
-  // supabase/080_alertes_wellness.sql : un résumé le matin, sans nom ni note (« 2 alertes wellness sur tes suivis »).
+  // supabase/080_alertes_wellness.sql : un résumé le matin, sans nom ni note (« 2 alertes wellness sur tes suivis », ouvre la page Alertes wellness (081)).
   {
     id: 'wellness',
     label: 'Alertes wellness',
