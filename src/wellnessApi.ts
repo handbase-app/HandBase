@@ -1,7 +1,13 @@
 import { alive, db, newId, today, TRIAL } from './db'
 import {
+  addDays,
+  daysBetween,
   entryFromRow,
+  groupPeriod,
+  isDay,
   removeSessionLocal,
+  WELLNESS_KEYS,
+  type GroupPeriod,
   saveEntryLocal,
   saveSessionLocal,
   sessionFromRow,
@@ -20,7 +26,8 @@ import { supabase } from './sync'
  *  - Avec le serveur : lu À LA DEMANDE et en ligne, jamais synchronisé ni gardé sur l'appareil du staff (données de santé :
  *    pas de copie hors ligne, donc dans aucun export du staff, ni dans « Demander », ni vers une IA). Le jeune passe par
  *    hb_wellness_moi / hb_wellness_enregistrer / hb_wellness_seance / hb_wellness_seance_retirer ; le staff du groupe par
- *    hb_wellness_groupe. Script pas passé (fonction absente) : `missing`, la section se tait.
+ *    hb_wellness_groupe (un jour passé : hb_wellness_groupe_au ; moyennes du groupe sur une période :
+ *    hb_wellness_groupe_moyennes, 082). Script pas passé (fonction absente) : `missing`, la section se tait.
  *  - Sans serveur (mode essai / local), et pour les fiches de démonstration (« demo-… », jamais envoyées) : sur l'appareil
  *    (stockage du navigateur), mêmes règles (src/wellness.ts). Le réglage d'installation est alors considéré ouvert (données
  *    fictives seulement).
@@ -170,36 +177,89 @@ export interface GroupWellness {
  * (le serveur vérifie que le compte est du staff du groupe et lit les fiches) ; fiches de démonstration et mode essai :
  * l'appareil (toutes comptent comme ayant un espace joueur).
  */
-export async function fetchGroupWellness(groupId: string, playerIds: readonly string[], days = 35): Promise<Res<GroupWellness>> {
+export async function fetchGroupWellness(groupId: string, playerIds: readonly string[], days = 35, until?: string): Promise<Res<GroupWellness>> {
   const entries = new Map<string, WellnessEntry[]>()
   const sessions = new Map<string, WellnessSession[]>()
   const accounts = new Set<string>()
-  const from = new Date(Date.now() - (days - 1) * 86400000).toLocaleDateString('sv')
+  const t = today()
+  // Jour choisi dans le tableau (« ‹ › », une date) : la fenêtre finit ce jour-là ; sans : aujourd'hui.
+  const to = until && isDay(until) && until < t ? until : t
+  const from = to === t ? new Date(Date.now() - (days - 1) * 86400000).toLocaleDateString('sv') : addDays(to, -(days - 1))
+  const inWindow = (d: string) => d >= from && d <= to
   const local = playerIds.filter(isLocalWellness)
   for (const id of local) {
     const d = readLocal(id)
     accounts.add(id)
-    entries.set(id, d.entries.filter((e) => e.day >= from))
-    sessions.set(id, d.sessions.filter((s) => s.day >= from))
+    entries.set(id, d.entries.filter((e) => inWindow(e.day)))
+    sessions.set(id, d.sessions.filter((s) => inWindow(s.day)))
   }
   let enabled = await wellnessEnabled()
   if (supabase && local.length < playerIds.length) {
     if (!navigator.onLine) return offline()
-    const { data, error } = await supabase.rpc('hb_wellness_groupe', { p_group_id: groupId, p_jours: days })
-    if (error) return fail(error)
-    const r = (data ?? {}) as Record<string, unknown>
+    let res: { data: unknown; error: { message?: string; code?: string } | null }
+    if (to === t) res = await supabase.rpc('hb_wellness_groupe', { p_group_id: groupId, p_jours: days })
+    else {
+      // Un jour passé : hb_wellness_groupe_au (082) ; script pas passé : hb_wellness_groupe sur 120 jours au plus, filtré ici.
+      res = await supabase.rpc('hb_wellness_groupe_au', { p_group_id: groupId, p_jusqu_au: to, p_jours: days })
+      if (res.error && wellnessMissing(res.error.code)) {
+        const span = daysBetween(from, t) + 1
+        if (span > GROUP_DAYS_MAX) return { ok: false, error: `Jour trop ancien pour ce serveur pour l’instant (${GROUP_DAYS_MAX} jours au plus).` }
+        res = await supabase.rpc('hb_wellness_groupe', { p_group_id: groupId, p_jours: span })
+      }
+    }
+    if (res.error) return fail(res.error)
+    const r = (res.data ?? {}) as Record<string, unknown>
     if (!local.length) enabled = r.actif === true
     for (const id of Array.isArray(r.comptes) ? (r.comptes as unknown[]) : []) if (typeof id === 'string') accounts.add(id)
     for (const row of Array.isArray(r.jours) ? (r.jours as Record<string, unknown>[]) : []) {
       const e = entryFromRow(row)
-      if (e?.playerId) entries.set(e.playerId, [...(entries.get(e.playerId) ?? []), e])
+      if (e?.playerId && inWindow(e.day)) entries.set(e.playerId, [...(entries.get(e.playerId) ?? []), e])
     }
     for (const row of Array.isArray(r.seances) ? (r.seances as Record<string, unknown>[]) : []) {
       const s = sessionFromRow(row)
-      if (s?.playerId) sessions.set(s.playerId, [...(sessions.get(s.playerId) ?? []), s])
+      if (s?.playerId && inWindow(s.day)) sessions.set(s.playerId, [...(sessions.get(s.playerId) ?? []), s])
     }
   }
   return { ok: true, value: { enabled, accounts, entries, sessions } }
+}
+
+/** Fenêtre la plus longue de hb_wellness_groupe (073). */
+const GROUP_DAYS_MAX = 120
+
+/**
+ * Moyennes DU GROUPE sur des périodes (repère « même période l'an dernier » des jauges) : jamais de données individuelles.
+ * Serveur : hb_wellness_groupe_moyennes (082 ; mêmes droits que hb_wellness_groupe, membres du groupe à la fin de chaque
+ * période) ; fonction absente (082 pas passé) : `missing`, les repères se taisent. Fiches de démonstration et mode essai :
+ * calculé ici sur l'appareil (groupPeriod). Gardé en mémoire seulement.
+ */
+export async function fetchGroupAverages<K extends string>(
+  groupId: string,
+  playerIds: readonly string[],
+  periods: readonly { key: K; from: string; to: string }[],
+): Promise<Res<Map<K, GroupPeriod>>> {
+  const out = new Map<K, GroupPeriod>()
+  const local = playerIds.filter(isLocalWellness)
+  if (!supabase || local.length === playerIds.length) {
+    const lists = local.map((id) => readLocal(id).entries)
+    for (const p of periods) out.set(p.key, groupPeriod(lists, p.from, p.to))
+    return { ok: true, value: out }
+  }
+  if (!navigator.onLine) return offline()
+  const { data, error } = await supabase.rpc('hb_wellness_groupe_moyennes', {
+    p_group_id: groupId,
+    p_periodes: periods.map((p) => ({ cle: p.key, du: p.from, au: p.to })),
+  })
+  if (error) return fail(error)
+  const rows = Array.isArray((data as Record<string, unknown> | null)?.periodes) ? ((data as Record<string, unknown>).periodes as Record<string, unknown>[]) : []
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  for (const p of periods) {
+    const r = rows.find((x) => x.cle === p.key)
+    if (!r) continue
+    const avg = {} as GroupPeriod['avg']
+    for (const k of WELLNESS_KEYS) avg[k] = num(r[k])
+    out.set(p.key, { from: p.from, to: p.to, answers: num(r.reponses) ?? 0, players: num(r.joueurs) ?? 0, avg, forme: num(r.forme) })
+  }
+  return { ok: true, value: out }
 }
 
 export interface PlayerWellnessData {

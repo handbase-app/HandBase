@@ -8,7 +8,7 @@ import { clearDemoGoals, seedDemoGoals } from './myGoalsApi'
 import type { ObjectiveStep, WorkObjective } from './objectives'
 import { clearDemoSelfEvals, seedDemoSelfEvals } from './selfEvalApi'
 import { clearDemoWellness } from './wellnessApi'
-import { buildDemoWellness } from './demoWellness'
+import { buildDemoWellness, buildDemoWellnessLastYear } from './demoWellness'
 import { buildDemoLamp } from './demoLamp'
 import { clearDemoLamp, seedDemoLamp } from './lampApi'
 import { scoutId } from './scouting'
@@ -330,7 +330,11 @@ export async function loadDemo() {
   // Auto-évaluations : sur l'appareil (fiches de démonstration, jamais envoyées), comme le mode essai (src/selfEvalApi.ts).
   // Lampe d'Aladin (supabase/074, src/demoLamp.ts) : le même wellness, prolongé jusqu'à la rentrée, plus cahiers du hand,
   // cahiers de match, points des encadrants et vœux (deux joueurs en route vers 100 %).
-  seedDemoLamp(buildDemoLamp(wellnessIds, localDay(now), buildDemoWellness(wellnessIds, localDay(now))))
+  // Plus la saison passée (jauges « même période l'an dernier » du tableau du groupe, src/demoWellness.ts), avant la rentrée.
+  const demoLamp = buildDemoLamp(wellnessIds, localDay(now), buildDemoWellness(wellnessIds, localDay(now)))
+  const lastYear = buildDemoWellnessLastYear(wellnessIds, localDay(now))
+  for (const [pid, p] of Object.entries(demoLamp.players)) p.wellness.entries = [...(lastYear[pid] ?? []), ...p.wellness.entries]
+  seedDemoLamp(demoLamp)
   seedDemoSelfEvals(Object.fromEntries(Object.entries(demoGoals.selfEvals).map(([i, list]) => [players[Number(i)].id, list])))
   // Objectifs « à moi » et coches du jeune : sur l'appareil aussi (src/myGoalsApi.ts) ; modèles d'objectifs de la démo.
   seedDemoGoals(Object.fromEntries(Object.entries(demoGoals.mine).map(([i, g]) => [players[Number(i)].id, g])))
