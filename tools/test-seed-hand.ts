@@ -34,6 +34,7 @@ import {
   verifySql,
   YEARS,
   type Seed,
+  type SeedEvent,
   type SeedPlayer,
 } from './seed-hand'
 import { seedUuid as volleyUuid } from './seed-volley'
@@ -47,6 +48,9 @@ import { POLE_SITES } from '../src/poles'
 import { poleCode, poleName } from '../src/structureImport'
 import type { Measurement, Player, PolePeriod } from '../src/db'
 import { snapshots } from '../src/maturitySnapshot'
+import { ageAt, poleIssues } from '../src/poleChecks'
+import { palierOf } from '../src/parcours'
+import { dateIntercomites, dateInterligues, saisonsAvant } from './poles-saison'
 
 let n = 0
 const t = (name: string, f: () => void) => {
@@ -82,13 +86,16 @@ t('identifiants uniques dans chaque table ; lignes marquées data.demoSeed = « 
   for (const k of ['players', 'measurements', 'events', 'evaluations', 'groups', 'seen', 'videos', 'units'] as const) for (const r of seed.tables[k]) assert.equal(r.data.demoSeed, 'hand', k)
 })
 
-t('volumes : 25 000 joueurs, ~1 600 clubs, ~13 000 « vu », ~1 300 avis, 50 à 75 000 mesures, ~27 événements', () => {
+t('volumes : 25 000 joueurs, ~1 600 clubs, ~13 000 « vu », ~1 300 avis, 50 à 75 000 mesures, ~27 événements (+ saisons d\'avant)', () => {
   assert.equal(s.counts.players, 25_000)
   assert.ok(s.clubs >= 1500 && s.clubs <= 1750, `clubs ${s.clubs}`)
   assert.ok(s.counts.seen >= 10_000 && s.counts.seen <= 18_000, `vus ${s.counts.seen}`)
   assert.ok(s.counts.evaluations >= 1000 && s.counts.evaluations <= 1700, `avis ${s.counts.evaluations}`)
   assert.ok(s.counts.measurements >= 50_000 && s.counts.measurements <= 75_000, `mesures ${s.counts.measurements}`)
-  assert.ok(s.counts.events >= 22 && s.counts.events <= 32, `événements ${s.counts.events}`)
+  // Événements de la saison (hors saisons d'avant l'appli, archivées : voir le test « parcours »).
+  const courants = seed.events.filter((e) => !e.archived).length
+  assert.ok(courants >= 22 && courants <= 32, `événements ${courants}`)
+  assert.ok(s.counts.events - courants >= 400 && s.counts.events - courants <= 900, `saisons d'avant ${s.counts.events - courants}`)
   assert.equal(s.counts.criteria, 91)
   assert.equal(s.counts.lists, 121)
   assert.equal(s.counts.groups, POLE_SITES.length + 3)
@@ -451,6 +458,67 @@ t('pôles : les 51 sites de src/poles.ts, reconnus par l\'appli (poleSeason), 12
   const sel = seed.tables.groups.filter((r) => !r.data.poleUnitId)
   assert.equal(sel.length, 3)
   for (const g of sel) assert.ok((g.data.playerIds as string[]).every((id) => byId.get(id)!.region === g.data.regionId))
+})
+
+t('parcours : périodes de pôle cohérentes (13–15 ans, jamais dans le futur, sortie après l\'entrée) ; Intercomités et Interligues avant le pôle', () => {
+  const units = seed.tables.units.map((r) => r.data as unknown as UnitRow)
+  const events = new Map(seed.events.map((e) => [e.id, e]))
+  const seenBy = new Map<string, Set<string>>()
+  for (const r of seed.tables.seen) seenBy.set(r.data.playerId as string, (seenBy.get(r.data.playerId as string) ?? new Set()).add(r.data.eventId as string))
+  const listed = new Map<string, string[]>()
+  for (const e of seed.events) if (e.type !== 'match' && !upcoming(e)) for (const p of e.roster) listed.set(p.id, [...(listed.get(p.id) ?? []), e.id])
+  let n = 0
+  let avecComite = 0
+  for (const p of players) {
+    const poles = (p.data.poles as PolePeriod[] | undefined) ?? []
+    if (!poles.length) continue
+    n++
+    // Le garde-fou de la fiche (src/poleChecks.ts) ne trouve rien.
+    assert.deepEqual(poleIssues(poles, { today: TODAY, birthDate: p.birthDate, sex: p.sex }), [], p.id)
+    for (const x of poles) {
+      const age = ageAt(p.birthDate, x.from!)
+      assert.ok(age >= 13 && age <= 15, `entrée à ${age} ans`)
+      assert.ok(x.from! <= TODAY, `entrée future ${x.from}`)
+      if (x.to) assert.ok(x.to > x.from!)
+    }
+    const entree = poles.map((x) => x.from!).sort()[0]
+    // Événements du jeune (vu, ou sur la liste hors match) avant son entrée : au moins une Ligue, et un Comité plus tôt.
+    const mine = [...new Set([...(seenBy.get(p.id) ?? []), ...(listed.get(p.id) ?? [])])].map((id) => events.get(id)!)
+    const before = mine.filter((e) => e.date < entree)
+    const pal = (e: SeedEvent) => palierOf({ id: e.id, name: e.name, type: e.type, date: e.date, organizerUnitId: e.organizerId, organizerName: e.organizerName }, units, HANDBALL_LEVELS)
+    const ligue = before.filter((e) => pal(e) === 'ligue').map((e) => e.date).sort()
+    assert.ok(ligue.length, `pas de Ligue avant le pôle (${p.year}, ${entree})`)
+    const comite = before.filter((e) => pal(e) === 'comite').map((e) => e.date).sort()
+    if (comite.length) {
+      avecComite++
+      assert.ok(comite[0] < ligue[0], 'Comité avant Ligue')
+    }
+  }
+  assert.ok(n > 800, `${n} jeunes passés par un pôle`)
+  assert.ok(avecComite / n > 0.95, `Intercomités : ${avecComite} / ${n}`)
+  // Saisons d'avant : passées, de 2021 à 2026, archivées, organisées par un comité ou une ligue de la structure.
+  const old = seed.events.filter((e) => e.archived)
+  for (const e of old) {
+    assert.ok(e.date >= '2021-01-01' && e.date <= '2026-12-31' && !upcoming(e), e.date)
+    assert.equal(e.type, 'tournoi')
+    assert.ok(/^(Intercomités|Interligues) \d{4}-\d{4} (garçons|filles) – /.test(e.name), e.name)
+    assert.ok(e.roster.every((p) => p.sex === e.sex))
+  }
+  assert.ok(seed.tables.events.filter((r) => r.data.archived === true).length === old.length)
+  // Règle partagée avec le SQL 078 : printemps des 14 ans, sinon le dernier avant l'entrée ; bornes 2021–2026.
+  assert.deepEqual(saisonsAvant('2009-05-26', '2023-09-01'), { ligue: 2023, comite: 2022 })
+  assert.deepEqual(saisonsAvant('2009-05-26', '2022-09-01'), { ligue: 2022, comite: 2021 })
+  assert.deepEqual(saisonsAvant('2008-01-10', '2022-09-01'), { ligue: 2022, comite: 2021 })
+  assert.deepEqual(saisonsAvant('2007-01-10', '2021-09-01'), { ligue: 2021 })
+  assert.deepEqual(saisonsAvant('2013-04-03', '2027-07-01'), { ligue: 2026, comite: 2025 })
+  assert.equal(saisonsAvant('2008-01-10', '2021-03-01'), undefined)
+  for (const y of [2021, 2024, 2026]) {
+    const il = dateInterligues(y, 'x')
+    const ic = dateIntercomites(y, 'x')
+    assert.equal(new Date(`${il}T12:00:00Z`).getUTCDay(), 6)
+    assert.ok(il >= `${y}-05-01` && il <= `${y}-05-31`, il)
+    assert.ok(ic >= `${y}-03-01` && ic <= `${y}-04-30`, ic)
+  }
 })
 
 t('SQL : apostrophes doublées, écriture idempotente, contrôles des fourchettes et du sport', () => {

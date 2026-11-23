@@ -52,6 +52,32 @@ export const PART_ENTREE_3E = 2 / 3
 /** Dates d'entrée possibles d'un jeune né en `annee` : en 3e ou en 2de (1er septembre). */
 export const entree3e = (annee: number) => `${annee + 14}-09-01`
 export const entree2de = (annee: number) => `${annee + 15}-09-01`
+/**
+ * Saisons d'avant le pôle (supabase/078_demo_parcours_coherent.sql, 23/11 : le parcours de la fiche se lit Repéré → Comité →
+ * Ligue → Pôle, dans l'ordre des dates). Années (printemps) des Interligues et des Intercomités d'un jeune né le `naissance`
+ * et entré au pôle le `entree` : Interligues au printemps de ses 14 ans (13–14 ans), sinon le dernier printemps (31 mai)
+ * avant l'entrée ; Intercomités le printemps d'avant (12–13 ans) ; jamais après `dernier`, rien avant `premier` (pas
+ * d'Intercomités alors). Rien si aucun printemps ne convient avant l'entrée. Même règle que le SQL 078 (t078_base).
+ */
+export function saisonsAvant(naissance: string, entree: string, bornes = { premier: 2021, dernier: 2026 }): { ligue: number; comite?: number } | undefined {
+  const b = Number(naissance.slice(0, 4))
+  const e = Number(entree.slice(0, 4))
+  const avant = (y: number) => `${y}-05-31` < entree
+  let ligue = avant(b + 14) ? b + 14 : avant(e) ? e : e - 1
+  ligue = Math.min(ligue, bornes.dernier)
+  if (ligue < bornes.premier || !avant(ligue)) return undefined
+  return { ligue, ...(ligue - 1 >= bornes.premier ? { comite: ligue - 1 } : {}) }
+}
+/** Un samedi (AAAA-MM-JJ) à partir du jour `debut`, `semaines` semaines plus tard (date du calendrier, sans fuseau). */
+export function samediDepuis(debut: string, semaines: number): string {
+  const d = new Date(`${debut}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 7 * semaines + ((6 - d.getUTCDay() + 7) % 7))
+  return d.toISOString().slice(0, 10)
+}
+/** Interligues : un samedi de mai (avant le 31) ; Intercomités : un samedi de mars-avril (clé : tirage stable). */
+export const dateInterligues = (annee: number, cle: string) => samediDepuis(`${annee}-05-01`, hash32(`il:${cle}`) % 4)
+export const dateIntercomites = (annee: number, cle: string) => samediDepuis(`${annee}-03-01`, hash32(`ic:${cle}`) % 7)
+
 /** Postes : 2 par poste d'abord (gardiens : 3 au plus). */
 const QUOTA_POSTE = 2
 

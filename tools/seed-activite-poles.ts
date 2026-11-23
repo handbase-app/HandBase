@@ -47,6 +47,10 @@
  *         comptes-joueurs-poles.csv dans le dossier des secrets.
  *   Mot de passe commun et empreinte : tirés une fois (openssl rand, puis extensions.crypt(…, extensions.gen_salt('bf'))
  *   dans une base jetable), ajoutés à secrets/comptes-hand.env ; jamais affichés.
+ *   Puis supabase/078_demo_parcours_coherent.sql (outils/appliquer-sql.sh, rejouable) : saisons d'avant le pôle (Intercomités,
+ *   Interligues) pour les jeunes du pôle, que le parcours de leur fiche se lise Repéré → Comité → Ligue → Pôle. Les périodes
+ *   écrites ici sont contrôlées avant tout (periodesIncoherentes : entrée à 13–15 ans, jamais dans le futur, sortie après
+ *   l'entrée) ; une seule fautive et rien n'est écrit.
  * Tests : npx jiti tools/test-seed-activite-poles.ts
  */
 import { createHash } from 'node:crypto'
@@ -54,6 +58,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PolePeriod } from '../src/db'
+import { ageAt, poleIssues } from '../src/poleChecks'
 import { accord } from '../src/gender'
 import { chargeSummary, chargeTone } from '../src/wellness'
 import { cahierText, cleanCahier, cleanMatch, type CahierKind } from '../src/cahiers'
@@ -934,11 +939,34 @@ export interface Activite {
   vies: Map<string, VieJoueur>
 }
 
+/**
+ * Garde-fou des périodes ÉCRITES (23/11, supabase/078_demo_parcours_coherent.sql) : entrée à 13–15 ans (âge exact, d'après la
+ * naissance de la fiche), jamais après le jour de référence, sortie après l'entrée, et rien que le garde-fou de la fiche
+ * (src/poleChecks.ts) relèverait. Rend les fiches fautives (vide : tout va bien). Les saisons d'avant le pôle (Intercomités,
+ * Interligues, pour que le parcours se lise Repéré → Comité → Ligue → Pôle) : repasser supabase/078 après ce jeu (rejouable :
+ * il suit les nouvelles périodes, et retire les événements des jeunes qui ne sont plus au pôle).
+ */
+export function periodesIncoherentes(plan: Pick<Plan, 'ecritures'>, joueurs: readonly Pick<Joueur, 'id' | 'naissance' | 'sexe'>[], jour: string): string[] {
+  const byId = new Map(joueurs.map((j) => [j.id, j]))
+  const out: string[] = []
+  for (const [id, w] of plan.ecritures) {
+    const j = byId.get(id)
+    if (!w.poles || !j) continue
+    const ok =
+      poleIssues(w.poles, { today: jour, birthDate: j.naissance, sex: j.sexe }).length === 0 &&
+      w.poles.every((x) => !!x.from && x.from <= jour && ageAt(j.naissance, x.from) >= 13 && ageAt(j.naissance, x.from) <= 15 && (!x.to || x.to > x.from))
+    if (!ok) out.push(id)
+  }
+  return out
+}
+
 export function preparer(e: Entree, opts: { fin?: string } = {}): Activite {
   const fin = opts.fin ?? FIN_DEFAUT
   const cands = candidats(e)
   const plan = planifierPoles(cands, { jour: fin })
   const byId = new Map(e.joueurs.map((j) => [j.id, j]))
+  const incoherentes = periodesIncoherentes(plan, e.joueurs, fin)
+  if (incoherentes.length) throw new Error(`Périodes de pôle incohérentes (fiches ${incoherentes.slice(0, 5).join(', ')}${incoherentes.length > 5 ? '…' : ''})`)
   const fiches = [...plan.ecritures].map(([id, w]) => ({
     id, avant: byId.get(id)?.poles ?? null, apres: w.poles, ...(w.boarding !== undefined ? { boarding: w.boarding } : {}),
     ...(byId.get(id)?.boarding !== undefined ? { boardingAvant: byId.get(id)!.boarding } : {}),

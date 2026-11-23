@@ -10,6 +10,7 @@ import { ProposePlayer } from '../components/ProposePlayer'
 import { Collapsible, CriterionInput, getMe, groupBy, NumberField, photoSrc, playerName, resizeImage, Segmented } from '../components/ui'
 import { alive, criterionApplies, db, lateralityLabel, newId, POLE_EXITS, POLE_PROGRAMMES, poleSummary, positionLabel, save, today, type HeightSource, type Measurement, type PoleExit, type PolePeriod, type Player } from '../db'
 import { SEX_LABEL_ONE, w } from '../gender'
+import { poleBlockMessage, poleIssues } from '../poleChecks'
 import { latestByPlayer } from './Players'
 import { can, useRole } from '../roles'
 import { usePoleLeader } from '../components/PoleGroup'
@@ -74,9 +75,19 @@ export default function PlayerForm() {
       return { ...x, usualTeam: { ...cleanUsualTeam(cur, teamCodes), at: new Date().toISOString(), src: 'staff' } }
     })
 
+  // Garde-fou des périodes de pôle (src/poleChecks.ts) : sortie avant l'entrée refusée, le reste en simple avertissement.
+  // Seulement pour qui peut modifier les périodes : une date ancienne qu'on ne peut pas corriger ne bloque pas la fiche.
+  const poleChecks = editPoles ? poleIssues(p.poles, { today: today(), birthDate: p.birthDate, sex: p.sex }) : []
+
   async function submit() {
     if (!p.firstName?.trim() || !p.lastName?.trim()) {
       setError('Le prénom et le nom sont obligatoires.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    const poleBlock = poleBlockMessage(poleChecks)
+    if (poleBlock) {
+      setError(poleBlock)
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
@@ -370,6 +381,13 @@ export default function PlayerForm() {
                   <input type="date" className="field" value={x.to ?? ''} onChange={(e) => upd({ to: e.target.value || undefined, exitReason: e.target.value ? x.exitReason : undefined })} />
                 </label>
               </div>
+              {poleChecks
+                .filter((c) => c.index === i)
+                .map((c) => (
+                  <p key={c.kind + (c.other ?? '')} role={c.level === 'error' ? 'alert' : undefined} className={`text-[11px] ${c.level === 'error' ? 'text-red-400' : 'text-amber-300'}`}>
+                    {c.message}
+                  </p>
+                ))}
               {x.to && (
                 <select className="field" value={x.exitReason ?? ''} onChange={(e) => upd({ exitReason: (e.target.value || undefined) as PoleExit | undefined })}>
                   <option value="">Motif de sortie…</option>

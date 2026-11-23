@@ -14,7 +14,9 @@
  *  - ~25 000 joueuses et joueurs FICTIFS nés de 2008 à 2014 (~36 % de filles, effet de l'âge relatif), les 7 postes du
  *    handball (GB, AG, ARG, DC, ARD, AD, PIV ; gauchers surtout à droite), leurs tests physiques (1 à 3 séances), des
  *    événements de la filière (détections départementales U13, Intercomités, Interligues, Interpôles, stages de ligue,
- *    championnat de France U18), des « vu », des avis sur la grille du handball (gardiens : critères du gardien), les groupes
+ *    championnat de France U18) et, pour les jeunes passés par un pôle, les saisons d'avant (Intercomités et Interligues de
+ *    2021 à 2026, archivés, toujours avant l'entrée au pôle : le parcours de la fiche se lit Repéré → Comité → Ligue → Pôle,
+ *    même règle que supabase/078), des « vu », des avis sur la grille du handball (gardiens : critères du gardien), les groupes
  *    des pôles (périodes de pôle sur les fiches, src/poleSeason.ts ; effectifs : tools/poles-saison.ts, 12 à 20 jeunes de
  *    3e à Tle par site, ~3/4 entrés en 3e), trois sélections régionales, trois liens vidéo.
  * Noms et prénoms courants mélangés au hasard (aucune personne réelle) ; staff fictif (noms et identifiants inventés, sans
@@ -48,9 +50,9 @@ import { PROGRAMME_AGES } from '../src/poleSeason'
 import { poleCode, poleName } from '../src/structureImport'
 import { accord, sexLabel, w } from '../src/gender'
 import { pillLabel, type PillKind } from '../src/seqPills'
-import type { PoleProgramme } from '../src/db'
+import type { PolePeriod, PoleProgramme } from '../src/db'
 import { insideRepo } from './seed-rencontres'
-import { ANNEE_SORTIS, ANNEES_POLE, planifierPoles, SITE_DEPT, type Candidat } from './poles-saison'
+import { ANNEE_SORTIS, ANNEES_POLE, dateIntercomites, dateInterligues, planifierPoles, saisonsAvant, SITE_DEPT, type Candidat } from './poles-saison'
 import {
   addDays,
   appDept,
@@ -692,6 +694,8 @@ export interface SeedEvent {
   full: number
   measure?: 'anthro' | 'full'
   tournament?: { teams: { id: string; name: string }[]; players: Record<string, { team: string; num: string }> }
+  /** Archivé (saisons d'avant l'appli) : rangé dans « Archivés », compte toujours dans le parcours des fiches. */
+  archived?: boolean
 }
 export const upcoming = (e: Pick<SeedEvent, 'date'>) => e.date > TODAY
 
@@ -965,6 +969,33 @@ export function buildEvents(st: Structure, players: SeedPlayer[]): SeedEvent[] {
   // À venir : Interpôles Nord 2027 (effectifs de la saison) et un stage de février (liste des invités).
   interpoles('interpoles-nord-2027', 'Interpôles Nord', '2027-01-23', 3, 'Eaubonne', (p) => sectorOf(poleRegion(p)) === 'nord', 'mixte', false)
   stage('stage-nor-2027', 'region-nor', 'Stage de ligue de février', '2027-02-15', 'Caen', [2012, 2013], 28, 28, false)
+  // Saisons d'avant l'appli (supabase/078, 23/11) : pour chaque jeune passé par un pôle, Intercomités (comité de son club,
+  // printemps de ses 13 ans) et Interligues (ligue de son club, printemps de ses 14 ans), toujours AVANT son entrée au pôle,
+  // de 2021 à 2026 (tools/poles-saison.ts, saisonsAvant) : le parcours de la fiche se lit Repéré → Comité → Ligue → Pôle.
+  // Un événement par comité ou ligue, saison et catégorie (garçons, filles), archivé ; « vu » par le CTS de la région.
+  const avant = new Map<string, { quoi: 'Intercomités' | 'Interligues'; an: number; sex: Sex; orgId: string; orgName: string; region: string; roster: SeedPlayer[] }>()
+  for (const p of polePlayers) {
+    const entree = (p.data.poles as PolePeriod[]).map((x) => x.from).filter((x): x is string => !!x).sort()[0]
+    const a = entree ? saisonsAvant(p.birthDate, entree) : undefined
+    if (!a) continue
+    const l = st.ligues.get(p.dept.ligue)!
+    const d = DEPT.get(p.dept.code)!
+    const add = (quoi: 'Intercomités' | 'Interligues', an: number, orgId: string, orgName: string) => {
+      const key = `avant-${quoi === 'Interligues' ? 'il' : 'ic'}-${orgId}-${an}-${p.sex}`
+      const g = avant.get(key) ?? { quoi, an, sex: p.sex, orgId, orgName, region: p.region, roster: [] }
+      g.roster.push(p)
+      avant.set(key, g)
+    }
+    add('Interligues', a.ligue, l.id, ligLabel(l))
+    if (a.comite) add('Intercomités', a.comite, st.comites.get(p.dept.code)!, `Comité ${d.de}`)
+  }
+  for (const [key, g] of [...avant].sort((x, y) => x[0].localeCompare(y[0])))
+    ev({
+      key, name: `${g.quoi} ${g.an - 1}-${g.an} ${sexWord(g.sex)} – ${g.orgName}`, type: 'tournoi',
+      date: g.quoi === 'Interligues' ? dateInterligues(g.an, key) : dateIntercomites(g.an, key), place: g.orgName, time: '10:00', sex: g.sex,
+      organizerId: g.orgId, organizerName: g.orgName, creator: ctsOf(g.region), roster: g.roster,
+      observers: [{ s: ctsOf(g.region), p: 1 }], evals: 0, full: 0, archived: true,
+    })
   return events.sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
 }
 
@@ -1380,6 +1411,7 @@ export function buildSeed(criteriaFile: string): Seed {
       id: e.id, name: e.name, type: e.type, date: e.date, place: e.place, time: e.time, ...(e.sex ? { sex: e.sex } : {}),
       playerIds: e.roster.map((p) => p.id), organizerUnitId: e.organizerId, organizerName: e.organizerName,
       ...(e.tournament ? { tournament: { ...e.tournament, assign: {} } } : {}),
+      ...(e.archived ? { archived: true } : {}),
       addedBy: Object.fromEntries(e.roster.map((p) => [p.id, e.creator.id])), editors: [], names: { [e.creator.id]: e.creator.name },
       ...stamp(e.creator.name, at, e.creator.id),
     }

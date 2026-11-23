@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { playerClub, playerDepartment } from '../src/perimeter'
 import type { PolePeriod } from '../src/db'
+import { ageAt } from '../src/poleChecks'
 import { POLE_SITES } from '../src/poles'
 import { SPORT_CONTENT } from '../src/sportContent'
 import { chargeSummary, cleanPains, completionRate } from '../src/wellness'
@@ -52,6 +53,7 @@ import {
   TESTS_ACTIVITE,
   VACANCES,
   verifySql,
+  periodesIncoherentes,
   type Entree,
   type Joueur,
 } from './seed-activite-poles'
@@ -171,6 +173,23 @@ t('effectifs : fiches figées jamais écrites ; sorties en fin de cursus seuleme
   }
   const restes = appliquerPlan(candidats(entree), a.plan).filter((c) => !c.fige && (c.poles ?? []).some((x) => x.exitReason && x.exitReason !== 'fin_cursus'))
   assert.equal(restes.length, 0)
+})
+
+t('effectifs : périodes écrites cohérentes (entrée à 13–15 ans, jamais dans le futur, sortie après l\'entrée), garde-fou qui refuse le reste', () => {
+  assert.deepEqual(periodesIncoherentes(a.plan, joueurs, FIN), [])
+  for (const [id, w] of a.plan.ecritures)
+    for (const x of w.poles ?? []) {
+      const age = ageAt(byId.get(id)!.naissance, x.from!)
+      assert.ok(age >= 13 && age <= 15 && x.from! <= FIN && (!x.to || x.to > x.from!), `${age} ${JSON.stringify(x)}`)
+    }
+  // Des périodes fausses sont repérées : entrée à 11 ans, dans le futur, sortie avant l'entrée.
+  const j = joueurs.find((x) => x.annee === 2012)!
+  const faux = (poles: PolePeriod[]) => periodesIncoherentes({ ecritures: new Map([[j.id, { poles }]]) }, joueurs, FIN)
+  assert.deepEqual(faux([{ regionId: 'region-sud', site: 'Nice', from: '2023-09-01' }]), [j.id])
+  assert.deepEqual(faux([{ regionId: 'region-sud', site: 'Nice', from: '2027-09-01' }]), [j.id])
+  assert.deepEqual(faux([{ regionId: 'region-sud', site: 'Nice', from: '2026-09-01', to: '2026-06-30' }]), [j.id])
+  assert.deepEqual(faux([{ regionId: 'region-sud', site: 'Nice', from: '2026-09-01' }]), [])
+  assert.throws(() => preparer({ ...entree, joueurs: joueurs.map((x) => (x.id === a.fiches[0].id ? { ...x, naissance: '2016-01-01' } : x)) }, { fin: FIN }), /Périodes de pôle incohérentes/)
 })
 
 t('effectifs : relancer le plan sur son résultat ne change rien ; membres actuels gardés de préférence', () => {
