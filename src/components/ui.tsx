@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { poleStatus, POSITIONS, scaleMax, scaleMin, type Criterion, type Player, type Position } from '../db'
 import { spyTarget } from '../spy'
 import { hasPendingProposal, scaleSteps, scoreAfterTap, segmentLabel, segmentState } from '../scoreCapsule'
+import { LEVEL_TAGS, LEVEL_TONES, type Level } from '../levels'
 
 // ---------- Identité de l'utilisateur sur cet appareil ----------
 
@@ -89,11 +90,21 @@ export function PoleBadge({ p }: { p: Pick<Player, 'poles'> }) {
   )
 }
 
-export function PosBadges({ p }: { p: Pick<Player, 'position' | 'secondaryPositions'> & Partial<Pick<Player, 'poles'>> }) {
+/**
+ * `levels` (fiche joueur) : tous les niveaux du joueur en pastilles, en toutes lettres et dans leurs couleurs, comme les
+ * étiquettes de la ligne (« France », « Pôle », « Ligue », « Comité » ; src/levels.ts), à la place de la seule « PÔLE ».
+ */
+export function PosBadges({ p, levels }: { p: Pick<Player, 'position' | 'secondaryPositions'> & Partial<Pick<Player, 'poles'>>; levels?: readonly Level[] }) {
   const sec = (p.secondaryPositions ?? []).filter((x) => x !== p.position)
   return (
     <>
-      <PoleBadge p={p} />
+      {levels
+        ? levels.map((l) => (
+            <span key={l} className={`niv-tag rounded-full px-2 text-[10px] leading-5 font-bold niv-${l}`} title={LEVEL_TAGS[l].title} data-testid="fiche-niveau">
+              {LEVEL_TONES[l].label}
+            </span>
+          ))
+        : <PoleBadge p={p} />}
       <PosBadge pos={p.position} />
       {sec.length > 0 && (
         <span className="text-[10px] font-bold text-muted" title="Postes secondaires">
@@ -445,6 +456,8 @@ export const ICONS = {
   users: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM17 11a3 3 0 1 0 0-6M3 20c0-3 3-5 6-5s6 2 6 5M17 15c2.5 0 4 1.7 4 5',
   /** Wellness (questionnaire du matin). */
   heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
+  /** Alerte wellness (cœur et « ! ») : gris au repos, rouge quand une alerte sonne (src/components/WellnessAlerts.tsx). */
+  heartAlert: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10zM12 9v3.5M12 15.5h.01',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z',
   lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4M12 15v2',
   list: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M8 12h8M8 16h5',

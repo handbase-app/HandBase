@@ -14,7 +14,7 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtPicker, CourtView } from '../components/CourtPicker'
-import { LevelFrame, usePlayerLevels } from '../components/LevelRing'
+import { LevelFrame, usePlayerAllLevels, usePlayerLevels } from '../components/LevelRing'
 import { Avatar, fmtValue, Icon, playerName, PosBadges, QuarterBadge, Segmented, type IconName } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, save, today, type Measurement, type Player, dayOf } from '../db'
 import { teamSummary } from '../rencontres'
@@ -139,6 +139,8 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
   }, [id])
   // Parcours par palier (src/parcours.ts) : frise sous le nom, sur téléphone comme sur ordinateur (choix du 31/10).
   const paliers = usePlayerParcours(data?.player) ?? []
+  // Niveaux en pastilles sous le nom (France, Pôle, Ligue, Comité), comme les étiquettes de la liste.
+  const allLevels = usePlayerAllLevels(data?.player ?? {})
   // Repères des tests (src/reperes.ts) : médailles dans l'onglet Tests et le bilan à imprimer.
   const reperes = useReperes()
   // « Bilan à imprimer » (menu ⋮) : fenêtre d'aperçu.
@@ -268,7 +270,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
             </div>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
-            <PosBadges p={p} />
+            <PosBadges p={p} levels={allLevels} />
             {a !== null && <span>{a} ans</span>}
             <QuarterBadge birthDate={p.birthDate} />
             {/* « Mon équipe » (src/rencontres.ts) : « U15 · Équipe 1 · Régional ». */}

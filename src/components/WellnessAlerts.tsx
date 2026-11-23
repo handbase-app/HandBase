@@ -31,7 +31,7 @@ import { fetchMyAlerts, listAlertDefs, removeAlertDef, saveAlertDef } from '../w
 import { AnchoredBubble } from './AnchoredBubble'
 import { ask } from './Confirm'
 import { pillClass } from './FilterWindow'
-import { playerName } from './ui'
+import { Icon, playerName } from './ui'
 import type { AxisAnchor } from './ZoneRadar'
 
 /*
@@ -130,6 +130,7 @@ export function WellnessAlertsCard({ followed, players, groups }: { followed: Re
         <section className="card flex flex-col gap-2 border-spread-lo/60 p-3" data-testid="alertes-wellness">
           <div className="flex items-center justify-between gap-2">
             <h2 className="flex min-w-0 items-center gap-2 text-sm font-extrabold">
+              <Icon name="heartAlert" className="h-5 w-5 shrink-0 text-red-400" />
               Alertes wellness
               <span className="rounded-full bg-spread-lo px-1.5 py-px text-[10px] font-bold text-black" title={concernedText(concerned.length, g)}>
                 {concerned.length}
@@ -140,7 +141,8 @@ export function WellnessAlertsCard({ followed, players, groups }: { followed: Re
           <ul className="flex flex-col divide-y divide-line">
             {concerned.map((p) => (
               <li key={p.id} className="flex flex-col gap-0.5 py-1.5">
-                <Link to={`/joueurs/${p.id}?onglet=wellness`} className="text-sm font-bold hover:text-accent">
+                <Link to={`/joueurs/${p.id}?onglet=wellness`} className="flex items-center gap-1.5 text-sm font-bold hover:text-accent">
+                  <Icon name="heartAlert" className="h-4 w-4 shrink-0 text-red-400" />
                   {playerName(p)} <span className="font-normal text-muted">›</span>
                 </Link>
                 {byPlayer.get(p.id)!.map(({ def, jours }) => (
@@ -167,7 +169,10 @@ export function WellnessAlertsCard({ followed, players, groups }: { followed: Re
       ) : (
         <div className="-my-1 flex flex-col gap-0.5" data-testid="alertes-wellness-vide">
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
-            <span>{active.length ? `Alertes wellness : ${noneText(listGender(undefined, [...followed].map((id) => players.get(id))))}` : 'Alertes wellness : aucune réglée.'}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Icon name="heartAlert" className="h-4 w-4 shrink-0" />
+              <span>{active.length ? `Alertes wellness : ${noneText(listGender(undefined, [...followed].map((id) => players.get(id))))}` : 'Alertes wellness : aucune réglée.'}</span>
+            </span>
             {settingsButton}
           </div>
           <OthersLine others={others} g={gOthers} open={showOthers} onToggle={() => setShowOthers(!showOthers)} />
