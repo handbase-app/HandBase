@@ -136,6 +136,12 @@ export const NOTIF_KINDS = [
     label: 'Joueurs suivis',
     help: 'Nouvelles mesures et nouveaux avis sur les joueurs que tu suis (directement ou par un groupe), regroupés.',
   },
+  // supabase/080_alertes_wellness.sql : un résumé le matin, sans nom ni note (« 2 alertes wellness sur tes suivis »).
+  {
+    id: 'wellness',
+    label: 'Alertes wellness',
+    help: 'Encadrants : le matin des jours demandés, le nombre d’alertes wellness en cours sur tes suivis (réglées dans « Mes suivis »), sans nom ni note.',
+  },
 ] as const
 
 export async function readNotifPrefs(): Promise<Record<string, boolean | number>> {

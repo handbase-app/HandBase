@@ -227,6 +227,34 @@ export const isDefaultAlert = (s: AlertSettings) => s.max === DEFAULT_ALERT.max 
 export const alertText = (s: AlertSettings) => `${s.days} jours de suite à ${s.max} ou moins (${notesText(s.note ? [s.note] : [])})`
 
 /**
+ * Série en cours, du plus récent au plus ancien : les jours DEMANDÉS de suite où `keep` est vrai. Départ : aujourd'hui s'il a
+ * répondu ; aujourd'hui demandé sans réponse encore : hier (la matinée n'est pas finie) ; jour non demandé : sauté (il ne
+ * compte pas et ne coupe pas la série). Le premier jour demandé où `keep` est faux arrête la série. Regarde `lookback`
+ * jours au plus (depuis le départ). Commune à l'alerte du groupe (lowStreak) et aux alertes de « Mes suivis »
+ * (src/wellnessAlerts.ts ; même règle côté serveur, script SQL 080 : hb_wla_serie).
+ */
+export function streakBack(
+  entries: readonly WellnessEntry[],
+  today: string,
+  keep: (e: WellnessEntry | undefined, day: string) => boolean,
+  requestedDay: (day: string) => boolean = isWeekday,
+  lookback = 120,
+): string[] {
+  if (!isDay(today)) return []
+  const byDay = new Map<string, WellnessEntry>()
+  for (const e of entries) if (e.day <= today) byDay.set(e.day, e)
+  const out: string[] = []
+  let d = today
+  if (requestedDay(today) && !byDay.has(today)) d = addDays(today, -1)
+  for (let i = 0; i < lookback; i++, d = addDays(d, -1)) {
+    if (!requestedDay(d)) continue
+    if (!keep(byDay.get(d), d)) break
+    out.push(d)
+  }
+  return out
+}
+
+/**
  * Série en cours : les jours demandés de suite, du plus récent au plus ancien, où la valeur est à `max` ou moins. Départ :
  * aujourd'hui s'il a répondu ; aujourd'hui demandé sans réponse encore : hier (la matinée n'est pas finie) ; jour non
  * demandé : le dernier jour demandé. Un jour demandé sans réponse (ou sans la note suivie) coupe la série ; un jour non
@@ -238,19 +266,15 @@ export function lowStreak(
   s: AlertSettings = DEFAULT_ALERT,
   requestedDay: (day: string) => boolean = isWeekday,
 ): string[] {
-  if (!isDay(today)) return []
-  const byDay = new Map<string, WellnessEntry>()
-  for (const e of entries) if (e.day <= today) byDay.set(e.day, e)
-  const out: string[] = []
-  let d = today
-  if (requestedDay(today) && !byDay.has(today)) d = addDays(today, -1)
-  for (let i = 0; i < 120; i++, d = addDays(d, -1)) {
-    if (!requestedDay(d)) continue
-    const v = dayValue(byDay.get(d), s.note)
-    if (v === null || v > s.max) break
-    out.push(d)
-  }
-  return out
+  return streakBack(
+    entries,
+    today,
+    (e) => {
+      const v = dayValue(e, s.note)
+      return v !== null && v <= s.max
+    },
+    requestedDay,
+  )
 }
 
 /** Alerte levée : la série atteint la durée réglée. */

@@ -240,6 +240,13 @@ export async function fetchPlayerWellness(playerId: string, groupId: string, day
   return { ok: true, value: { enabled: gw.enabled, account: gw.accounts.has(playerId), entries: gw.entries.get(playerId) ?? [], sessions: gw.sessions.get(playerId) ?? [] } }
 }
 
+/** Réponses gardées sur l'appareil (mode essai, fiches de démonstration seulement) des `days` derniers jours. */
+export function localEntries(playerId: string, days: number): WellnessEntry[] {
+  if (!isLocalWellness(playerId)) return []
+  const from = new Date(Date.now() - (days - 1) * 86400000).toLocaleDateString('sv')
+  return readLocal(playerId).entries.filter((e) => e.day >= from)
+}
+
 /** Démonstration : wellness et séances fictifs posés sur l'appareil (fiches « demo-… »). */
 export function seedDemoWellness(byPlayer: Record<string, { entries: WellnessEntry[]; sessions: WellnessSession[] }>) {
   for (const [id, d] of Object.entries(byPlayer)) writeLocal(id, d)

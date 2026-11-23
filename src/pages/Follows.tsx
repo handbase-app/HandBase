@@ -32,6 +32,7 @@ import { CHEVRON_CELL, FoldCard, LINE_LINK, PICTO_CELL, PictoMark as Mark } from
 import { TEAM_FOLLOW } from '../staffLabels'
 import { focusLabel, focusLink, focusOfNews } from '../playerFocus'
 import { daySummary, pictoLabel, ROW_KINDS, rowPictos, summaryLabel, summaryParts, type NewsKind } from '../followRows'
+import { WellnessAlertsCard } from '../components/WellnessAlerts'
 
 /** Période la plus longue lue en descendant (le fil s'arrête là : trois ans). */
 const OLDEST_DAYS = 3 * 365
@@ -498,6 +499,8 @@ export default function Follows() {
         </div>
         {!nothing && (
           <>
+            {/* Alertes wellness (supabase/080) : en haut, le staff seulement ; calculées par le serveur, jamais gardées ici. */}
+            <WellnessAlertsCard followed={follows.followed} players={players} groups={follows.groups} />
             <ViewTiles
               view={view}
               onChange={(v) => setQuery(v, null)}
