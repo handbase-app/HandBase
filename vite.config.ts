@@ -116,14 +116,25 @@ export default defineConfig(({ mode }) => {
   const word = SPORT_WORDS[sportWord]
   const wordBox = `50 60 870 ${Math.ceil(word.bottom + 10 - 60)}`
 
+  const buildTime = new Date().toISOString()
+
   return {
     base: process.env.BASE_PATH || '/',
     // Fichiers publics du sport (icônes de l'appli) : voir sportPublicDir.
     publicDir: sportPublicDir(process.cwd(), sportWord),
-    // Date de construction de la version (Réglages → « Version de l'appli »).
-    define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
+    // Date de construction de la version (Réglages → « Version de l'appli »), la même dans version.json.
+    define: { __BUILD_TIME__: JSON.stringify(buildTime) },
     plugins: [
       react(),
+      // version.json : heure de construction lue par src/pwa.ts (filet de sécurité des mises à jour). Hors de la mise en
+      // cache d'avance (globPatterns sans .json) et jamais servi par le service worker : toujours la version du serveur.
+      {
+        name: 'version-json',
+        apply: 'build',
+        generateBundle() {
+          this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildTime }) + '\n' })
+        },
+      },
       tailwindcss(),
       // Push de la veille : veille-sw.js (voir veilleSw).
       veilleSw({ ...loadEnv(mode, process.cwd(), 'VITE_') }, mode),
@@ -184,6 +195,11 @@ export default defineConfig(({ mode }) => {
           // confie les messages de type « veille ».
           importScripts: ['veille-sw.js', 'push-sw.js'],
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+          // Chaque fichier installé d'avance a son empreinte (révision), /assets/ compris : le service worker le redemande
+          // alors au serveur (cache: 'reload'), jamais au cache du navigateur. Par défaut (vite-plugin-pwa : /^assets\//),
+          // les /assets/ étaient pris dans ce cache : un 404 « immuable un an » reçu pendant la copie d'une version sur le
+          // serveur y restait, et chaque installation suivante échouait dessus (appli bloquée sur l'ancienne version, 23/11).
+          dontCacheBustURLsMatching: /(?!)/,
           // Lecteur de PDF (feuille de match, ~1,8 Mo avec son worker) : pas installé d'avance pour tout le monde,
           // gardé en cache au premier import (ensuite disponible hors ligne).
           globIgnores: ['**/assets/pdf-*.js', '**/assets/pdf.worker*', '**/essai-dictee/**'],

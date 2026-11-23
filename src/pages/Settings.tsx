@@ -1614,7 +1614,7 @@ function UpdateCheck() {
   const ready = readyNow || state === 'ready'
   const check = async () => {
     setState('busy')
-    setState(await checkForUpdate())
+    setState(await checkForUpdate(true))
   }
   return (
     <section className="card flex flex-col gap-2 px-4 py-3">
