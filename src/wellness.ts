@@ -701,6 +701,128 @@ export function groupDay(entries: readonly (WellnessEntry | null | undefined)[])
   return { answered: got.length, forme: formes.length ? round1(formes.reduce((a, f) => a + f.value, 0) / formes.length) : null, avg }
 }
 
+// ---------- Le groupe dans le temps (jauges du tableau du staff ; test : tools/test-wellness-periodes.ts) ----------
+//
+// La moyenne du groupe le jour choisi, face à la moyenne des 7 derniers jours, des 30 derniers jours et de la même période
+// l'année d'avant (4 semaines autour du même jour, 52 semaines plus tôt : même jour de la semaine). Moyennes de TOUTES les
+// réponses de la période (chaque réponse compte une fois), forme : moyenne des formes du jour (formeDuJour, inchangée).
+// Serveur : supabase/082_wellness_groupe_moyennes.sql (hb_wellness_groupe_moyennes), même calcul ; mode essai : ici.
+
+/** Repères de la jauge : 7 derniers jours, 30 derniers jours, même période l'an dernier. */
+export type PeriodKey = 'semaine' | 'mois' | 'an'
+export const PERIOD_KEYS: readonly PeriodKey[] = ['semaine', 'mois', 'an']
+/** Libellé court du repère (sous la jauge) et libellé long (bulle, légende). */
+export const PERIOD_LABEL: Record<PeriodKey, { short: string; long: string; vs: string }> = {
+  semaine: { short: '7 j', long: '7 derniers jours', vs: 'les 7 derniers jours' },
+  mois: { short: '30 j', long: '30 derniers jours', vs: 'les 30 derniers jours' },
+  an: { short: '1 an', long: 'même période l’an dernier', vs: 'l’an dernier' },
+}
+/** Même période l'an dernier : 52 semaines plus tôt (même jour de la semaine), 14 jours de part et d'autre. */
+export const LAST_YEAR_SHIFT = 364
+export const LAST_YEAR_HALF = 14
+/** Écart « net » entre le jour et un repère (sur 10) : un point, comme TONE_USUAL. */
+export const PERIOD_GAP = 1
+
+/** Bornes (comprises) de chaque repère pour un jour. */
+export function periodBounds(day: string): Record<PeriodKey, { from: string; to: string }> {
+  const ly = addDays(day, -LAST_YEAR_SHIFT)
+  return {
+    semaine: { from: addDays(day, -6), to: day },
+    mois: { from: addDays(day, -29), to: day },
+    an: { from: addDays(ly, -LAST_YEAR_HALF), to: addDays(ly, LAST_YEAR_HALF) },
+  }
+}
+
+/** Le groupe sur une période : réponses, joueurs qui ont répondu, moyenne de chaque note et de la forme (null : aucune). */
+export interface GroupPeriod {
+  from: string
+  to: string
+  answers: number
+  players: number
+  avg: Record<WellnessKey, number | null>
+  forme: number | null
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** Moyennes du groupe sur [from, to] (bornes comprises), à partir des réponses de chacun (deux décimales). Pur. */
+export function groupPeriod(byPlayer: Iterable<readonly WellnessEntry[]>, from: string, to: string): GroupPeriod {
+  const sums = {} as Record<WellnessKey, { s: number; n: number }>
+  for (const k of WELLNESS_KEYS) sums[k] = { s: 0, n: 0 }
+  let answers = 0
+  let players = 0
+  let fs = 0
+  let fn = 0
+  for (const list of byPlayer) {
+    let mine = 0
+    for (const e of list) {
+      if (e.day < from || e.day > to) continue
+      mine++
+      for (const k of WELLNESS_KEYS) {
+        const v = e.scores[k]
+        if (typeof v === 'number') {
+          sums[k].s += v
+          sums[k].n++
+        }
+      }
+      const f = formeDuJour(e)
+      if (f) {
+        fs += f.value
+        fn++
+      }
+    }
+    answers += mine
+    if (mine) players++
+  }
+  const avg = {} as Record<WellnessKey, number | null>
+  for (const k of WELLNESS_KEYS) avg[k] = sums[k].n ? round2(sums[k].s / sums[k].n) : null
+  return { from, to, answers, players, avg, forme: fn ? round2(fs / fn) : null }
+}
+
+/** Une jauge : la valeur du jour et ses repères (null : pas de réponse sur la période, ou repère pas lisible). */
+export interface Gauge {
+  value: number | null
+  refs: Record<PeriodKey, number | null>
+}
+
+/** Ce qui ressort d'une jauge : le repère le plus parlant (l'an dernier d'abord, puis le mois, puis la semaine) à un point ou plus. */
+export interface GaugeGap {
+  ref: PeriodKey
+  /** Jour − repère (positif : plus haut). */
+  diff: number
+}
+export function gaugeGap(g: Gauge): GaugeGap | null {
+  if (g.value === null) return null
+  for (const ref of ['an', 'mois', 'semaine'] as const) {
+    const r = g.refs[ref]
+    if (r === null) continue
+    const diff = round1(g.value - r)
+    if (Math.abs(diff) >= PERIOD_GAP) return { ref, diff }
+  }
+  return null
+}
+
+/** « 1,5 de moins que l’an dernier (7,4) » / « 1,2 de plus que les 30 derniers jours (5,9) » : mots neutres. */
+export function gapText(gap: GaugeGap, refValue: number): string {
+  return `${fmt1(Math.abs(gap.diff))} de ${gap.diff < 0 ? 'moins' : 'plus'} que ${PERIOD_LABEL[gap.ref].vs} (${fmt1(refValue)})`
+}
+
+/** Petites barres de la carte d'un joueur : sa forme des `n` derniers jours de semaine jusqu'à `day` (null : pas de réponse). */
+export function formeTrend(entries: readonly WellnessEntry[], day: string, n = 10): { day: string; forme: number | null }[] {
+  const byDay = new Map(entries.map((e) => [e.day, e]))
+  const out: { day: string; forme: number | null }[] = []
+  for (let d = staffDay(day); out.length < n; d = staffDay(addDays(d, -1))) out.push({ day: d, forme: formeDuJour(byDay.get(d))?.value ?? null })
+  return out.reverse()
+}
+
+/** Jour de semaine d'avant (‹) et d'après (›, jamais après `last`) dans le choix du jour du tableau. */
+export const prevStaffDay = (day: string) => staffDay(addDays(day, -1))
+export function nextStaffDay(day: string, last: string): string | null {
+  let d = addDays(day, 1)
+  while (!isWeekday(d)) d = addDays(d, 1)
+  return d <= last ? d : null
+}
+
 // ---------- Fiche du joueur, côté staff (onglet Wellness, src/components/PlayerWellness.tsx) ----------
 
 /** Jours montrés dans l'onglet Wellness de la fiche (4 semaines). */
@@ -843,6 +965,7 @@ export const WELLNESS_ERRORS: Record<string, string> = {
   groupe_inconnu: 'Groupe introuvable, ou tu n’en es pas l’encadrant.',
   pas_joueur: 'Réservé au compte du jeune.',
   sans_fiche: 'Ton compte n’est pas encore relié à ta fiche.',
+  periode: 'Ce jour-là n’est pas lisible (trop ancien, ou à venir).',
 }
 /** Fonction ou table absente (script 073 pas passé) : la section se tait. */
 export const wellnessMissing = (code?: string) => code === 'PGRST202' || code === 'PGRST205' || code === '42P01' || code === '42883'

@@ -399,7 +399,9 @@ t('cohérent avec supabase/073_wellness.sql', () => {
   assert.match(sql, /p_duree is null or p_duree not between 1 and 600/)
   assert.match(sql, new RegExp(`hb_wellness_mois_saison\\(\\) returns int language sql immutable as \\$\\$ select ${SEASON_START_MONTH} \\$\\$`))
   assert.match(sql, new RegExp(`hb_wellness_garde_jours\\(\\) returns int language sql immutable as \\$\\$ select ${WELLNESS_GRACE_DAYS} \\$\\$`))
-  for (const k of Object.keys(WELLNESS_ERRORS)) if (!['pas_joueur', 'sans_fiche'].includes(k)) assert.match(sql, new RegExp(`'${k}'`), k)
+  // « periode » : refus des fonctions du groupe dans le temps (082).
+  const sql082 = readFileSync(new URL('../supabase/082_wellness_groupe_moyennes.sql', import.meta.url), 'utf8')
+  for (const k of Object.keys(WELLNESS_ERRORS)) if (!['pas_joueur', 'sans_fiche'].includes(k)) assert.match(k === 'periode' ? sql082 : sql, new RegExp(`'${k}'`), k)
   assert.match(sql, />= 6 then/)
   assert.match(sql, /between 1 and 600/)
   // hb_upsert n'est pas réécrit ; la purge n'est pas programmée hors de la section ACTIVATION.
