@@ -38,17 +38,17 @@ t('une question et 5 niveaux pour chacune des 4 notes du matin', () => {
 
 t('mots de la maquette, par tranche', () => {
   const uniq = (k: keyof typeof LEVEL_WORDS) => [...new Set(words((v) => levelWord(k, v)))]
-  assert.deepEqual(uniq('energie'), ['À recharger', 'En charge', 'Batterie OK', 'Bien chargé', 'Full charge'])
+  assert.deepEqual(uniq('energie'), ['À recharger', 'En charge', 'Batterie OK', 'Pleine forme', 'Full charge'])
   assert.deepEqual(uniq('fraicheur'), ['Jambes à reposer', 'Ça tourne doucement', 'Jambes OK', 'Jambes légères', 'Jambes de feu'])
   assert.deepEqual(uniq('humeur'), ['Mood tranquille', 'Ça va', 'Good vibes', 'Grosse vibe', 'Au max'])
   assert.deepEqual(uniq('sommeil'), ['Nuit courte', 'Nuit moyenne', 'Bonne nuit', 'Grosse nuit', 'Nuit de champion'])
-  assert.equal(levelWord('energie', 7)!.word, 'Bien chargé')
+  assert.equal(levelWord('energie', 7)!.word, 'Pleine forme')
   assert.equal(levelWord('sommeil', 9)!.word, 'Nuit de champion')
   assert.equal(levelWord('humeur', 1)!.word, 'Mood tranquille')
 })
 
 t('émojis de la maquette', () => {
-  assert.deepEqual([...new Set(emojis((v) => levelWord('energie', v)))], ['🪫', '🔋', '⚡'])
+  assert.deepEqual([...new Set(emojis((v) => levelWord('energie', v)))], ['🪫', '🔋', '💪', '⚡'])
   assert.equal(levelWord('fraicheur', 1)!.emoji, '🦵')
   assert.equal(levelWord('fraicheur', 10)!.emoji, '🔥')
   assert.deepEqual(emojis((v) => levelWord('humeur', v)).filter((_, i) => i % 2 === 0), ['😐', '🙂', '😄', '😁', '🤩'])

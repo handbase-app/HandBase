@@ -86,7 +86,7 @@ export const LEVEL_WORDS: Record<WellnessKey, { question: string; levels: readon
       ['🪫', 'À recharger'],
       ['🔋', 'En charge'],
       ['🔋', 'Batterie OK'],
-      ['🔋', 'Bien chargé'],
+      ['💪', 'Pleine forme'],
       ['⚡', 'Full charge'],
     ]),
   },
