@@ -12,7 +12,7 @@ import { useSousNom } from '../affichage'
 import { sousNomPieces } from '../sousNom'
 import { sportContent } from '../sportContent'
 import { LEVEL_TAGS, levelLabel } from '../levels'
-import { LevelRing, usePlayerAllLevels, usePlayerLevels } from './LevelRing'
+import { LevelFrame, usePlayerAllLevels, usePlayerLevels } from './LevelRing'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -60,24 +60,24 @@ export function playerSub(p: Pick<Player, 'birthDate' | 'club'>, ...before: SubB
   return [...before, p.birthDate?.slice(0, 4), q && `Q${q}`, p.club].filter(Boolean).join(' · ')
 }
 
-/** Rond de la ligne : la photo, sinon les initiales dans la couleur du poste principal ; anneau des niveaux. */
+/** Carré arrondi de la ligne (comme partout depuis le 23/11) : la photo, sinon les initiales dans la couleur du poste principal ; anneau des niveaux. */
 export function RowAvatar({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'> & Partial<Pick<Player, 'id' | 'poles'>>; size: number }) {
   return (
-    <LevelRing levels={usePlayerLevels(p)} size={size}>
+    <LevelFrame levels={usePlayerLevels(p)} size={size}>
       <Face p={p} size={size} />
-    </LevelRing>
+    </LevelFrame>
   )
 }
 
 function Face({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' | 'position'>; size: number }) {
   const src = photoSrc(p.photo)
-  if (src) return <img src={src} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />
+  if (src) return <img src={src} alt="" className="shrink-0 rounded-lg object-cover" style={{ width: size, height: size }} />
   const hue = positionHue(p.position)
   const initials = ((p.lastName?.[0] ?? '') + (p.firstName?.[0] ?? '')).toUpperCase()
   return (
     <div
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-full font-bold tracking-tight ${hue ? '' : 'bg-panel-2 text-muted'}`}
+      className={`flex shrink-0 items-center justify-center rounded-lg font-bold tracking-tight ${hue ? '' : 'bg-panel-2 text-muted'}`}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.34), ...hueBg(hue) }}
     >
       {initials || '?'}
@@ -335,7 +335,7 @@ function Row({
           onClick={avatarLink.onClick}
           title="Voir la fiche"
           aria-label={`Fiche de ${p.firstName} ${p.lastName}`}
-          className="relative z-[1] shrink-0 rounded-full hover:ring-2 hover:ring-accent/60"
+          className="relative z-[1] shrink-0 rounded-lg hover:ring-2 hover:ring-accent/60"
         >
           {avatar}
         </Link>

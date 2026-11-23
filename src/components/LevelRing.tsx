@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { alive, db, poleStatus, today, type Player } from '../db'
-import { allPlayerLevels, levelCss, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
+import { allPlayerLevels, levelCss, levelLabel, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
 import { sharedQuery, useShared } from '../live'
 import { Avatar } from './ui'
 import { can } from '../roles'
@@ -39,27 +39,7 @@ export function usePlayerAllLevels(p: Partial<Pick<Player, 'id' | 'poles'>>): Le
 }
 
 /**
- * Anneau autour de la photo (ou des initiales) : 3 px (2,5 px sous 36 px), 1,5 px d'écart ; deux niveaux : moitié gauche,
- * moitié droite. Posé par-dessus, hors de la boîte de la photo : la ligne ne bouge pas.
- */
-export function LevelRing({ levels, size, children }: { levels: readonly Level[]; size: number; children: ReactNode }) {
-  if (!levels.length) return <>{children}</>
-  const w = ringWidth(size)
-  const mask = `radial-gradient(farthest-side, transparent calc(100% - ${w + 0.5}px), #000 calc(100% - ${w}px))`
-  return (
-    <span className="relative inline-flex shrink-0 rounded-full" style={{ width: size, height: size }} title={levelLabel(levels)} data-niveaux={levels.join(' ')}>
-      {children}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute rounded-full"
-        style={{ inset: -(w + RING_GAP), background: levelRingBackground(levels, size), WebkitMask: mask, mask }}
-      />
-    </span>
-  )
-}
-
-/**
- * Même anneau autour d'un carré arrondi (photo ou initiales en tête de la fiche, coins rounded-lg) : un niveau, sa
+ * Anneau des niveaux autour du carré arrondi de la photo ou des initiales (coins rounded-lg, la même forme partout : listes, fiche, wellness…) : un niveau, sa
  * couleur ; deux, coupé à la verticale : moitié GAUCHE le plus important, moitié droite l'autre, un petit vide en haut et
  * en bas entre les deux. Posé par-dessus, hors de la boîte : la rangée ne bouge pas.
  */
