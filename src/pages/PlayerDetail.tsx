@@ -14,6 +14,7 @@ import { possibleDuplicates } from '../merge'
 import { expiryDate } from '../purge'
 import { ReviewActions, ReviewBadge, ReviewNote } from '../components/Review'
 import { CourtPicker, CourtView } from '../components/CourtPicker'
+import { LevelFrame, usePlayerLevels } from '../components/LevelRing'
 import { Avatar, fmtValue, Icon, playerName, PosBadges, QuarterBadge, Segmented, type IconName } from '../components/ui'
 import { age, alive, criterionApplies, db, fmtDate, POLE_EXITS, poleName, lateralityLabel, remove, save, today, type Measurement, type Player, dayOf } from '../db'
 import { teamSummary } from '../rencontres'
@@ -222,7 +223,7 @@ export default function PlayerDetail({ id: idProp, hideBack = false }: { id?: st
       {/* Initiales alignées en haut avec le nom ; au bout de la rangée du nom : « Suivre » puis le ⋮ (actions de la fiche,
           Supprimer en dernier, avec confirmation). */}
       <div className="flex items-start gap-4">
-        <Avatar p={p} size={64} />
+        <SheetAvatar p={p} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h1 className="min-w-0 text-lg font-extrabold">{playerName(p)}</h1>
@@ -652,6 +653,15 @@ function SelectionsCard({ player }: { player: Player }) {
 }
 
 /** Pôle Espoirs : une ligne par période, la plus récente en haut (« Au pôle » ou « Sorti », dates, motif). */
+/** Photo ou initiales en tête de la fiche, avec l'anneau des niveaux (France, Pôle, Ligue, Comité) comme le rond des listes. */
+function SheetAvatar({ p }: { p: Player }) {
+  return (
+    <LevelFrame levels={usePlayerLevels(p)} size={64}>
+      <Avatar p={p} size={64} />
+    </LevelFrame>
+  )
+}
+
 function PoleCard({ player }: { player: Player }) {
   const today = new Date().toLocaleDateString('sv')
   const periods = (player.poles ?? []).filter((x) => x.from || x.to || x.regionId || x.site || x.name).sort((a, b) => (b.from ?? '').localeCompare(a.from ?? ''))

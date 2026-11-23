@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { alive, db, poleStatus, today, type Player } from '../db'
-import { allPlayerLevels, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
+import { allPlayerLevels, levelCss, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
 import { sharedQuery, useShared } from '../live'
 import { can } from '../roles'
 import { loadTeams } from '../teams'
@@ -52,6 +52,39 @@ export function LevelRing({ levels, size, children }: { levels: readonly Level[]
         aria-hidden
         className="pointer-events-none absolute rounded-full"
         style={{ inset: -(w + RING_GAP), background: levelRingBackground(levels, size), WebkitMask: mask, mask }}
+      />
+    </span>
+  )
+}
+
+/**
+ * Même anneau autour d'un carré arrondi (photo ou initiales en tête de la fiche, coins rounded-lg) : un niveau, sa
+ * couleur ; deux, coupé à la verticale : moitié GAUCHE le plus important, moitié droite l'autre, un petit vide en haut et
+ * en bas entre les deux. Posé par-dessus, hors de la boîte : la rangée ne bouge pas.
+ */
+export function LevelFrame({ levels, size, children }: { levels: readonly Level[]; size: number; children: ReactNode }) {
+  if (!levels.length) return <>{children}</>
+  const w = ringWidth(size)
+  const [left, right] = levels
+  const fill = right
+    ? `linear-gradient(90deg, ${levelCss(left)} 0 calc(50% - 0.75px), transparent calc(50% - 0.75px) calc(50% + 0.75px), ${levelCss(right)} calc(50% + 0.75px))`
+    : levelCss(left)
+  const ring = 'linear-gradient(#000 0 0)'
+  return (
+    <span className="relative inline-flex shrink-0 rounded-lg" style={{ width: size, height: size }} title={levelLabel(levels)} data-niveaux={levels.join(' ')}>
+      {children}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute"
+        style={{
+          inset: -(w + RING_GAP),
+          padding: w,
+          borderRadius: `calc(var(--radius-lg) + ${w + RING_GAP}px)`,
+          background: fill,
+          WebkitMask: `${ring} content-box, ${ring}`,
+          WebkitMaskComposite: 'xor',
+          mask: `${ring} content-box exclude, ${ring}`,
+        }}
       />
     </span>
   )
