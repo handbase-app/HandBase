@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs'
 import {
   BEHIND,
   buildSeed,
+  SEED_SEASON,
+  selectionPlan,
   CATS,
   categoryOf,
   DEPTS,
@@ -51,6 +53,7 @@ import { snapshots } from '../src/maturitySnapshot'
 import { ageAt, poleIssues } from '../src/poleChecks'
 import { palierOf } from '../src/parcours'
 import { dateIntercomites, dateInterligues, saisonsAvant } from './poles-saison'
+import { isStageType, selectionGroupId, selectionIssues, selectionGroupSpecs, type SelectionPeriod } from '../src/selections'
 
 let n = 0
 const t = (name: string, f: () => void) => {
@@ -92,13 +95,15 @@ t('volumes : 25 000 joueurs, ~1 600 clubs, ~13 000 « vu », ~1 300 avis, 50 à 
   assert.ok(s.counts.seen >= 10_000 && s.counts.seen <= 18_000, `vus ${s.counts.seen}`)
   assert.ok(s.counts.evaluations >= 1000 && s.counts.evaluations <= 1700, `avis ${s.counts.evaluations}`)
   assert.ok(s.counts.measurements >= 50_000 && s.counts.measurements <= 75_000, `mesures ${s.counts.measurements}`)
-  // Événements de la saison (hors saisons d'avant l'appli, archivées : voir le test « parcours »).
-  const courants = seed.events.filter((e) => !e.archived).length
+  // Événements de la saison (hors saisons d'avant l'appli, archivées : voir le test « parcours » ; hors stages : test « sélections »).
+  const stages = seed.events.filter((e) => isStageType(e.type)).length
+  const courants = seed.events.filter((e) => !e.archived && !isStageType(e.type)).length
   assert.ok(courants >= 22 && courants <= 32, `événements ${courants}`)
-  assert.ok(s.counts.events - courants >= 400 && s.counts.events - courants <= 900, `saisons d'avant ${s.counts.events - courants}`)
+  assert.ok(s.counts.events - courants - stages >= 400 && s.counts.events - courants - stages <= 900, `saisons d'avant ${s.counts.events - courants - stages}`)
   assert.equal(s.counts.criteria, 91)
   assert.equal(s.counts.lists, 121)
-  assert.equal(s.counts.groups, POLE_SITES.length + 3)
+  // Pôles, trois sélections régionales, groupes de sélection (chaque comité et ligue × 2, et 6 groupes France).
+  assert.equal(s.counts.groups, POLE_SITES.length + 3 + 2 * (DEPTS.length + LIGUES.length) + 6)
 })
 
 t('configuration : ligne « sport » = handball (lue par l\'appli et par tools/seed-rencontres.ts), postes par défaut du handball', () => {
@@ -210,8 +215,12 @@ t('filles et garçons : ~37 % de filles, chaque génération de 30 à 45 % ; pô
     assert.ok(g >= 30 && g <= 45, `${y} : ${g}`)
   }
   for (const g of seed.tables.groups) {
-    const d = g.data as { sex: 'M' | 'F'; description: string; poleUnitId?: string; playerIds: string[] }
-    if (d.poleUnitId) assert.match(d.description, d.sex === 'F' ? /^Pôle Espoirs féminin / : /^Pôle Espoirs masculin /)
+    const d = g.data as { sex: 'M' | 'F'; description: string; poleUnitId?: string; playerIds: string[]; selection?: unknown; name: string }
+    // Groupe de sélection : pas de description, le nom dit masculin ou féminin ; membres calculés (playerIds vide).
+    if (d.selection) {
+      assert.match(d.name, d.sex === 'F' ? / féminin$/ : / masculin$/)
+      assert.deepEqual(d.playerIds, [])
+    } else if (d.poleUnitId) assert.match(d.description, d.sex === 'F' ? /^Pôle Espoirs féminin / : /^Pôle Espoirs masculin /)
     else {
       assert.match(d.description, d.sex === 'F' ? /joueuses fictives\)$/ : /joueurs fictifs\)$/)
       for (const id of d.playerIds) assert.equal(byId.get(id)!.sex, d.sex)
@@ -455,7 +464,7 @@ t('pôles : les 51 sites de src/poles.ts, reconnus par l\'appli (poleSeason), 12
     for (const x of (p.data.poles as PolePeriod[] | undefined) ?? [])
       if (x.to) assert.ok(x.to === '2026-06-30' && x.exitReason === 'fin_cursus' && p.year === 2008, `sorti ${p.year} ${x.to}`)
   assert.equal(counted.size, s.poles.now)
-  const sel = seed.tables.groups.filter((r) => !r.data.poleUnitId)
+  const sel = seed.tables.groups.filter((r) => !r.data.poleUnitId && !r.data.selection)
   assert.equal(sel.length, 3)
   for (const g of sel) assert.ok((g.data.playerIds as string[]).every((id) => byId.get(id)!.region === g.data.regionId))
 })
@@ -496,15 +505,15 @@ t('parcours : périodes de pôle cohérentes (13–15 ans, jamais dans le futur,
   }
   assert.ok(n > 800, `${n} jeunes passés par un pôle`)
   assert.ok(avecComite / n > 0.95, `Intercomités : ${avecComite} / ${n}`)
-  // Saisons d'avant : passées, de 2021 à 2026, archivées, organisées par un comité ou une ligue de la structure.
-  const old = seed.events.filter((e) => e.archived)
+  // Saisons d'avant : passées, de 2021 à 2026, archivées, organisées par un comité ou une ligue de la structure (hors stages).
+  const old = seed.events.filter((e) => e.archived && !isStageType(e.type))
   for (const e of old) {
     assert.ok(e.date >= '2021-01-01' && e.date <= '2026-12-31' && !upcoming(e), e.date)
     assert.equal(e.type, 'tournoi')
     assert.ok(/^(Intercomités|Interligues) \d{4}-\d{4} (garçons|filles) – /.test(e.name), e.name)
     assert.ok(e.roster.every((p) => p.sex === e.sex))
   }
-  assert.ok(seed.tables.events.filter((r) => r.data.archived === true).length === old.length)
+  assert.ok(seed.tables.events.filter((r) => r.data.archived === true && !isStageType(r.data.type as string)).length === old.length)
   // Règle partagée avec le SQL 078 : printemps des 14 ans, sinon le dernier avant l'entrée ; bornes 2021–2026.
   assert.deepEqual(saisonsAvant('2009-05-26', '2023-09-01'), { ligue: 2023, comite: 2022 })
   assert.deepEqual(saisonsAvant('2009-05-26', '2022-09-01'), { ligue: 2022, comite: 2021 })
@@ -519,6 +528,53 @@ t('parcours : périodes de pôle cohérentes (13–15 ans, jamais dans le futur,
     assert.ok(il >= `${y}-05-01` && il <= `${y}-05-31`, il)
     assert.ok(ic >= `${y}-03-01` && ic <= `${y}-04-30`, ic)
   }
+})
+
+t('sélections (même règle que supabase/079) : âges, dates passées, garde-fou muet, groupes de toute la structure, stages cohérents', () => {
+  const sel = players.filter((p) => (p.data.selections as SelectionPeriod[] | undefined)?.length)
+  const withPole = players.filter((p) => (p.data.poles as PolePeriod[] | undefined)?.length)
+  const poleSel = withPole.filter((p) => (p.data.selections as SelectionPeriod[] | undefined)?.some((x) => x.level === 'comite'))
+  assert.ok(poleSel.length / withPole.length > 0.7 && poleSel.length / withPole.length < 0.9, `pôle sélectionné au comité ${poleSel.length} / ${withPole.length}`)
+  assert.ok(sel.length > 2000 && sel.length < 5000, `${sel.length} fiches sélectionnées`)
+  const seasonStart = (d: string) => Number(d.slice(0, 4)) - (Number(d.slice(5, 7)) < 9 ? 1 : 0)
+  const counts: Record<string, number> = {}
+  for (const p of sel) {
+    const xs = p.data.selections as SelectionPeriod[]
+    assert.deepEqual(selectionIssues(xs, { today: TODAY, sex: p.sex }), [], p.id)
+    for (const x of xs) {
+      const age = seasonStart(x.from!) - p.year
+      const want = x.level === 'comite' ? [13] : x.level === 'ligue' ? [14] : x.category === 'U17' ? [15, 16] : x.category === 'U19' ? [17, 18] : [19, 20]
+      assert.ok(want.includes(age), `${x.level} ${x.category ?? ''} à ${age} ans`)
+      assert.ok(x.from! <= TODAY && x.sex === p.sex)
+      if (x.to) assert.ok(x.to > x.from! && x.to < TODAY && ['fin_saison', 'categorie_superieure'].includes(x.exitReason!))
+      else assert.ok(seasonStart(x.from!) <= SEED_SEASON)
+      counts[x.category ?? x.level] = (counts[x.category ?? x.level] ?? 0) + 1
+    }
+  }
+  assert.ok(counts.comite > counts.ligue && counts.ligue > counts.U17 && counts.U17 > (counts.U19 ?? 0), JSON.stringify(counts))
+  assert.ok((counts.U19 ?? 0) > 0, 'quelques U19')
+  // Groupes : identifiants fixes de toute la structure, une période trouve toujours son groupe.
+  const groups = new Set(seed.tables.groups.map((r) => r.id))
+  const units = seed.tables.units.map((r) => ({ id: r.id, ...(r.data as Omit<UnitRow, 'id'>) }))
+  for (const g of selectionGroupSpecs(units, HANDBALL_LEVELS)) assert.ok(groups.has(g.id), g.name)
+  for (const p of sel)
+    for (const x of p.data.selections as SelectionPeriod[]) assert.ok(groups.has(selectionGroupId({ level: x.level, unitId: x.unitId, category: x.category, sex: p.sex })))
+  assert.ok(seed.tables.groups.some((r) => r.data.name === 'Comité du Var masculin'))
+  assert.ok(seed.tables.groups.some((r) => r.data.name === 'Équipe de France U19 féminin'))
+  // Stages : passés, liste = sélectionnés du groupe à la date, archivés pour la saison passée.
+  const stages = seed.events.filter((e) => isStageType(e.type))
+  assert.ok(stages.some((e) => e.type === 'stage_comite') && stages.some((e) => e.type === 'stage_ligue') && stages.some((e) => e.type === 'stage_national'))
+  for (const e of stages) {
+    assert.ok(!upcoming(e), e.name)
+    assert.equal(!!e.archived, seasonStart(e.date) < SEED_SEASON, e.name)
+    const level = e.type === 'stage_comite' ? 'comite' : e.type === 'stage_ligue' ? 'ligue' : 'france'
+    for (const p of e.roster)
+      assert.ok((p.data.selections as SelectionPeriod[]).some((x) => x.level === level && x.from! <= e.date && (x.to ?? '9999') >= e.date), `${e.name} : liste`)
+  }
+  // Règle : jamais une saison à venir ; saison en cours ouverte ; passée fermée au 30 juin.
+  const plan = (year: number, pole = true) => selectionPlan({ id: 'fixe-1', sex: 'F', year, pole, comite: { id: 'c', name: 'Comité du Var' }, ligue: { id: 'l', name: 'Ligue Région Sud de handball' } }, 2026)
+  for (const y of [2008, 2010, 2012, 2013, 2014, 2015]) for (const x of plan(y)) assert.ok(x.from! <= '2026-10-31')
+  assert.deepEqual(plan(2015), [])
 })
 
 t('SQL : apostrophes doublées, écriture idempotente, contrôles des fourchettes et du sport', () => {

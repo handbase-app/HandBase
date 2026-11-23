@@ -45,7 +45,7 @@ export function usePlayerParcours(p: Player | undefined | null): Palier[] | unde
     const selUnits = (p.selections ?? []).map((x) => x.unitId).filter((x): x is string => !!x)
     const orgIds = [...new Set([...[...events.values()].map((e) => e.organizerUnitId).filter((x): x is string => !!x), ...selUnits])]
     const [units, levels] = await Promise.all([db.units.bulkGet(orgIds), db.levels.toArray()])
-    const unitName = new Map(units.filter((u): u is Unit => !!u && !u.deleted).map((u) => [u.id, u.name]))
+    const unitById = new Map(units.filter((u): u is Unit => !!u && !u.deleted).map((u) => [u.id, u]))
     return parcours({
       playerId: p.id,
       events: [...events.values()],
@@ -60,7 +60,7 @@ export function usePlayerParcours(p: Player | undefined | null): Palier[] | unde
       sport,
       poleName: (x) => poleName(x, regionLabel),
       selections: p.selections,
-      selectionName: (x) => selectionBaseName(x, (x.unitId && unitName.get(x.unitId)) || x.unitName),
+      selectionName: (x) => selectionBaseName(x, (x.unitId && unitById.get(x.unitId)) || x.unitName),
     })
   }, [p?.id, p?.sex, poles, selections, sport])
 }

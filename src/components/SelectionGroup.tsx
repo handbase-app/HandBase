@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { alive, db, saveMany, save, today, type Player, type PlayerGroup } from '../db'
+import { alive, db, saveMany, save, today, type Player, type PlayerGroup, type Unit } from '../db'
 import { pluralG, w } from '../gender'
 import { useLevels, useUnits } from '../installation'
 import { officialRegions, regionOfDept, useRegions } from '../lists'
@@ -9,8 +9,10 @@ import { unitRegionId } from '../poleSeason'
 import { can } from '../roles'
 import type { Role } from '../roles'
 import {
-  closeSelection,
+  comiteName,
+  endSelection,
   conversionTarget,
+  ligueName,
   conversionWrites,
   majorityCategory,
   membersOfView,
@@ -25,6 +27,7 @@ import {
   selectionGroupSpecs,
   selectionIndexAt,
   selectionLevelOfUnit,
+  selectionBaseName,
   selectionCurrentAt,
   selectionMembersAt,
   type SelectionCategory,
@@ -43,16 +46,33 @@ import { Icon } from './ui'
  * (components/Groups.tsx). Même modèle que le groupe Pôle (components/PoleGroup.tsx).
  */
 
+/** Unité de la structure (comité, ligue) lue sur l'appareil : son nom et ses départements (libellés des sélections). */
+export function useUnitOf(): (id?: string) => Unit | undefined {
+  const units = useUnits()
+  return useMemo(() => {
+    const m = new Map(units.map((u) => [u.id, u]))
+    return (id?: string) => (id ? m.get(id) : undefined)
+  }, [units])
+}
+
 /** Toutes les fiches vivantes (membres calculés). */
 const useAllPlayers = () => useLiveQuery(() => db.players.toArray().then(alive), [])
 
-/** Nom d'une unité de la structure (comité, ligue), lu sur l'appareil. */
-export function useUnitName(): (id?: string) => string | undefined {
+/**
+ * Nom gardé sur une période de comité ou de ligue (SelectionPeriod.unitName) : le nom affiché du collectif, sans le sexe
+ * (« Comité de l'Ain », « Ligue Occitanie »), lisible même sans la structure (espace joueur). France : rien.
+ */
+export function useUnitName(): (id?: string, level?: 'comite' | 'ligue' | 'france') => string | undefined {
   const units = useUnits()
+  const levels = useLevels()
   return useMemo(() => {
-    const m = new Map(units.map((u) => [u.id, u.name]))
-    return (id?: string) => (id ? m.get(id) : undefined)
-  }, [units])
+    const m = new Map(units.map((u) => [u.id, u]))
+    return (id?: string, level?: 'comite' | 'ligue' | 'france') => {
+      const u = id ? m.get(id) : undefined
+      const lv = level ?? (u ? selectionLevelOfUnit(u, levels) : undefined)
+      return u && lv && lv !== 'france' ? selectionBaseName({ level: lv }, u) : undefined
+    }
+  }, [units, levels])
 }
 
 export interface SelectionMembers {
@@ -122,7 +142,7 @@ export function useEnsureSelectionGroups(role: Role) {
   const levels = useLevels()
   const groups = useLiveQuery(() => db.groups.toArray(), [])
   useEffect(() => {
-    if (role !== 'admin' || !groups || !units.length) return
+    if (role !== 'admin' || !groups) return
     const specs = selectionGroupSpecs(units, levels)
     const missing = missingSelectionGroups(specs, groups)
     if (!missing.length) return
@@ -169,14 +189,16 @@ export async function addToSelection(ref: SelectionRef, ids: readonly string[], 
   return out
 }
 
-/** Retrait : ferme la période en cours aujourd'hui (sortie aujourd'hui, motif). Faux s'il n'était pas sélectionné. */
-export async function leaveSelection(p: Player, ref: SelectionRef, reason: SelectionExit, to = today()): Promise<boolean> {
+/**
+ * Retrait (« Fin de sélection… ») : la période en cours se ferme hier, avec le motif (src/selections.ts, endSelection) ; ajoutée
+ * aujourd'hui même, elle est retirée. null s'il n'était pas sélectionné ; sinon « removed » : période du jour retirée.
+ */
+export async function leaveSelection(p: Player, ref: SelectionRef, reason: SelectionExit): Promise<{ removed: boolean } | null> {
   const fresh = (await db.players.get(p.id)) ?? p
-  const day = today()
-  const selections = closeSelection(fresh, ref, day, reason, to)
-  if (!selections) return false
-  await save<Player>('players', { ...fresh, selections })
-  return true
+  const r = endSelection(fresh, ref, today(), reason)
+  if (!r) return null
+  await save<Player>('players', { ...fresh, selections: r.selections })
+  return { removed: r.removed }
 }
 
 /** « 3 joueurs ajoutés à Équipe de France U17 masculin (depuis aujourd'hui, modifiable sur la fiche) ». */
@@ -240,7 +262,8 @@ export function SelectionExitDialog({ name, group, sex, onClose }: { name: strin
   return (
     <Dialog title={`Fin de sélection : ${name}`} onClose={() => onClose(null)}>
       <p className="text-[11px] text-muted">
-        Sortie de « {group} » aujourd’hui. {w(sex).LeJoueur} garde sa fiche et l’historique de ses sélections ; la date se corrige sur la fiche.
+        Sortie de « {group} » : sa période se ferme à la date d’hier (ajoutée aujourd’hui même, elle est simplement retirée). {w(sex).LeJoueur} garde sa fiche et
+        l’historique de ses sélections ; la date se corrige sur la fiche.
       </p>
       <div role="radiogroup" aria-label="Motif de sortie" className="flex flex-col gap-1">
         {SELECTION_EXITS.map((o) => (
@@ -291,6 +314,7 @@ export function ConvertGroupDialog({ g, players, onClose }: { g: PlayerGroup; pl
   const levels = useLevels()
   const ligueOf = useLigueOfRegion()
   const unitName = useUnitName()
+  const unitOf = useUnitOf()
   const [from, setFrom] = useState(today())
   const suggestedCat = majorityCategory(players, from) ?? 'U17'
   const [category, setCategory] = useState<SelectionCategory>(suggestedCat)
@@ -309,8 +333,8 @@ export function ConvertGroupDialog({ g, players, onClose }: { g: PlayerGroup; pl
     if (!unitId && auto?.unitId) setUnitId(auto.unitId)
   }, [auto?.unitId]) // eslint-disable-line react-hooks/exhaustive-deps
   const ref: SelectionRef | null = !sex ? null : level === 'france' ? { level, category, sex } : unitId ? { level, unitId, sex } : null
-  const name = ref ? selectionGroupName(ref, unitName(ref.unitId)) : ''
-  const writes = ref ? conversionWrites(players, ref, from || today(), unitName(ref.unitId)) : []
+  const name = ref ? selectionGroupName(ref, unitOf(ref.unitId)) : ''
+  const writes = ref ? conversionWrites(players, ref, from || today(), unitName(ref.unitId, ref.level)) : []
   const [busy, setBusy] = useState(false)
   async function run() {
     if (!ref || busy) return
@@ -361,7 +385,7 @@ export function ConvertGroupDialog({ g, players, onClose }: { g: PlayerGroup; pl
             <option value="">Choisir…</option>
             {choices.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name}
+                {level === 'comite' ? comiteName(u.name, u.departments) : ligueName(u.name)}
               </option>
             ))}
           </select>

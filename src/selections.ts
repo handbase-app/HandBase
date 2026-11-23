@@ -65,30 +65,74 @@ type SelPlayer = { selections?: readonly SelectionPeriod[]; sex?: string | null 
 
 const sexWord = (s: 'M' | 'F') => (s === 'F' ? 'féminin' : 'masculin')
 
-/** « Comité du Var (83) » → « Comité du Var » ; « Var » → « Comité Var ». */
-export function comiteName(unitName: string): string {
+/**
+ * Département précédé de son article (« du Var », « de l'Ain », « des Bouches-du-Rhône »), par numéro : noms des comités
+ * (« Comité du Var masculin »). Même table dans supabase/079_selections.sql (tools/test-selections.ts vérifie qu'elles sont
+ * identiques). Géographie publique seulement.
+ */
+const DEPT_DE_TABLE =
+  "01|de l'Ain;02|de l'Aisne;03|de l'Allier;04|des Alpes-de-Haute-Provence;05|des Hautes-Alpes;" +
+  "06|des Alpes-Maritimes;07|de l'Ardèche;08|des Ardennes;09|de l'Ariège;10|de l'Aube;11|de l'Aude;" +
+  "12|de l'Aveyron;13|des Bouches-du-Rhône;14|du Calvados;15|du Cantal;16|de la Charente;" +
+  "17|de la Charente-Maritime;18|du Cher;19|de la Corrèze;2A|de la Corse-du-Sud;2B|de la Haute-Corse;" +
+  "21|de la Côte-d'Or;22|des Côtes-d'Armor;23|de la Creuse;24|de la Dordogne;25|du Doubs;26|de la Drôme;" +
+  "27|de l'Eure;28|d'Eure-et-Loir;29|du Finistère;30|du Gard;31|de la Haute-Garonne;32|du Gers;33|de la Gironde;" +
+  "34|de l'Hérault;35|d'Ille-et-Vilaine;36|de l'Indre;37|d'Indre-et-Loire;38|de l'Isère;39|du Jura;40|des Landes;" +
+  "41|de Loir-et-Cher;42|de la Loire;43|de la Haute-Loire;44|de Loire-Atlantique;45|du Loiret;46|du Lot;" +
+  "47|de Lot-et-Garonne;48|de la Lozère;49|de Maine-et-Loire;50|de la Manche;51|de la Marne;52|de la Haute-Marne;" +
+  "53|de la Mayenne;54|de Meurthe-et-Moselle;55|de la Meuse;56|du Morbihan;57|de la Moselle;58|de la Nièvre;" +
+  "59|du Nord;60|de l'Oise;61|de l'Orne;62|du Pas-de-Calais;63|du Puy-de-Dôme;64|des Pyrénées-Atlantiques;" +
+  "65|des Hautes-Pyrénées;66|des Pyrénées-Orientales;67|du Bas-Rhin;68|du Haut-Rhin;69|du Rhône;" +
+  "70|de la Haute-Saône;71|de Saône-et-Loire;72|de la Sarthe;73|de la Savoie;74|de la Haute-Savoie;75|de Paris;" +
+  "76|de la Seine-Maritime;77|de Seine-et-Marne;78|des Yvelines;79|des Deux-Sèvres;80|de la Somme;81|du Tarn;" +
+  "82|de Tarn-et-Garonne;83|du Var;84|de Vaucluse;85|de la Vendée;86|de la Vienne;87|de la Haute-Vienne;" +
+  "88|des Vosges;89|de l'Yonne;90|du Territoire de Belfort;91|de l'Essonne;92|des Hauts-de-Seine;" +
+  "93|de la Seine-Saint-Denis;94|du Val-de-Marne;95|du Val-d'Oise;971|de la Guadeloupe;972|de la Martinique;" +
+  "973|de la Guyane;974|de La Réunion;976|de Mayotte;988|de Nouvelle-Calédonie;"
+export const DEPT_DE: ReadonlyMap<string, string> = new Map(
+  DEPT_DE_TABLE.split(';')
+    .filter(Boolean)
+    .map((x) => x.split('|') as [string, string]),
+)
+
+/**
+ * Nom du comité : « Comité du Var (83) » → « Comité du Var » ; unité nommée d'après son seul département (« Var », 83) →
+ * « Comité du Var » ; sinon « Comité » + le nom.
+ */
+export function comiteName(unitName: string, departments?: readonly string[]): string {
   const n = unitName.replace(/\s*\(\s*[0-9AB]+\s*\)\s*$/i, '').trim()
-  return /^comit[ée]s?(?=\s|$)/i.test(n) ? n.replace(/^comit[ée]s?/i, 'Comité') : `Comité ${n}`
+  if (/^comit[ée]s?(?=\s|$)/i.test(n)) return n.replace(/^comit[ée]s?/i, 'Comité')
+  const de = departments?.length === 1 ? DEPT_DE.get(departments[0]) : undefined
+  return de ? `Comité ${de}` : `Comité ${n}`
 }
+
+/** Unité vue par les libellés : son nom (et ses départements, pour l'article du comité) ; ou le seul nom gardé sur la période. */
+export type UnitLabel = string | { name: string; departments?: readonly string[] }
+const unitNameOf = (u?: UnitLabel) => (typeof u === 'string' ? u : u?.name)
+const unitDepts = (u?: UnitLabel) => (typeof u === 'string' ? undefined : u?.departments)
 
 /** « Ligue Auvergne-Rhône-Alpes de handball » → « Ligue Auvergne-Rhône-Alpes » ; « Occitanie » → « Ligue Occitanie ». */
 export function ligueName(unitName: string): string {
   const n = unitName.replace(/\s+de\s+(hand(?:ball)?|volley(?:[- ]?ball)?)\s*$/i, '').trim()
-  return /^ligues?\b/i.test(n) ? n.replace(/^ligues?/i, 'Ligue') : `Ligue ${n}`
+  return /^ligues?(?=\s|$)/i.test(n) ? n.replace(/^ligues?/i, 'Ligue') : `Ligue ${n}`
 }
 
 /** Nom du collectif sans le sexe : « Comité du Var », « Ligue Occitanie », « Équipe de France U17 ». */
-export function selectionBaseName(x: Pick<SelectionPeriod, 'level' | 'category' | 'unitName'>, unitName = x.unitName): string {
+export function selectionBaseName(x: Pick<SelectionPeriod, 'level' | 'category' | 'unitName'>, unit: UnitLabel | undefined = x.unitName): string {
   if (x.level === 'france') return `Équipe de France${x.category ? ` ${x.category}` : ''}`
-  if (!unitName) return x.level === 'comite' ? 'Sélection du comité' : 'Sélection de la ligue'
-  return x.level === 'comite' ? comiteName(unitName) : ligueName(unitName)
+  const name = unitNameOf(unit)
+  if (!name) return x.level === 'comite' ? 'Sélection du comité' : 'Sélection de la ligue'
+  return x.level === 'comite' ? comiteName(name, unitDepts(unit)) : ligueName(name)
 }
 
 /** Nom du groupe : « Comité du Var masculin », « Ligue Occitanie féminin », « Équipe de France U19 masculin ». */
-export const selectionGroupName = (ref: SelectionRef, unitName?: string) => `${selectionBaseName(ref, unitName)} ${sexWord(ref.sex)}`
+export const selectionGroupName = (ref: SelectionRef, unit?: UnitLabel) => `${selectionBaseName(ref, unit)} ${sexWord(ref.sex)}`
 
 /** Identifiant fixe du groupe : « sel-comite-<unité>-m », « sel-france-u17-f ». */
 export const selectionGroupId = (ref: SelectionRef) => `sel-${ref.level}-${(ref.level === 'france' ? ref.category ?? '' : ref.unitId ?? '').toLowerCase()}-${ref.sex.toLowerCase()}`
+
+/** Ligne d'information d'un groupe de sélection (liste des groupes, en-tête) : le nom dit déjà la catégorie et le sexe. */
+export const SELECTION_KIND: Record<SelectionLevel, string> = { comite: 'Sélection départementale', ligue: 'Sélection régionale', france: 'Sélection nationale' }
 
 /** Portée de groupe (PlayerGroup.scope) d'un niveau : la France compte comme un groupe « Fédération » (src/levels.ts). */
 export const SCOPE_OF: Record<SelectionLevel, 'federation' | 'ligue' | 'comite'> = { france: 'federation', ligue: 'ligue', comite: 'comite' }
@@ -211,6 +255,22 @@ export function closeSelection(p: SelPlayer, ref: SelectionRef, day: string, rea
   return (p.selections ?? []).map((x, k) => (k === i ? { ...x, to, exitReason: reason } : x))
 }
 
+/** Veille d'un jour AAAA-MM-JJ. */
+export const dayBefore = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
+
+/**
+ * « Fin de sélection » depuis le groupe : la période en cours se ferme LA VEILLE (dernier jour de sélection : hier), pour que
+ * le joueur sorte tout de suite de la vue « En ce moment » ; une période commencée aujourd'hui même (ajout du jour, annulé)
+ * est simplement retirée. null : pas de période en cours.
+ */
+export function endSelection(p: SelPlayer, ref: SelectionRef, today: string, reason: SelectionExit): { selections: SelectionPeriod[]; removed: boolean } | null {
+  const i = selectionIndexAt(p, ref, today)
+  if (i < 0) return null
+  const x = (p.selections ?? [])[i]
+  if (x.from && x.from >= today) return { selections: (p.selections ?? []).filter((_, k) => k !== i), removed: true }
+  return { selections: closeSelection(p, ref, today, reason, dayBefore(today))!, removed: false }
+}
+
 /** Retire seulement une période pas encore commencée (ajout prévu à une date future, annulé) ; null : rien à annuler. */
 export function cancelUpcoming(p: SelPlayer, ref: SelectionRef, today: string): SelectionPeriod[] | null {
   const i = (p.selections ?? []).findIndex((x) => selectionMatches(x, ref, p.sex) && isDay(x.from) && x.from > today)
@@ -262,7 +322,7 @@ export function selectionGroupSpecs(units: readonly UnitRow[], levels: readonly 
     for (const { u } of live.filter((x) => x.level === lv).sort((a, b) => a.u.name.localeCompare(b.u.name, 'fr')))
       for (const sex of sexes) {
         const ref: SelectionRef = { level: lv, unitId: u.id, sex }
-        out.push({ id: selectionGroupId(ref), name: selectionGroupName(ref, u.name), ref, unitName: u.name, ...(lv === 'comite' && u.departments?.[0] && { department: u.departments[0] }) })
+        out.push({ id: selectionGroupId(ref), name: selectionGroupName(ref, u), ref, unitName: u.name, ...(lv === 'comite' && u.departments?.[0] && { department: u.departments[0] }) })
       }
   for (const category of SELECTION_CATEGORIES)
     for (const sex of sexes) {
@@ -335,7 +395,7 @@ export function periodText(from: string, to: string): string {
 }
 
 /** « Comité du Var, depuis le 01/09/2025 ; Équipe de France U17, du 01/09/2024 au 30/06/2025 (fin de saison) ». */
-export function selectionSummary(p: SelPlayer, unitName: (id: string) => string | undefined = () => undefined): string {
+export function selectionSummary(p: SelPlayer, unitName: (id: string) => UnitLabel | undefined = () => undefined): string {
   const d = (s: string) => s.split('-').reverse().join('/')
   return (p.selections ?? [])
     .filter(filledSelection)

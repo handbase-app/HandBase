@@ -161,7 +161,7 @@ export function AddToGroupDialog({ playerIds, onClose }: { playerIds: string[]; 
                 return onClose(joinMessage(r, target!.name, s, pg, when), target!.id)
               }
               if (target!.selection) {
-                const r = await addToSelection(target!.selection, playerIds, undefined, unitNameOf(target!.selection.unitId))
+                const r = await addToSelection(target!.selection, playerIds, undefined, unitNameOf(target!.selection.unitId, target!.selection.level))
                 return onClose(addMessage(r, target!.name, pg), target!.id)
               }
               const added = await addToGroup(target!, playerIds)

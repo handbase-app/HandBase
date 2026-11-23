@@ -6,12 +6,16 @@
 //
 //   npx jiti tools/test-selections.ts
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   cancelUpcoming,
   cleanSelectionWanted,
   cleanStageWanted,
   closeSelection,
   comiteName,
+  dayBefore,
+  endSelection,
+  DEPT_DE,
   conversionTarget,
   conversionWrites,
   isSelectedAt,
@@ -129,6 +133,21 @@ t('noms des groupes : comité (sans le numéro), ligue (sans « de handball »),
   assert.equal(selectionGroupId(U19_F), 'sel-france-u19-f')
 })
 
+t('comité nommé d’après son département : article (« de l’Ain », « du Var », « des Bouches-du-Rhône ») ; même table que le 079', () => {
+  assert.equal(comiteName('Ain', ['01']), 'Comité de l’Ain'.replace('’', "'"))
+  assert.equal(comiteName('Var', ['83']), 'Comité du Var')
+  assert.equal(comiteName('Bouches-du-Rhône', ['13']), 'Comité des Bouches-du-Rhône')
+  assert.equal(comiteName('Corse', ['2A', '2B']), 'Comité Corse', 'plusieurs départements : le nom')
+  assert.equal(comiteName('Wallis-et-Futuna', ['986']), 'Comité Wallis-et-Futuna', 'absent de la table : le nom')
+  assert.equal(selectionGroupName({ level: 'comite', unitId: 'x', sex: 'F' }, { name: 'Hérault', departments: ['34'] }), "Comité de l'Hérault féminin")
+  // supabase/079_selections.sql : même table (« ('01', 'de l''Ain') »).
+  const sql = readFileSync(new URL('../supabase/079_selections.sql', import.meta.url), 'utf8')
+  const block = /insert into t079_dept \(code, de\) values\n([\s\S]*?);\n/.exec(sql)![1]
+  const pairs = [...block.matchAll(/\('([0-9AB]+)', '((?:[^']|'')*)'\)/g)].map((m) => [m[1], m[2].replace(/''/g, "'")])
+  assert.deepEqual(pairs, [...DEPT_DE])
+  assert.equal(DEPT_DE.size, 102)
+})
+
 t('niveau d’une unité : par l’identifiant ou le nom du niveau ; pôle, club, fédération : rien', () => {
   assert.equal(selectionLevelOfUnit(units[1], levels), 'ligue')
   assert.equal(selectionLevelOfUnit(units[2], levels), 'comite')
@@ -207,6 +226,17 @@ t('ajout : période ouverte aujourd’hui (unité, sexe du groupe) ; déjà memb
     ['fin_saison', 'categorie_superieure', 'blessure', 'autre'],
   )
   assert.ok(SELECTION_EXITS.every((x) => !/retenu|refus|exclu|echec|échec/i.test(x.label)), 'motifs neutres seulement')
+})
+
+t('fin de sélection depuis le groupe : fermée la veille (sort tout de suite de « En ce moment ») ; ajoutée le jour même : retirée', () => {
+  assert.equal(dayBefore('2026-03-01'), '2026-02-28')
+  const a = endSelection(players[0], LIG_M, TODAY, 'autre')!
+  assert.equal(a.removed, false)
+  assert.deepEqual(a.selections[1], { level: 'ligue', unitId: 'lig', from: '2025-09-01', to: '2026-11-22', exitReason: 'autre' })
+  assert.equal(isSelectedAt({ ...players[0], selections: a.selections }, LIG_M, TODAY), false)
+  const today = { id: 'z', sex: 'M' as const, selections: [{ level: 'comite' as const, unitId: 'cd1', from: TODAY }] }
+  assert.deepEqual(endSelection(today, CD_M, TODAY, 'autre'), { selections: [], removed: true })
+  assert.equal(endSelection(players[5], CD_M, TODAY, 'autre'), null)
 })
 
 t('groupes matérialisés : membres du jour dans playerIds (copie), et niveaux de l’anneau (France, Ligue, Comité)', () => {

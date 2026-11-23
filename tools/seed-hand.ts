@@ -18,7 +18,10 @@
  *    2021 à 2026, archivés, toujours avant l'entrée au pôle : le parcours de la fiche se lit Repéré → Comité → Ligue → Pôle,
  *    même règle que supabase/078), des « vu », des avis sur la grille du handball (gardiens : critères du gardien), les groupes
  *    des pôles (périodes de pôle sur les fiches, src/poleSeason.ts ; effectifs : tools/poles-saison.ts, 12 à 20 jeunes de
- *    3e à Tle par site, ~3/4 entrés en 3e), trois sélections régionales, trois liens vidéo.
+ *    3e à Tle par site, ~3/4 entrés en 3e), trois sélections régionales, trois liens vidéo ;
+ *  - les SÉLECTIONS (src/selections.ts, même règle que supabase/079_selections.sql) : périodes comité (saison des 13 ans),
+ *    ligue (14 ans), équipe de France U17 (15–16 ans), U19 (17–18 ans) sur une partie des fiches (surtout celles passées par un
+ *    pôle), les groupes de sélection de toute la structure (identifiants fixes) et quelques stages (comité, ligue, national).
  * Noms et prénoms courants mélangés au hasard (aucune personne réelle) ; staff fictif (noms et identifiants inventés, sans
  * compte ni profil). Aucune donnée fédérale, aucun mineur réel, aucun logo. Marqueurs seulement positifs ou neutres (jamais
  * « pas retenu » ; sorties de pôle : « fin de cursus ») ; textes accordés au féminin par src/gender.ts.
@@ -51,6 +54,8 @@ import { poleCode, poleName } from '../src/structureImport'
 import { accord, sexLabel, w } from '../src/gender'
 import { pillLabel, type PillKind } from '../src/seqPills'
 import type { PolePeriod, PoleProgramme } from '../src/db'
+import { selectionBaseName, selectionGroupName, selectionGroupSpecs, SCOPE_OF, type SelectionPeriod } from '../src/selections'
+import { HANDBALL_LEVELS, type UnitRow } from '../src/structureTree'
 import { insideRepo } from './seed-rencontres'
 import { ANNEE_SORTIS, ANNEES_POLE, dateIntercomites, dateInterligues, planifierPoles, saisonsAvant, SITE_DEPT, type Candidat } from './poles-saison'
 import {
@@ -668,7 +673,7 @@ export function buildPoles(st: Structure, players: SeedPlayer[]): PoleOut[] {
 
 // ---------- Événements de la filière ----------
 
-type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation'
+type EventType = 'match' | 'tournoi' | 'entrainement' | 'observation' | 'stage_comite' | 'stage_ligue' | 'stage_national'
 interface Obs {
   s: Staff
   p: number
@@ -999,6 +1004,144 @@ export function buildEvents(st: Structure, players: SeedPlayer[]): SeedEvent[] {
   return events.sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
 }
 
+// ---------- Sélections (comité, ligue, équipe de France) et stages ----------
+
+/**
+ * Taux de la règle commune avec supabase/079_selections.sql : [fiche passée par un pôle, autre fiche]. Comité parmi toutes les
+ * fiches, ligue parmi les sélectionnés du comité, U17 parmi ceux de la ligue, U19 parmi les U17, U21 parmi les U19.
+ */
+export const SEL_RATES = { comite: [0.8, 0.1], ligue: [0.7, 0.4], u17: [0.18, 0.02], u19: [0.6, 0.6], u21: [0.6, 0.6] } as const
+
+/** Ce qu'il faut d'une fiche pour ses sélections. */
+export interface SelInput {
+  id: string
+  sex: Sex
+  year: number
+  pole: boolean
+  comite?: { id: string; name: string }
+  ligue?: { id: string; name: string }
+}
+
+/**
+ * Périodes de sélection d'une fiche (même règle que le 079) ; âge = année de début de saison − année de naissance : comité la
+ * saison de ses 13 ans (1er septembre → 30 juin), ligue celle de ses 14 ans, France U17 les saisons de ses 15 et 16 ans (à partir
+ * du 1er octobre), U19 de ses 17 et 18 ans, U21 de ses 19 et 20 ans ; jamais une saison à venir ; saison en cours : période
+ * ouverte ; passée : sortie au 30 juin, « fin de saison » (« catégorie au-dessus » quand la catégorie France suivante suit).
+ */
+export function selectionPlan(p: SelInput, season: number): SelectionPeriod[] {
+  const k = p.pole ? 0 : 1
+  const draw = (what: keyof typeof SEL_RATES) => new Draw('selection', what, p.id).chance(SEL_RATES[what][k])
+  const cd = !!p.comite && p.year + 13 <= season && draw('comite')
+  const lig = cd && !!p.ligue && p.year + 14 <= season && draw('ligue')
+  const u17 = lig && p.year + 15 <= season && draw('u17')
+  const u19 = u17 && p.year + 17 <= season && draw('u19')
+  const u21 = u19 && p.year + 19 <= season && draw('u21')
+  const out: SelectionPeriod[] = []
+  const add = (x: Omit<SelectionPeriod, 'from' | 'to' | 'exitReason' | 'sex'>, s1: number, s2: number, month: string, next: boolean) => {
+    const open = s2 >= season
+    out.push({ ...x, sex: p.sex, from: `${s1}-${month}-01`, ...(!open && { to: `${s2 + 1}-06-30`, exitReason: next ? 'categorie_superieure' : 'fin_saison' }) })
+  }
+  if (cd) add({ level: 'comite', unitId: p.comite!.id, unitName: p.comite!.name }, p.year + 13, p.year + 13, '09', false)
+  if (lig) add({ level: 'ligue', unitId: p.ligue!.id, unitName: p.ligue!.name }, p.year + 14, p.year + 14, '09', false)
+  if (u17) add({ level: 'france', category: 'U17' }, p.year + 15, p.year + 16, '10', u19)
+  if (u19) add({ level: 'france', category: 'U19' }, p.year + 17, p.year + 18, '10', u21)
+  if (u21) add({ level: 'france', category: 'U21' }, p.year + 19, p.year + 20, '10', false)
+  return out
+}
+
+/** Saison en cours du jeu (année du 1er septembre). */
+export const SEED_SEASON = Number(TODAY.slice(5, 7)) >= 9 ? Number(TODAY.slice(0, 4)) : Number(TODAY.slice(0, 4)) - 1
+
+/** Pose les périodes de sélection sur les fiches (data.selections) ; renvoie le nombre de fiches sélectionnées. */
+export function buildSelections(st: Structure, players: SeedPlayer[]): number {
+  // Nom gardé sur la période : celui du collectif sans le sexe (« Comité du Var », « Ligue de Bretagne »), comme l'appli.
+  const unitName = new Map(st.rows.map((r) => [r.id, selectionBaseName({ level: r.data.levelId === 'niveau-ligue' ? 'ligue' : 'comite' }, r.data as unknown as UnitRow)]))
+  let n = 0
+  for (const p of players) {
+    const comiteId = st.comites.get(p.dept.code)
+    const ligueId = st.ligues.get(p.dept.ligue)?.id
+    const plan = selectionPlan(
+      {
+        id: p.id,
+        sex: p.sex,
+        year: p.year,
+        pole: !!(p.data.poles as PolePeriod[] | undefined)?.length,
+        ...(comiteId && { comite: { id: comiteId, name: unitName.get(comiteId)! } }),
+        ...(ligueId && { ligue: { id: ligueId, name: unitName.get(ligueId)! } }),
+      },
+      SEED_SEASON,
+    )
+    if (!plan.length) continue
+    p.data.selections = plan
+    n++
+  }
+  return n
+}
+
+/** Samedi suivant (ou le jour même). */
+const saturday = (d: string) => {
+  const t = new Date(`${d}T12:00:00Z`)
+  return addDays(d, (6 - t.getUTCDay() + 7) % 7)
+}
+
+/**
+ * Stages (même règle que le 079) : « Stage de sélection » de comité (saison en cours, au moins 3 sélectionnés), « Stage de
+ * ligue » (saison passée et en cours, au moins 3), « Stage national U17 / U19 / U21 » (saison passée et en cours) ; liste = les
+ * sélectionnés du groupe à la date du stage ; jamais après aujourd'hui ; saison passée : archivé.
+ */
+export function buildStages(st: Structure, players: SeedPlayer[]): SeedEvent[] {
+  const season = SEED_SEASON
+  type K = { key: string; type: 'stage_comite' | 'stage_ligue' | 'stage_national'; level: 'comite' | 'ligue' | 'france'; unitId?: string; cat?: string; sex: Sex; an: number }
+  const keys = new Map<string, K>()
+  for (const p of players)
+    for (const x of (p.data.selections as SelectionPeriod[] | undefined) ?? []) {
+      const seasons = x.level === 'comite' ? (x.to ? [] : [season]) : [season - 1, season]
+      for (const an of seasons) {
+        if (x.from! > `${an + 1}-06-30` || (x.to ?? '9999-12-31') < `${an}-09-01`) continue
+        const type = x.level === 'comite' ? 'stage_comite' : x.level === 'ligue' ? 'stage_ligue' : 'stage_national'
+        const key = `stage-${x.level === 'france' ? x.category : x.unitId}-${an}-${p.sex}`
+        if (!keys.has(key)) keys.set(key, { key, type, level: x.level, unitId: x.unitId, cat: x.category, sex: p.sex, an })
+      }
+    }
+  const unitName = new Map(st.rows.map((r) => [r.id, r]))
+  const out: SeedEvent[] = []
+  for (const k of [...keys.values()].sort((a, b) => a.key.localeCompare(b.key))) {
+    const h = hash32(k.key)
+    const raw =
+      k.an < season
+        ? saturday(`${k.an + 1}-02-${k.type === 'stage_national' ? '14' : '07'}`)
+        : k.type === 'stage_comite'
+          ? saturday(addDays(`${k.an}-10-17`, 7 * (h % 4)))
+          : k.type === 'stage_ligue'
+            ? saturday(addDays(`${k.an}-10-24`, 7 * (h % 3)))
+            : saturday(`${k.an}-10-24`)
+    const lo = k.type === 'stage_national' ? `${k.an}-10-01` : `${k.an}-09-01`
+    const hi = addDays(TODAY, -1)
+    const date = raw > hi ? (hi < lo ? lo : hi) : raw < lo ? lo : raw
+    const roster = players.filter((p) =>
+      ((p.data.selections as SelectionPeriod[] | undefined) ?? []).some(
+        (x) => x.level === k.level && (k.level === 'france' ? x.category === k.cat : x.unitId === k.unitId) && x.sex === k.sex && x.from! <= date && (x.to ?? '9999-12-31') >= date,
+      ),
+    )
+    if (roster.length < (k.type === 'stage_national' ? 1 : 3)) continue
+    const u = k.unitId ? unitName.get(k.unitId) : undefined
+    const label = u ? selectionGroupName({ level: k.level, unitId: k.unitId, sex: k.sex }, u.data as unknown as UnitRow).replace(/ (masculin|féminin)$/, '') : ''
+    const name =
+      k.type === 'stage_comite'
+        ? `Stage de sélection ${k.an}-${k.an + 1} ${sexWord(k.sex)} – ${label}`
+        : k.type === 'stage_ligue'
+          ? `Stage de ligue ${k.an}-${k.an + 1} ${sexWord(k.sex)} – ${label}`
+          : `Stage national ${k.cat} ${sexWord(k.sex)} ${k.an}-${k.an + 1}`
+    const orgId = k.unitId ?? st.federationId
+    out.push({
+      key: k.key, id: seedUuid(`event:${k.key}`), name, type: k.type, date, days: 2, place: k.type === 'stage_national' ? 'Centre national' : ((u?.data.name as string) ?? ''),
+      time: '10:00', sex: k.sex, organizerId: orgId, organizerName: (unitName.get(orgId)?.data.name as string) ?? '', creator: ctsOf(roster[0].region),
+      roster, observers: [], evals: 0, full: 0, ...(k.an < season && { archived: true }),
+    })
+  }
+  return out
+}
+
 // ---------- « Vu » et avis ----------
 
 /** L'observateur suit-il ce joueur ? (CTS : ses régions ; entraîneur des gardiens : les gardiens.) */
@@ -1297,7 +1440,7 @@ export function addParents(p: SeedPlayer, chance: number) {
 
 // ---------- Groupes, vidéos ----------
 
-export function buildGroups(players: SeedPlayer[], poles: PoleOut[], events: SeedEvent[]): Row[] {
+export function buildGroups(players: SeedPlayer[], poles: PoleOut[], events: SeedEvent[], structureUnits: readonly Row[] = []): Row[] {
   const rows: Row[] = []
   for (const { def } of poles) {
     const by = ctsOf(def.regions[0])
@@ -1328,6 +1471,17 @@ export function buildGroups(players: SeedPlayer[], poles: PoleOut[], events: See
         id, name, description: `Interligues 2027 : liste en préparation (démonstration, ${w(sex).joueurs} ${accord('fictif', sex, 2)})`, playerIds: team.map((p) => p.id),
         private: false, sex, scope: 'ligue', regionId: region, years, editors: [], names: { [by.id]: by.name },
         addedBy: Object.fromEntries(team.map((p) => [p.id, by.id])), ...stamp(by.name, at, by.id),
+      },
+    })
+  }
+  // Groupes de sélection de toute la structure (src/selections.ts, identifiants fixes : les mêmes que l'appli et le 079).
+  const units = structureUnits.map((r) => ({ id: r.id, ...(r.data as Omit<UnitRow, 'id'>) }))
+  for (const g of selectionGroupSpecs(units, HANDBALL_LEVELS)) {
+    rows.push({
+      id: g.id,
+      data: {
+        id: g.id, name: g.name, playerIds: [], selection: g.ref, private: false, sex: g.ref.sex, scope: SCOPE_OF[g.ref.level],
+        ...(g.department && { department: g.department }), ...stamp('Import de la structure (démo)', STRUCT_AT),
       },
     })
   }
@@ -1397,7 +1551,8 @@ export function buildSeed(criteriaFile: string): Seed {
   const structure = buildStructure()
   const players = buildPlayers(structure)
   const poles = buildPoles(structure, players)
-  const events = buildEvents(structure, players)
+  buildSelections(structure, players)
+  const events = [...buildEvents(structure, players), ...buildStages(structure, players)].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
   const seen = buildSeen(events)
   const evaluations = buildEvaluations(events, criteria.grid)
   const byId = new Map(players.map((p) => [p.id, p]))
@@ -1438,7 +1593,7 @@ export function buildSeed(criteriaFile: string): Seed {
       criteria: criteria.rows,
       players: scoped(players.map((p) => ({ id: p.id, data: p.data })), 'id'),
       events: eventRows,
-      groups: buildGroups(players, poles, events),
+      groups: buildGroups(players, poles, events, structure.rows),
       measurements: scoped(m.rows),
       evaluations: scoped(evaluations),
       seen: scoped(seen),

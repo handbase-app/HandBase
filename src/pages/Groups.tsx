@@ -101,7 +101,7 @@ import {
   useSelectionMembers,
   useUnitName,
 } from '../components/SelectionGroup'
-import { periodsIn, seasonBounds, selectionExitLabel, selectionViewOf, withSelectionView, type SelectionRef, type SelectionView } from '../selections'
+import { periodsIn, seasonBounds, SELECTION_KIND, selectionExitLabel, selectionViewOf, withSelectionView, type SelectionRef, type SelectionView } from '../selections'
 
 /** Onglets de la page Groupes (?onglet=travail ; groupes de joueurs par défaut, sans paramètre). */
 type GroupsTab = 'joueurs' | typeof STAFF.tab
@@ -176,11 +176,16 @@ export default function Groups() {
   const pinned = shown.filter((g) => !!g.poleUnitId && !g.archived)
   const active = shown.filter((g) => !g.archived && !g.poleUnitId && !g.selection)
   const archived = shown.filter((g) => g.archived && !g.selection)
-  // Sélections : la France et celles qui ont des membres aujourd'hui en tête ; les autres (une par comité et par ligue)
-  // derrière « Autres sélections… » ; une recherche les montre toutes.
+  // Sélections (après les groupes du compte) : les 6 groupes France, et les comités et ligues qui ont des membres aujourd'hui
+  // s'ils sont 12 au plus ; les autres (une par comité et par ligue, masculin et féminin) derrière « Autres sélections… »,
+  // ceux qui ont des membres en tête ; une recherche les montre tous.
   const selAll = shown.filter((g) => !!g.selection)
-  const selShown = filtering ? selAll : selAll.filter((g) => g.selection!.level === 'france' || (selCounts.get(g.id) ?? 0) > 0)
-  const selOthers = filtering ? [] : selAll.filter((g) => !selShown.includes(g))
+  const selCount = (g: PlayerGroup) => selCounts.get(g.id) ?? 0
+  const selWith = selAll.filter((g) => g.selection!.level !== 'france' && selCount(g) > 0)
+  const selShown = filtering ? selAll : [...selAll.filter((g) => g.selection!.level === 'france'), ...(selWith.length <= 12 ? selWith : [])]
+  const selOthers = filtering
+    ? []
+    : selAll.filter((g) => !selShown.includes(g)).sort((a, b) => selCount(b) - selCount(a) || a.name.localeCompare(b.name, 'fr'))
   const toCreate = filtering ? [] : leader.units.filter((u) => !poleGroups.some((g) => g.poleUnitId === u.id))
   const work = tab === STAFF.tab
   const shownTeams = workText.trim() ? teams.filter((t) => workGroupMatches(t, workText)) : teams
@@ -367,22 +372,6 @@ export default function Groups() {
           </div>
         </FoldSection>
       )}
-      {(selShown.length > 0 || selOthers.length > 0) && (
-        <FoldSection
-          storeKey={foldKey('groupes', 'selections')}
-          defaultOpen={startsOpen('current')}
-          icon={<Icon name="star" className="h-3.5 w-3.5" />}
-          title="Sélections"
-          count={selShown.length}
-        >
-          <div className="cols flex flex-col gap-3">
-            {selShown.map((g) => (
-              <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
-            ))}
-            <OtherSelections groups={selOthers} />
-          </div>
-        </FoldSection>
-      )}
       {SECTIONS.map((sec) => {
         const list = active.filter((g) => groupVisibility(g) === sec.vis)
         return (
@@ -404,6 +393,22 @@ export default function Groups() {
           )
         )
       })}
+      {(selShown.length > 0 || selOthers.length > 0) && (
+        <FoldSection
+          storeKey={foldKey('groupes', 'selections')}
+          defaultOpen={startsOpen('current')}
+          icon={<Icon name="star" className="h-3.5 w-3.5" />}
+          title="Sélections"
+          count={selShown.length}
+        >
+          <div className="cols flex flex-col gap-3">
+            {selShown.map((g) => (
+              <GroupRow key={g.id} g={g} teams={teams} pick={rowPick(g)} />
+            ))}
+            <OtherSelections groups={selOthers} count={selCount} />
+          </div>
+        </FoldSection>
+      )}
       <OtherGroupsSection role={role} info={groupInfo} />
       {archived.length > 0 && (
         // Même clé de session qu'avant (« Voir les groupes archivés ») : le choix déjà fait reste.
@@ -445,7 +450,7 @@ const foldName = (s = '') => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').
  * « Autres sélections… » : les groupes de sélection sans membre aujourd'hui (un par comité et par ligue, masculin et féminin),
  * dans une seule tuile qui s'ouvre sur une liste avec un champ de recherche, pour ne pas noyer la page.
  */
-function OtherSelections({ groups }: { groups: PlayerGroup[] }) {
+function OtherSelections({ groups, count }: { groups: PlayerGroup[]; count: (g: PlayerGroup) => number }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   if (!groups.length) return null
@@ -456,7 +461,10 @@ function OtherSelections({ groups }: { groups: PlayerGroup[] }) {
         <Icon name="list" className="h-4 w-4 shrink-0 text-accent" />
         <span className="min-w-0">
           <span className="block text-sm font-bold">Autres sélections…</span>
-          <span className="block text-[11px] text-muted">{groups.length} groupes de sélection sans membre aujourd’hui (comités, ligues) ; leurs saisons passées restent consultables.</span>
+          <span className="block text-[11px] text-muted">
+            {groups.length} groupes de sélection des comités et des ligues ({groups.filter((g) => count(g) > 0).length} avec des membres aujourd’hui) ; leurs saisons passées
+            restent consultables.
+          </span>
         </span>
       </button>
       {open && (
@@ -464,8 +472,9 @@ function OtherSelections({ groups }: { groups: PlayerGroup[] }) {
           <input className="field text-sm" placeholder="Chercher (comité, ligue, masculin, féminin)…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Chercher une sélection" />
           <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
             {hits.slice(0, 30).map((g) => (
-              <Link key={g.id} to={`/groupes/${g.id}`} className="card flex items-center gap-2 p-2 text-sm font-bold hover:border-accent">
-                {g.name}
+              <Link key={g.id} to={`/groupes/${g.id}`} className="card flex items-center justify-between gap-2 p-2 text-sm font-bold hover:border-accent">
+                <span className="min-w-0 truncate">{g.name}</span>
+                <span className="shrink-0 text-xs text-muted">{pluralG(count(g), g.sex)}</span>
               </Link>
             ))}
             {!hits.length && <p className="text-xs text-muted">Aucune sélection ne correspond.</p>}
@@ -624,7 +633,8 @@ function GroupMenu({ g, menu, count }: { g: PlayerGroup; menu: ReturnType<typeof
 function GroupRow({ g, teams, pick }: { g: PlayerGroup; teams: Team[]; pick?: { checked: boolean; why: string | null; toggle: () => void } }) {
   const menu = useRowMenu()
   const regionName = useRegionName()
-  const info = groupInfo(g, regionName(g.regionId))
+  // Groupe de sélection : son niveau (le nom dit déjà la catégorie et le sexe).
+  const info = g.selection ? SELECTION_KIND[g.selection.level] : groupInfo(g, regionName(g.regionId))
   // Participants en bref : staffs choisis (par leur nom), puis participants choisis un par un.
   const ps = participantSummary(g, teams)
   const who = [...ps.teams.map((t) => t.name), ...(ps.hidden ? [STAFF.hidden(ps.hidden)] : []), ...ps.others.map((u) => g.names?.[u] ?? '?')]
@@ -637,9 +647,9 @@ function GroupRow({ g, teams, pick }: { g: PlayerGroup; teams: Team[]; pick?: { 
   const body = (
       <div className="min-w-0">
         <div className="flex items-center text-sm font-bold">
-          <span className="truncate">{g.name}</span>
+          {/* Groupe de sélection : le nom entier sur deux lignes au besoin (la catégorie est à la fin : « … U17 masculin »). */}
+          <span className={g.selection ? 'line-clamp-2 leading-tight' : 'truncate'}>{g.name}</span>
           {g.poleUnitId && <PoleChip />}
-          {g.selection && <SelectionChip />}
           {g.team && <TeamChip />}
           {g.archived && <span className="ml-2 shrink-0 text-[10px] text-muted">archivé</span>}
         </div>
@@ -1182,7 +1192,7 @@ function PlayerGroupDetail() {
   // Groupe Pôle : le nom de l'unité seulement s'il ne redit pas celui du groupe (« Pôle Aix-en-Provence (garçons) » sous
   // « Pôle Aix-en-Provence » : redondant, 31/10).
   const unitName = !ref ? 'Unité Pôle introuvable' : ref.name.toLowerCase().startsWith(g.name.trim().toLowerCase()) ? '' : ref.name
-  const info = pole ? [unitName, ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : groupInfo(g, regionName(g.regionId))
+  const info = pole ? [unitName, ref?.psqsRef && `PSQS ${ref.psqsRef}`].filter(Boolean).join(' · ') : sel ? SELECTION_KIND[sel.level] : groupInfo(g, regionName(g.regionId))
   const stamp = stampOf(g)
   // « Wellness » (073) : le staff du groupe (créateur, participants encadrants, administrateurs) ; fermé sur l'installation :
   // l'entrée reste pour celui qui l'activerait, avec « Réservé aux essais pour l'instant ».
@@ -1319,7 +1329,7 @@ function PlayerGroupDetail() {
             return
           } else if (sel) {
             // Période ouverte aujourd'hui sur chaque fiche (date modifiable ensuite sur la fiche).
-            const r = await addToSelection(sel, ids, undefined, unitNameOf(sel.unitId))
+            const r = await addToSelection(sel, ids, undefined, unitNameOf(sel.unitId, sel.level))
             setPoleMsg(addMessage(r, g.name, gg))
           } else await addToGroup(g, ids)
           setAdding(false)
@@ -1608,7 +1618,7 @@ function PlayerGroupDetail() {
                                 : undefined
                               : sel
                                 ? selManage
-                                  ? [{ label: 'Fin de sélection…', icon: 'close', hint: 'sortie aujourd’hui et motif sur la fiche', onSelect: () => void removeOne(p) }]
+                                  ? [{ label: 'Fin de sélection…', icon: 'close', hint: 'période close et motif sur la fiche', onSelect: () => void removeOne(p) }]
                                   : undefined
                               : can.removeFromGroup(role, g, p.id)
                                 ? [{ label: 'Retirer du groupe', icon: 'close', onSelect: () => void removeOne(p) }]
@@ -1644,8 +1654,15 @@ function PlayerGroupDetail() {
             const p = selExiting
             setSelExiting(null)
             if (!reason) return
-            const ok = await leaveSelection(p, sel, reason)
-            setPoleMsg(ok ? `${p.lastName.toUpperCase()} ${p.firstName} : fin de sélection enregistrée sur sa fiche (aujourd’hui, ${selectionExitLabel(reason)?.toLowerCase()}).` : `${p.lastName.toUpperCase()} ${p.firstName} n’a pas de période en cours dans ce groupe.`)
+            const r = await leaveSelection(p, sel, reason)
+            const who = `${p.lastName.toUpperCase()} ${p.firstName}`
+            setPoleMsg(
+              !r
+                ? `${who} n’a pas de période en cours dans ce groupe.`
+                : r.removed
+                  ? `${who} : période ajoutée aujourd’hui retirée de sa fiche.`
+                  : `${who} : fin de sélection enregistrée sur sa fiche (dernier jour hier, ${selectionExitLabel(reason)?.toLowerCase()}).`,
+            )
           }}
         />
       )}

@@ -5,6 +5,7 @@ import { PictoTabs, type PictoTab } from '../components/PictoTabs'
 import { meTabOf, withMeTab, type MeTab } from '../tabQuery'
 import { BackButton } from '../backNav'
 import { Avatar, playerName, SectionTitle } from '../components/ui'
+import { selectionSummary } from '../selections'
 import { alive, db, fmtDate, dayOf, poleSummary, POSITIONS, positionLabel, today, TRIAL, type Player, type PlayerSelf } from '../db'
 import { w } from '../gender'
 import { regionLabel } from '../lists'
@@ -247,6 +248,8 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
   const questions = letterQuestions(p.sex)
   const year = p.birthDate?.slice(0, 4)
   const poles = poleSummary(p, regionLabel)
+  // Sélections (src/selections.ts) : le nom gardé sur chaque période (l'espace joueur ne lit pas la structure).
+  const selections = selectionSummary(p)
   const setLetter = (k: LetterKey, v: string) => setForm((f) => ({ ...f, letter: { ...f.letter, [k]: v } }))
   const setMark = (k: MarkKey, v: string) => setForm((f) => ({ ...f, marks: { ...f.marks, [k]: v } }))
   const marks = markFields(p.sex)
@@ -413,6 +416,12 @@ function MePage({ p, preview }: { p: Player; preview: boolean }) {
             <div className="mt-3 border-t border-line pt-3 text-xs">
               <span className="text-muted">Pôle Espoirs : </span>
               {poles}
+            </div>
+          )}
+          {selections && (
+            <div className="mt-3 border-t border-line pt-3 text-xs">
+              <span className="text-muted">Sélections : </span>
+              {selections}
             </div>
           )}
           <p className="mt-2 text-[10px] text-muted">Ces informations sont tenues par ton encadrant : si quelque chose est faux, dis-le-lui.</p>

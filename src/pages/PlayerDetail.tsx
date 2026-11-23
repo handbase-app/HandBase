@@ -30,7 +30,7 @@ import { copyLink } from '../components/ItemMenu'
 import { RewatchButton, RewatchHistory, usePlayerRewatch } from '../components/Scouting'
 import { ParcoursStrip, usePlayerParcours } from '../components/Parcours'
 import { usePerimeter } from '../installation'
-import { useUnitName } from '../components/SelectionGroup'
+import { useUnitOf } from '../components/SelectionGroup'
 import { filledSelection, selectionBaseName, selectionCurrentAt, selectionExitLabel, selectionGroupId } from '../selections'
 import { sexLabel, w } from '../gender'
 import { spyTarget } from '../spy'
@@ -608,7 +608,7 @@ function ShiradoRatio({ latest }: { latest: Map<string, Measurement> }) {
  * (« En cours » ou les dates, motif neutre) ; le nom ouvre le groupe de sélection. Rien sans période.
  */
 function SelectionsCard({ player }: { player: Player }) {
-  const unitName = useUnitName()
+  const unitOf = useUnitOf()
   const day = new Date().toLocaleDateString('sv')
   const periods = (player.selections ?? []).filter(filledSelection).sort((a, b) => (b.from ?? '').localeCompare(a.from ?? ''))
   if (!periods.length) return null
@@ -622,7 +622,7 @@ function SelectionsCard({ player }: { player: Player }) {
           const future = !!x.from && x.from > day
           const why = selectionExitLabel(x.exitReason)
           const sex = x.sex ?? (player.sex === 'M' || player.sex === 'F' ? player.sex : undefined)
-          const name = selectionBaseName(x, (x.unitId && unitName(x.unitId)) || x.unitName)
+          const name = selectionBaseName(x, (x.unitId && unitOf(x.unitId)) || x.unitName)
           return (
             <div key={i} className="flex items-start gap-3 rounded-md border border-line bg-panel-2 px-3 py-2">
               <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${now ? 'bg-sky-500/15 text-sky-300' : 'bg-panel text-muted'}`}>

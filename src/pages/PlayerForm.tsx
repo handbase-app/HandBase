@@ -13,6 +13,8 @@ import { SEX_LABEL_ONE, w } from '../gender'
 import { poleBlockMessage, poleIssues } from '../poleChecks'
 import { useLevels, useUnits } from '../installation'
 import {
+  comiteName,
+  ligueName,
   SELECTION_CATEGORIES,
   SELECTION_EXITS,
   selectionBlockMessage,
@@ -65,7 +67,12 @@ export default function PlayerForm() {
   const units = useUnits()
   const levels = useLevels()
   const selUnits = (lv: SelectionLevel) => units.filter((u) => selectionLevelOfUnit(u, levels) === lv).sort((a, b) => a.name.localeCompare(b.name, 'fr'))
-  const unitNameOf = (id?: string) => (id ? units.find((u) => u.id === id)?.name : undefined)
+  const unitOf = (id?: string) => (id ? units.find((u) => u.id === id) : undefined)
+  // Nom gardé sur la période : « Comité de l'Ain », « Ligue Occitanie » (lisible sans la structure).
+  const unitNameOf = (id: string | undefined, level: 'comite' | 'ligue') => {
+    const u = unitOf(id)
+    return u ? (level === 'comite' ? comiteName(u.name, u.departments) : ligueName(u.name)) : undefined
+  }
 
   useEffect(() => {
     if (!id) return
@@ -432,7 +439,7 @@ export default function PlayerForm() {
 
       <Collapsible
         title="Sélections"
-        summary={selectionSummary(p, unitNameOf) || 'Comité, ligue, équipe de France : périodes datées'}
+        summary={selectionSummary(p, unitOf) || 'Comité, ligue, équipe de France : périodes datées'}
       >
         <p className="text-[11px] text-muted">
           Une ligne par période. Sortie vide tant que {w(p.sex).leJoueur} est dans le groupe ; les groupes de sélection (page Groupes) se remplissent tout seuls à partir de ces périodes.
@@ -475,12 +482,12 @@ export default function PlayerForm() {
                   className="field"
                   aria-label={x.level === 'comite' ? 'Comité' : 'Ligue'}
                   value={x.unitId ?? ''}
-                  onChange={(e) => upd({ unitId: e.target.value || undefined, unitName: unitNameOf(e.target.value) })}
+                  onChange={(e) => upd({ unitId: e.target.value || undefined, unitName: unitNameOf(e.target.value, x.level === 'ligue' ? 'ligue' : 'comite') })}
                 >
                   <option value="">{x.unitName ? `${x.unitName} (à choisir)` : x.level === 'comite' ? 'Comité…' : 'Ligue…'}</option>
                   {choices.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name}
+                      {x.level === 'comite' ? comiteName(u.name, u.departments) : ligueName(u.name)}
                     </option>
                   ))}
                 </select>
