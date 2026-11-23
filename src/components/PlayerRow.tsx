@@ -1,6 +1,6 @@
 import type { ReactNode, SyntheticEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { poleStatus, POSITIONS, type Player } from '../db'
+import { POSITIONS, type Player } from '../db'
 import { courtTag } from '../courtSpots'
 import { hueBg, hueText, positionHue } from '../positionColors'
 import { MENU_ROW, MenuButton, useRowMenu } from './ItemMenu'
@@ -11,8 +11,8 @@ import { birthQuarter, photoSrc } from './ui'
 import { useSousNom } from '../affichage'
 import { sousNomPieces } from '../sousNom'
 import { sportContent } from '../sportContent'
-import { levelLabel } from '../levels'
-import { LevelRing, usePlayerLevels } from './LevelRing'
+import { LEVEL_TAGS, levelLabel } from '../levels'
+import { LevelRing, usePlayerAllLevels, usePlayerLevels } from './LevelRing'
 
 /*
  * Ligne de joueur commune à toutes les listes (joueurs, événement, groupe, « À revoir », bilan, suivis, alertes…) :
@@ -24,7 +24,8 @@ import { LevelRing, usePlayerLevels } from './LevelRing'
  *   poste, gris neutre) ; autour, l'anneau des niveaux du joueur (src/levels.ts : France, Pôle, Ligue, Comité, calculés
  *   seuls ; deux : moitié gauche le plus important), hors de la boîte de la photo ; les niveaux lus avec la ligne ;
  * - ligne 1 : NOM Prénom en gras, puis « ● DC » (étiquette du terrain, src/courtSpots.ts, dans la couleur du poste),
- *   les postes secondaires en gris (« +ARG »), « Pôle » en menthe pour un joueur au Pôle Espoirs, puis les pastilles
+ *   les postes secondaires en gris (« +ARG »), ses niveaux en petites étiquettes de leur couleur (« FR » groupe France,
+ *   « Pôle » au Pôle Espoirs, « LIG » groupe Ligue, « COM » groupe Comité ; tous, même au-delà des deux de l'anneau), puis les pastilles
  *   propres à la liste ; le nom n'est jamais coupé avant les pastilles si on peut l'éviter (elles passent à la ligne) ;
  * - ligne 2 (grise, une ligne, coupée au bout) : (ce que la liste ajoute devant : numéro, équipe ·) ce que chacun choisit
  *   dans « Filtres » → « Affichage » → « Sous le nom » (par défaut année · trimestre (Q1…Q4) · club · taille connue ;
@@ -86,11 +87,13 @@ function Face({ p, size }: { p: Pick<Player, 'firstName' | 'lastName' | 'photo' 
 
 const posName = (code: string) => POSITIONS.find((x) => x.id === code)?.label ?? code
 
-/** « ● DC » (couleur du poste), « +ARG » (postes secondaires, gris), « Pôle » (menthe). */
+/** « ● DC » (couleur du poste), « +ARG » (postes secondaires, gris), niveaux « FR », « Pôle », « LIG », « COM » (couleurs des niveaux). */
 function PosMarks({ p, compact }: { p: Player; compact: boolean }) {
   const sec = (p.secondaryPositions ?? []).filter((x) => x && x !== p.position)
   const hue = positionHue(p.position)
   const size = compact ? 'text-[10px]' : 'text-[11px]'
+  // Niveaux du joueur (src/levels.ts), tous, dans leurs couleurs : « FR », « Pôle », « LIG », « COM ».
+  const levels = usePlayerAllLevels(p)
   return (
     <>
       {p.position && (
@@ -104,11 +107,11 @@ function PosMarks({ p, compact }: { p: Player; compact: boolean }) {
           {sec.map((x) => `+${courtTag(x)}`).join(' ')}
         </span>
       )}
-      {poleStatus(p) === 'current' && (
-        <span className="rounded-full bg-teal-500/15 px-1.5 text-[10px] leading-4 font-bold text-teal-300" title="Au Pôle Espoirs">
-          Pôle
+      {levels.map((l) => (
+        <span key={l} className={`niv-tag rounded-full px-1.5 text-[10px] leading-4 font-bold niv-${l}`} title={LEVEL_TAGS[l].title}>
+          {LEVEL_TAGS[l].tag}
         </span>
-      )}
+      ))}
     </>
   )
 }

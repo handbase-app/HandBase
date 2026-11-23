@@ -39,9 +39,20 @@ export function scopeLevelMap(groups: readonly { scope?: string; archived?: bool
   return map
 }
 
-/** Niveaux montrés, du plus important au moins important, deux au plus. */
-export const playerLevels = (scopes: ReadonlySet<Level> | undefined, atPole: boolean): Level[] =>
-  LEVELS.filter((l) => (l === 'pole' ? atPole : !!scopes?.has(l))).slice(0, MAX_LEVELS)
+/** Tous les niveaux du joueur, du plus important au moins important (étiquettes de la ligne : FR, Pôle, LIG, COM). */
+export const allPlayerLevels = (scopes: ReadonlySet<Level> | undefined, atPole: boolean): Level[] =>
+  LEVELS.filter((l) => (l === 'pole' ? atPole : !!scopes?.has(l)))
+
+/** Niveaux montrés par l'anneau, du plus important au moins important, deux au plus. */
+export const playerLevels = (scopes: ReadonlySet<Level> | undefined, atPole: boolean): Level[] => allPlayerLevels(scopes, atPole).slice(0, MAX_LEVELS)
+
+/** Étiquette courte après le poste (ligne de joueur, src/components/PlayerRow.tsx), dans la couleur du niveau, et sa bulle. */
+export const LEVEL_TAGS: Record<Level, { tag: string; title: string }> = {
+  france: { tag: 'FR', title: 'Dans un groupe France' },
+  pole: { tag: 'Pôle', title: 'Au Pôle Espoirs' },
+  ligue: { tag: 'LIG', title: 'Dans un groupe Ligue' },
+  comite: { tag: 'COM', title: 'Dans un groupe Comité' },
+}
 
 /** Variables CSS d'un thème (posées sur <html> par src/theme.ts). */
 export function levelVars(light: boolean): Record<string, string> {

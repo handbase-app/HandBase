@@ -89,6 +89,14 @@ html { scrollbar-gutter: stable; }
   --fam-sauts: #d98e00;
 }
 .fam-ic { color: var(--fam); background-color: color-mix(in srgb, var(--fam) 15%, transparent); }
+/* Étiquettes de niveau de la ligne de joueur (FR, Pôle, LIG, COM : src/components/PlayerRow.tsx) : couleurs de l'anneau
+   (--niv-*, src/levels.ts) ; en clair, texte un peu plus foncé pour rester lisible en petit. */
+.niv-tag { color: var(--niv); background-color: color-mix(in srgb, var(--niv) 15%, transparent); }
+:root[data-light] .niv-tag { color: color-mix(in srgb, var(--niv) 78%, black); }
+.niv-france { --niv: var(--niv-france); }
+.niv-pole { --niv: var(--niv-pole); }
+.niv-ligue { --niv: var(--niv-ligue); }
+.niv-comite { --niv: var(--niv-comite); }
 
 /* Place prise par la navigation : en bas (capsule d'onglets de 52 px posée à 10 px du bord) ou à gauche (colonne). Les
    barres d'action collées en bas des formulaires s'accrochent juste au-dessus (bottom: var(--nav-b)). */

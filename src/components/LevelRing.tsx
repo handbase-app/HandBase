@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { alive, db, poleStatus, type Player } from '../db'
-import { levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
+import { allPlayerLevels, levelLabel, levelRingBackground, playerLevels, RING_GAP, ringWidth, scopeLevelMap, type Level } from '../levels'
 import { sharedQuery, useShared } from '../live'
 import { can } from '../roles'
 import { loadTeams } from '../teams'
@@ -23,6 +23,12 @@ const levelQuery = sharedQuery(
 export function usePlayerLevels(p: Partial<Pick<Player, 'id' | 'poles'>>): Level[] {
   const map = useShared(levelQuery)
   return playerLevels(p.id ? map?.get(p.id) : undefined, poleStatus(p) === 'current')
+}
+
+/** Tous les niveaux de ce joueur (étiquettes FR, Pôle, LIG, COM de la ligne), du plus important au moins important. */
+export function usePlayerAllLevels(p: Partial<Pick<Player, 'id' | 'poles'>>): Level[] {
+  const map = useShared(levelQuery)
+  return allPlayerLevels(p.id ? map?.get(p.id) : undefined, poleStatus(p) === 'current')
 }
 
 /**
