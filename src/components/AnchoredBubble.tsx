@@ -16,6 +16,7 @@ export function AnchoredBubble({
   sub,
   onClose,
   testId,
+  wide = false,
   children,
 }: {
   at: AxisAnchor
@@ -25,6 +26,8 @@ export function AnchoredBubble({
   sub?: ReactNode
   onClose: () => void
   testId?: string
+  /** Fenêtre plus large, titre et sous-titre plus gros (fenêtres de réglage : « Mes alertes wellness »). */
+  wide?: boolean
   children: ReactNode
 }) {
   useBackCloses(onClose)
@@ -71,8 +74,9 @@ export function AnchoredBubble({
         role="dialog"
         aria-label={label}
         onClick={(e) => e.stopPropagation()}
-        className={`win absolute w-[min(22rem,calc(100vw-1rem))] p-3.5 pb-2.5 shadow-2xl outline-none transition-opacity duration-100 ${pos ? 'opacity-100' : 'opacity-0'}`}
-        style={pos ? { left: pos.left, top: pos.top } : { left: 8, top: at.bottom + 12 }}
+        className={`win absolute ${wide ? 'flex w-[min(34rem,calc(100vw-1rem))] flex-col p-4 pb-3' : 'w-[min(22rem,calc(100vw-1rem))] p-3.5 pb-2.5'} shadow-2xl outline-none transition-opacity duration-100 ${pos ? 'opacity-100' : 'opacity-0'}`}
+        // Large : jamais plus bas que l'écran (le contenu défile dedans), même quand il grandit après l'ouverture.
+        style={pos ? { left: pos.left, top: pos.top, ...(wide && { maxHeight: `calc(100dvh - ${pos.top + 8}px)` }) } : { left: 8, top: at.bottom + 12 }}
         data-testid={testId}
       >
         {pos && (
@@ -82,10 +86,10 @@ export function AnchoredBubble({
             style={{ left: pos.caret - 6 }}
           />
         )}
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex shrink-0 items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[15px] leading-tight font-extrabold">{title}</div>
-            {sub && <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">{sub}</div>}
+            <div className={`${wide ? 'text-lg' : 'text-[15px]'} leading-tight font-extrabold`}>{title}</div>
+            {sub && <div className={`mt-0.5 flex items-center gap-1.5 ${wide ? 'text-xs' : 'text-[11px]'} text-muted`}>{sub}</div>}
           </div>
           <button className="-mt-1.5 -mr-2 min-h-9 min-w-9 shrink-0 text-muted" aria-label="Fermer" onClick={onClose}>
             ✕

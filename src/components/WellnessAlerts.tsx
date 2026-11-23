@@ -48,6 +48,9 @@ function ruleOfKind(kind: AlertKind, from: AlertRule): AlertRule {
   }
 }
 
+/** Pastilles de la fenêtre « Mes alertes wellness » : un peu plus grosses que celles des filtres. */
+const bigPill = (on: boolean, small?: boolean) => `${pillClass(on, small)} min-h-10! px-3! text-sm!`
+
 /** Fenêtre « Mes alertes wellness » : la liste, allumer / éteindre, modifier, supprimer, ajouter ; l'alerte proposée. */
 export function AlertsBubble({ at, defs, groups, onChanged, onClose }: { at: AxisAnchor; defs: WellnessAlertDef[]; groups: readonly FollowedGroup[]; onChanged: () => void; onClose: () => void }) {
   const [list, setList] = useState(defs)
@@ -76,8 +79,8 @@ export function AlertsBubble({ at, defs, groups, onChanged, onClose }: { at: Axi
   }
 
   return (
-    <AnchoredBubble at={at} label="Mes alertes wellness" title="Mes alertes wellness" sub="Sur tes suivis dont tu lis le wellness · une notification le matin" onClose={onClose} testId="bulle-alertes-wellness">
-      <div className="-mr-2 mt-2 flex max-h-[min(60vh,32rem)] w-full min-w-0 flex-col gap-2 overflow-y-auto pr-2 text-xs">
+    <AnchoredBubble at={at} label="Mes alertes wellness" title="Mes alertes wellness" sub="Sur tes suivis dont tu lis le wellness · une notification le matin" onClose={onClose} testId="bulle-alertes-wellness" wide>
+      <div className="-mr-2 mt-2 flex max-h-[42rem] min-h-0 w-full flex-1 min-w-0 flex-col gap-2 overflow-y-auto pr-2 text-sm">
         {draft ? (
           <AlertEditor
             draft={draft}
@@ -91,7 +94,7 @@ export function AlertsBubble({ at, defs, groups, onChanged, onClose }: { at: Axi
         ) : (
           <>
             {list.map((d) => (
-              <div key={d.id} className="flex items-start gap-2 rounded-lg border border-line p-2" data-testid="alerte-wellness-ligne">
+              <div key={d.id} className="flex items-start gap-2 rounded-lg border border-line p-2.5" data-testid="alerte-wellness-ligne">
                 <button
                   type="button"
                   role="switch"
@@ -100,31 +103,31 @@ export function AlertsBubble({ at, defs, groups, onChanged, onClose }: { at: Axi
                   className="mt-0.5 shrink-0"
                   onClick={() => void save({ ...d, actif: !d.actif })}
                 >
-                  <span className={`relative block h-5 w-9 rounded-full transition ${d.actif ? 'bg-accent' : 'bg-line'}`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${d.actif ? 'left-4.5' : 'left-0.5'}`} />
+                  <span className={`relative block h-6 w-11 rounded-full transition ${d.actif ? 'bg-accent' : 'bg-line'}`}>
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${d.actif ? 'left-5.5' : 'left-0.5'}`} />
                   </span>
                 </button>
                 <div className={`min-w-0 flex-1 ${d.actif ? '' : 'opacity-60'}`}>
                   <div className="font-bold">{d.nom}</div>
-                  <div className="text-[11px] text-muted">{ruleText(d.regle)}</div>
-                  <div className="text-[10px] text-muted">{groupName(d.cible)}</div>
+                  <div className="text-xs text-muted">{ruleText(d.regle)}</div>
+                  <div className="text-[11px] text-muted">{groupName(d.cible)}</div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end">
-                  <button type="button" className="min-h-8 px-1 text-[11px] font-bold text-accent" onClick={() => setDraft({ ...d })}>
+                  <button type="button" className="min-h-9 px-1.5 text-sm font-bold text-accent" onClick={() => setDraft({ ...d })}>
                     Modifier
                   </button>
-                  <button type="button" className="min-h-8 px-1 text-[11px] text-muted hover:text-red-400" onClick={() => void remove(d)}>
+                  <button type="button" className="min-h-9 px-1.5 text-sm text-muted hover:text-red-400" onClick={() => void remove(d)}>
                     Supprimer
                   </button>
                 </div>
               </div>
             ))}
             {suggested && (
-              <div className="rounded-lg border border-dashed border-line p-2" data-testid="alerte-wellness-proposee">
-                <div className="text-[10px] font-bold text-muted uppercase">Proposée</div>
+              <div className="rounded-lg border border-dashed border-line p-2.5" data-testid="alerte-wellness-proposee">
+                <div className="text-[11px] font-bold text-muted uppercase">Proposée</div>
                 <div className="font-bold">🔋 {DEFAULT_ALERT_NAME}</div>
-                <div className="text-[11px] text-muted">{ruleText(DEFAULT_RULE)} · Tous mes suivis</div>
-                <button type="button" disabled={busy || list.length >= RULES_PER_ACCOUNT} className={`${pillClass(true, true)} mt-1.5`} onClick={() => void save({ nom: DEFAULT_ALERT_NAME, actif: true, regle: DEFAULT_RULE, cible: null })}>
+                <div className="text-xs text-muted">{ruleText(DEFAULT_RULE)} · Tous mes suivis</div>
+                <button type="button" disabled={busy || list.length >= RULES_PER_ACCOUNT} className={`${bigPill(true, true)} mt-1.5`} onClick={() => void save({ nom: DEFAULT_ALERT_NAME, actif: true, regle: DEFAULT_RULE, cible: null })}>
                   Ajouter cette alerte
                 </button>
               </div>
@@ -133,17 +136,17 @@ export function AlertsBubble({ at, defs, groups, onChanged, onClose }: { at: Axi
             <button
               type="button"
               disabled={list.length >= RULES_PER_ACCOUNT}
-              className={`${pillClass(false)} self-start`}
+              className={`${bigPill(false)} self-start`}
               onClick={() => setDraft({ nom: '', actif: true, regle: DEFAULT_RULE, cible: null })}
             >
               + Nouvelle alerte
             </button>
-            <p className="text-[10px] text-muted">
+            <p className="text-[11px] text-muted">
               Jours demandés : du lundi au vendredi, sans les jours fériés (ni les vacances scolaires quand la zone est réglée). Seuls tes suivis dont tu lis déjà le wellness comptent.
             </p>
           </>
         )}
-        {err && <p className="text-[11px] text-red-400">{err}</p>}
+        {err && <p className="text-xs text-red-400">{err}</p>}
       </div>
     </AnchoredBubble>
   )
@@ -155,14 +158,14 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
   const setRule = (regle: AlertRule) => onChange({ ...draft, regle })
   const row = (label: string, children: React.ReactNode) => (
     <div>
-      <div className="mb-1 text-[10px] font-bold text-muted">{label}</div>
+      <div className="mb-1 text-xs font-bold text-muted">{label}</div>
       <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   )
   return (
     <div className="flex flex-col gap-2" data-testid="alerte-wellness-reglage">
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] font-bold text-muted">Nom</span>
+        <span className="text-xs font-bold text-muted">Nom</span>
         <input
           className="field"
           value={draft.nom}
@@ -174,7 +177,7 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
       {row(
         'Ce qu’elle surveille',
         ALERT_KINDS.map((k) => (
-          <button key={k} type="button" className={pillClass(r.type === k)} aria-pressed={r.type === k} onClick={() => setRule(ruleOfKind(k, r))}>
+          <button key={k} type="button" className={bigPill(r.type === k)} aria-pressed={r.type === k} onClick={() => setRule(ruleOfKind(k, r))}>
             {KIND_LABELS[k]}
           </button>
         )),
@@ -183,7 +186,7 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
         row(
           'Note suivie',
           NOTES.map((n) => (
-            <button key={n.key} type="button" className={pillClass(r.note === n.key)} aria-pressed={r.note === n.key} onClick={() => setRule({ ...r, note: n.key })}>
+            <button key={n.key} type="button" className={bigPill(r.note === n.key)} aria-pressed={r.note === n.key} onClick={() => setRule({ ...r, note: n.key })}>
               {n.label}
             </button>
           )),
@@ -192,7 +195,7 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
         row(
           'À … ou moins',
           MAX_CHOICES.map((v) => (
-            <button key={v} type="button" className={pillClass(r.max === v)} aria-pressed={r.max === v} onClick={() => setRule({ ...r, max: v })}>
+            <button key={v} type="button" className={bigPill(r.max === v)} aria-pressed={r.max === v} onClick={() => setRule({ ...r, max: v })}>
               {v}
             </button>
           )),
@@ -201,7 +204,7 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
         row(
           'Baisse d’au moins … points (sur sa moyenne des 14 jours d’avant)',
           DROP_CHOICES.map((v) => (
-            <button key={v} type="button" className={pillClass(r.baisse === v)} aria-pressed={r.baisse === v} onClick={() => setRule({ ...r, baisse: v })}>
+            <button key={v} type="button" className={bigPill(r.baisse === v)} aria-pressed={r.baisse === v} onClick={() => setRule({ ...r, baisse: v })}>
               {v}
             </button>
           )),
@@ -209,7 +212,7 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
       {row(
         'Jours demandés de suite',
         DAYS_CHOICES.map((v) => (
-          <button key={v} type="button" className={pillClass(r.jours === v)} aria-pressed={r.jours === v} onClick={() => setRule({ ...r, jours: v })}>
+          <button key={v} type="button" className={bigPill(r.jours === v)} aria-pressed={r.jours === v} onClick={() => setRule({ ...r, jours: v })}>
             {v}
           </button>
         )),
@@ -217,22 +220,22 @@ function AlertEditor({ draft, groups, busy, onChange, onSave, onCancel }: { draf
       {row(
         'Pour',
         [
-          <button key="tous" type="button" className={pillClass(!draft.cible)} aria-pressed={!draft.cible} onClick={() => onChange({ ...draft, cible: null })}>
+          <button key="tous" type="button" className={bigPill(!draft.cible)} aria-pressed={!draft.cible} onClick={() => onChange({ ...draft, cible: null })}>
             Tous mes suivis
           </button>,
           ...groups.map(({ group: g }) => (
-            <button key={g.id} type="button" className={pillClass(draft.cible === g.id)} aria-pressed={draft.cible === g.id} onClick={() => onChange({ ...draft, cible: g.id })}>
+            <button key={g.id} type="button" className={bigPill(draft.cible === g.id)} aria-pressed={draft.cible === g.id} onClick={() => onChange({ ...draft, cible: g.id })}>
               {g.name}
             </button>
           )),
         ],
       )}
-      <p className="text-[11px] text-muted">{ruleText(r)}</p>
+      <p className="text-xs text-muted">{ruleText(r)}</p>
       <div className="flex gap-2">
-        <button type="button" disabled={busy} className={pillClass(true)} onClick={onSave}>
+        <button type="button" disabled={busy} className={bigPill(true)} onClick={onSave}>
           Enregistrer
         </button>
-        <button type="button" className={pillClass(false)} onClick={onCancel}>
+        <button type="button" className={bigPill(false)} onClick={onCancel}>
           Annuler
         </button>
       </div>
