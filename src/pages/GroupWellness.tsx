@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BackButton } from '../backNav'
 import { AnchoredBubble } from '../components/AnchoredBubble'
@@ -7,8 +7,9 @@ import { ask } from '../components/Confirm'
 import { FilterField, pillClass } from '../components/FilterWindow'
 import { RosterQueryBar, type OwnFilters } from '../components/PlayersQuery'
 import { usePoleMembers, usePoleRef } from '../components/PoleGroup'
-import { Empty, playerName, Avatar } from '../components/ui'
-import { canReadWellness, canToggleWellness, ChargeLine, PainLines, PainSummary, PAIN_TEXT_CLS, ScoreChip, shortDay, useWellnessEnabled } from '../components/Wellness'
+import { canReadWellness, canToggleWellness, ChargeLine, PainLines, PainSummary, PAIN_TEXT_CLS, shortDay, useWellnessEnabled } from '../components/Wellness'
+import { GroupTile } from '../components/GroupTile'
+import { Avatar, Empty, Icon, playerName } from '../components/ui'
 import type { AxisAnchor } from '../components/ZoneRadar'
 import { useGroupZone, useLampSettings } from '../components/LampStaff'
 import { isRequestedDay } from '../lamp'
@@ -17,7 +18,18 @@ import { pluralG, setGender, w } from '../gender'
 import { can, useRole } from '../roles'
 import {
   fmt1,
+  formeBand,
+  formeDuJour,
+  formeTitle,
+  formeWord,
+  FORME_HOW,
+  groupDay,
   isWeekday,
+  levelBand,
+  TONE_WORDS,
+  WELLNESS_PICTO,
+  type Forme,
+  type Tone,
   painLine,
   painMax,
   painTone,
@@ -54,13 +66,17 @@ import {
  * Wellness d'un groupe, côté STAFF (/groupes/:id/wellness ; supabase/073_wellness.sql, src/wellness.ts) :
  *  - « Wellness quotidien » : activé / désactivé par le créateur du groupe ou un administrateur (clé `wellness` du groupe,
  *    écrite comme le reste : hb_upsert). Réglage de l'installation fermé : « Réservé aux essais pour l'instant », rien d'autre.
- *  - Tableau du jour : une ligne par joueur, les quatre notes colorées par rapport à SA PROPRE moyenne (28 jours d'avant :
- *    vert comme d'habitude ou mieux, ambre un peu en dessous, rouge doux nettement en dessous), gênes signalées (une ligne par
+ *  - Tableau du jour : une ligne par joueur, les quatre notes comparées à SA PROPRE moyenne (28 jours d’avant :
+ *    repère ▾ un peu en dessous, ▾▾ nettement en dessous), gênes signalées (une ligne par
  *    endroit : « Ischio-jambiers droits · Contracture · 6/10 », pastille colorée par l'intensité la plus forte), charge
  *    des 7 derniers jours comparée à sa moyenne par semaine sur 28 jours ; « pas encore répondu aujourd'hui » neutre. Barre
  *    « Demander » commune (RosterQueryBar) et deux filtres de la page. Toucher les notes : bulle accrochée au doigt (fond
  *    flouté) avec ses 14 derniers jours et ses séances ; toucher le nom : sa fiche, sur l'onglet Wellness
  *    (src/components/PlayerWellness.tsx ; « Retour » revient ici). Notes et charge : composants communs (components/Wellness.tsx).
+ *  - Depuis le 23/11 (« trop austère ») : en-tête pêche → corail avec le résumé du jour (forme moyenne, réponses, moyenne de
+ *    chaque note), cartes aérées liserées selon la « forme du jour » du joueur (pastille ronde sur 10 : moyenne des notes
+ *    moins un quart de la gêne la plus forte, src/wellness.ts : formeDuJour), notes avec picto, colorées selon la note (rouge
+ *    doux → turquoise) ; « ▾ » / « ▾▾ » : en dessous de SA propre moyenne. Légende repliée « Comment lire le tableau ».
  *  - Alerte (src/wellnessAlert.ts) : 5 ou moins (moyenne des notes, ou une note réglée) pendant 3 jours demandés de suite :
  *    bandeau au-dessus du tableau (noms, « Voir seulement eux »), pastille sur la ligne, filtre, série dans la bulle, le
  *    joueur remonte dans le tableau. Seuil, durée et note réglables (bulle « Régler », ceux qui activent le wellness).
@@ -157,7 +173,6 @@ export default function GroupWellnessPage() {
     const h = askMatch(value.entries.get(p.id) ?? [], t, crit)
     if (h) hits.set(p.id, h)
   }
-  const answered = players.filter((p) => rows.get(p.id)?.today).length
   const pains = players.filter((p) => rows.get(p.id)?.today?.pain).length
   const concerned = players.filter(withAccount).length
   const sorted = [...players].sort((a, b) => {
@@ -206,68 +221,71 @@ export default function GroupWellnessPage() {
     await save<PlayerGroup>('groups', { ...g, wellnessAlert: v })
   }
 
+  // Le groupe ce jour-là (en-tête) : réponses, forme moyenne, moyenne de chaque note.
+  const gday = value ? groupDay(players.filter(withAccount).map((p) => rows.get(p.id)?.today)) : null
+  const showTable = active && readable && !!value
+  const settingsCard = !enabled ? (
+    <div className="card p-4 text-sm" data-testid="wellness-ferme">
+      <b>Réservé aux essais pour l’instant.</b>
+      <p className="mt-1 text-xs text-muted">
+        Le questionnaire du matin touche à la santé de mineurs : il s’ouvrira sur l’installation après la décision sur le consentement des familles et l’hébergement. Rien n’est demandé aux {gw.joueurs} d’ici là.
+      </p>
+    </div>
+  ) : (
+    <section className="card flex flex-col gap-2 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-bold">Wellness quotidien</div>
+          <div className="text-xs text-muted">{g.wellness ? `Activé${g.wellnessSince ? ` depuis le ${shortDay(g.wellnessSince)}` : ''}` : 'Désactivé'}</div>
+        </div>
+        {toggle && (
+          <button className={g.wellness ? 'btn-ghost min-h-11 px-4 text-sm' : 'btn-primary min-h-11 px-4 text-sm'} onClick={() => void setWellness(!g.wellness)} aria-pressed={!!g.wellness}>
+            {g.wellness ? 'Désactiver' : 'Activer'}
+          </button>
+        )}
+      </div>
+      <p className="text-[11px] text-muted">
+        Du lundi au vendredi, le matin, les {gw.joueurs} du groupe qui ont un espace joueur disent leur énergie, leur fraîcheur musculaire, leur humeur et leur
+        sommeil (1 à 10), et s’ils ont une douleur ou une gêne (pour chaque endroit : ce que c’est et son intensité) ; après une séance,
+        l’intensité ressentie et la durée. Seuls le staff du groupe et les administrateurs le lisent.
+        Rien n’est envoyé à une IA ni mis dans les exports.
+      </p>
+    </section>
+  )
+
   return (
     <div className="flex flex-col gap-4" data-testid="wellness-groupe">
       <BackButton fallback={`/groupes/${g.id}`} label="GROUPE" className="self-start" />
-      <div>
-        <h1 className="text-lg font-extrabold">Wellness</h1>
-        <div className="text-xs font-bold text-accent">{g.name}</div>
-      </div>
-      {active && readable && lamp.actif && (
-        <Link to={`/groupes/${g.id}/lampes`} className="-mt-2 self-start py-1 text-xs font-bold text-accent" data-testid="lien-lampes">
-          🪔 Lampes du groupe ›
-        </Link>
-      )}
-
-      {!enabled ? (
-        <div className="card p-4 text-sm" data-testid="wellness-ferme">
-          <b>Réservé aux essais pour l’instant.</b>
-          <p className="mt-1 text-xs text-muted">
-            Le questionnaire du matin touche à la santé de mineurs : il s’ouvrira sur l’installation après la décision sur le consentement des familles et l’hébergement. Rien n’est demandé aux {gw.joueurs} d’ici là.
-          </p>
-        </div>
-      ) : (
-        <section className="card flex flex-col gap-2 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-sm font-bold">Wellness quotidien</div>
-              <div className="text-xs text-muted">{g.wellness ? `Activé${g.wellnessSince ? ` depuis le ${shortDay(g.wellnessSince)}` : ''}` : 'Désactivé'}</div>
-            </div>
-            {toggle && (
-              <button className={g.wellness ? 'btn-ghost min-h-11 px-4 text-sm' : 'btn-primary min-h-11 px-4 text-sm'} onClick={() => void setWellness(!g.wellness)} aria-pressed={!!g.wellness}>
-                {g.wellness ? 'Désactiver' : 'Activer'}
-              </button>
-            )}
+      {/* En-tête chaleureux (23/11, « trop austère ») : cœur pêche → corail, nom du groupe, résumé du jour. */}
+      <header className="card relative flex flex-col gap-3 overflow-hidden border-rose-400/30 bg-gradient-to-br from-orange-400/15 via-rose-500/10 to-panel p-4">
+        <div className="flex items-center gap-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-orange-300 to-rose-500 text-white shadow-md shadow-rose-500/30">
+            <Icon name="heart" className="h-6 w-6" filled />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl leading-tight font-extrabold">Wellness</h1>
+            <div className="truncate text-xs font-bold text-rose-300">{g.name}</div>
           </div>
-          <p className="text-[11px] text-muted">
-            Du lundi au vendredi, le matin, les {gw.joueurs} du groupe qui ont un espace joueur disent leur énergie, leur fraîcheur musculaire, leur humeur et leur
-            sommeil (1 à 10), et s’ils ont une douleur ou une gêne (pour chaque endroit : ce que c’est et son intensité) ; après une séance,
-            l’intensité ressentie et la durée. Seuls le staff du groupe et les administrateurs le lisent.
-            Rien n’est envoyé à une IA ni mis dans les exports.
-          </p>
-        </section>
-      )}
+          {active && readable && lamp.actif && <GroupTile to={`/groupes/${g.id}/lampes`} icon="lamp" title="Lampes" tone="lamp" testId="lien-lampes" compact />}
+        </div>
+        {showTable && gday && (
+          <DaySummary
+            label={day === t ? `Aujourd’hui · ${shortDay(day)}` : `Week-end, rien n’est demandé · dernier jour demandé : ${shortDay(day)}`}
+            gday={gday}
+            concerned={concerned}
+            pains={pains}
+          />
+        )}
+      </header>
+
+      {!showTable && settingsCard}
 
       {active && !readable && <Empty>Le tableau est réservé au staff du groupe (créateur, participants) et aux administrateurs.</Empty>}
       {active && readable && !res && <div className="py-10 text-center text-sm text-muted">Chargement…</div>}
       {active && readable && res && !res.ok && <Empty>{res.error}</Empty>}
       {active && readable && value && (
         <>
-          <p className="text-xs text-muted" data-testid="wellness-bilan">
-            {day === t ? 'Aujourd’hui' : 'Week-end, rien n’est demandé. Dernier jour demandé'} (<b className="text-fg">{shortDay(day)}</b>) : <b className="text-fg">{answered}</b> réponse{answered > 1 ? 's' : ''} sur <b className="text-fg">{concerned}</b>
-            {concerned < players.length && ` (${players.length - concerned} sans espace joueur)`}
-            {pains > 0 && (
-              <>
-                {' '}
-                · <b className="text-fg">{pains}</b> gêne{pains > 1 ? 's' : ''} signalée{pains > 1 ? 's' : ''}
-              </>
-            )}
-          </p>
-          <p className="text-[10px] text-muted">
-            Couleurs : par rapport à <b>sa propre moyenne</b> (28 jours d’avant) — <span className="text-gain">comme d’habitude ou mieux</span>, <span className="text-spread-lo">un peu en dessous</span>,{' '}
-            <span className="text-loss">nettement en dessous</span>. Gêne : une ligne par endroit, pastille selon l’intensité la plus forte (1 à 3, <span className="text-spread-lo">4 à 6</span>, <span className="text-loss">7 à 10</span>). Charge =
-            intensité × durée ; 7 jours comparés à sa moyenne par semaine (28 jours).
-          </p>
+          <Legend />
           <AlertBanner
             cfg={alertCfg}
             alerted={alerted}
@@ -290,7 +308,7 @@ export default function GroupWellnessPage() {
               {(inBar) => {
                 const shown = sorted.filter((p) => (!inBar || inBar.has(p.id)) && keep(p))
                 return (
-                  <div className="grid grid-cols-1 gap-2 wide:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 wide:grid-cols-2">
                     {shown.length === 0 && <Empty>{gw.AucunJoueur} pour ce filtre.</Empty>}
                     {shown.map((p) => (
                       <WellnessRow
@@ -312,6 +330,7 @@ export default function GroupWellnessPage() {
               }}
             </RosterQueryBar>
           )}
+          {settingsCard}
         </>
       )}
       {bubble && value && (
@@ -331,7 +350,162 @@ export default function GroupWellnessPage() {
   )
 }
 
-/** Une ligne du tableau : nom (vers la fiche, dans le groupe), quatre notes colorées, gêne, charge. */
+// ---------- Couleurs et pastilles (23/11 : « de la couleur, de la pêche, de la vie ») ----------
+
+/**
+ * Couleur d'une note ou d'une forme par tranche (1-2, 3-4, 5-6, 7-8, 9-10 ; src/wellness.ts : levelBand, formeBand) : rouge
+ * doux, orange, ambre, vert, turquoise plein (9-10). Textes en -300 : les thèmes clairs les foncent (src/index.css, :root[data-light]).
+ */
+const SCALE_CLS = [
+  'border-rose-400/50 bg-rose-500/15 text-rose-300',
+  'border-orange-400/50 bg-orange-500/15 text-orange-300',
+  'border-amber-400/50 bg-amber-400/15 text-amber-300',
+  'border-emerald-400/50 bg-emerald-500/15 text-emerald-300',
+  'border-teal-500 bg-teal-600 text-white',
+] as const
+/** Liseré gauche de la carte d'un joueur, selon sa forme du jour. */
+const SCALE_EDGE = ['border-l-rose-400', 'border-l-orange-400', 'border-l-amber-400', 'border-l-emerald-400', 'border-l-teal-500'] as const
+const NEUTRAL_CLS = 'border-line bg-panel-2 text-muted'
+/** Repère « en dessous de sa propre moyenne » (28 jours d'avant) sur une note : ▾ un peu, ▾▾ nettement. */
+const TONE_MARK: Partial<Record<Tone, { mark: string; cls: string }>> = {
+  below: { mark: '▾', cls: 'text-spread-lo' },
+  wellBelow: { mark: '▾▾', cls: 'text-loss' },
+}
+
+/** Une note du jour : picto, valeur colorée selon la note (1 → 10), repère si en dessous de sa propre moyenne. */
+function NoteChip({ item, value, tone }: { item: (typeof WELLNESS_ITEMS)[number]; value?: number; tone: Tone }) {
+  const has = typeof value === 'number'
+  const mark = TONE_MARK[tone]
+  return (
+    <span
+      className={`relative flex min-w-0 flex-col items-center rounded-lg border px-1 pt-1 pb-0.5 ${has ? SCALE_CLS[Math.max(0, levelBand(value))] : NEUTRAL_CLS}`}
+      title={`${item.label} : ${value ?? '—'}/10 (${TONE_WORDS[tone]})`}
+    >
+      <span className="text-sm leading-none" aria-hidden>
+        {WELLNESS_PICTO[item.key]}
+      </span>
+      <span className="text-base leading-tight font-extrabold tabular-nums">{value ?? '—'}</span>
+      <span className="w-full truncate text-center text-[9px] leading-tight font-bold opacity-80">{item.short}</span>
+      {mark && <span className={`absolute top-0.5 right-1 text-[11px] leading-none font-black ${mark.cls}`}>{mark.mark}</span>}
+    </span>
+  )
+}
+
+/** Pastille ronde de la forme du jour (sur 10), colorée par tranche ; le title dit le calcul. */
+function FormeBadge({ f, size = 'md', title }: { f: Forme | null; size?: 'md' | 'lg'; title?: string }) {
+  const box = size === 'lg' ? 'h-14 w-14 text-xl' : 'h-12 w-12 text-lg'
+  if (!f)
+    return (
+      <span className={`grid shrink-0 place-items-center rounded-full border-2 border-dashed border-line text-muted ${box}`} title={FORME_HOW}>
+        —
+      </span>
+    )
+  return (
+    <span className={`flex shrink-0 flex-col items-center justify-center rounded-full border-2 ${SCALE_CLS[formeBand(f.value)]} ${box}`} title={title ?? formeTitle(f)} data-testid="forme">
+      <span className="leading-none font-black tabular-nums">{fmt1(f.value)}</span>
+      <span className="text-[8px] leading-tight font-bold opacity-80">/10</span>
+    </span>
+  )
+}
+
+/** Résumé du jour dans l'en-tête : forme moyenne, réponses (jauge), gênes, moyenne de chaque note. */
+function DaySummary({ label, gday, concerned, pains }: { label: string; gday: ReturnType<typeof groupDay>; concerned: number; pains: number }) {
+  const pct = concerned ? Math.round((gday.answered / concerned) * 100) : 0
+  const word = gday.forme !== null ? formeWord(gday.forme) : null
+  const groupForme: Forme | null = gday.forme !== null ? { value: gday.forme, notes: gday.forme, count: 4, pain: null, minus: 0 } : null
+  return (
+    <div className="flex flex-col gap-3" data-testid="wellness-bilan">
+      <div className="text-[11px] font-bold tracking-wider text-muted uppercase">{label}</div>
+      <div className="flex items-center gap-3">
+        <FormeBadge f={groupForme} size="lg" title={`Forme moyenne du groupe : moyenne des formes du jour de ceux qui ont répondu. ${FORME_HOW}`} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-extrabold">
+            {word ? (
+              <>
+                {word.emoji} {word.word}
+              </>
+            ) : (
+              'En attente des réponses'
+            )}
+          </div>
+          <div className="text-[11px] text-muted">{gday.forme !== null ? 'forme moyenne du groupe' : 'la forme du groupe s’affichera ici'}</div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <div
+              className="h-2 flex-1 overflow-hidden rounded-full bg-fg/10"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={concerned}
+              aria-valuenow={gday.answered}
+              aria-label="Réponses du jour"
+            >
+              <div className="h-full rounded-full bg-gradient-to-r from-orange-400 to-rose-500 transition-[width]" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="shrink-0 text-[11px] font-bold tabular-nums">
+              {gday.answered}/{concerned} <span className="font-normal text-muted">réponse{gday.answered > 1 ? 's' : ''}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {WELLNESS_ITEMS.map((it) => {
+          const v = gday.avg[it.key]
+          return (
+            <div
+              key={it.key}
+              className={`flex min-w-0 flex-col items-center rounded-lg border px-1 py-1 ${v !== null ? SCALE_CLS[formeBand(v)] : NEUTRAL_CLS}`}
+              title={`${it.label} : moyenne du groupe ce jour-là`}
+            >
+              <span className="text-base leading-none" aria-hidden>
+                {WELLNESS_PICTO[it.key]}
+              </span>
+              <span className="text-sm leading-tight font-extrabold tabular-nums">{v !== null ? fmt1(v) : '—'}</span>
+              <span className="w-full truncate text-center text-[9px] leading-tight font-bold opacity-80">{it.short}</span>
+            </div>
+          )
+        })}
+      </div>
+      {pains > 0 && (
+        <div className="w-fit rounded-full border border-line bg-panel/70 px-2.5 py-0.5 text-[11px]">
+          🩹 <b>{pains}</b> gêne{pains > 1 ? 's' : ''} signalée{pains > 1 ? 's' : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** « Comment lire le tableau » : forme, couleurs, repères, gêne, charge (ouvert à la demande). */
+function Legend() {
+  return (
+    <details className="group -my-1 text-[11px] text-muted">
+      <summary className="flex min-h-9 w-fit cursor-pointer list-none items-center gap-1.5 font-bold text-fg/80">
+        <span className="grid h-4 w-4 place-items-center rounded-full border border-line text-[9px]">?</span> Comment lire le tableau
+        <span className="transition group-open:rotate-90">›</span>
+      </summary>
+      <div className="card mt-1 flex flex-col gap-1.5 p-3">
+        <p>
+          <b className="text-fg">Forme du jour</b> (pastille ronde) : moyenne de ses notes du matin, moins un quart de sa gêne la plus forte (gêne 8/10 : −2). Sur 10.
+        </p>
+        <p className="flex flex-wrap items-center gap-1">
+          Couleur de la note :
+          {['1-2', '3-4', '5-6', '7-8', '9-10'].map((x, i) => (
+            <span key={x} className={`rounded-md border px-1.5 font-bold tabular-nums ${SCALE_CLS[i]}`}>
+              {x}
+            </span>
+          ))}
+        </p>
+        <p>
+          <b className="text-spread-lo">▾</b> un peu en dessous de <b>sa propre moyenne</b> (28 jours d’avant), <b className="text-loss">▾▾</b> nettement ; sans repère : comme d’habitude ou mieux.
+        </p>
+        <p>
+          {WELLNESS_ITEMS.map((it) => `${WELLNESS_PICTO[it.key]} ${it.short.toLowerCase()}`).join(' · ')}. Gêne : une ligne par endroit, pastille selon l’intensité la plus forte (1 à 3,{' '}
+          <span className="text-spread-lo">4 à 6</span>, <span className="text-loss">7 à 10</span>). Charge = intensité × durée ; 7 jours comparés à sa moyenne par semaine (28 jours).
+        </p>
+      </div>
+    </details>
+  )
+}
+
+/** Une carte du tableau : nom (vers la fiche, dans le groupe), forme du jour, quatre notes colorées, gêne, charge. */
 function WellnessRow({
   p,
   groupId,
@@ -356,50 +530,52 @@ function WellnessRow({
   onOpen: (at: AxisAnchor) => void
 }) {
   const e = row?.today
+  const f = formeDuJour(e)
+  const open = (ev: MouseEvent<HTMLElement>) => {
+    const r = ev.currentTarget.getBoundingClientRect()
+    onOpen({ x: r.left + r.width / 2, top: r.top, bottom: r.bottom })
+  }
+  const word = f ? formeWord(f.value) : null
   return (
-    <div className="card flex min-w-0 flex-col gap-1.5 p-2.5" data-testid="wellness-ligne">
-      <div className="flex min-w-0 items-center gap-2">
-        <Link to={`/groupes/${groupId}/joueurs/${p.id}?onglet=wellness`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2">
-          <Avatar p={p} size={32} />
+    <div className={`card flex min-w-0 flex-col gap-2.5 border-l-4 p-3 ${f ? SCALE_EDGE[formeBand(f.value)] : 'border-l-line'} ${account ? '' : 'opacity-70'}`} data-testid="wellness-ligne">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Link to={`/groupes/${groupId}/joueurs/${p.id}?onglet=wellness`} state={{ md: true }} className="flex min-w-0 flex-1 items-center gap-2.5">
+          <Avatar p={p} size={40} />
           <span className="min-w-0">
             <span className="block truncate text-sm font-bold">{playerName(p)}</span>
             {p.position && <span className="block truncate text-[10px] text-muted">{positionLabel(p.position)}</span>}
+            {word && (
+              <span className="block truncate text-[11px] font-bold">
+                {word.emoji} {word.word}
+              </span>
+            )}
           </span>
         </Link>
-        {account && e && (
-          <button
-            type="button"
-            className="flex shrink-0 gap-1"
-            aria-label={`Détail du wellness de ${playerName(p)}`}
-            onClick={(ev) => {
-              const r = ev.currentTarget.getBoundingClientRect()
-              onOpen({ x: r.left + r.width / 2, top: r.top, bottom: r.bottom })
-            }}
-          >
-            {WELLNESS_ITEMS.map((it) => (
-              <ScoreChip key={it.key} item={it} value={e.scores[it.key]} tone={row!.tones[it.key]} />
-            ))}
+        {account && (
+          <button type="button" className="shrink-0 rounded-full" aria-label={`Forme du jour et détail du wellness de ${playerName(p)}`} onClick={open}>
+            <FormeBadge f={f} />
           </button>
         )}
       </div>
+      {account && e && (
+        <button type="button" className="grid grid-cols-4 gap-1.5" aria-label={`Détail du wellness de ${playerName(p)}`} onClick={open}>
+          {WELLNESS_ITEMS.map((it) => (
+            <NoteChip key={it.key} item={it} value={e.scores[it.key]} tone={row!.tones[it.key]} />
+          ))}
+        </button>
+      )}
       {!account ? (
         <span className="text-[11px] text-muted">Pas d’espace joueur : rien ne lui est demandé.</span>
       ) : !e ? (
-        <button
-          type="button"
-          className="w-fit text-left text-[11px] text-muted"
-          onClick={(ev) => {
-            const r = ev.currentTarget.getBoundingClientRect()
-            onOpen({ x: r.left + r.width / 2, top: r.top, bottom: r.bottom })
-          }}
-        >
-          {isToday ? 'Pas encore répondu aujourd’hui' : 'Pas de réponse ce jour-là'}{row?.lastDay ? ` · dernière réponse ${shortDay(row.lastDay)}` : ''}
+        <button type="button" className="w-fit rounded-full border border-dashed border-line px-2.5 py-1 text-left text-[11px] text-muted" onClick={open}>
+          ☕ {isToday ? 'Pas encore répondu aujourd’hui' : 'Pas de réponse ce jour-là'}
+          {row?.lastDay ? ` · dernière réponse ${shortDay(row.lastDay)}` : ''}
         </button>
       ) : (
         <PainSummary entry={e} />
       )}
       {alert && (
-        <span className="w-fit rounded-full border border-spread-lo/50 px-2 py-0.5 text-[10px] font-bold text-spread-lo" data-testid="wellness-alerte-ligne">
+        <span className="w-fit rounded-full border border-spread-lo/50 bg-spread-lo/10 px-2 py-0.5 text-[10px] font-bold text-spread-lo" data-testid="wellness-alerte-ligne">
           🔋 {alert.length} jours de suite à {alertCfg.max} ou moins ({notesText(alertCfg.note ? [alertCfg.note] : [])})
         </span>
       )}
@@ -437,6 +613,7 @@ function PlayerBubble({
   const days = [...entries].filter((e) => e.day <= t).sort((a, b) => b.day.localeCompare(a.day)).slice(0, 14)
   const week = [...sessions].sort((a, b) => b.day.localeCompare(a.day)).slice(0, 8)
   const withPain = days.filter((e) => painMax(e) !== null)
+  const forme = formeDuJour(row?.today)
   return (
     <AnchoredBubble at={at} label={`Wellness de ${playerName(p)}`} title={playerName(p)} sub="14 derniers jours" onClose={onClose} testId="bulle-wellness">
       <div className="flex max-h-[42vh] w-full min-w-0 flex-col gap-2 overflow-y-auto">
@@ -446,11 +623,27 @@ function PlayerBubble({
             <span className="block text-muted">{[...alert].reverse().map(shortDay).join(' · ')}</span>
           </p>
         )}
+        {forme && (
+          <div className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${SCALE_CLS[formeBand(forme.value)]}`} data-testid="bulle-forme">
+            <span className="text-lg leading-none font-black tabular-nums">{fmt1(forme.value)}</span>
+            <span className="min-w-0 text-[11px] leading-tight">
+              <b>
+                Forme du jour · {formeWord(forme.value).emoji} {formeWord(forme.value).word}
+              </b>
+              <span className="block text-fg/80">
+                Notes {fmt1(forme.notes)} de moyenne{forme.pain !== null ? `, gêne ${forme.pain}/10 : −${fmt1(forme.minus)}` : ', pas de gêne'}.
+              </span>
+              <span className="block text-muted">{FORME_HOW}</span>
+            </span>
+          </div>
+        )}
         {row && (
           <div className="grid grid-cols-4 gap-1 text-center">
             {WELLNESS_ITEMS.map((it) => (
               <div key={it.key} className="rounded-md border border-line px-1 py-1">
-                <div className="text-[9px] text-muted">{it.short}</div>
+                <div className="text-[9px] text-muted">
+                  {WELLNESS_PICTO[it.key]} {it.short}
+                </div>
                 <div className="text-[11px] font-bold tabular-nums">{row.avg[it.key] !== null ? fmt1(row.avg[it.key] as number) : '—'}</div>
                 <div className="text-[8px] text-muted">sa moyenne</div>
               </div>
@@ -463,7 +656,10 @@ function PlayerBubble({
           <table className="w-full table-fixed text-center text-[11px] tabular-nums">
             <thead className="text-[9px] text-muted">
               <tr>
-                <th className="w-[32%] text-left font-normal">Jour</th>
+                <th className="w-[28%] text-left font-normal">Jour</th>
+                <th className="font-normal" title={FORME_HOW}>
+                  Forme
+                </th>
                 {WELLNESS_ITEMS.map((it) => (
                   <th key={it.key} className="font-normal">
                     {it.abbr}
@@ -475,9 +671,11 @@ function PlayerBubble({
             <tbody>
               {days.map((e) => {
                 const max = painMax(e)
+                const fe = formeDuJour(e)
                 return (
                   <tr key={e.day} className="border-t border-line">
                     <td className="truncate py-1 text-left">{shortDay(e.day)}</td>
+                    <td>{fe ? <span className={`rounded px-1 font-bold ${SCALE_CLS[formeBand(fe.value)]}`}>{fmt1(fe.value)}</span> : '—'}</td>
                     {WELLNESS_ITEMS.map((it) => (
                       <td key={it.key}>{e.scores[it.key] ?? '—'}</td>
                     ))}
