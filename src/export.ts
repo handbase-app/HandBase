@@ -1,11 +1,19 @@
 import { regionLabel } from './lists'
 import { age, alive, contextLabel, counts, dayOf, db, fmtDate, lateralityLabel, POLE_EXITS, poleName, poleSummary, positionLabel, today, type Evaluation, type Measurement, type Player, type PolePeriod } from './db'
+import { listGender, sexLabel, w, type Gender } from './gender'
 import { fmtValue } from './components/ui'
 import { momentLabel, momentsOf } from './videos'
 import { departmentLabel } from './lists'
-import { snapshots } from './components/MaturityCard'
+import { pahShown } from './maturity'
+import { snapshots } from './maturitySnapshot'
 import { department } from './components/PlayerFilter'
 import { latestByPlayer } from './pages/Players'
+import { sportProfile } from './sportConfig'
+import { appName, appSlug } from './appBrand'
+import { clubYears, journalDay, letterQuestions, markFields, moodLabel, noteMoods } from './playerSpace'
+import { fetchNotes } from './playerJournal'
+import { withPoleMembers } from './poleMembers'
+import { fmtPlayingTime, playingTimeOf, superPowerOf } from './avisMatch'
 
 const esc = (v: unknown) => {
   let s = v === undefined || v === null ? '' : String(v)
@@ -36,8 +44,9 @@ function download(name: string, content: string, type: string) {
 }
 
 /** Export CSV (séparateur « ; » pour Excel en français) : une ligne par joueur, dernières valeurs + moyenne des avis validés.
- *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres). */
-export async function exportCsv(only?: { id: string }[]) {
+ *  `only` : limite l'export à ces joueurs (ceux affichés après les filtres) ; `g` : genre de la liste (nom du fichier « joueuses » ; à défaut, déduit des joueurs exportés) ;
+ *  `extra` : colonnes en plus, à la fin (groupe Pôle : statut de saison, programme, référence PSQS ; src/pages/Groups.tsx). */
+export async function exportCsv(only?: { id: string }[], g?: Gender, extra?: { head: string[]; row: (p: Player) => string[] }) {
   const [all, criteria, measurements, evaluations] = await Promise.all([
     db.players.toArray().then(alive),
     db.criteria.orderBy('order').toArray().then(alive),
@@ -56,8 +65,9 @@ export async function exportCsv(only?: { id: string }[]) {
     'Nom', 'Prénom', 'Naissance', 'Âge', 'Sexe', 'Taille mère (cm)', 'Taille père (cm)', 'Nationalité', 'Poste', 'Postes secondaires', 'Équipe', 'Licence', 'État licence', 'Type licence', 'Catégorie', 'Club', 'N° club', 'Département', 'Internat', 'Pôle Espoirs', 'Entrée pôle', 'Sortie pôle', 'Latéralité',
     ...factual.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label)),
     ...subjective.map((c) => `${c.label} (${c.scale === 'choice' ? 'avis le plus fréquent' : c.scale === 'text' ? 'avis' : 'moy. avis'})`),
-    'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Taille adulte prédite (cm)', '% taille adulte',
+    'Décalage pic Mirwald (ans)', 'Décalage pic Moore (ans)', 'Décalage pic Fransen (ans)', 'Décalage pic moyen (ans)', 'Taille adulte prédite (cm)', '% taille adulte', 'Taille adulte sans parents, moyenne (cm)',
     'Nb avis', 'Fiche', 'Lacunes', 'Notes',
+    ...(extra?.head ?? []),
   ]
   const rows = players.map((p) => {
     const l = latest.get(p.id)
@@ -78,17 +88,19 @@ export async function exportCsv(only?: { id: string }[]) {
     const r1 = (v: number | null | undefined) => (typeof v === 'number' ? num(Math.round(v * 10) / 10) : '')
     const snap = snapshots(p, msOf.get(p.id) ?? []).at(-1)
     return [
-      p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : '',
+      p.lastName, p.firstName, fmtDate(p.birthDate), age(p.birthDate) ?? '', sexLabel(p.sex),
       num(p.motherHeight), num(p.fatherHeight), p.nationality, positionLabel(p.position), (p.secondaryPositions ?? []).map((x) => positionLabel(x)).join(', '), p.team, p.license,
       p.licenseStatus, p.licenseRequestType, p.category, p.club, p.clubCode, department(p), p.boarding === true ? 'Oui' : p.boarding === false ? 'Non' : '', poleCols(p).name, poleCols(p).from, poleCols(p).to, lateralityLabel(p.laterality, p.sex),
       ...factual.map((c) => num(l?.get(c.id)?.value)),
       ...subjective.map((c) => avg(c)),
-      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.kr?.predicted), r1(snap?.kr?.pah),
+      r1(snap?.mirwald), r1(snap?.moore), r1(snap?.fransen), r1(snap?.mean.offset), r1(snap?.kr?.predicted), r1(snap?.kr && pahShown(snap.kr.pah)), r1(snap?.adult.mean?.height),
       evs.length, p.review === 'pending' ? 'Proposée' : p.review === 'refused' ? 'Hors cadre' : '', p.gaps, p.notes,
+      ...(extra?.row(p) ?? []),
     ]
   })
   const csv = '﻿' + [head, ...rows].map((r) => r.map(esc).join(';')).join('\n')
-  download(`handbase-joueurs-${today()}.csv`, csv, 'text/csv;charset=utf-8')
+  // Genre : celui donné (groupe), sinon « joueuses » si l'export ne contient que des filles.
+  download(`${appSlug()}-${w(g ?? listGender(undefined, players)).joueurs}-${today()}.csv`, csv, 'text/csv;charset=utf-8')
 }
 
 /** Sauvegarde complète (JSON) de la base locale. */
@@ -107,14 +119,18 @@ export async function exportBackup() {
     videos: await db.videos.toArray(),
     seen: await db.seen.toArray(),
     rewatch: await db.rewatch.toArray(),
+    config: await db.config.toArray(),
+    levels: await db.levels.toArray(),
+    units: await db.units.toArray(),
+    assignments: await db.assignments.toArray(),
   }
-  download(`handbase-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
+  download(`${appSlug()}-sauvegarde-${today()}.json`, JSON.stringify(data), 'application/json')
 }
 
 /** Restaure une sauvegarde : fusion, la version la plus récente de chaque ligne l'emporte. */
 export async function importBackup(file: File) {
   const data = JSON.parse(await file.text())
-  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos', 'seen', 'rewatch'] as const
+  const tables = ['players', 'criteria', 'measurements', 'events', 'evaluations', 'groups', 'lists', 'alerts', 'videos', 'seen', 'rewatch', 'config', 'levels', 'units', 'assignments'] as const
   let n = 0
   for (const t of tables) {
     const rows: { id: string; updatedAt: number }[] = data[t] ?? []
@@ -162,7 +178,7 @@ export async function exportPlayer(id: string) {
       : '<p class="m">Aucune.</p>'
 
   const info: [string, unknown][] = [
-    ['Nom', p.lastName], ['Prénom', p.firstName], ['Sexe', p.sex === 'M' ? 'Garçon' : p.sex === 'F' ? 'Fille' : ''],
+    ['Nom', p.lastName], ['Prénom', p.firstName], ['Sexe', sexLabel(p.sex)],
     ['Date de naissance', p.birthDate && fmtDate(p.birthDate)], ['Nationalité', p.nationality], ['Club', p.club], ['N° de club', p.clubCode],
     ['Département', dept && departmentLabel(dept)], ['Licence', p.license], ['Anciennes licences', p.previousLicenses?.join(', ')],
     ['État de la licence', p.licenseStatus], ['Type de licence', p.licenseRequestType], ['Équipe', p.team], ['Catégorie / niveau', p.category],
@@ -187,7 +203,8 @@ export async function exportPlayer(id: string) {
         .join('')
       const where = e.eventId ? (ev.get(e.eventId)?.name ?? 'Événement') : contextLabel(e)
       return `<div class="avis"><b>${h(fmtDate(e.date))} · ${h(where)}</b> — par ${h(e.observer)}${state(e.review) ? ` <i>(${h(state(e.review))})</i>` : ''}
-        ${e.minutesObserved ? `<div>Temps observé : ${h(e.minutesObserved)} min</div>` : ''}
+        ${e.portrait ? `<div><i>${h(e.portrait)}</i></div>` : ''}${superPowerOf(e) ? `<div>Super-pouvoir observé : ${h(superPowerOf(e))}</div>` : ''}
+        ${playingTimeOf(e) !== undefined ? `<div>Temps de jeu : ${h(fmtPlayingTime(playingTimeOf(e)!))}</div>` : ''}${e.minutesObserved ? `<div>Temps observé : ${h(e.minutesObserved)} min</div>` : ''}
         ${scores ? `<ul>${scores}</ul>` : ''}${e.strengths ? `<div>Points forts : ${h(e.strengths)}</div>` : ''}${e.improvements ? `<div>À travailler : ${h(e.improvements)}</div>` : ''}
         ${e.reviewNote ? `<div class="m">Commentaire de validation : ${h(e.reviewNote)}</div>` : ''}</div>`
     })
@@ -197,7 +214,8 @@ export async function exportPlayer(id: string) {
     .filter((e) => !e.deleted && (e.playerIds ?? []).includes(id))
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((e) => [fmtDate(e.date), e.name, e.place])
-  const grps = groups.filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
+  // Groupe Pôle : s'il y est en ce moment (périodes de la fiche, src/poleMembers.ts).
+  const grps = (await withPoleMembers(groups, [p])).filter((g) => g.playerIds.includes(id)).map((g) => [g.name, g.description])
   // Repérage (supabase/041) : événements où il a été vu, « à revoir » (destinations, commentaire).
   const sights = seen
     .map((s) => [ev.get(s.eventId)?.date ? fmtDate(ev.get(s.eventId)!.date) : '', ev.get(s.eventId)?.name ?? 'Événement', s.createdByName])
@@ -211,28 +229,50 @@ export async function exportPlayer(id: string) {
     r.createdByName,
     r.done ? 'oui' : '',
   ])
+  // Espace joueur (supabase/051, 052) : ce qu'il a écrit lui-même (sa lettre et ses versions, ses repères, son parcours) : c'est
+  // sa donnée, elle est dans sa copie. Son journal du hand : SEULEMENT les notes qu'il a partagées (le staff ne lit pas les
+  // autres ; le jeune télécharge sa copie complète depuis sa page).
+  const self: unknown[][] = [
+    ...letterQuestions(p.sex).filter((q) => p.self?.letter?.[q.key]).map((q) => [q.label, p.self!.letter![q.key]]),
+    ...markFields(p.sex).filter((m) => p.self?.marks?.[m.key]).map((m) => [m.short, p.self!.marks![m.key]]),
+    ...(p.self?.path?.clubs?.length ? [['Clubs', p.self.path.clubs.map((c) => [c.name, clubYears(c)].filter(Boolean).join(' · ')).join(' ; ')]] : []),
+    ...(p.self?.path?.positions?.length ? [['Postes joués', p.self.path.positions.map((x) => positionLabel(x)).join(', ')]] : []),
+    ...(p.self?.path?.selections?.length ? [['Sélections', p.self.path.selections.join(' ; ')]] : []),
+    ...(p.self?.path?.honours?.length ? [['Palmarès', p.self.path.honours.join(' ; ')]] : []),
+  ]
+  const versions = (p.self?.letterHistory ?? []).flatMap((v) =>
+    letterQuestions(p.sex)
+      .filter((q) => v.letter[q.key])
+      .map((q) => [fmtDate(dayOf(v.at)), q.label, v.letter[q.key]]),
+  )
+  const shared = await fetchNotes(id, true)
+  const sharedRows = shared.ok ? shared.value.map((n) => [journalDay(n.at), noteMoods(n).map((m) => moodLabel(m, p.sex)).join(', '), n.text]) : []
   const vids = videos.map((v) => [v.createdAtServer ? fmtDate(dayOf(v.createdAtServer)) : '', v.title, v.url, momentsOf(v).map(momentLabel).join(' ; '), v.createdByName])
 
   const name = `${p.lastName.toUpperCase()} ${p.firstName}`
   const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Données HandBase – ${h(name)}</title><style>
+<title>Données ${h(appName())} – ${h(name)}</title><style>
 body{font:14px/1.45 system-ui,sans-serif;max-width:820px;margin:24px auto;padding:0 16px;color:#111}
 h1{font-size:20px;margin:0}h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #ccc;padding-bottom:4px}
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f3f3f3}
 .m{color:#666}.avis{border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin:8px 0}.avis ul{margin:4px 0;padding-left:18px}
 </style></head><body>
-<h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans HandBase, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
+<h1>${h(name)}</h1><p class="m">Copie de toutes les données enregistrées dans ${h(appName())}, éditée le ${h(new Date().toLocaleDateString('fr-FR'))}.</p>
 <h2>Fiche</h2>${table(['Information', 'Valeur'], info.filter(([, v]) => v !== undefined && v !== null && v !== ''))}
 <h2>Mesures et tests (${meas.length})</h2>${table(['Date', 'Test', 'Valeur', 'Commentaire', 'Saisi par'], meas)}
-<h2>Avis des observateurs (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
+<h2>Avis du staff (${evaluations.length})</h2>${avis || '<p class="m">Aucun.</p>'}
 <h2>Rassemblements et événements (${evts.length})</h2>${table(['Date', 'Événement', 'Lieu'], evts)}
 <h2>Groupes (${grps.length})</h2>${table(['Groupe', 'Description'], grps)}
-<h2>Vu par les observateurs (${sights.length})</h2>${table(['Date', 'Événement', 'Observateur'], sights)}
+<h2>Vu lors d’événements (${sights.length})</h2>${table(['Date', 'Événement', 'Vu par'], sights)}
 <h2>À revoir (${revisits.length})</h2>${table(['Le', 'Repéré à', 'À revoir à', 'Commentaire', 'Par', 'Revu'], revisits)}
 <h2>Liens vidéo (${vids.length})</h2>${table(['Ajouté le', 'Titre', 'Lien', 'Moments', 'Ajouté par'], vids)}
+<h2>Écrit par le joueur (espace joueur)</h2>${self.length ? table(['Rubrique', 'Texte'], self) : '<p class="m">Rien.</p>'}
+${versions.length ? `<h2>Versions précédentes de sa lettre</h2>${table(['Version du', 'Question', 'Texte'], versions)}` : ''}
+<h2>Journal du ${h(sportProfile().word)} : notes partagées (${sharedRows.length})</h2>${shared.ok ? table(['Date', 'Humeurs', 'Note'], sharedRows) : `<p class="m">Non lues : ${h(shared.error)}</p>`}
+<p class="m">Notes privées du journal : téléchargeables uniquement par le joueur ou la joueuse depuis sa page.</p>
 </body></html>`
   const file = `${p.lastName}_${p.firstName}`.normalize('NFD').replace(/[^a-zA-Z0-9_]/g, '')
-  download(`handbase-donnees-${file}.html`, html, 'text/html;charset=utf-8')
+  download(`${appSlug()}-donnees-${file}.html`, html, 'text/html;charset=utf-8')
 }
 
 /** Colonnes « Pôle Espoirs » du CSV : une valeur par période, séparées par « ; » (dates JJ/MM/AAAA). */

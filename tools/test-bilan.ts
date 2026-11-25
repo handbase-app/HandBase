@@ -2,7 +2,9 @@
 //
 //   npx jiti tools/test-bilan.ts
 import assert from 'node:assert/strict'
-import { byLeftToSee, coverageByClub, coverageByPlace, coverageByYear, fedReport, filterPlayers, lastSights, NO_DEPT, percent, seasonOf, toSights, totalOf } from '../src/coverage'
+import { readFileSync } from 'node:fs'
+import { byLeftToSee, coverageByClub, coverageByPlace, coverageByYear, DECLARED, fedReport, filterPlayers, isShare, lastSights, measureOf, NO_DEPT, percent, rankBy, seasonOf, sortClubs, staffMeasured, tallest, toSights, totalOf } from '../src/coverage'
+import { insetPaths, OTHER_OM, OUTRE_MER, showOtherOM, type OutreMerGeo } from '../src/outreMer'
 
 // Saison : 1er septembre → 31 août.
 assert.deepEqual(seasonOf('2026-10-12'), { from: '2026-09-01', to: '2027-08-31', label: '2026-2027' })
@@ -151,5 +153,96 @@ assert.deepEqual(
   ],
 )
 assert.deepEqual(rep.regions, []) // sans `place` : pas de régions
+
+// ---------- Onglets de la carte : vus, licenciés, mesurés par le staff, profils repérés ----------
+assert.deepEqual([isShare('vus'), isShare('mesures'), isShare('licencies'), isShare('reperes')], [true, true, false, false])
+const t = { seen: 3, total: 12 }
+assert.deepEqual([measureOf('vus', t), measureOf('mesures', t), measureOf('licencies', t), measureOf('reperes', t)], [0.25, 0.25, 12, 3])
+assert.equal(measureOf('licencies', { seen: 0, total: 0 }), undefined) // aucun joueur : gris sur la carte
+// Classement : parts → le plus de joueurs restant à voir ; nombres → la plus grande valeur, puis le plus de joueurs.
+const rows: [string, { seen: number; total: number }][] = [
+  ['83', { seen: 1, total: 10 }],
+  ['13', { seen: 5, total: 20 }],
+  ['06', { seen: 5, total: 8 }],
+]
+assert.deepEqual(rankBy('vus', rows).map(([k]) => k), ['13', '83', '06'])
+assert.deepEqual(rankBy('licencies', rows).map(([k]) => k), ['13', '83', '06'])
+assert.deepEqual(rankBy('reperes', rows).map(([k]) => k), ['13', '06', '83'])
+const cl = [
+  { key: '', name: '', seen: 9, total: 9 },
+  { key: 'a', name: 'A', seen: 1, total: 5 },
+  { key: 'b', name: 'B', seen: 2, total: 3 },
+]
+assert.deepEqual(sortClubs('reperes', cl).map((c) => c.key), ['b', 'a', ''])
+assert.deepEqual(sortClubs('licencies', cl).map((c) => c.key), ['a', 'b', ''])
+assert.equal(sortClubs('vus', cl), cl) // parts : l'ordre de coverageByClub
+// Par onglet, coverageByClub range ses joueurs : « comptés » (seenPlayers) et les autres (toSee).
+const staff = new Set(['a', 'c'])
+const byClubStaff = coverageByClub(filterPlayers(players as TP[], {}), staff)
+assert.deepEqual(byClubStaff.find((c) => c.key === 'hbc exemple')!.seenPlayers.map((p) => p.id), ['a'])
+
+// Mesurés par le staff : les tailles déclarées à la licence ne comptent pas ; dernière taille connue.
+const M = (playerId: string, value: number, date: string, author?: string, extra = {}) => ({ playerId, criterionId: 'taille', value, date, updatedAt: 0, author, ...extra })
+const sm = staffMeasured([
+  M('a', 170, '2026-01-01', 'Sophie'),
+  M('a', 172, '2026-06-01', 'Sophie'),
+  M('b', 180, '2026-01-01', DECLARED), // déclarée : pas une mesure du staff
+  M('c', 160, '2026-01-01', 'Paul', { deleted: true }), // supprimée
+])
+assert.deepEqual([...sm.staff], ['a'])
+assert.deepEqual([...sm.height], [
+  ['a', 172],
+  ['b', 180],
+])
+// Repli des profils repérés : 90e centile de la génération et du sexe (au moins 10 joueurs mesurés).
+const gen = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, birthDate: '2011-01-01', sex: 'M' as const }))
+const tall = tallest([...gen, { id: 'f1', birthDate: '2011-01-01', sex: 'F' }], new Map([...gen.map((p, i) => [p.id, 170 + i] as [string, number]), ['f1', 200]]))
+assert.deepEqual([...tall], ['p8', 'p9']) // seuil : 178 ; la fille seule (groupe de 1) n'est pas comptée
+
+// Encarts ultramarins de la carte (src/outreMer.ts, src/assets/outre-mer.json) : un contour par territoire, relié à son
+// numéro ; mêmes territoires et mêmes chiffres que les anciennes pastilles (GP, MQ, GF, RE, YT, NC, OM).
+{
+  const geo = JSON.parse(readFileSync(new URL('../src/assets/outre-mer.json', import.meta.url), 'utf8')) as OutreMerGeo
+  const old = ['971', '972', '973', '974', '976', '988', '97']
+  assert.deepEqual([...OUTRE_MER.map((t) => t.code), OTHER_OM.code], old)
+  assert.deepEqual(
+    geo.features.map((f) => f.properties.code),
+    OUTRE_MER.map((t) => t.code),
+  )
+  for (const [w, h] of [
+    [60, 40],
+    [150, 110],
+  ]) {
+    const paths = insetPaths(geo, w, h)
+    for (const t of OUTRE_MER) {
+      const d = paths.get(t.code) ?? ''
+      assert.match(d, /^M[\d.]/, `contour de ${t.name}`)
+      // Dessin dans son cadre (pas le globe entier : sens des anneaux correct).
+      const nums = d.match(/-?\d+(\.\d+)?/g)!.map(Number)
+      assert.ok(nums.every((v) => v >= -0.01 && v <= Math.max(w, h) + 0.01), `${t.name} dans son cadre`)
+    }
+  }
+  assert.ok(new TextEncoder().encode(JSON.stringify(geo)).length < 30_000) // léger
+  // Chiffres : un encart lit le décompte de son numéro, comme la pastille.
+  const om = [
+    { id: 'g1', club: 'A' },
+    { id: 'g2', club: 'A' },
+    { id: 'm1', club: 'B' },
+    { id: 'n1', club: 'C' },
+    { id: 'o1', club: 'D' },
+  ]
+  const omDept: Record<string, string> = { g1: '971', g2: '971', m1: '972', n1: '988', o1: '97' }
+  const omRegion: Record<string, string> = { '971': 'region-ant', '972': 'region-ant', '988': 'region-nc', '97': 'region-om' }
+  const omPlace = { deptOf: (p: { id: string }) => omDept[p.id], regionOf: (d: string) => omRegion[d] }
+  const pcOm = coverageByPlace(om, new Set(['g1', 'n1']), omPlace)
+  assert.deepEqual(pcOm.byDept.get('971'), { seen: 1, total: 2 })
+  assert.deepEqual(pcOm.byDept.get('972'), { seen: 0, total: 1 })
+  assert.deepEqual(pcOm.byDept.get('988'), { seen: 1, total: 1 })
+  assert.equal(pcOm.byDept.get('973'), undefined) // encart Guyane : aucun joueur, couleur « vide »
+  assert.deepEqual(pcOm.byRegion.get('region-ant'), { seen: 1, total: 3 })
+  // « Autres outre-mer » : seulement s'il existe des joueurs ainsi codés.
+  assert.equal(showOtherOM(pcOm.byDept), true)
+  assert.equal(showOtherOM(coverageByPlace(om.slice(0, 4), new Set<string>(), omPlace).byDept), false)
+}
 
 console.log('Bilan de détection : tous les tests passent.')

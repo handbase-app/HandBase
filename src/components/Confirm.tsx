@@ -78,8 +78,8 @@ export function ConfirmHost() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => close(null)}>
-      <div role="dialog" aria-modal="true" className="card w-full max-w-sm p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center scrim p-4 sm:items-center" onClick={() => close(null)}>
+      <div role="dialog" aria-modal="true" className="win w-full max-w-sm p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <p className="text-sm leading-relaxed">{req.message}</p>
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           {req.choices.map((c, i) => (
@@ -106,6 +106,18 @@ export function setLeaveGuard(g: Guard | null) {
 /** Retire `g` s'il est toujours la garde en place (un autre écran a pu poser la sienne entre-temps). */
 export function releaseLeaveGuard(g: Guard) {
   if (guard === g) guard = null
+}
+
+/**
+ * Pose `g` par-dessus la garde en place (fenêtre de formulaire ouverte au-dessus d'un écran qui a la sienne) ; la fonction
+ * renvoyée la retire et remet celle d'avant (si personne n'en a posé d'autre entre-temps).
+ */
+export function pushLeaveGuard(g: Guard): () => void {
+  const prev = guard
+  guard = g
+  return () => {
+    if (guard === g) guard = prev
+  }
 }
 
 /** true si on peut quitter l'écran courant (rien en cours, ou l'utilisateur a choisi). */

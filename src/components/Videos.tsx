@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { isHandball } from '../sportConfig'
 import { ItemMenu, MENU_ROW, MenuButton, useRowMenu, type MenuItem } from './ItemMenu'
-import { db, newId, remove, save, type Video, type VideoMoment } from '../db'
-import type { MatchSheet } from '../matchSheet'
+import { db, newId, remove, save, type Player, type Video, type VideoMoment } from '../db'
+import type { MatchSheet, StoredAction } from '../matchSheet'
 import { can, useRole } from '../roles'
 import { supabase } from '../sync'
 import {
@@ -21,8 +22,10 @@ import {
   withMoments,
 } from '../videos'
 import { ask } from './Confirm'
-import { Icon, InfoButton } from './ui'
+import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
+import { closeVideo, openVideo, setDockEditing, useDockEditing, useDockOpen, useDockOwner, useDockPublish } from './VideoDock'
+import { ProposalBar } from './PlayerProposed'
 
 /*
  * Section « Vidéos » d'une fiche joueur ou d'un événement (supabase/036_videos.sql) : liens vers des vidéos
@@ -30,18 +33,7 @@ import type { PlayerTools } from './VideoPlayer'
  * Tout le monde en ajoute ; son auteur modifie le sien ; auteur, administrateur ou encadrant (secteur) supprime.
  */
 
-/** Lecteur intégré : son code (et celui des lecteurs YouTube/Vimeo) n'est chargé qu'au premier clic sur une vidéo. */
-const VideoPlayer = lazy(() =>
-  import('./VideoPlayer').catch(() => ({
-    default: ({ onClose }: { onClose: () => void }) => (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
-        <p className="card max-w-sm p-4 text-sm">Le lecteur n’a pas pu être chargé (connexion ?). Réessaie plus tard ou ouvre la vidéo sur son site.</p>
-      </div>
-    ),
-  })),
-)
-
-/** Frise du match sous la vidéo d'une fiche joueur (module chargé à la demande, seulement pour une vidéo de match calée). */
+/** Frise du match sous la vidéo d'une fiche joueur, en mode édition (module chargé à la demande). */
 const MatchTimeline = lazy(() => import('./MatchTimeline'))
 
 type SheetMod = typeof import('../matchSheet')
@@ -59,16 +51,18 @@ const looksGenerated = (m: VideoMoment) => !!m.note?.endsWith('feuille') && m.no
  * Fiche joueur : événements dont la feuille de match est calée sur l'adresse d'un de ces liens et où cette fiche est reliée
  * à un joueur de la feuille (fiches fondues suivies). Le module de la feuille n'est chargé que s'il y a des moments générés.
  */
-function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Video[]) {
+function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Video[], eventSheet = false) {
   const urls = kind === 'player' ? [...new Set((videos ?? []).filter((v) => momentsOf(v).some(looksGenerated)).map((v) => v.url))] : []
-  const need = urls.length > 0
+  const need = urls.length > 0 || eventSheet
   const [mod, setMod] = useState<SheetMod>()
   useEffect(() => {
     if (need && !mod) import('../matchSheet').then((m) => setMod(m)).catch(() => {})
   }, [need, mod])
   const links = useLiveQuery(
-    async (): Promise<SheetLink[]> => {
-      if (!mod || !urls.length) return []
+    async (): Promise<SheetLink[] | undefined> => {
+      if (!urls.length) return []
+      // Module pas encore chargé : « pas encore su » (undefined), pas « aucune feuille ».
+      if (!mod) return undefined
       const evs = (await db.events.toArray()).filter((e) => !e.deleted && e.matchSheet?.sync?.url && urls.includes(e.matchSheet.sync.url))
       if (!evs.length) return []
       // Fiches fondues depuis l'import : on suit mergedInto (quelques niveaux au plus).
@@ -83,14 +77,33 @@ function useSheetLinks(kind: Video['targetKind'], targetId: string, videos?: Vid
         for (let n = 0; into.has(id) && n < 5; n++) id = into.get(id)!
         return id
       }
+      // Le même match peut être calé sur cette adresse dans plusieurs événements : le plus récemment modifié d'abord.
       return evs
+        .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((e) => ({ eventId: e.id, url: e.matchSheet!.sync!.url!, ms: e.matchSheet!, pls: mod.sheetPlayersOf(e.matchSheet!, targetId, resolve) }))
         .filter((l) => l.pls.length > 0)
     },
     [mod, targetId, urls.join('\n')],
-    [],
   )
-  return { mod, links }
+  // Feuilles connues (ou aucune à chercher) et module chargé s'il le faut : la frise du lecteur peut être décidée.
+  return { mod, links: links ?? [], ready: !need || (links !== undefined && !!mod) }
+}
+
+/** Nom affiché pour le joueur (ou l'équipe) d'une action de la feuille : fiche reliée, sinon « n° 7 (Équipe) ». undefined : pas encore lu. */
+function useSheetWho(ms: MatchSheet | undefined) {
+  const ids = (ms?.players ?? []).flatMap((p) => (p.playerId ? [p.playerId] : []))
+  const byId = useLiveQuery(
+    async () => new Map((await db.players.bulkGet(ids)).filter((p): p is Player => !!p).map((p) => [p.id, p])),
+    [ids.join(',')],
+  )
+  if (!ms || !byId) return undefined
+  const team = (side?: string) => (side === 'home' ? ms.home : side === 'away' ? ms.away : '')
+  return (a: StoredAction) => {
+    if (a.k === 'tm' || a.pl === undefined) return team(a.side)
+    const sp = ms.players[a.pl]
+    const p = sp?.playerId ? byId.get(sp.playerId) : undefined
+    return p ? playerName(p) : `n° ${sp?.num ?? '?'} (${team(sp?.side)})`
+  }
 }
 
 function useOnline() {
@@ -117,17 +130,33 @@ export function VideoSection({
   dept,
   tools,
   bar,
+  sheet,
   children,
+  sex,
+  focus,
 }: {
   kind: Video['targetKind']
   targetId: string
   dept?: string
-  /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement). */
+  /** Fiche d'une joueuse : textes accordés (« cette joueuse »). */
+  sex?: string
+  /** Outils du lecteur pour une vidéo (calage de la feuille de match sur une vidéo d'événement ; en mode édition si sheet). */
   tools?: (v: Video, api: PlayerTools) => ReactNode
-  /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement). */
+  /** Bloc sous les commandes de la vidéo, gardé en plein écran (frise de la feuille de match d'un événement ; en mode édition si sheet). */
   bar?: (v: Video, api: PlayerTools) => ReactNode
+  /**
+   * Feuille de match d'un événement. La vidéo s'ouvre en lecture : les actions placées sur la vidéo calée s'ajoutent à ses
+   * moments ; tools et bar (frise de calage) ne viennent qu'en mode édition, ouvert par « Éditer le séquençage » pour qui
+   * peut caler (canEdit).
+   */
+  sheet?: { ms: MatchSheet; canEdit: boolean }
   /** Contenu ajouté en bas de la section (feuille de match d'un événement). */
   children?: ReactNode
+  /**
+   * Vidéo visée par ?voir=video:<id> (fiche d'un joueur, src/playerFocus.ts) : lancée dans le lecteur si elle s'y lit ;
+   * la fiche fait venir sa ligne à l'écran (data-voir). `id` vide (?voir=video:toutes) : la section seule.
+   */
+  focus?: { id: string; n: number }
 }) {
   const role = useRole()
   const online = useOnline()
@@ -141,35 +170,109 @@ export function VideoSection({
   // Formulaire : null = fermé, 'new' = ajout, sinon le lien modifié.
   const [form, setForm] = useState<'new' | Video | null>(null)
   const [note, setNote] = useState('')
-  // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite).
-  const [playing, setPlaying] = useState<{ v: Video; moment?: number } | null>(null)
-  const closePlayer = useCallback(() => setPlaying(null), [])
-  const sheets = useSheetLinks(kind, targetId, videos)
-  if (!videos) return null
+  // Vidéo ouverte dans le lecteur intégré (et moment à jouer tout de suite) : le lecteur est posé à la racine de l'appli
+  // (VideoDock.tsx), il survit à cette section quand la page se redessine (téléphone tourné).
+  const owner = `${kind}:${targetId}`
+  useDockOwner(owner)
+  const playing = useDockOpen(owner)
+  const sheets = useSheetLinks(kind, targetId, videos, !!sheet)
+  // Mode édition du séquençage : gardé par le lecteur (VideoDock), il survit à une rotation ; jamais pour qui ne peut caler.
+  const dockEditing = useDockEditing()
+  const editing = dockEditing && !!sheet?.canEdit
+  const sheetWho = useSheetWho(sheet?.ms)
   // Lien ouvert dans le lecteur : sa version à jour (les moments générés bougent à chaque calage).
-  const open = playing && (videos.find((x) => x.id === playing.v.id) ?? playing.v)
-  const sheetOf = (v: Video) => sheets.links.find((l) => l.url === v.url)
-  /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main). */
+  const open = playing && videos ? (videos.find((x) => x.id === playing.v.id) ?? playing.v) : undefined
+  const linksOf = (v: Video) => sheets.links.filter((l) => l.url === v.url)
+  /** Feuille d'où viennent les moments générés de ce lien (plusieurs événements peuvent être calés sur la même adresse). */
+  const sheetOf = (v: Video) => {
+    const ls = linksOf(v)
+    return ls.length > 1 && sheets.mod ? ls[sheets.mod.sheetForMoments(ls, momentsOf(v))] : ls[0]
+  }
+  /** Statut d'un moment généré : « ✓ calé » ou « ~ estimé » (rien pour un moment ajouté à la main), lu dans sa feuille. */
   const badgeOf = (v: Video) => {
-    const l = sheetOf(v)
+    const ls = linksOf(v)
     const mod = sheets.mod
-    if (!l || !mod) return undefined
-    return (m: VideoMoment) => {
-      const i = mod.momentAction(l.ms, l.pls, m)
-      return <PlaceMark status={i === undefined ? undefined : mod.timelineOf(l.ms).status(i)} />
-    }
+    if (!ls.length || !mod) return undefined
+    return (m: VideoMoment) => <PlaceMark status={mod.momentPlace(ls, m)?.status} />
   }
   const openSheet = open ? sheetOf(open) : undefined
+  // Fiche joueur : séquençage de ses actions possible aussi, en mode édition (même règle de droits, joueur compris :
+  // prévu pour un futur espace joueur qui calera lui-même ses actions).
+  const playerCanEdit = !!openSheet && can.calibrateMatch(role, { eventId: openSheet.eventId, playerId: targetId })
+  const playerEditing = dockEditing && playerCanEdit
+  // Vidéo d'événement en lecture : ses moments et les actions de la feuille placées sur elle, dans l'ordre du temps.
+  const read = (() => {
+    if (!open || !sheet || editing || !sheets.mod || !sheetWho) return undefined
+    const list = sheets.mod.sheetMoments(sheet.ms, open, sheetWho)
+    if (!list.length) return undefined
+    const tl = sheets.mod.timelineOf(sheet.ms)
+    const status = new Map(list.map((x) => [x.m, tl.status(x.i)]))
+    const own = momentsOf(open)
+    const moments = [...own, ...list.map((x) => x.m)].sort((a, b) => a.at - b.at)
+    const at = playing?.moment !== undefined ? own[playing.moment] : undefined
+    return {
+      video: { ...open, at: moments[0].at, moments },
+      moment: at ? moments.indexOf(at) : undefined,
+      badge: (m: VideoMoment) => (status.has(m) ? <PlaceMark status={status.get(m)} /> : null),
+    }
+  })()
 
-  const what = kind === 'player' ? 'ce joueur' : 'cet événement'
+  // Réglages du lecteur, une fois la liste et les feuilles connues (sinon le lecteur garde les précédents : la frise ne
+  // disparaît pas le temps que la section revienne).
+  useDockPublish(
+    owner,
+    open && sheets.ready && (!sheet || sheetWho)
+      ? {
+          video: read?.video ?? open,
+          moment: read ? read.moment : playing!.moment,
+          onClose: closeVideo,
+          tools: (!sheet || editing) && tools ? (api) => tools(open, api) : undefined,
+          badge: read?.badge ?? badgeOf(open),
+          // Fiche joueur : vidéo comme les autres (ses moments) ; la frise du match (calage de ses actions) en mode édition.
+          bar: openSheet
+            ? playerEditing
+              ? (api) => (
+                  <Suspense fallback={null}>
+                    <MatchTimeline eventId={openSheet.eventId} video={open} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
+                  </Suspense>
+                )
+              : undefined
+            : (!sheet || editing) && bar
+              ? (api) => bar(open, api)
+              : undefined,
+          edit: sheet?.canEdit
+            ? { on: editing, set: setDockEditing }
+            : playerCanEdit
+              ? { on: playerEditing, set: setDockEditing }
+              : undefined,
+        }
+      : undefined,
+  )
+  // Vidéo visée (?voir=video:<id>) : une fois la liste lue, lancée dans le lecteur (une seule fois par lien suivi).
+  const [played, setPlayed] = useState(0)
+  useEffect(() => {
+    if (!focus || !videos || played === focus.n) return
+    setPlayed(focus.n)
+    const v = videos.find((x) => x.id === focus.id)
+    if (v && embedOf(v.url)) openVideo(owner, v)
+  }, [focus, videos, played, owner])
+  // Ancien lien vers la section (…#videos ; le pictogramme « Vidéos » d'une ligne ouvre l'onglet Vidéos depuis le 30/10) :
+  // la section vient à l'écran.
+  const loaded = !!videos
+  useEffect(() => {
+    if (loaded && kind === 'player' && window.location.hash === '#videos') document.getElementById('videos')?.scrollIntoView({ block: 'start' })
+  }, [loaded, kind])
+  if (!videos) return null
+
+  const what = kind === 'player' ? (sex === 'F' ? 'cette joueuse' : 'ce joueur') : 'cet événement'
   return (
-    <div className="card p-4">
+    <div id={kind === 'player' ? 'videos' : undefined} data-voir={kind === 'player' ? 'video:toutes' : undefined} className="card scroll-mt-28 p-4">
       <div className="section-title flex items-center gap-2">
         <Icon name="video" className="h-3.5 w-3.5" />
         Vidéos{videos.length > 0 && <span className="text-muted">({videos.length})</span>}
         <InfoButton title="Vidéos">
           <p>
-            Un lien vers une vidéo où l’on voit {what} : Rematch, YouTube, Handball TV, Facebook… Pour le regarder quelques minutes avant de décider
+            Un lien vers une vidéo où l’on voit {what} : Rematch, YouTube, {isHandball() ? 'Handball TV, ' : ''}Facebook… Pour le regarder quelques minutes avant de décider
             d’aller le voir.
           </p>
           <p>
@@ -178,7 +281,7 @@ export function VideoSection({
           </p>
           <p>
             YouTube, Vimeo et fichiers vidéo (.mp4…) se lisent dans l’appli : chaque moment joue son passage, « Voir les actions » les enchaîne. Les
-            autres sites (Rematch, Handball TV, Facebook, Dartfish…) s’ouvrent dans un nouvel onglet. Rien n’est téléchargé avant le clic.
+            autres sites (Rematch, {isHandball() ? 'Handball TV, ' : ''}Facebook, Dartfish…) s’ouvrent dans un nouvel onglet. Rien n’est téléchargé avant le clic.
           </p>
           <p>Tout le monde peut ajouter un lien ; chacun modifie les siens. Les encadrants et les administrateurs peuvent retirer un lien.</p>
         </InfoButton>
@@ -195,7 +298,7 @@ export function VideoSection({
                 v={v}
                 online={online}
                 onOffline={() => setNote('Hors ligne : la vidéo pourra s’ouvrir une fois la connexion revenue.')}
-                onPlay={embedOf(v.url) ? (moment) => (setNote(''), setPlaying({ v, moment })) : undefined}
+                onPlay={embedOf(v.url) ? (moment) => (setNote(''), openVideo(owner, v, moment)) : undefined}
                 badge={badgeOf(v)}
                 onEdit={can.editVideo(v) ? () => setForm(v) : undefined}
                 onDelete={
@@ -238,32 +341,6 @@ export function VideoSection({
 
       {children}
 
-      {playing && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 text-sm text-white/80" role="status">
-              Chargement du lecteur…
-            </div>
-          }
-        >
-          <VideoPlayer
-            video={open!}
-            moment={playing.moment}
-            onClose={closePlayer}
-            tools={tools && ((api) => tools(open!, api))}
-            badge={badgeOf(open!)}
-            bar={
-              openSheet
-                ? (api) => (
-                    <Suspense fallback={null}>
-                      <MatchTimeline eventId={openSheet.eventId} video={open!} eventVideo={false} api={api} pls={openSheet.pls} playerId={targetId} />
-                    </Suspense>
-                  )
-                : bar && ((api) => bar(open!, api))
-            }
-          />
-        </Suspense>
-      )}
     </div>
   )
 }
@@ -340,7 +417,7 @@ function VideoRow({
       <span className={cls}>{children}</span>
     )
   return (
-    <div className={`rounded-md border border-line bg-panel-2 p-2 ${MENU_ROW}`} {...(menuItems.length ? menu.bind : {})}>
+    <div data-voir={`video:${v.id}`} className={`rounded-md border border-line bg-panel-2 p-2 ${MENU_ROW}`} {...(menuItems.length ? menu.bind : {})}>
       <div className="flex items-center gap-3">
         {link(
           'relative flex h-[54px] w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-panel text-muted',
@@ -370,21 +447,9 @@ function VideoRow({
               {when}
             </span>
           </div>
+          <ProposalBar table="videos" row={v} />
         </div>
-        {(onEdit || onDelete) && (
-          <div className="flex shrink-0 flex-col items-center gap-1.5">
-            {onEdit && (
-              <button className="text-muted hover:text-fg" title="Modifier ce lien" aria-label="Modifier ce lien" onClick={onEdit}>
-                <Icon name="pencil" className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {onDelete && (
-              <button className="text-muted hover:text-red-400" title="Retirer ce lien" aria-label="Retirer ce lien" onClick={onDelete}>
-                <Icon name="trash" className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        )}
+        {/* Modifier et Retirer : dans le ⋮ seulement (pas d'icônes en double sur la ligne). */}
         {menuItems.length > 0 && <MenuButton onOpen={menu.open} open={!!menu.anchor} label={`Actions pour la vidéo ${v.title || source}`} className="-mr-1" />}
       </div>
       {menu.anchor && (

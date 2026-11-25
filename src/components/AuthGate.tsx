@@ -1,10 +1,15 @@
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
-import { clearRole, refreshRole } from '../roles'
-import { claimDevice, supabase } from '../sync'
+import { clearRole, isPlayerRole, myPlayerId, refreshRole, useRole } from '../roles'
+import { claimDevice, keptSessionText, supabase, syncNow } from '../sync'
 import { TRIAL, TRIAL_LABEL } from '../db'
+import { useAppBrand } from '../appBrand'
+import { BRAND_FONT } from './Brand'
 import { useMe } from './ui'
-import { CHARTER_VERSION, CharterText, PrivacyText } from '../pages/Privacy'
+import { AccountWindows, LoginAccounts } from './TestAccounts'
+import { ConfirmHost } from './Confirm'
+import { CHARTER_VERSION, CharterText, PLAYER_CHARTER_VERSION, PlayerCharterText, PrivacyText } from '../pages/Privacy'
+import { claimErrorText, formatInviteCode, INVITE_LENGTH, isInviteCode, normalizeInviteCode } from '../playerSpace'
 
 /**
  * Lien d'accès envoyé par un administrateur : …/HandBase/#acces=<e-mail>:<mot de passe provisoire>.
@@ -28,14 +33,14 @@ const loginError = (message: string) =>
     ? 'Ce mot de passe provisoire a expiré (24 h) : demande un nouvel accès à un administrateur.'
     : 'E-mail ou mot de passe incorrect.'
 
-/** Session enregistrée par Supabase sur l'appareil (clé sb-…-auth-token), même si son jeton a expiré. */
-function storedSession(): Session | null {
+/**
+ * Session enregistrée par Supabase sur l'appareil (clé sb-…-auth-token), même si son jeton a expiré. Gardée dans IndexedDB
+ * depuis le push de la veille (src/sessionStore.ts : lisible par le service worker), localStorage à défaut.
+ */
+async function storedSession(): Promise<Session | null> {
   try {
-    for (const k of Object.keys(localStorage)) {
-      if (!/^sb-.+-auth-token$/.test(k)) continue
-      const s = JSON.parse(localStorage.getItem(k) ?? 'null') as Session | null
-      if (s?.refresh_token && s.user?.id) return s
-    }
+    const s = JSON.parse((await keptSessionText()) ?? 'null') as Session | null
+    if (s?.refresh_token && s.user?.id) return s
   } catch {
     /* stockage illisible */
   }
@@ -49,7 +54,7 @@ function storedSession(): Session | null {
  * l'efface du stockage : on revient à la connexion.
  */
 async function loadSession(): Promise<{ session: Session | null; error?: unknown }> {
-  const kept = storedSession()
+  const kept = await storedSession()
   const expired = !!kept?.expires_at && kept.expires_at * 1000 < Date.now()
   // Hors ligne, inutile d'attendre Supabase : il réessaie le renouvellement pendant une trentaine de secondes.
   if (kept && expired && !navigator.onLine) return { session: kept, error: 'offline' }
@@ -68,7 +73,7 @@ async function loadSession(): Promise<{ session: Session | null; error?: unknown
   }
   const network = error === 'timeout' || isAuthRetryableFetchError(error) || error instanceof TypeError || !navigator.onLine
   // storedSession() relu : une session révoquée a été effacée du stockage entre-temps.
-  const still = storedSession()
+  const still = await storedSession()
   if (still && network) return { session: still, error }
   return { session: null }
 }
@@ -137,11 +142,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [offline])
 
   // Rôle du compte : rechargé à chaque connexion, oublié à la déconnexion (pas en mode hors ligne).
+  // Un compte joueur (espace joueur) n'a pas la même suite d'écrans que le staff : on attend d'avoir relu le rôle (ou de savoir
+  // qu'on est hors ligne : rôle gardé sur l'appareil) avant d'afficher quoi que ce soit, pour ne pas montrer la charte du staff
+  // à un jeune le temps d'une requête.
   const uid = session?.user.id
+  const [roleReady, setRoleReady] = useState(false)
+  const role = useRole()
   useEffect(() => {
     if (!supabase) return // mode local : l'unique utilisateur garde tous les droits
-    if (session === null) clearRole()
-    else if (uid && !offline) void refreshRole()
+    if (session === null) {
+      clearRole()
+      setRoleReady(false)
+    } else if (uid && !offline) void refreshRole().finally(() => setRoleReady(true))
+    else if (uid && offline) setRoleReady(true)
   }, [uid, session, offline])
 
   // Données locales d'un autre compte (changement de compte par lien d'accès…) : on efface d'abord.
@@ -159,18 +172,98 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // Mot de passe provisoire (compte créé par un administrateur) ou lien « mot de passe oublié ».
   if (recovery || session.user.user_metadata?.must_change_password) return <NewPassword recovery={recovery} onDone={() => setRecovery(false)} />
   if (!name) return <AskName />
+  if (!roleReady) return null
+  // Compte joueur (espace joueur, supabase/051) : sa charte à lui, puis son code tant que sa fiche n'est pas reliée ; ensuite
+  // l'appli, qui ne lui montre que sa page (src/App.tsx → /moi).
+  if (isPlayerRole(role)) {
+    if (session.user.user_metadata?.player_charter_version !== PLAYER_CHARTER_VERSION) return <AcceptCharter player />
+    if (!myPlayerId()) return <ClaimCode />
+    return <>{children}</>
+  }
   // Charte d'utilisation : acceptée une fois (et de nouveau si elle change).
   if (session.user.user_metadata?.charter_version !== CHARTER_VERSION) return <AcceptCharter />
   return <>{children}</>
 }
 
+/**
+ * Compte joueur sans fiche reliée : il ne voit rien d'autre que cet écran. Le code (8 caractères, remis par l'encadrant depuis
+ * la fiche) est vérifié par le serveur (hb_claim_invite) : code, validité, date de naissance et âge minimum de la fiche.
+ */
+function ClaimCode() {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ok = isInviteCode(code)
+  return (
+    <Shell>
+      <form
+        className="card flex flex-col gap-3 p-5"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          setErr('')
+          if (!navigator.onLine) return setErr('Pas de connexion internet : il faut être en ligne pour entrer ton code.')
+          setBusy(true)
+          const { error } = await supabase!.rpc('hb_claim_invite', { p_code: normalizeInviteCode(code) })
+          if (error) {
+            setBusy(false)
+            return setErr(error.code === 'PGRST202' ? 'L’espace joueur n’est pas encore ouvert sur ce serveur : demande à ton encadrant.' : claimErrorText(error.message))
+          }
+          // Fiche reliée : le rôle relu porte sa fiche, la synchronisation la ramène, l'appli s'ouvre sur sa page.
+          await refreshRole()
+          void syncNow()
+          setBusy(false)
+        }}
+      >
+        <div className="text-sm font-extrabold">Entre ton code</div>
+        <p className="text-[11px] text-muted">
+          Ton encadrant t’a donné un code de 8 caractères : il relie ce compte à ta fiche. Tu ne verras que ta page.
+        </p>
+        <input
+          className="field text-center font-mono text-lg tracking-[0.3em] uppercase"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoComplete="one-time-code"
+          spellCheck={false}
+          maxLength={INVITE_LENGTH + 1}
+          placeholder="XXXX XXXX"
+          aria-label="Code"
+          value={formatInviteCode(code)}
+          onChange={(e) => setCode(normalizeInviteCode(e.target.value).slice(0, INVITE_LENGTH))}
+          required
+        />
+        <button className="btn-primary" disabled={!ok || busy}>
+          {busy ? 'Vérification…' : 'Relier ma fiche'}
+        </button>
+        {err && <p className="text-[11px] text-red-300">{err}</p>}
+        <p className="text-[11px] text-muted">Pas de code, ou code perdu ? Demande à ton encadrant : il peut t’en donner un nouveau.</p>
+        <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => void supabase!.auth.signOut()}>
+          Se déconnecter
+        </button>
+      </form>
+      {/* Compte de test pas encore relié (« Changer de compte », administrateur) : retour sur le compte gardé. */}
+      <LoginAccounts />
+      <AccountWindows />
+    </Shell>
+  )
+}
+
+/**
+ * Écran de connexion : logo de l'appli (Nextar par défaut, ou celui réglé ; dernière valeur connue sur l'appareil, la
+ * configuration n'étant lisible qu'une fois connecté). Logo complet : il porte le nom ; sinon pictogramme + nom écrit.
+ */
 function Shell({ children }: { children: ReactNode }) {
+  const { name, logo, mark } = useAppBrand()
   return (
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-6">
       <div className="text-center">
-        <div className="text-[10px] font-bold tracking-[0.3em] text-muted">HANDBASE</div>
+        <img src={logo} alt={name} className="mx-auto h-44 w-44 object-contain" />
+        {logo === mark && <div className="mt-1.5 text-lg font-extrabold tracking-[-0.01em]" style={{ fontFamily: BRAND_FONT }}>
+            {name}
+          </div>}
         {TRIAL && <div className="mx-auto mt-2 w-fit rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold tracking-wider text-black">{TRIAL_LABEL}</div>}
-        <h1 className="mt-1 text-2xl font-extrabold">Collecte & suivi</h1>
+        <h1 className="mt-2 text-[12px] font-extrabold tracking-[0.14em] text-muted uppercase" style={{ fontFamily: BRAND_FONT }}>
+          Détecter<span className="px-[0.35em] text-accent">·</span>Suivre<span className="px-[0.35em] text-accent">·</span>Accompagner
+        </h1>
       </div>
       {children}
     </div>
@@ -278,6 +371,10 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
         </button>
         <p className="text-[11px] text-muted">Pas de compte ? Demande à un administrateur. Une fois connecté, l'app fonctionne aussi hors ligne.</p>
       </form>
+      {/* Compte de test dont la session ne vaut plus (« Changer de compte ») : retour sur l'administrateur gardé. */}
+      <LoginAccounts />
+      <AccountWindows />
+      <ConfirmHost />
       <button type="button" className="text-[11px] font-bold text-muted underline" onClick={() => setPrivacy(true)}>
         Confidentialité
       </button>
@@ -285,8 +382,11 @@ function Login({ initialEmail = '', initialError = '' }: { initialEmail?: string
   )
 }
 
-/** Charte d'utilisation à accepter avant d'utiliser l'appli ; l'acceptation est gardée sur le compte. */
-function AcceptCharter() {
+/**
+ * Charte d'utilisation à accepter avant d'utiliser l'appli ; l'acceptation est gardée sur le compte.
+ * `player` : la charte de l'espace joueur (mots simples), sous sa propre clé : un compte qui change de rôle relit la bonne.
+ */
+function AcceptCharter({ player = false }: { player?: boolean }) {
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -298,18 +398,19 @@ function AcceptCharter() {
           e.preventDefault()
           setErr('')
           setBusy(true)
-          const { error } = await supabase!.auth.updateUser({ data: { charter_version: CHARTER_VERSION, charter_accepted_at: new Date().toISOString() } })
+          const at = new Date().toISOString()
+          const { error } = await supabase!.auth.updateUser({
+            data: player ? { player_charter_version: PLAYER_CHARTER_VERSION, player_charter_accepted_at: at } : { charter_version: CHARTER_VERSION, charter_accepted_at: at },
+          })
           setBusy(false)
           if (error) setErr('Impossible d’enregistrer (connexion internet ?).')
         }}
       >
-        <div className="text-sm font-extrabold">Charte d’utilisation</div>
-        <div className="max-h-[55dvh] overflow-y-auto rounded-md border border-line bg-panel-2 p-3">
-          <CharterText />
-        </div>
+        <div className="text-sm font-extrabold">{player ? 'Ta page, comment ça marche' : 'Charte d’utilisation'}</div>
+        <div className="max-h-[55dvh] overflow-y-auto rounded-md border border-line bg-panel-2 p-3">{player ? <PlayerCharterText /> : <CharterText />}</div>
         <label className="flex items-start gap-2 text-xs">
           <input type="checkbox" className="mt-0.5" checked={ok} onChange={(e) => setOk(e.target.checked)} />
-          J’ai lu la charte et je m’engage à la respecter.
+          {player ? 'J’ai lu et j’ai compris.' : 'J’ai lu la charte et je m’engage à la respecter.'}
         </label>
         <button className="btn-primary" disabled={!ok || busy}>
           {busy ? 'Enregistrement…' : 'Accepter et continuer'}
@@ -338,7 +439,7 @@ function AskName() {
         }}
       >
         <div className="text-sm font-extrabold">Ton nom</div>
-        <p className="text-[11px] text-muted">Il signera tes avis et tes mesures, pour que le staff puisse comparer les évaluations.</p>
+        <p className="text-[11px] text-muted">Il signera tes avis et tes mesures, pour que le staff puisse comparer les avis.</p>
         <input className="field" placeholder="Prénom Nom" value={name} onChange={(e) => setName(e.target.value)} required />
         <button className="btn-primary" disabled={!name.trim()}>
           Continuer

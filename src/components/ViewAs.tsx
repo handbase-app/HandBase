@@ -3,6 +3,8 @@ import { ROLE_LABEL, type Role } from '../roles'
 import { devToolsOn, setDevTools, setSpy, spyTarget } from '../spy'
 import { supabase } from '../sync'
 import { inform } from './Confirm'
+import { usePerimeter } from '../installation'
+import { previewText } from '../viewAsScope'
 import { Icon } from './ui'
 
 /*
@@ -50,7 +52,7 @@ function ViewAsList() {
     void Promise.all([supabase.auth.getSession(), supabase.rpc('hb_members')]).then(([{ data: s }, { data, error }]) => {
       setMe(s.session?.user.id ?? null)
       if (error) setErr(navigator.onLine ? `Liste indisponible : ${error.message}` : 'La liste des membres se consulte en ligne.')
-      else setList((data as Member[]).filter((m) => m.role && m.role !== 'admin'))
+      else setList((data as Member[]).filter((m) => m.role && m.role !== 'admin' && m.role !== 'joueur')) // comptes joueur : aperçu depuis la fiche
     })
   }, [])
 
@@ -74,8 +76,8 @@ function ViewAsList() {
     <div className="mt-1 flex flex-col gap-2">
       <div className="text-xs font-bold">Voir l’appli comme…</div>
       <p className="text-[11px] text-muted">
-        L’appli se comporte comme pour ce membre : son rôle, son secteur, ses avis, les groupes et événements qu’il voit. En lecture seule, et
-        noté dans l’historique. Ses groupes privés, ses groupes « Mon staff » dont tu ne fais pas partie, ses staffs et ses suivis ne te sont pas
+        L’appli se comporte comme pour ce membre : son rôle, son périmètre (seuls les joueurs qu’il reçoit apparaissent : listes, recherche, fiches, bilan, questions, exports), ses avis, les groupes et événements qu’il voit. En lecture seule, et
+        noté dans l’historique. Ses groupes privés, ses groupes partagés avec des groupes de travail dont tu ne fais pas partie, ses groupes de travail et ses suivis ne te sont pas
         envoyés par le serveur : ils n’apparaissent pas.
       </p>
       {err && <p className="text-[11px] text-red-300">{err}</p>}
@@ -112,10 +114,13 @@ function ViewAsList() {
 
 type SpyRole = 'admin' | 'preparateur' | 'observateur'
 
-/** Bandeau de la simulation, en haut de toutes les pages : qui, lecture seule, Quitter. */
+/** Bandeau de la simulation, en haut de toutes les pages : aperçu de qui, son périmètre, lecture seule, Quitter. */
 export function SpyBanner() {
   const t = spyTarget()
   const [blocked, setBlocked] = useState(false)
+  // Périmètre du membre simulé (src/viewAsFilter.ts : l'écran ne montre que ses joueurs).
+  const per = usePerimeter()
+  const preview = previewText(t?.name ?? '', per)
   useEffect(() => {
     let timer: number | undefined
     const flash = () => {
@@ -133,8 +138,7 @@ export function SpyBanner() {
       <div className="mx-auto flex max-w-2xl items-center justify-between gap-2">
         <span className="min-w-0">
           <Icon name="eye" className="mr-1 inline h-3.5 w-3.5" />
-          Tu vois l’appli comme <b>{t.name}</b> ({ROLE_LABEL[t.role]}
-          {t.departments.length ? ` · secteur ${t.departments.join(', ')}` : ''}) ·{' '}
+          Aperçu : ce que voit <b>{t.name}</b> ({ROLE_LABEL[t.role]}) — périmètre : <b data-testid="apercu-perimetre">{preview.scope}</b> ·{' '}
           {/* Écriture tentée : le message remplace « lecture seule » (le bandeau garde sa hauteur). */}
           {blocked ? <b>rien n’a été enregistré (lecture seule)</b> : 'lecture seule'}
         </span>

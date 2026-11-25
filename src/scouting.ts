@@ -5,6 +5,7 @@ import { teamsFromSheet as sheetTeams } from './sheetTeams'
 import { currentUserId, participants } from './roles'
 import { loadTeams } from './teams'
 import { supabase } from './sync'
+import { createdAtOf, localDayOf, originEvent, pickOrigin, type RewatchFact, type RewatchOrigin } from './rewatchCore'
 
 /*
  * Repérage en tournoi (supabase/041_reperage_tournoi.sql) : « vu », « à revoir », répartition des équipes.
@@ -36,6 +37,21 @@ export async function setSeen(eventId: string, playerId: string, on: boolean) {
     if (cur && !cur.deleted) return
     await save<Seen>('seen', { ...cur, id, eventId, playerId, at: new Date().toISOString(), deleted: undefined })
   } else if (cur && !cur.deleted) await remove('seen', id)
+}
+
+/** Marquer « vu » par moi dans l'événement plusieurs joueurs d'un coup ; renvoie le nombre de nouveaux « vu ». */
+export async function markSeenMany(eventId: string, playerIds: readonly string[]): Promise<number> {
+  const me = scoutId()
+  if (!me) return 0
+  let n = 0
+  for (const playerId of new Set(playerIds)) {
+    const id = seenId(me, eventId, playerId)
+    const cur = await db.seen.get(id)
+    if (cur && !cur.deleted) continue
+    await save<Seen>('seen', { ...cur, id, eventId, playerId, at: new Date().toISOString(), deleted: undefined })
+    n++
+  }
+  return n
 }
 
 /** Un observateur qui a vu un joueur dans l'événement : marque « vu » (marked) et / ou avis (noted). */
@@ -176,6 +192,32 @@ export async function loadRewatchEntries({ mine = true } = {}) {
 /** Moment de création (ms) : signature du serveur, sinon heure de l'appareil. */
 export const stamp = (r: { createdAtServer?: string; updatedAt: number }) => (r.createdAtServer ? Date.parse(r.createdAtServer) : r.updatedAt)
 
+/** Ce que le filtre « À revoir » lit d'une ligne (src/rewatchCore.ts) : la mienne ? de mon staff ? jour, origine, revu. */
+export const rewatchFact = (r: Rewatch, mates: Set<string> | null, keys: Set<string>): RewatchFact => ({
+  mine: isMyRewatch(r),
+  staff: fromMyStaff(r, mates),
+  day: localDayOf(createdAtOf(r)),
+  origin: originEvent(r),
+  done: isRevisited(r, keys),
+})
+
+/**
+ * « À revoir » de chaque joueur pour le filtre de la liste Joueurs et des questions (QData.rewatch), avec une signature :
+ * mêmes faits qu'au dernier passage (un « vu » ailleurs, sans effet ici) = même signature, l'index n'est pas refait.
+ */
+export async function loadRewatchFacts(): Promise<{ by: Map<string, RewatchFact[]>; sig: string }> {
+  const rows = alive(await db.rewatch.toArray())
+  const [mates, keys] = await Promise.all([staffMates(), revisitedKeys(rows.flatMap((r) => r.events ?? []))])
+  const by = new Map<string, RewatchFact[]>()
+  const sig: string[] = []
+  for (const r of rows.sort((a, b) => a.id.localeCompare(b.id))) {
+    const f = rewatchFact(r, mates, keys)
+    by.set(r.playerId, [...(by.get(r.playerId) ?? []), f])
+    sig.push(`${r.id}|${r.playerId}|${+f.mine}${+f.staff}${+f.done}|${f.day}|${f.origin ?? ''}`)
+  }
+  return { by, sig: sig.join(';') }
+}
+
 /** Nombre de joueurs de mon staff encore à revoir (tuile de l'accueil). */
 export async function countOpenRewatch() {
   const { entries } = await loadRewatchEntries()
@@ -242,4 +284,46 @@ export async function saveTournament(ev: HBEvent, change: (t: Tournament) => Tou
   const next = change(cur.tournament ?? { teams: [] })
   const tournament = next.teams.length ? next : undefined
   await save<HBEvent>('events', { ...cur, tournament, names: { ...cur.names, ...names } })
+}
+
+/** Joueurs que j'ai déjà mis à revoir (mon « à revoir » encore ouvert, même règle que myOpenRewatch). */
+export async function openRewatchSet(ids: readonly string[]): Promise<Set<string>> {
+  if (!ids.length || !scoutId()) return new Set()
+  const rows = alive(await db.rewatch.where('playerId').anyOf([...ids]).toArray())
+  return new Set(rows.filter((r) => !r.done && isMyRewatch(r)).map((r) => r.playerId))
+}
+/** Joueurs que j'ai déjà marqués vus à cet événement. */
+export async function seenSet(eventId: string, ids: readonly string[]): Promise<Set<string>> {
+  const me = scoutId()
+  if (!ids.length || !me) return new Set()
+  const rows = await db.seen.bulkGet(ids.map((id) => seenId(me, eventId, id)))
+  return new Set(rows.filter((r) => r && !r.deleted).map((r) => r!.playerId))
+}
+
+/**
+ * « À revoir » pour plusieurs joueurs d'un coup (même geste que l'horloge d'une ligne) : dans un groupe, il vise ce
+ * groupe ; dans un événement, il en part (originEventId). Mon « à revoir » encore ouvert sur un joueur est complété
+ * (groupe ajouté) plutôt que doublé. `origin` : l'écran d'où la sélection a été faite (src/rewatchPlace.tsx), gardé sur
+ * les nouveaux ; `notes` : commentaire de chaque nouveau « à revoir » (raison courte, boîte « À valider »). Renvoie le nombre
+ * de joueurs changés.
+ */
+export async function addRewatchMany(playerIds: readonly string[], ctx: { originEventId?: string; groupId?: string; origin?: RewatchOrigin; notes?: Record<string, string> } = {}): Promise<number> {
+  if (!scoutId()) return 0
+  let n = 0
+  for (const playerId of new Set(playerIds)) {
+    const open = await myOpenRewatch(playerId)
+    if (open) {
+      if (!ctx.groupId || open.groups?.includes(ctx.groupId)) continue
+      await save<Rewatch>('rewatch', { ...open, groups: [...(open.groups ?? []), ctx.groupId] })
+    } else
+      await saveRewatch({
+        playerId,
+        originEventId: ctx.originEventId,
+        origin: pickOrigin(ctx, ctx.origin),
+        ...(ctx.groupId ? { groups: [ctx.groupId] } : {}),
+        ...(ctx.notes?.[playerId] ? { note: ctx.notes[playerId] } : {}),
+      })
+    n++
+  }
+  return n
 }

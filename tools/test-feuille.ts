@@ -18,8 +18,11 @@ import {
   matchPlayer,
   periodStart,
   momentAction,
+  momentPlace,
   momentNote,
   planPlayerMoments,
+  sheetForMoments,
+  sheetMoments,
   sheetPlayersOf,
   simultaneous,
   stepIn,
@@ -190,11 +193,26 @@ assert.equal(tl.at(mid), 1200)
 assert.ok(tl.anchors(1).some((a) => a.key === keys[mid]))
 assert.equal(tl.status(mid), 'fixed')
 assert.equal(tl.fixedCount, 1)
-// Au-delà du dernier repère : pente observée entre le premier et le dernier (arrêts de jeu reportés sur la suite).
+// Au-delà du dernier repère : pente 1 (le moment le plus tôt possible : le chrono ne va jamais plus vite que la vidéo), et
+// non la pente observée ; plus 60 s par temps mort d'équipe entre le repère et l'action.
 {
   const k = s.actions.findIndex((a, i) => a.p === 1 && a.t > s.actions[mid].t + 60 && !late.has(i))
-  const slow = timeline({ ...st, sync: { marks: { s1: 100 }, fix: { [keys[mid]]: 100 + s.actions[mid].t * 1.2 } } })
-  assert.ok(Math.abs(slow.at(k)! - (100 + s.actions[k].t * 1.2)) < 1e-6, 'pente prolongée')
+  const vMid = 100 + s.actions[mid].t * 1.2
+  const slow = timeline({ ...st, sync: { marks: { s1: 100 }, fix: { [keys[mid]]: vMid } } })
+  const tms = s.actions.filter((a, i) => a.k === 'tm' && a.p === 1 && !late.has(i) && a.t >= s.actions[mid].t && a.t < s.actions[k].t).length
+  assert.ok(Math.abs(slow.at(k)! - (vMid + (s.actions[k].t - s.actions[mid].t) + 60 * tms)) < 1e-6, 'pente 1 au-delà du dernier repère')
+  // Entre deux repères : toujours l'interpolation (pente observée 1,2).
+  const j = s.actions.findIndex((a, i) => a.p === 1 && a.t > 60 && a.t < s.actions[mid].t - 60 && !late.has(i))
+  assert.ok(Math.abs(slow.at(j)! - (100 + s.actions[j].t * 1.2)) < 1e-6, 'interpolation entre repères')
+}
+// Temps mort d'équipe : 60 s de vidéo de plus pour les actions qui le suivent (au-delà des repères seulement).
+{
+  const anchors = [{ g: 0, v: 100, key: 's1' }]
+  assert.equal(mapTime(anchors, 300, [200]), 460)
+  assert.equal(mapTime(anchors, 200, [200]), 300, 'action au même temps de jeu que le temps mort : pas encore arrêtée')
+  assert.equal(mapTime(anchors, 150, [200]), 250, 'avant le temps mort : rien')
+  assert.equal(mapTime([...anchors, { g: 400, v: 600, key: 'x' }], 300, [200]), 475, 'entre deux repères : interpolation seule')
+  assert.equal(mapTime([{ g: 400, v: 600, key: 'x' }], 100, [200]), 240, 'avant le premier repère : pente 1 et le temps mort')
 }
 // Action en retard posée à la main : placée, ne sert pas de repère au match, mais ses voisines en retard se recalculent.
 const vEnd = tl.at(la)!
@@ -244,6 +262,21 @@ assert.deepEqual(sheetPlayersOf(st, 'z', (id) => (id === 'a' ? 'z' : id)), [1], 
 st.sync.opts = { saves: true }
 const gk = planPlayerMoments(st, 0)
 assert.equal(gk.generated + gk.unplaced, FLOW.filter((a) => a.name === HOME[0].name && (a.label === 'Arrêt' || a.label.startsWith('But'))).length)
+// Vidéo d'événement en lecture : un moment par action placée, seulement sur la vidéo calée.
+{
+  const vid = { id: 'v1', url: 'https://example.org/match.mp4' }
+  const synced = { ...st, sync: { ...st.sync, videoId: vid.id, url: vid.url } }
+  const list = sheetMoments(synced, vid, () => 'X')
+  const tl = timeline(synced)
+  assert.equal(list.length, s.actions.filter((_, i) => tl.at(i) !== undefined).length)
+  for (const { m, i } of list) {
+    assert.equal(m.at, Math.max(0, Math.round(tl.at(i)! - CLIP_LEAD)))
+    assert.ok(m.dur === 12 && !isGenerated(m) && m.note!.endsWith(`${st.actions[i].s[0]}-${st.actions[i].s[1]} · X`))
+  }
+  assert.deepEqual(sheetMoments(synced, { id: 'v2', url: vid.url }), [], 'autre vidéo de l’événement')
+  assert.deepEqual(sheetMoments({ ...synced, sync: { marks: {}, url: vid.url } }, vid), [], 'pas encore calée')
+  assert.equal(sheetMoments({ ...st, sync: { ...st.sync, url: vid.url } }, vid).length, list.length, 'sans videoId : par l’adresse')
+}
 
 // ---------- Feuille de la démo (public/demo, faite par tools/feuille-demo.ts) ----------
 const d = parseSheet(await items(new Uint8Array(readFileSync(new URL('../public/demo/feuille-match-demo.pdf', import.meta.url)))))
@@ -286,11 +319,12 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   const t1 = timeline(moved)
   assert.deepEqual(t1.end2(two), { v: e0.v + 30, fixed: true })
   assert.ok(t1.anchors(d.actions[two].p).some((a) => a.key === t0.endKey(two)), 'repère de la période')
-  // Après le dernier repère : pente observée entre le coup d'envoi et la fin des 2 minutes.
+  // Après le dernier repère : pente 1 (et 60 s par temps mort) à partir de la fin des 2 minutes calée.
   const g2 = d.actions[two].t + TWO_MIN
   const slope = (e0.v + 30 - 100) / g2
-  assert.ok(Math.abs(t1.at(nb)! - (e0.v + 30 + (d.actions[nb].t - g2) * slope)) < 1e-6, 'voisine décalée')
-  assert.ok(t1.at(nb)! > before[nb]! + 30)
+  const tms = d.actions.filter((a, i) => a.k === 'tm' && a.p === d.actions[two].p && !dl.has(i) && a.t >= g2 && a.t < d.actions[nb].t).length
+  assert.ok(Math.abs(t1.at(nb)! - (e0.v + 30 + (d.actions[nb].t - g2) + 60 * tms)) < 1e-6, 'voisine décalée')
+  assert.ok(Math.abs(t1.at(nb)! - (before[nb]! + 30)) < 1e-6, 'décalée d’autant que la fin des 2 minutes (pente 1 des deux côtés)')
   assert.ok(Math.abs(t1.at(two)! - (100 + d.actions[two].t * slope)) < 1e-6, 'l’exclusion, entre coup d’envoi et fin des 2 minutes, est interpolée')
   assert.ok(Math.abs(t1.end2(two)!.v - t1.at(two)! - TWO_MIN * slope) < 1e-6, '2 minutes de jeu au rythme du calage')
   // Annuler : le repère retiré, toutes les estimations reviennent.
@@ -330,6 +364,31 @@ assert.equal(d.actions.filter((a) => a.pl === undefined && a.k !== 'tm' && !a.wh
   assert.equal(stepIn(goals, sorted[1].id, -1)?.id, sorted[0].id)
   assert.equal(stepIn(goals, sorted.at(-1)!.id, 1), undefined, 'au bout')
   assert.ok(stepIn(goals, sorted[0].id, 1)!.i !== undefined && ['but', 'but7'].includes(d.actions[stepIn(goals, sorted[0].id, 1)!.i].k))
+}
+
+// Moment calé (« C'est ici ! ») sur la fiche : « calé », même quand une autre feuille du même match (deuxième événement,
+// prise suivante d'un tutoriel) est calée sur la même adresse sans ce repère. Démo : 7 m à 01:55 calé à 2:11 de la vidéo.
+{
+  const i7 = d.actions.findIndex((a) => a.k === 'but7' && a.p === 1 && a.t === 115)
+  assert.ok(i7 >= 0 && d.actions[i7].pl !== undefined, '7 m de 01:55 dans la démo')
+  const pl = d.actions[i7].pl!
+  const ms = toStored(d, [])
+  const keys = actionKeys(ms.actions)
+  const url = 'https://exemple.fr/match.mp4'
+  const calee = { ...ms, sync: { url, marks: { s1: 20 }, fix: { [keys[i7]]: 131.3 } } }
+  const autre = { ...ms, sync: { url, marks: { s1: 20 } } }
+  const plan = planPlayerMoments(calee, pl)
+  const m7 = plan.moments.find((m) => m.note === momentNote(ms.actions[i7]))!
+  assert.equal(m7.at, 131 - CLIP_LEAD, 'moment à 2:03')
+  assert.deepEqual(momentPlace([{ ms: calee, pls: [pl] }], m7), { k: 0, i: i7, status: 'fixed' })
+  // L'autre feuille d'abord (plus récente) : le moment vient quand même de la feuille calée.
+  assert.deepEqual(momentPlace([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], m7), { k: 1, i: i7, status: 'fixed' })
+  assert.equal(sheetForMoments([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], plan.moments), 1)
+  // Les autres moments du joueur, non calés : « estimé ».
+  for (const m of plan.moments.filter((x) => x !== m7)) assert.equal(momentPlace([{ ms: calee, pls: [pl] }], m)?.status, 'estimated')
+  // Aucune feuille ne place le moment à son début (moment ancien) : la première qui a l'action, comme avant.
+  assert.equal(momentPlace([{ ms: autre, pls: [pl] }, { ms: calee, pls: [pl] }], { ...m7, at: m7.at + 30 })?.k, 0)
+  assert.equal(momentPlace([{ ms: calee, pls: [pl] }], { at: 5, note: 'à revoir' }), undefined, 'moment ajouté à la main')
 }
 
 console.log(`OK : ${s.actions.length} actions, ${s.roster.length} joueurs, ${late.size} en retard, mi-temps ${guessHalfMin(s.actions)} min ; démo : ${d.actions.length} actions, score ${d.score?.join('-')}`)

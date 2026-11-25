@@ -1,15 +1,19 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { useBack } from '../backNav'
-import { canLeave } from './Confirm'
+import { canLeave, hasUnsaved } from './Confirm'
 import { useSelected } from './MasterDetail'
 import { CompactPlayerRow } from './PlayerRow'
+import { PlayerList } from './Pictos'
+import { useSwipeNav } from './useSwipeNav'
 import type { Player } from '../db'
+import { keepPlayerTab } from '../tabQuery'
 
 /*
  * Fiche d'un joueur ouverte depuis une liste (événement, groupe, bilan de détection) : on reste dans
  * cette liste. Ordinateur : ses joueurs seulement dans la colonne de gauche (ContextRoster, dans MasterDetail),
- * la fiche à droite. Téléphone : la fiche en plein écran sous une barre « liste · 5 / 23 » avec ‹ › (ContextBar).
+ * la fiche à droite. Téléphone : la fiche en plein écran sous une barre « liste · 5 / 23 » (ContextBar) ; on glisse la fiche
+ * pour passer au joueur suivant / précédent (même geste que l'écran de notation, src/components/useSwipeNav.ts).
  * Les adresses restent partageables : `${base}/${id du joueur}${search}` (`search` : l'état de la liste, ex. filtres du bilan).
  */
 
@@ -27,13 +31,17 @@ export function useLeaveTo(to: string, label: string) {
   return useBack(to, label, { replace: true })
 }
 
-/** Passe à un autre joueur de la liste : l'historique ne garde pas chaque fiche parcourue (comme MasterDetail). */
+/**
+ * Passe à un autre joueur de la liste : l'historique ne garde pas chaque fiche parcourue (comme MasterDetail), et
+ * l'onglet ouvert de la fiche (Croissance…) reste ouvert (src/tabQuery.ts).
+ */
 export function useShowInContext(base: string, search = '') {
   const nav = useNavigate()
   const loc = useLocation()
   return async (pid: string) => {
-    if (!(await canLeave())) return
-    nav(`${base}/${pid}${search}`, { replace: true, state: loc.state })
+    if (!(await canLeave())) return false
+    nav(`${base}/${pid}${keepPlayerTab(search, base, loc.search)}`, { replace: true, state: loc.state })
+    return true
   }
 }
 
@@ -83,7 +91,6 @@ export function useRestoreScroll(key: string, ready: boolean) {
  */
 export function ContextRoster({
   base,
-  back,
   count,
   sections,
   number,
@@ -103,20 +110,21 @@ export function ContextRoster({
 }) {
   const selected = useSelected(base)
   const box = useRef<HTMLDivElement>(null)
+  // Lien de chaque ligne : l'état de la liste d'origine, plus l'onglet ouvert de la fiche (gardé d'un joueur à l'autre).
+  const query = keepPlayerTab(search, base, useLocation().search)
   const withNumber = !!number && sections.some((s) => s.players.some((p) => number(p)))
-  // Fiche suivante (‹ ›, ↑ ↓) : sa ligne reste visible.
+  // Fiche suivante (↑ ↓, glisser sur téléphone) : sa ligne reste visible.
   useEffect(() => {
     if (!selected) return
     box.current?.querySelector(`[data-row="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [selected])
   return (
     <div ref={box} className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <button onClick={back.go} className="min-h-8 min-w-0 truncate text-left text-xs font-bold text-muted hover:text-fg" title="Revenir à la liste">
-          ← {back.label}
-        </button>
+      {/* Plus de « ← liste » (26/10) : le retour passe par le téléphone, le navigateur ou le menu ; le nombre reste. */}
+      <div className="flex items-baseline justify-end gap-2">
         <span className="shrink-0 text-[11px] text-muted">{count}</span>
       </div>
+      <PlayerList ids={sections.flatMap((sec) => sec.players.map((p) => p.id))} context={selContext(base)} sticky={false} className="flex flex-col gap-1.5">
       {sections.map((sec, k) => (
         <div key={k} className="flex flex-col gap-1">
           {sec.heading && (
@@ -133,7 +141,7 @@ export function ContextRoster({
               cardProps={{ 'data-row': p.id }}
               className="scroll-mt-[calc(var(--hdr)+0.75rem)] scroll-mb-4"
               selected={selected === p.id}
-              link={{ to: `${base}/${p.id}${search}`, replace: true }}
+              link={{ to: `${base}/${p.id}${query}`, replace: true }}
               linkProps={{ 'data-md': p.id, 'aria-current': selected === p.id ? 'page' : undefined }}
               lead={
                 withNumber && (
@@ -148,13 +156,26 @@ export function ContextRoster({
           ))}
         </div>
       ))}
+      </PlayerList>
     </div>
   )
 }
 
+/** Événement ou groupe de la liste (actions « vu », « à revoir » de la sélection multiple), lu dans son adresse. */
+function selContext(base: string) {
+  const ev = /^\/evenements\/([^/]+)\/joueurs$/.exec(base)?.[1]
+  const gr = /^\/groupes\/([^/]+)\/joueurs$/.exec(base)?.[1]
+  return ev ? { eventId: ev } : gr ? { groupId: gr } : undefined
+}
+
 // ---------- Téléphone : barre au-dessus de la fiche ----------
 
-/** « liste · 5 / 23 », ‹ › (joueur précédent / suivant, même ordre) et retour à la liste ; collée sous l'en-tête. */
+/**
+ * La fiche (`children`) ouverte depuis une liste, sur téléphone. Plus de ‹ › (30/10) ni de barre « ← liste · 5 / 23 »
+ * (31/10) : on glisse la fiche elle-même vers la gauche (joueur suivant) ou la droite (précédent), même ordre que la liste,
+ * même geste que l'écran de notation (src/components/useSwipeNav.ts) ; le geste Retour ramène à la liste. Lecteurs
+ * d'écran : retour, précédent, suivant dans une navigation invisible.
+ */
 export function ContextBar({
   title,
   ids,
@@ -162,6 +183,7 @@ export function ContextBar({
   base,
   back,
   search = '',
+  children,
 }: {
   title: string
   ids: string[]
@@ -169,30 +191,28 @@ export function ContextBar({
   base: string
   back: () => void
   search?: string
+  children: ReactNode
 }) {
   const show = useShowInContext(base, search)
   const i = current ? ids.indexOf(current) : -1
   const prev = i > 0 ? ids[i - 1] : undefined
   const next = i >= 0 && i < ids.length - 1 ? ids[i + 1] : undefined
-  const arrow = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-lg font-bold leading-none disabled:opacity-30'
+  // La fiche (PlayerDetail, data-fiche) se charge après le changement d'adresse : l'arrivée l'attend.
+  const nav = useSwipeNav(current, { ready: (card, id) => !!card.querySelector(`[data-fiche="${CSS.escape(id)}"]`) })
+  const swipe = nav.handlers({ enabled: i >= 0, prev, next, go: show, hold: hasUnsaved })
   return (
-    <div
-      data-ctx-bar
-      className="sticky top-[var(--hdr)] z-10 -mx-4 -mt-4 mb-3 flex items-center gap-2 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur rail:-mt-3"
-    >
-      <button onClick={back} className="flex h-9 shrink-0 items-center px-1 text-sm font-bold text-muted" aria-label={`Revenir à ${title}`} title="Revenir à la liste">
-        ←
-      </button>
-      <span className="min-w-0 flex-1 truncate text-xs font-bold">
-        {title}
-        {i >= 0 && <span className="font-normal text-muted"> · {i + 1} / {ids.length}</span>}
-      </span>
-      <button className={arrow} disabled={!prev} onClick={() => prev && void show(prev)} aria-label="Joueur précédent">
-        ‹
-      </button>
-      <button className={arrow} disabled={!next} onClick={() => next && void show(next)} aria-label="Joueur suivant">
-        ›
-      </button>
-    </div>
+    <>
+      {/* Plus de barre visible (31/10) : on revient à la liste par le geste Retour du téléphone, on change de joueur en
+          glissant la fiche. Lecteurs d'écran : retour, précédent, suivant et la place dans la liste restent là. */}
+      <nav className="sr-only" aria-label={`${title}${i >= 0 ? ` · ${i + 1} sur ${ids.length}` : ''}`}>
+        <button onClick={back}>Revenir à {title}</button>
+        {prev && <button onClick={() => void swipe.change(prev, 'right')}>Joueur précédent</button>}
+        {next && <button onClick={() => void swipe.change(next, 'left')}>Joueur suivant</button>}
+      </nav>
+      {/* La fiche suit le doigt (défilement vertical laissé au navigateur : pan-y). */}
+      <div ref={nav.cardRef} style={{ touchAction: 'pan-y' }} {...swipe.touch}>
+        {children}
+      </div>
+    </>
   )
 }

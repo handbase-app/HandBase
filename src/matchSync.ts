@@ -22,8 +22,11 @@ export async function updateSync(eventId: string, fn: (s: MatchSync, ms: MatchSh
 
 // ---------- Calage à l'œil : « C'est ici », annulation, recalage de tous les moments ----------
 
-/** Un repère de période (marks : s1, e1…) ou une action calée (fix : clé actionKeys) ; v absent = retiré. */
-export type SyncChange = { kind: 'mark' | 'fix'; key: string; v?: number }
+/**
+ * Un repère de période (marks : s1, e1…), une action calée (fix : clé actionKeys) ou une action ignorée au séquençage
+ * (skip : clé actionKeys, v = 1) ; v absent = retiré.
+ */
+export type SyncChange = { kind: 'mark' | 'fix' | 'skip'; key: string; v?: number }
 /**
  * Un calage annulable : toutes ses écritures (un groupe d'actions simultanées se cale d'un coup), avec la valeur d'avant ;
  * ctx : ce que l'écran veut retrouver en annulant (le repère choisi à ce moment-là).
@@ -156,13 +159,14 @@ export async function applyCalibration(
   await updateSync(eventId, (s) => {
     const marks = { ...s.marks }
     const fix = { ...s.fix }
+    const skip = { ...s.skip }
     for (const c of list) {
-      const obj = c.kind === 'mark' ? marks : fix
+      const obj = c.kind === 'mark' ? marks : c.kind === 'skip' ? skip : fix
       prev.push({ kind: c.kind, key: c.key, prev: obj[c.key] })
       if (c.v === undefined) delete obj[c.key]
       else obj[c.key] = c.v
     }
-    return { ...s, ...(video && { videoId: video.id, url: video.url }), marks, fix }
+    return { ...s, ...(video && { videoId: video.id, url: video.url }), marks, fix, ...((s.skip || Object.keys(skip).length) && { skip }) }
   })
   if (label) {
     undoStack.push({ eventId, changes: prev, label, ctx })

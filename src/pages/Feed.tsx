@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState } from 'react'
 import { useSessionState } from '../components/PlayerFilter'
 import { Link } from 'react-router-dom'
+import { useEntryState } from '../backNav'
 import { buildFeed, FEED_KINDS, FEED_TABLES, feedSeen, markFeedSeen, upcomingEvents, type FeedItem, type FeedKind } from '../feed'
 import { myDepartments } from '../roles'
 import { useAlerts } from '../alerts'
@@ -10,6 +11,11 @@ import { useThrottledQuery } from '../live'
 import { localDay } from '../db'
 import { EVENT_TYPES } from './Evaluate'
 import { Icon } from '../components/ui'
+import { LoadMore, useGrowth } from '../components/InfiniteList'
+import { olderDays } from '../listWindow'
+
+/** Période la plus longue lue en descendant (le fil s'arrête là : trois ans). */
+const OLDEST_DAYS = 3 * 365
 
 const PREFS_KEY = 'handbase.feedPrefs'
 type Prefs = { kinds: FeedKind[]; hideMine: boolean; sector: boolean; follows: boolean }
@@ -140,7 +146,8 @@ export function HomeFeed() {
 /** Page « Quoi de neuf » : tout le fil, jour par jour. */
 export default function Feed() {
   // La pastille compte ce qui est arrivé depuis la visite précédente.
-  const [seen] = useState(feedSeen)
+  // Gardée avec l'entrée de l'historique : au retour d'une fiche, les mêmes nouveautés restent marquées.
+  const [seen] = useEntryState('actualite.vu', feedSeen)
   useEffect(() => markFeedSeen(), [])
   // Période affichée : retrouvée au retour d'une fiche (pendant la session).
   const [days, setDays] = useSessionState('handbase.actualite.days', 30)
@@ -157,11 +164,14 @@ export default function Feed() {
   // « Mes suivis » : seulement les joueurs suivis (un par un ou par leurs groupes).
   const follows = useFollows()
   const only = prefs.follows ? (follows?.followed ?? NO_ONE) : undefined
-  const items = useThrottledQuery(
-    () => buildFeed({ days, sector: hasSector && prefs.sector, alerts, only }),
+  // Période lue avec son résultat : tant que la nouvelle n'est pas là, on n'en demande pas une autre.
+  const feed = useThrottledQuery(
+    async () => ({ days, items: await buildFeed({ days, sector: hasSector && prefs.sector, alerts, only }) }),
     [days, prefs.sector, hasSector, alerts, only],
     FEED_TABLES,
   )
+  const items = feed?.items
+  const grew = useGrowth()
   const shown = (items ?? []).filter((i) => (!prefs.kinds.length || prefs.kinds.includes(i.kind)) && !(prefs.hideMine && i.mine))
   const byDay = new Map<string, FeedItem[]>()
   for (const it of shown) byDay.set(it.day, [...(byDay.get(it.day) ?? []), it])
@@ -231,9 +241,8 @@ export default function Feed() {
               )}
             </p>
           )}
-          <button className="btn-ghost text-xs" onClick={() => setDays((d) => d + 60)}>
-            Voir plus ancien
-          </button>
+          {/* Plus ancien en descendant : 60 jours de plus à l'approche du bas (jusqu'à OLDEST_DAYS). */}
+          <LoadMore more={days < OLDEST_DAYS} busy={feed?.days !== days} at={feed?.days} onMore={() => setDays((d) => olderDays(d, grew(items?.length ?? 0), OLDEST_DAYS))} label="Voir plus ancien" />
         </>
       )}
     </div>

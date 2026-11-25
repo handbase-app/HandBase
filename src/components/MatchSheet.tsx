@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useState, type ReactNode } from 'react'
 import { alive, db, DEMO, fmtDate, newId, save, today, TRIAL, type HBEvent, type Player, type Video } from '../db'
+import { accord, w } from '../gender'
 import {
   CLIP_LEAD,
   countKinds,
@@ -22,10 +23,12 @@ import { can, currentUserId, useRole } from '../roles'
 import { teamsFromSheet } from '../scouting'
 import { fmtMoment } from '../videos'
 import { ask } from './Confirm'
+import { OrganizerField, type OrganizerValue } from './OrganizerField'
 import { actionLabel, calibrated, plural, sideName, useActionWho } from './matchLabels'
 import { Icon, InfoButton, playerName } from './ui'
 import type { PlayerTools } from './VideoPlayer'
 import { applyCalibration, refreshMoments, updateSync, type GenerateResult } from '../matchSync'
+import { appName } from '../appBrand'
 
 /*
  * Feuille de match FFHB (src/matchSheet.ts) : import dans un événement (ou création d'un match), vérification avant
@@ -78,12 +81,12 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     }
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center scrim sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="flex h-full w-full flex-col bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:rounded-lg sm:border sm:border-line sm:shadow-2xl"
+        className="flex h-full w-full flex-col bg-panel pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-full sm:max-w-3xl sm:overflow-hidden sm:rounded-win sm:border sm:border-line sm:shadow-2xl"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
           <h2 className="min-w-0 flex-1 truncate text-sm font-extrabold">{title}</h2>
@@ -118,6 +121,9 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
   const [target, setTarget] = useState('')
   const [dup, setDup] = useState<HBEvent[]>([])
   const [busy, setBusy] = useState(false)
+  // Nouveau match : unité organisatrice, celle du créateur posée d'office (src/eventOrganizer.ts). Les clubs de la feuille
+  // n'y entrent pas : l'événement, c'est l'observation de notre staff, pas le match du club qui reçoit.
+  const [organizer, setOrganizer] = useState<OrganizerValue>({ id: '' })
   const base = useLiveQuery(async () => {
     const id = event?.id ?? target
     return id ? db.events.get(id) : undefined
@@ -185,6 +191,8 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
           playerIds: add,
           tournament: teamsFromSheet(undefined, stored, add),
           editors: [],
+          organizerUnitId: organizer.id || undefined,
+          organizerName: organizer.id ? organizer.name : undefined,
           matchSheet: stored,
         })
         onClose(ev.id)
@@ -283,7 +291,7 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
         {/* Événement : compléter celui du même code plutôt qu'en créer un second. */}
         {!event && dup.length > 0 && (
           <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
-            <span className="font-bold text-amber-200">Ce match est déjà dans HandBase (même code rencontre).</span>
+            <span className="font-bold text-amber-200">Ce match est déjà dans {appName()} (même code rencontre).</span>
             {dup.map((e) => (
               <label key={e.id} className={`flex items-center gap-2 ${can.editEvent(role, e) ? '' : 'opacity-60'}`}>
                 <input type="radio" name="target" checked={target === e.id} disabled={!can.editEvent(role, e)} onChange={() => setTarget(e.id)} />
@@ -296,6 +304,11 @@ export function MatchImport({ event, onClose }: { event?: HBEvent; onClose: (eve
               <input type="radio" name="target" checked={!target} onChange={() => setTarget('')} />
               Créer quand même un nouvel événement
             </label>
+          </div>
+        )}
+        {!event && !target && (
+          <div className="flex flex-col gap-2">
+            <OrganizerField value={organizer} onChange={setOrganizer} auto />
           </div>
         )}
         {replacing && (
@@ -445,6 +458,8 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
   const periods = [...new Set(ms.actions.map((a) => a.p))]
   const synced = !!ms.sync?.url && Object.keys(marks).length + Object.keys(ms.sync?.fix ?? {}).length > 0
   const opts = ms.sync?.opts ?? {}
+  // Accord au sexe déclaré de l'événement (src/gender.ts) ; sans choix, masculin générique.
+  const g = w(ev.sex)
 
   return (
     <div className="card p-4">
@@ -452,12 +467,13 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         <Icon name="list" className="h-3.5 w-3.5" />
         Feuille de match
         <InfoButton title="Feuille de match">
-          <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, joueurs reliés aux fiches et déroulé.</p>
+          <p>Feuille de match électronique FFHB importée (PDF lu sur l’appareil, jamais gardé) : équipes, score, {g.joueurs} {accord('relié', ev.sex, 2)} aux fiches et déroulé.</p>
           <p>
-            Calage en regardant : ouvre la vidéo du match dans « Vidéos » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action
-            est alors estimée (« ~ estimé ») : regarde un moment, depuis l’événement ou la fiche d’un joueur, et touche « C’est ici ! » au moment exact de
-            l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale aussitôt, moments des fiches compris. « Annuler » reprend le dernier
-            calage ; un repère se retire aussi depuis la liste des actions de l’événement.
+            Calage en regardant : ouvre la vidéo du match dans l’onglet Vidéo de l’événement (elle s’ouvre en lecture, les actions calées parmi ses moments), touche
+            « Éditer le séquençage » et pose le coup d’envoi sous le lecteur (le seul repère nécessaire). Chaque action est alors estimée (« ~ estimé ») :
+            touche son repère sur la frise et « C’est ici ! » au moment exact de l’action. Elle devient un repère (« ✓ calé ») et tout le match se recale
+            aussitôt, moments des fiches compris. « Annuler » reprend le dernier calage ; un repère se retire aussi depuis la liste des actions de
+            l’événement. « Terminer » (ou Échap) revient à la lecture ; sur la fiche d’un joueur, la frise se consulte sans calage.
           </p>
           <p>
             Entre deux repères, les actions sont placées en proportion (les arrêts de jeu se répartissent) ; après le dernier, au rythme constaté. Fins de
@@ -485,7 +501,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
         {[ms.competition, ms.code && `code ${ms.code}`].filter(Boolean).join(' · ')}
       </div>
       <p className="mt-2 text-xs">
-        {plural(ms.actions.length, 'action')} : {kindSummary(ms.actions)}. {linked}/{ms.players.length} joueurs reliés à une fiche. Mi-temps de {ms.halfMin} min.
+        {plural(ms.actions.length, 'action')} : {kindSummary(ms.actions)}. {linked}/{ms.players.length} {g.joueurs} {accord('relié', ev.sex, 2)} à une fiche. Mi-temps de {ms.halfMin} min.
       </p>
       {tl.late.size > 0 && (
         <p className="mt-1 text-xs text-amber-200">
@@ -518,8 +534,8 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
           </>
         ) : (
           <span className="text-muted">
-            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » (YouTube, Vimeo ou fichier vidéo) et ouvre-la : pose le coup d’envoi sous le lecteur,
-            puis « C’est ici ! » en regardant les actions.
+            Pas encore calée. Ajoute la vidéo du match dans « Vidéos » ci-dessus (YouTube, Vimeo ou fichier vidéo) et ouvre-la : « Éditer le séquençage », pose le coup
+            d’envoi sous le lecteur, puis « C’est ici ! » en regardant les actions.
           </span>
         )}
       </div>
@@ -552,7 +568,7 @@ export function MatchSheetCard({ ev, manage }: { ev: HBEvent; manage: boolean })
               }
             }}
           >
-            {busy ? 'Création des moments…' : `Créer ou mettre à jour les moments sur les fiches (${linked} joueurs)`}
+            {busy ? 'Création des moments…' : `Créer ou mettre à jour les moments sur les fiches (${linked} ${g.joueurs})`}
           </button>
           {result && (
             <p className="text-[11px] text-emerald-300" role="status">

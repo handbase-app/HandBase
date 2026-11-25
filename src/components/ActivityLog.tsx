@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../sync'
 import { SectionTitle } from './ui'
+import { LoadMore } from './InfiniteList'
+import { FormActions, FormWindow } from './FormWindow'
 import { STAFF } from '../staffLabels'
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -37,6 +39,11 @@ const TABLES: Record<string, string> = {
   videos: 'Vidéo',
   seen: 'Vu (repérage)',
   rewatch: 'À revoir',
+  question_log: 'Journal des questions',
+  config: 'Configuration (sport, postes)',
+  levels: 'Niveau de structure',
+  units: 'Unité de structure',
+  assignments: 'Affectation',
   profiles: 'Membre du staff',
 }
 
@@ -76,6 +83,10 @@ const FIELDS: Record<string, string> = {
   overall: 'Note globale',
   strengths: 'Points forts',
   improvements: 'Axes de progression',
+  portrait: 'Portrait',
+  superPower: 'Super-pouvoir observé',
+  playingTime: 'Temps de jeu (min)',
+  minutesObserved: 'Temps observé (min)',
   contextType: 'Contexte',
   contextPlace: 'Lieu',
   review: 'Validation',
@@ -222,10 +233,6 @@ export function ActivityLog() {
       <div
         ref={listRef}
         className="max-h-[26rem] divide-y divide-line overflow-y-auto overscroll-contain rounded-lg border border-line"
-        onScroll={(e) => {
-          const el = e.currentTarget
-          if (more && !loading && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) void load(rows.length)
-        }}
       >
         {rows.map((r) => {
           // Consultation d'un groupe d'un autre (supabase/039) : pas de lien (le groupe n'est pas sur l'appareil).
@@ -265,39 +272,75 @@ export function ActivityLog() {
         })}
         {!rows.length && !loading && !err && <div className="p-3 text-center text-xs text-muted">Aucune activité.</div>}
         {loading && <div className="p-2 text-center text-[11px] text-muted">Chargement…</div>}
-        {/* Si la liste est trop courte pour défiler, ou pour qui préfère cliquer. */}
-        {more && !loading && (
-          <button className="w-full p-2 text-center text-[11px] font-bold text-accent" onClick={() => void load(rows.length)}>
-            Plus ancien
-          </button>
-        )}
+        {/* Repère au bout de la liste : la suite arrive avant d'y être (aussi quand la liste est trop courte pour défiler). */}
+        <LoadMore more={more && !err} busy={loading} at={rows.length} ahead={300} onMore={() => void load(rows.length)} label="Plus ancien" className="h-px border-0!" />
         {!more && rows.length > FIRST && <div className="p-2 text-center text-[10px] text-muted">Début du journal.</div>}
       </div>
     </section>
   )
 }
 
-/** « Créé par … le … · modifié par … le … » (signature posée par le serveur). */
-export function StampLine({
-  row,
-}: {
-  row: { createdByName?: string; createdAtServer?: string; updatedByName?: string; updatedAtServer?: string }
-}) {
+type Stamped = { createdByName?: string; createdAtServer?: string; updatedByName?: string; updatedAtServer?: string }
+
+/**
+ * Signature posée par le serveur : qui a créé, qui a modifié en dernier (et quand) ; la modification est omise si elle est
+ * la création même. null : ni l'un ni l'autre (rien à montrer). Ligne StampLine, ou fenêtre « Infos de la fiche »
+ * (fiche joueur, depuis le 30/10 : plus dans l'en-tête).
+ */
+export function stampOf(row: Stamped) {
   const fmt = (s?: string) => (s ? new Date(s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '')
   if (!row.createdByName && !row.updatedByName) return null
   const sameAsCreation = row.updatedByName === row.createdByName && row.updatedAtServer === row.createdAtServer
+  return {
+    created: row.createdByName ? { by: row.createdByName, at: fmt(row.createdAtServer) } : undefined,
+    updated: row.updatedByName && !sameAsCreation ? { by: row.updatedByName, at: fmt(row.updatedAtServer) } : undefined,
+  }
+}
+
+/** « Créé par … le … · modifié par … le … » (signature posée par le serveur). */
+export function StampLine({ row }: { row: Stamped }) {
+  const st = stampOf(row)
+  if (!st) return null
   return (
     <div className="text-[10px] text-muted">
-      {row.createdByName && (
+      {st.created && (
         <>
-          Créé par <b className="text-fg">{row.createdByName}</b> le {fmt(row.createdAtServer)}
+          Créé par <b className="text-fg">{st.created.by}</b> le {st.created.at}
         </>
       )}
-      {row.updatedByName && !sameAsCreation && (
+      {st.updated && (
         <>
-          {row.createdByName ? ' · ' : ''}modifié par <b className="text-fg">{row.updatedByName}</b> le {fmt(row.updatedAtServer)}
+          {st.created ? ' · ' : ''}modifié par <b className="text-fg">{st.updated.by}</b> le {st.updated.at}
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Fenêtre « Infos » ouverte par le ⋮ d'une fiche joueur ou d'un groupe (30-31/10 : la signature n'est plus dans l'en-tête) :
+ * création et dernière modification.
+ */
+export function StampWindow({ stamp, title, onClose }: { stamp: NonNullable<ReturnType<typeof stampOf>>; title: string; onClose: () => void }) {
+  return (
+    <FormWindow title={title} onClose={onClose} width={400} phoneFull={false} guard={false}>
+      <div className="flex flex-col gap-2 text-xs">
+        {stamp.created && (
+          <p>
+            <span className="text-muted">Création :</span> <b>{stamp.created.by}</b>, le {stamp.created.at}
+          </p>
+        )}
+        {stamp.updated && (
+          <p>
+            <span className="text-muted">Dernière modification :</span> <b>{stamp.updated.by}</b>, le {stamp.updated.at}
+          </p>
+        )}
+      </div>
+      <FormActions>
+        <button className="btn-primary flex-1" onClick={onClose}>
+          OK
+        </button>
+      </FormActions>
+    </FormWindow>
   )
 }

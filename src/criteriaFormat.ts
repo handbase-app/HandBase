@@ -1,4 +1,5 @@
-import type { Criterion, CriterionKind, CriterionScale, Position } from './db'
+import type { Criterion, CriterionKind, CriterionScale } from './db'
+import { currentSport, positionCodes, sportProfile, type Position } from './sportConfig'
 import type { Cell, Sheet } from './xlsx'
 
 /*
@@ -17,19 +18,18 @@ export const COLUMNS = [
   { field: 'id', head: 'id', keys: ['id', 'identifiant'], help: 'Identifiant fixe (lettres minuscules, chiffres, « _ »). Ne jamais le changer : mesures et avis y sont rattachés.' },
   { field: 'category', head: 'catégorie', keys: ['categorie', 'category'], help: 'Rubrique d’affichage (Gabarit, Défense…).' },
   { field: 'label', head: 'libellé', keys: ['libelle', 'label', 'nom'], help: 'Nom affiché.' },
-  { field: 'kind', head: 'type', keys: ['type', 'kind'], help: '« factuel » (test, une valeur par date) ou « subjectif » (avis des observateurs).' },
+  { field: 'kind', head: 'type', keys: ['type', 'kind'], help: '« factuel » (test, une valeur par date) ou « subjectif » (noté dans les avis).' },
   { field: 'scale', head: 'échelle', keys: ['echelle', 'scale'], help: 'score5 (1 à 5), score3 (0 à 3), score2 (0 à 2), number (valeur avec unité), choice (options), text (texte libre).' },
   { field: 'unit', head: 'unité', keys: ['unite', 'unit'], help: 'Pour l’échelle number : cm, kg, s, km/h…' },
   { field: 'options', head: 'options', keys: ['options'], help: 'Pour l’échelle choice : au moins 2 options, séparées par « | ».' },
   { field: 'description', head: 'description', keys: ['description', 'definition'], help: 'Ce qu’on observe ou mesure (facultatif).' },
-  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés, séparés par des virgules (GB, AG, ARG, DC, ARD, AD, PIV) ; vide = tous.' },
+  { field: 'positions', head: 'postes', keys: ['postes', 'positions', 'poste'], help: 'Postes concernés : leurs codes, séparés par des virgules ; vide = tous.' },
   { field: 'quick', head: 'mode rapide', keys: ['moderapide', 'rapide', 'quick'], help: 'oui : fait partie de l’évaluation rapide (critères subjectifs).' },
   { field: 'active', head: 'actif', keys: ['actif', 'active'], help: 'non : critère masqué (son historique est gardé). Vide = oui.' },
   { field: 'order', head: 'ordre', keys: ['ordre', 'order'], help: 'Rang d’affichage (nombre). Vide = rang de la ligne dans le fichier.' },
 ] as const satisfies readonly { field: keyof CriterionFields; head: string; keys: readonly string[]; help: string }[]
 
 export const SCALE_VALUES: CriterionScale[] = ['score5', 'score3', 'score2', 'number', 'choice', 'text']
-const POSITION_IDS: Position[] = ['GB', 'AG', 'ARG', 'DC', 'ARD', 'AD', 'PIV']
 
 /** Identifiant accepté : lettres, chiffres, « _ », « - », « . », « : » (les critères créés dans l'appli ont un UUID). */
 const ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/
@@ -100,9 +100,13 @@ export function parseRows(table: Cell[][]): ParsedFile {
     const options = [...new Set(str(get('options')).split('|').map((x) => x.trim()).filter(Boolean))]
     if (scale === 'choice' && ix.options >= 0 && options.length < 2) return fail('échelle choice : indique au moins 2 options séparées par « | »')
 
-    const posList = str(get('positions')).split(/[\s,;/|]+/).map((x) => x.toUpperCase()).filter(Boolean)
-    const badPos = posList.filter((x) => !POSITION_IDS.includes(x as Position))
-    if (badPos.length) return fail(`poste${badPos.length > 1 ? 's' : ''} inconnu${badPos.length > 1 ? 's' : ''} : ${badPos.join(', ')} (${POSITION_IDS.join(', ')})`)
+    // Codes des postes de l'installation (src/sportConfig.ts ; handball par défaut), sans tenir compte de la casse, et ceux
+    // que le sport propose à l'ajout (volley : L, le libéro) : ses critères s'importent avant que le poste soit ajouté.
+    const codes = positionCodes()
+    const known = [...codes, ...sportProfile().extraPositions.map((p) => p.code).filter((c) => !codes.includes(c))]
+    const posList = str(get('positions')).split(/[\s,;/|]+/).filter(Boolean).map((x) => known.find((c) => c.toUpperCase() === x.toUpperCase()) ?? x.toUpperCase())
+    const badPos = posList.filter((x) => !known.includes(x))
+    if (badPos.length) return fail(`poste${badPos.length > 1 ? 's' : ''} inconnu${badPos.length > 1 ? 's' : ''} : ${badPos.join(', ')} (${codes.join(', ')})`)
 
     const bool = (f: 'quick' | 'active', dflt: boolean) => {
       const v = get(f)
@@ -186,11 +190,15 @@ export function toRows(criteria: CriterionFields[]): Cell[][] {
   ]
 }
 
+/** Aide de la colonne « postes » : les codes du sport de l'installation (« handball : GB, AG, ARG, DC, ARD, AD, PIV »). */
+export const positionsHelp = () =>
+  `Postes concernés : leurs codes, séparés par des virgules (${currentSport().sportName.toLowerCase()} : ${positionCodes().join(', ')}) ; vide = tous.`
+
 /** Feuilles d'un classeur de critères : « Critères » puis « Aide » (colonnes et valeurs permises). */
 export function toSheets(criteria: CriterionFields[]): Sheet[] {
   return [
     { name: 'Critères', rows: toRows(criteria), widths: [18, 24, 32, 11, 10, 8, 18, 50, 26, 12, 7, 7] },
-    { name: 'Aide', rows: [['colonne', 'contenu'], ...COLUMNS.map((c) => [c.head, c.help])], widths: [14, 110] },
+    { name: 'Aide', rows: [['colonne', 'contenu'], ...COLUMNS.map((c) => [c.head, c.field === 'positions' ? positionsHelp() : c.help])], widths: [14, 110] },
   ]
 }
 
@@ -286,4 +294,34 @@ export function rowsFromJson(text: string): Cell[][] {
     })
   })
   return [head, ...rows]
+}
+
+// ---------- Catégories (Réglages → Critères) ----------
+
+/** Clé de comparaison d'une catégorie : espaces en trop et majuscules ignorés. */
+export const categoryKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr')
+
+/**
+ * Catégories existantes, sans doublon (à la casse et aux espaces près), dans l'ordre d'affichage des réglages :
+ * ordre des critères, ceux du type `first` (subjectifs / factuels) d'abord.
+ */
+export function categoryList(criteria: Pick<Criterion, 'category' | 'order' | 'kind' | 'deleted'>[], first?: CriterionKind): string[] {
+  const sorted = criteria
+    .filter((c) => !c.deleted && c.category.trim())
+    .sort((a, b) => (first ? Number(b.kind === first) - Number(a.kind === first) : 0) || a.order - b.order)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const c of sorted) {
+    const k = categoryKey(c.category)
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(c.category)
+  }
+  return out
+}
+
+/** Catégorie tapée : l'existante si elle y est déjà (à la casse et aux espaces près), sinon le texte nettoyé. */
+export function resolveCategory(typed: string, existing: string[]): string {
+  const k = categoryKey(typed)
+  return existing.find((c) => categoryKey(c) === k) ?? typed.trim().replace(/\s+/g, ' ')
 }

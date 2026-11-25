@@ -34,6 +34,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+          # Sport par défaut (vide : handball ; « volley » pour une installation ou une démo de volley), voir .env.example.
+          VITE_SPORT: ${{ vars.VITE_SPORT }}
       # GitHub Pages ne connaît pas les routes de l'app : on sert index.html pour toute page inconnue.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3

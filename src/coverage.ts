@@ -1,8 +1,9 @@
-import type { Evaluation, Player, Seen } from './db'
+import type { Evaluation, Measurement, Player, Seen } from './db'
 
 /*
- * Bilan de détection : qui a été vu, par génération (année de naissance) et par club. Calculs purs (sans base ni
- * écran), testés par tools/test-bilan.ts sur des joueurs fictifs.
+ * Bilan de détection : qui a été vu, par génération (année de naissance) et par club ; et, pour les administrateurs,
+ * les mêmes calculs pour les autres onglets de la carte (licenciés, mesurés par le staff, profils repérés : voir
+ * « Onglets du bilan » plus bas). Calculs purs (sans base ni écran), testés par tools/test-bilan.ts sur des joueurs fictifs.
  * Un joueur est « vu » si au moins un membre du staff l'a vu : une marque « vu » (seen) ou un avis (evaluations).
  * Aucune note n'est nécessaire et il n'existe aucune marque négative : un joueur pas encore vu est simplement « à voir ».
  */
@@ -71,13 +72,17 @@ export const livePlayers = <P extends CovPlayer>(ps: P[]) => ps.filter((p) => !p
 export const birthYear = (p: Pick<Player, 'birthDate'>) => (/^\d{4}/.test(p.birthDate ?? '') ? p.birthDate!.slice(0, 4) : '')
 
 /** Clé d'un club : sans accents, majuscules ni espaces en trop (même club écrit de deux façons) ; '' si non renseigné. */
-export const clubKey = (club?: string) =>
-  (club ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
+export const clubKey = (club?: string) => {
+  const raw = club ?? ''
+  // Retenue par écriture (quelques milliers de clubs pour 40 000 joueurs : le calcul, lent sur un téléphone, n'est fait qu'une fois).
+  let k = clubKeys.get(raw)
+  if (k === undefined) {
+    if (clubKeys.size >= 50000) clubKeys.clear()
+    clubKeys.set(raw, (k = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()))
+  }
+  return k
+}
+const clubKeys = new Map<string, string>()
 
 /** Pourcentage vu, arrondi vers le bas (100 % seulement quand tout le monde est vu). */
 export const percent = (seen: number, total: number) => (total ? Math.floor((seen * 100) / total) : 0)
@@ -167,12 +172,14 @@ export interface PlaceOf<P> {
 export const NO_DEPT = '?'
 
 /**
- * Filtres communs à la carte, aux générations et aux clubs. Année : `null` toutes, '' année inconnue. Région et
- * département : vides pour toute la France ; `dept` peut valoir NO_DEPT (département non renseigné).
+ * Filtres communs à la carte, aux générations et aux clubs. Année : `null` toutes, '' année inconnue ; `years` : une
+ * ou plusieurs années (vide : toutes ; '' : année inconnue), à la place de `year`. Région et département : vides pour
+ * toute la France ; `dept` peut valoir NO_DEPT (département non renseigné).
  */
 export interface CoverageFilter {
   sex?: CoverageSex
   year?: string | null
+  years?: readonly string[]
   region?: string
   dept?: string
 }
@@ -181,9 +188,11 @@ export interface CoverageFilter {
 export function filterPlayers<P extends CovPlayer>(players: P[], f: CoverageFilter, place?: PlaceOf<P>): P[] {
   const sex = f.sex ?? 'all'
   const year = f.year ?? null
+  const years = f.years?.length ? new Set(f.years) : null
   return livePlayers(players).filter((p) => {
     if (sex !== 'all' && p.sex !== sex) return false
     if (year !== null && birthYear(p) !== year) return false
+    if (years && !years.has(birthYear(p))) return false
     if (!place || (!f.dept && !f.region)) return true
     const d = place.deptOf(p)
     if (f.dept) return f.dept === NO_DEPT ? !d : d === f.dept
@@ -303,4 +312,90 @@ export function fedReport<P extends CovPlayer>(
           .map(({ key: _k, ...c }) => c),
       })),
   }
+}
+
+// ---------- Onglets du bilan : ce que mesure la carte ----------
+
+/**
+ * Onglets de la page /bilan (une seule carte) : joueurs vus (défaut), licenciés, mesurés par le staff, profils repérés.
+ * Chaque onglet donne un ensemble de joueurs « comptés » (le `seen` des fonctions ci-dessus) ; les mêmes calculs (Tally :
+ * comptés / total) servent partout. Vus et mesurés : une part (0 → 1) ; licenciés : le nombre de joueurs ; repérés : le
+ * nombre de joueurs repérés.
+ */
+export type Onglet = 'vus' | 'licencies' | 'mesures' | 'reperes'
+export const ONGLETS: readonly Onglet[] = ['vus', 'licencies', 'mesures', 'reperes']
+
+/** Onglet mesuré en part (pourcentage) ; sinon en nombre de joueurs. */
+export const isShare = (o: Onglet) => o === 'vus' || o === 'mesures'
+
+/** Valeur d'une zone pour l'onglet (undefined : aucun joueur). */
+export function measureOf(o: Onglet, t: Tally): number | undefined {
+  if (!t.total) return undefined
+  return o === 'licencies' ? t.total : o === 'reperes' ? t.seen : t.seen / t.total
+}
+
+/**
+ * Classement des lieux pour l'onglet : vus et mesurés, du plus grand nombre de joueurs restant à voir (à mesurer) au
+ * plus petit (`byLeftToSee`) ; licenciés et repérés, de la plus grande valeur à la plus petite, puis le plus de joueurs.
+ */
+export function rankBy<T extends Tally>(o: Onglet, rows: Iterable<[string, T]>): [string, T][] {
+  if (isShare(o)) return byLeftToSee(rows)
+  return [...rows].sort((a, b) => (measureOf(o, b[1]) ?? 0) - (measureOf(o, a[1]) ?? 0) || b[1].total - a[1].total || a[0].localeCompare(b[0]))
+}
+
+/** Clubs dans l'ordre de l'onglet (comme `rankBy`), « club non renseigné » à la fin. */
+export function sortClubs<C extends Tally & { key: string; name: string }>(o: Onglet, clubs: C[]): C[] {
+  if (isShare(o)) return clubs
+  return [...clubs].sort((a, b) =>
+    !a.key ? 1 : !b.key ? -1 : (measureOf(o, b) ?? 0) - (measureOf(o, a) ?? 0) || b.total - a.total || a.name.localeCompare(b.name, 'fr'),
+  )
+}
+
+/** Auteur des tailles reprises de l'export des licences (src/importLicences.ts) : pas une mesure du staff. */
+export const DECLARED = 'Licence FFHB (déclarée)'
+
+type Meas = Pick<Measurement, 'playerId' | 'criterionId' | 'value' | 'date' | 'updatedAt' | 'author' | 'deleted'>
+
+/** Joueurs mesurés par le staff (au moins une mesure, hors tailles déclarées à la licence) et dernière taille connue. */
+export function staffMeasured(measurements: Meas[]): { staff: Set<string>; height: Map<string, number> } {
+  const staff = new Set<string>()
+  const last = new Map<string, Meas>()
+  for (const m of measurements) {
+    if (m.deleted) continue
+    if (m.author !== DECLARED) staff.add(m.playerId)
+    if (m.criterionId === 'taille' && typeof m.value === 'number') {
+      const cur = last.get(m.playerId)
+      if (!cur || m.date > cur.date || (m.date === cur.date && m.updatedAt > cur.updatedAt)) last.set(m.playerId, m)
+    }
+  }
+  return { staff, height: new Map([...last].map(([id, m]) => [id, m.value as number])) }
+}
+
+/**
+ * Profils repérés quand aucun profil recherché n'est utilisable : joueurs dont la dernière taille atteint le 90e centile
+ * de leur année de naissance et de leur sexe (groupes d'au moins 10 joueurs mesurés).
+ */
+export function tallest(players: Pick<Player, 'id' | 'birthDate' | 'sex'>[], height: Map<string, number>): Set<string> {
+  const groups = new Map<string, number[]>()
+  for (const p of players) {
+    const h = height.get(p.id)
+    if (h === undefined || !p.birthDate || !p.sex) continue
+    const k = `${p.birthDate.slice(0, 4)}|${p.sex}`
+    const g = groups.get(k)
+    if (g) g.push(h)
+    else groups.set(k, [h])
+  }
+  const p90 = new Map<string, number>()
+  for (const [k, hs] of groups) {
+    if (hs.length < 10) continue
+    hs.sort((a, b) => a - b)
+    p90.set(k, hs[Math.floor(0.9 * (hs.length - 1))])
+  }
+  const out = new Set<string>()
+  for (const p of players) {
+    const t = p90.get(`${p.birthDate?.slice(0, 4)}|${p.sex}`)
+    const h = height.get(p.id)
+    if (t !== undefined && h !== undefined && h >= t) out.add(p.id)
+  }
+  return out
 }

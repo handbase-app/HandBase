@@ -450,6 +450,12 @@ export interface MatchSync {
    * repère supplémentaire si son temps de jeu est fiable, repère de ses voisines en retard sinon.
    */
   fix?: Record<string, number>
+  /**
+   * Actions ignorées au séquençage (« Ignorer » : absente de la vidéo ou sans intérêt), clé actionKeys → 1 : plus
+   * proposées par la frise défilante, rétablissables. Jamais retirées de la feuille (document officiel) ; ne sont pas des
+   * repères. Champ facultatif : les calages enregistrés avant lui restent valables.
+   */
+  skip?: Record<string, number>
   /** Moments générés en plus des buts : arrêts (gardiens), tirs. */
   opts?: { saves?: boolean; shots?: boolean }
 }
@@ -539,22 +545,31 @@ export const periodLength = (p: number, halfMin: number) => (p <= 2 ? halfMin * 
 /** Repère : temps de jeu g (s depuis le début du match) ↔ temps vidéo v (s). */
 export type Anchor = { g: number; v: number; key: string }
 
-/** Pente gardée pour prolonger au-delà des repères (temps vidéo par seconde de jeu) : pas moins de 0,5, pas plus de 3. */
+/** Pente minimale d'une durée de jeu mesurée entre repères (2 minutes d'exclusion) : jamais moins de 0,5 s de vidéo par seconde. */
 const SLOPE_MIN = 0.5
-const SLOPE_MAX = 3
+
+/** Temps mort d'équipe : chrono arrêté 1 minute, soit 60 s de vidéo de plus pour les actions qui le suivent. */
+export const TM_STOP = 60
 
 /**
- * Temps vidéo d'un temps de jeu : interpolation linéaire entre deux repères. Avant le premier ou après le dernier : avec un
- * seul repère, temps réel (pente 1) ; avec plusieurs, la pente moyenne observée entre le premier et le dernier (les arrêts de
- * jeu déjà constatés se reportent sur la suite).
+ * Temps vidéo d'un temps de jeu : interpolation linéaire entre deux repères (les arrêts de jeu se répartissent entre eux).
+ *
+ * Avant le premier ou après le dernier repère : pente 1 (une seconde de jeu = une seconde de vidéo), plus TM_STOP pour chaque
+ * temps mort d'équipe connu (stops : temps de jeu des temps morts de la période) situé entre le repère et l'action. Pourquoi
+ * pas la pente moyenne observée : le chrono du hand ne va jamais plus vite que la vidéo, il ne peut que s'arrêter (faute,
+ * blessé, soigneurs, 7 m, temps mort). Avec la pente 1, l'estimation est le moment LE PLUS TÔT possible de l'action : sur la
+ * frise défilante du séquençage, elle arrive sur la cible juste avant ou pile au moment de l'action, jamais après, puis
+ * attend s'il y a eu un arrêt ; un moment généré pour une fiche joueur (CLIP_LEAD s avant) commence au plus tôt, donc avant
+ * l'action plutôt qu'après. Les arrêts déjà constatés ne sont pas reportés sur la suite : ils ne disent rien des suivants.
  */
-export function mapTime(anchors: Anchor[], g: number): number | undefined {
+export function mapTime(anchors: Anchor[], g: number, stops: readonly number[] = []): number | undefined {
   if (!anchors.length) return undefined
   const first = anchors[0]
   const last = anchors[anchors.length - 1]
-  const slope = anchors.length > 1 ? Math.min(SLOPE_MAX, Math.max(SLOPE_MIN, (last.v - first.v) / (last.g - first.g))) : 1
-  if (g <= first.g) return first.v - (first.g - g) * slope
-  if (g >= last.g) return last.v + (g - last.g) * slope
+  // Temps morts entre a (compris) et b (exclu) : chrono arrêté, vidéo qui continue.
+  const tm = (a: number, b: number) => TM_STOP * stops.filter((s) => s >= a && s < b).length
+  if (g <= first.g) return first.v - (first.g - g) - tm(g, first.g)
+  if (g >= last.g) return last.v + (g - last.g) + tm(last.g, g)
   for (let j = 1; j < anchors.length; j++) {
     const a = anchors[j - 1]
     const b = anchors[j]
@@ -585,7 +600,8 @@ export type PlaceStatus = 'fixed' | 'estimated'
  *
  * Repères d'une période : début et fin (facultatifs un à un) et actions posées à la main (« C'est ici », « Cette action est
  * ici ») dont le temps de jeu est fiable ; interpolation linéaire par morceaux entre repères (les arrêts de jeu se répartissent
- * entre deux repères). Un seul repère obligatoire pour tout le match : le coup d'envoi (s1). Une période sans aucun repère
+ * entre deux repères) ; avant le premier ou après le dernier : pente 1 et 60 s par temps mort d'équipe (mapTime : le moment
+ * le plus tôt possible). Un seul repère obligatoire pour tout le match : le coup d'envoi (s1). Une période sans aucun repère
  * est estimée depuis la période voisine (fin prolongée + pause estimée, breakBefore).
  *
  * Saisies en retard (paquets de LATE_MIN actions et plus au même temps de jeu, temps faux) : chaque suite d'actions en retard
@@ -605,6 +621,15 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
     return a.k === '2mn' && a.t + TWO_MIN <= periodStart(a.p, sheet.halfMin) + periodLength(a.p, sheet.halfMin)
   }
   const endKey = (i: number) => keys[i] + END2
+  // Temps morts d'équipe connus, par période (temps de jeu) : 60 s de vidéo de plus au-delà des repères (mapTime). Sauf une
+  // saisie en retard (temps faux) et un temps mort ignoré (« Ignorer » : absent de la vidéo, souvent coupé au montage).
+  const skip = sheet.sync?.skip ?? {}
+  const stopsOf = new Map<number, number[]>()
+  sheet.actions.forEach((a, i) => {
+    if (a.k !== 'tm' || late.has(i) || skip[keys[i]]) return
+    stopsOf.set(a.p, [...(stopsOf.get(a.p) ?? []), a.t])
+  })
+  const stops = (p: number) => stopsOf.get(p) ?? []
   const own = new Map<number, Anchor[]>()
   const anchors = (p: number): Anchor[] => {
     let list = own.get(p)
@@ -634,18 +659,18 @@ export function timeline(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>
     if (anchors(p).length) eff.set(p, anchors(p))
     else {
       const prev = eff.get(p - 1)
-      const end = prev?.length ? mapTime(prev, periodStart(p - 1, sheet.halfMin) + periodLength(p - 1, sheet.halfMin)) : undefined
+      const end = prev?.length ? mapTime(prev, periodStart(p - 1, sheet.halfMin) + periodLength(p - 1, sheet.halfMin), stops(p - 1)) : undefined
       eff.set(p, end === undefined ? [] : [{ g: periodStart(p, sheet.halfMin), v: end + breakBefore(p), key: `~s${p}` }])
     }
   }
   for (const p of [...periods].reverse()) {
     if (eff.get(p)?.length) continue
     const next = eff.get(p + 1)
-    const st = next?.length ? mapTime(next, periodStart(p + 1, sheet.halfMin)) : undefined
+    const st = next?.length ? mapTime(next, periodStart(p + 1, sheet.halfMin), stops(p + 1)) : undefined
     if (st !== undefined) eff.set(p, [{ g: periodStart(p, sheet.halfMin) + periodLength(p, sheet.halfMin), v: st - breakBefore(p + 1), key: `~e${p}` }])
   }
   const mapped = (p: number, g: number) => {
-    const v = mapTime(eff.get(p) ?? [], g)
+    const v = mapTime(eff.get(p) ?? [], g, stops(p))
     return v === undefined ? undefined : Math.max(0, v)
   }
   /** Durée vidéo de 2 minutes de jeu à partir de l'action i (arrêts de jeu compris, au rythme du calage). */
@@ -849,6 +874,68 @@ export function momentAction(sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sy
     return v === undefined ? Infinity : Math.abs(Math.max(0, Math.round(v - CLIP_LEAD)) - m.at)
   }
   return cands.reduce((a, b) => (dist(b) < dist(a) ? b : a))
+}
+
+/** Feuille d'un lien de fiche joueur (pls : indices de la fiche dans players). */
+type SheetOfLink = { ms: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>; pls: number[] }
+
+/** Action d'un moment généré dans une feuille, et si cette feuille le place exactement à son début (moment venu d'elle). */
+function placeIn(s: SheetOfLink, m: VideoMoment) {
+  const tl = timelineOf(s.ms)
+  const i = momentAction(s.ms, s.pls, m, tl)
+  if (i === undefined) return undefined
+  const v = tl.at(i)
+  return { i, exact: v !== undefined && Math.max(0, Math.round(v - CLIP_LEAD)) === m.at, status: tl.status(i) }
+}
+
+/**
+ * Plusieurs feuilles calées sur la même adresse (même match importé dans deux événements, prises successives…) : le moment
+ * généré vient de celle qui le place exactement à son début (at), sinon de la première qui a son action (l'appelant les
+ * range, la plus récente d'abord). Rend la feuille (indice k dans sheets), l'action et son statut (calée ou estimée).
+ */
+export function momentPlace(sheets: SheetOfLink[], m: VideoMoment): { k: number; i: number; status?: PlaceStatus } | undefined {
+  let first: { k: number; i: number; status?: PlaceStatus } | undefined
+  for (const [k, s] of sheets.entries()) {
+    const p = placeIn(s, m)
+    if (!p) continue
+    if (p.exact) return { k, i: p.i, status: p.status }
+    first ??= { k, i: p.i, status: p.status }
+  }
+  return first
+}
+
+/** Feuille d'où viennent les moments générés d'un lien : celle qui en place le plus exactement, la première à égalité. */
+export function sheetForMoments(sheets: SheetOfLink[], moments: VideoMoment[]): number {
+  const gen = moments.filter(isGenerated)
+  let best = 0
+  let most = -1
+  for (const [k, s] of sheets.entries()) {
+    const n = gen.filter((m) => placeIn(s, m)?.exact).length
+    if (n > most) [best, most] = [k, n]
+  }
+  return best
+}
+
+/**
+ * Lecture d'une vidéo d'événement (hors mode édition) : un moment par action du match placée sur cette vidéo (calée ou
+ * estimée), comme les moments générés sur les fiches (CLIP_LEAD s avant, CLIP_DUR s), avec l'indice de son action. Rien si
+ * la feuille est calée sur une autre vidéo ou pas encore calée. who : nom affiché du joueur ou de l'équipe d'une action.
+ */
+export function sheetMoments(
+  sheet: Pick<MatchSheet, 'actions' | 'halfMin' | 'sync'>,
+  video: { id: string; url: string },
+  who: (a: StoredAction) => string = () => '',
+  tl = timelineOf(sheet),
+): { m: VideoMoment; i: number }[] {
+  const s = sheet.sync
+  if (!s || (s.videoId ? s.videoId !== video.id : s.url !== video.url)) return []
+  return sheet.actions.flatMap((a, i) => {
+    const v = tl.at(i)
+    if (v === undefined) return []
+    const name = who(a)
+    const label = a.k === 'autre' ? (a.l ?? 'Action') : KIND_LABEL[a.k]
+    return [{ m: { at: Math.max(0, Math.round(v - CLIP_LEAD)), dur: CLIP_DUR, note: `${label} ${a.s[0]}-${a.s[1]}${name ? ` · ${name}` : ''}` }, i }]
+  })
 }
 
 /** Indices des joueurs de la feuille reliés à cette fiche (fiches fondues suivies : resolve rend la fiche actuelle). */
